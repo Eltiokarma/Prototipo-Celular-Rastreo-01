@@ -105,6 +105,9 @@
 
 <div id="tweaks-mount"></div>
 
+<!-- Módulo de conexión en tiempo real con el servidor -->
+<script src="realtime.js"></script>
+
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
@@ -1566,6 +1569,34 @@ function Root() {
   const [screen, setScreen] = React.useState(DEFAULT_TWEAKS.initialScreen || 'login');
   const [user, setUser] = React.useState(null);
   const [lap, setLap] = React.useState(1);
+  const [connected, setConnected] = React.useState(false);
+
+  // Conectar al servidor cuando el chofer hace login
+  React.useEffect(() => {
+    if (!user || screen !== 'app') return;
+    if (!window.RealtimeClient) return;
+
+    window.RealtimeClient.on('status', ({ connected }) => setConnected(connected));
+
+    window.RealtimeClient.on('state', (state) => {
+      // Buscar los gaps que corresponden a esta unidad
+      const myUnit = 'V-247'; // en producción viene del login
+      const myGaps = state.gaps?.[myUnit];
+      if (!myGaps) return;
+
+      setTweaks(t => ({
+        ...t,
+        frontTime: myGaps.toAhead || t.frontTime,
+        backTime:  myGaps.toBehind || t.backTime,
+        avgSpeed:  state.units?.find(u => u.unitId === myUnit)?.speed || t.avgSpeed,
+      }));
+    });
+
+    window.RealtimeClient.connect('V-247', user.user);
+
+    return () => window.RealtimeClient.disconnect();
+  }, [user, screen]);
+
 
   React.useEffect(() => {
     if (tweaks.initialScreen && tweaks.initialScreen !== screen) {
@@ -1602,6 +1633,27 @@ function Root() {
     <>
       <AndroidDevice width={380} height={780} dark={true}>
         {content}
+        {/* Indicador de conexión — aparece solo en la pantalla principal */}
+        {screen === 'app' && (
+          <div style={{
+            position: 'absolute', top: 44, right: 14,
+            display: 'flex', alignItems: 'center', gap: 4,
+            background: 'rgba(0,0,0,0.5)',
+            padding: '3px 8px', borderRadius: 100,
+            pointerEvents: 'none', zIndex: 20,
+          }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: connected ? P.green : P.yellow,
+              boxShadow: connected ? `0 0 6px ${P.green}` : 'none',
+            }} />
+            <span style={{
+              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+              fontSize: 8, letterSpacing: 1, color: connected ? P.green : P.yellow,
+              textTransform: 'uppercase',
+            }}>{connected ? 'EN VIVO' : 'SIMULADO'}</span>
+          </div>
+        )}
       </AndroidDevice>
       {ReactDOM.createPortal(
         <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} visible={tweaksVisible}
