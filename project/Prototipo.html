@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
 <style>
+  *, *::before, *::after { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0;
     background: #0c0c0e;
@@ -99,24 +100,1464 @@
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
-<script type="text/babel" src="tokens.jsx"></script>
-<script type="text/babel" src="android-frame.jsx"></script>
-<script type="text/babel" src="map.jsx"></script>
-<script type="text/babel" src="chat.jsx"></script>
-<script type="text/babel" src="sos.jsx"></script>
-<script type="text/babel" src="auth.jsx"></script>
-<script type="text/babel" src="app.jsx"></script>
-<script type="text/babel" src="tweaks.jsx"></script>
-
 <script type="text/babel" data-presets="react">
+
+// ═══════════════════════════════════════════════════════════════
+// TOKENS — paleta azul cooperativa
+// ═══════════════════════════════════════════════════════════════
+const PALETTE = {
+  navy:   '#11395C',
+  deep:   '#1D598F',
+  brand:  '#2580CF',
+  bright: '#2E9DFF',
+  sky:    '#71BCFF',
+  bg:     '#0A1A2E',
+  panel:  '#16304A',
+  line:   '#234969',
+  mute:   '#5A7A99',
+  green:  '#3DD685',
+  yellow: '#F5C542',
+  red:    '#FF4D6D',
+  white:  '#F5F9FF',
+};
+const P = PALETTE;
+
+const COOP = {
+  name:  'COOP-R14',
+  full:  'Cooperativa de Transportes Juliaca',
+  route: 'Ruta 14 · Terminal Sur ↔ Huancané',
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ANDROID FRAME
+// ═══════════════════════════════════════════════════════════════
+const MD_C = {
+  surface: '#f4fbf8',
+  surfaceVariant: '#dae5e1',
+  inverseOnSurface: '#ecf2ef',
+  secondaryContainer: '#cde8e1',
+  primaryFixedDim: '#83d5c6',
+  onSurface: '#171d1b',
+  onSurfaceVar: '#49454f',
+  onPrimaryContainer: '#00201c',
+  primary: '#006a60',
+  frameBorder: 'rgba(116,119,117,0.5)',
+};
+
+function AndroidStatusBar({ dark = false }) {
+  const c = dark ? '#fff' : MD_C.onSurface;
+  return (
+    <div style={{
+      height: 40, display: 'flex', alignItems: 'center',
+      justifyContent: 'space-between', padding: '0 16px',
+      position: 'relative',
+      fontFamily: 'Roboto, system-ui, sans-serif',
+    }}>
+      <div style={{ width: 128, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 14, fontWeight: 400, letterSpacing: 0.25, lineHeight: '20px', color: c }}>9:30</span>
+      </div>
+      <div style={{
+        position: 'absolute', left: '50%', top: 8, transform: 'translateX(-50%)',
+        width: 24, height: 24, borderRadius: 100, background: '#2e2e2e',
+      }} />
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <div style={{ display: 'flex', paddingRight: 2 }}>
+          <svg width="16" height="16" viewBox="0 0 16 16" style={{ marginRight: -2 }}>
+            <path d="M8 13.3L.67 5.97a10.37 10.37 0 0114.66 0L8 13.3z" fill={c}/>
+          </svg>
+          <svg width="16" height="16" viewBox="0 0 16 16" style={{ marginRight: -2 }}>
+            <path d="M14.67 14.67V1.33L1.33 14.67h13.34z" fill={c}/>
+          </svg>
+        </div>
+        <svg width="16" height="16" viewBox="0 0 16 16">
+          <rect x="3.75" y="2" width="8.5" height="13" rx="1.5" fill={c}/>
+          <rect x="5.5" y="0.9" width="5" height="2" rx="0.5" fill={c}/>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function AndroidNavBar({ dark = false }) {
+  return (
+    <div style={{
+      height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <div style={{
+        width: 108, height: 4, borderRadius: 2,
+        background: dark ? '#fff' : MD_C.onSurface, opacity: 0.4,
+      }} />
+    </div>
+  );
+}
+
+function AndroidDevice({ children, width = 412, height = 892, dark = false }) {
+  return (
+    <div style={{
+      width, height, borderRadius: 18, overflow: 'hidden',
+      background: dark ? '#1d1b20' : MD_C.surface,
+      border: `8px solid ${MD_C.frameBorder}`,
+      boxShadow: '0 30px 80px rgba(0,0,0,0.25)',
+      display: 'flex', flexDirection: 'column',
+    }}>
+      <AndroidStatusBar dark={dark} />
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {children}
+      </div>
+      <AndroidNavBar dark={dark} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GPS MAP
+// ═══════════════════════════════════════════════════════════════
+const MAP_COLORS = {
+  bg: '#0a0e12',
+  street: '#1e242c',
+  streetMain: '#2a3340',
+  route: '#FFFFFF',
+  routeGlow: 'rgba(255,255,255,0.25)',
+  label: '#6b7785',
+  labelMain: '#aab4c0',
+  you: '#FFFFFF',
+  green: '#00E676',
+  yellow: '#FFD600',
+  red: '#FF1744',
+  other: '#4a5362',
+};
+
+const ROUTE_POINTS = [
+  { x: 30,  y: 420 },
+  { x: 85,  y: 360 },
+  { x: 140, y: 340 },
+  { x: 200, y: 310 },
+  { x: 250, y: 260 },
+  { x: 280, y: 210 },
+  { x: 300, y: 160 },
+  { x: 320, y: 110 },
+  { x: 340, y: 60  },
+];
+
+function posOnRoute(t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  const seg = clamped * (ROUTE_POINTS.length - 1);
+  const i = Math.floor(seg);
+  const frac = seg - i;
+  const a = ROUTE_POINTS[i];
+  const b = ROUTE_POINTS[Math.min(i + 1, ROUTE_POINTS.length - 1)];
+  return { x: a.x + (b.x - a.x) * frac, y: a.y + (b.y - a.y) * frac };
+}
+
+function MapBackground() {
+  const sideStreets = [
+    "M 0 100 L 380 140", "M 0 180 L 380 220", "M 0 260 L 380 300",
+    "M 0 350 L 380 390", "M 0 440 L 380 480", "M 0 520 L 380 550",
+    "M 60 0 L 80 600",   "M 140 0 L 165 600", "M 220 0 L 250 600",
+    "M 300 0 L 330 600",
+  ];
+  const mains = [
+    "M 0 390 Q 100 370, 200 330 T 380 260",
+    "M 40 0 L 120 200 L 200 400 L 280 600",
+  ];
+  const routeD = ROUTE_POINTS.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  return (
+    <svg viewBox="0 0 380 600" preserveAspectRatio="xMidYMid slice" overflow="hidden"
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'hidden' }}>
+      <defs>
+        <pattern id="mapGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <circle cx="0" cy="0" r="0.5" fill="#151b22" />
+        </pattern>
+        <filter id="routeGlow">
+          <feGaussianBlur stdDeviation="4" />
+        </filter>
+      </defs>
+      <rect width="380" height="600" fill="url(#mapGrid)" />
+      {sideStreets.map((d, i) => (
+        <path key={i} d={d} stroke={MAP_COLORS.street} strokeWidth="2" fill="none" />
+      ))}
+      {mains.map((d, i) => (
+        <path key={i} d={d} stroke={MAP_COLORS.streetMain} strokeWidth="5" fill="none" strokeLinecap="round" />
+      ))}
+      <path d={routeD} stroke={MAP_COLORS.routeGlow} strokeWidth="14"
+        fill="none" strokeLinecap="round" strokeLinejoin="round" filter="url(#routeGlow)" />
+      <path d={routeD} stroke={MAP_COLORS.route} strokeWidth="4"
+        fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={routeD} stroke="#000" strokeWidth="2" strokeDasharray="1 10"
+        fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
+      <g style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 9, fill: MAP_COLORS.label }}>
+        <text x="14" y="145" opacity="0.7">JR. LAMBAYEQUE</text>
+        <text x="14" y="225" opacity="0.7">AV. TUMBES</text>
+        <text x="14" y="305" opacity="0.7">AV. CIRCUNVALACIÓN</text>
+      </g>
+      <g style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10, fill: MAP_COLORS.labelMain, fontWeight: 700 }}>
+        <text x="160" y="38" letterSpacing="1">SALIDA HUANCANÉ →</text>
+        <text x="14" y="575" letterSpacing="1">← TERMINAL SUR</text>
+      </g>
+    </svg>
+  );
+}
+
+function UnitPin({ x, y, color, label, size = 16, pulse = false, you = false, gap }) {
+  return (
+    <div style={{
+      position: 'absolute',
+      left: `${(x / 380) * 100}%`,
+      top: `${(y / 600) * 100}%`,
+      transform: 'translate(-50%, -50%)',
+      pointerEvents: 'none',
+    }}>
+      {pulse && (
+        <div style={{
+          position: 'absolute', left: '50%', top: '50%',
+          width: size * 2.6, height: size * 2.6, borderRadius: '50%',
+          background: color, opacity: 0.25,
+          transform: 'translate(-50%, -50%)',
+          animation: 'combiPulse 2s ease-out infinite',
+        }} />
+      )}
+      <div style={{
+        width: size, height: size, borderRadius: '50%',
+        background: color,
+        border: you ? '3px solid #000' : '2px solid #000',
+        boxShadow: `0 0 ${size}px ${color}`,
+        position: 'relative',
+      }} />
+      {gap && (
+        <div style={{
+          position: 'absolute', left: '50%', top: 'calc(100% + 4px)',
+          transform: 'translateX(-50%)',
+          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+          fontSize: 10, fontWeight: 700, color,
+          background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: 4,
+          whiteSpace: 'nowrap',
+        }}>{gap}</div>
+      )}
+      {label && !gap && (
+        <div style={{
+          position: 'absolute', left: '50%', top: 'calc(100% + 3px)',
+          transform: 'translateX(-50%)',
+          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+          fontSize: 8, color: '#6b7785', whiteSpace: 'nowrap',
+        }}>{label}</div>
+      )}
+    </div>
+  );
+}
+
+function GpsMap({ frontTime, backTime, status, expanded }) {
+  const youT = 0.5;
+  const you = posOnRoute(youT);
+  const frontT = youT + 0.12 * (parseMin(frontTime) / 2);
+  const front = posOnRoute(frontT);
+  const backT = youT - 0.12 * (parseMin(backTime) / 2);
+  const back = posOnRoute(backT);
+  const others = [
+    { t: 0.08, off: -6 }, { t: 0.22, off: 8 },
+    { t: 0.88, off: -4 }, { t: 0.72, off: 10 },
+  ].map(o => { const p = posOnRoute(o.t); return { x: p.x + o.off, y: p.y + o.off }; });
+
+  const statusColor =
+    status === 'green' ? MAP_COLORS.green :
+    status === 'yellow' ? MAP_COLORS.yellow :
+    MAP_COLORS.red;
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: MAP_COLORS.bg, overflow: 'hidden' }}>
+      <MapBackground />
+      {others.map((o, i) => (
+        <UnitPin key={i} x={o.x} y={o.y} color={MAP_COLORS.other} size={8} />
+      ))}
+      <UnitPin x={back.x} y={back.y} color={statusColor} size={14} gap={backTime} />
+      <UnitPin x={front.x} y={front.y} color={statusColor} size={14} gap={frontTime} />
+      <UnitPin x={you.x} y={you.y} color={MAP_COLORS.you} size={18} pulse={true} you={true} label="TÚ" />
+      {expanded && (
+        <div style={{
+          position: 'absolute', top: 16, left: 16, right: 16,
+          display: 'flex', gap: 10, justifyContent: 'space-between',
+          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            background: 'rgba(0,0,0,0.7)', padding: '6px 10px', borderRadius: 6,
+            fontSize: 10, color: '#aab4c0', border: `1px solid ${MAP_COLORS.street}`,
+          }}>
+            <div style={{ color: '#6b7785', fontSize: 8, letterSpacing: 1.5 }}>RUTA</div>
+            <div style={{ fontWeight: 700, color: '#fff' }}>R-14 · TERMINAL</div>
+          </div>
+          <div style={{
+            background: 'rgba(0,0,0,0.7)', padding: '6px 10px', borderRadius: 6,
+            fontSize: 10, color: '#aab4c0', border: `1px solid ${MAP_COLORS.street}`,
+            textAlign: 'right',
+          }}>
+            <div style={{ color: '#6b7785', fontSize: 8, letterSpacing: 1.5 }}>EN RUTA</div>
+            <div style={{ fontWeight: 700, color: '#fff' }}>{others.length + 3} unid.</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHAT
+// ═══════════════════════════════════════════════════════════════
+const CHAT_SEED = [
+  { from: 'Despacho',  role: 'admin',  text: 'Atención ruta R-14. Control en Tumbes.', time: '14:02', tone: 'info' },
+  { from: 'Chofer 08', role: 'driver', text: 'Voy lleno, paso directo',                 time: '14:05', tone: 'normal' },
+  { from: 'Chofer 12', role: 'driver', voice: 22,                                        time: '14:07', tone: 'normal' },
+  { from: 'Chofer 19', role: 'driver', text: 'Bloqueo en óvalo Huancané',               time: '14:08', tone: 'warn' },
+  { from: 'Despacho',  role: 'admin',  text: 'Desvío por Jr. Lambayeque',               time: '14:09', tone: 'info' },
+  { from: 'Chofer 22', role: 'driver', voice: 8,                                         time: '14:11', tone: 'normal' },
+  { from: 'TÚ',        role: 'you',    text: 'Copiado',                                  time: '14:11', tone: 'normal' },
+];
+
+const TONE_COLOR = {
+  info:   { bg: '#1a2540', border: '#2d4270', accent: '#6ba4ff' },
+  warn:   { bg: '#3a2410', border: '#6a3e16', accent: '#ffb347' },
+  normal: { bg: '#1a1e24', border: '#2a2f38', accent: '#aab4c0' },
+  you:    { bg: '#0f2a20', border: '#1e5440', accent: '#00E676' },
+};
+
+function VoiceBar({ seconds, accent }) {
+  const bars = Array.from({ length: 22 }, (_, i) => {
+    return 6 + Math.abs(Math.sin(i * 1.7) * 16) + Math.abs(Math.cos(i * 0.7) * 8);
+  });
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{
+        width: 36, height: 36, borderRadius: '50%',
+        background: accent, color: '#000',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 18, flexShrink: 0,
+      }}>▶</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
+        {bars.map((h, i) => (
+          <div key={i} style={{
+            width: 3, height: h, borderRadius: 1,
+            background: accent, opacity: i < 6 ? 1 : 0.4,
+          }} />
+        ))}
+      </div>
+      <div style={{
+        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+        fontSize: 13, fontWeight: 700, color: accent, minWidth: 28, textAlign: 'right',
+      }}>{seconds}"</div>
+    </div>
+  );
+}
+
+function ChatMsg({ msg }) {
+  const isYou = msg.role === 'you';
+  const tone = isYou ? TONE_COLOR.you : TONE_COLOR[msg.tone] || TONE_COLOR.normal;
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      alignItems: isYou ? 'flex-end' : 'flex-start',
+      marginBottom: 10,
+    }}>
+      <div style={{
+        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+        fontSize: 10, letterSpacing: 1, color: '#6b7785',
+        textTransform: 'uppercase', marginBottom: 4,
+        display: 'flex', gap: 6, alignItems: 'center',
+      }}>
+        {msg.role === 'admin' && (
+          <span style={{
+            background: '#6ba4ff', color: '#000',
+            padding: '1px 5px', borderRadius: 3, fontSize: 8,
+          }}>ADMIN</span>
+        )}
+        <span>{msg.from}</span>
+        <span style={{ color: '#4a5362' }}>· {msg.time}</span>
+      </div>
+      <div style={{
+        maxWidth: '84%',
+        background: tone.bg,
+        border: `1px solid ${tone.border}`,
+        borderRadius: 14,
+        padding: '10px 14px',
+        fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+        fontSize: 17, fontWeight: 500, color: '#fff',
+        lineHeight: 1.3,
+      }}>
+        {msg.voice
+          ? <VoiceBar seconds={msg.voice} accent={tone.accent} />
+          : msg.text}
+      </div>
+    </div>
+  );
+}
+
+function ChatScreen() {
+  const scrollRef = React.useRef(null);
+  React.useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, []);
+  return (
+    <div style={{
+      width: '100%', height: '100%',
+      background: '#000',
+      display: 'flex', flexDirection: 'column',
+      padding: '18px 16px 16px',
+      boxSizing: 'border-box',
+    }}>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+        marginBottom: 14,
+      }}>
+        <div>
+          <div style={{
+            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+            fontSize: 10, letterSpacing: 2, color: '#6b7785', textTransform: 'uppercase',
+          }}>Grupo ruta</div>
+          <div style={{
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 26, color: '#fff', letterSpacing: -0.5,
+          }}>R-14 · 24 en línea</div>
+        </div>
+        <div style={{
+          width: 44, height: 44, borderRadius: '50%',
+          background: '#FF1744',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: '"Archivo Black", system-ui, sans-serif',
+          fontSize: 18, color: '#fff',
+        }}>🎙</div>
+      </div>
+      <div ref={scrollRef} style={{
+        flex: 1, overflowY: 'auto', overflowX: 'hidden',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        {CHAT_SEED.map((m, i) => <ChatMsg key={i} msg={m} />)}
+      </div>
+      <div style={{
+        marginTop: 10,
+        background: '#1a1e24', borderRadius: 14, padding: '14px 16px',
+        display: 'flex', alignItems: 'center', gap: 12,
+        border: '1px solid #2a2f38',
+      }}>
+        <div style={{
+          flex: 1,
+          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+          fontSize: 12, letterSpacing: 1.5, color: '#6b7785', textTransform: 'uppercase',
+        }}>Mantén para hablar</div>
+        <div style={{
+          width: 48, height: 48, borderRadius: '50%',
+          background: '#FF1744', color: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 22, boxShadow: '0 0 24px #FF174460',
+        }}>●</div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SOS SLIDER
+// ═══════════════════════════════════════════════════════════════
+function SosSlider({ mode, status, enableAnim, onFire }) {
+  const trackRef = React.useRef(null);
+  const [progress, setProgress] = React.useState(0);
+  const [dragging, setDragging] = React.useState(false);
+  const [fired, setFired] = React.useState(false);
+  const startX = React.useRef(0);
+  const startProg = React.useRef(0);
+
+  const onDown = (clientX) => {
+    if (fired) return;
+    setDragging(true);
+    startX.current = clientX;
+    startProg.current = progress;
+  };
+  const onMove = (clientX) => {
+    if (!dragging || fired) return;
+    const track = trackRef.current;
+    if (!track) return;
+    const trackW = track.offsetWidth - 68;
+    const dx = clientX - startX.current;
+    const p = Math.max(0, Math.min(1, startProg.current + dx / trackW));
+    setProgress(p);
+    if (p >= 0.98) {
+      setFired(true);
+      setDragging(false);
+      onFire && onFire();
+      setTimeout(() => { setFired(false); setProgress(0); }, 2200);
+    }
+  };
+  const onUp = () => {
+    setDragging(false);
+    if (!fired) setProgress(0);
+  };
+
+  React.useEffect(() => {
+    if (!dragging) return;
+    const mm = (e) => onMove(e.clientX);
+    const mu = () => onUp();
+    const tm = (e) => onMove(e.touches[0].clientX);
+    const tu = () => onUp();
+    window.addEventListener('mousemove', mm);
+    window.addEventListener('mouseup', mu);
+    window.addEventListener('touchmove', tm);
+    window.addEventListener('touchend', tu);
+    return () => {
+      window.removeEventListener('mousemove', mm);
+      window.removeEventListener('mouseup', mu);
+      window.removeEventListener('touchmove', tm);
+      window.removeEventListener('touchend', tu);
+    };
+  }, [dragging]);
+
+  const trackH = 88;
+  const thumbSize = 68;
+  const suggestSos = status === 'red' && enableAnim;
+
+  return (
+    <div ref={trackRef} data-noswipe="sos" style={{
+      position: 'relative', width: '100%', height: trackH,
+      borderRadius: trackH / 2,
+      background: mode.bg === '#F5F9FF' ? '#f3f3f3' : '#1a1a1a',
+      border: `3px solid ${mode.red}`,
+      overflow: 'hidden', userSelect: 'none',
+      WebkitTapHighlightColor: 'transparent',
+    }}>
+      {suggestSos && !dragging && progress === 0 && (
+        <div style={{
+          position: 'absolute', inset: -5,
+          borderRadius: (trackH + 10) / 2,
+          border: `2px solid ${mode.red}`,
+          animation: 'combiRing 1.6s ease-out infinite',
+          pointerEvents: 'none',
+        }} />
+      )}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: mode.red,
+        width: `calc(${thumbSize/2 + 5}px + ${progress * 100}%)`,
+        maxWidth: '100%',
+        transition: dragging ? 'none' : 'width 0.25s cubic-bezier(.4,0,.2,1)',
+        opacity: 0.9,
+      }} />
+      <div style={{
+        position: 'absolute', inset: 0,
+        paddingLeft: thumbSize + 16,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: '"Archivo Black", system-ui, sans-serif',
+        fontSize: 22, fontWeight: 900, letterSpacing: 2.5,
+        color: progress > 0.3 ? '#fff' : mode.red,
+        transition: 'color 0.2s', pointerEvents: 'none', zIndex: 2,
+        opacity: progress > 0.85 ? 0 : 1,
+      }}>
+        {fired ? 'ENVIANDO...' : progress > 0.5 ? 'SUELTA PARA SOS' : 'DESLIZA →'}
+      </div>
+      {!fired && progress < 0.3 && enableAnim && (
+        <div style={{
+          position: 'absolute', right: 24, top: '50%',
+          transform: 'translateY(-50%)',
+          display: 'flex', gap: 4,
+          color: mode.red, opacity: 0.4,
+          pointerEvents: 'none', zIndex: 2,
+        }}>
+          {[0,1,2].map(i => (
+            <span key={i} style={{
+              fontFamily: '"Archivo Black", system-ui',
+              fontSize: 22, fontWeight: 900,
+              animation: `combiChev 1.2s ease-in-out ${i * 0.15}s infinite`,
+            }}>›</span>
+          ))}
+        </div>
+      )}
+      <div
+        onMouseDown={(e) => onDown(e.clientX)}
+        onTouchStart={(e) => onDown(e.touches[0].clientX)}
+        style={{
+          position: 'absolute',
+          left: `calc(${progress} * (100% - ${thumbSize + 10}px) + 5px)`,
+          top: 5,
+          width: thumbSize, height: thumbSize, borderRadius: '50%',
+          background: '#fff', color: mode.red,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: '"Archivo Black", system-ui, sans-serif',
+          fontSize: 20, fontWeight: 900,
+          cursor: 'grab',
+          transition: dragging ? 'none' : 'left 0.3s cubic-bezier(.4,0,.2,1)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          zIndex: 3, touchAction: 'none',
+        }}
+      >
+        {fired ? '✓' : 'SOS'}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTH — Login + Salir a ruta
+// ═══════════════════════════════════════════════════════════════
+function CoopLogo({ size = 72 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 72 72">
+      <circle cx="36" cy="36" r="33" fill={P.brand} />
+      <circle cx="36" cy="36" r="33" fill="none" stroke={P.sky} strokeWidth="2.5" />
+      <circle cx="36" cy="36" r="18" fill="none" stroke="#fff" strokeWidth="3" />
+      <circle cx="36" cy="36" r="4" fill="#fff" />
+      <line x1="36" y1="22" x2="36" y2="30" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
+      <line x1="36" y1="42" x2="36" y2="50" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
+      <line x1="22" y1="36" x2="30" y2="36" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
+      <line x1="42" y1="36" x2="50" y2="36" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
+      <text x="36" y="66" textAnchor="middle"
+        fontFamily="Archivo Black, sans-serif" fontSize="9"
+        fill={P.sky} fontWeight="900">R-14</text>
+    </svg>
+  );
+}
+
+function Field({ label, value, onChange, type = 'text', error, autoFocus }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{
+        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+        fontSize: 10, letterSpacing: 2, color: error ? P.red : P.sky,
+        textTransform: 'uppercase', marginBottom: 6,
+      }}>{label}</div>
+      <input type={type} value={value} autoFocus={autoFocus}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          padding: '16px 14px',
+          fontSize: 22, fontWeight: 600,
+          fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+          background: P.panel,
+          border: `2px solid ${error ? P.red : P.line}`,
+          borderRadius: 12,
+          color: P.white,
+          outline: 'none',
+          transition: 'border-color 0.2s',
+        }}
+      />
+    </div>
+  );
+}
+
+function LoginScreen({ onSuccess }) {
+  const [user, setUser] = React.useState('');
+  const [pass, setPass] = React.useState('');
+  const [error, setError] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+
+  const submit = () => {
+    if (!user || !pass) { setError('Completa usuario y contraseña'); return; }
+    setLoading(true);
+    setError(null);
+    setTimeout(() => {
+      if (pass === '1234') {
+        setLoading(false);
+        setError('Contraseña incorrecta · intento 2 de 3');
+        setPass('');
+      } else {
+        onSuccess({ user });
+      }
+    }, 800);
+  };
+
+  const handleKeyDown = (e) => { if (e.key === 'Enter') submit(); };
+
+  return (
+    <div style={{
+      width: '100%', height: '100%',
+      background: `linear-gradient(180deg, ${P.bg} 0%, ${P.navy} 100%)`,
+      display: 'flex', flexDirection: 'column',
+      padding: '40px 24px 24px', boxSizing: 'border-box',
+      color: P.white, overflowY: 'auto',
+    }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 28 }}>
+        <CoopLogo size={88} />
+        <div style={{
+          fontFamily: '"Archivo Black", system-ui, sans-serif',
+          fontSize: 26, fontWeight: 900, letterSpacing: -0.5,
+          color: P.white, marginTop: 14,
+        }}>{COOP.name}</div>
+        <div style={{
+          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+          fontSize: 10, letterSpacing: 1.5, color: P.sky,
+          textTransform: 'uppercase', marginTop: 4, textAlign: 'center',
+        }}>{COOP.route}</div>
+      </div>
+
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        alignSelf: 'center', padding: '4px 10px',
+        background: P.panel, border: `1px solid ${P.line}`, borderRadius: 100,
+        marginBottom: 22,
+      }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: P.green, boxShadow: `0 0 8px ${P.green}` }} />
+        <span style={{
+          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+          fontSize: 10, letterSpacing: 1.5, color: P.green, textTransform: 'uppercase',
+        }}>Conectado</span>
+      </div>
+
+      <div onKeyDown={handleKeyDown}>
+        <Field label="Usuario" value={user} onChange={setUser} autoFocus={true} error={!!error && !user} />
+        <Field label="Contraseña" value={pass} onChange={setPass} type="password" error={!!error} />
+      </div>
+
+      {error && (
+        <div style={{
+          background: 'rgba(255,77,109,0.12)', border: `1px solid ${P.red}`,
+          borderRadius: 10, padding: '10px 12px', marginBottom: 14,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{
+            width: 24, height: 24, borderRadius: '50%',
+            background: P.red, color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: '"Archivo Black", system-ui', fontSize: 14, flexShrink: 0,
+          }}>!</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.red, fontFamily: '"Helvetica Neue", system-ui' }}>{error}</div>
+        </div>
+      )}
+
+      <button onClick={submit} disabled={loading} style={{
+        width: '100%', padding: '18px',
+        fontSize: 20, fontWeight: 900, letterSpacing: 2,
+        fontFamily: '"Archivo Black", system-ui, sans-serif',
+        background: loading ? P.deep : P.bright,
+        color: P.white, border: 'none', borderRadius: 14,
+        cursor: loading ? 'wait' : 'pointer',
+        boxShadow: loading ? 'none' : `0 4px 0 ${P.deep}`,
+        transition: 'all 0.12s', opacity: loading ? 0.7 : 1,
+      }}>
+        {loading ? 'VERIFICANDO...' : 'INGRESAR'}
+      </button>
+
+      <div style={{ marginTop: 18, textAlign: 'center', fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, color: P.mute }}>
+        <a href="#" style={{ color: P.sky, textDecoration: 'none' }}>Olvidé mi contraseña</a>
+      </div>
+
+      <div style={{ flex: 1 }} />
+
+      <div style={{
+        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+        fontSize: 9, letterSpacing: 1.5, color: P.mute,
+        textAlign: 'center', textTransform: 'uppercase',
+      }}>
+        {COOP.full}<br/>Juliaca · Puno · 3 824 m
+      </div>
+    </div>
+  );
+}
+
+function StartRouteScreen({ user, lapNumber, onStart, onRest }) {
+  const [countdown, setCountdown] = React.useState(15);
+  React.useEffect(() => {
+    if (countdown <= 0) return;
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [countdown]);
+  const isFirstLap = lapNumber === 1;
+
+  return (
+    <div style={{
+      width: '100%', height: '100%', background: P.bg,
+      display: 'flex', flexDirection: 'column',
+      padding: '28px 22px 22px', boxSizing: 'border-box',
+      color: P.white, overflowY: 'auto',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <CoopLogo size={36} />
+        <div>
+          <div style={{
+            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+            fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
+          }}>Hola, conductor</div>
+          <div style={{
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 18, color: P.white, letterSpacing: -0.3,
+          }}>{user || 'RAÚL MAMANI'}</div>
+        </div>
+      </div>
+
+      {!isFirstLap && (
+        <div style={{
+          background: P.panel, border: `1px solid ${P.line}`, borderRadius: 14,
+          padding: '14px 16px', marginBottom: 16,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: '50%',
+            background: P.green, color: P.bg,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: '"Archivo Black", system-ui', fontSize: 18, flexShrink: 0,
+          }}>✓</div>
+          <div>
+            <div style={{
+              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+              fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
+            }}>Vuelta {lapNumber - 1} completada</div>
+            <div style={{
+              fontFamily: '"Helvetica Neue", system-ui', fontSize: 15, fontWeight: 600, color: P.white,
+            }}>48 min · 42 pasajeros</div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{
+          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+          fontSize: 11, letterSpacing: 2, color: P.sky,
+          textTransform: 'uppercase', marginBottom: 10,
+        }}>{isFirstLap ? 'Inicio de turno' : `Vuelta ${lapNumber}`}</div>
+        <div style={{
+          fontFamily: '"Archivo Black", system-ui, sans-serif',
+          fontSize: 38, fontWeight: 900, letterSpacing: -1.2,
+          color: P.white, textAlign: 'center', lineHeight: 1.05, marginBottom: 8,
+        }}>¿Salir a ruta<br/>ahora?</div>
+        <div style={{
+          fontFamily: '"Helvetica Neue", system-ui', fontSize: 15, color: P.mute,
+          textAlign: 'center', lineHeight: 1.4, maxWidth: 280,
+        }}>
+          Despacho asignará tu posición en la rueda según tu salida.
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+        {[['Unidad', 'V-247'], ['Turno', '13:00 — 21:00']].map(([label, val]) => (
+          <div key={label} style={{
+            background: P.panel, border: `1px solid ${P.line}`, borderRadius: 12, padding: '10px 12px',
+          }}>
+            <div style={{
+              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+              fontSize: 9, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
+            }}>{label}</div>
+            <div style={{ fontFamily: '"Archivo Black", system-ui', fontSize: 20, color: P.white, letterSpacing: -0.3 }}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={onStart} style={{
+        width: '100%', padding: '22px',
+        fontSize: 24, fontWeight: 900, letterSpacing: 2.5,
+        fontFamily: '"Archivo Black", system-ui, sans-serif',
+        background: P.bright, color: P.white, border: 'none', borderRadius: 16,
+        cursor: 'pointer', boxShadow: `0 5px 0 ${P.deep}`, marginBottom: 10,
+      }}>
+        SALIR A RUTA →
+      </button>
+
+      <button onClick={onRest} disabled={countdown > 0} style={{
+        width: '100%', padding: '12px',
+        fontSize: 13, fontWeight: 700, letterSpacing: 1,
+        fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+        background: 'transparent',
+        color: countdown > 0 ? P.mute : P.sky,
+        border: `1px solid ${countdown > 0 ? P.line : P.deep}`,
+        borderRadius: 10, cursor: countdown > 0 ? 'not-allowed' : 'pointer',
+      }}>
+        {countdown > 0 ? `Descansar 10 min · disponible en ${countdown}s` : 'Descansar 10 min'}
+      </button>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// APP — Modos, relojes, semáforo, carrusel
+// ═══════════════════════════════════════════════════════════════
+const DEFAULT_TWEAKS = {
+  frontTime: '02:15', backTime: '01:40',
+  front2Time: '04:30', back2Time: '03:35',
+  targetGap: 2, mode: 'day', numberStyle: 'mono',
+  semaphoreStyle: 'dots', showLabels: true, microAnims: true,
+  startPage: 1, initialScreen: 'login',
+  currentStop: 'Tumbes', nextStop: 'Lambayeque', avgSpeed: 28,
+};
+
+function parseMin(s) {
+  const [m, sec] = s.split(':').map(Number);
+  return m + sec / 60;
+}
+
+function computeStatus(front, back, target) {
+  const f = parseMin(front);
+  const b = parseMin(back);
+  const worstDev = Math.max(Math.abs(f - target), Math.abs(b - target));
+  if (worstDev <= 0.5) return 'green';
+  if (worstDev <= 1.0) return 'yellow';
+  return 'red';
+}
+
+const MODES = {
+  day: {
+    bg: P.bg, panel: P.panel, fg: P.white, dim: P.mute, line: P.line,
+    brand: P.brand, bright: P.bright, navy: P.navy, deep: P.deep, sky: P.sky,
+    green: P.green, yellow: P.yellow, red: P.red,
+  },
+  sun: {
+    bg: '#F5F9FF', panel: '#E5EFFA', fg: P.navy, dim: '#5A7A99', line: '#B8CFE3',
+    brand: P.brand, bright: P.deep, navy: P.navy, deep: P.deep, sky: P.brand,
+    green: '#1F8A4F', yellow: '#B58400', red: '#B3001B',
+  },
+  night: {
+    bg: '#050D17', panel: '#0E2236', fg: '#D7E5F4', dim: '#3D5570', line: '#1A3149',
+    brand: P.brand, bright: P.bright, navy: P.navy, deep: P.deep, sky: P.sky,
+    green: '#2BAA68', yellow: '#C49A20', red: '#D43050',
+  },
+};
+
+function SmallClock({ value, label, color, mode, numberStyle, faded }) {
+  const fontFamily = numberStyle === 'mono'
+    ? '"JetBrains Mono", ui-monospace, monospace'
+    : '"Archivo Black", system-ui, sans-serif';
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '4px 14px', opacity: faded ? 0.45 : 1,
+    }}>
+      <div style={{
+        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+        fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
+        color: mode.dim, textTransform: 'uppercase', minWidth: 36,
+      }}>{label}</div>
+      <div style={{
+        fontFamily, fontSize: 38, fontWeight: 900,
+        color, lineHeight: 1, letterSpacing: -1.5,
+        fontVariantNumeric: 'tabular-nums',
+      }}>{value}</div>
+    </div>
+  );
+}
+
+function AnimatedDigit({ ch, fontSize, color, enableAnim }) {
+  const prev = React.useRef(ch);
+  const [anim, setAnim] = React.useState(false);
+  React.useEffect(() => {
+    if (prev.current !== ch && enableAnim) {
+      setAnim(true);
+      const t = setTimeout(() => setAnim(false), 260);
+      return () => clearTimeout(t);
+    }
+    prev.current = ch;
+  }, [ch, enableAnim]);
+  return (
+    <span style={{
+      display: 'inline-block',
+      minWidth: ch === ':' ? fontSize * 0.35 : fontSize * 0.62,
+      textAlign: 'center', color,
+      transform: anim ? 'translateY(-2px)' : 'translateY(0)',
+      opacity: anim ? 0.85 : 1,
+      transition: 'transform 0.22s cubic-bezier(.2,.8,.2,1), opacity 0.22s',
+    }}>{ch}</span>
+  );
+}
+
+function BigTime({ value, label, color, mode, numberStyle, enableAnim, heartbeat }) {
+  const fontFamily = numberStyle === 'mono'
+    ? '"JetBrains Mono", ui-monospace, monospace'
+    : '"Archivo Black", system-ui, sans-serif';
+  const fontSize = 96;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2px 0' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+        fontSize: 12, fontWeight: 700, letterSpacing: 2,
+        color: mode.dim, textTransform: 'uppercase', marginBottom: 0,
+      }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: mode.green,
+          opacity: heartbeat && enableAnim ? 1 : 0.4,
+          transition: 'opacity 0.4s',
+        }} />
+        {label}
+      </div>
+      <div style={{
+        fontFamily, fontSize, fontWeight: 900,
+        lineHeight: 0.95, letterSpacing: -3,
+        fontVariantNumeric: 'tabular-nums', display: 'flex',
+      }}>
+        {value.split('').map((ch, i) => (
+          <AnimatedDigit key={i} ch={ch} fontSize={fontSize} color={color} enableAnim={enableAnim} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Semaphore({ status, mode, style, enableAnim }) {
+  const colors = { red: mode.red, yellow: mode.yellow, green: mode.green };
+  const lit = status;
+  const pulseDur = status === 'red' ? '0.8s' : status === 'yellow' ? '1.4s' : '2.4s';
+
+  const dot = (key) => {
+    const isLit = key === lit;
+    return (
+      <div key={key} style={{ position: 'relative', width: 34, height: 34 }}>
+        {isLit && enableAnim && (
+          <div style={{
+            position: 'absolute', inset: -6, borderRadius: '50%',
+            background: colors[key], opacity: 0.3,
+            animation: `combiBreathe ${pulseDur} ease-in-out infinite`,
+          }} />
+        )}
+        <div style={{
+          position: 'relative', width: 34, height: 34, borderRadius: '50%',
+          background: isLit ? colors[key] : 'transparent',
+          border: `3px solid ${isLit ? colors[key] : mode.dim}`,
+          opacity: isLit ? 1 : 0.3,
+          boxShadow: isLit ? `0 0 24px ${colors[key]}, 0 0 48px ${colors[key]}80` : 'none',
+          transition: 'all 0.4s',
+        }} />
+      </div>
+    );
+  };
+
+  if (style === 'bar') {
+    return (
+      <div style={{
+        width: '78%', height: 14, borderRadius: 7,
+        background: colors[lit], boxShadow: `0 0 28px ${colors[lit]}`,
+        animation: enableAnim ? `combiBreathe ${pulseDur} ease-in-out infinite` : 'none',
+      }} />
+    );
+  }
+  return (
+    <div style={{
+      display: 'flex', gap: 14, alignItems: 'center',
+      padding: '8px 18px', borderRadius: 40,
+      background: mode.panel, border: `1px solid ${mode.line}`,
+    }}>
+      {dot('red')}{dot('yellow')}{dot('green')}
+    </div>
+  );
+}
+
+function ContextHeader({ currentStop, nextStop, avgSpeed, mode }) {
+  const speedTone =
+    avgSpeed < 18 ? mode.yellow :
+    avgSpeed > 38 ? mode.red :
+    mode.bright;
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', padding: '0 4px' }}>
+      <div style={{
+        flex: 1, background: mode.panel, border: `1px solid ${mode.line}`,
+        borderRadius: 12, padding: '8px 12px',
+        display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0,
+      }}>
+        <div style={{
+          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+          fontSize: 9, letterSpacing: 1.5, color: mode.dim, textTransform: 'uppercase',
+          display: 'flex', alignItems: 'center', gap: 4,
+        }}>
+          <span style={{
+            display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
+            background: mode.bright, boxShadow: `0 0 6px ${mode.bright}`,
+          }} />
+          Tramo
+        </div>
+        <div style={{
+          fontFamily: '"Archivo Black", system-ui, sans-serif',
+          fontSize: 14, color: mode.fg, letterSpacing: -0.2,
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>{currentStop} <span style={{ color: mode.dim, fontWeight: 400 }}>→</span> {nextStop}</div>
+      </div>
+      <div style={{
+        background: mode.panel, border: `1px solid ${mode.line}`,
+        borderRadius: 12, padding: '8px 12px',
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 76,
+      }}>
+        <div style={{
+          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+          fontSize: 9, letterSpacing: 1.5, color: mode.dim, textTransform: 'uppercase',
+        }}>Vel. prom</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, fontFamily: '"Archivo Black", system-ui, sans-serif', color: speedTone }}>
+          <span style={{ fontSize: 22, letterSpacing: -1, fontVariantNumeric: 'tabular-nums' }}>{avgSpeed}</span>
+          <span style={{ fontSize: 9, letterSpacing: 1, color: mode.dim, fontWeight: 700 }}>KM/H</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CenterScreen({ tweaks, onFireSos }) {
+  const mode = MODES[tweaks.mode] || MODES.day;
+  const status = computeStatus(tweaks.frontTime, tweaks.backTime, tweaks.targetGap);
+  const [heartbeat, setHeartbeat] = React.useState(true);
+  React.useEffect(() => {
+    const id = setInterval(() => setHeartbeat(h => !h), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div style={{
+      width: '100%', height: '100%', background: mode.bg,
+      display: 'flex', flexDirection: 'column', gap: 6,
+      padding: '40px 14px 14px', boxSizing: 'border-box', position: 'relative',
+    }}>
+      <ContextHeader
+        currentStop={tweaks.currentStop} nextStop={tweaks.nextStop}
+        avgSpeed={tweaks.avgSpeed} mode={mode}
+      />
+      <SmallClock value={tweaks.front2Time} label="+2" color={mode.fg} mode={mode} numberStyle={tweaks.numberStyle} faded={true} />
+      <div style={{ height: 1, background: mode.line, opacity: 0.5 }} />
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <BigTime value={tweaks.frontTime} label="+1 ADELANTE" color={mode.fg} mode={mode}
+          numberStyle={tweaks.numberStyle} enableAnim={tweaks.microAnims} heartbeat={heartbeat} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0' }}>
+        <Semaphore status={status} mode={mode} style={tweaks.semaphoreStyle} enableAnim={tweaks.microAnims} />
+      </div>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <BigTime value={tweaks.backTime} label="-1 ATRÁS" color={mode.fg} mode={mode}
+          numberStyle={tweaks.numberStyle} enableAnim={tweaks.microAnims} heartbeat={heartbeat} />
+      </div>
+      <div style={{ height: 1, background: mode.line, opacity: 0.5 }} />
+      <SmallClock value={tweaks.back2Time} label="-2" color={mode.fg} mode={mode} numberStyle={tweaks.numberStyle} faded={true} />
+      <div style={{ marginTop: 12 }}>
+        <SosSlider mode={mode} status={status} enableAnim={tweaks.microAnims} onFire={onFireSos} />
+      </div>
+    </div>
+  );
+}
+
+function Carousel({ tweaks }) {
+  const [page, setPage] = React.useState(tweaks.startPage ?? 1);
+  const [dragDx, setDragDx] = React.useState(0);
+  const [dragging, setDragging] = React.useState(false);
+  const startX = React.useRef(0);
+  const startY = React.useRef(0);
+  const lockedAxis = React.useRef(null);
+  const containerRef = React.useRef(null);
+  const [emergencyFired, setEmergencyFired] = React.useState(false);
+
+  React.useEffect(() => {
+    if (emergencyFired) {
+      const t = setTimeout(() => setEmergencyFired(false), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [emergencyFired]);
+
+  const onDown = (x, y) => {
+    setDragging(true);
+    startX.current = x;
+    startY.current = y;
+    lockedAxis.current = null;
+  };
+  const onMove = (x, y) => {
+    if (!dragging) return;
+    const dx = x - startX.current;
+    const dy = y - startY.current;
+    if (!lockedAxis.current) {
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+        lockedAxis.current = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      }
+    }
+    if (lockedAxis.current === 'x') setDragDx(dx);
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    const w = containerRef.current?.offsetWidth || 380;
+    const threshold = w * 0.25;
+    if (lockedAxis.current === 'x') {
+      if (dragDx < -threshold && page < 2) setPage(p => p + 1);
+      else if (dragDx > threshold && page > 0) setPage(p => p - 1);
+    }
+    setDragDx(0);
+    setDragging(false);
+    lockedAxis.current = null;
+  };
+
+  React.useEffect(() => {
+    if (!dragging) return;
+    const mm = (e) => onMove(e.clientX, e.clientY);
+    const mu = () => onUp();
+    const tm = (e) => onMove(e.touches[0].clientX, e.touches[0].clientY);
+    const tu = () => onUp();
+    window.addEventListener('mousemove', mm);
+    window.addEventListener('mouseup', mu);
+    window.addEventListener('touchmove', tm, { passive: false });
+    window.addEventListener('touchend', tu);
+    return () => {
+      window.removeEventListener('mousemove', mm);
+      window.removeEventListener('mouseup', mu);
+      window.removeEventListener('touchmove', tm);
+      window.removeEventListener('touchend', tu);
+    };
+  }, [dragging, page, dragDx]);
+
+  const mode = MODES[tweaks.mode] || MODES.day;
+  const status = computeStatus(tweaks.frontTime, tweaks.backTime, tweaks.targetGap);
+  const w = containerRef.current?.offsetWidth || 380;
+  const translateX = -page * w + (lockedAxis.current === 'x' ? dragDx : 0);
+
+  return (
+    <div ref={containerRef} style={{
+      position: 'relative', width: '100%', height: '100%',
+      overflow: 'hidden', background: mode.bg,
+    }}
+      onMouseDown={(e) => {
+        if (e.target.closest('[data-noswipe]')) return;
+        onDown(e.clientX, e.clientY);
+      }}
+      onTouchStart={(e) => {
+        if (e.target.closest('[data-noswipe]')) return;
+        onDown(e.touches[0].clientX, e.touches[0].clientY);
+      }}
+    >
+      {emergencyFired && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 99,
+          background: mode.red,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: 'combiFlash 0.5s ease-out',
+        }}>
+          <div style={{
+            color: '#fff', fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 44, fontWeight: 900, letterSpacing: 4, textAlign: 'center',
+          }}>
+            SOS<br/><span style={{ fontSize: 18, letterSpacing: 2 }}>ALERTA ENVIADA</span>
+          </div>
+        </div>
+      )}
+
+      <div style={{
+        display: 'flex',
+        width: `${w * 3}px`, height: '100%',
+        transform: `translateX(${translateX}px)`,
+        transition: dragging ? 'none' : 'transform 0.32s cubic-bezier(.2,.9,.2,1)',
+      }}>
+        <div style={{ width: `${w}px`, height: '100%', overflow: 'hidden', flexShrink: 0 }}>
+          <ChatScreen />
+        </div>
+        <div style={{ width: `${w}px`, height: '100%', overflow: 'hidden', flexShrink: 0 }}>
+          <CenterScreen tweaks={tweaks} onFireSos={() => setEmergencyFired(true)} />
+        </div>
+        <div style={{ width: `${w}px`, height: '100%', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
+          <div style={{ position: 'absolute', inset: 0, background: mode.bg }}>
+            <GpsMap frontTime={tweaks.frontTime} backTime={tweaks.backTime} status={status} expanded={true} />
+            <div style={{
+              position: 'absolute', top: 16, left: 16,
+              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+              fontSize: 10, letterSpacing: 2, color: mode.sky,
+              textTransform: 'uppercase', pointerEvents: 'none',
+            }}>← volver</div>
+          </div>
+        </div>
+      </div>
+
+      {/* dots de navegación */}
+      <div style={{
+        position: 'absolute', top: 10, left: 0, right: 0,
+        display: 'flex', justifyContent: 'center', gap: 8, zIndex: 10,
+      }}>
+        {[0,1,2].map(i => (
+          <button key={i}
+            onClick={(e) => { e.stopPropagation(); setPage(i); }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            style={{
+              width: i === page ? 24 : 10, height: 10, borderRadius: 5,
+              background: i === page ? mode.bright : mode.line,
+              border: 'none', padding: 0, cursor: 'pointer',
+              transition: 'all 0.3s',
+            }}
+          />
+        ))}
+      </div>
+
+      {/* etiqueta de pantalla */}
+      <div style={{
+        position: 'absolute', top: 22, left: 0, right: 0,
+        display: 'flex', justifyContent: 'center',
+        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+        fontSize: 9, letterSpacing: 2, color: mode.dim,
+        textTransform: 'uppercase', pointerEvents: 'none', zIndex: 10, opacity: 0.7,
+      }}>
+        {page === 0 ? 'CHAT' : page === 1 ? 'RUTA' : 'MAPA'}
+      </div>
+    </div>
+  );
+}
+
+function CombiScreen({ tweaks }) {
+  return <Carousel tweaks={tweaks} />;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TWEAKS PANEL
+// ═══════════════════════════════════════════════════════════════
+function TweakRow({ label, children }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 6,
+      paddingBottom: 12, marginBottom: 12,
+      borderBottom: '1px solid #2a2a2a',
+    }}>
+      <label style={{
+        fontFamily: 'ui-monospace, monospace', fontSize: 10, letterSpacing: 1.5,
+        color: '#888', textTransform: 'uppercase',
+      }}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Seg({ value, options, onChange }) {
+  return (
+    <div style={{ display: 'flex', gap: 4, background: '#1a1a1a', borderRadius: 8, padding: 3 }}>
+      {options.map(opt => (
+        <button key={opt.v} onClick={() => onChange(opt.v)} style={{
+          flex: 1, padding: '6px 8px', borderRadius: 6, border: 'none',
+          background: value === opt.v ? '#fff' : 'transparent',
+          color: value === opt.v ? '#000' : '#ccc',
+          fontFamily: 'system-ui', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+        }}>{opt.l}</button>
+      ))}
+    </div>
+  );
+}
+
+function ScenarioButton({ label, onClick, active }) {
+  return (
+    <button onClick={onClick} style={{
+      flex: 1, padding: '8px 6px', borderRadius: 6,
+      border: active ? '1px solid #fff' : '1px solid #333',
+      background: active ? '#fff' : '#1a1a1a',
+      color: active ? '#000' : '#ccc',
+      fontFamily: 'system-ui', fontSize: 10, fontWeight: 600, cursor: 'pointer', textAlign: 'center',
+    }}>{label}</button>
+  );
+}
+
+function TweaksPanel({ tweaks, setTweaks, visible, onNav, currentScreen }) {
+  if (!visible) return null;
+
+  const update = (patch) => {
+    const next = { ...tweaks, ...patch };
+    setTweaks(next);
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: patch }, '*');
+  };
+
+  const scenarios = [
+    { l: 'Saludable',     f: '02:00', b: '02:00' },
+    { l: 'Adelante lejos', f: '03:30', b: '01:50' },
+    { l: 'Atrás pegado',  f: '02:10', b: '00:45' },
+    { l: 'Crítico',       f: '04:20', b: '00:20' },
+  ];
+  const activeScenario = scenarios.find(s => s.f === tweaks.frontTime && s.b === tweaks.backTime);
+
+  return (
+    <div style={{
+      position: 'fixed', right: 20, top: 20,
+      width: 280, maxHeight: '92vh', overflow: 'auto',
+      background: '#0a0a0a', color: '#eee',
+      borderRadius: 14, padding: 16,
+      border: '1px solid #2a2a2a',
+      boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+      fontFamily: 'system-ui, sans-serif', zIndex: 9999,
+    }}>
+      <div style={{
+        fontFamily: 'ui-monospace, monospace', fontSize: 11, letterSpacing: 2,
+        color: '#fff', textTransform: 'uppercase', marginBottom: 14,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      }}>
+        <span>Tweaks</span>
+        <span style={{ color: '#666', fontSize: 9 }}>v2</span>
+      </div>
+
+      <TweakRow label="Pantalla">
+        <Seg value={currentScreen || 'app'} onChange={v => { update({ initialScreen: v }); onNav && onNav(v); }}
+          options={[{ v: 'login', l: 'Login' }, { v: 'start', l: 'Salir ruta' }, { v: 'app', l: 'App' }]}
+        />
+      </TweakRow>
+
+      <TweakRow label="Escenario">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+          {scenarios.map(s => (
+            <ScenarioButton key={s.l} label={s.l} active={activeScenario?.l === s.l}
+              onClick={() => update({ frontTime: s.f, backTime: s.b })} />
+          ))}
+        </div>
+      </TweakRow>
+
+      {[
+        { key: 'frontTime', label: 'Adelante', max: 600 },
+        { key: 'backTime',  label: 'Atrás',    max: 600 },
+        { key: 'front2Time', label: '+2 unidad lejana adelante', max: 900 },
+        { key: 'back2Time',  label: '-2 unidad lejana atrás',    max: 900 },
+      ].map(({ key, label, max }) => (
+        <TweakRow key={key} label={`${label}: ${tweaks[key]}`}>
+          <input type="range" min="0" max={max} step="5"
+            value={parseInt(tweaks[key].split(':')[0]) * 60 + parseInt(tweaks[key].split(':')[1])}
+            onChange={e => {
+              const s = parseInt(e.target.value);
+              const m = String(Math.floor(s / 60)).padStart(2, '0');
+              const sec = String(s % 60).padStart(2, '0');
+              update({ [key]: `${m}:${sec}` });
+            }}
+            style={{ width: '100%', accentColor: '#fff' }}
+          />
+        </TweakRow>
+      ))}
+
+      <TweakRow label="Pantalla inicial">
+        <Seg value={String(tweaks.startPage)} onChange={v => update({ startPage: parseInt(v) })}
+          options={[{ v: '0', l: 'Chat' }, { v: '1', l: 'Ruta' }, { v: '2', l: 'Mapa' }]}
+        />
+      </TweakRow>
+
+      <TweakRow label={`Objetivo: ${tweaks.targetGap} min`}>
+        <input type="range" min="1" max="5" step="0.5"
+          value={tweaks.targetGap}
+          onChange={e => update({ targetGap: parseFloat(e.target.value) })}
+          style={{ width: '100%', accentColor: '#fff' }}
+        />
+      </TweakRow>
+
+      <TweakRow label="Modo de luz">
+        <Seg value={tweaks.mode} onChange={v => update({ mode: v })}
+          options={[{ v: 'day', l: 'Día' }, { v: 'sun', l: 'Sol extremo' }, { v: 'night', l: 'Noche' }]}
+        />
+      </TweakRow>
+
+      <TweakRow label="Tipografía de números">
+        <Seg value={tweaks.numberStyle} onChange={v => update({ numberStyle: v })}
+          options={[{ v: 'mono', l: 'Mono' }, { v: 'sans', l: 'Sans pesada' }]}
+        />
+      </TweakRow>
+
+      <TweakRow label="Semáforo">
+        <Seg value={tweaks.semaphoreStyle} onChange={v => update({ semaphoreStyle: v })}
+          options={[{ v: 'dots', l: '3 luces' }, { v: 'bar', l: 'Barra' }]}
+        />
+      </TweakRow>
+
+      <TweakRow label="Micro-interacciones">
+        <Seg value={tweaks.microAnims ? 'on' : 'off'} onChange={v => update({ microAnims: v === 'on' })}
+          options={[{ v: 'on', l: 'Activadas' }, { v: 'off', l: 'Desactivadas' }]}
+        />
+      </TweakRow>
+
+      <div style={{
+        fontFamily: 'ui-monospace, monospace', fontSize: 9, color: '#555', lineHeight: 1.5, marginTop: 8,
+      }}>
+        Desliza horizontalmente para cambiar pantalla:<br/>
+        <strong style={{ color: '#aaa' }}>← Chat · Ruta · Mapa →</strong><br/>
+        Desliza el círculo SOS hasta el final para alertar.
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ROOT
+// ═══════════════════════════════════════════════════════════════
 function Root() {
-  const [tweaks, setTweaks] = React.useState(window.DEFAULT_TWEAKS);
+  const [tweaks, setTweaks] = React.useState(DEFAULT_TWEAKS);
   const [tweaksVisible, setTweaksVisible] = React.useState(false);
-  const [screen, setScreen] = React.useState(tweaks.initialScreen || 'login');
+  const [screen, setScreen] = React.useState(DEFAULT_TWEAKS.initialScreen || 'login');
   const [user, setUser] = React.useState(null);
   const [lap, setLap] = React.useState(1);
 
-  // reaccionar a cambios de tweak initialScreen
   React.useEffect(() => {
     if (tweaks.initialScreen && tweaks.initialScreen !== screen) {
       setScreen(tweaks.initialScreen);
@@ -145,7 +1586,7 @@ function Root() {
       onRest={() => setScreen('app')}
     />;
   } else {
-    content = <CombiScreen tweaks={tweaks} onFinishLap={() => { setLap(l => l+1); setScreen('start'); }} />;
+    content = <CombiScreen tweaks={tweaks} onFinishLap={() => { setLap(l => l + 1); setScreen('start'); }} />;
   }
 
   return (
@@ -163,7 +1604,7 @@ function Root() {
 }
 
 ReactDOM.createRoot(document.getElementById('stage')).render(<Root />);
-</script>
 
+</script>
 </body>
 </html>
