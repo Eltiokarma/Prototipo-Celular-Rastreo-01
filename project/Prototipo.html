@@ -393,10 +393,17 @@ function gpsToMapXY(lat, lng) {
 // Centro de Juliaca — Plaza de Armas
 const JULIACA_CENTER = [-15.4904, -70.1333];
 
-function GpsMap({ frontTime, backTime, status, expanded }) {
+function GpsMap({ frontTime, backTime, status, expanded, active }) {
   const mapRef = React.useRef(null);      // div donde vive el mapa
   const leafletRef = React.useRef(null);  // instancia de Leaflet
   const youMarkerRef = React.useRef(null);
+
+  // Cuando el carrusel muestra esta pantalla, Leaflet necesita recalcular su tamaño
+  React.useEffect(() => {
+    if (active && leafletRef.current) {
+      setTimeout(() => leafletRef.current.invalidateSize(), 50);
+    }
+  }, [active]);
   const [realPos, setRealPos] = React.useState(null);
   const [gpsError, setGpsError] = React.useState(null);
 
@@ -454,8 +461,9 @@ function GpsMap({ frontTime, backTime, status, expanded }) {
 
     leafletRef.current = map;
 
-    // Forzar que Leaflet recalcule el tamaño (necesario dentro de un flex container)
-    setTimeout(() => map.invalidateSize(), 100);
+    // Forzar que Leaflet recalcule el tamaño — necesita el DOM ya pintado
+    setTimeout(() => map.invalidateSize(), 200);
+    setTimeout(() => map.invalidateSize(), 600);
 
     return () => { map.remove(); leafletRef.current = null; };
   }, []);
@@ -481,7 +489,7 @@ function GpsMap({ frontTime, backTime, status, expanded }) {
   return (
     <div style={{ position: 'absolute', inset: 0, background: '#0a0e12' }}>
       {/* contenedor del mapa Leaflet */}
-      <div ref={mapRef} style={{ position: 'absolute', inset: 0 }} data-noswipe="map" />
+      <div ref={mapRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 1 }} data-noswipe="map" />
 
       {/* overlay superior con info de ruta */}
       {expanded && (
@@ -1466,7 +1474,7 @@ function Carousel({ tweaks }) {
         </div>
         <div style={{ width: `${w}px`, height: '100%', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
           <div style={{ position: 'absolute', inset: 0, background: mode.bg }}>
-            <GpsMap frontTime={tweaks.frontTime} backTime={tweaks.backTime} status={status} expanded={true} />
+            <GpsMap frontTime={tweaks.frontTime} backTime={tweaks.backTime} status={status} expanded={true} active={page === 2} />
             <div style={{
               position: 'absolute', top: 16, left: 16,
               fontFamily: 'JetBrains Mono, ui-monospace, monospace',
