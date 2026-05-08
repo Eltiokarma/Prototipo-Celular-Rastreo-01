@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Combi Juliaca — Pantalla Conductor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    background: #0c0c0e;
+    min-height: 100vh;
+    font-family: system-ui, sans-serif;
+    color: #eee;
+    overflow-x: hidden;
+  }
+  .page {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 36px 20px;
+    gap: 20px;
+  }
+  .header {
+    text-align: center;
+    max-width: 520px;
+  }
+  .header .eyebrow {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px; letter-spacing: 3px;
+    color: #666; text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .header h1 {
+    font-family: 'Archivo Black', system-ui, sans-serif;
+    font-size: 28px; font-weight: 900;
+    margin: 0 0 8px; letter-spacing: -0.5px;
+  }
+  .header p {
+    font-size: 13px; line-height: 1.5; color: #888;
+    margin: 0;
+  }
+  .stage {
+    position: relative;
+    margin-top: 12px;
+  }
+  .meta {
+    margin-top: 24px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px; letter-spacing: 1.5px;
+    color: #555; text-transform: uppercase;
+    text-align: center;
+    max-width: 420px;
+  }
+  @keyframes combiFlash {
+    0%   { opacity: 0; }
+    20%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  @keyframes combiBreathe {
+    0%, 100% { transform: scale(1); opacity: 0.25; }
+    50%      { transform: scale(1.35); opacity: 0; }
+  }
+  @keyframes combiRing {
+    0%   { transform: scale(1); opacity: 0.7; }
+    100% { transform: scale(1.08); opacity: 0; }
+  }
+  @keyframes combiPulse {
+    0%   { transform: translate(-50%,-50%) scale(0.8); opacity: 0.5; }
+    100% { transform: translate(-50%,-50%) scale(2); opacity: 0; }
+  }
+  @keyframes combiChev {
+    0%, 100% { transform: translateX(0); opacity: 0.4; }
+    50%      { transform: translateX(6px); opacity: 1; }
+  }
+  input[type="range"] { height: 20px; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="header">
+    <div class="eyebrow">Prototipo · Juliaca · 3800 m</div>
+    <h1>Pantalla del conductor</h1>
+    <p>Diseñada para leerse en 1 segundo bajo sol directo. Solo lo esencial: <em>adelante</em>, <em>atrás</em>, estado, y un botón de pánico.</p>
+  </div>
+
+  <div class="stage" id="stage"></div>
+
+  <div class="meta">
+    Activa <strong style="color:#bbb">Tweaks</strong> desde la barra superior<br>
+    para cambiar escenarios, tipografía y modo de luz.
+  </div>
+</div>
+
+<div id="tweaks-mount"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="tokens.jsx"></script>
+<script type="text/babel" src="android-frame.jsx"></script>
+<script type="text/babel" src="map.jsx"></script>
+<script type="text/babel" src="chat.jsx"></script>
+<script type="text/babel" src="sos.jsx"></script>
+<script type="text/babel" src="auth.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+<script type="text/babel" src="tweaks.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+function Root() {
+  const [tweaks, setTweaks] = React.useState(window.DEFAULT_TWEAKS);
+  const [tweaksVisible, setTweaksVisible] = React.useState(false);
+  const [screen, setScreen] = React.useState(tweaks.initialScreen || 'login');
+  const [user, setUser] = React.useState(null);
+  const [lap, setLap] = React.useState(1);
+
+  // reaccionar a cambios de tweak initialScreen
+  React.useEffect(() => {
+    if (tweaks.initialScreen && tweaks.initialScreen !== screen) {
+      setScreen(tweaks.initialScreen);
+    }
+  }, [tweaks.initialScreen]);
+
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      if (!e.data || !e.data.type) return;
+      if (e.data.type === '__activate_edit_mode') setTweaksVisible(true);
+      if (e.data.type === '__deactivate_edit_mode') setTweaksVisible(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  let content;
+  if (screen === 'login') {
+    content = <LoginScreen onSuccess={(u) => { setUser(u); setScreen('start'); }} />;
+  } else if (screen === 'start') {
+    content = <StartRouteScreen
+      user={user?.user?.toUpperCase()}
+      lapNumber={lap}
+      onStart={() => setScreen('app')}
+      onRest={() => setScreen('app')}
+    />;
+  } else {
+    content = <CombiScreen tweaks={tweaks} onFinishLap={() => { setLap(l => l+1); setScreen('start'); }} />;
+  }
+
+  return (
+    <>
+      <AndroidDevice width={380} height={780} dark={true}>
+        {content}
+      </AndroidDevice>
+      {ReactDOM.createPortal(
+        <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} visible={tweaksVisible}
+          onNav={(s) => setScreen(s)} currentScreen={screen} />,
+        document.getElementById('tweaks-mount')
+      )}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('stage')).render(<Root />);
+</script>
+
+</body>
+</html>
