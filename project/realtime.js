@@ -6,7 +6,8 @@
 
   // URL del servidor — en desarrollo apunta a localhost,
   // en producción hay que cambiarla por la URL real del servidor desplegado.
-  const SERVER_URL = window.REALTIME_SERVER_URL || 'ws://localhost:3001';
+  const SERVER_URL = window.REALTIME_SERVER_URL ||
+    'wss://prototipo-celular-rastreo-01-production.up.railway.app';
 
   // Estado de la conexión
   let ws = null;
