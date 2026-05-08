@@ -1361,7 +1361,16 @@ function CenterScreen({ tweaks, onFireSos }) {
 }
 
 function Carousel({ tweaks }) {
+  // mapMounted: true la primera vez que el usuario llega a la página del mapa.
+  // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
+  // mide 0×0 y no renderiza nada.
+  const [mapMounted, setMapMounted] = React.useState(false);
   const [page, setPage] = React.useState(tweaks.startPage ?? 1);
+
+  const goToPage = (p) => {
+    if (p === 2) setMapMounted(true); // montar el mapa la primera vez
+    setPage(p);
+  };
   const [dragDx, setDragDx] = React.useState(0);
   const [dragging, setDragging] = React.useState(false);
   const startX = React.useRef(0);
@@ -1399,8 +1408,8 @@ function Carousel({ tweaks }) {
     const w = containerRef.current?.offsetWidth || 380;
     const threshold = w * 0.25;
     if (lockedAxis.current === 'x') {
-      if (dragDx < -threshold && page < 2) setPage(p => p + 1);
-      else if (dragDx > threshold && page > 0) setPage(p => p - 1);
+      if (dragDx < -threshold && page < 2) goToPage(page + 1);
+      else if (dragDx > threshold && page > 0) goToPage(page - 1);
     }
     setDragDx(0);
     setDragging(false);
@@ -1472,18 +1481,19 @@ function Carousel({ tweaks }) {
         <div style={{ width: `${w}px`, height: '100%', overflow: 'hidden', flexShrink: 0 }}>
           <CenterScreen tweaks={tweaks} onFireSos={() => setEmergencyFired(true)} />
         </div>
-        <div style={{ width: `${w}px`, height: '100%', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
-          <div style={{ position: 'absolute', inset: 0, background: mode.bg }}>
-            <GpsMap frontTime={tweaks.frontTime} backTime={tweaks.backTime} status={status} expanded={true} active={page === 2} />
-            <div style={{
-              position: 'absolute', top: 16, left: 16,
-              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-              fontSize: 10, letterSpacing: 2, color: mode.sky,
-              textTransform: 'uppercase', pointerEvents: 'none',
-            }}>← volver</div>
-          </div>
-        </div>
+        <div style={{ width: `${w}px`, height: '100%', flexShrink: 0, background: '#0a0e12' }} />
       </div>
+
+      {/* Mapa fuera del track — así no lo afecta el transform del carrusel */}
+      {mapMounted && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 5,
+          visibility: page === 2 ? 'visible' : 'hidden',
+          pointerEvents: page === 2 ? 'auto' : 'none',
+        }}>
+          <GpsMap frontTime={tweaks.frontTime} backTime={tweaks.backTime} status={status} expanded={true} active={page === 2} />
+        </div>
+      )}
 
       {/* dots de navegación */}
       <div style={{
@@ -1493,9 +1503,9 @@ function Carousel({ tweaks }) {
       }}>
         {[0,1,2].map(i => (
           <button key={i}
-            onClick={(e) => { e.stopPropagation(); setPage(i); }}
+            onClick={(e) => { e.stopPropagation(); goToPage(i); }}
             onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => { e.stopPropagation(); setPage(i); }}
+            onTouchStart={(e) => { e.stopPropagation(); goToPage(i); }}
             style={{
               width: 44, height: 36,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
