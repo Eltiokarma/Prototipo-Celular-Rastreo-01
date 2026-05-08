@@ -357,9 +357,42 @@ function UnitPin({ x, y, color, label, size = 16, pulse = false, you = false, ga
   );
 }
 
+// Convierte coordenadas GPS reales de Juliaca a posición en el mapa SVG (0-380, 0-600)
+// La ruta R-14 va de Terminal Sur (-15.502, -70.133) a Huancané (-15.457, -70.103)
+const JULIACA_BOUNDS = {
+  latMin: -15.520, latMax: -15.440,
+  lngMin: -70.155, lngMax: -70.090,
+};
+
+function gpsToMapXY(lat, lng) {
+  const x = ((lng - JULIACA_BOUNDS.lngMin) / (JULIACA_BOUNDS.lngMax - JULIACA_BOUNDS.lngMin)) * 380;
+  const y = ((lat - JULIACA_BOUNDS.latMax) / (JULIACA_BOUNDS.latMin - JULIACA_BOUNDS.latMax)) * 600;
+  return {
+    x: Math.max(10, Math.min(370, x)),
+    y: Math.max(10, Math.min(590, y)),
+  };
+}
+
 function GpsMap({ frontTime, backTime, status, expanded }) {
+  // GPS real del celular
+  const [realPos, setRealPos] = React.useState(null);
+  const [gpsError, setGpsError] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!navigator.geolocation) { setGpsError('sin GPS'); return; }
+    const id = navigator.geolocation.watchPosition(
+      (pos) => setRealPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => setGpsError(err.message),
+      { enableHighAccuracy: true, maximumAge: 3000 }
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, []);
+
+  // Si tenemos GPS real, usamos esas coordenadas — si no, posición fija en el mapa
   const youT = 0.5;
-  const you = posOnRoute(youT);
+  const youPos = realPos ? gpsToMapXY(realPos.lat, realPos.lng) : posOnRoute(youT);
+  const you = youPos;
+
   const frontT = youT + 0.12 * (parseMin(frontTime) / 2);
   const front = posOnRoute(frontT);
   const backT = youT - 0.12 * (parseMin(backTime) / 2);
@@ -383,6 +416,27 @@ function GpsMap({ frontTime, backTime, status, expanded }) {
       <UnitPin x={back.x} y={back.y} color={statusColor} size={14} gap={backTime} />
       <UnitPin x={front.x} y={front.y} color={statusColor} size={14} gap={frontTime} />
       <UnitPin x={you.x} y={you.y} color={MAP_COLORS.you} size={18} pulse={true} you={true} label="TÚ" />
+
+      {/* indicador GPS real vs simulado */}
+      <div style={{
+        position: 'absolute', bottom: 16, left: 16,
+        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+        fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase',
+        background: 'rgba(0,0,0,0.7)', padding: '4px 8px', borderRadius: 6,
+        display: 'flex', alignItems: 'center', gap: 5,
+        pointerEvents: 'none',
+      }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: realPos ? MAP_COLORS.green : MAP_COLORS.yellow,
+          flexShrink: 0,
+        }} />
+        <span style={{ color: realPos ? MAP_COLORS.green : MAP_COLORS.yellow }}>
+          {realPos ? `GPS REAL · ${realPos.lat.toFixed(4)}, ${realPos.lng.toFixed(4)}`
+                   : gpsError ? 'GPS NO DISPONIBLE' : 'ESPERANDO GPS...'}
+        </span>
+      </div>
+
       {expanded && (
         <div style={{
           position: 'absolute', top: 16, left: 16, right: 16,
@@ -1358,21 +1412,30 @@ function Carousel({ tweaks }) {
 
       {/* dots de navegación */}
       <div style={{
-        position: 'absolute', top: 10, left: 0, right: 0,
-        display: 'flex', justifyContent: 'center', gap: 8, zIndex: 10,
+        position: 'absolute', top: 0, left: 0, right: 0,
+        display: 'flex', justifyContent: 'center', alignItems: 'center',
+        gap: 8, zIndex: 10, height: 36,
       }}>
         {[0,1,2].map(i => (
           <button key={i}
             onClick={(e) => { e.stopPropagation(); setPage(i); }}
             onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
+            onTouchStart={(e) => { e.stopPropagation(); setPage(i); }}
             style={{
+              width: 44, height: 36,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'transparent', border: 'none',
+              cursor: 'pointer', padding: 0,
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >
+            <div style={{
               width: i === page ? 24 : 10, height: 10, borderRadius: 5,
               background: i === page ? mode.bright : mode.line,
-              border: 'none', padding: 0, cursor: 'pointer',
               transition: 'all 0.3s',
-            }}
-          />
+              pointerEvents: 'none',
+            }} />
+          </button>
         ))}
       </div>
 
