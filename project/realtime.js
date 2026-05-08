@@ -184,7 +184,7 @@
   window.RealtimeClient = {
     connect,
     disconnect,
-    on: (event, fn) => { listeners[event] = listeners[event] || []; listeners[event].push(fn); },
+    on: (event, fn) => { listeners[event] = [fn]; }, // reemplaza — un handler por evento
   };
 
 })();

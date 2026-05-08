@@ -396,7 +396,8 @@ const JULIACA_CENTER = [-15.4904, -70.1333];
 function GpsMap({ active, otherUnits = [] }) {
   const leafletRef = React.useRef(null);
   const youMarkerRef = React.useRef(null);
-  const otherMarkersRef = React.useRef({}); // { unitId: marker }
+  const otherMarkersRef = React.useRef({});
+  const [mapReady, setMapReady] = React.useState(false);
   const [realPos, setRealPos] = React.useState(null);
   const [gpsError, setGpsError] = React.useState(null);
 
@@ -406,39 +407,31 @@ function GpsMap({ active, otherUnits = [] }) {
     }
   }, [active]);
 
-  // Actualizar marcadores de otras unidades cuando llega estado del servidor
+  // Se ejecuta cuando cambian los otros usuarios O cuando el mapa termina de inicializarse
+  // mapReady está en las dependencias para que esto corra una vez que el mapa esté listo
   React.useEffect(() => {
-    if (!leafletRef.current) return;
+    if (!mapReady || !leafletRef.current) return;
     const map = leafletRef.current;
     const existing = otherMarkersRef.current;
     const currentIds = new Set(otherUnits.map(u => u.unitId));
 
-    // Borrar marcadores de unidades que ya no están en ruta
     Object.keys(existing).forEach(id => {
-      if (!currentIds.has(id)) {
-        existing[id].remove();
-        delete existing[id];
-      }
+      if (!currentIds.has(id)) { existing[id].remove(); delete existing[id]; }
     });
 
-    // Crear o mover marcadores de las unidades activas
     otherUnits.forEach(unit => {
       if (!unit.lat || !unit.lng) return;
       if (existing[unit.unitId]) {
         existing[unit.unitId].setLatLng([unit.lat, unit.lng]);
       } else {
-        const html = `<div style="
-          width:14px; height:14px; border-radius:50%;
-          background:#2E9DFF; border:2px solid #000;
-          box-shadow:0 0 10px #2E9DFF;
-        "></div>`;
+        const html = `<div style="width:14px;height:14px;border-radius:50%;background:#2E9DFF;border:2px solid #000;box-shadow:0 0 10px #2E9DFF;"></div>`;
         const icon = L.divIcon({ html, className: '', iconSize: [14,14], iconAnchor: [7,7] });
         existing[unit.unitId] = L.marker([unit.lat, unit.lng], { icon })
           .addTo(map)
           .bindTooltip(unit.unitId, { permanent: true, direction: 'top', className: 'map-tooltip' });
       }
     });
-  }, [otherUnits]);
+  }, [otherUnits, mapReady]);
 
   const initMap = React.useCallback((node) => {
     if (!node || leafletRef.current) return;
@@ -454,19 +447,14 @@ function GpsMap({ active, otherUnits = [] }) {
       maxZoom: 19,
     }).addTo(map);
 
-    // Marcador "TÚ" — punto blanco con pulso
-    const youHtml = `<div style="
-      width:18px; height:18px; border-radius:50%;
-      background:#fff; border:3px solid #000;
-      box-shadow:0 0 0 6px rgba(255,255,255,0.25), 0 0 20px #fff;
-    "></div>`;
+    const youHtml = `<div style="width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #000;box-shadow:0 0 0 6px rgba(255,255,255,0.25),0 0 20px #fff;"></div>`;
     const youIcon = L.divIcon({ html: youHtml, className: '', iconSize: [18,18], iconAnchor: [9,9] });
     const youMarker = L.marker(JULIACA_CENTER, { icon: youIcon, zIndexOffset: 1000 }).addTo(map);
     youMarkerRef.current = youMarker;
 
     leafletRef.current = map;
     setTimeout(() => map.invalidateSize(), 100);
-    setTimeout(() => map.invalidateSize(), 500);
+    setTimeout(() => { map.invalidateSize(); setMapReady(true); }, 500);
   }, []);
 
   // Sigue la posición GPS real del celular
@@ -487,19 +475,30 @@ function GpsMap({ active, otherUnits = [] }) {
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
+  const chipStyle = {
+    position: 'absolute', fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+    fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase',
+    background: 'rgba(0,0,0,0.8)', padding: '4px 8px', borderRadius: 6,
+    display: 'flex', alignItems: 'center', gap: 5,
+    pointerEvents: 'none', zIndex: 1000,
+  };
+
   return (
     <div style={{ position: 'absolute', inset: 0, background: '#0a0e12' }}>
       <div ref={initMap} style={{ position: 'absolute', inset: 0 }} data-noswipe="map" />
 
-      {/* Chip de estado GPS — esquina inferior izquierda */}
-      <div style={{
-        position: 'absolute', bottom: 16, left: 16,
-        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-        fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase',
-        background: 'rgba(0,0,0,0.8)', padding: '4px 8px', borderRadius: 6,
-        display: 'flex', alignItems: 'center', gap: 5,
-        pointerEvents: 'none', zIndex: 1000,
-      }}>
+      {/* Cuántos están conectados — esquina superior derecha */}
+      <div style={{ ...chipStyle, top: 16, right: 16 }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2E9DFF', flexShrink: 0 }} />
+        <span style={{ color: '#2E9DFF' }}>
+          {otherUnits.length > 0
+            ? `${otherUnits.length} en ruta`
+            : 'solo tú'}
+        </span>
+      </div>
+
+      {/* Estado GPS — esquina inferior izquierda */}
+      <div style={{ ...chipStyle, bottom: 16, left: 16 }}>
         <span style={{
           width: 6, height: 6, borderRadius: '50%',
           background: realPos ? '#00E676' : '#FFD600', flexShrink: 0,

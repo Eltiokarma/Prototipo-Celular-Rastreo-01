@@ -183,6 +183,20 @@ function broadcast(data) {
   });
 }
 
+// ─── LIMPIAR UNIDADES INACTIVAS ──────────────────────────────
+// Si una unidad no manda GPS en más de 30 segundos, la sacamos.
+// Evita que fantasmas queden en el mapa después de que alguien cierra la app.
+setInterval(() => {
+  const cutoff = Date.now() - 30_000;
+  for (const [unitId, unit] of units) {
+    if (unit.timestamp < cutoff) {
+      units.delete(unitId);
+      console.log(`Unidad eliminada por inactividad: ${unitId}`);
+      broadcast({ type: 'unit_left', unitId });
+    }
+  }
+}, 10_000);
+
 // ─── ARRANCAR ────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
