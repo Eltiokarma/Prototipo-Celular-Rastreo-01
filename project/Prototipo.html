@@ -425,11 +425,12 @@ function GpsMap({ frontTime, backTime, status, expanded, active }) {
     return L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size/2, size/2] });
   }
 
-  // Inicializar el mapa Leaflet una sola vez
-  React.useEffect(() => {
-    if (!mapRef.current || leafletRef.current) return;
+  // Inicializar Leaflet cuando el div esté en el DOM
+  const initMap = React.useCallback((node) => {
+    if (!node || leafletRef.current) return;
+    mapRef.current = node;
 
-    const map = L.map(mapRef.current, {
+    const map = L.map(node, {
       center: JULIACA_CENTER,
       zoom: 15,
       zoomControl: false,  // sin botones +/- para no distraer al conductor
@@ -461,11 +462,10 @@ function GpsMap({ frontTime, backTime, status, expanded, active }) {
 
     leafletRef.current = map;
 
-    // Forzar que Leaflet recalcule el tamaño — necesita el DOM ya pintado
-    setTimeout(() => map.invalidateSize(), 200);
-    setTimeout(() => map.invalidateSize(), 600);
-
-    return () => { map.remove(); leafletRef.current = null; };
+    // Forzar recálculo de tamaño en varios momentos
+    setTimeout(() => map.invalidateSize(), 100);
+    setTimeout(() => map.invalidateSize(), 400);
+    setTimeout(() => map.invalidateSize(), 1000);
   }, []);
 
   // Actualizar posición del marcador "TÚ" cuando llega GPS real
@@ -489,7 +489,7 @@ function GpsMap({ frontTime, backTime, status, expanded, active }) {
   return (
     <div style={{ position: 'absolute', inset: 0, background: '#0a0e12' }}>
       {/* contenedor del mapa Leaflet */}
-      <div ref={mapRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 1 }} data-noswipe="map" />
+      <div ref={initMap} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 1 }} data-noswipe="map" />
 
       {/* overlay superior con info de ruta */}
       {expanded && (
