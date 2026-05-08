@@ -393,82 +393,48 @@ function gpsToMapXY(lat, lng) {
 // Centro de Juliaca — Plaza de Armas
 const JULIACA_CENTER = [-15.4904, -70.1333];
 
-function GpsMap({ frontTime, backTime, status, expanded, active }) {
-  const mapRef = React.useRef(null);      // div donde vive el mapa
-  const leafletRef = React.useRef(null);  // instancia de Leaflet
+function GpsMap({ active }) {
+  const leafletRef = React.useRef(null);
   const youMarkerRef = React.useRef(null);
+  const [realPos, setRealPos] = React.useState(null);
+  const [gpsError, setGpsError] = React.useState(null);
 
-  // Cuando el carrusel muestra esta pantalla, Leaflet necesita recalcular su tamaño
   React.useEffect(() => {
     if (active && leafletRef.current) {
       setTimeout(() => leafletRef.current.invalidateSize(), 50);
     }
   }, [active]);
-  const [realPos, setRealPos] = React.useState(null);
-  const [gpsError, setGpsError] = React.useState(null);
 
-  const statusColor =
-    status === 'green' ? '#00E676' :
-    status === 'yellow' ? '#FFD600' : '#FF1744';
-
-  // Crear icono circular para Leaflet
-  function makeIcon(color, size, label) {
-    const html = `
-      <div style="
-        width:${size}px; height:${size}px; border-radius:50%;
-        background:${color}; border:3px solid #000;
-        box-shadow:0 0 ${size}px ${color};
-        display:flex; align-items:center; justify-content:center;
-        font-family:monospace; font-size:9px; font-weight:900;
-        color:#000; white-space:nowrap;
-      ">${label || ''}</div>`;
-    return L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size/2, size/2] });
-  }
-
-  // Inicializar Leaflet cuando el div esté en el DOM
   const initMap = React.useCallback((node) => {
     if (!node || leafletRef.current) return;
-    mapRef.current = node;
 
     const map = L.map(node, {
       center: JULIACA_CENTER,
-      zoom: 15,
-      zoomControl: false,  // sin botones +/- para no distraer al conductor
+      zoom: 16,
+      zoomControl: false,
       attributionControl: false,
     });
 
-    // Tiles de OpenStreetMap con estilo oscuro (CartoDB Dark Matter)
-    // Perfecto para la noche y el sol — alto contraste
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
     }).addTo(map);
 
-    // Marcador "TÚ" — punto blanco pulsante
-    const youIcon = makeIcon('#FFFFFF', 20, '');
-    const youMarker = L.marker(JULIACA_CENTER, { icon: youIcon, zIndexOffset: 1000 })
-      .addTo(map)
-      .bindTooltip('TÚ', { permanent: true, direction: 'top', className: 'map-tooltip' });
+    // Marcador "TÚ" — punto blanco con pulso
+    const youHtml = `<div style="
+      width:18px; height:18px; border-radius:50%;
+      background:#fff; border:3px solid #000;
+      box-shadow:0 0 0 6px rgba(255,255,255,0.25), 0 0 20px #fff;
+    "></div>`;
+    const youIcon = L.divIcon({ html: youHtml, className: '', iconSize: [18,18], iconAnchor: [9,9] });
+    const youMarker = L.marker(JULIACA_CENTER, { icon: youIcon, zIndexOffset: 1000 }).addTo(map);
     youMarkerRef.current = youMarker;
 
-    // Marcadores de unidades adelante y atrás (simuladas por ahora)
-    const frontCoords = [-15.484, -70.131];
-    const backCoords  = [-15.497, -70.135];
-    L.marker(frontCoords, { icon: makeIcon(statusColor, 16, '') })
-      .addTo(map)
-      .bindTooltip(`+1 · ${frontTime}`, { permanent: true, direction: 'top', className: 'map-tooltip' });
-    L.marker(backCoords, { icon: makeIcon(statusColor, 16, '') })
-      .addTo(map)
-      .bindTooltip(`-1 · ${backTime}`, { permanent: true, direction: 'top', className: 'map-tooltip' });
-
     leafletRef.current = map;
-
-    // Forzar recálculo de tamaño en varios momentos
     setTimeout(() => map.invalidateSize(), 100);
-    setTimeout(() => map.invalidateSize(), 400);
-    setTimeout(() => map.invalidateSize(), 1000);
+    setTimeout(() => map.invalidateSize(), 500);
   }, []);
 
-  // Actualizar posición del marcador "TÚ" cuando llega GPS real
+  // Sigue la posición GPS real del celular
   React.useEffect(() => {
     if (!navigator.geolocation) { setGpsError('sin GPS'); return; }
     const id = navigator.geolocation.watchPosition(
@@ -488,36 +454,9 @@ function GpsMap({ frontTime, backTime, status, expanded, active }) {
 
   return (
     <div style={{ position: 'absolute', inset: 0, background: '#0a0e12' }}>
-      {/* contenedor del mapa Leaflet */}
-      <div ref={initMap} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 1 }} data-noswipe="map" />
+      <div ref={initMap} style={{ position: 'absolute', inset: 0 }} data-noswipe="map" />
 
-      {/* overlay superior con info de ruta */}
-      {expanded && (
-        <div style={{
-          position: 'absolute', top: 16, left: 16, right: 16,
-          display: 'flex', gap: 10, justifyContent: 'space-between',
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          pointerEvents: 'none', zIndex: 1000,
-        }}>
-          <div style={{
-            background: 'rgba(0,0,0,0.8)', padding: '6px 10px', borderRadius: 6,
-            fontSize: 10, color: '#aab4c0', border: '1px solid #1e242c',
-          }}>
-            <div style={{ color: '#6b7785', fontSize: 8, letterSpacing: 1.5 }}>RUTA</div>
-            <div style={{ fontWeight: 700, color: '#fff' }}>R-14 · TERMINAL</div>
-          </div>
-          <div style={{
-            background: 'rgba(0,0,0,0.8)', padding: '6px 10px', borderRadius: 6,
-            fontSize: 10, color: '#aab4c0', border: '1px solid #1e242c',
-            textAlign: 'right',
-          }}>
-            <div style={{ color: '#6b7785', fontSize: 8, letterSpacing: 1.5 }}>EN RUTA</div>
-            <div style={{ fontWeight: 700, color: '#fff' }}>7 unid.</div>
-          </div>
-        </div>
-      )}
-
-      {/* indicador GPS abajo */}
+      {/* Chip de estado GPS — esquina inferior izquierda */}
       <div style={{
         position: 'absolute', bottom: 16, left: 16,
         fontFamily: 'JetBrains Mono, ui-monospace, monospace',
@@ -532,7 +471,7 @@ function GpsMap({ frontTime, backTime, status, expanded, active }) {
         }} />
         <span style={{ color: realPos ? '#00E676' : '#FFD600' }}>
           {realPos
-            ? `GPS REAL · ${realPos.lat.toFixed(4)}, ${realPos.lng.toFixed(4)}`
+            ? `${realPos.lat.toFixed(4)}, ${realPos.lng.toFixed(4)}`
             : gpsError ? 'GPS NO DISPONIBLE' : 'ESPERANDO GPS...'}
         </span>
       </div>
@@ -1491,7 +1430,7 @@ function Carousel({ tweaks }) {
           visibility: page === 2 ? 'visible' : 'hidden',
           pointerEvents: page === 2 ? 'auto' : 'none',
         }}>
-          <GpsMap frontTime={tweaks.frontTime} backTime={tweaks.backTime} status={status} expanded={true} active={page === 2} />
+          <GpsMap active={page === 2} />
         </div>
       )}
 
