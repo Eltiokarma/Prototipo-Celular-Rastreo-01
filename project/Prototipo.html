@@ -393,9 +393,10 @@ function gpsToMapXY(lat, lng) {
 // Centro de Juliaca — Plaza de Armas
 const JULIACA_CENTER = [-15.4904, -70.1333];
 
-function GpsMap({ active }) {
+function GpsMap({ active, otherUnits = [] }) {
   const leafletRef = React.useRef(null);
   const youMarkerRef = React.useRef(null);
+  const otherMarkersRef = React.useRef({}); // { unitId: marker }
   const [realPos, setRealPos] = React.useState(null);
   const [gpsError, setGpsError] = React.useState(null);
 
@@ -404,6 +405,40 @@ function GpsMap({ active }) {
       setTimeout(() => leafletRef.current.invalidateSize(), 50);
     }
   }, [active]);
+
+  // Actualizar marcadores de otras unidades cuando llega estado del servidor
+  React.useEffect(() => {
+    if (!leafletRef.current) return;
+    const map = leafletRef.current;
+    const existing = otherMarkersRef.current;
+    const currentIds = new Set(otherUnits.map(u => u.unitId));
+
+    // Borrar marcadores de unidades que ya no están en ruta
+    Object.keys(existing).forEach(id => {
+      if (!currentIds.has(id)) {
+        existing[id].remove();
+        delete existing[id];
+      }
+    });
+
+    // Crear o mover marcadores de las unidades activas
+    otherUnits.forEach(unit => {
+      if (!unit.lat || !unit.lng) return;
+      if (existing[unit.unitId]) {
+        existing[unit.unitId].setLatLng([unit.lat, unit.lng]);
+      } else {
+        const html = `<div style="
+          width:14px; height:14px; border-radius:50%;
+          background:#2E9DFF; border:2px solid #000;
+          box-shadow:0 0 10px #2E9DFF;
+        "></div>`;
+        const icon = L.divIcon({ html, className: '', iconSize: [14,14], iconAnchor: [7,7] });
+        existing[unit.unitId] = L.marker([unit.lat, unit.lng], { icon })
+          .addTo(map)
+          .bindTooltip(unit.unitId, { permanent: true, direction: 'top', className: 'map-tooltip' });
+      }
+    });
+  }, [otherUnits]);
 
   const initMap = React.useCallback((node) => {
     if (!node || leafletRef.current) return;
@@ -1299,7 +1334,7 @@ function CenterScreen({ tweaks, onFireSos }) {
   );
 }
 
-function Carousel({ tweaks }) {
+function Carousel({ tweaks, otherUnits = [] }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -1430,7 +1465,7 @@ function Carousel({ tweaks }) {
           visibility: page === 2 ? 'visible' : 'hidden',
           pointerEvents: page === 2 ? 'auto' : 'none',
         }}>
-          <GpsMap active={page === 2} />
+          <GpsMap active={page === 2} otherUnits={otherUnits} />
         </div>
       )}
 
@@ -1477,8 +1512,8 @@ function Carousel({ tweaks }) {
   );
 }
 
-function CombiScreen({ tweaks }) {
-  return <Carousel tweaks={tweaks} />;
+function CombiScreen({ tweaks, otherUnits }) {
+  return <Carousel tweaks={tweaks} otherUnits={otherUnits} />;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1657,29 +1692,33 @@ function Root() {
   const [user, setUser] = React.useState(null);
   const [lap, setLap] = React.useState(1);
   const [connected, setConnected] = React.useState(false);
+  const [otherUnits, setOtherUnits] = React.useState([]);
 
   // Conectar al servidor cuando el chofer hace login
   React.useEffect(() => {
     if (!user || screen !== 'app') return;
     if (!window.RealtimeClient) return;
 
+    const myUnitId = user.user; // el nombre de usuario es el ID único en el servidor
+
     window.RealtimeClient.on('status', ({ connected }) => setConnected(connected));
 
     window.RealtimeClient.on('state', (state) => {
-      // Buscar los gaps que corresponden a esta unidad
-      const myUnit = 'V-247'; // en producción viene del login
-      const myGaps = state.gaps?.[myUnit];
-      if (!myGaps) return;
-
-      setTweaks(t => ({
-        ...t,
-        frontTime: myGaps.toAhead || t.frontTime,
-        backTime:  myGaps.toBehind || t.backTime,
-        avgSpeed:  state.units?.find(u => u.unitId === myUnit)?.speed || t.avgSpeed,
-      }));
+      const myGaps = state.gaps?.[myUnitId];
+      if (myGaps) {
+        setTweaks(t => ({
+          ...t,
+          frontTime: myGaps.toAhead || t.frontTime,
+          backTime:  myGaps.toBehind || t.backTime,
+          avgSpeed:  state.units?.find(u => u.unitId === myUnitId)?.speed || t.avgSpeed,
+        }));
+      }
+      // Todos los que están en ruta excepto yo
+      const others = (state.units || []).filter(u => u.unitId !== myUnitId && u.lat);
+      setOtherUnits(others);
     });
 
-    window.RealtimeClient.connect('V-247', user.user);
+    window.RealtimeClient.connect(myUnitId, myUnitId);
 
     return () => window.RealtimeClient.disconnect();
   }, [user, screen]);
@@ -1713,7 +1752,7 @@ function Root() {
       onRest={() => setScreen('app')}
     />;
   } else {
-    content = <CombiScreen tweaks={tweaks} onFinishLap={() => { setLap(l => l + 1); setScreen('start'); }} />;
+    content = <CombiScreen tweaks={tweaks} otherUnits={otherUnits} onFinishLap={() => { setLap(l => l + 1); setScreen('start'); }} />;
   }
 
   return (
