@@ -97,6 +97,37 @@ wss.on('connection', (ws) => {
       const state = buildState();
       broadcast({ type: 'state', ...state });
     }
+
+    // TIPO: SOS — el chofer desliza el botón de emergencia
+    // El servidor reenvía a TODOS los conectados (incluido el emisor)
+    // con el nombre del chofer que pidió ayuda y su última posición.
+    if (msg.type === 'sos') {
+      const unitId = clients.get(ws);
+      const unit = units.get(unitId) || {};
+      console.log(`🚨 SOS de ${unitId}`);
+      broadcast({
+        type: 'sos_alert',
+        unitId,
+        driverName: unit.driverName || 'Conductor',
+        lat: msg.lat ?? null,
+        lng: msg.lng ?? null,
+        timestamp: msg.timestamp || Date.now(),
+      });
+    }
+
+    // TIPO: chat — mensaje de texto entre choferes del grupo
+    // Limitamos a 500 caracteres para evitar abuso.
+    if (msg.type === 'chat') {
+      const unitId = clients.get(ws);
+      const unit = units.get(unitId) || {};
+      broadcast({
+        type: 'chat_msg',
+        unitId,
+        driverName: unit.driverName || 'Conductor',
+        text: String(msg.text || '').slice(0, 500),
+        timestamp: msg.timestamp || Date.now(),
+      });
+    }
   });
 
   // Cuando una combi se desconecta
