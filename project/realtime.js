@@ -9,24 +9,46 @@
   const SERVER_URL = window.REALTIME_SERVER_URL ||
     'wss://prototipo-celular-rastreo-01-production.up.railway.app';
 
+  // El mismo servidor atiende HTTP (login) y WebSocket (tiempo real)
+  const HTTP_URL = SERVER_URL.replace(/^ws/, 'http');
+
   // Estado de la conexión
   let ws = null;
   let gpsInterval = null;
   let reconnectTimeout = null;
-  let unitId = null;
-  let driverName = null;
+  let authToken = null;
+  let authFailed = false;
 
   // Callbacks — la app los registra para recibir actualizaciones
-  const listeners = { state: [], status: [], chat: [], voice: [], sos: [], history: [] };
+  const listeners = { state: [], status: [], chat: [], voice: [], sos: [], history: [], autherror: [] };
 
   function emit(event, data) {
     (listeners[event] || []).forEach(fn => fn(data));
   }
 
+  // ─── AUTENTICACIÓN ─────────────────────────────────────────
+  // Devuelve { token, unitId, driverName, role, created } o lanza un
+  // Error con .status (400/401/429) si el servidor rechazó el login.
+  // Un error sin .status significa que no se pudo llegar al servidor.
+  async function login(user, password) {
+    const res = await fetch(HTTP_URL + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || 'Error de autenticación');
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
   // ─── CONEXIÓN ──────────────────────────────────────────────
-  function connect(id, name) {
-    unitId = id;
-    driverName = name;
+  function connect({ token }) {
+    authToken = token;
+    authFailed = false;
 
     if (ws) ws.close();
 
@@ -36,8 +58,8 @@
       console.log('WebSocket conectado');
       emit('status', { connected: true });
 
-      // Identificarse al servidor
-      send({ type: 'identify', unitId, driverName });
+      // Presentar el token de sesión al servidor
+      send({ type: 'identify', token: authToken });
 
       // Arrancar el envío de GPS
       startGps();
@@ -56,6 +78,10 @@
           emit('sos', msg);
         } else if (msg.type === 'chat_history') {
           emit('history', msg.items || []);
+        } else if (msg.type === 'auth_error') {
+          // Sesión inválida o expirada: no tiene sentido reintentar
+          authFailed = true;
+          emit('autherror', msg);
         }
       } catch (e) {
         console.error('Mensaje inválido del servidor', e);
@@ -63,13 +89,17 @@
     };
 
     ws.onclose = () => {
-      console.log('WebSocket desconectado — reconectando en 3s');
       emit('status', { connected: false });
       stopGps();
 
+      // Si el servidor rechazó la sesión, la app vuelve al login —
+      // reconectar con el mismo token solo repetiría el rechazo
+      if (authFailed) return;
+
       // Reconexión automática después de 3 segundos
       // Así si se corta la señal, la app se reconecta sola
-      reconnectTimeout = setTimeout(() => connect(unitId, driverName), 3000);
+      console.log('WebSocket desconectado — reconectando en 3s');
+      reconnectTimeout = setTimeout(() => connect({ token: authToken }), 3000);
     };
 
     ws.onerror = (err) => {
@@ -219,6 +249,7 @@
   }
 
   window.RealtimeClient = {
+    login,
     connect,
     disconnect,
     sendChat,

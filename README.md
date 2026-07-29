@@ -50,6 +50,16 @@ sobreviva redeploys, montar un volumen y apuntar la base ahí:
 (webm/opus, tope 60 s / ~1.5 MB); solo las 30 más recientes conservan su
 audio — las más viejas quedan "expiradas" (burbuja sin reproducción).
 
+**Autenticación:** `POST /auth/login` con `{ user, password }` devuelve un
+token de sesión (30 días) que el WebSocket exige en el `identify` — sin
+token válido no hay estado, historial ni chat. Registro *en el primer uso*:
+la primera vez que una unidad entra, esa contraseña queda registrada
+(scrypt + salt en la tabla `users`); después siempre se exige la misma.
+5 intentos fallidos bloquean la unidad 5 minutos. La app guarda la sesión
+en el celular y la restaura al abrir; si el servidor no responde, ofrece
+un modo demo local. La tabla `users` ya tiene columna `role`
+(`driver`/`dispatch`) pensada para el futuro panel de Despacho.
+
 ## Pantallas
 
 Carrusel de 3 páginas (swipe horizontal): **CHAT ← RUTA → MAPA**.

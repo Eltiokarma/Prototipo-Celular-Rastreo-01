@@ -6,6 +6,7 @@ const { WebSocketServer } = require('ws');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 app.use(express.json());
@@ -16,6 +17,8 @@ app.use(express.json());
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Preflight del navegador antes de un POST con JSON
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
 
@@ -114,6 +117,99 @@ function historyCount() {
   return db.prepare('SELECT COUNT(*) AS c FROM messages').get().c;
 }
 
+// ─── USUARIOS Y SESIONES ─────────────────────────────────────
+// Registro "en el primer uso": la primera vez que una unidad entra,
+// esa contraseña queda registrada; después siempre se exige la misma.
+// Cuando exista el panel de Despacho, la administración de usuarios
+// (altas, resets de contraseña, roles) pasa ahí.
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    unitId TEXT PRIMARY KEY,
+    driverName TEXT,
+    role TEXT NOT NULL DEFAULT 'driver',   -- 'driver' | 'dispatch'
+    passHash TEXT NOT NULL,                -- formato salt:hash (scrypt)
+    createdAt INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    unitId TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    expiresAt INTEGER NOT NULL
+  );
+`);
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 32).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  const [salt, hash] = String(stored).split(':');
+  if (!salt || !hash) return false;
+  const calc = crypto.scryptSync(password, salt, 32);
+  const expected = Buffer.from(hash, 'hex');
+  return calc.length === expected.length && crypto.timingSafeEqual(calc, expected);
+}
+
+const SESSION_DAYS = 30;
+
+function createSession(unitId) {
+  const token = crypto.randomBytes(24).toString('hex');
+  db.prepare('INSERT INTO sessions (token, unitId, createdAt, expiresAt) VALUES (?, ?, ?, ?)')
+    .run(token, unitId, Date.now(), Date.now() + SESSION_DAYS * 86_400_000);
+  return token;
+}
+
+// Devuelve el usuario dueño de un token vigente, o null
+function sessionUser(token) {
+  if (typeof token !== 'string' || token.length < 20) return null;
+  const s = db.prepare('SELECT unitId FROM sessions WHERE token = ? AND expiresAt > ?')
+    .get(token, Date.now());
+  if (!s) return null;
+  return db.prepare('SELECT unitId, driverName, role FROM users WHERE unitId = ?').get(s.unitId) || null;
+}
+
+// Limpieza de sesiones vencidas una vez por hora
+setInterval(() => {
+  db.prepare('DELETE FROM sessions WHERE expiresAt <= ?').run(Date.now());
+}, 3_600_000);
+
+// Intentos fallidos por unidad: 5 seguidos → bloqueo de 5 minutos
+const loginAttempts = new Map();
+
+app.post('/auth/login', (req, res) => {
+  const unitId = String(req.body?.user || '').trim().slice(0, 24);
+  const password = String(req.body?.password || '');
+  if (!unitId || password.length < 4 || password.length > 64) {
+    return res.status(400).json({ error: 'Completá usuario y contraseña (mínimo 4 caracteres)' });
+  }
+
+  const a = loginAttempts.get(unitId);
+  if (a && a.until > Date.now()) {
+    return res.status(429).json({ error: 'Demasiados intentos. Esperá 5 minutos.' });
+  }
+
+  let user = db.prepare('SELECT * FROM users WHERE unitId = ?').get(unitId);
+  let created = false;
+  if (!user) {
+    db.prepare('INSERT INTO users (unitId, driverName, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(unitId, unitId, 'driver', hashPassword(password), Date.now());
+    user = { unitId, driverName: unitId, role: 'driver' };
+    created = true;
+    console.log(`Unidad registrada: ${unitId}`);
+  } else if (!verifyPassword(password, user.passHash)) {
+    const count = (a?.count || 0) + 1;
+    loginAttempts.set(unitId, { count, until: count >= 5 ? Date.now() + 300_000 : 0 });
+    return res.status(401).json({ error: `Contraseña incorrecta · intento ${count} de 5` });
+  }
+
+  loginAttempts.delete(unitId);
+  const token = createSession(user.unitId);
+  res.json({ token, unitId: user.unitId, driverName: user.driverName, role: user.role, created });
+});
+
 // ─── RUTA DE SALUD ───────────────────────────────────────────
 // Si hacés GET /ping y responde "pong", el servidor está vivo.
 app.get('/ping', (req, res) => {
@@ -147,20 +243,31 @@ wss.on('connection', (ws) => {
       return; // ignorar mensajes que no sean JSON válido
     }
 
-    // TIPO: identificación — el chofer dice quién es al conectarse
+    // TIPO: identificación — el cliente presenta su token de sesión.
+    // Sin token válido no hay estado, ni historial, ni chat.
     if (msg.type === 'identify') {
-      clients.set(ws, msg.unitId);
-      units.set(msg.unitId, {
-        unitId: msg.unitId,
-        driverName: msg.driverName || 'Conductor',
+      const user = sessionUser(msg.token);
+      if (!user) {
+        ws.send(JSON.stringify({ type: 'auth_error', error: 'Sesión inválida o expirada' }));
+        ws.close();
+        return;
+      }
+      clients.set(ws, user.unitId);
+      units.set(user.unitId, {
+        unitId: user.unitId,
+        driverName: user.driverName || 'Conductor',
         lat: null,
         lng: null,
         speed: 0,
         routeProgress: 0,
         timestamp: Date.now(),
       });
-      console.log(`Unidad identificada: ${msg.unitId}`);
-      broadcast({ type: 'unit_joined', unitId: msg.unitId });
+      console.log(`Unidad identificada: ${user.unitId}`);
+      broadcast({ type: 'unit_joined', unitId: user.unitId });
+
+      // Recién ahora recibe el estado y la conversación en curso
+      ws.send(JSON.stringify({ type: 'state', ...buildState() }));
+      ws.send(JSON.stringify({ type: 'chat_history', items: recentHistory() }));
     }
 
     // TIPO: posición GPS — llega cada ~3 segundos desde cada combi
@@ -190,6 +297,7 @@ wss.on('connection', (ws) => {
     // con el nombre del chofer que pidió ayuda y su última posición.
     if (msg.type === 'sos') {
       const unitId = clients.get(ws);
+      if (!unitId) return;
       const unit = units.get(unitId) || {};
       console.log(`🚨 SOS de ${unitId}`);
       const alert = {
@@ -207,6 +315,7 @@ wss.on('connection', (ws) => {
     // Limitamos a 500 caracteres para evitar abuso.
     if (msg.type === 'chat') {
       const unitId = clients.get(ws);
+      if (!unitId) return;
       const unit = units.get(unitId) || {};
       const entry = {
         unitId,
@@ -253,12 +362,8 @@ wss.on('connection', (ws) => {
     }
   });
 
-  // Mandar el estado actual apenas se conecta (para que no espere el primer GPS)
-  const state = buildState();
-  ws.send(JSON.stringify({ type: 'state', ...state }));
-
-  // Y el historial de chat, para que vea la conversación en curso
-  ws.send(JSON.stringify({ type: 'chat_history', items: recentHistory() }));
+  // El estado y el historial se mandan recién después de un identify
+  // válido — una conexión sin autenticar no recibe nada.
 });
 
 // ─── CONSTRUIR ESTADO ────────────────────────────────────────

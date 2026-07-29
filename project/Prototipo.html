@@ -1074,25 +1074,45 @@ function Field({ label, value, onChange, type = 'text', error, autoFocus }) {
   );
 }
 
-function LoginScreen({ onSuccess }) {
-  const [user, setUser] = React.useState('');
+function LoginScreen({ onSuccess, notice }) {
+  const [user, setUser] = React.useState(() => {
+    try { return localStorage.getItem('r14_lastUser') || ''; } catch { return ''; }
+  });
   const [pass, setPass] = React.useState('');
   const [error, setError] = React.useState(null);
+  const [offerDemo, setOfferDemo] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
 
-  const submit = () => {
-    if (!user || !pass) { setError('Completa usuario y contraseña'); return; }
+  // Login real contra el servidor. La primera vez que una unidad entra,
+  // esa contraseña queda registrada (después Despacho administrará altas).
+  const submit = async () => {
+    if (!user.trim() || pass.length < 4) {
+      setError('Completá usuario y contraseña (mínimo 4 caracteres)');
+      return;
+    }
     setLoading(true);
     setError(null);
-    setTimeout(() => {
-      if (pass === '1234') {
-        setLoading(false);
-        setError('Contraseña incorrecta · intento 2 de 3');
-        setPass('');
+    setOfferDemo(false);
+    try {
+      const session = await window.RealtimeClient.login(user.trim(), pass);
+      try { localStorage.setItem('r14_lastUser', session.unitId); } catch {}
+      onSuccess(session);
+    } catch (e) {
+      setLoading(false);
+      if (e.status) {
+        setError(e.message);
+        if (e.status === 401) setPass('');
       } else {
-        onSuccess({ user });
+        // el servidor no responde: se puede probar la app sin conexión
+        setError('No se pudo conectar con el servidor');
+        setOfferDemo(true);
       }
-    }, 800);
+    }
+  };
+
+  const enterDemo = () => {
+    const id = user.trim() || 'DEMO';
+    onSuccess({ unitId: id, driverName: id, token: null, role: 'driver', demo: true });
   };
 
   const handleKeyDown = (e) => { if (e.key === 'Enter') submit(); };
@@ -1137,7 +1157,7 @@ function LoginScreen({ onSuccess }) {
         <Field label="Contraseña" value={pass} onChange={setPass} type="password" error={!!error} />
       </div>
 
-      {error && (
+      {(error || notice) && (
         <div style={{
           background: 'rgba(255,77,109,0.12)', border: `1px solid ${P.red}`,
           borderRadius: 10, padding: '10px 12px', marginBottom: 14,
@@ -1149,8 +1169,21 @@ function LoginScreen({ onSuccess }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontFamily: '"Archivo Black", system-ui', fontSize: 14, flexShrink: 0,
           }}>!</div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: P.red, fontFamily: '"Helvetica Neue", system-ui' }}>{error}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.red, fontFamily: '"Helvetica Neue", system-ui' }}>{error || notice}</div>
         </div>
+      )}
+
+      {offerDemo && (
+        <button onClick={enterDemo} style={{
+          width: '100%', padding: '12px',
+          fontSize: 14, fontWeight: 700, letterSpacing: 1,
+          fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+          background: 'transparent', color: P.sky,
+          border: `1px solid ${P.deep}`, borderRadius: 10,
+          cursor: 'pointer', marginBottom: 14,
+        }}>
+          ENTRAR EN MODO DEMO (SIN SERVIDOR)
+        </button>
       )}
 
       <button onClick={submit} disabled={loading} style={{
@@ -1183,7 +1216,7 @@ function LoginScreen({ onSuccess }) {
   );
 }
 
-function StartRouteScreen({ user, lapNumber, onStart, onRest }) {
+function StartRouteScreen({ user, lapNumber, onStart, onRest, onLogout }) {
   const [countdown, setCountdown] = React.useState(15);
   React.useEffect(() => {
     if (countdown <= 0) return;
@@ -1201,7 +1234,7 @@ function StartRouteScreen({ user, lapNumber, onStart, onRest }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
         <CoopLogo size={36} />
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
             fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
@@ -1209,8 +1242,17 @@ function StartRouteScreen({ user, lapNumber, onStart, onRest }) {
           <div style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 18, color: P.white, letterSpacing: -0.3,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>{user || 'RAÚL MAMANI'}</div>
         </div>
+        {onLogout && (
+          <button onClick={onLogout} style={{
+            background: 'transparent', border: `1px solid ${P.line}`,
+            borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+            fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+            fontSize: 12, fontWeight: 700, color: P.mute, flexShrink: 0,
+          }}>Salir</button>
+        )}
       </div>
 
       {!isFirstLap && (
@@ -1915,10 +1957,38 @@ function Root() {
   const [gapMeta, setGapMeta] = React.useState(null); // { aheadUnit, behindUnit }
   const [messages, setMessages] = React.useState(CHAT_SEED);
   const [incomingSos, setIncomingSos] = React.useState(null);
+  const [authNotice, setAuthNotice] = React.useState(null);
   const connectedRef = React.useRef(false);
   const myUnitIdRef = React.useRef(null);
 
   const pushMsg = (m) => setMessages(ms => [...ms.slice(-99), m]);
+
+  // Restaurar la sesión guardada: el chofer no tipea su clave cada día
+  React.useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('r14_session') || 'null');
+      if (saved?.unitId && saved?.token) {
+        setUser(saved);
+        setScreen('start');
+      }
+    } catch {}
+  }, []);
+
+  const onLogin = (session) => {
+    setUser(session);
+    setAuthNotice(null);
+    try {
+      if (session.token) localStorage.setItem('r14_session', JSON.stringify(session));
+    } catch {}
+    setScreen('start');
+  };
+
+  const logout = () => {
+    try { localStorage.removeItem('r14_session'); } catch {}
+    if (window.RealtimeClient) window.RealtimeClient.disconnect();
+    setUser(null);
+    setScreen('login');
+  };
 
   React.useEffect(() => {
     if (!incomingSos) return;
@@ -1926,13 +1996,22 @@ function Root() {
     return () => clearTimeout(t);
   }, [incomingSos]);
 
-  // Conectar al servidor cuando el chofer hace login
+  // Conectar al servidor cuando el chofer sale a ruta.
+  // En modo demo (sin token) no hay conexión: todo queda local.
   React.useEffect(() => {
     if (!user || screen !== 'app') return;
-    if (!window.RealtimeClient) return;
+    if (!window.RealtimeClient || !user.token) return;
 
-    const myUnitId = user.user; // el nombre de usuario es el ID único en el servidor
+    const myUnitId = user.unitId; // identidad canónica que devolvió el servidor
     myUnitIdRef.current = myUnitId;
+
+    // Sesión rechazada (expirada o revocada): limpiar y volver al login
+    window.RealtimeClient.on('autherror', () => {
+      try { localStorage.removeItem('r14_session'); } catch {}
+      setUser(null);
+      setAuthNotice('Tu sesión expiró. Ingresá de nuevo.');
+      setScreen('login');
+    });
 
     window.RealtimeClient.on('status', ({ connected }) => {
       connectedRef.current = connected;
@@ -2013,7 +2092,7 @@ function Root() {
       setIncomingSos(a);
     });
 
-    window.RealtimeClient.connect(myUnitId, myUnitId);
+    window.RealtimeClient.connect({ token: user.token });
 
     return () => window.RealtimeClient.disconnect();
   }, [user, screen]);
@@ -2060,13 +2139,14 @@ function Root() {
 
   let content;
   if (screen === 'login') {
-    content = <LoginScreen onSuccess={(u) => { setUser(u); setScreen('start'); }} />;
+    content = <LoginScreen onSuccess={onLogin} notice={authNotice} />;
   } else if (screen === 'start') {
     content = <StartRouteScreen
-      user={user?.user?.toUpperCase()}
+      user={(user?.driverName || user?.unitId || '').toUpperCase()}
       lapNumber={lap}
       onStart={() => setScreen('app')}
       onRest={() => setScreen('app')}
+      onLogout={logout}
     />;
   } else {
     content = <CombiScreen
