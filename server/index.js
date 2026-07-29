@@ -451,11 +451,20 @@ app.get('/ping', (req, res) => {
 
 // ─── APP WEB ─────────────────────────────────────────────────
 // El mismo servidor sirve la app del chofer y el panel de Despacho:
-// una sola URL pública para todo (Railway ya da HTTPS). Si el deploy
-// no incluye la carpeta project/ (root apuntando a server/), este
-// bloque se salta y el servidor queda solo como API/WebSocket.
-const PROJECT_DIR = path.join(__dirname, '..', 'project');
-if (fs.existsSync(path.join(PROJECT_DIR, 'Prototipo.html'))) {
+// una sola URL pública para todo (Railway ya da HTTPS). Se busca la
+// carpeta project/ en las ubicaciones posibles según cómo se despliegue.
+function resolveProjectDir() {
+  const candidates = [
+    path.join(__dirname, '..', 'project'), // repo completo (lo normal)
+    path.join(__dirname, 'project'),        // project/ copiada dentro de server/
+    path.join(process.cwd(), 'project'),    // arrancado desde la raíz
+  ];
+  return candidates.find(dir => fs.existsSync(path.join(dir, 'Prototipo.html'))) || null;
+}
+
+const PROJECT_DIR = resolveProjectDir();
+
+if (PROJECT_DIR) {
   // Cuando la app se sirve desde acá, habla con este mismo origen.
   // En hosting estático separado este archivo da 404 y la app cae al
   // default de realtime.js — nada se rompe.
@@ -468,7 +477,46 @@ if (fs.existsSync(path.join(PROJECT_DIR, 'Prototipo.html'))) {
   app.use(express.static(PROJECT_DIR));
   console.log('Sirviendo la app web desde', PROJECT_DIR);
 } else {
-  console.log('Carpeta project/ no encontrada — solo API/WebSocket');
+  // El deploy no incluye la carpeta project/ — pasa cuando el Root
+  // Directory del servicio apunta a server/ en vez de la raíz del repo.
+  // En vez del "Cannot GET /" pelado de Express, la página explica qué
+  // ajustar: el error se diagnostica solo.
+  console.warn('Carpeta project/ no encontrada — solo API/WebSocket.');
+  console.warn('En Railway: dejar Root Directory vacío (raíz del repo).');
+  app.get('/', (req, res) => {
+    res.status(503).type('html').send(`<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COOP-R14 — falta la app web</title>
+<style>
+  body { margin:0; padding:32px 20px; background:#03060a; color:#EAF4FF;
+         font-family: system-ui, sans-serif; line-height:1.6; }
+  .box { max-width:560px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#8FA8C0; font-size:14px; margin-bottom:24px; }
+  ol { padding-left:22px; } li { margin-bottom:10px; }
+  code { background:#10161d; border:1px solid #232b36; border-radius:6px;
+         padding:2px 6px; font-size:14px; }
+  .ok { color:#39FF14; } .warn { color:#FFD400; }
+</style>
+<div class="box">
+  <h1>El servidor está vivo, falta la app web</h1>
+  <div class="sub">API y tiempo real: <span class="ok">funcionando</span> ·
+    Archivos de la app: <span class="warn">no encontrados en este deploy</span></div>
+  <p>Este deploy no incluye la carpeta <code>project/</code>, así que no hay
+     pantallas que servir. Pasa cuando el servicio se construye desde
+     <code>server/</code> en vez de la raíz del repositorio.</p>
+  <p><strong>Cómo arreglarlo en Railway:</strong></p>
+  <ol>
+    <li>Abrí el servicio → pestaña <strong>Settings</strong>.</li>
+    <li>En <strong>Source</strong>, dejá <strong>Root Directory</strong> vacío.</li>
+    <li>Borrá cualquier <em>Custom Start Command</em> escrito a mano.</li>
+    <li>Volvé a desplegar (<strong>Redeploy</strong>).</li>
+  </ol>
+  <p class="sub">Verificación rápida: <code>/ping</code> responde ahora mismo;
+     cuando esto quede bien, <code>/</code> mostrará el login del chofer y
+     <code>/despacho.html</code> el panel de Despacho.</p>
+</div>`);
+  });
 }
 
 // ─── SERVIDOR HTTP ───────────────────────────────────────────
