@@ -87,6 +87,18 @@ function nowTime(ts) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+// "hoy 14:05" / "ayer 09:12" / "12/07 18:40" — para la última conexión
+function fmtWhen(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const dias = Math.floor((hoy - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+  const hora = nowTime(ts);
+  if (dias <= 0) return `hoy ${hora}`;
+  if (dias === 1) return `ayer ${hora}`;
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${hora}`;
+}
+
 const mono = 'JetBrains Mono, ui-monospace, monospace';
 const black = '"Archivo Black", system-ui, sans-serif';
 
@@ -269,6 +281,11 @@ function AdminModal({ session, onClose, onAuthError }) {
   const [resetPass, setResetPass] = React.useState('');
   const [confirmDel, setConfirmDel] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
+  const [filter, setFilter] = React.useState('');
+  // Credenciales recién generadas: se muestran UNA vez, para dictarlas o
+  // anotarlas. Después ya no hay forma de recuperar la clave (va cifrada).
+  const [credential, setCredential] = React.useState(null);
+  const [copied, setCopied] = React.useState(false);
 
   const api = async (path, opts = {}) => {
     const res = await fetch(HTTP_URL + path, {
@@ -304,23 +321,34 @@ function AdminModal({ session, onClose, onAuthError }) {
   }, [tab]);
 
   const run = async (fn, ok) => {
-    setBusy(true); setError(null); setOkMsg(null);
-    try { await fn(); setOkMsg(ok); await load(); }
+    setBusy(true); setError(null); setOkMsg(null); setCredential(null); setCopied(false);
+    try { await fn(); if (ok) setOkMsg(ok); await load(); }
     catch (e) { setError(e.message); }
     setBusy(false);
   };
 
+  // Clave fácil de dictar por teléfono: sin caracteres ambiguos
+  const suggestPassword = () => {
+    const words = ['combi', 'ruta', 'puno', 'juliaca', 'terminal', 'micro', 'andes', 'titicaca'];
+    const w = words[Math.floor(Math.random() * words.length)];
+    return `${w}${Math.floor(1000 + Math.random() * 9000)}`;
+  };
+
   const create = () => run(async () => {
-    await api('/admin/users', { method: 'POST', body: JSON.stringify(form) });
+    const payload = { ...form, password: form.password || suggestPassword() };
+    await api('/admin/users', { method: 'POST', body: JSON.stringify(payload) });
+    setCredential({ unitId: payload.unitId, password: payload.password, isNew: true });
     setForm({ unitId: '', driverName: '', password: '' });
-  }, 'Unidad creada');
+  }, null);
 
   const resetPassword = (unitId) => run(async () => {
+    const password = resetPass || suggestPassword();
     await api(`/admin/users/${encodeURIComponent(unitId)}/password`, {
-      method: 'POST', body: JSON.stringify({ password: resetPass }),
+      method: 'POST', body: JSON.stringify({ password }),
     });
+    setCredential({ unitId, password, isNew: false });
     setResetFor(null); setResetPass('');
-  }, `Contraseña de ${unitId} reseteada — su sesión fue cerrada`);
+  }, null);
 
   const remove = (unitId) => run(async () => {
     await api(`/admin/users/${encodeURIComponent(unitId)}`, { method: 'DELETE' });
@@ -468,9 +496,14 @@ function AdminModal({ session, onClose, onAuthError }) {
           <input placeholder="Nombre del chofer" value={form.driverName}
             onChange={e => setForm(f => ({ ...f, driverName: e.target.value }))}
             style={{ ...inputStyle, width: 'auto', flex: '1 1 140px' }} />
-          <input placeholder="Contraseña" value={form.password}
-            onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-            style={{ ...inputStyle, width: 'auto', flex: '1 1 120px' }} />
+          <span style={{ display: 'flex', flex: '1 1 150px', gap: 4, minWidth: 0 }}>
+            <input placeholder="Contraseña (o generar →)" value={form.password}
+              onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+              style={{ ...inputStyle, width: 'auto', flex: 1 }} />
+            <button title="Generar una clave fácil de dictar"
+              onClick={() => setForm(f => ({ ...f, password: suggestPassword() }))}
+              style={{ ...smallBtn('#1a222c', HUD.fg2), height: 40, padding: '0 10px' }}>⟳</button>
+          </span>
           <button onClick={create} disabled={busy} style={{
             ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13, height: 40,
           }}>+ ALTA</button>
@@ -479,9 +512,72 @@ function AdminModal({ session, onClose, onAuthError }) {
         {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
         {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
 
+        {/* credenciales para dictar — se ven una sola vez */}
+        {credential && (
+          <div style={{
+            background: '#08251a', border: `1px solid ${HUD.green}`,
+            borderRadius: 14, padding: 16, marginBottom: 16,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: HUD.green, marginBottom: 10 }}>
+              {credential.isNew ? '✓ Unidad creada' : '✓ Contraseña reseteada — su sesión fue cerrada'}
+              {' '}· anotá o dictá estos datos ahora
+            </div>
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div>
+                <div style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1, color: HUD.dim2 }}>USUARIO</div>
+                <div style={{ fontFamily: black, fontSize: 22, color: HUD.fg }}>{credential.unitId}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1, color: HUD.dim2 }}>CONTRASEÑA</div>
+                <div style={{ fontFamily: black, fontSize: 22, color: '#7DF06A', userSelect: 'all' }}>{credential.password}</div>
+              </div>
+              <div style={{ flex: 1 }} />
+              <span style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => {
+                  const txt = `Unidad: ${credential.unitId}\nContraseña: ${credential.password}`;
+                  navigator.clipboard?.writeText(txt).then(() => setCopied(true)).catch(() => {});
+                }} style={smallBtn(HUD.green, HUD.bg)}>{copied ? '✓ Copiado' : 'Copiar'}</button>
+                <button onClick={() => setCredential(null)} style={smallBtn('transparent', HUD.dim2)}>Ocultar</button>
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: HUD.dim3, marginTop: 10, lineHeight: 1.5 }}>
+              Las contraseñas se guardan cifradas y no se pueden volver a ver: si un
+              chofer la pierde, se le genera una nueva con <strong>Reset clave</strong>.
+            </div>
+          </div>
+        )}
+
+        {/* buscador */}
+        {users && users.length > 6 && (
+          <input placeholder="Buscar unidad o chofer…" value={filter}
+            onChange={e => setFilter(e.target.value)}
+            style={{ ...inputStyle, marginBottom: 10 }} />
+        )}
+
         {/* lista */}
         {!users && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
-        {users && users.map(u => (
+        {users && (() => {
+          const q = filter.trim().toLowerCase();
+          const shown = q
+            ? users.filter(u => (u.unitId + ' ' + (u.driverName || '')).toLowerCase().includes(q))
+            : users;
+          const drivers = users.filter(u => u.role !== 'dispatch').length;
+          return (
+            <div style={{
+              fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1,
+              color: HUD.dim3, textTransform: 'uppercase', marginBottom: 6,
+            }}>
+              {drivers} unidad{drivers === 1 ? '' : 'es'} · {users.filter(u => u.online).length} en línea
+              {q ? ` · ${shown.length} coincidencia${shown.length === 1 ? '' : 's'}` : ''}
+            </div>
+          );
+        })()}
+        {users && users
+          .filter(u => {
+            const q = filter.trim().toLowerCase();
+            return !q || (u.unitId + ' ' + (u.driverName || '')).toLowerCase().includes(q);
+          })
+          .map(u => (
           <div key={u.unitId} style={{
             display: 'flex', alignItems: 'center', gap: 10,
             padding: '10px 4px', borderBottom: `1px solid ${HUD.divider}`,
@@ -492,8 +588,15 @@ function AdminModal({ session, onClose, onAuthError }) {
               boxShadow: u.online ? `0 0 8px ${HUD.green}` : 'none',
             }} title={u.online ? 'Conectado' : 'Desconectado'} />
             <span style={{ fontFamily: black, fontSize: 15, minWidth: 90 }}>{u.unitId}</span>
-            <span style={{ fontSize: 13, color: HUD.dim, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {u.driverName}
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 13, color: HUD.dim, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {u.driverName}
+              </span>
+              <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: u.lastLogin ? HUD.dim3 : HUD.amber }}>
+                {u.online ? 'conectado ahora'
+                  : u.lastLogin ? `última vez ${fmtWhen(u.lastLogin)}`
+                  : 'nunca entró'}
+              </span>
             </span>
             {u.role === 'dispatch' && (
               <span style={{
