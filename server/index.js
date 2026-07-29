@@ -43,10 +43,100 @@ const profiles = new Map();
 // En Railway: montar un volumen y apuntar DB_FILE ahí (p. ej.
 // DB_FILE=/data/r14.db) para que el historial sobreviva redeploys.
 
+// better-sqlite3 es un módulo NATIVO: si el binario no coincide con el
+// Node que corre (versión, arquitectura o libc), el proceso muere con
+// "Segmentation fault" sin dejar mensaje — un crash-loop mudo. Antes de
+// cargarlo de verdad lo probamos en un proceso hijo: así un módulo roto
+// se convierte en un aviso claro en vez de tumbar el servidor.
+function probeNativeSqlite() {
+  try {
+    require('child_process').execFileSync(
+      process.execPath, ['-e', "require('better-sqlite3')"],
+      { cwd: __dirname, stdio: 'ignore', timeout: 20000 }
+    );
+    return null;
+  } catch (e) {
+    if (e.signal) return `el módulo nativo murió con ${e.signal} (Node ${process.version})`;
+    return `no se pudo cargar el módulo nativo (Node ${process.version})`;
+  }
+}
+
+// Abre la base con red de seguridad: si la ruta configurada no sirve
+// (volumen sin montar, permisos), cae a una ruta local y, en última
+// instancia, a memoria — el sistema sigue en pie aunque sin persistir.
+function openDatabase(Database) {
+  const candidates = [];
+  if (process.env.DB_FILE) candidates.push(process.env.DB_FILE);
+  candidates.push(path.join(__dirname, 'r14.db'));
+  candidates.push(':memory:');
+
+  for (const file of candidates) {
+    try {
+      if (file !== ':memory:') {
+        // Solo se crea el directorio si falta: con el volumen ya montado
+        // no hace falta tocar nada.
+        const dir = path.dirname(file);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      }
+      const database = new Database(file);
+      // WAL es más rápido, pero algunos volúmenes montados no lo soportan:
+      // si falla, se sigue con el journal por defecto en vez de morir.
+      try {
+        database.pragma('journal_mode = WAL');
+      } catch {
+        console.warn('WAL no disponible en este disco — journal por defecto');
+      }
+      if (file === ':memory:') {
+        console.warn('⚠ Base en MEMORIA: los datos se pierden al reiniciar.');
+      } else {
+        console.log('Base de datos:', file);
+      }
+      return database;
+    } catch (e) {
+      console.error(`No se pudo abrir la base en ${file}: ${e.message}`);
+    }
+  }
+  return null;
+}
+
+const nativeProblem = probeNativeSqlite();
+
+if (nativeProblem) {
+  // Sin base no hay logins ni historial: en vez de reiniciar en bucle,
+  // el servidor queda en pie explicando el problema.
+  console.error('BASE DE DATOS NO DISPONIBLE:', nativeProblem);
+  console.error('Suele ser un desajuste de versión de Node: better-sqlite3 requiere Node 22.');
+  app.get('/ping', (req, res) => {
+    res.status(503).json({ status: 'degradado', error: 'base de datos no disponible', detail: nativeProblem });
+  });
+  app.use((req, res) => {
+    res.status(503).type('html').send(`<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COOP-R14 — base de datos no disponible</title>
+<style>body{margin:0;padding:32px 20px;background:#03060a;color:#EAF4FF;
+font-family:system-ui,sans-serif;line-height:1.6}.b{max-width:560px;margin:0 auto}
+h1{font-size:20px;margin:0 0 12px}code{background:#10161d;border:1px solid #232b36;
+border-radius:6px;padding:2px 6px;font-size:14px}.d{color:#8FA8C0;font-size:14px}</style>
+<div class="b">
+  <h1>Base de datos no disponible</h1>
+  <p class="d">${nativeProblem}</p>
+  <p>El componente de base de datos no pudo cargarse, así que el servidor no
+     puede autenticar ni guardar historial. El servicio quedó en pie para
+     poder diagnosticarlo en vez de reiniciarse en bucle.</p>
+  <p><strong>Causa habitual:</strong> la versión de Node del deploy no es la 22.
+     Verificar que <code>engines</code> y <code>.nvmrc</code> pidan Node 22 y
+     volver a desplegar con caché limpia.</p>
+</div>`);
+  });
+  const degraded = http.createServer(app);
+  degraded.listen(process.env.PORT || 3001, () => {
+    console.error(`Servidor DEGRADADO en puerto ${process.env.PORT || 3001}`);
+  });
+  return;
+}
+
 const Database = require('better-sqlite3');
-const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'r14.db');
-const db = new Database(DB_FILE);
-db.pragma('journal_mode = WAL');
+const db = openDatabase(Database);
 db.exec(`
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

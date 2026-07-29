@@ -32,6 +32,10 @@ compila en el navegador. Cualquier cambio de UI se hace ahí.
 
 ## Cómo correr
 
+**Requiere Node 22** (lo pide `better-sqlite3`, que es un módulo nativo).
+Está fijado en `engines` y en `.nvmrc`: con otra versión el proceso puede
+morir con `Segmentation fault` sin dar mensaje.
+
 ```bash
 cd server && npm install && npm start
 # una sola URL para todo:

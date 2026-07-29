@@ -52,6 +52,12 @@ limitación se resuelva o aparezca una nueva.
 - **Una sola instancia:** si el servidor cae o se redeploya, todos
   quedan desconectados unos segundos (se reconectan solos). No hay
   réplica ni alta disponibilidad.
+- **Node 22 obligatorio:** `better-sqlite3` es un módulo nativo y con
+  otra versión de Node el proceso muere con `Segmentation fault` sin
+  mensaje. Está fijado en `engines` y `.nvmrc`; el servidor además se
+  autodiagnostica (queda en modo degradado explicando el problema en vez
+  de reiniciarse en bucle), pero si se cambia la versión del runtime hay
+  que verificar que siga siendo 22.
 - **SQLite:** perfecto para una cooperativa (una ruta, decenas de
   unidades). Para muchas rutas/cooperativas simultáneas habría que
   migrar a Postgres — el código lo permite, pero es trabajo.
