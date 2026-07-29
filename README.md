@@ -33,16 +33,27 @@ compila en el navegador. Cualquier cambio de UI se hace ahí.
 ## Cómo correr
 
 ```bash
-# servidor de tiempo real
-cd server && npm install && npm start   # puerto 3001, health check en /ping
-
-# app (cualquier servidor estático)
-cd project && python3 -m http.server 8080
-# abrir http://localhost:8080/Prototipo.html
+cd server && npm install && npm start
+# una sola URL para todo:
+#   http://localhost:3001/               → app del chofer
+#   http://localhost:3001/despacho.html  → panel de Despacho
+#   http://localhost:3001/ping           → health check
 ```
 
-En producción el cliente apunta al servidor vía `window.REALTIME_SERVER_URL`
-(por defecto, el deploy de Railway configurado en `realtime.js`).
+El servidor Node sirve también los estáticos de `project/` y entrega un
+`config.js` que apunta el tiempo real al mismo origen. En Railway eso
+significa que la URL pública (`*.up.railway.app`, HTTPS incluido) sirve
+app + panel + WebSocket sin hosting aparte ni dominio comprado — un
+dominio propio es opcional (CNAME hacia Railway). **Ojo:** el Root
+Directory del servicio en Railway debe ser la raíz del repo (start:
+`cd server && npm install && npm start`); si apunta a `server/`, el
+deploy no incluye `project/` y queda solo la API.
+
+También se puede servir `project/` desde cualquier hosting estático:
+`config.js` dará 404 (inofensivo) y la app usará el servidor por defecto
+de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
+
+Limitaciones conocidas del sistema: ver **LIMITACIONES.md**.
 
 **Persistencia:** el historial del grupo (últimos 200 mensajes: texto, notas
 de voz y SOS) vive en SQLite (`server/r14.db`). En Railway, para que

@@ -449,6 +449,28 @@ app.get('/ping', (req, res) => {
   });
 });
 
+// ─── APP WEB ─────────────────────────────────────────────────
+// El mismo servidor sirve la app del chofer y el panel de Despacho:
+// una sola URL pública para todo (Railway ya da HTTPS). Si el deploy
+// no incluye la carpeta project/ (root apuntando a server/), este
+// bloque se salta y el servidor queda solo como API/WebSocket.
+const PROJECT_DIR = path.join(__dirname, '..', 'project');
+if (fs.existsSync(path.join(PROJECT_DIR, 'Prototipo.html'))) {
+  // Cuando la app se sirve desde acá, habla con este mismo origen.
+  // En hosting estático separado este archivo da 404 y la app cae al
+  // default de realtime.js — nada se rompe.
+  app.get('/config.js', (req, res) => {
+    res.type('application/javascript').send(
+      "// Generado por el servidor: el tiempo real vive en este mismo origen\n" +
+      "window.REALTIME_SERVER_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;\n"
+    );
+  });
+  app.use(express.static(PROJECT_DIR));
+  console.log('Sirviendo la app web desde', PROJECT_DIR);
+} else {
+  console.log('Carpeta project/ no encontrada — solo API/WebSocket');
+}
+
 // ─── SERVIDOR HTTP ───────────────────────────────────────────
 // Express necesita un servidor HTTP para poder agregarle WebSockets arriba.
 const server = http.createServer(app);
