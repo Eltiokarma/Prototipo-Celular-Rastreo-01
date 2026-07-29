@@ -13,6 +13,8 @@ limitación se resuelva o aparezca una nueva.
 | 3 | Sin volumen en Railway, un redeploy borra la base | Se pierden usuarios, historial de chat y vueltas | Montar volumen + `DB_FILE=/data/r14.db` (documentado en README) |
 | 4 | Brechas y vueltas son aproximadas | El progreso de ruta es una proyección lineal, no sigue el trazado real de calles | Modelar la ruta con puntos reales |
 | 5 | Una sola cuenta DESPACHO compartida | La auditoría no distingue *cuál* encargado hizo cada cosa | Cuentas de despacho por persona |
+| 6 | **Consumo de datos móviles alto** | Cada GPS dispara el estado completo a todos: ~100 MB/hora por chofer (~885 MB por turno con 20 unidades) | Mensajería por ruta + cadencia limitada + payload personalizado (ver `ESCALABILIDAD.md`) |
+| 7 | Una sola ruta modelada | Con varias rutas las brechas se calcularían entre unidades de rutas distintas y el chat sería uno solo | `routeId` de primera clase (etapa 1 de `ESCALABILIDAD.md`) |
 
 ## A. App web en el celular del chofer (límites de PWA)
 
