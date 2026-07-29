@@ -247,7 +247,9 @@ function ChatColumn({ messages, onSend }) {
 // Altas, resets de contraseña y bajas contra /admin/* del servidor.
 // ═══════════════════════════════════════════════════════════════
 function AdminModal({ session, onClose, onAuthError }) {
+  const [tab, setTab] = React.useState('users'); // 'users' | 'audit'
   const [users, setUsers] = React.useState(null);
+  const [events, setEvents] = React.useState(null);
   const [error, setError] = React.useState(null);
   const [okMsg, setOkMsg] = React.useState(null);
   const [form, setForm] = React.useState({ unitId: '', driverName: '', password: '' });
@@ -275,7 +277,12 @@ function AdminModal({ session, onClose, onAuthError }) {
     .then(d => { setUsers(d.users); })
     .catch(e => setError(e.message));
 
+  const loadAudit = () => api('/admin/audit')
+    .then(d => { setEvents(d.events); })
+    .catch(e => setError(e.message));
+
   React.useEffect(() => { load(); }, []);
+  React.useEffect(() => { if (tab === 'audit') loadAudit(); }, [tab]);
 
   const run = async (fn, ok) => {
     setBusy(true); setError(null); setOkMsg(null);
@@ -324,12 +331,58 @@ function AdminModal({ session, onClose, onAuthError }) {
         background: HUD.surface, border: `1px solid ${HUD.line}`,
         borderRadius: 20, padding: 24,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 18 }}>
-          <span style={{ fontFamily: black, fontSize: 20 }}>UNIDADES</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18 }}>
+          {[['users', 'UNIDADES'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)} style={{
+              background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+              fontFamily: black, fontSize: 20,
+              color: tab === key ? HUD.fg : HUD.dim3,
+              borderBottom: tab === key ? `3px solid ${HUD.bright}` : '3px solid transparent',
+            }}>{label}</button>
+          ))}
           <div style={{ flex: 1 }} />
           <button onClick={onClose} style={smallBtn('transparent', HUD.dim2)}>✕ Cerrar</button>
         </div>
 
+        {tab === 'audit' && (
+          <div>
+            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
+            {!events && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
+            {events && events.length === 0 && <div style={{ color: HUD.dim3, fontSize: 14 }}>Sin actividad registrada.</div>}
+            {events && events.map((ev, i) => {
+              const ACTION = {
+                login: { label: 'inició sesión', color: HUD.dim },
+                login_bloqueado: { label: 'bloqueado por intentos fallidos', color: HUD.amber },
+                alta: { label: 'dio de alta a', color: HUD.green },
+                reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
+                baja: { label: 'dio de baja a', color: HUD.red },
+                sos: { label: 'disparó un SOS', color: HUD.red },
+              };
+              const a = ACTION[ev.action] || { label: ev.action, color: HUD.dim };
+              const d = new Date(ev.timestamp);
+              const when = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+              return (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'baseline', gap: 10,
+                  padding: '8px 4px', borderBottom: `1px solid ${HUD.divider}`,
+                  fontSize: 14,
+                }}>
+                  <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim3, flexShrink: 0 }}>{when}</span>
+                  <span style={{ fontFamily: black, fontSize: 14, color: HUD.fg, flexShrink: 0 }}>{ev.actor}</span>
+                  <span style={{ color: a.color }}>{a.label}</span>
+                  {ev.target && <span style={{ fontFamily: black, fontSize: 14, color: HUD.fg }}>{ev.target}</span>}
+                  {ev.detail && <span style={{ color: HUD.dim3, fontSize: 13 }}>· {ev.detail}</span>}
+                </div>
+              );
+            })}
+            <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
+              Últimos 100 movimientos: logins, altas, resets de clave, bajas y SOS.
+              El registro guarda hasta 1000 eventos en la base.
+            </div>
+          </div>
+        )}
+
+        {tab === 'users' && (<div>
         {/* alta */}
         <div style={{
           display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8,
@@ -402,6 +455,7 @@ function AdminModal({ session, onClose, onAuthError }) {
           unidades no registradas. Resetear la clave o dar de baja cierra la
           sesión de esa unidad al instante.
         </div>
+        </div>)}
       </div>
     </div>
   );

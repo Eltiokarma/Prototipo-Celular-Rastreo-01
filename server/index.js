@@ -202,6 +202,32 @@ if (process.env.DISPATCH_PASSWORD) {
   console.log('Cuenta DESPACHO lista (desde DISPATCH_PASSWORD)');
 }
 
+// ─── AUDITORÍA ───────────────────────────────────────────────
+// Quién hizo qué y cuándo: logins, altas, resets, bajas y SOS.
+// Es la visibilidad del nivel de arriba: Despacho administra claves,
+// y este registro deja constancia de cada uso de ese poder.
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor TEXT NOT NULL,       -- quién lo hizo
+    action TEXT NOT NULL,      -- login | login_bloqueado | alta | reset_clave | baja | sos
+    target TEXT,               -- sobre quién (si aplica)
+    detail TEXT,
+    timestamp INTEGER NOT NULL
+  )
+`);
+
+function audit(actor, action, target, detail) {
+  try {
+    db.prepare('INSERT INTO audit (actor, action, target, detail, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run(actor, action, target || null, detail || null, Date.now());
+    db.prepare('DELETE FROM audit WHERE id NOT IN (SELECT id FROM audit ORDER BY id DESC LIMIT 1000)').run();
+  } catch (e) {
+    console.error('No se pudo auditar:', e.message);
+  }
+}
+
 // Intentos fallidos por unidad: 5 seguidos → bloqueo de 5 minutos
 const loginAttempts = new Map();
 
@@ -237,11 +263,13 @@ app.post('/auth/login', (req, res) => {
   } else if (!verifyPassword(password, user.passHash)) {
     const count = (a?.count || 0) + 1;
     loginAttempts.set(unitId, { count, until: count >= 5 ? Date.now() + 300_000 : 0 });
+    if (count >= 5) audit(unitId, 'login_bloqueado', null, '5 intentos fallidos');
     return res.status(401).json({ error: `Contraseña incorrecta · intento ${count} de 5` });
   }
 
   loginAttempts.delete(unitId);
   const token = createSession(user.unitId);
+  audit(user.unitId, 'login', null, created ? 'primer registro' : null);
   res.json({ token, unitId: user.unitId, driverName: user.driverName, role: user.role, created });
 });
 
@@ -294,6 +322,7 @@ app.post('/admin/users', requireDispatch, (req, res) => {
   }
   db.prepare('INSERT INTO users (unitId, driverName, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?)')
     .run(unitId, driverName, 'driver', hashPassword(password), Date.now());
+  audit(req.dispatchUser.unitId, 'alta', unitId, driverName !== unitId ? driverName : null);
   console.log(`Alta de unidad por Despacho: ${unitId}`);
   res.json({ ok: true, unitId });
 });
@@ -310,6 +339,7 @@ app.post('/admin/users/:unitId/password', requireDispatch, (req, res) => {
   db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(password), unitId);
   // Las sesiones viejas dejan de valer y la unidad conectada vuelve al login
   kickUnit(unitId, 'Despacho reseteó tu contraseña. Ingresá con la nueva.');
+  audit(req.dispatchUser.unitId, 'reset_clave', unitId);
   console.log(`Contraseña reseteada por Despacho: ${unitId}`);
   res.json({ ok: true });
 });
@@ -324,8 +354,17 @@ app.delete('/admin/users/:unitId', requireDispatch, (req, res) => {
   }
   db.prepare('DELETE FROM users WHERE unitId = ?').run(unitId);
   kickUnit(unitId, 'Tu acceso fue dado de baja por Despacho.');
+  audit(req.dispatchUser.unitId, 'baja', unitId);
   console.log(`Baja de unidad por Despacho: ${unitId}`);
   res.json({ ok: true });
+});
+
+// Últimos movimientos: logins, altas, resets, bajas y SOS
+app.get('/admin/audit', requireDispatch, (req, res) => {
+  const events = db.prepare(
+    'SELECT actor, action, target, detail, timestamp FROM audit ORDER BY id DESC LIMIT 100'
+  ).all();
+  res.json({ events });
 });
 
 // ─── RUTA DE SALUD ───────────────────────────────────────────
@@ -432,6 +471,7 @@ wss.on('connection', (ws) => {
         timestamp: msg.timestamp || Date.now(),
       };
       remember({ kind: 'sos', ...alert });
+      audit(unitId, 'sos', null, alert.lat ? `${alert.lat.toFixed(4)}, ${alert.lng.toFixed(4)}` : null);
       broadcast({ type: 'sos_alert', ...alert });
     }
 

@@ -90,7 +90,21 @@ de entorno `DISPATCH_PASSWORD` (crea/actualiza la cuenta al arrancar).
 contraseña y bajas, contra los endpoints `/admin/*` del servidor
 (protegidos por rol `dispatch` vía `Authorization: Bearer`). Resetear la
 clave o dar de baja revoca las sesiones de esa unidad y la desconecta al
-instante — el celular vuelve al login con el motivo.
+instante — el celular vuelve al login con el motivo. La pestaña
+**Actividad** muestra la auditoría: quién inició sesión, quién dio de
+alta/baja o reseteó claves, bloqueos por intentos fallidos y SOS.
+
+## Niveles de seguridad
+
+1. **Chofer** — su clave abre solo su sesión; no puede tocar `/admin`.
+2. **Despacho** — administra las claves de los choferes; cada uso de ese
+   poder queda en la tabla `audit`. No puede eliminar su propia cuenta.
+3. **Operador (dueño del sistema)** — está por encima sin clave dentro de
+   la app: controla el deploy, las variables de entorno y la base.
+   **Ruta de recuperación**: si la clave de Despacho se pierde o filtra,
+   setear/cambiar `DISPATCH_PASSWORD` en Railway y reiniciar — la cuenta
+   se resetea al arrancar. Quien accede al repo o al archivo `r14.db`
+   puede todo; ese es el "root" real del sistema.
 
 ## Panel de tweaks
 

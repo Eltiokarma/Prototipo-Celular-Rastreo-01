@@ -1,7 +1,7 @@
 // Service Worker — COOP-R14
 // Su trabajo: guardar la app en el celular para que funcione sin internet.
 // Cada vez que hay una nueva versión, cambiá el número de CACHE_NAME.
-const CACHE_NAME = 'coop-r14-v9';
+const CACHE_NAME = 'coop-r14-v10';
 
 // Archivos que guardamos en el celular la primera vez que se abre la app
 const FILES_TO_CACHE = [
