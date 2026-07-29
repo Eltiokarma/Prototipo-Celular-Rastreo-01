@@ -236,6 +236,12 @@ db.exec(`
   );
 `);
 
+// Migración: última conexión de cada cuenta, para que Despacho vea de un
+// vistazo quién nunca entró (típico de un alta con la clave mal dictada).
+if (!db.prepare("PRAGMA table_info(users)").all().some(c => c.name === 'lastLogin')) {
+  db.exec('ALTER TABLE users ADD COLUMN lastLogin INTEGER');
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(password, salt, 32).toString('hex');
@@ -408,6 +414,7 @@ app.post('/auth/login', (req, res) => {
 
   loginAttempts.delete(unitId);
   const token = createSession(user.unitId);
+  db.prepare('UPDATE users SET lastLogin = ? WHERE unitId = ?').run(Date.now(), user.unitId);
   audit(user.unitId, 'login', null, created ? 'primer registro' : null);
   res.json({ token, unitId: user.unitId, driverName: user.driverName, role: user.role, created });
 });
@@ -443,7 +450,7 @@ function kickUnit(unitId, reason) {
 app.get('/admin/users', requireDispatch, (req, res) => {
   const online = new Set(clients.values());
   const users = db.prepare(`
-    SELECT unitId, driverName, role, createdAt FROM users
+    SELECT unitId, driverName, role, createdAt, lastLogin FROM users
     ORDER BY CASE role WHEN 'dispatch' THEN 0 ELSE 1 END, unitId
   `).all();
   res.json({ users: users.map(u => ({ ...u, online: online.has(u.unitId) })) });
