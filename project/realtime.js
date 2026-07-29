@@ -17,7 +17,7 @@
   let driverName = null;
 
   // Callbacks — la app los registra para recibir actualizaciones
-  const listeners = { state: [], status: [] };
+  const listeners = { state: [], status: [], chat: [], sos: [] };
 
   function emit(event, data) {
     (listeners[event] || []).forEach(fn => fn(data));
@@ -48,6 +48,10 @@
         const msg = JSON.parse(event.data);
         if (msg.type === 'state') {
           emit('state', msg);
+        } else if (msg.type === 'chat_msg') {
+          emit('chat', msg);
+        } else if (msg.type === 'sos_alert') {
+          emit('sos', msg);
         }
       } catch (e) {
         console.error('Mensaje inválido del servidor', e);
@@ -181,9 +185,34 @@
   // ─── API PÚBLICA ───────────────────────────────────────────
   // Lo que la app puede usar desde afuera.
 
+  // ─── CHAT Y SOS ────────────────────────────────────────────
+  // El servidor rebota estos mensajes a todos los conectados
+  // (incluido el emisor), así el hilo queda igual para todo el grupo.
+
+  function sendChat(text) {
+    send({ type: 'chat', text: String(text).slice(0, 500), timestamp: Date.now() });
+  }
+
+  function sendSos() {
+    const coords = lastPosition?.coords;
+    send({
+      type: 'sos',
+      lat: coords ? coords.latitude : null,
+      lng: coords ? coords.longitude : null,
+      timestamp: Date.now(),
+    });
+  }
+
+  function isConnected() {
+    return !!ws && ws.readyState === WebSocket.OPEN;
+  }
+
   window.RealtimeClient = {
     connect,
     disconnect,
+    sendChat,
+    sendSos,
+    isConnected,
     on: (event, fn) => { listeners[event] = [fn]; }, // reemplaza — un handler por evento
   };
 
