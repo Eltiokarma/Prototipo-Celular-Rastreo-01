@@ -93,6 +93,10 @@ clave o dar de baja revoca las sesiones de esa unidad y la desconecta al
 instante — el celular vuelve al login con el motivo. La pestaña
 **Actividad** muestra la auditoría: quién inició sesión, quién dio de
 alta/baja o reseteó claves, bloqueos por intentos fallidos y SOS.
+La pestaña **Vueltas** muestra el historial por unidad (vueltas de hoy,
+última, promedio, mejor y velocidad): el servidor detecta cada vuelta
+solo — cuando el `routeProgress` llega cerca del final y vuelve al
+inicio — y la guarda en la tabla `laps` (últimas 2000).
 
 ## Niveles de seguridad
 

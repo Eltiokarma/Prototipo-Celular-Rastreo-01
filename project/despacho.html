@@ -247,9 +247,10 @@ function ChatColumn({ messages, onSend }) {
 // Altas, resets de contraseña y bajas contra /admin/* del servidor.
 // ═══════════════════════════════════════════════════════════════
 function AdminModal({ session, onClose, onAuthError }) {
-  const [tab, setTab] = React.useState('users'); // 'users' | 'audit'
+  const [tab, setTab] = React.useState('users'); // 'users' | 'metrics' | 'audit'
   const [users, setUsers] = React.useState(null);
   const [events, setEvents] = React.useState(null);
+  const [metrics, setMetrics] = React.useState(null);
   const [error, setError] = React.useState(null);
   const [okMsg, setOkMsg] = React.useState(null);
   const [form, setForm] = React.useState({ unitId: '', driverName: '', password: '' });
@@ -281,8 +282,15 @@ function AdminModal({ session, onClose, onAuthError }) {
     .then(d => { setEvents(d.events); })
     .catch(e => setError(e.message));
 
+  const loadMetrics = () => api('/admin/metrics')
+    .then(d => { setMetrics(d.metrics); })
+    .catch(e => setError(e.message));
+
   React.useEffect(() => { load(); }, []);
-  React.useEffect(() => { if (tab === 'audit') loadAudit(); }, [tab]);
+  React.useEffect(() => {
+    if (tab === 'audit') loadAudit();
+    if (tab === 'metrics') loadMetrics();
+  }, [tab]);
 
   const run = async (fn, ok) => {
     setBusy(true); setError(null); setOkMsg(null);
@@ -332,7 +340,7 @@ function AdminModal({ session, onClose, onAuthError }) {
         borderRadius: 20, padding: 24,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18 }}>
-          {[['users', 'UNIDADES'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
+          {[['users', 'UNIDADES'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
               fontFamily: black, fontSize: 20,
@@ -343,6 +351,58 @@ function AdminModal({ session, onClose, onAuthError }) {
           <div style={{ flex: 1 }} />
           <button onClick={onClose} style={smallBtn('transparent', HUD.dim2)}>✕ Cerrar</button>
         </div>
+
+        {tab === 'metrics' && (
+          <div>
+            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
+            {!metrics && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
+            {metrics && metrics.length === 0 && (
+              <div style={{ color: HUD.dim3, fontSize: 14 }}>
+                Todavía no hay vueltas completadas. Se registran solas cuando una
+                unidad recorre la ruta de punta a punta.
+              </div>
+            )}
+            {metrics && metrics.length > 0 && (() => {
+              const fmtLap = (s) => s == null ? '—'
+                : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+              const cell = { padding: '10px 8px', fontFamily: mono, fontSize: 13, fontWeight: 700 };
+              const head = { ...cell, color: HUD.dim3, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' };
+              return (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${HUD.line}` }}>
+                      <th style={{ ...head, textAlign: 'left' }}>Unidad</th>
+                      <th style={head}>Hoy</th>
+                      <th style={head}>Total</th>
+                      <th style={head}>Última</th>
+                      <th style={head}>Promedio</th>
+                      <th style={head}>Mejor</th>
+                      <th style={head}>Vel. prom</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {metrics.map(m => (
+                      <tr key={m.unitId} style={{ borderBottom: `1px solid ${HUD.divider}`, textAlign: 'center' }}>
+                        <td style={{ ...cell, fontFamily: black, fontSize: 15, textAlign: 'left', color: HUD.fg }}>{m.unitId}</td>
+                        <td style={{ ...cell, color: m.lapsToday > 0 ? HUD.green : HUD.dim3, fontSize: 15 }}>{m.lapsToday}</td>
+                        <td style={{ ...cell, color: HUD.dim }}>{m.lapsTotal}</td>
+                        <td style={{ ...cell, color: HUD.fg2 }}>{fmtLap(m.lastSec)}</td>
+                        <td style={{ ...cell, color: HUD.fg2 }}>{fmtLap(m.avgSec)}</td>
+                        <td style={{ ...cell, color: HUD.sky }}>{fmtLap(m.bestSec)}</td>
+                        <td style={{ ...cell, color: HUD.dim }}>{m.avgSpeed} km/h</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
+            <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
+              Tiempos de vuelta en minutos:segundos. Una vuelta se cuenta cuando la
+              unidad llega cerca del final de la ruta y vuelve al inicio; la base
+              retiene las últimas 2000 vueltas.
+            </div>
+          </div>
+        )}
 
         {tab === 'audit' && (
           <div>

@@ -228,6 +228,55 @@ function audit(actor, action, target, detail) {
   }
 }
 
+// ─── VUELTAS ─────────────────────────────────────────────────
+// Una vuelta = el progreso de ruta llega cerca del final (>0.8) y
+// vuelve al inicio. Se guarda duración y velocidad promedio; con eso
+// Despacho tiene historial y métricas por unidad para ordenar la rueda.
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS laps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unitId TEXT NOT NULL,
+    startedAt INTEGER NOT NULL,
+    finishedAt INTEGER NOT NULL,
+    durationSec INTEGER NOT NULL,
+    avgSpeed INTEGER NOT NULL
+  )
+`);
+
+const lapState = new Map();
+// lapState = { unitId → { lapStart, speedSum, speedCount, samples, lastProgress } }
+
+function trackLap(unitId, progress, speed) {
+  let st = lapState.get(unitId);
+  if (!st) {
+    lapState.set(unitId, {
+      lapStart: Date.now(), speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
+    });
+    return;
+  }
+  st.speedSum += speed;
+  st.speedCount++;
+  st.samples++;
+
+  // Caída brusca del progreso habiendo llegado cerca del final, con un
+  // mínimo de muestras: eso es una vuelta completa, no ruido de GPS.
+  if (st.lastProgress - progress > 0.5 && st.lastProgress > 0.8 && st.samples >= 5) {
+    const now = Date.now();
+    const durationSec = Math.round((now - st.lapStart) / 1000);
+    const avgSpeed = st.speedCount ? Math.round(st.speedSum / st.speedCount) : 0;
+    db.prepare('INSERT INTO laps (unitId, startedAt, finishedAt, durationSec, avgSpeed) VALUES (?, ?, ?, ?, ?)')
+      .run(unitId, st.lapStart, now, durationSec, avgSpeed);
+    db.prepare('DELETE FROM laps WHERE id NOT IN (SELECT id FROM laps ORDER BY id DESC LIMIT 2000)').run();
+    console.log(`Vuelta completada: ${unitId} en ${Math.round(durationSec / 60)} min`);
+    lapState.set(unitId, {
+      lapStart: now, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
+    });
+    return;
+  }
+  st.lastProgress = progress;
+}
+
 // Intentos fallidos por unidad: 5 seguidos → bloqueo de 5 minutos
 const loginAttempts = new Map();
 
@@ -367,6 +416,26 @@ app.get('/admin/audit', requireDispatch, (req, res) => {
   res.json({ events });
 });
 
+// Métricas de vueltas por unidad: hoy, última, promedio, mejor, velocidad
+app.get('/admin/metrics', requireDispatch, (req, res) => {
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const rows = db.prepare(`
+    SELECT unitId,
+      COUNT(*) AS lapsTotal,
+      SUM(CASE WHEN finishedAt >= @dayStart THEN 1 ELSE 0 END) AS lapsToday,
+      ROUND(AVG(durationSec)) AS avgSec,
+      MIN(durationSec) AS bestSec,
+      ROUND(AVG(avgSpeed)) AS avgSpeed,
+      (SELECT durationSec FROM laps l2 WHERE l2.unitId = laps.unitId ORDER BY l2.id DESC LIMIT 1) AS lastSec,
+      MAX(finishedAt) AS lastFinish
+    FROM laps
+    GROUP BY unitId
+    ORDER BY lapsToday DESC, lapsTotal DESC
+  `).all({ dayStart: dayStart.getTime() });
+  res.json({ metrics: rows });
+});
+
 // ─── RUTA DE SALUD ───────────────────────────────────────────
 // Si hacés GET /ping y responde "pong", el servidor está vivo.
 app.get('/ping', (req, res) => {
@@ -448,6 +517,9 @@ wss.on('connection', (ws) => {
         routeProgress: msg.routeProgress || 0,
         timestamp: Date.now(),
       });
+
+      // Detección de vuelta completa a partir del progreso
+      trackLap(unitId, msg.routeProgress || 0, msg.speed || 0);
 
       // Cada vez que llega una posición, recalculamos los gaps
       // y mandamos el estado completo a todos
@@ -609,6 +681,7 @@ setInterval(() => {
   for (const [unitId, unit] of units) {
     if (unit.timestamp < cutoff) {
       units.delete(unitId);
+      lapState.delete(unitId); // la vuelta a medias no cuenta
       console.log(`Unidad eliminada por inactividad: ${unitId}`);
       broadcast({ type: 'unit_left', unitId });
     }
