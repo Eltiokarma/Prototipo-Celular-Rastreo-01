@@ -17,7 +17,7 @@
   let driverName = null;
 
   // Callbacks — la app los registra para recibir actualizaciones
-  const listeners = { state: [], status: [], chat: [], sos: [], history: [] };
+  const listeners = { state: [], status: [], chat: [], voice: [], sos: [], history: [] };
 
   function emit(event, data) {
     (listeners[event] || []).forEach(fn => fn(data));
@@ -50,6 +50,8 @@
           emit('state', msg);
         } else if (msg.type === 'chat_msg') {
           emit('chat', msg);
+        } else if (msg.type === 'voice_msg') {
+          emit('voice', msg);
         } else if (msg.type === 'sos_alert') {
           emit('sos', msg);
         } else if (msg.type === 'chat_history') {
@@ -195,6 +197,13 @@
     send({ type: 'chat', text: String(text).slice(0, 500), timestamp: Date.now() });
   }
 
+  // Nota de voz como data-URL base64 (webm/opus). El servidor la rebota
+  // a todo el grupo y la guarda en el historial.
+  function sendVoice(dataUrl, duration) {
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:audio')) return;
+    send({ type: 'voice', data: dataUrl, duration, timestamp: Date.now() });
+  }
+
   function sendSos() {
     const coords = lastPosition?.coords;
     send({
@@ -213,6 +222,7 @@
     connect,
     disconnect,
     sendChat,
+    sendVoice,
     sendSos,
     isConnected,
     on: (event, fn) => { listeners[event] = [fn]; }, // reemplaza — un handler por evento

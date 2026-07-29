@@ -17,7 +17,8 @@ project/            La app (PWA servida como archivos estáticos)
   uploads/            Referencias de diseño (tema de color)
 
 server/             Servidor de tiempo real (Node + Express + ws)
-  index.js            Estado en memoria, cálculo de brechas, broadcast
+  index.js            Estado en memoria, cálculo de brechas, broadcast,
+                      historial de chat/voz/SOS en SQLite (better-sqlite3)
 
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -41,6 +42,13 @@ cd project && python3 -m http.server 8080
 
 En producción el cliente apunta al servidor vía `window.REALTIME_SERVER_URL`
 (por defecto, el deploy de Railway configurado en `realtime.js`).
+
+**Persistencia:** el historial del grupo (últimos 200 mensajes: texto, notas
+de voz y SOS) vive en SQLite (`server/r14.db`). En Railway, para que
+sobreviva redeploys, montar un volumen y apuntar la base ahí:
+`DB_FILE=/data/r14.db`. Las notas de voz viajan como data-URL base64
+(webm/opus, tope 60 s / ~1.5 MB); solo las 30 más recientes conservan su
+audio — las más viejas quedan "expiradas" (burbuja sin reproducción).
 
 ## Pantallas
 

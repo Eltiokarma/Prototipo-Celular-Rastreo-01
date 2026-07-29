@@ -30,35 +30,88 @@ const units = new Map();
 const clients = new Map();
 // clients = { websocket → unitId }
 
-// ─── HISTORIAL DE CHAT ───────────────────────────────────────
-// Los últimos mensajes (chat y SOS) se guardan para que quien se
-// conecta vea la conversación en curso, no un hilo vacío.
-// Se persisten a disco con un pequeño debounce; si el servidor se
-// reinicia, el historial se recarga del archivo.
-// (En Railway el disco es efímero: sobrevive reinicios del proceso,
-// no redeploys. Cuando haga falta más, esto pasa a una base de datos.)
+// ─── HISTORIAL DE CHAT (SQLite) ──────────────────────────────
+// Los últimos mensajes del grupo (texto, voz y SOS) se guardan en una
+// base SQLite para que quien se conecta vea la conversación en curso.
+// En Railway: montar un volumen y apuntar DB_FILE ahí (p. ej.
+// DB_FILE=/data/r14.db) para que el historial sobreviva redeploys.
 
-const HISTORY_FILE = process.env.HISTORY_FILE || path.join(__dirname, 'chat-history.json');
-const HISTORY_MAX = 200;
+const Database = require('better-sqlite3');
+const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'r14.db');
+const db = new Database(DB_FILE);
+db.pragma('journal_mode = WAL');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,          -- 'chat' | 'voice' | 'sos'
+    unitId TEXT,
+    driverName TEXT,
+    text TEXT,                   -- solo kind='chat'
+    duration INTEGER,            -- segundos, solo kind='voice'
+    data TEXT,                   -- audio como data-URL base64, solo kind='voice'
+    lat REAL, lng REAL,          -- solo kind='sos'
+    timestamp INTEGER NOT NULL
+  )
+`);
 
-let history = [];
-try {
-  history = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8')).slice(-HISTORY_MAX);
-  console.log(`Historial cargado: ${history.length} mensajes`);
-} catch {
-  // primer arranque o archivo corrupto — se empieza de cero
+// Migración única desde el chat-history.json de la versión anterior
+const LEGACY_FILE = path.join(__dirname, 'chat-history.json');
+if (db.prepare('SELECT COUNT(*) AS c FROM messages').get().c === 0 && fs.existsSync(LEGACY_FILE)) {
+  try {
+    const old = JSON.parse(fs.readFileSync(LEGACY_FILE, 'utf8'));
+    const ins = db.prepare(`
+      INSERT INTO messages (kind, unitId, driverName, text, duration, data, lat, lng, timestamp)
+      VALUES (@kind, @unitId, @driverName, @text, @duration, @data, @lat, @lng, @timestamp)
+    `);
+    db.transaction(items => items.forEach(it => ins.run({
+      text: null, duration: null, data: null, lat: null, lng: null, ...it,
+    })))(old);
+    fs.renameSync(LEGACY_FILE, LEGACY_FILE + '.imported');
+    console.log(`Migrados ${old.length} mensajes del JSON a SQLite`);
+  } catch (e) {
+    console.error('Migración del historial fallida:', e.message);
+  }
 }
 
-let saveTimeout = null;
+const HISTORY_MAX = 200;   // mensajes que recibe un cliente al conectarse
+const KEEP_ROWS = 1000;    // filas totales que retiene la base
+const VOICE_KEEP = 30;     // notas de voz que conservan su audio
+
+const insertStmt = db.prepare(`
+  INSERT INTO messages (kind, unitId, driverName, text, duration, data, lat, lng, timestamp)
+  VALUES (@kind, @unitId, @driverName, @text, @duration, @data, @lat, @lng, @timestamp)
+`);
+const pruneRowsStmt = db.prepare(`
+  DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY id DESC LIMIT ${KEEP_ROWS})
+`);
+// Las notas de voz viejas sueltan su audio (pesa mucho) pero conservan
+// la burbuja con su duración — el cliente las muestra como expiradas.
+const pruneVoiceStmt = db.prepare(`
+  UPDATE messages SET data = NULL
+  WHERE kind = 'voice' AND data IS NOT NULL
+    AND id NOT IN (SELECT id FROM messages WHERE kind = 'voice' AND data IS NOT NULL ORDER BY id DESC LIMIT ${VOICE_KEEP})
+`);
+
 function remember(item) {
-  history.push(item);
-  if (history.length > HISTORY_MAX) history = history.slice(-HISTORY_MAX);
-  clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => {
-    fs.writeFile(HISTORY_FILE, JSON.stringify(history), (err) => {
-      if (err) console.error('No se pudo guardar el historial:', err.message);
-    });
-  }, 1000);
+  try {
+    insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null, ...item });
+    pruneRowsStmt.run();
+    pruneVoiceStmt.run();
+  } catch (e) {
+    console.error('No se pudo guardar el mensaje:', e.message);
+  }
+}
+
+function recentHistory() {
+  return db.prepare(`
+    SELECT kind, unitId, driverName, text, duration, data, lat, lng, timestamp
+    FROM (SELECT * FROM messages ORDER BY id DESC LIMIT ${HISTORY_MAX})
+    ORDER BY id ASC
+  `).all();
+}
+
+function historyCount() {
+  return db.prepare('SELECT COUNT(*) AS c FROM messages').get().c;
 }
 
 // ─── RUTA DE SALUD ───────────────────────────────────────────
@@ -69,7 +122,7 @@ app.get('/ping', (req, res) => {
     message: 'pong',
     units: units.size,
     clients: clients.size,
-    historyLength: history.length,
+    historyLength: historyCount(),
     time: new Date().toISOString(),
   });
 });
@@ -164,6 +217,29 @@ wss.on('connection', (ws) => {
       remember({ kind: 'chat', ...entry });
       broadcast({ type: 'chat_msg', ...entry });
     }
+
+    // TIPO: voz — nota de voz grabada en el celular
+    // Llega como data-URL base64 (webm/opus). Tope ~1.5 MB de audio
+    // (unos 60s) para que el broadcast no se vuelva pesado.
+    if (msg.type === 'voice') {
+      const unitId = clients.get(ws);
+      if (!unitId) return;
+      const unit = units.get(unitId) || {};
+      const data = typeof msg.data === 'string'
+        && msg.data.startsWith('data:audio')
+        && msg.data.length <= 2_000_000
+        ? msg.data : null;
+      if (!data) return; // audio inválido o demasiado grande — se descarta
+      const entry = {
+        unitId,
+        driverName: unit.driverName || 'Conductor',
+        duration: Math.max(1, Math.min(120, Math.round(msg.duration || 0))),
+        data,
+        timestamp: msg.timestamp || Date.now(),
+      };
+      remember({ kind: 'voice', ...entry });
+      broadcast({ type: 'voice_msg', ...entry });
+    }
   });
 
   // Cuando una combi se desconecta
@@ -182,7 +258,7 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'state', ...state }));
 
   // Y el historial de chat, para que vea la conversación en curso
-  ws.send(JSON.stringify({ type: 'chat_history', items: history }));
+  ws.send(JSON.stringify({ type: 'chat_history', items: recentHistory() }));
 });
 
 // ─── CONSTRUIR ESTADO ────────────────────────────────────────

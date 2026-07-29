@@ -546,11 +546,14 @@ function nowTime(ts) {
 // La reproducción es simulada: las barras se van encendiendo con el progreso.
 const VOICE_BAR_HEIGHTS = [10, 18, 24, 14, 22, 26, 12, 20, 24, 13, 19, 10];
 
-function VoiceBubble({ seconds, own }) {
+function VoiceBubble({ seconds, own, audio, expired }) {
   const [playing, setPlaying] = React.useState(false);
   const [elapsed, setElapsed] = React.useState(0);
+  const audioRef = React.useRef(null);
+
+  // Sin audio real (mensajes de demo) la reproducción es simulada
   React.useEffect(() => {
-    if (!playing) return;
+    if (audio || !playing) return;
     const id = setInterval(() => {
       setElapsed(e => {
         if (e + 0.1 >= seconds) { setPlaying(false); return 0; }
@@ -558,7 +561,32 @@ function VoiceBubble({ seconds, own }) {
       });
     }, 100);
     return () => clearInterval(id);
-  }, [playing, seconds]);
+  }, [playing, seconds, audio]);
+
+  React.useEffect(() => () => { if (audioRef.current) audioRef.current.pause(); }, []);
+
+  const toggle = () => {
+    if (expired) return;
+    if (audio) {
+      if (!audioRef.current) {
+        const a = new Audio(audio);
+        a.ontimeupdate = () => setElapsed(a.currentTime);
+        a.onended = () => { setPlaying(false); setElapsed(0); };
+        audioRef.current = a;
+      }
+      if (playing) {
+        audioRef.current.pause();
+        setPlaying(false);
+      } else {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => setPlaying(false));
+        setPlaying(true);
+      }
+    } else {
+      setElapsed(0);
+      setPlaying(p => !p);
+    }
+  };
 
   const playBg  = own ? HUD.green : P.bright;
   const litBar  = own ? '#7DF06A' : P.sky;
@@ -566,15 +594,15 @@ function VoiceBubble({ seconds, own }) {
   const litCount = playing ? Math.max(1, Math.round((elapsed / seconds) * 12)) : 6;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: expired ? 0.45 : 1 }}>
       <div
         data-noswipe="voice"
-        onClick={() => { setElapsed(0); setPlaying(p => !p); }}
+        onClick={toggle}
         style={{
           width: 38, height: 38, borderRadius: '50%',
           background: playBg, color: HUD.bg,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 16, flexShrink: 0, cursor: 'pointer',
+          fontSize: 16, flexShrink: 0, cursor: expired ? 'default' : 'pointer',
           userSelect: 'none',
         }}>{playing ? '❚❚' : '▶'}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 26 }}>
@@ -653,7 +681,7 @@ function ChatMsg({ msg }) {
       </div>
       <div style={bubbleStyle(msg)}>
         {msg.voice
-          ? <VoiceBubble seconds={msg.voice} own={isYou} />
+          ? <VoiceBubble seconds={msg.voice} own={isYou} audio={msg.audio} expired={msg.expired} />
           : msg.text}
       </div>
     </div>
@@ -676,26 +704,71 @@ function ChatScreen({ messages, hud, online, connected, onSendText, onSendVoice 
   const [draft, setDraft] = React.useState('');
   const [recording, setRecording] = React.useState(false);
   const [recElapsed, setRecElapsed] = React.useState(0);
+  const recRef = React.useRef(null); // { recorder, stream, chunks, started }
 
   // Hilo anclado al mensaje más nuevo, al montar y con cada mensaje
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
 
+  // Grabación real con el micrófono del celular. Si no hay permiso o no
+  // hay MediaRecorder, la nota sale igual pero sin audio (simulada).
+  const startRec = () => {
+    if (recRef.current) return;
+    const rec = { recorder: null, stream: null, chunks: [], started: Date.now() };
+    recRef.current = rec;
+    setRecording(true);
+    if (navigator.mediaDevices?.getUserMedia && window.MediaRecorder) {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+        if (recRef.current !== rec) { stream.getTracks().forEach(t => t.stop()); return; } // ya soltó
+        const recorder = new MediaRecorder(stream);
+        recorder.ondataavailable = (e) => { if (e.data.size) rec.chunks.push(e.data); };
+        recorder.start();
+        rec.recorder = recorder;
+        rec.stream = stream;
+      }).catch(() => {}); // sin permiso — nota simulada
+    }
+  };
+
+  const stopRec = () => {
+    const rec = recRef.current;
+    if (!rec) return;
+    recRef.current = null;
+    setRecording(false);
+    setRecElapsed(0);
+    const dur = Math.round((Date.now() - rec.started) / 1000);
+    const finish = (dataUrl) => { if (dur >= 1) onSendVoice(Math.min(dur, 60), dataUrl || null); };
+    if (rec.recorder && rec.recorder.state === 'recording') {
+      rec.recorder.onstop = () => {
+        rec.stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(rec.chunks, { type: rec.recorder.mimeType || 'audio/webm' });
+        if (!blob.size || blob.size > 1_500_000) { finish(null); return; }
+        const fr = new FileReader();
+        fr.onload = () => finish(fr.result);
+        fr.onerror = () => finish(null);
+        fr.readAsDataURL(blob);
+      };
+      rec.recorder.stop();
+    } else {
+      if (rec.stream) rec.stream.getTracks().forEach(t => t.stop());
+      finish(null);
+    }
+  };
+
   React.useEffect(() => {
     if (!recording) return;
-    const started = Date.now();
-    const id = setInterval(() => setRecElapsed((Date.now() - started) / 1000), 100);
-    const stop = () => setRecording(false);
-    window.addEventListener('mouseup', stop);
-    window.addEventListener('touchend', stop);
+    const started = recRef.current?.started || Date.now();
+    const id = setInterval(() => {
+      const el = (Date.now() - started) / 1000;
+      setRecElapsed(el);
+      if (el >= 60) stopRec(); // tope de 60 segundos
+    }, 100);
+    window.addEventListener('mouseup', stopRec);
+    window.addEventListener('touchend', stopRec);
     return () => {
       clearInterval(id);
-      window.removeEventListener('mouseup', stop);
-      window.removeEventListener('touchend', stop);
-      const dur = Math.round((Date.now() - started) / 1000);
-      setRecElapsed(0);
-      if (dur >= 1) onSendVoice(dur); // menos de 1s se descarta
+      window.removeEventListener('mouseup', stopRec);
+      window.removeEventListener('touchend', stopRec);
     };
   }, [recording]);
 
@@ -799,8 +872,8 @@ function ChatScreen({ messages, hud, online, connected, onSendText, onSendVoice 
           />
         )}
         <button
-          onMouseDown={() => setRecording(true)}
-          onTouchStart={(e) => { e.preventDefault(); setRecording(true); }}
+          onMouseDown={startRec}
+          onTouchStart={(e) => { e.preventDefault(); startRec(); }}
           style={{
             width: controlH, height: controlH, boxSizing: 'border-box',
             borderRadius: '50%', flexShrink: 0,
@@ -1885,22 +1958,20 @@ function Root() {
     // Al conectar, el servidor manda los últimos mensajes del grupo:
     // el hilo real reemplaza al de demostración
     window.RealtimeClient.on('history', (items) => {
-      setMessages(items.map(it => it.kind === 'sos'
-        ? {
-            from: it.driverName || it.unitId || 'Conductor',
-            role: 'driver',
-            text: 'SOS — pide ayuda',
-            time: nowTime(it.timestamp),
-            tone: 'sos',
-          }
-        : {
-            from: it.unitId === myUnitId ? 'TÚ' : (it.driverName || it.unitId || 'Conductor'),
-            role: it.unitId === myUnitId ? 'you' : 'driver',
-            text: it.text,
-            time: nowTime(it.timestamp),
-            tone: 'normal',
-          }
-      ));
+      setMessages(items.map(it => {
+        const own = it.unitId === myUnitId;
+        const from = own ? 'TÚ' : (it.driverName || it.unitId || 'Conductor');
+        const role = own ? 'you' : 'driver';
+        const time = nowTime(it.timestamp);
+        if (it.kind === 'sos') {
+          return { from: it.driverName || it.unitId || 'Conductor', role: 'driver', text: 'SOS — pide ayuda', time, tone: 'sos' };
+        }
+        if (it.kind === 'voice') {
+          // las notas viejas pierden el audio en el servidor: quedan expiradas
+          return { from, role, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone: 'normal' };
+        }
+        return { from, role, text: it.text, time, tone: 'normal' };
+      }));
     });
 
     // Chat en vivo: el servidor rebota el mensaje a todos (incluido el emisor),
@@ -1911,6 +1982,19 @@ function Root() {
         from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
         role: own ? 'you' : 'driver',
         text: m.text,
+        time: nowTime(m.timestamp),
+        tone: 'normal',
+      });
+    });
+
+    // Nota de voz de cualquier unidad (incluida la propia, por el eco)
+    window.RealtimeClient.on('voice', (m) => {
+      const own = m.unitId === myUnitId;
+      pushMsg({
+        from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
+        role: own ? 'you' : 'driver',
+        voice: m.duration,
+        audio: m.data,
         time: nowTime(m.timestamp),
         tone: 'normal',
       });
@@ -1942,9 +2026,14 @@ function Root() {
     }
   };
 
-  // Nota de voz: por ahora solo local (el servidor aún no transporta audio)
-  const sendVoice = (seconds) => {
-    pushMsg({ from: 'TÚ', role: 'you', voice: seconds, time: nowTime(), tone: 'normal' });
+  // Nota de voz: si hay audio y conexión va al grupo (el eco la agrega al
+  // hilo); sin conexión o sin permiso de micrófono queda local
+  const sendVoice = (seconds, dataUrl) => {
+    if (connectedRef.current && dataUrl) {
+      window.RealtimeClient.sendVoice(dataUrl, seconds);
+    } else {
+      pushMsg({ from: 'TÚ', role: 'you', voice: seconds, audio: dataUrl || null, time: nowTime(), tone: 'normal' });
+    }
   };
 
   const fireSos = () => {
