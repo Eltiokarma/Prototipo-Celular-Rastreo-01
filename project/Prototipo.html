@@ -87,6 +87,14 @@
     0%, 100% { transform: translateX(0); opacity: 0.4; }
     50%      { transform: translateX(6px); opacity: 1; }
   }
+  @keyframes combiEdge {
+    0%, 100% { opacity: 0.55; }
+    50%      { opacity: 1; }
+  }
+  @keyframes combiRecDot {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+  }
   input[type="range"] { height: 20px; }
   .map-tooltip {
     background: rgba(0,0,0,0.8) !important;
@@ -122,6 +130,10 @@
 
 <div id="tweaks-mount"></div>
 
+<!-- Si el servidor Node sirve esta página, config.js apunta el tiempo
+     real a este mismo origen; en hosting estático da 404 y no pasa nada -->
+<script src="config.js"></script>
+
 <!-- Módulo de conexión en tiempo real con el servidor -->
 <script src="realtime.js"></script>
 
@@ -156,6 +168,75 @@ const COOP = {
   full:  'Cooperativa de Transportes Juliaca',
   route: 'Ruta 14 · Terminal Sur ↔ Huancané',
 };
+
+// Tokens HUD (rediseño 2a/3a/3b) — se suman a PALETTE sin tocarla.
+// Regla: el rojo #FF2D55 queda reservado a emergencia/brecha crítica.
+const HUD = {
+  bg:      '#03060a',  // fondo OLED de las tres pantallas
+  surface: '#0d1116',  // pista del SOS, superficies
+  line:    '#1c2836',  // bordes de chips y barras
+  divider: '#16222f',  // divisores internos
+  green:   '#39FF14',  greenInk: '#EAFFE4',
+  amber:   '#FFD400',  amberInk: '#FFF7D6',
+  red:     '#FF2D55',  redInk:   '#FFE0E7',
+  fg:      '#EAF4FF',  // texto primario
+  fg2:     '#C6D6E6',  // texto secundario / iconos
+  dim:     '#8FA8C0',  // etiquetas
+  dim2:    '#6E88A2',  // metadatos
+  dim3:    '#56708A',  // metadatos mínimos
+};
+
+// Estado por lado: desvío relativo al objetivo (verde ≤15%, ámbar ≤30%)
+function sideStatus(gapStr, target) {
+  const dev = Math.abs(parseMin(gapStr) - target) / target;
+  if (dev <= 0.15) return 'green';
+  if (dev <= 0.30) return 'yellow';
+  return 'red';
+}
+
+const HUD_STATUS = {
+  green:  { c: HUD.green, ink: HUD.greenInk },
+  yellow: { c: HUD.amber, ink: HUD.amberInk },
+  red:    { c: HUD.red,   ink: HUD.redInk },
+};
+
+// "04:30" → "4:30" (los dígitos héroe no llevan cero inicial)
+function fmtGap(v) {
+  return String(v || '').replace(/^0(\d)/, '$1');
+}
+
+// 2 → "2:00", 2.5 → "2:30"
+function fmtTarget(min) {
+  const m = Math.floor(min);
+  const s = Math.round((min - m) * 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// Modelo compartido del HUD: qué lado es héroe, colores por lado.
+// El héroe es el lado con MAYOR desvío absoluto respecto del objetivo.
+function buildHudModel(tweaks, gapMeta) {
+  const target = tweaks.targetGap;
+  const mk = (value, label, sign, unit) => {
+    const status = sideStatus(value, target);
+    return {
+      value, label, sign, unit,
+      status,
+      color: HUD_STATUS[status].c,
+      ink: HUD_STATUS[status].ink,
+      display: fmtGap(value),
+    };
+  };
+  const front = mk(tweaks.frontTime, 'ADELANTE', '+1', gapMeta?.aheadUnit || 'M-08');
+  const back  = mk(tweaks.backTime,  'ATRÁS',    '−1', gapMeta?.behindUnit || 'M-21');
+  const heroIsBack =
+    Math.abs(parseMin(tweaks.backTime) - target) >= Math.abs(parseMin(tweaks.frontTime) - target);
+  return {
+    target,
+    front, back,
+    hero: heroIsBack ? back : front,
+    sec:  heroIsBack ? front : back,
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════
 // ANDROID FRAME
@@ -241,159 +322,29 @@ function AndroidDevice({ children, width = 412, height = 892, dark = false }) {
 // ═══════════════════════════════════════════════════════════════
 // GPS MAP
 // ═══════════════════════════════════════════════════════════════
-const MAP_COLORS = {
-  bg: '#0a0e12',
-  street: '#1e242c',
-  streetMain: '#2a3340',
-  route: '#FFFFFF',
-  routeGlow: 'rgba(255,255,255,0.25)',
-  label: '#6b7785',
-  labelMain: '#aab4c0',
-  you: '#FFFFFF',
-  green: '#00E676',
-  yellow: '#FFD600',
-  red: '#FF1744',
-  other: '#4a5362',
-};
-
-const ROUTE_POINTS = [
-  { x: 30,  y: 420 },
-  { x: 85,  y: 360 },
-  { x: 140, y: 340 },
-  { x: 200, y: 310 },
-  { x: 250, y: 260 },
-  { x: 280, y: 210 },
-  { x: 300, y: 160 },
-  { x: 320, y: 110 },
-  { x: 340, y: 60  },
-];
-
-function posOnRoute(t) {
-  const clamped = Math.max(0, Math.min(1, t));
-  const seg = clamped * (ROUTE_POINTS.length - 1);
-  const i = Math.floor(seg);
-  const frac = seg - i;
-  const a = ROUTE_POINTS[i];
-  const b = ROUTE_POINTS[Math.min(i + 1, ROUTE_POINTS.length - 1)];
-  return { x: a.x + (b.x - a.x) * frac, y: a.y + (b.y - a.y) * frac };
-}
-
-function MapBackground() {
-  const sideStreets = [
-    "M 0 100 L 380 140", "M 0 180 L 380 220", "M 0 260 L 380 300",
-    "M 0 350 L 380 390", "M 0 440 L 380 480", "M 0 520 L 380 550",
-    "M 60 0 L 80 600",   "M 140 0 L 165 600", "M 220 0 L 250 600",
-    "M 300 0 L 330 600",
-  ];
-  const mains = [
-    "M 0 390 Q 100 370, 200 330 T 380 260",
-    "M 40 0 L 120 200 L 200 400 L 280 600",
-  ];
-  const routeD = ROUTE_POINTS.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-  return (
-    <svg viewBox="0 0 380 600" preserveAspectRatio="xMidYMid slice" overflow="hidden"
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'hidden' }}>
-      <defs>
-        <pattern id="mapGrid" width="40" height="40" patternUnits="userSpaceOnUse">
-          <circle cx="0" cy="0" r="0.5" fill="#151b22" />
-        </pattern>
-        <filter id="routeGlow">
-          <feGaussianBlur stdDeviation="4" />
-        </filter>
-      </defs>
-      <rect width="380" height="600" fill="url(#mapGrid)" />
-      {sideStreets.map((d, i) => (
-        <path key={i} d={d} stroke={MAP_COLORS.street} strokeWidth="2" fill="none" />
-      ))}
-      {mains.map((d, i) => (
-        <path key={i} d={d} stroke={MAP_COLORS.streetMain} strokeWidth="5" fill="none" strokeLinecap="round" />
-      ))}
-      <path d={routeD} stroke={MAP_COLORS.routeGlow} strokeWidth="14"
-        fill="none" strokeLinecap="round" strokeLinejoin="round" filter="url(#routeGlow)" />
-      <path d={routeD} stroke={MAP_COLORS.route} strokeWidth="4"
-        fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      <path d={routeD} stroke="#000" strokeWidth="2" strokeDasharray="1 10"
-        fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
-      <g style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 9, fill: MAP_COLORS.label }}>
-        <text x="14" y="145" opacity="0.7">JR. LAMBAYEQUE</text>
-        <text x="14" y="225" opacity="0.7">AV. TUMBES</text>
-        <text x="14" y="305" opacity="0.7">AV. CIRCUNVALACIÓN</text>
-      </g>
-      <g style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10, fill: MAP_COLORS.labelMain, fontWeight: 700 }}>
-        <text x="160" y="38" letterSpacing="1">SALIDA HUANCANÉ →</text>
-        <text x="14" y="575" letterSpacing="1">← TERMINAL SUR</text>
-      </g>
-    </svg>
-  );
-}
-
-function UnitPin({ x, y, color, label, size = 16, pulse = false, you = false, gap }) {
-  return (
-    <div style={{
-      position: 'absolute',
-      left: `${(x / 380) * 100}%`,
-      top: `${(y / 600) * 100}%`,
-      transform: 'translate(-50%, -50%)',
-      pointerEvents: 'none',
-    }}>
-      {pulse && (
-        <div style={{
-          position: 'absolute', left: '50%', top: '50%',
-          width: size * 2.6, height: size * 2.6, borderRadius: '50%',
-          background: color, opacity: 0.25,
-          transform: 'translate(-50%, -50%)',
-          animation: 'combiPulse 2s ease-out infinite',
-        }} />
-      )}
-      <div style={{
-        width: size, height: size, borderRadius: '50%',
-        background: color,
-        border: you ? '3px solid #000' : '2px solid #000',
-        boxShadow: `0 0 ${size}px ${color}`,
-        position: 'relative',
-      }} />
-      {gap && (
-        <div style={{
-          position: 'absolute', left: '50%', top: 'calc(100% + 4px)',
-          transform: 'translateX(-50%)',
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 10, fontWeight: 700, color,
-          background: 'rgba(0,0,0,0.7)', padding: '1px 5px', borderRadius: 4,
-          whiteSpace: 'nowrap',
-        }}>{gap}</div>
-      )}
-      {label && !gap && (
-        <div style={{
-          position: 'absolute', left: '50%', top: 'calc(100% + 3px)',
-          transform: 'translateX(-50%)',
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 8, color: '#6b7785', whiteSpace: 'nowrap',
-        }}>{label}</div>
-      )}
-    </div>
-  );
-}
-
-// Convierte coordenadas GPS reales de Juliaca a posición en el mapa SVG (0-380, 0-600)
-// La ruta R-14 va de Terminal Sur (-15.502, -70.133) a Huancané (-15.457, -70.103)
-const JULIACA_BOUNDS = {
-  latMin: -15.520, latMax: -15.440,
-  lngMin: -70.155, lngMax: -70.090,
-};
-
-function gpsToMapXY(lat, lng) {
-  const x = ((lng - JULIACA_BOUNDS.lngMin) / (JULIACA_BOUNDS.lngMax - JULIACA_BOUNDS.lngMin)) * 380;
-  const y = ((lat - JULIACA_BOUNDS.latMax) / (JULIACA_BOUNDS.latMin - JULIACA_BOUNDS.latMax)) * 600;
-  return {
-    x: Math.max(10, Math.min(370, x)),
-    y: Math.max(10, Math.min(590, y)),
-  };
-}
-
 // Centro de Juliaca — Plaza de Armas
 const JULIACA_CENTER = [-15.4904, -70.1333];
 
-function GpsMap({ active, otherUnits = [] }) {
+// HTML de los pines (Leaflet divIcon). El ancla siempre es el centro del punto.
+function youPinHtml() {
+  return `<div style="position:relative;width:24px;height:24px;">
+    <div style="width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid ${HUD.bg};box-sizing:border-box;box-shadow:0 0 24px #fff,0 0 48px rgba(255,255,255,.4);"></div>
+    <div style="position:absolute;top:29px;left:50%;transform:translateX(-50%);font-family:'Archivo Black',system-ui,sans-serif;font-size:16px;color:${HUD.bg};background:#fff;padding:1px 7px;border-radius:8px;">TÚ</div>
+  </div>`;
+}
+
+function gapPinHtml(color, text) {
+  return `<div style="position:relative;width:16px;height:16px;">
+    <div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid ${HUD.bg};box-sizing:border-box;box-shadow:0 0 16px ${color};"></div>
+    <div style="position:absolute;top:21px;left:50%;transform:translateX(-50%);font-family:'Archivo Black',system-ui,sans-serif;font-size:20px;color:${color};background:rgba(3,6,10,.82);padding:3px 9px;border-radius:8px;text-shadow:0 0 14px ${color}99;font-variant-numeric:tabular-nums;white-space:nowrap;">${text}</div>
+  </div>`;
+}
+
+function otherPinHtml() {
+  return `<div style="width:10px;height:10px;border-radius:50%;background:${HUD.dim3};border:2px solid ${HUD.bg};box-sizing:content-box;"></div>`;
+}
+
+function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop }) {
   const leafletRef = React.useRef(null);
   const youMarkerRef = React.useRef(null);
   const otherMarkersRef = React.useRef({});
@@ -407,8 +358,9 @@ function GpsMap({ active, otherUnits = [] }) {
     }
   }, [active]);
 
-  // Se ejecuta cuando cambian los otros usuarios O cuando el mapa termina de inicializarse
-  // mapReady está en las dependencias para que esto corra una vez que el mapa esté listo
+  // Se ejecuta cuando cambian los otros usuarios O cuando el mapa termina de inicializarse.
+  // Las unidades ±1 llevan burbuja de brecha con el mismo valor que muestra el HUD;
+  // el resto son puntos de contexto sin texto.
   React.useEffect(() => {
     if (!mapReady || !leafletRef.current) return;
     const map = leafletRef.current;
@@ -416,22 +368,36 @@ function GpsMap({ active, otherUnits = [] }) {
     const currentIds = new Set(otherUnits.map(u => u.unitId));
 
     Object.keys(existing).forEach(id => {
-      if (!currentIds.has(id)) { existing[id].remove(); delete existing[id]; }
+      if (!currentIds.has(id)) { existing[id].marker.remove(); delete existing[id]; }
     });
 
     otherUnits.forEach(unit => {
       if (!unit.lat || !unit.lng) return;
-      if (existing[unit.unitId]) {
-        existing[unit.unitId].setLatLng([unit.lat, unit.lng]);
+      let html, size, anchor;
+      if (unit.unitId === gapMeta?.aheadUnit) {
+        html = gapPinHtml(hud.front.color, hud.front.display);
+        size = [16, 16]; anchor = [8, 8];
+      } else if (unit.unitId === gapMeta?.behindUnit) {
+        html = gapPinHtml(hud.back.color, hud.back.display);
+        size = [16, 16]; anchor = [8, 8];
       } else {
-        const html = `<div style="width:14px;height:14px;border-radius:50%;background:#2E9DFF;border:2px solid #000;box-shadow:0 0 10px #2E9DFF;"></div>`;
-        const icon = L.divIcon({ html, className: '', iconSize: [14,14], iconAnchor: [7,7] });
-        existing[unit.unitId] = L.marker([unit.lat, unit.lng], { icon })
-          .addTo(map)
-          .bindTooltip(unit.unitId, { permanent: true, direction: 'top', className: 'map-tooltip' });
+        html = otherPinHtml();
+        size = [10, 10]; anchor = [5, 5];
+      }
+      const entry = existing[unit.unitId];
+      if (entry) {
+        entry.marker.setLatLng([unit.lat, unit.lng]);
+        if (entry.html !== html) {
+          entry.marker.setIcon(L.divIcon({ html, className: '', iconSize: size, iconAnchor: anchor }));
+          entry.html = html;
+        }
+      } else {
+        const icon = L.divIcon({ html, className: '', iconSize: size, iconAnchor: anchor });
+        const marker = L.marker([unit.lat, unit.lng], { icon }).addTo(map);
+        existing[unit.unitId] = { marker, html };
       }
     });
-  }, [otherUnits, mapReady]);
+  }, [otherUnits, mapReady, hud, gapMeta]);
 
   const initMap = React.useCallback((node) => {
     if (!node || leafletRef.current) return;
@@ -447,8 +413,7 @@ function GpsMap({ active, otherUnits = [] }) {
       maxZoom: 19,
     }).addTo(map);
 
-    const youHtml = `<div style="width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #000;box-shadow:0 0 0 6px rgba(255,255,255,0.25),0 0 20px #fff;"></div>`;
-    const youIcon = L.divIcon({ html: youHtml, className: '', iconSize: [18,18], iconAnchor: [9,9] });
+    const youIcon = L.divIcon({ html: youPinHtml(), className: '', iconSize: [24,24], iconAnchor: [12,12] });
     const youMarker = L.marker(JULIACA_CENTER, { icon: youIcon, zIndexOffset: 1000 }).addTo(map);
     youMarkerRef.current = youMarker;
 
@@ -476,38 +441,85 @@ function GpsMap({ active, otherUnits = [] }) {
   }, []);
 
   const chipStyle = {
-    position: 'absolute', fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-    fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase',
-    background: 'rgba(0,0,0,0.8)', padding: '4px 8px', borderRadius: 6,
-    display: 'flex', alignItems: 'center', gap: 5,
+    position: 'absolute', top: 46,
+    fontFamily: '"Archivo Black", system-ui, sans-serif',
+    fontSize: 17, whiteSpace: 'nowrap',
+    background: 'rgba(3,6,10,.8)', border: `1px solid ${HUD.line}`,
+    padding: '8px 12px', borderRadius: 10,
     pointerEvents: 'none', zIndex: 1000,
   };
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: '#0a0e12' }}>
+    <div style={{ position: 'absolute', inset: 0, background: HUD.bg }}>
       <div ref={initMap} style={{ position: 'absolute', inset: 0 }} data-noswipe="map" />
 
-      {/* Cuántos están conectados — esquina superior derecha */}
-      <div style={{ ...chipStyle, top: 16, right: 16 }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2E9DFF', flexShrink: 0 }} />
-        <span style={{ color: '#2E9DFF' }}>
-          {otherUnits.length > 0
-            ? `${otherUnits.length} en ruta`
-            : 'solo tú'}
-        </span>
+      {/* Chips superiores: ruta y unidades en línea */}
+      <div style={{ ...chipStyle, left: 18, color: HUD.fg }}>R-14 · TERMINAL</div>
+      <div style={{ ...chipStyle, right: 18, color: HUD.green }}>
+        {otherUnits.length > 0 ? `${otherUnits.length + 1} EN RUTA` : 'SOLO TÚ'}
       </div>
 
-      {/* Estado GPS — esquina inferior izquierda */}
-      <div style={{ ...chipStyle, bottom: 16, left: 16 }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: '50%',
-          background: realPos ? '#00E676' : '#FFD600', flexShrink: 0,
-        }} />
-        <span style={{ color: realPos ? '#00E676' : '#FFD600' }}>
-          {realPos
-            ? `${realPos.lat.toFixed(4)}, ${realPos.lng.toFixed(4)}`
-            : gpsError ? 'GPS NO DISPONIBLE' : 'ESPERANDO GPS...'}
-        </span>
+      {/* Barra inferior: la brecha del HUD nunca se pierde */}
+      <div style={{
+        position: 'absolute', left: 18, right: 18, bottom: 26,
+        background: 'rgba(3,6,10,.9)', border: `1px solid ${HUD.line}`,
+        borderRadius: 22, padding: '18px 20px',
+        display: 'flex', flexDirection: 'column', gap: 14,
+        pointerEvents: 'none', zIndex: 1000,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{
+                fontFamily: '"Archivo Black", system-ui, sans-serif',
+                fontSize: 17, color: hud.hero.color,
+              }}>{hud.hero.label}</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: HUD.dim2, fontFamily: 'system-ui, sans-serif' }}>
+                {hud.hero.sign} · {hud.hero.unit}
+              </span>
+            </div>
+            <div style={{
+              fontFamily: '"Archivo Black", system-ui, sans-serif',
+              fontSize: 56, lineHeight: 1, letterSpacing: -3,
+              color: hud.hero.ink,
+              textShadow: `0 0 10px ${hud.hero.color}, 0 0 34px ${hud.hero.color}`,
+              fontVariantNumeric: 'tabular-nums',
+            }}>{hud.hero.display}</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{
+              fontFamily: '"Archivo Black", system-ui, sans-serif',
+              fontSize: 17, color: '#A9C0D6',
+            }}>{hud.sec.label}</div>
+            <div style={{
+              fontFamily: '"Archivo Black", system-ui, sans-serif',
+              fontSize: 34, lineHeight: 1.1,
+              color: hud.sec.color,
+              textShadow: `0 0 14px ${hud.sec.color}80`,
+              fontVariantNumeric: 'tabular-nums',
+            }}>{hud.sec.display}</div>
+          </div>
+        </div>
+        <div style={{
+          borderTop: `1px solid ${HUD.divider}`, paddingTop: 12,
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: P.bright, flexShrink: 0 }} />
+          <span style={{
+            fontSize: 16, fontWeight: 700, color: HUD.dim,
+            fontFamily: 'system-ui, sans-serif',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
+          }}>{currentStop} → {nextStop}</span>
+          <span style={{
+            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+            fontSize: 13, fontWeight: 700, color: realPos ? HUD.dim3 : HUD.amber,
+            whiteSpace: 'nowrap',
+          }}>
+            {realPos
+              ? `${realPos.lat.toFixed(4)}, ${realPos.lng.toFixed(4)}`
+              : gpsError ? 'SIN GPS' : 'ESPERANDO GPS…'}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -517,150 +529,376 @@ function GpsMap({ active, otherUnits = [] }) {
 // CHAT
 // ═══════════════════════════════════════════════════════════════
 const CHAT_SEED = [
-  { from: 'Despacho',  role: 'admin',  text: 'Atención ruta R-14. Control en Tumbes.', time: '14:02', tone: 'info' },
-  { from: 'Chofer 08', role: 'driver', text: 'Voy lleno, paso directo',                 time: '14:05', tone: 'normal' },
-  { from: 'Chofer 12', role: 'driver', voice: 22,                                        time: '14:07', tone: 'normal' },
-  { from: 'Chofer 19', role: 'driver', text: 'Bloqueo en óvalo Huancané',               time: '14:08', tone: 'warn' },
-  { from: 'Despacho',  role: 'admin',  text: 'Desvío por Jr. Lambayeque',               time: '14:09', tone: 'info' },
-  { from: 'Chofer 22', role: 'driver', voice: 8,                                         time: '14:11', tone: 'normal' },
-  { from: 'TÚ',        role: 'you',    text: 'Copiado',                                  time: '14:11', tone: 'normal' },
+  { from: 'Chofer 08', role: 'driver', text: 'Voy lleno, paso directo',    time: '14:05', tone: 'normal' },
+  { from: 'Despacho',  role: 'admin',  text: 'Desvío por Jr. Lambayeque',  time: '14:06', tone: 'info' },
+  { from: 'Chofer 19', role: 'driver', text: 'Bloqueo en óvalo Huancané',  time: '14:08', tone: 'warn' },
+  { from: 'Chofer 12', role: 'driver', voice: 22,                          time: '14:09', tone: 'normal' },
+  { from: 'TÚ',        role: 'you',    text: 'Copiado',                    time: '14:11', tone: 'normal' },
 ];
 
-const TONE_COLOR = {
-  info:   { bg: '#1a2540', border: '#2d4270', accent: '#6ba4ff' },
-  warn:   { bg: '#3a2410', border: '#6a3e16', accent: '#ffb347' },
-  normal: { bg: '#1a1e24', border: '#2a2f38', accent: '#aab4c0' },
-  you:    { bg: '#0f2a20', border: '#1e5440', accent: '#00E676' },
-};
+// 85 → "1:25" (duración de audio, siempre tabular)
+function fmtDur(s) {
+  return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+}
 
-function VoiceBar({ seconds, accent }) {
-  const bars = Array.from({ length: 22 }, (_, i) => {
-    return 6 + Math.abs(Math.sin(i * 1.7) * 16) + Math.abs(Math.cos(i * 0.7) * 8);
-  });
+function nowTime(ts) {
+  const d = ts ? new Date(ts) : new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// Onda de 12 barras con alturas fijas del handoff.
+// La reproducción es simulada: las barras se van encendiendo con el progreso.
+const VOICE_BAR_HEIGHTS = [10, 18, 24, 14, 22, 26, 12, 20, 24, 13, 19, 10];
+
+function VoiceBubble({ seconds, own, audio, expired }) {
+  const [playing, setPlaying] = React.useState(false);
+  const [elapsed, setElapsed] = React.useState(0);
+  const audioRef = React.useRef(null);
+
+  // Sin audio real (mensajes de demo) la reproducción es simulada
+  React.useEffect(() => {
+    if (audio || !playing) return;
+    const id = setInterval(() => {
+      setElapsed(e => {
+        if (e + 0.1 >= seconds) { setPlaying(false); return 0; }
+        return e + 0.1;
+      });
+    }, 100);
+    return () => clearInterval(id);
+  }, [playing, seconds, audio]);
+
+  React.useEffect(() => () => { if (audioRef.current) audioRef.current.pause(); }, []);
+
+  const toggle = () => {
+    if (expired) return;
+    if (audio) {
+      if (!audioRef.current) {
+        const a = new Audio(audio);
+        a.ontimeupdate = () => setElapsed(a.currentTime);
+        a.onended = () => { setPlaying(false); setElapsed(0); };
+        audioRef.current = a;
+      }
+      if (playing) {
+        audioRef.current.pause();
+        setPlaying(false);
+      } else {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => setPlaying(false));
+        setPlaying(true);
+      }
+    } else {
+      setElapsed(0);
+      setPlaying(p => !p);
+    }
+  };
+
+  const playBg  = own ? HUD.green : P.bright;
+  const litBar  = own ? '#7DF06A' : P.sky;
+  const dimBar  = own ? '#2e5c3c' : '#3d5f80';
+  const litCount = playing ? Math.max(1, Math.round((elapsed / seconds) * 12)) : 6;
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <div style={{
-        width: 36, height: 36, borderRadius: '50%',
-        background: accent, color: '#000',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 18, flexShrink: 0,
-      }}>▶</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
-        {bars.map((h, i) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: expired ? 0.45 : 1 }}>
+      <div
+        data-noswipe="voice"
+        onClick={toggle}
+        style={{
+          width: 38, height: 38, borderRadius: '50%',
+          background: playBg, color: HUD.bg,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 16, flexShrink: 0, cursor: expired ? 'default' : 'pointer',
+          userSelect: 'none',
+        }}>{playing ? '❚❚' : '▶'}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 26 }}>
+        {VOICE_BAR_HEIGHTS.map((h, i) => (
           <div key={i} style={{
-            width: 3, height: h, borderRadius: 1,
-            background: accent, opacity: i < 6 ? 1 : 0.4,
+            width: 3, height: h, borderRadius: 1.5,
+            background: i < litCount ? litBar : dimBar,
+            transition: 'background 0.15s',
           }} />
         ))}
       </div>
       <div style={{
         fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-        fontSize: 13, fontWeight: 700, color: accent, minWidth: 28, textAlign: 'right',
-      }}>{seconds}"</div>
+        fontSize: 16, fontWeight: 700, color: litBar,
+        fontVariantNumeric: 'tabular-nums', minWidth: 38, textAlign: 'right',
+      }}>{playing ? fmtDur(Math.ceil(seconds - elapsed)) : fmtDur(seconds)}</div>
     </div>
   );
 }
 
+// Estilos por rol/tono del handoff 3a
+function bubbleStyle(msg) {
+  const base = {
+    maxWidth: '86%',
+    borderRadius: '16px 16px 16px 5px',
+    padding: '11px 15px',
+    fontFamily: 'system-ui, -apple-system, "Helvetica Neue", sans-serif',
+    fontSize: 19, fontWeight: 500, lineHeight: 1.35,
+  };
+  if (msg.role === 'you') {
+    return { ...base, borderRadius: '16px 16px 5px 16px', background: '#0b2e17', color: '#DFFFD6' };
+  }
+  if (msg.role === 'admin') {
+    return { ...base, background: '#14273c', color: HUD.fg };
+  }
+  if (msg.tone === 'warn') {
+    return { ...base, background: '#2b2008', borderLeft: `3px solid #FFB300`, color: '#FFE6B8' };
+  }
+  if (msg.tone === 'sos') {
+    return { ...base, background: '#2b0812', borderLeft: `3px solid ${HUD.red}`, color: '#FFD9E0' };
+  }
+  return { ...base, background: '#141a21', color: '#DCE8F5' };
+}
+
 function ChatMsg({ msg }) {
   const isYou = msg.role === 'you';
-  const tone = isYou ? TONE_COLOR.you : TONE_COLOR[msg.tone] || TONE_COLOR.normal;
+  const nameColor =
+    isYou ? HUD.green :
+    msg.tone === 'warn' ? '#FFB300' :
+    msg.tone === 'sos' ? HUD.red :
+    HUD.dim;
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
       alignItems: isYou ? 'flex-end' : 'flex-start',
-      marginBottom: 10,
     }}>
       <div style={{
-        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-        fontSize: 10, letterSpacing: 1, color: '#6b7785',
-        textTransform: 'uppercase', marginBottom: 4,
-        display: 'flex', gap: 6, alignItems: 'center',
+        display: 'flex', gap: 8, alignItems: 'baseline', marginBottom: 4,
+        paddingLeft: isYou ? 0 : 4, paddingRight: isYou ? 4 : 0,
       }}>
         {msg.role === 'admin' && (
           <span style={{
-            background: '#6ba4ff', color: '#000',
-            padding: '1px 5px', borderRadius: 3, fontSize: 8,
-          }}>ADMIN</span>
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 11, background: P.bright, color: HUD.bg,
+            padding: '2px 6px', borderRadius: 4, letterSpacing: 0.5,
+          }}>DESPACHO</span>
         )}
-        <span>{msg.from}</span>
-        <span style={{ color: '#4a5362' }}>· {msg.time}</span>
+        <span style={{
+          fontSize: 15, fontWeight: 700, color: nameColor,
+          fontFamily: 'system-ui, sans-serif',
+        }}>{isYou ? 'Tú ✓✓' : msg.from}</span>
+        <span style={{
+          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+          fontSize: 13, fontWeight: 700, color: HUD.dim3,
+        }}>{msg.time}</span>
       </div>
-      <div style={{
-        maxWidth: '84%',
-        background: tone.bg,
-        border: `1px solid ${tone.border}`,
-        borderRadius: 14,
-        padding: '10px 14px',
-        fontFamily: '"Helvetica Neue", system-ui, sans-serif',
-        fontSize: 17, fontWeight: 500, color: '#fff',
-        lineHeight: 1.3,
-      }}>
+      <div style={bubbleStyle(msg)}>
         {msg.voice
-          ? <VoiceBar seconds={msg.voice} accent={tone.accent} />
+          ? <VoiceBubble seconds={msg.voice} own={isYou} audio={msg.audio} expired={msg.expired} />
           : msg.text}
       </div>
     </div>
   );
 }
 
-function ChatScreen() {
+// Glifo de micrófono claro (sin emoji, regla del handoff)
+function MicGlyph({ color, size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <rect x="9" y="3" width="6" height="11" rx="3" fill={color} />
+      <path d="M5 11a7 7 0 0 0 14 0" stroke={color} strokeWidth="2" strokeLinecap="round" fill="none" />
+      <line x1="12" y1="18" x2="12" y2="21" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ChatScreen({ messages, hud, online, connected, onSendText, onSendVoice }) {
   const scrollRef = React.useRef(null);
+  const [draft, setDraft] = React.useState('');
+  const [recording, setRecording] = React.useState(false);
+  const [recElapsed, setRecElapsed] = React.useState(0);
+  const recRef = React.useRef(null); // { recorder, stream, chunks, started }
+
+  // Hilo anclado al mensaje más nuevo, al montar y con cada mensaje
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, []);
+  }, [messages]);
+
+  // Grabación real con el micrófono del celular. Si no hay permiso o no
+  // hay MediaRecorder, la nota sale igual pero sin audio (simulada).
+  const startRec = () => {
+    if (recRef.current) return;
+    const rec = { recorder: null, stream: null, chunks: [], started: Date.now() };
+    recRef.current = rec;
+    setRecording(true);
+    if (navigator.mediaDevices?.getUserMedia && window.MediaRecorder) {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+        if (recRef.current !== rec) { stream.getTracks().forEach(t => t.stop()); return; } // ya soltó
+        const recorder = new MediaRecorder(stream);
+        recorder.ondataavailable = (e) => { if (e.data.size) rec.chunks.push(e.data); };
+        recorder.start();
+        rec.recorder = recorder;
+        rec.stream = stream;
+      }).catch(() => {}); // sin permiso — nota simulada
+    }
+  };
+
+  const stopRec = () => {
+    const rec = recRef.current;
+    if (!rec) return;
+    recRef.current = null;
+    setRecording(false);
+    setRecElapsed(0);
+    const dur = Math.round((Date.now() - rec.started) / 1000);
+    const finish = (dataUrl) => { if (dur >= 1) onSendVoice(Math.min(dur, 60), dataUrl || null); };
+    if (rec.recorder && rec.recorder.state === 'recording') {
+      rec.recorder.onstop = () => {
+        rec.stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(rec.chunks, { type: rec.recorder.mimeType || 'audio/webm' });
+        if (!blob.size || blob.size > 1_500_000) { finish(null); return; }
+        const fr = new FileReader();
+        fr.onload = () => finish(fr.result);
+        fr.onerror = () => finish(null);
+        fr.readAsDataURL(blob);
+      };
+      rec.recorder.stop();
+    } else {
+      if (rec.stream) rec.stream.getTracks().forEach(t => t.stop());
+      finish(null);
+    }
+  };
+
+  React.useEffect(() => {
+    if (!recording) return;
+    const started = recRef.current?.started || Date.now();
+    const id = setInterval(() => {
+      const el = (Date.now() - started) / 1000;
+      setRecElapsed(el);
+      if (el >= 60) stopRec(); // tope de 60 segundos
+    }, 100);
+    window.addEventListener('mouseup', stopRec);
+    window.addEventListener('touchend', stopRec);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('mouseup', stopRec);
+      window.removeEventListener('touchend', stopRec);
+    };
+  }, [recording]);
+
+  const send = () => {
+    const text = draft.trim();
+    if (!text) return;
+    onSendText(text);
+    setDraft('');
+  };
+
+  const controlH = 56;
+
   return (
     <div style={{
       width: '100%', height: '100%',
-      background: '#000',
+      background: HUD.bg,
       display: 'flex', flexDirection: 'column',
-      padding: '18px 16px 16px',
       boxSizing: 'border-box',
     }}>
+      {/* Header: grupo a la izquierda, brecha persistente a la derecha */}
       <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-        marginBottom: 14,
+        padding: '46px 18px 14px',
+        borderBottom: '1px solid #121a24',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
       }}>
         <div>
           <div style={{
-            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-            fontSize: 10, letterSpacing: 2, color: '#6b7785', textTransform: 'uppercase',
-          }}>Grupo ruta</div>
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 24, color: HUD.fg, letterSpacing: -0.5,
+          }}>GRUPO R-14</div>
+          <div style={{
+            fontSize: 15, fontWeight: 700, color: connected ? HUD.dim2 : HUD.amber,
+            fontFamily: 'system-ui, sans-serif',
+          }}>{connected ? `${online} en línea` : 'sin conexión'}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{
+            fontSize: 14, fontWeight: 700, color: HUD.dim3,
+            fontFamily: 'system-ui, sans-serif',
+          }}>{hud.hero.label}</div>
           <div style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 26, color: '#fff', letterSpacing: -0.5,
-          }}>R-14 · 24 en línea</div>
+            fontSize: 30, lineHeight: 1, color: hud.hero.ink,
+            textShadow: `0 0 10px ${hud.hero.color}, 0 0 30px ${hud.hero.color}`,
+            fontVariantNumeric: 'tabular-nums',
+          }}>{hud.hero.display}</div>
         </div>
-        <div style={{
-          width: 44, height: 44, borderRadius: '50%',
-          background: '#FF1744',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontFamily: '"Archivo Black", system-ui, sans-serif',
-          fontSize: 18, color: '#fff',
-        }}>🎙</div>
       </div>
+
+      {/* Hilo */}
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto', overflowX: 'hidden',
-        display: 'flex', flexDirection: 'column',
+        padding: '16px 16px 10px',
+        display: 'flex', flexDirection: 'column', gap: 14,
       }}>
-        {CHAT_SEED.map((m, i) => <ChatMsg key={i} msg={m} />)}
+        {messages.map((m, i) => <ChatMsg key={i} msg={m} />)}
       </div>
+
+      {/* Barra de entrada — los tres controles a 56px */}
       <div style={{
-        marginTop: 10,
-        background: '#1a1e24', borderRadius: 14, padding: '14px 16px',
-        display: 'flex', alignItems: 'center', gap: 12,
-        border: '1px solid #2a2f38',
-      }}>
-        <div style={{
-          flex: 1,
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 12, letterSpacing: 1.5, color: '#6b7785', textTransform: 'uppercase',
-        }}>Mantén para hablar</div>
-        <div style={{
-          width: 48, height: 48, borderRadius: '50%',
-          background: '#FF1744', color: '#fff',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 22, boxShadow: '0 0 24px #FF174460',
-        }}>●</div>
+        padding: '10px 14px 26px',
+        display: 'flex', gap: 10, alignItems: 'center',
+      }} data-noswipe="chatbar">
+        {recording ? (
+          <div style={{
+            flex: 1, height: controlH, boxSizing: 'border-box',
+            borderRadius: controlH / 2,
+            background: '#10161d', border: `1px solid ${P.bright}`,
+            padding: '0 18px',
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{
+              width: 10, height: 10, borderRadius: '50%', background: P.bright,
+              animation: 'combiRecDot 1s ease-in-out infinite', flexShrink: 0,
+            }} />
+            <span style={{
+              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+              fontSize: 17, fontWeight: 700, color: P.sky,
+              fontVariantNumeric: 'tabular-nums',
+            }}>{fmtDur(Math.floor(recElapsed))}</span>
+            <span style={{
+              fontSize: 16, fontWeight: 700, color: HUD.dim2,
+              fontFamily: 'system-ui, sans-serif',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>Grabando… soltá para enviar</span>
+          </div>
+        ) : (
+          <input
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') send(); }}
+            placeholder="Mensaje…"
+            style={{
+              flex: 1, minWidth: 0, height: controlH, boxSizing: 'border-box',
+              borderRadius: controlH / 2,
+              background: '#10161d', border: '1px solid #232b36',
+              padding: '0 18px',
+              fontSize: 17, fontFamily: 'system-ui, sans-serif',
+              color: HUD.fg, outline: 'none',
+            }}
+          />
+        )}
+        <button
+          onMouseDown={startRec}
+          onTouchStart={(e) => { e.preventDefault(); startRec(); }}
+          style={{
+            width: controlH, height: controlH, boxSizing: 'border-box',
+            borderRadius: '50%', flexShrink: 0,
+            background: recording ? P.bright : '#1a222c',
+            border: `1px solid ${recording ? P.bright : '#2b3542'}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+            touchAction: 'none',
+          }}>
+          <MicGlyph color={recording ? HUD.bg : HUD.fg2} />
+        </button>
+        <button
+          onClick={send}
+          style={{
+            width: controlH, height: controlH, boxSizing: 'border-box',
+            borderRadius: '50%', flexShrink: 0,
+            background: P.bright, border: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 22, color: HUD.bg, cursor: 'pointer',
+            WebkitTapHighlightColor: 'transparent',
+          }}>➤</button>
       </div>
     </div>
   );
@@ -687,7 +925,7 @@ function SosSlider({ mode, status, enableAnim, onFire }) {
     if (!dragging || fired) return;
     const track = trackRef.current;
     if (!track) return;
-    const trackW = track.offsetWidth - 68;
+    const trackW = track.offsetWidth - 82; // ancho menos thumb (70) y padding (6+6)
     const dx = clientX - startX.current;
     const p = Math.max(0, Math.min(1, startProg.current + dx / trackW));
     setProgress(p);
@@ -721,80 +959,68 @@ function SosSlider({ mode, status, enableAnim, onFire }) {
     };
   }, [dragging]);
 
-  const trackH = 88;
-  const thumbSize = 68;
+  const trackH = 84;
+  const thumbSize = 70;
+  const sun = mode.bg === '#F5F9FF';
   const suggestSos = status === 'red' && enableAnim;
 
   return (
     <div ref={trackRef} data-noswipe="sos" style={{
       position: 'relative', width: '100%', height: trackH,
-      borderRadius: trackH / 2,
-      background: mode.bg === '#F5F9FF' ? '#f3f3f3' : '#1a1a1a',
-      border: `3px solid ${mode.red}`,
+      borderRadius: 20,
+      background: sun ? '#eef2f6' : HUD.surface,
+      border: `2px solid ${sun ? '#c9d4de' : '#2a3340'}`,
       overflow: 'hidden', userSelect: 'none',
       WebkitTapHighlightColor: 'transparent',
+      boxSizing: 'border-box',
     }}>
       {suggestSos && !dragging && progress === 0 && (
         <div style={{
           position: 'absolute', inset: -5,
-          borderRadius: (trackH + 10) / 2,
-          border: `2px solid ${mode.red}`,
+          borderRadius: 24,
+          border: `2px solid ${HUD.red}`,
           animation: 'combiRing 1.6s ease-out infinite',
           pointerEvents: 'none',
         }} />
       )}
+      {/* relleno de avance */}
       <div style={{
-        position: 'absolute', inset: 0,
-        background: mode.red,
-        width: `calc(${thumbSize/2 + 5}px + ${progress * 100}%)`,
+        position: 'absolute', top: 0, bottom: 0, left: 0,
+        background: HUD.red,
+        width: `calc(${thumbSize/2 + 6}px + ${progress * 100}%)`,
         maxWidth: '100%',
         transition: dragging ? 'none' : 'width 0.25s cubic-bezier(.4,0,.2,1)',
-        opacity: 0.9,
+        opacity: 0.22,
       }} />
+      {/* etiqueta */}
       <div style={{
         position: 'absolute', inset: 0,
-        paddingLeft: thumbSize + 16,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontFamily: '"Archivo Black", system-ui, sans-serif',
-        fontSize: 22, fontWeight: 900, letterSpacing: 2.5,
-        color: progress > 0.3 ? '#fff' : mode.red,
+        paddingLeft: thumbSize + 18,
+        display: 'flex', alignItems: 'center',
+        fontSize: 16, fontWeight: 700, letterSpacing: 0.5,
+        fontFamily: 'system-ui, sans-serif',
+        color: fired || progress > 0.5 ? (sun ? '#B3001B' : HUD.red) : (sun ? '#5A7A99' : '#7C8C9E'),
+        whiteSpace: 'nowrap',
         transition: 'color 0.2s', pointerEvents: 'none', zIndex: 2,
-        opacity: progress > 0.85 ? 0 : 1,
       }}>
-        {fired ? 'ENVIANDO...' : progress > 0.5 ? 'SUELTA PARA SOS' : 'DESLIZA →'}
+        {fired ? 'ENVIANDO...' : progress > 0.5 ? 'SUELTA PARA SOS' : 'DESLIZÁ PARA SOS →'}
       </div>
-      {!fired && progress < 0.3 && enableAnim && (
-        <div style={{
-          position: 'absolute', right: 24, top: '50%',
-          transform: 'translateY(-50%)',
-          display: 'flex', gap: 4,
-          color: mode.red, opacity: 0.4,
-          pointerEvents: 'none', zIndex: 2,
-        }}>
-          {[0,1,2].map(i => (
-            <span key={i} style={{
-              fontFamily: '"Archivo Black", system-ui',
-              fontSize: 22, fontWeight: 900,
-              animation: `combiChev 1.2s ease-in-out ${i * 0.15}s infinite`,
-            }}>›</span>
-          ))}
-        </div>
-      )}
+      {/* thumb arrastrable */}
       <div
         onMouseDown={(e) => onDown(e.clientX)}
         onTouchStart={(e) => onDown(e.touches[0].clientX)}
         style={{
           position: 'absolute',
-          left: `calc(${progress} * (100% - ${thumbSize + 10}px) + 5px)`,
+          left: `calc(${progress} * (100% - ${thumbSize + 12}px) + 6px)`,
           top: 5,
-          width: thumbSize, height: thumbSize, borderRadius: '50%',
-          background: '#fff', color: mode.red,
+          width: thumbSize, height: thumbSize, borderRadius: 16,
+          background: HUD.red, color: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontFamily: '"Archivo Black", system-ui, sans-serif',
-          fontSize: 20, fontWeight: 900,
+          fontSize: 19,
           cursor: 'grab',
           transition: dragging ? 'none' : 'left 0.3s cubic-bezier(.4,0,.2,1)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          boxShadow: '0 0 22px rgba(255,45,85,.5)',
           zIndex: 3, touchAction: 'none',
         }}
       >
@@ -852,25 +1078,45 @@ function Field({ label, value, onChange, type = 'text', error, autoFocus }) {
   );
 }
 
-function LoginScreen({ onSuccess }) {
-  const [user, setUser] = React.useState('');
+function LoginScreen({ onSuccess, notice }) {
+  const [user, setUser] = React.useState(() => {
+    try { return localStorage.getItem('r14_lastUser') || ''; } catch { return ''; }
+  });
   const [pass, setPass] = React.useState('');
   const [error, setError] = React.useState(null);
+  const [offerDemo, setOfferDemo] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
 
-  const submit = () => {
-    if (!user || !pass) { setError('Completa usuario y contraseña'); return; }
+  // Login real contra el servidor. La primera vez que una unidad entra,
+  // esa contraseña queda registrada (después Despacho administrará altas).
+  const submit = async () => {
+    if (!user.trim() || pass.length < 4) {
+      setError('Completá usuario y contraseña (mínimo 4 caracteres)');
+      return;
+    }
     setLoading(true);
     setError(null);
-    setTimeout(() => {
-      if (pass === '1234') {
-        setLoading(false);
-        setError('Contraseña incorrecta · intento 2 de 3');
-        setPass('');
+    setOfferDemo(false);
+    try {
+      const session = await window.RealtimeClient.login(user.trim(), pass);
+      try { localStorage.setItem('r14_lastUser', session.unitId); } catch {}
+      onSuccess(session);
+    } catch (e) {
+      setLoading(false);
+      if (e.status) {
+        setError(e.message);
+        if (e.status === 401) setPass('');
       } else {
-        onSuccess({ user });
+        // el servidor no responde: se puede probar la app sin conexión
+        setError('No se pudo conectar con el servidor');
+        setOfferDemo(true);
       }
-    }, 800);
+    }
+  };
+
+  const enterDemo = () => {
+    const id = user.trim() || 'DEMO';
+    onSuccess({ unitId: id, driverName: id, token: null, role: 'driver', demo: true });
   };
 
   const handleKeyDown = (e) => { if (e.key === 'Enter') submit(); };
@@ -915,7 +1161,7 @@ function LoginScreen({ onSuccess }) {
         <Field label="Contraseña" value={pass} onChange={setPass} type="password" error={!!error} />
       </div>
 
-      {error && (
+      {(error || notice) && (
         <div style={{
           background: 'rgba(255,77,109,0.12)', border: `1px solid ${P.red}`,
           borderRadius: 10, padding: '10px 12px', marginBottom: 14,
@@ -927,8 +1173,21 @@ function LoginScreen({ onSuccess }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontFamily: '"Archivo Black", system-ui', fontSize: 14, flexShrink: 0,
           }}>!</div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: P.red, fontFamily: '"Helvetica Neue", system-ui' }}>{error}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.red, fontFamily: '"Helvetica Neue", system-ui' }}>{error || notice}</div>
         </div>
+      )}
+
+      {offerDemo && (
+        <button onClick={enterDemo} style={{
+          width: '100%', padding: '12px',
+          fontSize: 14, fontWeight: 700, letterSpacing: 1,
+          fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+          background: 'transparent', color: P.sky,
+          border: `1px solid ${P.deep}`, borderRadius: 10,
+          cursor: 'pointer', marginBottom: 14,
+        }}>
+          ENTRAR EN MODO DEMO (SIN SERVIDOR)
+        </button>
       )}
 
       <button onClick={submit} disabled={loading} style={{
@@ -961,7 +1220,7 @@ function LoginScreen({ onSuccess }) {
   );
 }
 
-function StartRouteScreen({ user, lapNumber, onStart, onRest }) {
+function StartRouteScreen({ user, lapNumber, onStart, onRest, onLogout }) {
   const [countdown, setCountdown] = React.useState(15);
   React.useEffect(() => {
     if (countdown <= 0) return;
@@ -979,7 +1238,7 @@ function StartRouteScreen({ user, lapNumber, onStart, onRest }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
         <CoopLogo size={36} />
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
             fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
@@ -987,8 +1246,17 @@ function StartRouteScreen({ user, lapNumber, onStart, onRest }) {
           <div style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 18, color: P.white, letterSpacing: -0.3,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>{user || 'RAÚL MAMANI'}</div>
         </div>
+        {onLogout && (
+          <button onClick={onLogout} style={{
+            background: 'transparent', border: `1px solid ${P.line}`,
+            borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+            fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+            fontSize: 12, fontWeight: 700, color: P.mute, flexShrink: 0,
+          }}>Salir</button>
+        )}
       </div>
 
       {!isFirstLap && (
@@ -1079,8 +1347,7 @@ function StartRouteScreen({ user, lapNumber, onStart, onRest }) {
 const DEFAULT_TWEAKS = {
   frontTime: '02:15', backTime: '01:40',
   front2Time: '04:30', back2Time: '03:35',
-  targetGap: 2, mode: 'day', numberStyle: 'mono',
-  semaphoreStyle: 'dots', showLabels: true, microAnims: true,
+  targetGap: 2, mode: 'day', microAnims: true,
   startPage: 1, initialScreen: 'login',
   currentStop: 'Tumbes', nextStop: 'Lambayeque', avgSpeed: 28,
 };
@@ -1090,12 +1357,15 @@ function parseMin(s) {
   return m + sec / 60;
 }
 
+// Estado global = el peor de los dos lados, con tolerancia RELATIVA al objetivo
+// (recalibrado por la auditoría: verde ≤ ±15%, ámbar ≤ ±30%, rojo por encima)
 function computeStatus(front, back, target) {
-  const f = parseMin(front);
-  const b = parseMin(back);
-  const worstDev = Math.max(Math.abs(f - target), Math.abs(b - target));
-  if (worstDev <= 0.5) return 'green';
-  if (worstDev <= 1.0) return 'yellow';
+  const worst = Math.max(
+    Math.abs(parseMin(front) - target),
+    Math.abs(parseMin(back) - target)
+  ) / target;
+  if (worst <= 0.15) return 'green';
+  if (worst <= 0.30) return 'yellow';
   return 'red';
 }
 
@@ -1116,29 +1386,6 @@ const MODES = {
     green: '#2BAA68', yellow: '#C49A20', red: '#D43050',
   },
 };
-
-function SmallClock({ value, label, color, mode, numberStyle, faded }) {
-  const fontFamily = numberStyle === 'mono'
-    ? '"JetBrains Mono", ui-monospace, monospace'
-    : '"Archivo Black", system-ui, sans-serif';
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '4px 14px', opacity: faded ? 0.45 : 1,
-    }}>
-      <div style={{
-        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-        fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
-        color: mode.dim, textTransform: 'uppercase', minWidth: 36,
-      }}>{label}</div>
-      <div style={{
-        fontFamily, fontSize: 38, fontWeight: 900,
-        color, lineHeight: 1, letterSpacing: -1.5,
-        fontVariantNumeric: 'tabular-nums',
-      }}>{value}</div>
-    </div>
-  );
-}
 
 function AnimatedDigit({ ch, fontSize, color, enableAnim }) {
   const prev = React.useRef(ch);
@@ -1163,177 +1410,198 @@ function AnimatedDigit({ ch, fontSize, color, enableAnim }) {
   );
 }
 
-function BigTime({ value, label, color, mode, numberStyle, enableAnim, heartbeat }) {
-  const fontFamily = numberStyle === 'mono'
-    ? '"JetBrains Mono", ui-monospace, monospace'
-    : '"Archivo Black", system-ui, sans-serif';
-  const fontSize = 96;
+// Fila de dígitos héroe/secundario con la micro-animación por carácter
+function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2px 0' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-        fontSize: 12, fontWeight: 700, letterSpacing: 2,
-        color: mode.dim, textTransform: 'uppercase', marginBottom: 0,
-      }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: '50%',
-          background: mode.green,
-          opacity: heartbeat && enableAnim ? 1 : 0.4,
-          transition: 'opacity 0.4s',
-        }} />
-        {label}
-      </div>
-      <div style={{
-        fontFamily, fontSize, fontWeight: 900,
-        lineHeight: 0.95, letterSpacing: -3,
-        fontVariantNumeric: 'tabular-nums', display: 'flex',
-      }}>
-        {value.split('').map((ch, i) => (
-          <AnimatedDigit key={i} ch={ch} fontSize={fontSize} color={color} enableAnim={enableAnim} />
-        ))}
-      </div>
+    <div style={{
+      fontFamily: '"Archivo Black", system-ui, sans-serif',
+      fontSize, lineHeight: 0.95, letterSpacing,
+      textShadow: glow,
+      fontVariantNumeric: 'tabular-nums',
+      display: 'flex', maxWidth: '100%',
+    }}>
+      {value.split('').map((ch, i) => (
+        <AnimatedDigit key={i} ch={ch} fontSize={fontSize} color={color} enableAnim={enableAnim} />
+      ))}
     </div>
   );
 }
 
-function Semaphore({ status, mode, style, enableAnim }) {
-  const colors = { red: mode.red, yellow: mode.yellow, green: mode.green };
-  const lit = status;
-  const pulseDur = status === 'red' ? '0.8s' : status === 'yellow' ? '1.4s' : '2.4s';
+// Pantalla RUTA — propuesta 2a "Temporizador".
+// Un solo dato dominante: la unidad más desviada del objetivo. El color de
+// estado tiñe el halo, la barra superior y el lavado de fondo.
+function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, onFireSos }) {
+  const sun = tweaks.mode === 'sun';
+  const hud = buildHudModel(tweaks, gapMeta);
+  const { hero, sec, target } = hud;
 
-  const dot = (key) => {
-    const isLit = key === lit;
-    return (
-      <div key={key} style={{ position: 'relative', width: 34, height: 34 }}>
-        {isLit && enableAnim && (
-          <div style={{
-            position: 'absolute', inset: -6, borderRadius: '50%',
-            background: colors[key], opacity: 0.3,
-            animation: `combiBreathe ${pulseDur} ease-in-out infinite`,
-          }} />
-        )}
+  // En sol extremo el halo no funciona: fondo claro y dígito sólido navy
+  const SUN_STATUS = { green: '#1F8A4F', yellow: '#B58400', red: '#B3001B' };
+  const stateColor = sun ? SUN_STATUS[hero.status] : hero.color;
+  const heroInk = sun ? P.navy : hero.ink;
+  const secColor = sun ? SUN_STATUS[sec.status] : sec.color;
+  const bg = sun ? '#F5F9FF' : HUD.bg;
+  const dim = sun ? '#4A6A88' : HUD.dim;
+  const dim2 = sun ? '#5A7A99' : HUD.dim2;
+  const dim3 = sun ? '#7A93AB' : HUD.dim3;
+  const glow = (spec) => sun ? 'none' : spec;
+
+  // Cadencia de la barra superior según urgencia (tomada del semáforo viejo)
+  const edgeDur = hero.status === 'red' ? '0.8s' : hero.status === 'yellow' ? '1.4s' : '2.4s';
+
+  // Instrucción: qué hacer con la brecha, en una línea
+  const heroIsBack = hero === hud.back;
+  const dev = parseMin(hero.value) - target;
+  const speedUp = heroIsBack ? dev < 0 : dev > 0;
+  const instruction = hero.status === 'green'
+    ? `Mantené el ritmo. Objetivo ${fmtTarget(target)}.`
+    : `${speedUp ? 'Apurá' : 'Aflojá'} un poco. Objetivo ${fmtTarget(target)}.`;
+
+  return (
+    <div style={{
+      width: '100%', height: '100%', background: bg, color: stateColor,
+      display: 'flex', flexDirection: 'column',
+      boxSizing: 'border-box', position: 'relative', overflow: 'hidden',
+    }}>
+      {/* lavado radial de fondo con el color de estado */}
+      {!sun && (
         <div style={{
-          position: 'relative', width: 34, height: 34, borderRadius: '50%',
-          background: isLit ? colors[key] : 'transparent',
-          border: `3px solid ${isLit ? colors[key] : mode.dim}`,
-          opacity: isLit ? 1 : 0.3,
-          boxShadow: isLit ? `0 0 24px ${colors[key]}, 0 0 48px ${colors[key]}80` : 'none',
-          transition: 'all 0.4s',
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          background: `radial-gradient(110% 55% at 50% 34%, ${stateColor} 0%, transparent 60%)`,
+          opacity: 0.14,
         }} />
-      </div>
-    );
-  };
-
-  if (style === 'bar') {
-    return (
+      )}
+      {/* barra de borde superior — pulsa con la urgencia */}
       <div style={{
-        width: '78%', height: 14, borderRadius: 7,
-        background: colors[lit], boxShadow: `0 0 28px ${colors[lit]}`,
-        animation: enableAnim ? `combiBreathe ${pulseDur} ease-in-out infinite` : 'none',
+        position: 'absolute', top: 0, left: 0, right: 0, height: 6,
+        background: stateColor,
+        boxShadow: sun ? 'none' : `0 0 26px ${stateColor}`,
+        animation: tweaks.microAnims ? `combiEdge ${edgeDur} ease-in-out infinite` : 'none',
       }} />
-    );
-  }
-  return (
-    <div style={{
-      display: 'flex', gap: 14, alignItems: 'center',
-      padding: '8px 18px', borderRadius: 40,
-      background: mode.panel, border: `1px solid ${mode.line}`,
-    }}>
-      {dot('red')}{dot('yellow')}{dot('green')}
-    </div>
-  );
-}
 
-function ContextHeader({ currentStop, nextStop, avgSpeed, mode }) {
-  const speedTone =
-    avgSpeed < 18 ? mode.yellow :
-    avgSpeed > 38 ? mode.red :
-    mode.bright;
-  return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', padding: '0 4px' }}>
+      {/* header: en vivo + velocidad */}
       <div style={{
-        flex: 1, background: mode.panel, border: `1px solid ${mode.line}`,
-        borderRadius: 12, padding: '8px 12px',
-        display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0,
+        padding: '50px 20px 0',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        position: 'relative',
       }}>
-        <div style={{
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 9, letterSpacing: 1.5, color: mode.dim, textTransform: 'uppercase',
-          display: 'flex', alignItems: 'center', gap: 4,
-        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{
-            display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-            background: mode.bright, boxShadow: `0 0 6px ${mode.bright}`,
+            width: 9, height: 9, borderRadius: '50%',
+            background: connected ? HUD.green : HUD.amber,
+            boxShadow: sun ? 'none' : `0 0 10px ${connected ? HUD.green : HUD.amber}`,
           }} />
-          Tramo
+          <span style={{
+            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+            fontSize: 15, fontWeight: 700, letterSpacing: 0.5, color: dim,
+          }}>{connected ? `EN VIVO · ${unitsOnRoute}` : 'SIMULADO'}</span>
         </div>
-        <div style={{
-          fontFamily: '"Archivo Black", system-ui, sans-serif',
-          fontSize: 14, color: mode.fg, letterSpacing: -0.2,
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        }}>{currentStop} <span style={{ color: mode.dim, fontWeight: 400 }}>→</span> {nextStop}</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+          <span style={{
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 26, color: sun ? P.navy : HUD.fg,
+            fontVariantNumeric: 'tabular-nums',
+          }}>{tweaks.avgSpeed}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: dim, fontFamily: 'system-ui, sans-serif' }}>km/h</span>
+        </div>
       </div>
+
+      {/* bloque héroe */}
       <div style={{
-        background: mode.panel, border: `1px solid ${mode.line}`,
-        borderRadius: 12, padding: '8px 12px',
-        display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 76,
+        flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+        padding: '0 18px', position: 'relative', minHeight: 0,
       }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span style={{
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 19, letterSpacing: 1, color: stateColor,
+            textShadow: glow(`0 0 14px ${stateColor}`),
+          }}>{hero.label}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: dim2, fontFamily: 'system-ui, sans-serif' }}>
+            {hero.sign} · {hero.unit}
+          </span>
+        </div>
+        <div style={{ color: heroInk }}>
+          <HudDigits
+            value={hero.display}
+            fontSize={118}
+            color={heroInk}
+            letterSpacing={-5}
+            glow={glow(`0 0 8px ${stateColor}, 0 0 26px ${stateColor}, 0 0 70px ${stateColor}, 0 0 130px ${stateColor}`)}
+            enableAnim={tweaks.microAnims}
+          />
+        </div>
         <div style={{
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 9, letterSpacing: 1.5, color: mode.dim, textTransform: 'uppercase',
-        }}>Vel. prom</div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, fontFamily: '"Archivo Black", system-ui, sans-serif', color: speedTone }}>
-          <span style={{ fontSize: 22, letterSpacing: -1, fontVariantNumeric: 'tabular-nums' }}>{avgSpeed}</span>
-          <span style={{ fontSize: 9, letterSpacing: 1, color: mode.dim, fontWeight: 700 }}>KM/H</span>
+          fontSize: 16, lineHeight: 1.5, color: sun ? '#3D5C7A' : '#93AAC2',
+          marginTop: 10, fontFamily: 'system-ui, sans-serif',
+        }}>{instruction}</div>
+
+        <div style={{ height: 1, background: sun ? '#C9D8E6' : HUD.divider, margin: '26px 0 20px' }} />
+
+        {/* secundario: el otro lado, subordinado */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{
+                fontFamily: '"Archivo Black", system-ui, sans-serif',
+                fontSize: 17, color: sun ? '#3D5C7A' : '#A9C0D6',
+              }}>{sec.label}</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: dim2, fontFamily: 'system-ui, sans-serif' }}>
+                {sec.sign} · {sec.unit}
+              </span>
+            </div>
+            <div style={{ color: secColor }}>
+              <HudDigits
+                value={sec.display}
+                fontSize={62}
+                color={secColor}
+                letterSpacing={-2}
+                glow={glow(`0 0 16px ${secColor}8C`)}
+                enableAnim={tweaks.microAnims}
+              />
+            </div>
+          </div>
+          {sec.status === 'green' && (
+            <div style={{
+              fontSize: 15, fontWeight: 700, color: dim2,
+              paddingBottom: 10, fontFamily: 'system-ui, sans-serif',
+            }}>OK</div>
+          )}
+        </div>
+
+        {/* ±2: presentes pero mínimos */}
+        <div style={{
+          display: 'flex', gap: 18, marginTop: 18,
+          fontSize: 15, fontWeight: 700, color: dim3,
+          fontFamily: 'system-ui, sans-serif',
+        }}>
+          <span>+2 <span style={{ color: dim, fontVariantNumeric: 'tabular-nums' }}>{fmtGap(tweaks.front2Time)}</span></span>
+          <span>−2 <span style={{ color: dim, fontVariantNumeric: 'tabular-nums' }}>{fmtGap(tweaks.back2Time)}</span></span>
         </div>
       </div>
-    </div>
-  );
-}
 
-function CenterScreen({ tweaks, onFireSos }) {
-  const mode = MODES[tweaks.mode] || MODES.day;
-  const status = computeStatus(tweaks.frontTime, tweaks.backTime, tweaks.targetGap);
-  const [heartbeat, setHeartbeat] = React.useState(true);
-  React.useEffect(() => {
-    const id = setInterval(() => setHeartbeat(h => !h), 1000);
-    return () => clearInterval(id);
-  }, []);
+      {/* tramo */}
+      <div style={{
+        padding: '0 18px 14px', position: 'relative',
+        display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: P.bright, flexShrink: 0 }} />
+        <span style={{
+          fontSize: 16, fontWeight: 700, color: dim,
+          fontFamily: 'system-ui, sans-serif',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>{tweaks.currentStop} → {tweaks.nextStop}</span>
+      </div>
 
-  return (
-    <div style={{
-      width: '100%', height: '100%', background: mode.bg,
-      display: 'flex', flexDirection: 'column', gap: 6,
-      padding: '40px 14px 14px', boxSizing: 'border-box', position: 'relative',
-    }}>
-      <ContextHeader
-        currentStop={tweaks.currentStop} nextStop={tweaks.nextStop}
-        avgSpeed={tweaks.avgSpeed} mode={mode}
-      />
-      <SmallClock value={tweaks.front2Time} label="+2" color={mode.fg} mode={mode} numberStyle={tweaks.numberStyle} faded={true} />
-      <div style={{ height: 1, background: mode.line, opacity: 0.5 }} />
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <BigTime value={tweaks.frontTime} label="+1 ADELANTE" color={mode.fg} mode={mode}
-          numberStyle={tweaks.numberStyle} enableAnim={tweaks.microAnims} heartbeat={heartbeat} />
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0' }}>
-        <Semaphore status={status} mode={mode} style={tweaks.semaphoreStyle} enableAnim={tweaks.microAnims} />
-      </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <BigTime value={tweaks.backTime} label="-1 ATRÁS" color={mode.fg} mode={mode}
-          numberStyle={tweaks.numberStyle} enableAnim={tweaks.microAnims} heartbeat={heartbeat} />
-      </div>
-      <div style={{ height: 1, background: mode.line, opacity: 0.5 }} />
-      <SmallClock value={tweaks.back2Time} label="-2" color={mode.fg} mode={mode} numberStyle={tweaks.numberStyle} faded={true} />
-      <div style={{ marginTop: 12 }}>
-        <SosSlider mode={mode} status={status} enableAnim={tweaks.microAnims} onFire={onFireSos} />
+      {/* SOS */}
+      <div style={{ padding: '0 18px 26px', position: 'relative' }}>
+        <SosSlider mode={sun ? MODES.sun : MODES.day} status={hero.status} enableAnim={tweaks.microAnims} onFire={onFireSos} />
       </div>
     </div>
   );
 }
 
-function Carousel({ tweaks, otherUnits = [] }) {
+function Carousel({ tweaks, otherUnits = [], gapMeta, connected, messages, onSendText, onSendVoice, onSos }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -1407,15 +1675,16 @@ function Carousel({ tweaks, otherUnits = [] }) {
     };
   }, [dragging, page, dragDx]);
 
-  const mode = MODES[tweaks.mode] || MODES.day;
-  const status = computeStatus(tweaks.frontTime, tweaks.backTime, tweaks.targetGap);
+  const sun = tweaks.mode === 'sun';
+  const hud = buildHudModel(tweaks, gapMeta);
+  const unitsOnRoute = otherUnits.length + 1;
   const w = containerRef.current?.offsetWidth || 380;
   const translateX = -page * w + (lockedAxis.current === 'x' ? dragDx : 0);
 
   return (
     <div ref={containerRef} style={{
       position: 'relative', width: '100%', height: '100%',
-      overflow: 'hidden', background: mode.bg,
+      overflow: 'hidden', background: sun ? '#F5F9FF' : HUD.bg,
     }}
       onMouseDown={(e) => {
         if (e.target.closest('[data-noswipe]')) return;
@@ -1429,7 +1698,7 @@ function Carousel({ tweaks, otherUnits = [] }) {
       {emergencyFired && (
         <div style={{
           position: 'absolute', inset: 0, zIndex: 99,
-          background: mode.red,
+          background: HUD.red,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           animation: 'combiFlash 0.5s ease-out',
         }}>
@@ -1449,12 +1718,25 @@ function Carousel({ tweaks, otherUnits = [] }) {
         transition: dragging ? 'none' : 'transform 0.32s cubic-bezier(.2,.9,.2,1)',
       }}>
         <div style={{ width: `${w}px`, height: '100%', overflow: 'hidden', flexShrink: 0 }}>
-          <ChatScreen />
+          <ChatScreen
+            messages={messages}
+            hud={hud}
+            online={unitsOnRoute}
+            connected={connected}
+            onSendText={onSendText}
+            onSendVoice={onSendVoice}
+          />
         </div>
         <div style={{ width: `${w}px`, height: '100%', overflow: 'hidden', flexShrink: 0 }}>
-          <CenterScreen tweaks={tweaks} onFireSos={() => setEmergencyFired(true)} />
+          <CenterScreen
+            tweaks={tweaks}
+            gapMeta={gapMeta}
+            connected={connected}
+            unitsOnRoute={unitsOnRoute}
+            onFireSos={() => { setEmergencyFired(true); onSos && onSos(); }}
+          />
         </div>
-        <div style={{ width: `${w}px`, height: '100%', flexShrink: 0, background: '#0a0e12' }} />
+        <div style={{ width: `${w}px`, height: '100%', flexShrink: 0, background: HUD.bg }} />
       </div>
 
       {/* Mapa fuera del track — así no lo afecta el transform del carrusel */}
@@ -1464,11 +1746,18 @@ function Carousel({ tweaks, otherUnits = [] }) {
           visibility: page === 2 ? 'visible' : 'hidden',
           pointerEvents: page === 2 ? 'auto' : 'none',
         }}>
-          <GpsMap active={page === 2} otherUnits={otherUnits} />
+          <GpsMap
+            active={page === 2}
+            otherUnits={otherUnits}
+            hud={hud}
+            gapMeta={gapMeta}
+            currentStop={tweaks.currentStop}
+            nextStop={tweaks.nextStop}
+          />
         </div>
       )}
 
-      {/* dots de navegación */}
+      {/* dots de navegación — fuera del área del dato, sin etiqueta apilada */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0,
         display: 'flex', justifyContent: 'center', alignItems: 'center',
@@ -1489,30 +1778,19 @@ function Carousel({ tweaks, otherUnits = [] }) {
           >
             <div style={{
               width: i === page ? 24 : 10, height: 10, borderRadius: 5,
-              background: i === page ? mode.bright : mode.line,
+              background: i === page ? P.bright : (sun ? '#B8CFE3' : HUD.line),
               transition: 'all 0.3s',
               pointerEvents: 'none',
             }} />
           </button>
         ))}
       </div>
-
-      {/* etiqueta de pantalla */}
-      <div style={{
-        position: 'absolute', top: 22, left: 0, right: 0,
-        display: 'flex', justifyContent: 'center',
-        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-        fontSize: 9, letterSpacing: 2, color: mode.dim,
-        textTransform: 'uppercase', pointerEvents: 'none', zIndex: 10, opacity: 0.7,
-      }}>
-        {page === 0 ? 'CHAT' : page === 1 ? 'RUTA' : 'MAPA'}
-      </div>
     </div>
   );
 }
 
-function CombiScreen({ tweaks, otherUnits }) {
-  return <Carousel tweaks={tweaks} otherUnits={otherUnits} />;
+function CombiScreen(props) {
+  return <Carousel {...props} />;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1652,18 +1930,6 @@ function TweaksPanel({ tweaks, setTweaks, visible, onNav, currentScreen }) {
         />
       </TweakRow>
 
-      <TweakRow label="Tipografía de números">
-        <Seg value={tweaks.numberStyle} onChange={v => update({ numberStyle: v })}
-          options={[{ v: 'mono', l: 'Mono' }, { v: 'sans', l: 'Sans pesada' }]}
-        />
-      </TweakRow>
-
-      <TweakRow label="Semáforo">
-        <Seg value={tweaks.semaphoreStyle} onChange={v => update({ semaphoreStyle: v })}
-          options={[{ v: 'dots', l: '3 luces' }, { v: 'bar', l: 'Barra' }]}
-        />
-      </TweakRow>
-
       <TweakRow label="Micro-interacciones">
         <Seg value={tweaks.microAnims ? 'on' : 'off'} onChange={v => update({ microAnims: v === 'on' })}
           options={[{ v: 'on', l: 'Activadas' }, { v: 'off', l: 'Desactivadas' }]}
@@ -1692,15 +1958,69 @@ function Root() {
   const [lap, setLap] = React.useState(1);
   const [connected, setConnected] = React.useState(false);
   const [otherUnits, setOtherUnits] = React.useState([]);
+  const [gapMeta, setGapMeta] = React.useState(null); // { aheadUnit, behindUnit }
+  const [messages, setMessages] = React.useState(CHAT_SEED);
+  const [incomingSos, setIncomingSos] = React.useState(null);
+  const [authNotice, setAuthNotice] = React.useState(null);
+  const connectedRef = React.useRef(false);
+  const myUnitIdRef = React.useRef(null);
 
-  // Conectar al servidor cuando el chofer hace login
+  const pushMsg = (m) => setMessages(ms => [...ms.slice(-99), m]);
+
+  // Restaurar la sesión guardada: el chofer no tipea su clave cada día
+  React.useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('r14_session') || 'null');
+      if (saved?.unitId && saved?.token) {
+        setUser(saved);
+        setScreen('start');
+      }
+    } catch {}
+  }, []);
+
+  const onLogin = (session) => {
+    setUser(session);
+    setAuthNotice(null);
+    try {
+      if (session.token) localStorage.setItem('r14_session', JSON.stringify(session));
+    } catch {}
+    setScreen('start');
+  };
+
+  const logout = () => {
+    try { localStorage.removeItem('r14_session'); } catch {}
+    if (window.RealtimeClient) window.RealtimeClient.disconnect();
+    setUser(null);
+    setScreen('login');
+  };
+
+  React.useEffect(() => {
+    if (!incomingSos) return;
+    const t = setTimeout(() => setIncomingSos(null), 2500);
+    return () => clearTimeout(t);
+  }, [incomingSos]);
+
+  // Conectar al servidor cuando el chofer sale a ruta.
+  // En modo demo (sin token) no hay conexión: todo queda local.
   React.useEffect(() => {
     if (!user || screen !== 'app') return;
-    if (!window.RealtimeClient) return;
+    if (!window.RealtimeClient || !user.token) return;
 
-    const myUnitId = user.user; // el nombre de usuario es el ID único en el servidor
+    const myUnitId = user.unitId; // identidad canónica que devolvió el servidor
+    myUnitIdRef.current = myUnitId;
 
-    window.RealtimeClient.on('status', ({ connected }) => setConnected(connected));
+    // Sesión rechazada (expirada o revocada): limpiar y volver al login
+    window.RealtimeClient.on('autherror', () => {
+      try { localStorage.removeItem('r14_session'); } catch {}
+      setUser(null);
+      setAuthNotice('Tu sesión expiró. Ingresá de nuevo.');
+      setScreen('login');
+    });
+
+    window.RealtimeClient.on('status', ({ connected }) => {
+      connectedRef.current = connected;
+      setConnected(connected);
+    });
 
     window.RealtimeClient.on('state', (state) => {
       const myGaps = state.gaps?.[myUnitId];
@@ -1711,16 +2031,102 @@ function Root() {
           backTime:  myGaps.toBehind || t.backTime,
           avgSpeed:  state.units?.find(u => u.unitId === myUnitId)?.speed || t.avgSpeed,
         }));
+        setGapMeta({ aheadUnit: myGaps.aheadUnit, behindUnit: myGaps.behindUnit });
       }
       // Todos los que están en ruta excepto yo
       const others = (state.units || []).filter(u => u.unitId !== myUnitId && u.lat);
       setOtherUnits(others);
     });
 
-    window.RealtimeClient.connect(myUnitId, myUnitId);
+    // Al conectar, el servidor manda los últimos mensajes del grupo:
+    // el hilo real reemplaza al de demostración
+    window.RealtimeClient.on('history', (items) => {
+      setMessages(items.map(it => {
+        const own = it.unitId === myUnitId;
+        const from = own ? 'TÚ' : (it.driverName || it.unitId || 'Conductor');
+        const role = own ? 'you' : 'driver';
+        const time = nowTime(it.timestamp);
+        const isDispatch = it.role === 'dispatch' && !own;
+        const msgRole = own ? 'you' : (isDispatch ? 'admin' : 'driver');
+        const tone = isDispatch ? 'info' : 'normal';
+        if (it.kind === 'sos') {
+          return { from: it.driverName || it.unitId || 'Conductor', role: 'driver', text: 'SOS — pide ayuda', time, tone: 'sos' };
+        }
+        if (it.kind === 'voice') {
+          // las notas viejas pierden el audio en el servidor: quedan expiradas
+          return { from, role: msgRole, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
+        }
+        return { from, role: msgRole, text: it.text, time, tone };
+      }));
+    });
+
+    // Chat en vivo: el servidor rebota el mensaje a todos (incluido el emisor),
+    // así el hilo queda en el mismo orden para todo el grupo
+    window.RealtimeClient.on('chat', (m) => {
+      const own = m.unitId === myUnitId;
+      const isDispatch = m.role === 'dispatch' && !own;
+      pushMsg({
+        from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
+        role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
+        text: m.text,
+        time: nowTime(m.timestamp),
+        tone: isDispatch ? 'info' : 'normal',
+      });
+    });
+
+    // Nota de voz de cualquier unidad (incluida la propia, por el eco)
+    window.RealtimeClient.on('voice', (m) => {
+      const own = m.unitId === myUnitId;
+      const isDispatch = m.role === 'dispatch' && !own;
+      pushMsg({
+        from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
+        role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
+        voice: m.duration,
+        audio: m.data,
+        time: nowTime(m.timestamp),
+        tone: isDispatch ? 'info' : 'normal',
+      });
+    });
+
+    // SOS de otra unidad: entra al hilo y dispara el aviso a pantalla completa
+    window.RealtimeClient.on('sos', (a) => {
+      if (a.unitId === myUnitId) return; // el propio ya tiene su flash local
+      pushMsg({
+        from: a.driverName || a.unitId || 'Conductor',
+        role: 'driver',
+        text: 'SOS — pide ayuda',
+        time: nowTime(a.timestamp),
+        tone: 'sos',
+      });
+      setIncomingSos(a);
+    });
+
+    window.RealtimeClient.connect({ token: user.token });
 
     return () => window.RealtimeClient.disconnect();
   }, [user, screen]);
+
+  const sendText = (text) => {
+    if (connectedRef.current) {
+      window.RealtimeClient.sendChat(text); // el eco del servidor lo agrega al hilo
+    } else {
+      pushMsg({ from: 'TÚ', role: 'you', text, time: nowTime(), tone: 'normal' });
+    }
+  };
+
+  // Nota de voz: si hay audio y conexión va al grupo (el eco la agrega al
+  // hilo); sin conexión o sin permiso de micrófono queda local
+  const sendVoice = (seconds, dataUrl) => {
+    if (connectedRef.current && dataUrl) {
+      window.RealtimeClient.sendVoice(dataUrl, seconds);
+    } else {
+      pushMsg({ from: 'TÚ', role: 'you', voice: seconds, audio: dataUrl || null, time: nowTime(), tone: 'normal' });
+    }
+  };
+
+  const fireSos = () => {
+    if (connectedRef.current) window.RealtimeClient.sendSos();
+  };
 
 
   React.useEffect(() => {
@@ -1742,41 +2148,49 @@ function Root() {
 
   let content;
   if (screen === 'login') {
-    content = <LoginScreen onSuccess={(u) => { setUser(u); setScreen('start'); }} />;
+    content = <LoginScreen onSuccess={onLogin} notice={authNotice} />;
   } else if (screen === 'start') {
     content = <StartRouteScreen
-      user={user?.user?.toUpperCase()}
+      user={(user?.driverName || user?.unitId || '').toUpperCase()}
       lapNumber={lap}
       onStart={() => setScreen('app')}
       onRest={() => setScreen('app')}
+      onLogout={logout}
     />;
   } else {
-    content = <CombiScreen tweaks={tweaks} otherUnits={otherUnits} onFinishLap={() => { setLap(l => l + 1); setScreen('start'); }} />;
+    content = <CombiScreen
+      tweaks={tweaks}
+      otherUnits={otherUnits}
+      gapMeta={gapMeta}
+      connected={connected}
+      messages={messages}
+      onSendText={sendText}
+      onSendVoice={sendVoice}
+      onSos={fireSos}
+    />;
   }
 
   return (
     <>
       <AndroidDevice width={380} height={780} dark={true}>
         {content}
-        {/* Indicador de conexión — aparece solo en la pantalla principal */}
-        {screen === 'app' && (
+        {/* SOS entrante de otra unidad — aviso a pantalla completa */}
+        {incomingSos && (
           <div style={{
-            position: 'absolute', top: 44, right: 14,
-            display: 'flex', alignItems: 'center', gap: 4,
-            background: 'rgba(0,0,0,0.5)',
-            padding: '3px 8px', borderRadius: 100,
-            pointerEvents: 'none', zIndex: 20,
+            position: 'absolute', inset: 0, zIndex: 100,
+            background: HUD.red,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 8,
+            animation: 'combiFlash 0.5s ease-out',
           }}>
-            <span style={{
-              width: 6, height: 6, borderRadius: '50%',
-              background: connected ? P.green : P.yellow,
-              boxShadow: connected ? `0 0 6px ${P.green}` : 'none',
-            }} />
-            <span style={{
-              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-              fontSize: 8, letterSpacing: 1, color: connected ? P.green : P.yellow,
-              textTransform: 'uppercase',
-            }}>{connected ? 'EN VIVO' : 'SIMULADO'}</span>
+            <div style={{
+              color: '#fff', fontFamily: '"Archivo Black", system-ui, sans-serif',
+              fontSize: 44, letterSpacing: 4,
+            }}>SOS</div>
+            <div style={{
+              color: '#fff', fontFamily: '"Archivo Black", system-ui, sans-serif',
+              fontSize: 20, letterSpacing: 1, textAlign: 'center', padding: '0 24px',
+            }}>{(incomingSos.driverName || incomingSos.unitId || 'UNA UNIDAD').toUpperCase()}<br/>PIDE AYUDA</div>
           </div>
         )}
       </AndroidDevice>
