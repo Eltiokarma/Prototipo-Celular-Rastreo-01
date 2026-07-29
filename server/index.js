@@ -16,7 +16,8 @@ app.use(express.json());
 // Sin esto, el navegador bloquea la conexión por seguridad.
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   // Preflight del navegador antes de un POST con JSON
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -219,7 +220,13 @@ app.post('/auth/login', (req, res) => {
   let user = db.prepare('SELECT * FROM users WHERE unitId = ?').get(unitId);
   let created = false;
   if (!user) {
-    // El nombre reservado DESPACHO se registra con rol dispatch
+    // El alta de choferes es tarea de Despacho (panel → Unidades).
+    // Solo se auto-registran: DESPACHO (bootstrap del sistema) y, para
+    // demos sin administración, cualquier unidad si OPEN_REGISTRATION=1.
+    const openReg = process.env.OPEN_REGISTRATION === '1';
+    if (unitId !== DISPATCH_ID && !openReg) {
+      return res.status(403).json({ error: 'Unidad no registrada. Pedí el alta a Despacho.' });
+    }
     const role = unitId === DISPATCH_ID ? 'dispatch' : 'driver';
     const driverName = role === 'dispatch' ? 'Despacho' : unitId;
     db.prepare('INSERT INTO users (unitId, driverName, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?)')
@@ -236,6 +243,89 @@ app.post('/auth/login', (req, res) => {
   loginAttempts.delete(unitId);
   const token = createSession(user.unitId);
   res.json({ token, unitId: user.unitId, driverName: user.driverName, role: user.role, created });
+});
+
+// ─── ADMINISTRACIÓN (solo Despacho) ──────────────────────────
+// Altas, resets de contraseña y bajas de unidades. Todo exige un token
+// de sesión con rol dispatch en el header Authorization.
+
+function requireDispatch(req, res, next) {
+  const auth = String(req.headers.authorization || '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  const user = sessionUser(token);
+  if (!user || user.role !== 'dispatch') {
+    return res.status(401).json({ error: 'Requiere sesión de Despacho' });
+  }
+  req.dispatchUser = user;
+  next();
+}
+
+// Cierra en vivo las conexiones de una unidad (clave reseteada o baja)
+function kickUnit(unitId, reason) {
+  db.prepare('DELETE FROM sessions WHERE unitId = ?').run(unitId);
+  for (const [ws, id] of clients) {
+    if (id === unitId) {
+      try {
+        ws.send(JSON.stringify({ type: 'auth_error', error: reason }));
+        ws.close();
+      } catch {}
+    }
+  }
+}
+
+app.get('/admin/users', requireDispatch, (req, res) => {
+  const online = new Set(clients.values());
+  const users = db.prepare(`
+    SELECT unitId, driverName, role, createdAt FROM users
+    ORDER BY CASE role WHEN 'dispatch' THEN 0 ELSE 1 END, unitId
+  `).all();
+  res.json({ users: users.map(u => ({ ...u, online: online.has(u.unitId) })) });
+});
+
+app.post('/admin/users', requireDispatch, (req, res) => {
+  const unitId = String(req.body?.unitId || '').trim().slice(0, 24);
+  const driverName = String(req.body?.driverName || '').trim().slice(0, 40) || unitId;
+  const password = String(req.body?.password || '');
+  if (!unitId || password.length < 4 || password.length > 64) {
+    return res.status(400).json({ error: 'Completá unidad y contraseña (mínimo 4 caracteres)' });
+  }
+  if (db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
+    return res.status(409).json({ error: 'Esa unidad ya existe' });
+  }
+  db.prepare('INSERT INTO users (unitId, driverName, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?)')
+    .run(unitId, driverName, 'driver', hashPassword(password), Date.now());
+  console.log(`Alta de unidad por Despacho: ${unitId}`);
+  res.json({ ok: true, unitId });
+});
+
+app.post('/admin/users/:unitId/password', requireDispatch, (req, res) => {
+  const unitId = String(req.params.unitId);
+  const password = String(req.body?.password || '');
+  if (password.length < 4 || password.length > 64) {
+    return res.status(400).json({ error: 'La contraseña nueva necesita mínimo 4 caracteres' });
+  }
+  if (!db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
+    return res.status(404).json({ error: 'Esa unidad no existe' });
+  }
+  db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(password), unitId);
+  // Las sesiones viejas dejan de valer y la unidad conectada vuelve al login
+  kickUnit(unitId, 'Despacho reseteó tu contraseña. Ingresá con la nueva.');
+  console.log(`Contraseña reseteada por Despacho: ${unitId}`);
+  res.json({ ok: true });
+});
+
+app.delete('/admin/users/:unitId', requireDispatch, (req, res) => {
+  const unitId = String(req.params.unitId);
+  if (unitId === DISPATCH_ID) {
+    return res.status(400).json({ error: 'La cuenta de Despacho no se puede eliminar' });
+  }
+  if (!db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
+    return res.status(404).json({ error: 'Esa unidad no existe' });
+  }
+  db.prepare('DELETE FROM users WHERE unitId = ?').run(unitId);
+  kickUnit(unitId, 'Tu acceso fue dado de baja por Despacho.');
+  console.log(`Baja de unidad por Despacho: ${unitId}`);
+  res.json({ ok: true });
 });
 
 // ─── RUTA DE SALUD ───────────────────────────────────────────

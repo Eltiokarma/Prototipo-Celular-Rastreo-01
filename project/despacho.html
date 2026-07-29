@@ -243,6 +243,171 @@ function ChatColumn({ messages, onSend }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ADMINISTRACIÓN DE UNIDADES (fase 2)
+// Altas, resets de contraseña y bajas contra /admin/* del servidor.
+// ═══════════════════════════════════════════════════════════════
+function AdminModal({ session, onClose, onAuthError }) {
+  const [users, setUsers] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [okMsg, setOkMsg] = React.useState(null);
+  const [form, setForm] = React.useState({ unitId: '', driverName: '', password: '' });
+  const [resetFor, setResetFor] = React.useState(null);
+  const [resetPass, setResetPass] = React.useState('');
+  const [confirmDel, setConfirmDel] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+
+  const api = async (path, opts = {}) => {
+    const res = await fetch(HTTP_URL + path, {
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + session.token,
+        ...(opts.headers || {}),
+      },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { onAuthError(); throw new Error('Sesión expirada'); }
+    if (!res.ok) throw new Error(data.error || 'Error del servidor');
+    return data;
+  };
+
+  const load = () => api('/admin/users')
+    .then(d => { setUsers(d.users); })
+    .catch(e => setError(e.message));
+
+  React.useEffect(() => { load(); }, []);
+
+  const run = async (fn, ok) => {
+    setBusy(true); setError(null); setOkMsg(null);
+    try { await fn(); setOkMsg(ok); await load(); }
+    catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+
+  const create = () => run(async () => {
+    await api('/admin/users', { method: 'POST', body: JSON.stringify(form) });
+    setForm({ unitId: '', driverName: '', password: '' });
+  }, 'Unidad creada');
+
+  const resetPassword = (unitId) => run(async () => {
+    await api(`/admin/users/${encodeURIComponent(unitId)}/password`, {
+      method: 'POST', body: JSON.stringify({ password: resetPass }),
+    });
+    setResetFor(null); setResetPass('');
+  }, `Contraseña de ${unitId} reseteada — su sesión fue cerrada`);
+
+  const remove = (unitId) => run(async () => {
+    await api(`/admin/users/${encodeURIComponent(unitId)}`, { method: 'DELETE' });
+    setConfirmDel(null);
+  }, `${unitId} dado de baja`);
+
+  const inputStyle = {
+    height: 40, borderRadius: 10, background: '#10161d',
+    border: '1px solid #232b36', padding: '0 12px',
+    fontSize: 14, color: HUD.fg, outline: 'none', fontFamily: 'inherit',
+    minWidth: 0, width: '100%', boxSizing: 'border-box',
+  };
+  const smallBtn = (bg, color) => ({
+    border: 'none', borderRadius: 8, padding: '6px 10px',
+    fontSize: 12, fontWeight: 700, cursor: 'pointer', background: bg, color,
+  });
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 3000,
+      background: 'rgba(3,6,10,.75)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: 680, maxWidth: '94vw', maxHeight: '86vh',
+        overflowY: 'auto', overflowX: 'hidden',
+        background: HUD.surface, border: `1px solid ${HUD.line}`,
+        borderRadius: 20, padding: 24,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 18 }}>
+          <span style={{ fontFamily: black, fontSize: 20 }}>UNIDADES</span>
+          <div style={{ flex: 1 }} />
+          <button onClick={onClose} style={smallBtn('transparent', HUD.dim2)}>✕ Cerrar</button>
+        </div>
+
+        {/* alta */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8,
+          padding: 14, background: '#0a0f15', borderRadius: 14,
+          border: `1px solid ${HUD.divider}`, marginBottom: 16,
+        }}>
+          <input placeholder="Unidad (ej. M-21)" value={form.unitId}
+            onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))} style={inputStyle} />
+          <input placeholder="Nombre del chofer" value={form.driverName}
+            onChange={e => setForm(f => ({ ...f, driverName: e.target.value }))} style={inputStyle} />
+          <input placeholder="Contraseña" value={form.password}
+            onChange={e => setForm(f => ({ ...f, password: e.target.value }))} style={inputStyle} />
+          <button onClick={create} disabled={busy} style={{
+            ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13,
+          }}>+ ALTA</button>
+        </div>
+
+        {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
+        {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
+
+        {/* lista */}
+        {!users && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
+        {users && users.map(u => (
+          <div key={u.unitId} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '10px 4px', borderBottom: `1px solid ${HUD.divider}`,
+          }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+              background: u.online ? HUD.green : '#2a3644',
+              boxShadow: u.online ? `0 0 8px ${HUD.green}` : 'none',
+            }} title={u.online ? 'Conectado' : 'Desconectado'} />
+            <span style={{ fontFamily: black, fontSize: 15, minWidth: 90 }}>{u.unitId}</span>
+            <span style={{ fontSize: 13, color: HUD.dim, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {u.driverName}
+            </span>
+            {u.role === 'dispatch' && (
+              <span style={{
+                fontFamily: black, fontSize: 10, background: HUD.bright, color: HUD.bg,
+                padding: '2px 6px', borderRadius: 4,
+              }}>DESPACHO</span>
+            )}
+            {resetFor === u.unitId ? (
+              <span style={{ display: 'flex', gap: 6 }}>
+                <input autoFocus placeholder="Nueva clave" value={resetPass}
+                  onChange={e => setResetPass(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') resetPassword(u.unitId); }}
+                  style={{ ...inputStyle, height: 32, width: 130, fontSize: 13 }} />
+                <button onClick={() => resetPassword(u.unitId)} disabled={busy} style={smallBtn(HUD.green, HUD.bg)}>OK</button>
+                <button onClick={() => { setResetFor(null); setResetPass(''); }} style={smallBtn('transparent', HUD.dim2)}>✕</button>
+              </span>
+            ) : (
+              <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); }}
+                style={smallBtn('#1a222c', HUD.fg2)}>Reset clave</button>
+            )}
+            {u.role !== 'dispatch' && (
+              confirmDel === u.unitId ? (
+                <button onClick={() => remove(u.unitId)} disabled={busy}
+                  style={smallBtn(HUD.red, '#fff')}>¿Confirmar baja?</button>
+              ) : (
+                <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); }}
+                  style={smallBtn('transparent', HUD.red)}>Baja</button>
+              )
+            )}
+          </div>
+        ))}
+
+        <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
+          El alta de choferes se hace solo desde acá: el login de la app rechaza
+          unidades no registradas. Resetear la clave o dar de baja cierra la
+          sesión de esa unidad al instante.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // PANEL
 // ═══════════════════════════════════════════════════════════════
 function Panel({ session, onLogout, onAuthError }) {
@@ -251,6 +416,7 @@ function Panel({ session, onLogout, onAuthError }) {
   const [gaps, setGaps] = React.useState({});
   const [messages, setMessages] = React.useState([]);
   const [sos, setSos] = React.useState(null); // alerta activa hasta que se atienda
+  const [adminOpen, setAdminOpen] = React.useState(false);
   const wsRef = React.useRef(null);
   const mapRef = React.useRef(null);
   const markersRef = React.useRef({});
@@ -404,11 +570,24 @@ function Panel({ session, onLogout, onAuthError }) {
           </span>
         </span>
         <div style={{ flex: 1 }} />
+        <button onClick={() => setAdminOpen(true)} style={{
+          background: '#1a222c', border: `1px solid ${HUD.line}`, borderRadius: 8,
+          padding: '6px 12px', color: HUD.fg2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+          marginRight: 10,
+        }}>Unidades</button>
         <button onClick={onLogout} style={{
           background: 'transparent', border: `1px solid ${HUD.line}`, borderRadius: 8,
           padding: '6px 12px', color: HUD.dim2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
         }}>Salir</button>
       </div>
+
+      {adminOpen && (
+        <AdminModal
+          session={session}
+          onClose={() => setAdminOpen(false)}
+          onAuthError={onAuthError}
+        />
+      )}
 
       {/* banner SOS activo */}
       {sos && (

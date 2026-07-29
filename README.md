@@ -53,13 +53,14 @@ audio — las más viejas quedan "expiradas" (burbuja sin reproducción).
 
 **Autenticación:** `POST /auth/login` con `{ user, password }` devuelve un
 token de sesión (30 días) que el WebSocket exige en el `identify` — sin
-token válido no hay estado, historial ni chat. Registro *en el primer uso*:
-la primera vez que una unidad entra, esa contraseña queda registrada
-(scrypt + salt en la tabla `users`); después siempre se exige la misma.
-5 intentos fallidos bloquean la unidad 5 minutos. La app guarda la sesión
-en el celular y la restaura al abrir; si el servidor no responde, ofrece
-un modo demo local. La tabla `users` ya tiene columna `role`
-(`driver`/`dispatch`) pensada para el futuro panel de Despacho.
+token válido no hay estado, historial ni chat. Contraseñas con scrypt+salt
+en la tabla `users` (roles `driver`/`dispatch`); 5 intentos fallidos
+bloquean la unidad 5 minutos. **El alta de choferes la hace Despacho**
+(panel → Unidades): el login rechaza unidades no registradas. Solo se
+auto-registran DESPACHO (bootstrap del sistema) y, para demos sin
+administración, cualquier unidad si `OPEN_REGISTRATION=1`. La app guarda
+la sesión en el celular y la restaura al abrir; si el servidor no
+responde, ofrece un modo demo local.
 
 ## Pantallas
 
@@ -84,6 +85,12 @@ persistente hasta marcarlo ATENDIDO. Usa el mismo servidor y el mismo login;
 el usuario reservado `DESPACHO` siempre recibe rol `dispatch` y **no**
 aparece como unidad en ruta. En producción fijar su clave con la variable
 de entorno `DISPATCH_PASSWORD` (crea/actualiza la cuenta al arrancar).
+
+**Administración (botón Unidades):** altas de choferes, reset de
+contraseña y bajas, contra los endpoints `/admin/*` del servidor
+(protegidos por rol `dispatch` vía `Authorization: Bearer`). Resetear la
+clave o dar de baja revoca las sesiones de esa unidad y la desconecta al
+instante — el celular vuelve al login con el motivo.
 
 ## Panel de tweaks
 
