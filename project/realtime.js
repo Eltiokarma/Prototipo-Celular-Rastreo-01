@@ -124,6 +124,7 @@
   // Pide la posición al celular y la manda al servidor cada 3 segundos.
 
   let lastPosition = null;
+  let simTimer = null;
 
   function startGps() {
     if (!navigator.geolocation) {
@@ -133,12 +134,31 @@
       return;
     }
 
+    // En escritorio el permiso puede quedar "colgado" (prompt ignorado o
+    // headless): watchPosition no dispara ni éxito ni error. Si en 12s no
+    // hay primer fix, arranca el GPS simulado para que la demo siga viva.
+    let gotFix = false;
+    const fallback = setTimeout(() => {
+      if (!gotFix) {
+        console.warn('GPS sin respuesta en 12s — usando simulado');
+        startSimulatedGps();
+      }
+    }, 12000);
+
     // Pedir permiso de GPS y empezar a rastrear
     navigator.geolocation.watchPosition(
-      (pos) => { lastPosition = pos; },
+      (pos) => {
+        gotFix = true;
+        clearTimeout(fallback);
+        stopSimulatedGps(); // si la demo ya había arrancado, gana el GPS real
+        lastPosition = pos;
+      },
       (err) => {
         console.warn('Error GPS:', err.message);
-        startSimulatedGps();
+        if (!gotFix) {
+          clearTimeout(fallback);
+          startSimulatedGps();
+        }
       },
       { enableHighAccuracy: true, maximumAge: 2000 }
     );
@@ -166,6 +186,7 @@
 
   function stopGps() {
     if (gpsInterval) { clearInterval(gpsInterval); gpsInterval = null; }
+    stopSimulatedGps();
   }
 
   // ─── GPS SIMULADO ──────────────────────────────────────────
@@ -175,13 +196,14 @@
   let simProgress = Math.random() * 0.6 + 0.2; // posición inicial aleatoria
 
   function startSimulatedGps() {
+    if (simTimer) return;
     console.log('Usando GPS simulado (modo escritorio)');
 
     // Coordenadas de Juliaca — Terminal Sur
     const BASE_LAT = -15.502;
     const BASE_LNG = -70.133;
 
-    gpsInterval = setInterval(() => {
+    simTimer = setInterval(() => {
       simProgress += 0.004; // avanza por la ruta
       if (simProgress > 1) simProgress = 0; // vuelta completa
 
@@ -196,6 +218,10 @@
         routeProgress: simProgress,
       });
     }, 3000);
+  }
+
+  function stopSimulatedGps() {
+    if (simTimer) { clearInterval(simTimer); simTimer = null; }
   }
 
   // ─── ESTIMACIÓN DE PROGRESO EN RUTA ───────────────────────

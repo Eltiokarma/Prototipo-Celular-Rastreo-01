@@ -2042,14 +2042,17 @@ function Root() {
         const from = own ? 'TÚ' : (it.driverName || it.unitId || 'Conductor');
         const role = own ? 'you' : 'driver';
         const time = nowTime(it.timestamp);
+        const isDispatch = it.role === 'dispatch' && !own;
+        const msgRole = own ? 'you' : (isDispatch ? 'admin' : 'driver');
+        const tone = isDispatch ? 'info' : 'normal';
         if (it.kind === 'sos') {
           return { from: it.driverName || it.unitId || 'Conductor', role: 'driver', text: 'SOS — pide ayuda', time, tone: 'sos' };
         }
         if (it.kind === 'voice') {
           // las notas viejas pierden el audio en el servidor: quedan expiradas
-          return { from, role, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone: 'normal' };
+          return { from, role: msgRole, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
         }
-        return { from, role, text: it.text, time, tone: 'normal' };
+        return { from, role: msgRole, text: it.text, time, tone };
       }));
     });
 
@@ -2057,25 +2060,27 @@ function Root() {
     // así el hilo queda en el mismo orden para todo el grupo
     window.RealtimeClient.on('chat', (m) => {
       const own = m.unitId === myUnitId;
+      const isDispatch = m.role === 'dispatch' && !own;
       pushMsg({
         from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
-        role: own ? 'you' : 'driver',
+        role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
         text: m.text,
         time: nowTime(m.timestamp),
-        tone: 'normal',
+        tone: isDispatch ? 'info' : 'normal',
       });
     });
 
     // Nota de voz de cualquier unidad (incluida la propia, por el eco)
     window.RealtimeClient.on('voice', (m) => {
       const own = m.unitId === myUnitId;
+      const isDispatch = m.role === 'dispatch' && !own;
       pushMsg({
         from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
-        role: own ? 'you' : 'driver',
+        role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
         voice: m.duration,
         audio: m.data,
         time: nowTime(m.timestamp),
-        tone: 'normal',
+        tone: isDispatch ? 'info' : 'normal',
       });
     });
 

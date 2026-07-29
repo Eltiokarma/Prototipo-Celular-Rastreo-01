@@ -9,7 +9,8 @@ en soporte, sol lateral y el vehículo en movimiento.
 
 ```
 project/            La app (PWA servida como archivos estáticos)
-  Prototipo.html      TODA la app vive acá: React + Babel inline (sin build)
+  Prototipo.html      TODA la app del chofer: React + Babel inline (sin build)
+  despacho.html       Panel web de Despacho (flota, chat, SOS) — desktop
   realtime.js         Cliente WebSocket: GPS, estado, chat y SOS
   service-worker.js   Caché offline (bump CACHE_NAME en cada release)
   manifest.json       Manifest PWA
@@ -73,6 +74,16 @@ Carrusel de 3 páginas (swipe horizontal): **CHAT ← RUTA → MAPA**.
   de brecha y barra inferior que replica el HUD.
 
 El rojo `#FF2D55` está reservado a emergencia/brecha crítica — nada más lo usa.
+
+## Panel de Despacho
+
+`project/despacho.html` (desktop): mapa de toda la flota en vivo, lista de
+unidades con brechas ±1 coloreadas, chat del grupo hablando como
+**DESPACHO** (chip azul en la app del chofer) y recepción de SOS con banner
+persistente hasta marcarlo ATENDIDO. Usa el mismo servidor y el mismo login;
+el usuario reservado `DESPACHO` siempre recibe rol `dispatch` y **no**
+aparece como unidad en ruta. En producción fijar su clave con la variable
+de entorno `DISPATCH_PASSWORD` (crea/actualiza la cuenta al arrancar).
 
 ## Panel de tweaks
 

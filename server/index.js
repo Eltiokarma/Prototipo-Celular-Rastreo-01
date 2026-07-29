@@ -33,6 +33,9 @@ const units = new Map();
 const clients = new Map();
 // clients = { websocket → unitId }
 
+const profiles = new Map();
+// profiles = { unitId → { driverName, role } } — llenado en el identify
+
 // ─── HISTORIAL DE CHAT (SQLite) ──────────────────────────────
 // Los últimos mensajes del grupo (texto, voz y SOS) se guardan en una
 // base SQLite para que quien se conecta vea la conversación en curso.
@@ -106,10 +109,13 @@ function remember(item) {
 }
 
 function recentHistory() {
+  // El rol sale de la tabla users (los mensajes viejos no lo guardan)
   return db.prepare(`
-    SELECT kind, unitId, driverName, text, duration, data, lat, lng, timestamp
-    FROM (SELECT * FROM messages ORDER BY id DESC LIMIT ${HISTORY_MAX})
-    ORDER BY id ASC
+    SELECT m.kind, m.unitId, m.driverName, m.text, m.duration, m.data,
+           m.lat, m.lng, m.timestamp, COALESCE(u.role, 'driver') AS role
+    FROM (SELECT * FROM messages ORDER BY id DESC LIMIT ${HISTORY_MAX}) m
+    LEFT JOIN users u ON u.unitId = m.unitId
+    ORDER BY m.id ASC
   `).all();
 }
 
@@ -176,6 +182,25 @@ setInterval(() => {
   db.prepare('DELETE FROM sessions WHERE expiresAt <= ?').run(Date.now());
 }, 3_600_000);
 
+// ─── CUENTA DE DESPACHO ──────────────────────────────────────
+// El nombre DESPACHO está reservado y siempre lleva rol 'dispatch'.
+// En producción conviene fijar la clave por entorno: con
+// DISPATCH_PASSWORD seteada, la cuenta se crea o actualiza al arrancar.
+// Sin la variable, rige el registro en el primer uso como para
+// cualquier unidad.
+const DISPATCH_ID = 'DESPACHO';
+if (process.env.DISPATCH_PASSWORD) {
+  const hash = hashPassword(process.env.DISPATCH_PASSWORD);
+  const exists = db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(DISPATCH_ID);
+  if (exists) {
+    db.prepare("UPDATE users SET passHash = ?, role = 'dispatch' WHERE unitId = ?").run(hash, DISPATCH_ID);
+  } else {
+    db.prepare('INSERT INTO users (unitId, driverName, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(DISPATCH_ID, 'Despacho', 'dispatch', hash, Date.now());
+  }
+  console.log('Cuenta DESPACHO lista (desde DISPATCH_PASSWORD)');
+}
+
 // Intentos fallidos por unidad: 5 seguidos → bloqueo de 5 minutos
 const loginAttempts = new Map();
 
@@ -194,11 +219,14 @@ app.post('/auth/login', (req, res) => {
   let user = db.prepare('SELECT * FROM users WHERE unitId = ?').get(unitId);
   let created = false;
   if (!user) {
+    // El nombre reservado DESPACHO se registra con rol dispatch
+    const role = unitId === DISPATCH_ID ? 'dispatch' : 'driver';
+    const driverName = role === 'dispatch' ? 'Despacho' : unitId;
     db.prepare('INSERT INTO users (unitId, driverName, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?)')
-      .run(unitId, unitId, 'driver', hashPassword(password), Date.now());
-    user = { unitId, driverName: unitId, role: 'driver' };
+      .run(unitId, driverName, role, hashPassword(password), Date.now());
+    user = { unitId, driverName, role };
     created = true;
-    console.log(`Unidad registrada: ${unitId}`);
+    console.log(`${role === 'dispatch' ? 'Despacho' : 'Unidad'} registrado: ${unitId}`);
   } else if (!verifyPassword(password, user.passHash)) {
     const count = (a?.count || 0) + 1;
     loginAttempts.set(unitId, { count, until: count >= 5 ? Date.now() + 300_000 : 0 });
@@ -253,17 +281,23 @@ wss.on('connection', (ws) => {
         return;
       }
       clients.set(ws, user.unitId);
-      units.set(user.unitId, {
-        unitId: user.unitId,
-        driverName: user.driverName || 'Conductor',
-        lat: null,
-        lng: null,
-        speed: 0,
-        routeProgress: 0,
-        timestamp: Date.now(),
-      });
-      console.log(`Unidad identificada: ${user.unitId}`);
-      broadcast({ type: 'unit_joined', unitId: user.unitId });
+      profiles.set(user.unitId, { driverName: user.driverName || 'Conductor', role: user.role || 'driver' });
+
+      // Despacho observa y habla, pero NO es una unidad en ruta:
+      // no entra al mapa de units ni al cálculo de brechas
+      if (user.role !== 'dispatch') {
+        units.set(user.unitId, {
+          unitId: user.unitId,
+          driverName: user.driverName || 'Conductor',
+          lat: null,
+          lng: null,
+          speed: 0,
+          routeProgress: 0,
+          timestamp: Date.now(),
+        });
+        broadcast({ type: 'unit_joined', unitId: user.unitId });
+      }
+      console.log(`${user.role === 'dispatch' ? 'Despacho conectado' : 'Unidad identificada'}: ${user.unitId}`);
 
       // Recién ahora recibe el estado y la conversación en curso
       ws.send(JSON.stringify({ type: 'state', ...buildState() }));
@@ -298,11 +332,11 @@ wss.on('connection', (ws) => {
     if (msg.type === 'sos') {
       const unitId = clients.get(ws);
       if (!unitId) return;
-      const unit = units.get(unitId) || {};
+      const prof = profiles.get(unitId) || {};
       console.log(`🚨 SOS de ${unitId}`);
       const alert = {
         unitId,
-        driverName: unit.driverName || 'Conductor',
+        driverName: prof.driverName || 'Conductor',
         lat: msg.lat ?? null,
         lng: msg.lng ?? null,
         timestamp: msg.timestamp || Date.now(),
@@ -316,15 +350,15 @@ wss.on('connection', (ws) => {
     if (msg.type === 'chat') {
       const unitId = clients.get(ws);
       if (!unitId) return;
-      const unit = units.get(unitId) || {};
+      const prof = profiles.get(unitId) || {};
       const entry = {
         unitId,
-        driverName: unit.driverName || 'Conductor',
+        driverName: prof.driverName || 'Conductor',
         text: String(msg.text || '').slice(0, 500),
         timestamp: msg.timestamp || Date.now(),
       };
       remember({ kind: 'chat', ...entry });
-      broadcast({ type: 'chat_msg', ...entry });
+      broadcast({ type: 'chat_msg', role: prof.role || 'driver', ...entry });
     }
 
     // TIPO: voz — nota de voz grabada en el celular
@@ -333,21 +367,21 @@ wss.on('connection', (ws) => {
     if (msg.type === 'voice') {
       const unitId = clients.get(ws);
       if (!unitId) return;
-      const unit = units.get(unitId) || {};
       const data = typeof msg.data === 'string'
         && msg.data.startsWith('data:audio')
         && msg.data.length <= 2_000_000
         ? msg.data : null;
       if (!data) return; // audio inválido o demasiado grande — se descarta
+      const prof = profiles.get(unitId) || {};
       const entry = {
         unitId,
-        driverName: unit.driverName || 'Conductor',
+        driverName: prof.driverName || 'Conductor',
         duration: Math.max(1, Math.min(120, Math.round(msg.duration || 0))),
         data,
         timestamp: msg.timestamp || Date.now(),
       };
       remember({ kind: 'voice', ...entry });
-      broadcast({ type: 'voice_msg', ...entry });
+      broadcast({ type: 'voice_msg', role: prof.role || 'driver', ...entry });
     }
   });
 
@@ -355,10 +389,13 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     const unitId = clients.get(ws);
     if (unitId) {
-      units.delete(unitId);
       clients.delete(ws);
-      console.log(`Unidad desconectada: ${unitId}`);
-      broadcast({ type: 'unit_left', unitId });
+      console.log(`Desconectado: ${unitId}`);
+      // Solo las unidades en ruta salen del mapa; Despacho no estaba en él
+      if (units.has(unitId)) {
+        units.delete(unitId);
+        broadcast({ type: 'unit_left', unitId });
+      }
     }
   });
 

@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>COOP-R14 — Panel de Despacho</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- Leaflet: mapa de calles reales -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #03060a; color: #EAF4FF;
+    font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    overflow: hidden;
+  }
+  #root { height: 100%; }
+  @keyframes sosPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,45,85,.55); }
+    50%      { box-shadow: 0 0 0 14px rgba(255,45,85,0); }
+  }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #1c2836; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="react">
+
+// Mismo servidor que la app del chofer
+const SERVER_URL = window.REALTIME_SERVER_URL ||
+  'wss://prototipo-celular-rastreo-01-production.up.railway.app';
+const HTTP_URL = SERVER_URL.replace(/^ws/, 'http');
+
+// Tokens HUD compartidos con la app
+const HUD = {
+  bg: '#03060a', surface: '#0d1116', line: '#1c2836', divider: '#16222f',
+  green: '#39FF14', amber: '#FFD400', red: '#FF2D55',
+  fg: '#EAF4FF', fg2: '#C6D6E6', dim: '#8FA8C0', dim2: '#6E88A2', dim3: '#56708A',
+  bright: '#2E9DFF', sky: '#71BCFF',
+};
+
+const JULIACA_CENTER = [-15.4904, -70.1333];
+const TARGET_GAP = 2; // minutos objetivo entre unidades (mismo default que la app)
+
+function parseMin(s) {
+  if (!s) return null;
+  const [m, sec] = String(s).split(':').map(Number);
+  return m + (sec || 0) / 60;
+}
+
+function gapColor(gapStr) {
+  const v = parseMin(gapStr);
+  if (v === null || isNaN(v)) return HUD.dim3;
+  const dev = Math.abs(v - TARGET_GAP) / TARGET_GAP;
+  if (dev <= 0.15) return HUD.green;
+  if (dev <= 0.30) return HUD.amber;
+  return HUD.red;
+}
+
+function nowTime(ts) {
+  const d = ts ? new Date(ts) : new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+const mono = 'JetBrains Mono, ui-monospace, monospace';
+const black = '"Archivo Black", system-ui, sans-serif';
+
+// ═══════════════════════════════════════════════════════════════
+// LOGIN
+// ═══════════════════════════════════════════════════════════════
+function Login({ onSuccess, notice }) {
+  const [user, setUser] = React.useState('DESPACHO');
+  const [pass, setPass] = React.useState('');
+  const [error, setError] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+
+  const submit = async () => {
+    if (!user.trim() || pass.length < 4) {
+      setError('Completá usuario y contraseña (mínimo 4 caracteres)');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(HTTP_URL + '/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: user.trim(), password: pass }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Error de autenticación');
+      if (data.role !== 'dispatch') throw new Error('Esta cuenta no es de Despacho');
+      try { localStorage.setItem('r14_dispatch_session', JSON.stringify(data)); } catch {}
+      onSuccess(data);
+    } catch (e) {
+      setLoading(false);
+      setError(e.message === 'Failed to fetch' ? 'No se pudo conectar con el servidor' : e.message);
+    }
+  };
+
+  const inputStyle = {
+    width: '100%', padding: '14px 16px', fontSize: 18, fontWeight: 600,
+    background: '#10161d', border: '1px solid #232b36', borderRadius: 12,
+    color: HUD.fg, outline: 'none', fontFamily: 'inherit',
+  };
+
+  return (
+    <div style={{
+      height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: `radial-gradient(80% 60% at 50% 30%, #0a1626 0%, ${HUD.bg} 70%)`,
+    }}>
+      <div style={{
+        width: 380, background: HUD.surface, border: `1px solid ${HUD.line}`,
+        borderRadius: 20, padding: 32,
+      }} onKeyDown={e => { if (e.key === 'Enter') submit(); }}>
+        <div style={{ fontFamily: black, fontSize: 26, letterSpacing: -0.5 }}>COOP-R14</div>
+        <div style={{
+          fontFamily: mono, fontSize: 13, fontWeight: 700, letterSpacing: 1,
+          color: HUD.bright, textTransform: 'uppercase', marginBottom: 24,
+        }}>Panel de Despacho</div>
+
+        <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1, color: HUD.dim2, marginBottom: 6 }}>USUARIO</div>
+        <input value={user} onChange={e => setUser(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
+        <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1, color: HUD.dim2, marginBottom: 6 }}>CONTRASEÑA</div>
+        <input type="password" value={pass} autoFocus onChange={e => setPass(e.target.value)} style={{ ...inputStyle, marginBottom: 18 }} />
+
+        {(error || notice) && (
+          <div style={{
+            background: 'rgba(255,45,85,.1)', border: `1px solid ${HUD.red}`,
+            borderRadius: 10, padding: '10px 12px', marginBottom: 16,
+            fontSize: 14, fontWeight: 600, color: HUD.red,
+          }}>{error || notice}</div>
+        )}
+
+        <button onClick={submit} disabled={loading} style={{
+          width: '100%', padding: 16, fontSize: 17, letterSpacing: 2,
+          fontFamily: black, background: loading ? '#1D598F' : HUD.bright,
+          color: '#fff', border: 'none', borderRadius: 12,
+          cursor: loading ? 'wait' : 'pointer',
+        }}>{loading ? 'VERIFICANDO...' : 'INGRESAR'}</button>
+
+        <div style={{ marginTop: 18, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
+          La primera vez que se ingresa como DESPACHO, esa contraseña queda
+          registrada. En producción se fija con la variable DISPATCH_PASSWORD.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHAT (columna derecha)
+// ═══════════════════════════════════════════════════════════════
+function ChatColumn({ messages, onSend }) {
+  const [draft, setDraft] = React.useState('');
+  const scrollRef = React.useRef(null);
+  React.useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  const send = () => {
+    const text = draft.trim();
+    if (!text) return;
+    onSend(text);
+    setDraft('');
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{
+        padding: '14px 16px', borderBottom: `1px solid ${HUD.divider}`,
+        fontFamily: black, fontSize: 16,
+      }}>GRUPO R-14</div>
+
+      <div ref={scrollRef} style={{
+        flex: 1, overflowY: 'auto', padding: 14,
+        display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0,
+      }}>
+        {messages.map((m, i) => {
+          const own = m.role === 'dispatch-self';
+          const sos = m.tone === 'sos';
+          return (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: own ? 'flex-end' : 'flex-start' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginBottom: 3 }}>
+                <span style={{
+                  fontSize: 13, fontWeight: 700,
+                  color: sos ? HUD.red : own ? HUD.bright : HUD.dim,
+                }}>{own ? 'DESPACHO (vos)' : m.from}</span>
+                <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim3 }}>{m.time}</span>
+              </div>
+              <div style={{
+                maxWidth: '90%', padding: '9px 13px', fontSize: 15, lineHeight: 1.35,
+                borderRadius: own ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+                background: sos ? '#2b0812' : own ? '#0e2a45' : '#141a21',
+                borderLeft: sos ? `3px solid ${HUD.red}` : 'none',
+                color: sos ? '#FFD9E0' : own ? '#D8ECFF' : '#DCE8F5',
+              }}>
+                {m.voice
+                  ? (m.audio
+                      ? <audio controls src={m.audio} style={{ width: 220, height: 36 }} />
+                      : <span style={{ color: HUD.dim3 }}>🎙 nota de voz ({m.voice}s{m.expired ? ' · expirada' : ''})</span>)
+                  : m.text}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ padding: 12, borderTop: `1px solid ${HUD.divider}`, display: 'flex', gap: 8 }}>
+        <input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') send(); }}
+          placeholder="Mensaje como DESPACHO…"
+          style={{
+            flex: 1, minWidth: 0, height: 44, borderRadius: 22,
+            background: '#10161d', border: '1px solid #232b36',
+            padding: '0 16px', fontSize: 15, color: HUD.fg, outline: 'none',
+            fontFamily: 'inherit',
+          }}
+        />
+        <button onClick={send} style={{
+          width: 44, height: 44, borderRadius: '50%', border: 'none',
+          background: HUD.bright, color: HUD.bg, fontSize: 18, cursor: 'pointer',
+        }}>➤</button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PANEL
+// ═══════════════════════════════════════════════════════════════
+function Panel({ session, onLogout, onAuthError }) {
+  const [connected, setConnected] = React.useState(false);
+  const [units, setUnits] = React.useState([]);
+  const [gaps, setGaps] = React.useState({});
+  const [messages, setMessages] = React.useState([]);
+  const [sos, setSos] = React.useState(null); // alerta activa hasta que se atienda
+  const wsRef = React.useRef(null);
+  const mapRef = React.useRef(null);
+  const markersRef = React.useRef({});
+  const fittedRef = React.useRef(false);
+
+  const pushMsg = (m) => setMessages(ms => [...ms.slice(-149), m]);
+
+  const mapMsg = (m, kind) => {
+    const own = m.unitId === session.unitId;
+    if (kind === 'sos') {
+      return { from: m.driverName || m.unitId, tone: 'sos', text: `SOS — ${m.driverName || m.unitId} pide ayuda`, time: nowTime(m.timestamp) };
+    }
+    const base = {
+      from: m.role === 'dispatch' ? 'DESPACHO' : (m.driverName || m.unitId || 'Conductor'),
+      role: own ? 'dispatch-self' : m.role,
+      time: nowTime(m.timestamp),
+      tone: 'normal',
+    };
+    if (kind === 'voice') return { ...base, voice: m.duration, audio: m.data || null, expired: m.expired };
+    return { ...base, text: m.text };
+  };
+
+  // ─── WebSocket propio del panel (sin GPS: Despacho no está en ruta)
+  React.useEffect(() => {
+    let closedByUs = false;
+    let reconnect = null;
+    let ws = null;
+
+    const open = () => {
+      ws = new WebSocket(SERVER_URL);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        setConnected(true);
+        ws.send(JSON.stringify({ type: 'identify', token: session.token }));
+      };
+      ws.onmessage = (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'state') {
+          setUnits(msg.units || []);
+          setGaps(msg.gaps || {});
+        } else if (msg.type === 'chat_msg') {
+          pushMsg(mapMsg(msg, 'chat'));
+        } else if (msg.type === 'voice_msg') {
+          pushMsg(mapMsg(msg, 'voice'));
+        } else if (msg.type === 'sos_alert') {
+          pushMsg(mapMsg(msg, 'sos'));
+          setSos({ ...msg, receivedAt: Date.now() });
+        } else if (msg.type === 'chat_history') {
+          setMessages((msg.items || []).map(it => mapMsg(
+            { ...it, expired: it.kind === 'voice' && !it.data },
+            it.kind
+          )));
+        } else if (msg.type === 'auth_error') {
+          closedByUs = true;
+          try { localStorage.removeItem('r14_dispatch_session'); } catch {}
+          onAuthError();
+        }
+      };
+      ws.onclose = () => {
+        setConnected(false);
+        if (!closedByUs) reconnect = setTimeout(open, 3000);
+      };
+    };
+    open();
+
+    return () => {
+      closedByUs = true;
+      clearTimeout(reconnect);
+      if (ws) ws.close();
+    };
+  }, [session.token]);
+
+  // ─── Leaflet
+  const initMap = React.useCallback((node) => {
+    if (!node || mapRef.current) return;
+    const map = L.map(node, { center: JULIACA_CENTER, zoom: 14, zoomControl: true, attributionControl: false });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+    mapRef.current = map;
+    setTimeout(() => map.invalidateSize(), 100);
+  }, []);
+
+  // Marcadores: un pin con etiqueta por unidad en ruta
+  React.useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const existing = markersRef.current;
+    const ids = new Set(units.filter(u => u.lat).map(u => u.unitId));
+
+    Object.keys(existing).forEach(id => {
+      if (!ids.has(id)) { existing[id].remove(); delete existing[id]; }
+    });
+
+    units.forEach(u => {
+      if (!u.lat || !u.lng) return;
+      const isSos = sos && sos.unitId === u.unitId;
+      const color = isSos ? HUD.red : HUD.bright;
+      const html = `<div style="position:relative;width:14px;height:14px;">
+        <div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid ${HUD.bg};box-shadow:0 0 12px ${color};"></div>
+        <div style="position:absolute;top:18px;left:50%;transform:translateX(-50%);font-family:${mono};font-size:12px;font-weight:700;color:${color};background:rgba(3,6,10,.85);padding:2px 7px;border-radius:6px;white-space:nowrap;">${u.unitId}</div>
+      </div>`;
+      const icon = L.divIcon({ html, className: '', iconSize: [14, 14], iconAnchor: [7, 7] });
+      if (existing[u.unitId]) {
+        existing[u.unitId].setLatLng([u.lat, u.lng]);
+        existing[u.unitId].setIcon(icon);
+      } else {
+        existing[u.unitId] = L.marker([u.lat, u.lng], { icon }).addTo(map);
+      }
+    });
+
+    // Encuadrar la flota la primera vez que hay unidades
+    const withGps = units.filter(u => u.lat);
+    if (!fittedRef.current && withGps.length) {
+      fittedRef.current = true;
+      const bounds = L.latLngBounds(withGps.map(u => [u.lat, u.lng]));
+      map.fitBounds(bounds.pad(0.4), { maxZoom: 15 });
+    }
+  }, [units, sos]);
+
+  const focusUnit = (u) => {
+    if (u.lat && mapRef.current) mapRef.current.panTo([u.lat, u.lng], { animate: true });
+  };
+
+  const sendChat = (text) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'chat', text, timestamp: Date.now() }));
+    }
+  };
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* header */}
+      <div style={{
+        height: 56, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 14,
+        padding: '0 18px', borderBottom: `1px solid ${HUD.divider}`, background: HUD.surface,
+      }}>
+        <span style={{ fontFamily: black, fontSize: 18 }}>COOP-R14</span>
+        <span style={{
+          fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1,
+          color: HUD.bright, textTransform: 'uppercase',
+        }}>Despacho</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 10 }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: connected ? HUD.green : HUD.amber,
+            boxShadow: connected ? `0 0 8px ${HUD.green}` : 'none',
+          }} />
+          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: connected ? HUD.green : HUD.amber }}>
+            {connected ? `EN VIVO · ${units.length} EN RUTA` : 'RECONECTANDO…'}
+          </span>
+        </span>
+        <div style={{ flex: 1 }} />
+        <button onClick={onLogout} style={{
+          background: 'transparent', border: `1px solid ${HUD.line}`, borderRadius: 8,
+          padding: '6px 12px', color: HUD.dim2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+        }}>Salir</button>
+      </div>
+
+      {/* banner SOS activo */}
+      {sos && (
+        <div style={{
+          flexShrink: 0, background: HUD.red, color: '#fff',
+          padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 16,
+          animation: 'sosPulse 1.2s ease-in-out infinite',
+        }}>
+          <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 2 }}>SOS</span>
+          <span style={{ fontSize: 15, fontWeight: 700 }}>
+            {(sos.driverName || sos.unitId || 'Unidad').toUpperCase()} pide ayuda · {nowTime(sos.timestamp)}
+            {sos.lat ? ` · ${sos.lat.toFixed(4)}, ${sos.lng.toFixed(4)}` : ''}
+          </span>
+          <div style={{ flex: 1 }} />
+          {sos.lat && (
+            <button onClick={() => { mapRef.current?.panTo([sos.lat, sos.lng]); }} style={{
+              background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.5)',
+              borderRadius: 8, padding: '6px 12px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            }}>Ver en mapa</button>
+          )}
+          <button onClick={() => setSos(null)} style={{
+            background: '#fff', border: 'none', borderRadius: 8,
+            padding: '6px 12px', color: HUD.red, fontSize: 13, fontWeight: 800, cursor: 'pointer',
+          }}>ATENDIDO</button>
+        </div>
+      )}
+
+      {/* cuerpo: unidades | mapa | chat */}
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '280px 1fr 360px', minHeight: 0 }}>
+        {/* unidades */}
+        <div style={{ borderRight: `1px solid ${HUD.divider}`, overflowY: 'auto', minHeight: 0 }}>
+          <div style={{
+            padding: '14px 16px', fontFamily: mono, fontSize: 12, fontWeight: 700,
+            letterSpacing: 1, color: HUD.dim2, textTransform: 'uppercase',
+          }}>Unidades en ruta ({units.length})</div>
+          {units.length === 0 && (
+            <div style={{ padding: '8px 16px', fontSize: 14, color: HUD.dim3 }}>
+              Sin unidades conectadas.
+            </div>
+          )}
+          {units.map(u => {
+            const g = gaps[u.unitId] || {};
+            const isSos = sos && sos.unitId === u.unitId;
+            return (
+              <div key={u.unitId} onClick={() => focusUnit(u)} style={{
+                padding: '12px 16px', cursor: 'pointer',
+                borderBottom: `1px solid ${HUD.divider}`,
+                background: isSos ? 'rgba(255,45,85,.12)' : 'transparent',
+                borderLeft: isSos ? `3px solid ${HUD.red}` : '3px solid transparent',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg }}>{u.unitId}</span>
+                  <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2 }}>
+                    {u.speed || 0} km/h
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  {!u.lat && <span style={{ fontFamily: mono, fontSize: 11, color: HUD.amber }}>SIN GPS</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 14, marginTop: 4, fontFamily: mono, fontSize: 13, fontWeight: 700 }}>
+                  <span style={{ color: HUD.dim3 }}>+1 <span style={{ color: gapColor(g.toAhead) }}>{g.toAhead || '—'}</span></span>
+                  <span style={{ color: HUD.dim3 }}>−1 <span style={{ color: gapColor(g.toBehind) }}>{g.toBehind || '—'}</span></span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* mapa */}
+        <div style={{ position: 'relative', minHeight: 0 }}>
+          <div ref={initMap} style={{ position: 'absolute', inset: 0 }} />
+        </div>
+
+        {/* chat */}
+        <div style={{ borderLeft: `1px solid ${HUD.divider}`, minHeight: 0 }}>
+          <ChatColumn messages={messages} onSend={sendChat} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ROOT
+// ═══════════════════════════════════════════════════════════════
+function Root() {
+  const [session, setSession] = React.useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('r14_dispatch_session') || 'null');
+      return s?.token && s?.role === 'dispatch' ? s : null;
+    } catch { return null; }
+  });
+  const [notice, setNotice] = React.useState(null);
+
+  const logout = () => {
+    try { localStorage.removeItem('r14_dispatch_session'); } catch {}
+    setSession(null);
+    setNotice(null);
+  };
+
+  if (!session) {
+    return <Login notice={notice} onSuccess={(s) => { setSession(s); setNotice(null); }} />;
+  }
+  return <Panel
+    session={session}
+    onLogout={logout}
+    onAuthError={() => { setSession(null); setNotice('Tu sesión expiró. Ingresá de nuevo.'); }}
+  />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Root />);
+
+</script>
+</body>
+</html>
