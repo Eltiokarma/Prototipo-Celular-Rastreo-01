@@ -5,6 +5,13 @@
 <title>COOP-R14 — Panel de Despacho</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
+<!-- PWA: el panel se instala como app fija en un celular o tablet -->
+<link rel="manifest" href="manifest-despacho.json">
+<meta name="theme-color" content="#03060a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Despacho">
+
 <!-- Leaflet: mapa de calles reales -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -339,7 +346,7 @@ function AdminModal({ session, onClose, onAuthError }) {
         background: HUD.surface, border: `1px solid ${HUD.line}`,
         borderRadius: 20, padding: 24,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
           {[['users', 'UNIDADES'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
@@ -368,6 +375,7 @@ function AdminModal({ session, onClose, onAuthError }) {
               const cell = { padding: '10px 8px', fontFamily: mono, fontSize: 13, fontWeight: 700 };
               const head = { ...cell, color: HUD.dim3, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' };
               return (
+                <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${HUD.line}` }}>
@@ -394,6 +402,7 @@ function AdminModal({ session, onClose, onAuthError }) {
                     ))}
                   </tbody>
                 </table>
+                </div>
               );
             })()}
             <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
@@ -445,18 +454,21 @@ function AdminModal({ session, onClose, onAuthError }) {
         {tab === 'users' && (<div>
         {/* alta */}
         <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8,
+          display: 'flex', flexWrap: 'wrap', gap: 8,
           padding: 14, background: '#0a0f15', borderRadius: 14,
           border: `1px solid ${HUD.divider}`, marginBottom: 16,
         }}>
           <input placeholder="Unidad (ej. M-21)" value={form.unitId}
-            onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))} style={inputStyle} />
+            onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
+            style={{ ...inputStyle, width: 'auto', flex: '1 1 130px' }} />
           <input placeholder="Nombre del chofer" value={form.driverName}
-            onChange={e => setForm(f => ({ ...f, driverName: e.target.value }))} style={inputStyle} />
+            onChange={e => setForm(f => ({ ...f, driverName: e.target.value }))}
+            style={{ ...inputStyle, width: 'auto', flex: '1 1 140px' }} />
           <input placeholder="Contraseña" value={form.password}
-            onChange={e => setForm(f => ({ ...f, password: e.target.value }))} style={inputStyle} />
+            onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+            style={{ ...inputStyle, width: 'auto', flex: '1 1 120px' }} />
           <button onClick={create} disabled={busy} style={{
-            ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13,
+            ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13, height: 40,
           }}>+ ALTA</button>
         </div>
 
@@ -531,6 +543,22 @@ function Panel({ session, onLogout, onAuthError }) {
   const [messages, setMessages] = React.useState([]);
   const [sos, setSos] = React.useState(null); // alerta activa hasta que se atienda
   const [adminOpen, setAdminOpen] = React.useState(false);
+
+  // El mismo panel sirve en PC y en celular: bajo 900px pasa a vista
+  // única (Unidades / Mapa / Chat) con navegación inferior.
+  const [isMobile, setIsMobile] = React.useState(window.innerWidth < 900);
+  const [view, setView] = React.useState('map');
+  React.useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  // Leaflet necesita re-medirse cuando su contenedor aparece o cambia
+  React.useEffect(() => {
+    if (mapRef.current && (!isMobile || view === 'map')) {
+      setTimeout(() => mapRef.current.invalidateSize(), 60);
+    }
+  }, [isMobile, view]);
   const wsRef = React.useRef(null);
   const mapRef = React.useRef(null);
   const markersRef = React.useRef({});
@@ -665,30 +693,36 @@ function Panel({ session, onLogout, onAuthError }) {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* header */}
       <div style={{
-        height: 56, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 14,
-        padding: '0 18px', borderBottom: `1px solid ${HUD.divider}`, background: HUD.surface,
+        height: 56, flexShrink: 0, display: 'flex', alignItems: 'center',
+        gap: isMobile ? 8 : 14,
+        padding: isMobile ? '0 10px' : '0 18px',
+        borderBottom: `1px solid ${HUD.divider}`, background: HUD.surface,
       }}>
-        <span style={{ fontFamily: black, fontSize: 18 }}>COOP-R14</span>
+        {!isMobile && <span style={{ fontFamily: black, fontSize: 18 }}>COOP-R14</span>}
         <span style={{
           fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1,
           color: HUD.bright, textTransform: 'uppercase',
         }}>Despacho</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 10 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: isMobile ? 0 : 10, minWidth: 0 }}>
           <span style={{
-            width: 8, height: 8, borderRadius: '50%',
+            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
             background: connected ? HUD.green : HUD.amber,
             boxShadow: connected ? `0 0 8px ${HUD.green}` : 'none',
           }} />
-          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: connected ? HUD.green : HUD.amber }}>
-            {connected ? `EN VIVO · ${units.length} EN RUTA` : 'RECONECTANDO…'}
+          <span style={{
+            fontFamily: mono, fontSize: 12, fontWeight: 700,
+            color: connected ? HUD.green : HUD.amber,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {connected ? (isMobile ? `${units.length} EN RUTA` : `EN VIVO · ${units.length} EN RUTA`) : 'RECONECTANDO…'}
           </span>
         </span>
         <div style={{ flex: 1 }} />
         <button onClick={() => setAdminOpen(true)} style={{
           background: '#1a222c', border: `1px solid ${HUD.line}`, borderRadius: 8,
           padding: '6px 12px', color: HUD.fg2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
-          marginRight: 10,
-        }}>Unidades</button>
+          marginRight: 10, flexShrink: 0,
+        }}>Gestión</button>
         <button onClick={onLogout} style={{
           background: 'transparent', border: `1px solid ${HUD.line}`, borderRadius: 8,
           padding: '6px 12px', color: HUD.dim2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
@@ -729,10 +763,17 @@ function Panel({ session, onLogout, onAuthError }) {
         </div>
       )}
 
-      {/* cuerpo: unidades | mapa | chat */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '280px 1fr 360px', minHeight: 0 }}>
+      {/* cuerpo: en PC tres columnas; en celular una vista a la vez */}
+      <div style={isMobile
+        ? { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }
+        : { flex: 1, display: 'grid', gridTemplateColumns: '280px 1fr 360px', minHeight: 0 }}>
         {/* unidades */}
-        <div style={{ borderRight: `1px solid ${HUD.divider}`, overflowY: 'auto', minHeight: 0 }}>
+        <div style={{
+          overflowY: 'auto', minHeight: 0,
+          ...(isMobile
+            ? { flex: 1, display: view === 'units' ? 'block' : 'none' }
+            : { borderRight: `1px solid ${HUD.divider}` }),
+        }}>
           <div style={{
             padding: '14px 16px', fontFamily: mono, fontSize: 12, fontWeight: 700,
             letterSpacing: 1, color: HUD.dim2, textTransform: 'uppercase',
@@ -770,15 +811,42 @@ function Panel({ session, onLogout, onAuthError }) {
         </div>
 
         {/* mapa */}
-        <div style={{ position: 'relative', minHeight: 0 }}>
+        <div style={{
+          position: 'relative', minHeight: 0,
+          ...(isMobile ? { flex: 1, display: view === 'map' ? 'block' : 'none' } : {}),
+        }}>
           <div ref={initMap} style={{ position: 'absolute', inset: 0 }} />
         </div>
 
         {/* chat */}
-        <div style={{ borderLeft: `1px solid ${HUD.divider}`, minHeight: 0 }}>
+        <div style={{
+          minHeight: 0,
+          ...(isMobile
+            ? { flex: 1, display: view === 'chat' ? 'flex' : 'none', flexDirection: 'column' }
+            : { borderLeft: `1px solid ${HUD.divider}` }),
+        }}>
           <ChatColumn messages={messages} onSend={sendChat} />
         </div>
       </div>
+
+      {/* navegación inferior — solo celular */}
+      {isMobile && (
+        <div style={{
+          flexShrink: 0, display: 'flex',
+          borderTop: `1px solid ${HUD.divider}`, background: HUD.surface,
+        }}>
+          {[['units', `UNIDADES (${units.length})`], ['map', 'MAPA'], ['chat', 'CHAT']].map(([k, l]) => (
+            <button key={k} onClick={() => setView(k)} style={{
+              flex: 1, padding: '14px 0 18px',
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              fontFamily: black, fontSize: 13, letterSpacing: 0.5,
+              color: view === k ? HUD.bright : HUD.dim3,
+              borderTop: view === k ? `3px solid ${HUD.bright}` : '3px solid transparent',
+              WebkitTapHighlightColor: 'transparent',
+            }}>{l}</button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

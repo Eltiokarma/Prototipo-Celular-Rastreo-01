@@ -78,10 +78,14 @@ El rojo `#FF2D55` está reservado a emergencia/brecha crítica — nada más lo 
 
 ## Panel de Despacho
 
-`project/despacho.html` (desktop): mapa de toda la flota en vivo, lista de
+`project/despacho.html`: mapa de toda la flota en vivo, lista de
 unidades con brechas ±1 coloreadas, chat del grupo hablando como
 **DESPACHO** (chip azul en la app del chofer) y recepción de SOS con banner
-persistente hasta marcarlo ATENDIDO. Usa el mismo servidor y el mismo login;
+persistente hasta marcarlo ATENDIDO. **Funciona en PC y en celular**: bajo
+900 px pasa a vista única (Unidades / Mapa / Chat) con navegación
+inferior, y se instala como app fija vía PWA (`manifest-despacho.json`,
+"Agregar a pantalla de inicio") — pensado para un encargado sin
+computadora. Usa el mismo servidor y el mismo login;
 el usuario reservado `DESPACHO` siempre recibe rol `dispatch` y **no**
 aparece como unidad en ruta. En producción fijar su clave con la variable
 de entorno `DISPATCH_PASSWORD` (crea/actualiza la cuenta al arrancar).
