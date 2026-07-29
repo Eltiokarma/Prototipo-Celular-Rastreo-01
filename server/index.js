@@ -4,6 +4,8 @@
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
@@ -28,6 +30,37 @@ const units = new Map();
 const clients = new Map();
 // clients = { websocket → unitId }
 
+// ─── HISTORIAL DE CHAT ───────────────────────────────────────
+// Los últimos mensajes (chat y SOS) se guardan para que quien se
+// conecta vea la conversación en curso, no un hilo vacío.
+// Se persisten a disco con un pequeño debounce; si el servidor se
+// reinicia, el historial se recarga del archivo.
+// (En Railway el disco es efímero: sobrevive reinicios del proceso,
+// no redeploys. Cuando haga falta más, esto pasa a una base de datos.)
+
+const HISTORY_FILE = process.env.HISTORY_FILE || path.join(__dirname, 'chat-history.json');
+const HISTORY_MAX = 200;
+
+let history = [];
+try {
+  history = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8')).slice(-HISTORY_MAX);
+  console.log(`Historial cargado: ${history.length} mensajes`);
+} catch {
+  // primer arranque o archivo corrupto — se empieza de cero
+}
+
+let saveTimeout = null;
+function remember(item) {
+  history.push(item);
+  if (history.length > HISTORY_MAX) history = history.slice(-HISTORY_MAX);
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    fs.writeFile(HISTORY_FILE, JSON.stringify(history), (err) => {
+      if (err) console.error('No se pudo guardar el historial:', err.message);
+    });
+  }, 1000);
+}
+
 // ─── RUTA DE SALUD ───────────────────────────────────────────
 // Si hacés GET /ping y responde "pong", el servidor está vivo.
 app.get('/ping', (req, res) => {
@@ -36,6 +69,7 @@ app.get('/ping', (req, res) => {
     message: 'pong',
     units: units.size,
     clients: clients.size,
+    historyLength: history.length,
     time: new Date().toISOString(),
   });
 });
@@ -105,14 +139,15 @@ wss.on('connection', (ws) => {
       const unitId = clients.get(ws);
       const unit = units.get(unitId) || {};
       console.log(`🚨 SOS de ${unitId}`);
-      broadcast({
-        type: 'sos_alert',
+      const alert = {
         unitId,
         driverName: unit.driverName || 'Conductor',
         lat: msg.lat ?? null,
         lng: msg.lng ?? null,
         timestamp: msg.timestamp || Date.now(),
-      });
+      };
+      remember({ kind: 'sos', ...alert });
+      broadcast({ type: 'sos_alert', ...alert });
     }
 
     // TIPO: chat — mensaje de texto entre choferes del grupo
@@ -120,13 +155,14 @@ wss.on('connection', (ws) => {
     if (msg.type === 'chat') {
       const unitId = clients.get(ws);
       const unit = units.get(unitId) || {};
-      broadcast({
-        type: 'chat_msg',
+      const entry = {
         unitId,
         driverName: unit.driverName || 'Conductor',
         text: String(msg.text || '').slice(0, 500),
         timestamp: msg.timestamp || Date.now(),
-      });
+      };
+      remember({ kind: 'chat', ...entry });
+      broadcast({ type: 'chat_msg', ...entry });
     }
   });
 
@@ -144,6 +180,9 @@ wss.on('connection', (ws) => {
   // Mandar el estado actual apenas se conecta (para que no espere el primer GPS)
   const state = buildState();
   ws.send(JSON.stringify({ type: 'state', ...state }));
+
+  // Y el historial de chat, para que vea la conversación en curso
+  ws.send(JSON.stringify({ type: 'chat_history', items: history }));
 });
 
 // ─── CONSTRUIR ESTADO ────────────────────────────────────────

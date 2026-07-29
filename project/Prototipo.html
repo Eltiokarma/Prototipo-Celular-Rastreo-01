@@ -1882,6 +1882,27 @@ function Root() {
       setOtherUnits(others);
     });
 
+    // Al conectar, el servidor manda los últimos mensajes del grupo:
+    // el hilo real reemplaza al de demostración
+    window.RealtimeClient.on('history', (items) => {
+      setMessages(items.map(it => it.kind === 'sos'
+        ? {
+            from: it.driverName || it.unitId || 'Conductor',
+            role: 'driver',
+            text: 'SOS — pide ayuda',
+            time: nowTime(it.timestamp),
+            tone: 'sos',
+          }
+        : {
+            from: it.unitId === myUnitId ? 'TÚ' : (it.driverName || it.unitId || 'Conductor'),
+            role: it.unitId === myUnitId ? 'you' : 'driver',
+            text: it.text,
+            time: nowTime(it.timestamp),
+            tone: 'normal',
+          }
+      ));
+    });
+
     // Chat en vivo: el servidor rebota el mensaje a todos (incluido el emisor),
     // así el hilo queda en el mismo orden para todo el grupo
     window.RealtimeClient.on('chat', (m) => {

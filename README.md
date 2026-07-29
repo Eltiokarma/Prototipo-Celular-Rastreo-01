@@ -1,25 +1,63 @@
-# CODING AGENTS: READ THIS FIRST
+# COOP-R14 — Rastreo de combis (Juliaca)
 
-This is a **handoff bundle** from Claude Design (claude.ai/design).
+App para el chofer de la Cooperativa R-14: muestra de un vistazo la brecha
+de tiempo con la unidad de adelante y la de atrás, chat grupal de la ruta
+y mapa en vivo. Diseñada para leerse en menos de 1 segundo con el celular
+en soporte, sol lateral y el vehículo en movimiento.
 
-A user mocked up designs in HTML/CSS/JS using an AI design tool, then exported this bundle so a coding agent can implement the designs for real.
+## Estructura
 
-## What you should do — IMPORTANT
+```
+project/            La app (PWA servida como archivos estáticos)
+  Prototipo.html      TODA la app vive acá: React + Babel inline (sin build)
+  realtime.js         Cliente WebSocket: GPS, estado, chat y SOS
+  service-worker.js   Caché offline (bump CACHE_NAME en cada release)
+  manifest.json       Manifest PWA
+  index.html          Redirect a Prototipo.html
+  uploads/            Referencias de diseño (tema de color)
 
-**Read the chat transcripts first.** There are 1 chat transcript(s) in `chats/`. The transcripts show the full back-and-forth between the user and the design assistant — they tell you **what the user actually wants** and **where they landed** after iterating. Don't skip them. The final HTML files are the output, but the chat is where the intent lives.
+server/             Servidor de tiempo real (Node + Express + ws)
+  index.js            Estado en memoria, cálculo de brechas, broadcast
 
-**Read `project/Prototipo.html` in full.** The user had this file open when they triggered the handoff, so it's almost certainly the primary design they want built. Read it top to bottom — don't skim. Then **follow its imports**: open every file it pulls in (shared components, CSS, scripts) so you understand how the pieces fit together before you start implementing.
+chats/              Transcripts históricos del diseño (solo referencia)
+TEORIA.md           Teoría del sistema de brechas
+PROMPT-REACT-NATIVE.md  Guía para una futura migración a React Native
+```
 
-**If anything is ambiguous, ask the user to confirm before you start implementing.** It's much cheaper to clarify scope up front than to build the wrong thing.
+**Importante:** no hay archivos `.jsx` sueltos ni paso de build — todos los
+componentes están inline en `project/Prototipo.html` y Babel standalone los
+compila en el navegador. Cualquier cambio de UI se hace ahí.
 
-## About the design files
+## Cómo correr
 
-The design medium is **HTML/CSS/JS** — these are prototypes, not production code. Your job is to **recreate them pixel-perfectly** in whatever technology makes sense for the target codebase (React, Vue, native, whatever fits). Match the visual output; don't copy the prototype's internal structure unless it happens to fit.
+```bash
+# servidor de tiempo real
+cd server && npm install && npm start   # puerto 3001, health check en /ping
 
-**Don't render these files in a browser or take screenshots unless the user asks you to.** Everything you need — dimensions, colors, layout rules — is spelled out in the source. Read the HTML and CSS directly; a screenshot won't tell you anything they don't.
+# app (cualquier servidor estático)
+cd project && python3 -m http.server 8080
+# abrir http://localhost:8080/Prototipo.html
+```
 
-## Bundle contents
+En producción el cliente apunta al servidor vía `window.REALTIME_SERVER_URL`
+(por defecto, el deploy de Railway configurado en `realtime.js`).
 
-- `README.md` — this file
-- `chats/` — conversation transcripts (read these!)
-- `project/` — the `Prototipo High Fidelity` project files (HTML prototypes, assets, components)
+## Pantallas
+
+Carrusel de 3 páginas (swipe horizontal): **CHAT ← RUTA → MAPA**.
+
+- **RUTA** — HUD "Temporizador": un dato dominante (la unidad más desviada
+  del objetivo), color de estado por tolerancia relativa (verde ≤ ±15 %,
+  ámbar ≤ ±30 %, rojo por encima) y slider SOS de deslizar para disparar.
+- **CHAT** — grupo de la ruta en vivo por WebSocket; el SOS de otra unidad
+  entra al hilo y como aviso a pantalla completa.
+- **MAPA** — Leaflet con tiles reales, pines de las unidades ±1 con burbuja
+  de brecha y barra inferior que replica el HUD.
+
+El rojo `#FF2D55` está reservado a emergencia/brecha crítica — nada más lo usa.
+
+## Panel de tweaks
+
+La página expone un panel de escenarios (tiempos, objetivo, modo de luz)
+que se activa con `postMessage({ type: '__activate_edit_mode' })` desde la
+ventana padre (lo usa el entorno de diseño).

@@ -17,7 +17,7 @@
   let driverName = null;
 
   // Callbacks — la app los registra para recibir actualizaciones
-  const listeners = { state: [], status: [], chat: [], sos: [] };
+  const listeners = { state: [], status: [], chat: [], sos: [], history: [] };
 
   function emit(event, data) {
     (listeners[event] || []).forEach(fn => fn(data));
@@ -52,6 +52,8 @@
           emit('chat', msg);
         } else if (msg.type === 'sos_alert') {
           emit('sos', msg);
+        } else if (msg.type === 'chat_history') {
+          emit('history', msg.items || []);
         }
       } catch (e) {
         console.error('Mensaje inválido del servidor', e);
