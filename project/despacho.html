@@ -319,6 +319,291 @@ function ChatColumn({ messages, onSend, routeId }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// TRAZADOR DE RECORRIDO
+// Carga la geometría real de una ruta. Sin esto el progreso es una
+// proyección lineal entre dos puntos y las brechas son aproximaciones.
+//
+// La forma de cargarlo es tocar el mapa en el orden en que maneja la combi:
+// es lo que se entiende sin que nadie lo explique, y funciona igual en PC
+// con el mouse que en un celular con el dedo. Para quien quiera precisión
+// de verdad, se puede importar el GPX de una vuelta grabada manejando.
+// ═══════════════════════════════════════════════════════════════
+
+// Metros entre dos puntos GPS (la misma cuenta que hace el servidor)
+const METROS_POR_GRADO = 111320;
+function metrosEntre(a, b) {
+  const kLng = Math.cos((a[0] + b[0]) / 2 * Math.PI / 180);
+  return Math.hypot((b[0] - a[0]) * METROS_POR_GRADO, (b[1] - a[1]) * METROS_POR_GRADO * kLng);
+}
+function largoDe(puntos) {
+  let m = 0;
+  for (let i = 1; i < puntos.length; i++) m += metrosEntre(puntos[i - 1], puntos[i]);
+  return m;
+}
+
+// Douglas-Peucker: saca los puntos que no cambian la forma del trazado.
+// Un GPX de una vuelta trae miles de puntos y no hacen falta: con tolerancia
+// de ~10 m el recorrido queda igual con una fracción de los puntos.
+function simplificar(puntos, toleranciaM = 10) {
+  if (puntos.length < 3) return puntos;
+  const distAlSegmento = (p, a, b) => {
+    const kLng = Math.cos(a[0] * Math.PI / 180);
+    const px = (p[1] - a[1]) * METROS_POR_GRADO * kLng, py = (p[0] - a[0]) * METROS_POR_GRADO;
+    const bx = (b[1] - a[1]) * METROS_POR_GRADO * kLng, by = (b[0] - a[0]) * METROS_POR_GRADO;
+    const largo2 = bx * bx + by * by;
+    const t = largo2 === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / largo2));
+    return Math.hypot(px - t * bx, py - t * by);
+  };
+  const conservar = new Array(puntos.length).fill(false);
+  conservar[0] = conservar[puntos.length - 1] = true;
+  const pila = [[0, puntos.length - 1]];
+  while (pila.length) {
+    const [ini, fin] = pila.pop();
+    let peor = 0, idx = -1;
+    for (let i = ini + 1; i < fin; i++) {
+      const d = distAlSegmento(puntos[i], puntos[ini], puntos[fin]);
+      if (d > peor) { peor = d; idx = i; }
+    }
+    if (idx !== -1 && peor > toleranciaM) {
+      conservar[idx] = true;
+      pila.push([ini, idx], [idx, fin]);
+    }
+  }
+  return puntos.filter((_, i) => conservar[i]);
+}
+
+// GPX (<trkpt lat lon>) y GeoJSON (LineString). Es lo que exporta cualquier
+// app de grabar recorridos.
+function leerRecorrido(texto) {
+  const t = texto.trim();
+  if (t.startsWith('{')) {
+    const j = JSON.parse(t);
+    const busca = (o) => {
+      if (!o || typeof o !== 'object') return null;
+      if (o.type === 'LineString' && Array.isArray(o.coordinates)) {
+        return o.coordinates.map(c => [Number(c[1]), Number(c[0])]);  // GeoJSON va [lng, lat]
+      }
+      for (const v of Object.values(o)) {
+        const r = Array.isArray(v) ? v.map(busca).find(Boolean) : busca(v);
+        if (r) return r;
+      }
+      return null;
+    };
+    const p = busca(j);
+    if (!p) throw new Error('El GeoJSON no tiene un LineString');
+    return p;
+  }
+  const puntos = [];
+  const re = /<(?:trkpt|rtept|wpt)\s[^>]*?lat="([-\d.]+)"[^>]*?lon="([-\d.]+)"/gi;
+  let m;
+  while ((m = re.exec(t))) puntos.push([Number(m[1]), Number(m[2])]);
+  if (!puntos.length) throw new Error('No se encontraron puntos en el archivo');
+  return puntos;
+}
+
+// Arriba de este tope los puntos dejan de ser arrastrables (miles de
+// marcadores hacen inusable el mapa): se ve la línea y se puede deshacer.
+const TOPE_ARRASTRABLES = 200;
+
+function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
+  const [puntos, setPuntos] = React.useState(null);   // null = cargando
+  const [error, setError] = React.useState(null);
+  const [aviso, setAviso] = React.useState(null);
+  const [guardando, setGuardando] = React.useState(false);
+  const mapRef = React.useRef(null);
+  const capaRef = React.useRef(null);
+  const puntosRef = React.useRef([]);
+  const archivoRef = React.useRef(null);
+  const encuadradoRef = React.useRef(false);
+
+  React.useEffect(() => { puntosRef.current = puntos || []; }, [puntos]);
+
+  // El recorrido que ya tenía la ruta
+  React.useEffect(() => {
+    api(`/admin/routes/${encodeURIComponent(routeId)}/points`)
+      .then(d => setPuntos((d.points || []).map(p => [p.lat, p.lng])))
+      .catch(e => { setError(e.message); setPuntos([]); });
+  }, [routeId]);
+
+  const initMap = React.useCallback((node) => {
+    if (!node || mapRef.current) return;
+    const map = L.map(node, { center: JULIACA_CENTER, zoom: 14, zoomControl: true, attributionControl: false });
+    L.tileLayer(HUD.tiles, { maxZoom: 19 }).addTo(map);
+    capaRef.current = L.layerGroup().addTo(map);
+    // Tocar el mapa agrega un punto al final del recorrido
+    map.on('click', (e) => {
+      setPuntos(p => [...(p || []), [e.latlng.lat, e.latlng.lng]]);
+      setAviso(null);
+    });
+    mapRef.current = map;
+    setTimeout(() => map.invalidateSize(), 80);
+    setTimeout(() => map.invalidateSize(), 400);
+  }, []);
+
+  // Redibuja línea y puntos cada vez que cambian
+  React.useEffect(() => {
+    const map = mapRef.current, capa = capaRef.current;
+    if (!map || !capa || !puntos) return;
+    capa.clearLayers();
+
+    if (puntos.length > 1) {
+      L.polyline(puntos, { color: HUD.bright, weight: 5, opacity: 0.85 }).addTo(capa);
+    }
+
+    const arrastrables = puntos.length <= TOPE_ARRASTRABLES;
+    puntos.forEach((p, i) => {
+      const extremo = i === 0 || i === puntos.length - 1;
+      if (!arrastrables) {
+        L.circleMarker(p, { radius: 3, color: HUD.bright, fillOpacity: 1, stroke: false }).addTo(capa);
+        return;
+      }
+      const etiqueta = i === 0 ? 'A' : i === puntos.length - 1 ? 'B' : String(i + 1);
+      const marcador = L.marker(p, {
+        draggable: true,
+        icon: L.divIcon({
+          className: '',
+          iconSize: [extremo ? 26 : 20, extremo ? 26 : 20],
+          iconAnchor: [extremo ? 13 : 10, extremo ? 13 : 10],
+          html: `<div style="width:100%;height:100%;border-radius:50%;
+            background:${extremo ? HUD.green : '#fff'};
+            border:2px solid ${extremo ? '#fff' : HUD.bright};
+            color:${extremo ? '#fff' : HUD.bright};
+            box-shadow:0 1px 4px rgba(0,0,0,.4);
+            display:flex;align-items:center;justify-content:center;
+            font:700 ${extremo ? 12 : 10}px/1 system-ui,sans-serif;">${etiqueta}</div>`,
+        }),
+      }).addTo(capa);
+      marcador.on('dragend', (e) => {
+        const { lat, lng } = e.target.getLatLng();
+        setPuntos(ps => ps.map((q, j) => (j === i ? [lat, lng] : q)));
+      });
+      // Tocar un punto lo borra (arrastrar no dispara click en Leaflet)
+      marcador.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        setPuntos(ps => ps.filter((_, j) => j !== i));
+      });
+    });
+
+    // Encuadrar una sola vez, cuando llega el recorrido que ya existía
+    if (!encuadradoRef.current && puntos.length > 1) {
+      map.fitBounds(L.latLngBounds(puntos).pad(0.15));
+      encuadradoRef.current = true;
+    }
+  }, [puntos]);
+
+  const importar = (texto) => {
+    try {
+      const crudos = leerRecorrido(texto);
+      const simple = simplificar(crudos, 10);
+      const final = simple.slice(0, 2000);
+      setPuntos(final);
+      encuadradoRef.current = false;
+      setError(null);
+      setAviso(`Importados ${crudos.length} puntos, simplificados a ${final.length} sin cambiar la forma` +
+        (simple.length > 2000 ? ' (recortado al tope de 2000)' : ''));
+    } catch (e) {
+      setError('No se pudo leer el archivo: ' + e.message);
+    }
+  };
+
+  const guardar = async () => {
+    setGuardando(true); setError(null);
+    try {
+      const r = await api(`/admin/routes/${encodeURIComponent(routeId)}/points`, {
+        method: 'PUT',
+        body: JSON.stringify({ points: puntos.map(p => ({ lat: p[0], lng: p[1] })) }),
+      });
+      onGuardado && onGuardado(r);
+      onClose();
+    } catch (e) { setError(e.message); }
+    setGuardando(false);
+  };
+
+  const km = puntos ? (largoDe(puntos) / 1000).toFixed(2) : '0';
+  const btn = (bg, color, extra = {}) => ({
+    border: 'none', borderRadius: 10, padding: '0 14px', height: 38,
+    fontSize: 13, fontWeight: 700, cursor: 'pointer', background: bg, color,
+    fontFamily: 'inherit', ...extra,
+  });
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 4000, background: HUD.bg,
+      display: 'flex', flexDirection: 'column',
+    }}>
+      {/* cabecera */}
+      <div style={{
+        flexShrink: 0, padding: '12px 16px', borderBottom: `1px solid ${HUD.divider}`,
+        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+      }}>
+        <span style={{ fontFamily: black, fontSize: 18 }}>RECORRIDO {routeId}</span>
+        <span style={{ fontSize: 13, color: HUD.dim, flex: '1 1 auto', minWidth: 0,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{routeName || ''}</span>
+        <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.fg2, whiteSpace: 'nowrap' }}>
+          {puntos ? puntos.length : '…'} puntos · {km} km
+        </span>
+        <button onClick={onClose} style={btn('transparent', HUD.dim2)}>✕ Salir</button>
+      </div>
+
+      {/* instrucción */}
+      <div style={{
+        flexShrink: 0, padding: '9px 16px', background: HUD.hueco,
+        fontSize: 13, color: HUD.dim, lineHeight: 1.45,
+      }}>
+        Tocá el mapa siguiendo el recorrido, <strong>en el orden en que maneja la combi</strong>:
+        el primer punto es la salida (<span style={{ color: HUD.green, fontWeight: 700 }}>A</span>) y
+        el último el final (<span style={{ color: HUD.green, fontWeight: 700 }}>B</span>).
+        {puntos && puntos.length > TOPE_ARRASTRABLES
+          ? ' Con más de ' + TOPE_ARRASTRABLES + ' puntos no se pueden arrastrar (serían miles de marcadores): usá Deshacer o Borrar todo.'
+          : ' Arrastrá un punto para corregirlo, tocalo para borrarlo.'}
+      </div>
+
+      {error && <div style={{ flexShrink: 0, padding: '8px 16px', background: HUD.burbujaSos,
+        color: HUD.burbujaSosInk, fontSize: 13, fontWeight: 700 }}>{error}</div>}
+      {aviso && <div style={{ flexShrink: 0, padding: '8px 16px', background: HUD.okFondo,
+        color: HUD.okClave, fontSize: 13, fontWeight: 700 }}>{aviso}</div>}
+
+      {/* mapa */}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        <div ref={initMap} style={{ position: 'absolute', inset: 0, cursor: 'crosshair' }} />
+      </div>
+
+      {/* acciones */}
+      <div style={{
+        flexShrink: 0, padding: '12px 16px', borderTop: `1px solid ${HUD.divider}`,
+        display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+      }}>
+        <button onClick={() => setPuntos(p => p.slice(0, -1))}
+          disabled={!puntos || !puntos.length}
+          style={btn(HUD.boton, HUD.fg2)}>↶ Deshacer</button>
+        <button onClick={() => { setPuntos([]); setAviso(null); }}
+          disabled={!puntos || !puntos.length}
+          style={btn(HUD.boton, HUD.red)}>Borrar todo</button>
+        <button onClick={() => archivoRef.current?.click()}
+          title="Un GPX o GeoJSON, por ejemplo de una vuelta grabada manejando"
+          style={btn(HUD.boton, HUD.fg2)}>Importar GPX</button>
+        <input ref={archivoRef} type="file" accept=".gpx,.geojson,.json,.xml,text/*"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            const fr = new FileReader();
+            fr.onload = () => importar(String(fr.result));
+            fr.onerror = () => setError('No se pudo abrir el archivo');
+            fr.readAsText(f);
+            e.target.value = '';
+          }} />
+        <div style={{ flex: 1 }} />
+        <button onClick={guardar} disabled={guardando || !puntos || puntos.length === 1}
+          style={btn(HUD.bright, '#fff', { padding: '0 20px', height: 40, fontSize: 14 })}>
+          {guardando ? 'Guardando…' : 'Guardar recorrido'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ADMINISTRACIÓN (fase 2)
 // Personas, vehículos, rutas, vueltas y auditoría contra /admin/*.
 //
@@ -336,6 +621,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   const [vehicles, setVehicles] = React.useState(null);
   const [nuevaRuta, setNuevaRuta] = React.useState({ routeId: '', name: '', targetGapMin: '2', durationMin: '50' });
   const [nuevoVeh, setNuevoVeh] = React.useState({ vehicleId: '', label: '' });
+  // Ruta cuyo recorrido se está trazando (null = trazador cerrado)
+  const [trazando, setTrazando] = React.useState(null);
   const esSupervisor = !!session.supervisor;
   const [error, setError] = React.useState(null);
   const [okMsg, setOkMsg] = React.useState(null);
@@ -486,10 +773,22 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     fontSize: 12, fontWeight: 700, cursor: 'pointer', background: bg, color,
   });
 
+  if (trazando) {
+    return (
+      <Trazador
+        routeId={trazando.routeId}
+        routeName={trazando.name}
+        api={api}
+        onClose={() => setTrazando(null)}
+        onGuardado={() => loadRoutes()}
+      />
+    );
+  }
+
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 3000,
-      background: 'rgba(3,6,10,.75)',
+      background: HUD.oscuro ? 'rgba(3,6,10,.75)' : 'rgba(11,34,57,.35)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{
@@ -640,11 +939,23 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   color: r.enLinea > 0 ? HUD.green : HUD.dim3 }}>
                   {r.unidades} unid · {r.enLinea} en línea
                 </span>
+                <button onClick={() => setTrazando(r)}
+                  title="Cargar o corregir el recorrido de esta ruta en el mapa"
+                  style={{ ...smallBtn(HUD.boton, r.puntos ? HUD.fg2 : HUD.amber), whiteSpace: 'nowrap' }}>
+                  {r.puntos
+                    ? `Recorrido · ${r.puntos} pts · ${(r.largoM / 1000).toFixed(1)} km`
+                    : 'Sin recorrido'}
+                </button>
               </div>
             ))}
 
             <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-              Cada ruta calcula sus brechas por separado y tiene su propio chat.
+              <strong>El recorrido</strong> es el trazado real por las calles: con él
+              el progreso de cada unidad se mide proyectando su posición sobre la
+              línea, y las brechas dejan de ser una estimación entre dos puntos.
+              Mientras una ruta no lo tenga, sigue funcionando con la estimación
+              lineal de siempre.
+              {' '}Cada ruta calcula sus brechas por separado y tiene su propio chat.
               El <strong>objetivo</strong> es la separación ideal entre unidades y el
               <strong> recorrido</strong> cuánto tarda de punta a punta: con esos dos
               números se convierte la distancia en minutos.
@@ -1030,6 +1341,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const [adminOpen, setAdminOpen] = React.useState(false);
   // Multi-ruta: la ruta que se está mirando y los datos que llegan de ella
   const [routes, setRoutes] = React.useState([]);
+  const [trazado, setTrazado] = React.useState([]);
   const [routeInfo, setRouteInfo] = React.useState({
     routeId: session.routeId || null,
     routeName: session.routeName || null,
@@ -1051,6 +1363,19 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     if (tilesRef.current) tilesRef.current.setUrl(HUD.tiles);
   }, [modo]);
 
+  // El recorrido de la ruta, dibujado debajo de las unidades
+  React.useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (trazadoRef.current) { trazadoRef.current.remove(); trazadoRef.current = null; }
+    if (trazado && trazado.length > 1) {
+      trazadoRef.current = L.polyline(trazado, {
+        color: HUD.bright, weight: 4, opacity: 0.5,
+      }).addTo(map);
+      trazadoRef.current.bringToBack();
+    }
+  }, [trazado, modo]);
+
   // Leaflet necesita re-medirse cuando su contenedor aparece o cambia
   React.useEffect(() => {
     if (mapRef.current && (!isMobile || view === 'map')) {
@@ -1060,6 +1385,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const wsRef = React.useRef(null);
   const mapRef = React.useRef(null);
   const tilesRef = React.useRef(null);
+  const trazadoRef = React.useRef(null);   // la polilínea del recorrido en el mapa
   const markersRef = React.useRef({});
   const fittedRef = React.useRef(false);
 
@@ -1112,6 +1438,10 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           fittedRef.current = false; // reencuadrar el mapa al cambiar de ruta
         } else if (msg.type === 'routes') {
           setRoutes(msg.routes || []);
+        } else if (msg.type === 'route_geometry') {
+          // El trazado llega una vez (al conectar, al cambiar de ruta o
+          // cuando alguien lo edita), no en cada estado
+          setTrazado(msg.points || []);
         } else if (msg.type === 'chat_msg') {
           pushMsg(mapMsg(msg, 'chat'));
         } else if (msg.type === 'voice_msg') {

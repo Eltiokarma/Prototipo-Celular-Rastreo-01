@@ -185,6 +185,39 @@ código como nombre provisional. Despacho lo corrige después con el botón
 **Nombre** de la lista de personas, sin dar de baja a nadie — el cambio
 se ve en vivo, incluso con el chofer conectado.
 
+## El recorrido de la ruta (puntos GPS)
+
+Antes el progreso de cada unidad era una **proyección lineal** entre dos
+puntos (Terminal Sur → Huancané): no seguía las calles, así que las brechas
+eran aproximaciones útiles pero no medidas. Ahora cada ruta puede tener su
+**trazado real** como polilínea de puntos GPS (tabla `route_points`), y el
+progreso se calcula proyectando la posición de la unidad sobre esa línea:
+metros recorridos sobre metros totales.
+
+**El cálculo vive en el servidor**, no en el celular. Cargar o corregir un
+recorrido tiene efecto al instante, sin actualizar la app de nadie. De paso
+el servidor sabe **a cuántos metros del trazado** va cada unidad (`desvioM`),
+que es la base para detectar que una combi se salió de la ruta.
+
+**Cómo se carga** — panel → Gestión → RUTAS → botón *Recorrido*:
+
+- **Tocando el mapa** en el orden en que maneja la combi: el primer punto es
+  la salida (**A**) y el último el final (**B**). Se arrastra un punto para
+  corregirlo y se lo toca para borrarlo; hay *Deshacer* y *Borrar todo*, y
+  arriba se ve todo el tiempo cuántos puntos y cuántos km lleva. Funciona
+  igual con el mouse en PC que con el dedo en un celular.
+- **Importando un GPX o GeoJSON**, por ejemplo de una vuelta grabada
+  manejando con cualquier app de GPS. Se simplifica con Douglas-Peucker
+  (tolerancia 10 m): un GPX de 600 puntos queda en unas decenas **sin
+  cambiar la forma** del recorrido. Tope: 2000 puntos por ruta.
+
+Una ruta sin recorrido cargado sigue funcionando con la estimación lineal de
+siempre, así que se puede ir cargando ruta por ruta. El trazado se dibuja en
+el mapa del panel y en el del chofer, y **viaja una sola vez** (al conectar,
+al cambiar de ruta o cuando se edita) — nunca dentro del estado, que sale
+cada 3 s: mandar ahí una ruta de 300 puntos serían ~7 KB por emisión y
+tiraría por la borda el ahorro de datos de `ESCALABILIDAD.md`.
+
 ## Multi-ruta
 
 Cada ruta es independiente: sus unidades, sus brechas, su chat y su

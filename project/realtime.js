@@ -20,7 +20,7 @@
   let authFailed = false;
 
   // Callbacks — la app los registra para recibir actualizaciones
-  const listeners = { state: [], status: [], chat: [], voice: [], sos: [], history: [], autherror: [], gpsrole: [] };
+  const listeners = { state: [], status: [], chat: [], voice: [], sos: [], history: [], autherror: [], gpsrole: [], geometry: [] };
 
   // ¿Este celular es el que reporta la posición de la unidad? El servidor lo
   // decide (uno solo por vehículo: el chofer). El cobrador, o el chofer al
@@ -85,6 +85,10 @@
           emit('sos', msg);
         } else if (msg.type === 'chat_history') {
           emit('history', msg.items || []);
+        } else if (msg.type === 'route_geometry') {
+          // El trazado real de la ruta. Llega una sola vez al conectar (y si
+          // Despacho lo edita), nunca en cada estado: son varios KB.
+          emit('geometry', msg);
         } else if (msg.type === 'gps_role') {
           reportaGps = msg.reporting !== false;
           emit('gpsrole', msg);

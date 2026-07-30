@@ -11,7 +11,7 @@ limitación se resuelva o aparezca una nueva.
 | 1 | El GPS se corta con la pantalla apagada | La unidad desaparece del mapa a los ~30 s de bloquear el celular o cambiar de app | App nativa (React Native) |
 | 2 | Sin notificaciones con la app cerrada | Un SOS o mensaje no suena si el chofer/encargado no tiene la app abierta | Web Push (Android) o app nativa |
 | 3 | Sin volumen en Railway, un redeploy borra la base | Se pierden usuarios, historial de chat y vueltas | Montar volumen + `DB_FILE=/data/r14.db` (documentado en README) |
-| 4 | Brechas y vueltas son aproximadas | El progreso de ruta es una proyección lineal, no sigue el trazado real de calles | Ruta como puntos GPS (ítem 2 de `PENDIENTES.md`) |
+| 4 | Brechas y vueltas son aproximadas | **Resuelto para las rutas con recorrido cargado**: el progreso se calcula proyectando la posición sobre el trazado real. Una ruta sin recorrido sigue con la estimación lineal | Ver README, sección El recorrido de la ruta |
 | 8 | Dos personas con la misma cuenta pisan el GPS | **Resuelto**: persona y vehículo son cosas distintas, cada uno con su cuenta, y **solo un celular por vehículo reporta posición** (el del chofer). El cobrador queda en modo acompañante | Ver README, sección Identidad |
 | 5 | Una sola cuenta DESPACHO compartida | La auditoría no distingue *cuál* encargado hizo cada cosa | Cuentas de despacho por persona |
 | 6 | Consumo de datos móviles | **Mitigado**: de 839 MB a 40 MB por turno con 20 unidades (98 MB con 50), y los tiles del mapa ya no se rebajan en cada visita. Queda el payload personalizado para rutas de 30+ unidades | Ver `ESCALABILIDAD.md` |
@@ -79,16 +79,21 @@ limitación se resuelva o aparezca una nueva.
 
 ## D. Precisión del modelo de ruta
 
-- El `routeProgress` (0 = Terminal Sur, 1 = Huancané) es una
-  **proyección lineal** entre dos puntos — no sigue las calles reales.
-  Las brechas en minutos son aproximaciones útiles, no medidas exactas.
-- La **detección de vueltas** es una heurística (llegar cerca del final
-  y volver al inicio): un desvío grande o GPS muy errático puede
+- **Mientras la ruta no tenga recorrido cargado**, el progreso sigue siendo
+  una proyección lineal entre dos puntos y las brechas son aproximaciones.
+  Con el recorrido cargado se mide sobre el trazado real (ver README).
+- **La calidad depende de cómo se cargó el recorrido**: marcado a mano con
+  pocos puntos, el trazado corta esquinas y el progreso se corre unos
+  metros. Un GPX de una vuelta real es mucho más fiel.
+- **Ida y vuelta por la misma calle**: si el recorrido va y vuelve por el
+  mismo tramo, la proyección puede engancharse al tramo equivocado (los dos
+  están a la misma distancia). Para rutas así conviene cargar el circuito
+  completo como un solo trazado en el orden real de manejo.
+- La **detección de vueltas** sigue siendo una heurística (llegar cerca del
+  final y volver al inicio): un desvío grande o GPS muy errático puede
   perder o duplicar una vuelta.
 - El GPS urbano tiene error típico de 5–30 m, y algunos equipos no
   reportan velocidad (se muestra 0).
-- **Una sola ruta** (R-14) está modelada; multi-ruta requiere
-  estructura nueva.
 
 ## E. Seguridad
 
