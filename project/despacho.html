@@ -224,6 +224,14 @@ function ChatColumn({ messages, onSend, routeId }) {
                   fontSize: 13, fontWeight: 700,
                   color: sos ? HUD.red : own ? HUD.bright : HUD.dim,
                 }}>{own ? 'DESPACHO (vos)' : m.from}</span>
+                {/* Quién habla y desde qué combi: con cobradores a bordo el
+                    nombre ya no alcanza para saber de qué unidad viene */}
+                {!own && m.unit && (
+                  <span style={{
+                    fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim3,
+                    border: `1px solid ${HUD.line}`, borderRadius: 4, padding: '1px 5px',
+                  }}>{m.unit}</span>
+                )}
                 <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim3 }}>{m.time}</span>
               </div>
               <div style={{
@@ -267,25 +275,38 @@ function ChatColumn({ messages, onSend, routeId }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ADMINISTRACIÓN DE UNIDADES (fase 2)
-// Altas, resets de contraseña y bajas contra /admin/* del servidor.
+// ADMINISTRACIÓN (fase 2)
+// Personas, vehículos, rutas, vueltas y auditoría contra /admin/*.
+//
+// Ojo con la distinción, que es el corazón del modelo: una PERSONA
+// (chofer o cobrador, con su nombre real y su alias) va arriba de un
+// VEHÍCULO. Dos personas pueden compartir el mismo vehículo; el que
+// reporta GPS es uno solo.
 // ═══════════════════════════════════════════════════════════════
 function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
-  const [tab, setTab] = React.useState('users'); // users | routes | metrics | audit
+  const [tab, setTab] = React.useState('users'); // users | vehicles | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
   const [events, setEvents] = React.useState(null);
   const [metrics, setMetrics] = React.useState(null);
   const [routeList, setRouteList] = React.useState(routes || []);
+  const [vehicles, setVehicles] = React.useState(null);
   const [nuevaRuta, setNuevaRuta] = React.useState({ routeId: '', name: '', targetGapMin: '2', durationMin: '50' });
+  const [nuevoVeh, setNuevoVeh] = React.useState({ vehicleId: '', label: '' });
   const esSupervisor = !!session.supervisor;
   const [error, setError] = React.useState(null);
   const [okMsg, setOkMsg] = React.useState(null);
+  // personRole: 'driver' (chofer, maneja y reporta GPS) | 'collector' (cobrador)
+  // name es obligatorio; alias es opcional y es lo que se muestra en el chat.
   const [form, setForm] = React.useState({
-    unitId: '', driverName: '', password: '',
+    unitId: '', name: '', alias: '', personRole: 'driver', vehicleId: '', password: '',
     routeId: session.routeId || currentRoute || '',
   });
   const [resetFor, setResetFor] = React.useState(null);
   const [resetPass, setResetPass] = React.useState('');
+  // Corregir nombre/alias de alguien ya cargado (las cuentas viejas quedaron
+  // con el código de la unidad como nombre)
+  const [editFor, setEditFor] = React.useState(null);
+  const [editForm, setEditForm] = React.useState({ name: '', alias: '' });
   const [confirmDel, setConfirmDel] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [filter, setFilter] = React.useState('');
@@ -325,18 +346,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     .then(d => { setRouteList(d.routes || []); })
     .catch(e => setError(e.message));
 
-  React.useEffect(() => { load(); loadRoutes(); }, []);
+  const loadVehicles = () => api('/admin/vehicles')
+    .then(d => { setVehicles(d.vehicles || []); })
+    .catch(e => setError(e.message));
+
+  React.useEffect(() => { load(); loadRoutes(); loadVehicles(); }, []);
   React.useEffect(() => {
     if (tab === 'audit') loadAudit();
     if (tab === 'metrics') loadMetrics();
     if (tab === 'routes') loadRoutes();
+    if (tab === 'vehicles') loadVehicles();
   }, [tab]);
-
-  const crearRuta = () => run(async () => {
-    await api('/admin/routes', { method: 'POST', body: JSON.stringify(nuevaRuta) });
-    setNuevaRuta({ routeId: '', name: '', targetGapMin: '2', durationMin: '50' });
-    await loadRoutes();
-  }, 'Ruta creada');
 
   const run = async (fn, ok) => {
     setBusy(true); setError(null); setOkMsg(null); setCredential(null); setCopied(false);
@@ -344,6 +364,21 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     catch (e) { setError(e.message); }
     setBusy(false);
   };
+
+  const crearRuta = () => run(async () => {
+    await api('/admin/routes', { method: 'POST', body: JSON.stringify(nuevaRuta) });
+    setNuevaRuta({ routeId: '', name: '', targetGapMin: '2', durationMin: '50' });
+    await loadRoutes();
+  }, 'Ruta creada');
+
+  const crearVehiculo = () => run(async () => {
+    await api('/admin/vehicles', {
+      method: 'POST',
+      body: JSON.stringify({ ...nuevoVeh, routeId: form.routeId || undefined }),
+    });
+    setNuevoVeh({ vehicleId: '', label: '' });
+    await loadVehicles();
+  }, 'Vehículo creado');
 
   // Clave fácil de dictar por teléfono: sin caracteres ambiguos
   const suggestPassword = () => {
@@ -355,9 +390,26 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   const create = () => run(async () => {
     const payload = { ...form, password: form.password || suggestPassword() };
     const r = await api('/admin/users', { method: 'POST', body: JSON.stringify(payload) });
-    setCredential({ unitId: payload.unitId, password: payload.password, routeId: r.routeId, isNew: true });
-    setForm(f => ({ unitId: '', driverName: '', password: '', routeId: f.routeId }));
+    setCredential({
+      unitId: payload.unitId, password: payload.password, routeId: r.routeId,
+      isNew: true, name: payload.name, alias: payload.alias,
+      role: r.role, vehicleId: r.vehicleId,
+    });
+    setForm(f => ({
+      unitId: '', name: '', alias: '', personRole: f.personRole,
+      vehicleId: '', password: '', routeId: f.routeId,
+    }));
+    // Un alta de chofer puede haber creado su vehículo sola
+    await loadVehicles();
   }, null);
+
+  const editarIdentidad = (unitId) => run(async () => {
+    await api(`/admin/users/${encodeURIComponent(unitId)}/identity`, {
+      method: 'POST', body: JSON.stringify(editForm),
+    });
+    setEditFor(null);
+    await loadVehicles();
+  }, 'Identidad actualizada');
 
   const resetPassword = (unitId) => run(async () => {
     const password = resetPass || suggestPassword();
@@ -372,6 +424,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     await api(`/admin/users/${encodeURIComponent(unitId)}`, { method: 'DELETE' });
     setConfirmDel(null);
   }, `${unitId} dado de baja`);
+
+  // Buscar por cualquiera de sus datos: quien atiende despacho puede saber
+  // el alias y no el nombre, o tener a mano solo el número de la combi.
+  const coincide = (u, q) =>
+    [u.unitId, u.name, u.alias, u.driverName, u.vehicleId, u.routeId]
+      .filter(Boolean).join(' ').toLowerCase().includes(q);
 
   const inputStyle = {
     height: 40, borderRadius: 10, background: '#10161d',
@@ -391,16 +449,16 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{
-        width: 680, maxWidth: '94vw', maxHeight: '86vh',
+        width: 760, maxWidth: '95vw', maxHeight: '88vh',
         overflowY: 'auto', overflowX: 'hidden',
         background: HUD.surface, border: `1px solid ${HUD.line}`,
         borderRadius: 20, padding: 24,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-          {[['users', 'UNIDADES'], ['routes', 'RUTAS'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
+          {[['users', 'PERSONAS'], ['vehicles', 'VEHÍCULOS'], ['routes', 'RUTAS'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
-              fontFamily: black, fontSize: 20,
+              fontFamily: black, fontSize: 17,
               color: tab === key ? HUD.fg : HUD.dim3,
               borderBottom: tab === key ? `3px solid ${HUD.bright}` : '3px solid transparent',
             }}>{label}</button>
@@ -408,6 +466,88 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
           <div style={{ flex: 1 }} />
           <button onClick={onClose} style={smallBtn('transparent', HUD.dim2)}>✕ Cerrar</button>
         </div>
+
+        {tab === 'vehicles' && (
+          <div>
+            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
+            {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
+
+            {/* alta de vehículo: la combi física, sin credencial ni clave */}
+            <div style={{
+              display: 'flex', flexWrap: 'wrap', gap: 8,
+              padding: 14, background: '#0a0f15', borderRadius: 14,
+              border: `1px solid ${HUD.divider}`, marginBottom: 16,
+            }}>
+              {esSupervisor && routeList.length > 0 && (
+                <select value={form.routeId}
+                  onChange={e => setForm(f => ({ ...f, routeId: e.target.value }))}
+                  title="Ruta en la que trabaja el vehículo"
+                  style={{ ...inputStyle, width: 'auto', flex: '0 1 120px', cursor: 'pointer' }}>
+                  {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}</option>)}
+                </select>
+              )}
+              <input placeholder="Código (ej. M-21)" value={nuevoVeh.vehicleId}
+                onChange={e => setNuevoVeh(v => ({ ...v, vehicleId: e.target.value }))}
+                style={{ ...inputStyle, width: 'auto', flex: '1 1 130px' }} />
+              <input placeholder="Placa o descripción (opcional)" value={nuevoVeh.label}
+                onChange={e => setNuevoVeh(v => ({ ...v, label: e.target.value }))}
+                style={{ ...inputStyle, width: 'auto', flex: '1 1 180px' }} />
+              <button onClick={crearVehiculo} disabled={busy} style={{
+                ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13, height: 40,
+              }}>+ VEHÍCULO</button>
+            </div>
+
+            {!vehicles && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
+            {vehicles && vehicles.length === 0 && (
+              <div style={{ color: HUD.dim3, fontSize: 14 }}>
+                Todavía no hay vehículos. Se crean acá, o solos al dar de alta a un chofer.
+              </div>
+            )}
+            {vehicles && vehicles.map(v => {
+              const asignados = (users || []).filter(u => u.vehicleId === v.vehicleId);
+              return (
+                <div key={v.vehicleId} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 4px', borderBottom: `1px solid ${HUD.divider}`,
+                }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                    background: v.enLinea ? HUD.green : '#2a3644',
+                    boxShadow: v.enLinea ? `0 0 8px ${HUD.green}` : 'none',
+                  }} title={v.enLinea ? 'En ruta ahora' : 'Fuera de ruta'} />
+                  <span style={{ fontFamily: black, fontSize: 15, minWidth: 80 }}>{v.vehicleId}</span>
+                  <span style={{
+                    fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.sky,
+                    background: 'rgba(46,157,255,.12)', border: `1px solid ${HUD.line}`,
+                    padding: '2px 6px', borderRadius: 4, flexShrink: 0,
+                  }}>{v.routeId || '—'}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, color: HUD.dim, display: 'block',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {v.label || <span style={{ color: HUD.dim3 }}>sin placa</span>}
+                    </span>
+                    <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim3 }}>
+                      {asignados.length === 0 ? 'sin tripulación asignada'
+                        : asignados.map(u => `${u.alias || u.name}${u.role === 'collector' ? ' (cobrador)' : ''}`).join(' · ')}
+                    </span>
+                  </span>
+                  {v.tripulacion && v.tripulacion.length > 0 && (
+                    <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.green, whiteSpace: 'nowrap' }}>
+                      {v.tripulacion.length} arriba
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+
+            <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
+              El vehículo es la combi física; las personas se dan de alta en
+              <strong> PERSONAS</strong> y se le asignan. Pueden ir dos arriba
+              (chofer y cobrador) pero <strong>solo el chofer reporta la
+              posición</strong>: así la unidad no salta entre dos celulares.
+            </div>
+          </div>
+        )}
 
         {tab === 'routes' && (
           <div>
@@ -533,6 +673,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 login: { label: 'inició sesión', color: HUD.dim },
                 login_bloqueado: { label: 'bloqueado por intentos fallidos', color: HUD.amber },
                 alta: { label: 'dio de alta a', color: HUD.green },
+                alta_vehiculo: { label: 'creó el vehículo', color: HUD.green },
+                alta_ruta: { label: 'creó la ruta', color: HUD.green },
+                editar_identidad: { label: 'corrigió los datos de', color: HUD.sky },
                 reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
                 baja: { label: 'dio de baja a', color: HUD.red },
                 sos: { label: 'disparó un SOS', color: HUD.red },
@@ -562,37 +705,82 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
         )}
 
         {tab === 'users' && (<div>
-        {/* alta */}
+        {/* alta de PERSONA: nombre obligatorio, alias opcional, rol y vehículo */}
         <div style={{
-          display: 'flex', flexWrap: 'wrap', gap: 8,
           padding: 14, background: '#0a0f15', borderRadius: 14,
           border: `1px solid ${HUD.divider}`, marginBottom: 16,
         }}>
-          {esSupervisor && routeList.length > 0 && (
-            <select value={form.routeId}
-              onChange={e => setForm(f => ({ ...f, routeId: e.target.value }))}
-              title="Ruta en la que trabaja el chofer"
-              style={{ ...inputStyle, width: 'auto', flex: '0 1 120px', cursor: 'pointer' }}>
-              {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}</option>)}
+          {/* fila 1 — quién es */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+            <span style={{ display: 'flex', flex: '0 0 auto', borderRadius: 10, overflow: 'hidden', border: `1px solid #232b36` }}>
+              {[['driver', 'CHOFER'], ['collector', 'COBRADOR']].map(([k, l]) => (
+                <button key={k} onClick={() => setForm(f => ({ ...f, personRole: k }))}
+                  title={k === 'driver'
+                    ? 'Maneja y su celular reporta la posición de la unidad'
+                    : 'Va arriba, ve brechas y chat, pero no reporta posición'}
+                  style={{
+                    border: 'none', padding: '0 14px', height: 40, cursor: 'pointer',
+                    fontFamily: black, fontSize: 12, letterSpacing: .5,
+                    background: form.personRole === k ? HUD.bright : 'transparent',
+                    color: form.personRole === k ? '#fff' : HUD.dim2,
+                  }}>{l}</button>
+              ))}
+            </span>
+            <input placeholder="Nombre y apellido *" value={form.name}
+              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              title="Obligatorio: es el nombre que queda en los registros de la empresa"
+              style={{ ...inputStyle, width: 'auto', flex: '2 1 180px' }} />
+            <input placeholder="Alias (opcional)" value={form.alias}
+              onChange={e => setForm(f => ({ ...f, alias: e.target.value }))}
+              title="Cómo lo llaman en la ruta. Si lo pones, es lo que se ve en el chat"
+              style={{ ...inputStyle, width: 'auto', flex: '1 1 130px' }} />
+          </div>
+          {/* fila 2 — con qué entra y en qué anda */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {esSupervisor && routeList.length > 0 && (
+              <select value={form.routeId}
+                onChange={e => setForm(f => ({ ...f, routeId: e.target.value, vehicleId: '' }))}
+                title="Ruta en la que trabaja"
+                style={{ ...inputStyle, width: 'auto', flex: '0 1 110px', cursor: 'pointer' }}>
+                {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}</option>)}
+              </select>
+            )}
+            <input placeholder="Usuario para entrar *" value={form.unitId}
+              onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
+              title="Con esto se identifica en la app (ej. M-21 para el chofer, M-21C para su cobrador)"
+              style={{ ...inputStyle, width: 'auto', flex: '1 1 140px' }} />
+            <select value={form.vehicleId}
+              onChange={e => setForm(f => ({ ...f, vehicleId: e.target.value }))}
+              title="Vehículo en el que va"
+              style={{ ...inputStyle, width: 'auto', flex: '1 1 150px', cursor: 'pointer' }}>
+              <option value="">
+                {form.personRole === 'driver' ? 'Vehículo: crear con su código' : 'Vehículo… (obligatorio)'}
+              </option>
+              {(vehicles || [])
+                .filter(v => !form.routeId || v.routeId === form.routeId)
+                .map(v => (
+                  <option key={v.vehicleId} value={v.vehicleId}>
+                    {v.vehicleId}{v.label ? ` · ${v.label}` : ''}
+                  </option>
+                ))}
             </select>
-          )}
-          <input placeholder="Unidad (ej. M-21)" value={form.unitId}
-            onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
-            style={{ ...inputStyle, width: 'auto', flex: '1 1 130px' }} />
-          <input placeholder="Nombre del chofer" value={form.driverName}
-            onChange={e => setForm(f => ({ ...f, driverName: e.target.value }))}
-            style={{ ...inputStyle, width: 'auto', flex: '1 1 140px' }} />
-          <span style={{ display: 'flex', flex: '1 1 150px', gap: 4, minWidth: 0 }}>
-            <input placeholder="Contraseña (o generar →)" value={form.password}
-              onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-              style={{ ...inputStyle, width: 'auto', flex: 1 }} />
-            <button title="Generar una clave fácil de dictar"
-              onClick={() => setForm(f => ({ ...f, password: suggestPassword() }))}
-              style={{ ...smallBtn('#1a222c', HUD.fg2), height: 40, padding: '0 10px' }}>⟳</button>
-          </span>
-          <button onClick={create} disabled={busy} style={{
-            ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13, height: 40,
-          }}>+ ALTA</button>
+            <span style={{ display: 'flex', flex: '1 1 150px', gap: 4, minWidth: 0 }}>
+              <input placeholder="Contraseña (o generar →)" value={form.password}
+                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                style={{ ...inputStyle, width: 'auto', flex: 1 }} />
+              <button title="Generar una clave fácil de dictar"
+                onClick={() => setForm(f => ({ ...f, password: suggestPassword() }))}
+                style={{ ...smallBtn('#1a222c', HUD.fg2), height: 40, padding: '0 10px' }}>⟳</button>
+            </span>
+            <button onClick={create} disabled={busy} style={{
+              ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13, height: 40,
+            }}>+ ALTA</button>
+          </div>
+          <div style={{ fontSize: 11, color: HUD.dim3, marginTop: 9, lineHeight: 1.5 }}>
+            {form.personRole === 'driver'
+              ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no eliges vehículo, se crea uno con el mismo código del usuario.'
+              : 'El cobrador necesita un vehículo ya creado. Ve brechas, mapa y chat, pero su GPS no se usa.'}
+          </div>
         </div>
 
         {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
@@ -606,10 +794,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
           }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: HUD.green, marginBottom: 10 }}>
               {credential.isNew
-                ? `✓ Unidad creada${credential.routeId ? ' en la ruta ' + credential.routeId : ''}`
+                ? `✓ ${credential.role === 'collector' ? 'Cobrador' : 'Chofer'} dado de alta${
+                    credential.vehicleId ? ' en ' + credential.vehicleId : ''}${
+                    credential.routeId ? ' · ruta ' + credential.routeId : ''}`
                 : '✓ Contraseña reseteada — su sesión fue cerrada'}
               {' '}· anotá o dictá estos datos ahora
             </div>
+            {credential.isNew && credential.name && (
+              <div style={{ fontSize: 14, color: HUD.fg2, marginBottom: 10 }}>
+                {credential.name}{credential.alias ? ` — le dicen “${credential.alias}”` : ''}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <div>
                 <div style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1, color: HUD.dim2 }}>USUARIO</div>
@@ -637,7 +832,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
 
         {/* buscador */}
         {users && users.length > 6 && (
-          <input placeholder="Buscar unidad o chofer…" value={filter}
+          <input placeholder="Buscar por nombre, alias, usuario o vehículo…" value={filter}
             onChange={e => setFilter(e.target.value)}
             style={{ ...inputStyle, marginBottom: 10 }} />
         )}
@@ -646,16 +841,18 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
         {!users && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
         {users && (() => {
           const q = filter.trim().toLowerCase();
-          const shown = q
-            ? users.filter(u => (u.unitId + ' ' + (u.driverName || '')).toLowerCase().includes(q))
-            : users;
-          const drivers = users.filter(u => u.role !== 'dispatch').length;
+          const shown = q ? users.filter(u => coincide(u, q)) : users;
+          const gente = users.filter(u => u.role !== 'dispatch');
+          const choferes = gente.filter(u => u.role !== 'collector').length;
+          const cobradores = gente.length - choferes;
           return (
             <div style={{
               fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1,
               color: HUD.dim3, textTransform: 'uppercase', marginBottom: 6,
             }}>
-              {drivers} unidad{drivers === 1 ? '' : 'es'} · {users.filter(u => u.online).length} en línea
+              {choferes} chofer{choferes === 1 ? '' : 'es'}
+              {cobradores > 0 ? ` · ${cobradores} cobrador${cobradores === 1 ? '' : 'es'}` : ''}
+              {' '}· {users.filter(u => u.online).length} en línea
               {q ? ` · ${shown.length} coincidencia${shown.length === 1 ? '' : 's'}` : ''}
             </div>
           );
@@ -663,11 +860,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
         {users && users
           .filter(u => {
             const q = filter.trim().toLowerCase();
-            return !q || (u.unitId + ' ' + (u.driverName || '')).toLowerCase().includes(q);
+            return !q || coincide(u, q);
           })
           .map(u => (
+          // La fila envuelve: en celular la identidad se queda arriba y los
+          // botones bajan a la línea siguiente, en vez de exprimir el nombre.
           <div key={u.unitId} style={{
-            display: 'flex', alignItems: 'center', gap: 10,
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
             padding: '10px 4px', borderBottom: `1px solid ${HUD.divider}`,
           }}>
             <span style={{
@@ -675,7 +874,19 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               background: u.online ? HUD.green : '#2a3644',
               boxShadow: u.online ? `0 0 8px ${HUD.green}` : 'none',
             }} title={u.online ? 'Conectado' : 'Desconectado'} />
-            <span style={{ fontFamily: black, fontSize: 15, minWidth: 90 }}>{u.unitId}</span>
+            {u.role === 'collector' && (
+              <span title="Cobrador: ve todo, no reporta posición" style={{
+                fontFamily: black, fontSize: 10, letterSpacing: .5, flexShrink: 0,
+                background: 'rgba(255,255,255,.07)', color: HUD.dim2,
+                padding: '2px 6px', borderRadius: 4,
+              }}>COBR</span>
+            )}
+            {u.role !== 'dispatch' && u.vehicleId && (
+              <span title="Vehículo asignado" style={{
+                fontFamily: black, fontSize: 13, minWidth: 66, flexShrink: 0,
+                color: u.role === 'collector' ? HUD.dim : HUD.fg,
+              }}>{u.vehicleId}</span>
+            )}
             {u.role !== 'dispatch' && (
               <span style={{
                 fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.sky,
@@ -683,11 +894,14 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 padding: '2px 6px', borderRadius: 4, flexShrink: 0,
               }}>{u.routeId || '—'}</span>
             )}
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: 13, color: HUD.dim, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {u.driverName}
+            <span style={{ flex: '1 1 150px', minWidth: 0 }}>
+              <span style={{ fontSize: 13, color: HUD.fg2, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {u.alias
+                  ? <>{u.alias} <span style={{ color: HUD.dim3 }}>· {u.name || u.driverName}</span></>
+                  : (u.name || u.driverName || u.unitId)}
               </span>
               <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: u.lastLogin ? HUD.dim3 : HUD.amber }}>
+                <span style={{ color: HUD.dim3 }}>{u.unitId} · </span>
                 {u.online ? 'conectado ahora'
                   : u.lastLogin ? `última vez ${fmtWhen(u.lastLogin)}`
                   : 'nunca entró'}
@@ -699,7 +913,30 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 padding: '2px 6px', borderRadius: 4,
               }}>DESPACHO</span>
             )}
-            {resetFor === u.unitId ? (
+            <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
+            {editFor === u.unitId ? (
+              <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <input autoFocus placeholder="Nombre y apellido *" value={editForm.name}
+                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') editarIdentidad(u.unitId); }}
+                  style={{ ...inputStyle, height: 32, width: 'auto', flex: '1 1 130px', fontSize: 13 }} />
+                <input placeholder="Alias" value={editForm.alias}
+                  onChange={e => setEditForm(f => ({ ...f, alias: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') editarIdentidad(u.unitId); }}
+                  style={{ ...inputStyle, height: 32, width: 'auto', flex: '1 1 100px', fontSize: 13 }} />
+                <button onClick={() => editarIdentidad(u.unitId)} disabled={busy} style={smallBtn(HUD.green, HUD.bg)}>OK</button>
+                <button onClick={() => setEditFor(null)} style={smallBtn('transparent', HUD.dim2)}>✕</button>
+              </span>
+            ) : u.role !== 'dispatch' && (
+              <button title="Corregir nombre o alias"
+                onClick={() => {
+                  setEditFor(u.unitId);
+                  setEditForm({ name: u.name || u.driverName || '', alias: u.alias || '' });
+                  setResetFor(null); setConfirmDel(null);
+                }}
+                style={smallBtn('#1a222c', HUD.fg2)}>Nombre</button>
+            )}
+            {editFor === u.unitId ? null : resetFor === u.unitId ? (
               <span style={{ display: 'flex', gap: 6 }}>
                 <input autoFocus placeholder="Nueva clave" value={resetPass}
                   onChange={e => setResetPass(e.target.value)}
@@ -709,25 +946,27 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 <button onClick={() => { setResetFor(null); setResetPass(''); }} style={smallBtn('transparent', HUD.dim2)}>✕</button>
               </span>
             ) : (
-              <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); }}
+              <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); }}
                 style={smallBtn('#1a222c', HUD.fg2)}>Reset clave</button>
             )}
-            {u.role !== 'dispatch' && (
+            {u.role !== 'dispatch' && editFor !== u.unitId && (
               confirmDel === u.unitId ? (
                 <button onClick={() => remove(u.unitId)} disabled={busy}
                   style={smallBtn(HUD.red, '#fff')}>¿Confirmar baja?</button>
               ) : (
-                <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); }}
+                <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); }}
                   style={smallBtn('transparent', HUD.red)}>Baja</button>
               )
             )}
+            </span>
           </div>
         ))}
 
         <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-          El alta de choferes se hace solo desde acá: el login de la app rechaza
-          unidades no registradas. Resetear la clave o dar de baja cierra la
-          sesión de esa unidad al instante.
+          Cada persona tiene <strong>su propia cuenta</strong>: el alta se hace
+          solo desde acá y el login de la app rechaza usuarios no registrados.
+          Resetear la clave o dar de baja cierra su sesión al instante, y no
+          toca a nadie más que vaya en el mismo vehículo.
         </div>
         </div>)}
       </div>
@@ -779,11 +1018,16 @@ function Panel({ session, onLogout, onAuthError }) {
   const mapMsg = (m, kind) => {
     const own = m.unitId === session.unitId;
     if (kind === 'sos') {
-      return { from: m.driverName || m.unitId, tone: 'sos', text: `SOS — ${m.driverName || m.unitId} pide ayuda`, time: nowTime(m.timestamp) };
+      return {
+        from: m.driverName || m.unitId, unit: m.vehicleId || null, tone: 'sos',
+        text: `SOS — ${m.driverName || m.unitId} pide ayuda${m.vehicleId ? ' desde ' + m.vehicleId : ''}`,
+        time: nowTime(m.timestamp),
+      };
     }
     const base = {
       from: m.role === 'dispatch' ? 'DESPACHO' : (m.driverName || m.unitId || 'Conductor'),
       role: own ? 'dispatch-self' : m.role,
+      unit: m.role === 'dispatch' ? null : (m.vehicleId || null),
       time: nowTime(m.timestamp),
       tone: 'normal',
     };
@@ -997,7 +1241,8 @@ function Panel({ session, onLogout, onAuthError }) {
         }}>
           <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 2 }}>SOS</span>
           <span style={{ fontSize: 15, fontWeight: 700 }}>
-            {(sos.driverName || sos.unitId || 'Unidad').toUpperCase()} pide ayuda · {nowTime(sos.timestamp)}
+            {(sos.driverName || sos.unitId || 'Unidad').toUpperCase()}
+            {sos.vehicleId ? ` · ${sos.vehicleId.toUpperCase()}` : ''} pide ayuda · {nowTime(sos.timestamp)}
             {sos.routeId && sos.routeId !== routeInfo.routeId ? ` · RUTA ${sos.routeId}` : ''}
             {sos.lat ? ` · ${sos.lat.toFixed(4)}, ${sos.lng.toFixed(4)}` : ''}
           </span>
@@ -1053,6 +1298,12 @@ function Panel({ session, onLogout, onAuthError }) {
                   <div style={{ flex: 1 }} />
                   {!u.lat && <span style={{ fontFamily: mono, fontSize: 11, color: HUD.amber }}>SIN GPS</span>}
                 </div>
+                {u.driverName && u.driverName !== u.unitId && (
+                  <div style={{
+                    fontSize: 12, color: HUD.dim2, marginTop: 2,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{u.driverName}{u.label ? ` · ${u.label}` : ''}</div>
+                )}
                 <div style={{ display: 'flex', gap: 14, marginTop: 4, fontFamily: mono, fontSize: 13, fontWeight: 700 }}>
                   <span style={{ color: HUD.dim3 }}>+1 <span style={{ color: gapColor(g.toAhead, routeInfo.targetGapMin) }}>{g.toAhead || '—'}</span></span>
                   <span style={{ color: HUD.dim3 }}>−1 <span style={{ color: gapColor(g.toBehind, routeInfo.targetGapMin) }}>{g.toBehind || '—'}</span></span>

@@ -678,6 +678,15 @@ function ChatMsg({ msg }) {
           fontSize: 15, fontWeight: 700, color: nameColor,
           fontFamily: 'system-ui, sans-serif',
         }}>{isYou ? 'Tú ✓✓' : msg.from}</span>
+        {/* La combi en la que va: el nombre dice quién habla, esto dice
+            desde qué unidad — que es lo que le importa al que va manejando */}
+        {!isYou && msg.unit && (
+          <span style={{
+            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+            fontSize: 12, fontWeight: 700, color: HUD.dim3,
+            border: `1px solid #232b36`, borderRadius: 4, padding: '1px 5px',
+          }}>{msg.unit}</span>
+        )}
         <span style={{
           fontFamily: 'JetBrains Mono, ui-monospace, monospace',
           fontSize: 13, fontWeight: 700, color: HUD.dim3,
@@ -1430,7 +1439,7 @@ function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) 
 // Pantalla RUTA — propuesta 2a "Temporizador".
 // Un solo dato dominante: la unidad más desviada del objetivo. El color de
 // estado tiñe el halo, la barra superior y el lavado de fondo.
-function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, onFireSos }) {
+function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFireSos }) {
   const sun = tweaks.mode === 'sun';
   const hud = buildHudModel(tweaks, gapMeta);
   const { hero, sec, target } = hud;
@@ -1495,6 +1504,17 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, onFireSos }) {
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
             fontSize: 15, fontWeight: 700, letterSpacing: 0.5, color: dim,
           }}>{connected ? `EN VIVO · ${unitsOnRoute}` : 'SIMULADO'}</span>
+          {/* Acompañante: la posición de la combi la manda el celular del
+              chofer. Sin este aviso, el cobrador creería que su GPS falla. */}
+          {connected && gpsRole && gpsRole.reporting === false && (
+            <span title={gpsRole.reason || 'La posición la reporta el chofer'} style={{
+              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+              fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
+              color: sun ? '#5A7A99' : HUD.dim2,
+              border: `1px solid ${sun ? '#C8D8E8' : '#232b36'}`,
+              borderRadius: 5, padding: '2px 6px',
+            }}>ACOMPAÑANTE</span>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
           <span style={{
@@ -1601,7 +1621,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, onFireSos }) {
   );
 }
 
-function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, messages, onSendText, onSendVoice, onSos }) {
+function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRole, messages, onSendText, onSendVoice, onSos }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -1734,6 +1754,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, messag
             gapMeta={gapMeta}
             connected={connected}
             unitsOnRoute={unitsOnRoute}
+            gpsRole={gpsRole}
             onFireSos={() => { setEmergencyFired(true); onSos && onSos(); }}
           />
         </div>
@@ -1965,6 +1986,9 @@ function Root() {
   const [messages, setMessages] = React.useState(CHAT_SEED);
   const [incomingSos, setIncomingSos] = React.useState(null);
   const [authNotice, setAuthNotice] = React.useState(null);
+  // { reporting, reason } — si reporting es false, este celular va de
+  // acompañante: ve todo, pero la posición de la unidad la manda otro.
+  const [gpsRole, setGpsRole] = React.useState({ reporting: true, reason: null });
   const connectedRef = React.useRef(false);
   const myUnitIdRef = React.useRef(null);
 
@@ -2009,8 +2033,12 @@ function Root() {
     if (!user || screen !== 'app') return;
     if (!window.RealtimeClient || !user.token) return;
 
-    const myUnitId = user.unitId; // identidad canónica que devolvió el servidor
+    const myUnitId = user.unitId; // la PERSONA: con esto entra y con esto firma
     myUnitIdRef.current = myUnitId;
+    // El VEHÍCULO en el que va: es la clave del mapa y de las brechas. Para
+    // un chofer suelen coincidir; para un cobrador no, y para él la brecha
+    // que importa es la de la combi en la que viaja.
+    const myVehicleId = user.vehicleId || user.unitId;
 
     // Sesión rechazada (expirada o revocada): limpiar y volver al login
     window.RealtimeClient.on('autherror', () => {
@@ -2032,18 +2060,18 @@ function Root() {
       if (state.targetGapMin) {
         setTweaks(t => t.targetGap === state.targetGapMin ? t : { ...t, targetGap: state.targetGapMin });
       }
-      const myGaps = state.gaps?.[myUnitId];
+      const myGaps = state.gaps?.[myVehicleId];
       if (myGaps) {
         setTweaks(t => ({
           ...t,
           frontTime: myGaps.toAhead || t.frontTime,
           backTime:  myGaps.toBehind || t.backTime,
-          avgSpeed:  state.units?.find(u => u.unitId === myUnitId)?.speed || t.avgSpeed,
+          avgSpeed:  state.units?.find(u => u.unitId === myVehicleId)?.speed || t.avgSpeed,
         }));
         setGapMeta({ aheadUnit: myGaps.aheadUnit, behindUnit: myGaps.behindUnit });
       }
-      // Todos los que están en ruta excepto yo (ya vienen solo de mi ruta)
-      const others = (state.units || []).filter(u => u.unitId !== myUnitId && u.lat);
+      // Todas las combis en ruta menos la mía (ya vienen solo de mi ruta)
+      const others = (state.units || []).filter(u => u.unitId !== myVehicleId && u.lat);
       setOtherUnits(others);
     });
 
@@ -2058,14 +2086,15 @@ function Root() {
         const isDispatch = it.role === 'dispatch' && !own;
         const msgRole = own ? 'you' : (isDispatch ? 'admin' : 'driver');
         const tone = isDispatch ? 'info' : 'normal';
+        const unit = it.vehicleId && it.vehicleId !== myVehicleId ? it.vehicleId : null;
         if (it.kind === 'sos') {
-          return { from: it.driverName || it.unitId || 'Conductor', role: 'driver', text: 'SOS — pide ayuda', time, tone: 'sos' };
+          return { from: it.driverName || it.unitId || 'Conductor', role: 'driver', unit, text: 'SOS — pide ayuda', time, tone: 'sos' };
         }
         if (it.kind === 'voice') {
           // las notas viejas pierden el audio en el servidor: quedan expiradas
-          return { from, role: msgRole, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
+          return { from, role: msgRole, unit, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
         }
-        return { from, role: msgRole, text: it.text, time, tone };
+        return { from, role: msgRole, unit, text: it.text, time, tone };
       }));
     });
 
@@ -2077,6 +2106,7 @@ function Root() {
       pushMsg({
         from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
         role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
+        unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
         text: m.text,
         time: nowTime(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
@@ -2090,6 +2120,7 @@ function Root() {
       pushMsg({
         from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
         role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
+        unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
         voice: m.duration,
         audio: m.data,
         time: nowTime(m.timestamp),
@@ -2103,11 +2134,19 @@ function Root() {
       pushMsg({
         from: a.driverName || a.unitId || 'Conductor',
         role: 'driver',
+        unit: a.vehicleId && a.vehicleId !== myVehicleId ? a.vehicleId : null,
         text: 'SOS — pide ayuda',
         time: nowTime(a.timestamp),
         tone: 'sos',
       });
       setIncomingSos(a);
+    });
+
+    // El servidor decide quién reporta la posición de la unidad: uno solo por
+    // vehículo. El cobrador —o el chofer al que relevaron— queda en modo
+    // acompañante y hay que decírselo, porque si no parece que su GPS falla.
+    window.RealtimeClient.on('gpsrole', (r) => {
+      setGpsRole({ reporting: r.reporting !== false, reason: r.reason || null });
     });
 
     window.RealtimeClient.connect({ token: user.token });
@@ -2173,6 +2212,7 @@ function Root() {
       gapMeta={gapMeta}
       routeId={routeId || user?.routeId || null}
       connected={connected}
+      gpsRole={gpsRole}
       messages={messages}
       onSendText={sendText}
       onSendVoice={sendVoice}
@@ -2200,7 +2240,9 @@ function Root() {
             <div style={{
               color: '#fff', fontFamily: '"Archivo Black", system-ui, sans-serif',
               fontSize: 20, letterSpacing: 1, textAlign: 'center', padding: '0 24px',
-            }}>{(incomingSos.driverName || incomingSos.unitId || 'UNA UNIDAD').toUpperCase()}<br/>PIDE AYUDA</div>
+            }}>{(incomingSos.driverName || incomingSos.unitId || 'UNA UNIDAD').toUpperCase()}
+              {incomingSos.vehicleId ? ` · ${incomingSos.vehicleId.toUpperCase()}` : ''}
+              <br/>PIDE AYUDA</div>
           </div>
         )}
       </AndroidDevice>

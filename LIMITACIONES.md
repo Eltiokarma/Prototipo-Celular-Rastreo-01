@@ -12,7 +12,7 @@ limitación se resuelva o aparezca una nueva.
 | 2 | Sin notificaciones con la app cerrada | Un SOS o mensaje no suena si el chofer/encargado no tiene la app abierta | Web Push (Android) o app nativa |
 | 3 | Sin volumen en Railway, un redeploy borra la base | Se pierden usuarios, historial de chat y vueltas | Montar volumen + `DB_FILE=/data/r14.db` (documentado en README) |
 | 4 | Brechas y vueltas son aproximadas | El progreso de ruta es una proyección lineal, no sigue el trazado real de calles | Ruta como puntos GPS (ítem 2 de `PENDIENTES.md`) |
-| 8 | **Dos personas con la misma cuenta pisan el GPS** | Si el chofer y el cobrador entran con la misma unidad, ambas conexiones reportan posición y la unidad salta entre los dos celulares | Separar persona de unidad (ítem 1 de `PENDIENTES.md`) |
+| 8 | Dos personas con la misma cuenta pisan el GPS | **Resuelto**: persona y vehículo son cosas distintas, cada uno con su cuenta, y **solo un celular por vehículo reporta posición** (el del chofer). El cobrador queda en modo acompañante | Ver README, sección Identidad |
 | 5 | Una sola cuenta DESPACHO compartida | La auditoría no distingue *cuál* encargado hizo cada cosa | Cuentas de despacho por persona |
 | 6 | Consumo de datos móviles | **Mitigado**: de 839 MB a 40 MB por turno con 20 unidades (98 MB con 50), y los tiles del mapa ya no se rebajan en cada visita. Queda el payload personalizado para rutas de 30+ unidades | Ver `ESCALABILIDAD.md` |
 | 7 | Multi-ruta | **Resuelto**: `routeId` de primera clase, brechas y chat por ruta, supervisor con selector y despachadores por ruta | Ver README, sección Multi-ruta |
@@ -92,7 +92,12 @@ limitación se resuelva o aparezca una nueva.
 ## E. Seguridad
 
 - **Cuenta DESPACHO única y compartida** entre encargados: la
-  auditoría registra "DESPACHO", no la persona.
+  auditoría registra "DESPACHO", no la persona. Del lado de los choferes
+  y cobradores ya no pasa: cada uno tiene su credencial y la auditoría
+  dice su nombre.
+- **Nadie puede cambiar su propia clave**: solo Despacho resetea. Para
+  este tamaño es un rasgo (el chofer no se autoexcluye), pero significa
+  que una clave dictada por teléfono queda dictada.
 - **Sesiones en el celular:** un teléfono robado desbloqueado tiene la
   sesión activa (30 días). Mitigación: Despacho puede resetear la clave
   o dar de baja y la sesión muere al instante.
@@ -109,8 +114,12 @@ limitación se resuelva o aparezca una nueva.
 - Chat: los ✓✓ de "leído" son decorativos (no hay acuses reales); no
   se puede editar ni borrar un mensaje.
 - La pantalla "Salir a ruta" muestra datos decorativos ("48 min · 42
-  pasajeros", "V-247", turno): el conteo de pasajeros y la asignación
-  de unidad física no existen.
+  pasajeros", "V-247", turno): el conteo de pasajeros no existe.
+- **No hay turnos**: la asignación persona → vehículo es fija en la
+  cuenta. Si el chofer de la mañana y el de la tarde son distintos, hoy
+  se resuelve entrando uno después del otro (el último toma el mando del
+  GPS y al anterior se le avisa), pero no queda registro de turno ni
+  horas trabajadas.
 - Modo "Sol extremo" solo aplica a la pantalla RUTA (chat y mapa son
   siempre oscuros).
 - No hay exportación de reportes (CSV/PDF) de vueltas ni auditoría.

@@ -1,55 +1,26 @@
 # Pendientes — COOP-R14
 
 Lo que falta construir, con su tamaño y sus dependencias. El orden
-importa: algunos ítems son cimiento de otros, y uno conviene hacerlo
-**antes** de cargar más choferes porque después migrar cuesta.
+importa: algunos ítems son cimiento de otros. El más invasivo —separar la
+persona del vehículo— ya está hecho, así que cargar más choferes ya no
+compromete nada (ver *Ítems ya cerrados* al final).
 
 ## Orden recomendado
 
 | # | Qué | Por qué en ese lugar | Tamaño |
 | --- | --- | --- | --- |
-| 1 | **Identidad: persona ≠ unidad** (chofer + cobrador) | Cambia el significado de "unidad" en todo el sistema. Hacerlo con 6 cuentas es fácil; con 4 rutas cargadas es una migración con gente trabajando | 2–3 días |
-| 2 | **Ruta como puntos GPS** | Cimiento de la precisión: sin geometría real las brechas son aproximaciones, y el objetivo automático necesita datos buenos | 3–4 días |
-| 3 | **Objetivo de brecha automático** (y por día de semana) | Depende de 2 y del historial de vueltas | 1–2 días |
-| 4 | **Mensaje directo Despacho → unidad** | Autocontenido, valor inmediato, no depende de nada | 1 día |
+| 1 | **Ruta como puntos GPS** | Cimiento de la precisión: sin geometría real las brechas son aproximaciones, y el objetivo automático necesita datos buenos | 3–4 días |
+| 2 | **Objetivo de brecha automático** (y por día de semana) | Depende de 1 y del historial de vueltas | 1–2 días |
+| 3 | **Mensaje directo Despacho → unidad** | Autocontenido, valor inmediato, no depende de nada | 1 día |
+| 4 | **Turnos** (quién maneja qué unidad y cuándo) | Ahora que la persona existe aparte del vehículo, es el paso natural: habilita horas trabajadas y relevos planificados | 1–2 días |
 | 5 | **Empresas (multi-cooperativa)** | Nivel de agrupación arriba de las rutas; lo pide la venta, no la operación | 2 días |
-| 6 | **Informes exportables** | Necesita que 2 y 3 estén bien para que los números sirvan | 1–2 días |
-| 7 | **Panel del gerente de ruta** | Vive de los datos de 3 y 6 | 2 días |
+| 6 | **Informes exportables** | Necesita que 1 y 2 estén bien para que los números sirvan | 1–2 días |
+| 7 | **Panel del gerente de ruta** | Vive de los datos de 2 y 6 | 2 días |
 | 8 | **Panel del creador (nuestro)** | Encima de todo; sin 5 no tiene mucho que mostrar | 2–3 días |
 
 ---
 
-## 1. Identidad: persona ≠ unidad (chofer + cobrador)
-
-**Cómo está hoy:** la cuenta *es* la unidad. `M-05` es a la vez el
-vehículo, el login y quien reporta GPS.
-
-**El problema concreto, ya presente:** si el chofer y el cobrador entran
-con la misma cuenta, las dos conexiones conviven pero **ambas reportan
-GPS para la misma unidad y se pisan** (`units` está indexado por unitId).
-La posición salta entre los dos celulares y las brechas se ensucian. No
-es hipotético: pasa en cuanto dos personas usan la misma clave.
-
-**Diseño propuesto:**
-
-- `people` — personas con su propia credencial (chofer, cobrador), su
-  nombre y su rol.
-- `vehicles` — las unidades físicas (patente, código interno).
-- `assignments` — quién va en qué unidad y en qué turno.
-
-Con eso: **una sola conexión por unidad reporta GPS** (la del chofer, o
-la que se designe), y la otra recibe todo pero en modo acompañante. El
-cobrador ve las brechas y el chat, pero no genera posición.
-
-**Coherencia con los niveles de protección:** cada persona tiene su
-clave, así que la auditoría deja de decir "M-05 hizo X" y dice *quién*.
-Dar de baja a un cobrador no toca al chofer ni a la unidad. Y un
-cobrador no hereda permisos del chofer.
-
-**Cuidado:** `unitId` aparece en `users`, `messages`, `laps`, `audit`,
-`sessions` y en todo el cliente. Es el cambio más invasivo de la lista.
-
-## 2. Ruta como puntos GPS
+## 1. Ruta como puntos GPS
 
 **Hoy:** el progreso en la ruta es una proyección lineal entre dos puntos
 (Terminal Sur → Huancané). No sigue las calles, así que las brechas son
@@ -78,7 +49,7 @@ aproximaciones útiles pero no medidas.
 **Beneficio extra:** con geometría real se puede detectar que una unidad
 **se salió de la ruta** (desvío, atajo) y avisarle a Despacho.
 
-## 3. Objetivo de brecha automático (y por día de semana)
+## 2. Objetivo de brecha automático (y por día de semana)
 
 **Hoy:** es un número fijo por ruta, cargado a mano.
 
@@ -106,7 +77,7 @@ que la duración media de vuelta cambia. Guardar el promedio por día
   ruta al mediodía, el objetivo debería subir. Decidir si se recalcula en
   vivo o por turno.
 
-## 4. Mensaje directo Despacho → unidad
+## 3. Mensaje directo Despacho → unidad
 
 **Hoy:** todo el chat es grupal por ruta.
 
@@ -120,6 +91,21 @@ chofer ↔ chofer en privado no (el grupo es el canal entre choferes, y
 abrir mensajería privada entre 1 000 personas trae problemas de
 moderación que no queremos). El historial privado se guarda igual y solo
 lo ven las dos partes.
+
+## 4. Turnos
+
+**Hoy:** la asignación persona → vehículo vive en la cuenta y es fija. El
+relevo funciona en la práctica (el último chofer que entra toma el mando
+del GPS y al anterior se le avisa), pero no queda registrado: no se sabe
+quién manejó qué unidad y por cuánto tiempo.
+
+**Propuesta:** una tabla `assignments` (persona, vehículo, desde, hasta).
+Con eso salen las horas trabajadas, quién iba en la unidad cuando pasó
+algo, y Despacho puede planificar el relevo en vez de descubrirlo.
+
+**Cuidado:** no convertirlo en un sistema de RRHH. Alcanza con registrar
+lo que el sistema ya ve solo (quién entró, en qué unidad, cuándo salió) y
+dejar la edición manual para las excepciones.
 
 ## 5. Empresas (multi-cooperativa)
 
@@ -135,11 +121,11 @@ se le vende a cualquier cooperativa".
 
 CSV y PDF de: vueltas por unidad y por período, cumplimiento de brecha
 (cuánto tiempo estuvo cada unidad en verde/ámbar/rojo), historial de SOS,
-horas trabajadas por persona (necesita el ítem 1) y actividad de
+horas trabajadas por persona (necesita el ítem 4, turnos) y actividad de
 administración.
 
 Cuidado con una tentación: los informes son fáciles de hacer y difíciles
-de hacer *bien*. Un informe con brechas aproximadas (ítem 2 sin resolver)
+de hacer *bien*. Un informe con brechas aproximadas (ítem 1 sin resolver)
 da números que parecen precisos y no lo son — y eso es peor que no tener
 informe.
 
@@ -171,6 +157,10 @@ todo se abre con una contraseña más, el nivel de arriba deja de existir.
 
 ## Ítems ya cerrados
 
+- **Identidad: persona ≠ unidad.** Personas (chofer/cobrador) con nombre
+  obligatorio y alias opcional, vehículos aparte, un solo reportero de
+  GPS por vehículo y modo acompañante para el que no maneja. Las bases
+  existentes migraron solas. Ver README, sección Identidad.
 - Multi-ruta con brechas, chat, vueltas y auditoría por ruta.
 - Autenticación con roles, altas por Despacho, auditoría de cada acción.
 - Consumo de datos: de 5,2 GB a 98 MB por turno (ver `ESCALABILIDAD.md`).

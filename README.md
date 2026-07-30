@@ -10,6 +10,7 @@ en soporte, sol lateral y el vehículo en movimiento.
 ```
 project/            La app (PWA servida como archivos estáticos)
   Prototipo.html      TODA la app del chofer: React + Babel inline (sin build)
+                      (también la usa el cobrador, en modo acompañante)
   despacho.html       Panel web de Despacho (flota, chat, SOS) — desktop
   realtime.js         Cliente WebSocket: GPS, estado, chat y SOS
   service-worker.js   Caché offline + caché de tiles del mapa
@@ -73,7 +74,7 @@ audio — las más viejas quedan "expiradas" (burbuja sin reproducción).
 **Autenticación:** `POST /auth/login` con `{ user, password }` devuelve un
 token de sesión (30 días) que el WebSocket exige en el `identify` — sin
 token válido no hay estado, historial ni chat. Contraseñas con scrypt+salt
-en la tabla `users` (roles `driver`/`dispatch`); 5 intentos fallidos
+en la tabla `users` (roles `driver`/`collector`/`dispatch`); 5 intentos fallidos
 bloquean la unidad 5 minutos. **El alta de choferes la hace Despacho**
 (panel → Unidades): el login rechaza unidades no registradas. Solo se
 auto-registran DESPACHO (bootstrap del sistema) y, para demos sin
@@ -109,9 +110,14 @@ el usuario reservado `DESPACHO` siempre recibe rol `dispatch` y **no**
 aparece como unidad en ruta. En producción fijar su clave con la variable
 de entorno `DISPATCH_PASSWORD` (crea/actualiza la cuenta al arrancar).
 
-**Administración (botón Unidades):** altas de choferes, reset de
-contraseña y bajas, contra los endpoints `/admin/*` del servidor
-(protegidos por rol `dispatch` vía `Authorization: Bearer`). Resetear la
+**Administración (botón Gestión):** pestañas **PERSONAS** (alta con
+nombre obligatorio, alias opcional, rol chofer/cobrador y vehículo
+asignado; corrección de nombre/alias, reset de contraseña y bajas),
+**VEHÍCULOS** (alta de combis con su placa y quién va en cada una),
+**RUTAS**, **VUELTAS** y **ACTIVIDAD** — contra los endpoints `/admin/*`
+del servidor (protegidos por rol `dispatch` vía `Authorization: Bearer`).
+Al dar de alta un chofer sin elegir vehículo se le crea uno con su mismo
+código; un cobrador **necesita** un vehículo ya existente. Resetear la
 clave o dar de baja revoca las sesiones de esa unidad y la desconecta al
 instante — el celular vuelve al login con el motivo. La pestaña
 **Actividad** muestra la auditoría: quién inició sesión, quién dio de
@@ -120,6 +126,43 @@ La pestaña **Vueltas** muestra el historial por unidad (vueltas de hoy,
 última, promedio, mejor y velocidad): el servidor detecta cada vuelta
 solo — cuando el `routeProgress` llega cerca del final y vuelve al
 inicio — y la guarda en la tabla `laps` (últimas 2000).
+
+## Identidad: la persona no es la combi
+
+Antes la cuenta *era* la unidad: `M-05` era el vehículo, el login y quien
+reportaba GPS. Ahora son dos cosas distintas.
+
+- **Personas** (tabla `users`): cada chofer y cada cobrador tiene su
+  cuenta, con **nombre y apellido obligatorio** —es lo que queda en los
+  registros de la empresa— y un **alias opcional**, que es lo que se
+  muestra en el chat y en el mapa si está puesto. `role` es `driver`,
+  `collector` o `dispatch`.
+- **Vehículos** (tabla `vehicles`): la combi física, con su placa
+  opcional. Es la clave del mapa, de las brechas y de las vueltas.
+- Una persona se asigna a un vehículo (`users.vehicleId`). Pueden ir dos
+  arriba: el chofer y su cobrador.
+
+**Un solo celular por vehículo reporta la posición.** El servidor lleva
+esa designación (`gpsOwner`) y se la avisa al cliente con `gps_role`:
+
+| | Qué pasa |
+| --- | --- |
+| **Chofer** | Tiene el mando: su GPS es el de la unidad |
+| **Cobrador** | Modo **acompañante**: ve brechas, mapa y chat, pero su app deja de mandar posición (se ahorra datos, y la unidad no salta entre dos celulares) |
+| **Relevo de turno** | El último chofer que entra toma el mando y al anterior se le avisa en pantalla; si el que tenía el mando se va, lo hereda un chofer que siga conectado |
+
+El vehículo sale del mapa recién cuando se desconecta **la última**
+persona que iba arriba: que el cobrador cierre la app no borra la combi.
+
+Cada mensaje del chat viaja firmado con la persona (`driverName`) **y**
+su vehículo (`vehicleId`): el nombre dice quién habla, el código dice
+desde qué combi.
+
+**Bases existentes migran solas:** cada cuenta de chofer anterior genera
+su vehículo con el mismo código, conserva su contraseña y toma su propio
+código como nombre provisional. Despacho lo corrige después con el botón
+**Nombre** de la lista de personas, sin dar de baja a nadie — el cambio
+se ve en vivo, incluso con el chofer conectado.
 
 ## Multi-ruta
 
@@ -146,7 +189,9 @@ eso dos rutas con la misma separación física dan brechas distintas.
 
 ## Niveles de seguridad
 
-1. **Chofer** — su clave abre solo su sesión; no puede tocar `/admin`.
+1. **Chofer y cobrador** — su clave abre solo su sesión; no pueden tocar
+   `/admin`. Dar de baja a un cobrador no toca al chofer ni al vehículo,
+   y un cobrador no hereda permisos del chofer.
 2. **Despacho** — administra las claves de los choferes; cada uso de ese
    poder queda en la tabla `audit`. No puede eliminar su propia cuenta.
 3. **Operador (dueño del sistema)** — está por encima sin clave dentro de

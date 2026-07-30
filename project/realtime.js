@@ -20,7 +20,14 @@
   let authFailed = false;
 
   // Callbacks — la app los registra para recibir actualizaciones
-  const listeners = { state: [], status: [], chat: [], voice: [], sos: [], history: [], autherror: [] };
+  const listeners = { state: [], status: [], chat: [], voice: [], sos: [], history: [], autherror: [], gpsrole: [] };
+
+  // ¿Este celular es el que reporta la posición de la unidad? El servidor lo
+  // decide (uno solo por vehículo: el chofer). El cobrador, o el chofer al
+  // que relevaron, quedan en modo acompañante: reciben todo pero no mandan
+  // posición — así la unidad no salta entre dos celulares y encima se
+  // ahorran datos. Arranca en true por si el servidor es viejo y no lo dice.
+  let reportaGps = true;
 
   function emit(event, data) {
     (listeners[event] || []).forEach(fn => fn(data));
@@ -78,6 +85,9 @@
           emit('sos', msg);
         } else if (msg.type === 'chat_history') {
           emit('history', msg.items || []);
+        } else if (msg.type === 'gps_role') {
+          reportaGps = msg.reporting !== false;
+          emit('gpsrole', msg);
         } else if (msg.type === 'auth_error') {
           // Sesión inválida o expirada: no tiene sentido reintentar
           authFailed = true;
@@ -166,6 +176,9 @@
     // Mandar posición al servidor cada 3 segundos
     gpsInterval = setInterval(() => {
       if (!lastPosition) return;
+      // En modo acompañante se sigue leyendo el GPS (el SOS necesita saber
+      // dónde está esta persona) pero no se manda posición de la unidad.
+      if (!reportaGps) return;
 
       const { latitude, longitude, speed } = lastPosition.coords;
 
@@ -204,6 +217,7 @@
     const BASE_LNG = -70.133;
 
     simTimer = setInterval(() => {
+      if (!reportaGps) return;
       simProgress += 0.004; // avanza por la ruta
       if (simProgress > 1) simProgress = 0; // vuelta completa
 
@@ -274,6 +288,10 @@
     return !!ws && ws.readyState === WebSocket.OPEN;
   }
 
+  function isReportingGps() {
+    return reportaGps;
+  }
+
   window.RealtimeClient = {
     login,
     connect,
@@ -282,6 +300,7 @@
     sendVoice,
     sendSos,
     isConnected,
+    isReportingGps,
     on: (event, fn) => { listeners[event] = [fn]; }, // reemplaza — un handler por evento
   };
 

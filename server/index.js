@@ -35,7 +35,12 @@ const clients = new Map();
 // clients = { websocket → unitId }
 
 const profiles = new Map();
-// profiles = { unitId → { driverName, role } } — llenado en el identify
+// profiles = { unitId (persona) → { name, alias, role, routeId, vehicleId } }
+
+const gpsOwner = new Map();
+// gpsOwner = { vehicleId → websocket que reporta la posición de ese vehículo }
+// Solo una conexión por vehículo: si el chofer y el cobrador reportaran
+// los dos, la unidad saltaría entre los dos celulares.
 
 // ─── HISTORIAL DE CHAT (SQLite) ──────────────────────────────
 // Los últimos mensajes del grupo (texto, voz y SOS) se guardan en una
@@ -217,13 +222,19 @@ if (addColumnIfMissing('messages', 'routeId', 'TEXT')) {
   console.log('Historial migrado a la ruta ' + DEFAULT_ROUTE);
 }
 
+// De qué vehículo salió el mensaje, para que el historial diga lo mismo
+// que se vio en vivo (antes de esto, unitId era a la vez persona y unidad)
+if (addColumnIfMissing('messages', 'vehicleId', 'TEXT')) {
+  db.prepare('UPDATE messages SET vehicleId = unitId WHERE vehicleId IS NULL').run();
+}
+
 const HISTORY_MAX = 200;   // mensajes que recibe un cliente al conectarse
 const KEEP_ROWS = 1000;    // filas totales que retiene la base
 const VOICE_KEEP = 30;     // notas de voz que conservan su audio
 
 const insertStmt = db.prepare(`
-  INSERT INTO messages (kind, unitId, driverName, routeId, text, duration, data, lat, lng, timestamp)
-  VALUES (@kind, @unitId, @driverName, @routeId, @text, @duration, @data, @lat, @lng, @timestamp)
+  INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, text, duration, data, lat, lng, timestamp)
+  VALUES (@kind, @unitId, @driverName, @routeId, @vehicleId, @text, @duration, @data, @lat, @lng, @timestamp)
 `);
 const pruneRowsStmt = db.prepare(`
   DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY id DESC LIMIT ${KEEP_ROWS})
@@ -238,7 +249,7 @@ const pruneVoiceStmt = db.prepare(`
 
 function remember(item) {
   try {
-    insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null, ...item });
+    insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null, vehicleId: null, ...item });
     pruneRowsStmt.run();
     pruneVoiceStmt.run();
   } catch (e) {
@@ -250,7 +261,7 @@ function remember(item) {
 function recentHistory(routeId) {
   // El rol sale de la tabla users (los mensajes viejos no lo guardan)
   return db.prepare(`
-    SELECT m.kind, m.unitId, m.driverName, m.text, m.duration, m.data,
+    SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.text, m.duration, m.data,
            m.lat, m.lng, m.timestamp, COALESCE(u.role, 'driver') AS role
     FROM (SELECT * FROM messages WHERE routeId = @routeId ORDER BY id DESC LIMIT ${HISTORY_MAX}) m
     LEFT JOIN users u ON u.unitId = m.unitId
@@ -297,6 +308,66 @@ if (addColumnIfMissing('users', 'routeId', 'TEXT')) {
   console.log('Choferes existentes asignados a la ruta ' + DEFAULT_ROUTE);
 }
 
+// ─── PERSONAS Y VEHÍCULOS ────────────────────────────────────
+// Antes la cuenta ERA la unidad: el mismo `M-05` era el vehículo, el
+// login y quien reportaba GPS. Con eso, si el chofer y el cobrador
+// entraban con la misma clave, las dos conexiones reportaban posición
+// para la misma unidad y se pisaban.
+//
+// Ahora se separan tres cosas:
+//   users     → PERSONAS (chofer, cobrador, despacho) con su propia clave
+//   vehicles  → los vehículos, que son los que aparecen en el mapa
+//   vehicleId → a qué vehículo está asignada cada persona
+//
+// `users.unitId` sigue siendo el identificador de login para no invalidar
+// las claves ya repartidas; lo que cambia es que ya no significa "el
+// vehículo" sino "esta persona".
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS vehicles (
+    vehicleId TEXT PRIMARY KEY,
+    label TEXT,                -- placa o nombre visible, opcional
+    routeId TEXT,
+    createdAt INTEGER NOT NULL
+  )
+`);
+
+// name es OBLIGATORIO (el nombre real, para los registros de la empresa)
+// y alias es OPCIONAL (como lo llaman en la ruta: "el Chino", "Pocho").
+addColumnIfMissing('users', 'name', 'TEXT');
+addColumnIfMissing('users', 'alias', 'TEXT');
+// 'driver' | 'collector' | 'dispatch'
+addColumnIfMissing('users', 'vehicleId', 'TEXT');
+
+// Migración sin romper nada: cada cuenta existente era a la vez persona y
+// vehículo, así que se crea el vehículo con su mismo código y la persona
+// queda asignada ahí. Los choferes siguen entrando con la clave de antes.
+if (db.prepare('SELECT COUNT(*) AS c FROM vehicles').get().c === 0) {
+  const previos = db.prepare("SELECT unitId, driverName, routeId FROM users WHERE role = 'driver'").all();
+  const insVeh = db.prepare('INSERT OR IGNORE INTO vehicles (vehicleId, label, routeId, createdAt) VALUES (?, ?, ?, ?)');
+  db.transaction(() => {
+    for (const p of previos) {
+      insVeh.run(p.unitId, null, p.routeId || DEFAULT_ROUTE, Date.now());
+      db.prepare('UPDATE users SET vehicleId = ? WHERE unitId = ?').run(p.unitId, p.unitId);
+    }
+  })();
+  if (previos.length) console.log(`Migrados ${previos.length} vehículos desde las cuentas existentes`);
+}
+
+// El nombre real: si no había, se usa lo que hubiera en driverName
+db.prepare(`UPDATE users SET name = COALESCE(NULLIF(name, ''), NULLIF(driverName, ''), unitId)
+            WHERE name IS NULL OR name = ''`).run();
+
+// Cómo se muestra a una persona: el alias si lo tiene, el nombre si no
+function displayName(p) {
+  if (!p) return 'Conductor';
+  return p.alias || p.name || p.driverName || p.unitId || 'Conductor';
+}
+
+function vehicleOf(vehicleId) {
+  return db.prepare('SELECT * FROM vehicles WHERE vehicleId = ?').get(vehicleId) || null;
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(password, salt, 32).toString('hex');
@@ -326,7 +397,9 @@ function sessionUser(token) {
   const s = db.prepare('SELECT unitId FROM sessions WHERE token = ? AND expiresAt > ?')
     .get(token, Date.now());
   if (!s) return null;
-  return db.prepare('SELECT unitId, driverName, role, routeId FROM users WHERE unitId = ?').get(s.unitId) || null;
+  return db.prepare(
+    'SELECT unitId, driverName, name, alias, role, routeId, vehicleId FROM users WHERE unitId = ?'
+  ).get(s.unitId) || null;
 }
 
 // Limpieza de sesiones vencidas una vez por hora
@@ -341,14 +414,19 @@ setInterval(() => {
 // Sin la variable, rige el registro en el primer uso como para
 // cualquier unidad.
 const DISPATCH_ID = 'DESPACHO';
-if (process.env.DISPATCH_PASSWORD) {
+if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
+  // El login exige 4 caracteres: con una clave más corta la cuenta quedaría
+  // creada pero imposible de usar. Mejor avisar y no tocar la que había.
+  console.error('DISPATCH_PASSWORD tiene menos de 4 caracteres: el login la va a ' +
+    'rechazar siempre. La cuenta DESPACHO queda como estaba — poné una clave más larga.');
+} else if (process.env.DISPATCH_PASSWORD) {
   const hash = hashPassword(process.env.DISPATCH_PASSWORD);
   const exists = db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(DISPATCH_ID);
   if (exists) {
     db.prepare("UPDATE users SET passHash = ?, role = 'dispatch' WHERE unitId = ?").run(hash, DISPATCH_ID);
   } else {
-    db.prepare('INSERT INTO users (unitId, driverName, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?)')
-      .run(DISPATCH_ID, 'Despacho', 'dispatch', hash, Date.now());
+    db.prepare('INSERT INTO users (unitId, driverName, name, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(DISPATCH_ID, 'Despacho', 'Despacho', 'dispatch', hash, Date.now());
   }
   console.log('Cuenta DESPACHO lista (desde DISPATCH_PASSWORD)');
 }
@@ -389,7 +467,8 @@ function audit(actor, action, target, detail, routeId) {
 db.exec(`
   CREATE TABLE IF NOT EXISTS laps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    unitId TEXT NOT NULL,
+    unitId TEXT NOT NULL,      -- el VEHÍCULO (la vuelta es del vehículo,
+                               -- no de la persona que iba manejando)
     startedAt INTEGER NOT NULL,
     finishedAt INTEGER NOT NULL,
     durationSec INTEGER NOT NULL,
@@ -403,7 +482,7 @@ if (db.prepare('SELECT COUNT(*) AS c FROM laps WHERE routeId IS NULL').get().c >
 }
 
 const lapState = new Map();
-// lapState = { unitId → { lapStart, speedSum, speedCount, samples, lastProgress } }
+// lapState = { vehicleId → { lapStart, speedSum, speedCount, samples, lastProgress } }
 
 function trackLap(unitId, routeId, progress, speed) {
   let st = lapState.get(unitId);
@@ -465,9 +544,9 @@ app.post('/auth/login', (req, res) => {
     // El DESPACHO de arranque queda como supervisor (routeId null): ve
     // todas las rutas. Una unidad auto-registrada va a la ruta inicial.
     const routeId = role === 'dispatch' ? null : DEFAULT_ROUTE;
-    db.prepare('INSERT INTO users (unitId, driverName, role, routeId, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(unitId, driverName, role, routeId, hashPassword(password), Date.now());
-    user = { unitId, driverName, role, routeId };
+    db.prepare('INSERT INTO users (unitId, driverName, name, role, routeId, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(unitId, driverName, driverName, role, routeId, hashPassword(password), Date.now());
+    user = { unitId, driverName, name: driverName, role, routeId };
     created = true;
     console.log(`${role === 'dispatch' ? 'Despacho' : 'Unidad'} registrado: ${unitId}`);
   } else if (!verifyPassword(password, user.passHash)) {
@@ -483,7 +562,13 @@ app.post('/auth/login', (req, res) => {
   audit(user.unitId, 'login', null, created ? 'primer registro' : null, user.routeId);
   const ruta = user.routeId ? routeOf(user.routeId) : null;
   res.json({
-    token, unitId: user.unitId, driverName: user.driverName, role: user.role,
+    token, unitId: user.unitId,
+    // Cómo mostrarlo en pantalla: el alias si lo tiene, el nombre si no
+    driverName: displayName(user),
+    name: user.name || user.driverName || user.unitId,
+    alias: user.alias || null,
+    role: user.role,
+    vehicleId: user.vehicleId || null,
     routeId: user.routeId || null,
     routeName: ruta ? ruta.name : null,
     supervisor: user.role === 'dispatch' && !user.routeId,
@@ -557,6 +642,38 @@ app.post('/admin/routes', requireSupervisor, (req, res) => {
   res.json({ ok: true, routeId });
 });
 
+// ─── VEHÍCULOS ───────────────────────────────────────────────
+app.get('/admin/vehicles', requireDispatch, (req, res) => {
+  const vehiculos = db.prepare(`
+    SELECT vehicleId, label, routeId, createdAt FROM vehicles
+    WHERE @scope IS NULL OR routeId = @scope
+    ORDER BY routeId, vehicleId
+  `).all({ scope: req.scope }).map(v => ({
+    ...v,
+    enLinea: units.has(v.vehicleId),
+    // Quién va arriba ahora mismo (chofer y/o cobrador)
+    tripulacion: Array.from(clients.values())
+      .map(id => profiles.get(id))
+      .filter(p => p && p.vehicleId === v.vehicleId)
+      .map(p => ({ nombre: p.driverName, rol: p.role })),
+  }));
+  res.json({ vehicles: vehiculos, supervisor: !req.scope });
+});
+
+app.post('/admin/vehicles', requireDispatch, (req, res) => {
+  const vehicleId = String(req.body?.vehicleId || '').trim().slice(0, 24);
+  const label = String(req.body?.label || '').trim().slice(0, 40) || null;
+  const routeId = rutaObjetivo(req);
+  if (!vehicleId) return res.status(400).json({ error: 'Falta el código del vehículo (ej. M-21)' });
+  if (!routeOf(routeId)) return res.status(400).json({ error: 'Esa ruta no existe' });
+  if (vehicleOf(vehicleId)) return res.status(409).json({ error: 'Ese vehículo ya existe' });
+  db.prepare('INSERT INTO vehicles (vehicleId, label, routeId, createdAt) VALUES (?, ?, ?, ?)')
+    .run(vehicleId, label, routeId, Date.now());
+  audit(req.dispatchUser.unitId, 'alta_vehiculo', vehicleId, `ruta ${routeId}`, routeId);
+  console.log(`Vehículo creado: ${vehicleId} en ${routeId}`);
+  res.json({ ok: true, vehicleId, routeId });
+});
+
 // Cierra en vivo las conexiones de una unidad (clave reseteada o baja)
 function kickUnit(unitId, reason) {
   db.prepare('DELETE FROM sessions WHERE unitId = ?').run(unitId);
@@ -575,9 +692,9 @@ app.get('/admin/users', requireDispatch, (req, res) => {
   // Un despachador de ruta solo ve su gente (y las cuentas de despacho);
   // el supervisor ve todo.
   const users = db.prepare(`
-    SELECT unitId, driverName, role, routeId, createdAt, lastLogin FROM users
+    SELECT unitId, driverName, name, alias, role, routeId, vehicleId, createdAt, lastLogin FROM users
     WHERE @scope IS NULL OR routeId = @scope OR role = 'dispatch'
-    ORDER BY CASE role WHEN 'dispatch' THEN 0 ELSE 1 END, routeId, unitId
+    ORDER BY CASE role WHEN 'dispatch' THEN 0 ELSE 1 END, routeId, vehicleId, unitId
   `).all({ scope: req.scope });
   res.json({
     users: users.map(u => ({ ...u, online: online.has(u.unitId) })),
@@ -586,25 +703,56 @@ app.get('/admin/users', requireDispatch, (req, res) => {
   });
 });
 
+// Alta de PERSONAS: el nombre real es obligatorio (queda en los registros
+// de la empresa) y el alias es opcional (como la llaman en la ruta).
 app.post('/admin/users', requireDispatch, (req, res) => {
   const unitId = String(req.body?.unitId || '').trim().slice(0, 24);
-  const driverName = String(req.body?.driverName || '').trim().slice(0, 40) || unitId;
+  const name = String(req.body?.name || req.body?.driverName || '').trim().slice(0, 60);
+  const alias = String(req.body?.alias || '').trim().slice(0, 30) || null;
+  const rolPedido = String(req.body?.personRole || 'driver');
+  const role = rolPedido === 'collector' ? 'collector' : 'driver';
   const password = String(req.body?.password || '');
   const routeId = rutaObjetivo(req);
-  if (!unitId || password.length < 4 || password.length > 64) {
-    return res.status(400).json({ error: 'Completá unidad y contraseña (mínimo 4 caracteres)' });
+  const vehicleId = String(req.body?.vehicleId || '').trim().slice(0, 24) || null;
+
+  if (!unitId) return res.status(400).json({ error: 'Falta el usuario con el que va a entrar' });
+  if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  if (password.length < 4 || password.length > 64) {
+    return res.status(400).json({ error: 'La contraseña necesita entre 4 y 64 caracteres' });
   }
-  if (!routeOf(routeId)) {
-    return res.status(400).json({ error: 'Esa ruta no existe' });
-  }
+  if (!routeOf(routeId)) return res.status(400).json({ error: 'Esa ruta no existe' });
   if (db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
-    return res.status(409).json({ error: 'Esa unidad ya existe' });
+    return res.status(409).json({ error: 'Ya existe alguien con ese usuario' });
   }
-  db.prepare('INSERT INTO users (unitId, driverName, role, routeId, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(unitId, driverName, 'driver', routeId, hashPassword(password), Date.now());
-  audit(req.dispatchUser.unitId, 'alta', unitId, `${driverName !== unitId ? driverName + ' · ' : ''}ruta ${routeId}`, routeId);
-  console.log(`Alta de unidad por Despacho: ${unitId} en ${routeId}`);
-  res.json({ ok: true, unitId, routeId });
+  // El vehículo tiene que existir; si no se indica y es chofer, se crea uno
+  // con su mismo código (el caso habitual: el chofer y su combi).
+  let vehiculoFinal = vehicleId;
+  if (vehiculoFinal) {
+    const veh = vehicleOf(vehiculoFinal);
+    if (!veh) return res.status(400).json({ error: `El vehículo ${vehiculoFinal} no existe` });
+    if (req.scope && veh.routeId !== req.scope) {
+      return res.status(403).json({ error: 'Ese vehículo pertenece a otra ruta' });
+    }
+  } else if (role === 'driver') {
+    vehiculoFinal = unitId;
+    if (!vehicleOf(vehiculoFinal)) {
+      db.prepare('INSERT INTO vehicles (vehicleId, label, routeId, createdAt) VALUES (?, ?, ?, ?)')
+        .run(vehiculoFinal, null, routeId, Date.now());
+    }
+  } else {
+    return res.status(400).json({ error: 'Un cobrador necesita un vehículo asignado' });
+  }
+
+  db.prepare(`
+    INSERT INTO users (unitId, driverName, name, alias, role, routeId, vehicleId, passHash, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(unitId, alias || name, name, alias, role, routeId, vehiculoFinal, hashPassword(password), Date.now());
+
+  const quien = alias ? `${name} (${alias})` : name;
+  audit(req.dispatchUser.unitId, 'alta', unitId,
+    `${quien} · ${role === 'collector' ? 'cobrador' : 'chofer'} · ${vehiculoFinal} · ruta ${routeId}`, routeId);
+  console.log(`Alta de ${role}: ${quien} en ${vehiculoFinal} (${routeId})`);
+  res.json({ ok: true, unitId, routeId, vehicleId: vehiculoFinal, role });
 });
 
 // Un despachador de ruta solo puede administrar cuentas de SU ruta
@@ -616,6 +764,38 @@ function cuentaEnAlcance(req, unitId) {
   }
   return { user: u };
 }
+
+// Corregir la identidad de alguien ya cargado: las cuentas que venían del
+// modelo viejo quedaron con el código de la unidad como nombre, y un alias
+// se pone o se saca sin dar de baja a nadie.
+app.post('/admin/users/:unitId/identity', requireDispatch, (req, res) => {
+  const unitId = String(req.params.unitId);
+  const name = String(req.body?.name || '').trim().slice(0, 60);
+  const alias = String(req.body?.alias || '').trim().slice(0, 30) || null;
+  if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  const chequeo = cuentaEnAlcance(req, unitId);
+  if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
+  // driverName es lo que se muestra: el alias si lo tiene, el nombre si no
+  db.prepare('UPDATE users SET name = ?, alias = ?, driverName = ? WHERE unitId = ?')
+    .run(name, alias, alias || name, unitId);
+
+  // Al que está conectado se le actualiza el nombre en vivo, en su perfil y
+  // en la unidad del mapa: si no, seguiría firmando el chat como antes.
+  const prof = profiles.get(unitId);
+  if (prof) {
+    prof.name = name;
+    prof.alias = alias;
+    prof.driverName = alias || name;
+    const veh = prof.vehicleId ? units.get(prof.vehicleId) : null;
+    if (veh && prof.role === 'driver') {
+      veh.driverName = alias || name;
+      scheduleStateBroadcast(veh.routeId, true);
+    }
+  }
+  audit(req.dispatchUser.unitId, 'editar_identidad', unitId,
+    alias ? `${name} (${alias})` : name, chequeo.user.routeId);
+  res.json({ ok: true, name, alias });
+});
 
 app.post('/admin/users/:unitId/password', requireDispatch, (req, res) => {
   const unitId = String(req.params.unitId);
@@ -793,10 +973,14 @@ wss.on('connection', (ws) => {
         return;
       }
       clients.set(ws, user.unitId);
+      const vehicleId = user.vehicleId || (user.role === 'driver' ? user.unitId : null);
       profiles.set(user.unitId, {
-        driverName: user.driverName || 'Conductor',
+        driverName: displayName(user),
+        name: user.name || user.driverName || user.unitId,
+        alias: user.alias || null,
         role: user.role || 'driver',
         routeId: user.routeId || null,
+        vehicleId,
       });
 
       // Un chofer mira su ruta; un despachador de ruta, la que administra;
@@ -806,23 +990,52 @@ wss.on('connection', (ws) => {
       const rutaInicial = user.routeId || (rutas[0] ? rutas[0].routeId : DEFAULT_ROUTE);
       watching.set(ws, rutaInicial);
 
-      // Despacho observa y habla, pero NO es una unidad en ruta:
-      // no entra al mapa de units ni al cálculo de brechas
-      if (user.role !== 'dispatch') {
-        units.set(user.unitId, {
-          unitId: user.unitId,
-          driverName: user.driverName || 'Conductor',
-          routeId: user.routeId || DEFAULT_ROUTE,
-          lat: null,
-          lng: null,
-          speed: 0,
-          routeProgress: 0,
+      // Despacho observa y habla, pero NO va en un vehículo: no entra al
+      // mapa ni al cálculo de brechas.
+      if (user.role !== 'dispatch' && vehicleId) {
+        const yaEstaba = units.has(vehicleId);
+        const veh = vehicleOf(vehicleId);
+        const previo = units.get(vehicleId);
+        units.set(vehicleId, {
+          ...(previo || { lat: null, lng: null, speed: 0, routeProgress: 0 }),
+          unitId: vehicleId,
+          label: veh?.label || null,
+          // El nombre que se ve en el mapa es el del CHOFER: que el cobrador
+          // se conecte no cambia quién maneja la unidad.
+          driverName: user.role === 'driver'
+            ? displayName(user)
+            : (previo?.driverName || vehicleId),
+          routeId: user.routeId || veh?.routeId || DEFAULT_ROUTE,
           timestamp: Date.now(),
         });
-        broadcastToRoute(rutaInicial, { type: 'unit_joined', unitId: user.unitId });
-        scheduleStateBroadcast(rutaInicial, true); // se ve al instante
+
+        // Solo UNA conexión reporta la posición de cada vehículo. El
+        // cobrador nunca; entre choferes, manda el último que entra
+        // (es el relevo de turno), y al anterior se le avisa.
+        if (user.role === 'driver') {
+          const anterior = gpsOwner.get(vehicleId);
+          if (anterior && anterior !== ws && anterior.readyState === 1) {
+            try {
+              anterior.send(JSON.stringify({
+                type: 'gps_role', reporting: false,
+                reason: 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa.',
+              }));
+            } catch {}
+          }
+          gpsOwner.set(vehicleId, ws);
+          ws.send(JSON.stringify({ type: 'gps_role', reporting: true }));
+        } else {
+          // Acompañante: ve todo, no aporta posición
+          ws.send(JSON.stringify({ type: 'gps_role', reporting: false, reason: 'Modo acompañante' }));
+        }
+
+        if (!yaEstaba) {
+          broadcastToRoute(rutaInicial, { type: 'unit_joined', unitId: vehicleId });
+          scheduleStateBroadcast(rutaInicial, true); // se ve al instante
+        }
       }
-      console.log(`${user.role === 'dispatch' ? 'Despacho conectado' : 'Unidad identificada'}: ${user.unitId} (${rutaInicial})`);
+      const quien = `${displayName(user)}${vehicleId ? ' en ' + vehicleId : ''}`;
+      console.log(`${user.role === 'dispatch' ? 'Despacho conectado' : `${user.role === 'collector' ? 'Cobrador' : 'Chofer'} identificado`}: ${quien} (${rutaInicial})`);
 
       // Recién ahora recibe el estado y la conversación en curso
       ws.send(JSON.stringify({ type: 'state', ...buildState(rutaInicial) }));
@@ -844,14 +1057,22 @@ wss.on('connection', (ws) => {
 
     // TIPO: posición GPS — llega cada ~3 segundos desde cada combi
     if (msg.type === 'gps') {
-      const unitId = clients.get(ws);
-      if (!unitId) return;
+      const personId = clients.get(ws);
+      if (!personId) return;
+      const prof = profiles.get(personId);
+      const vehicleId = prof?.vehicleId;
+      if (!vehicleId) return;
 
-      const unit = units.get(unitId) || {};
-      const routeId = unit.routeId || profiles.get(unitId)?.routeId || DEFAULT_ROUTE;
-      units.set(unitId, {
+      // Se acepta la posición SOLO del reportero designado del vehículo.
+      // El celular del cobrador (o del chofer relevado) sigue conectado y
+      // recibiendo todo, pero su GPS se ignora: así la unidad no salta.
+      if (gpsOwner.get(vehicleId) !== ws) return;
+
+      const unit = units.get(vehicleId) || {};
+      const routeId = unit.routeId || prof.routeId || DEFAULT_ROUTE;
+      units.set(vehicleId, {
         ...unit,
-        unitId,
+        unitId: vehicleId,
         routeId,
         lat: msg.lat,
         lng: msg.lng,
@@ -860,8 +1081,8 @@ wss.on('connection', (ws) => {
         timestamp: Date.now(),
       });
 
-      // Detección de vuelta completa a partir del progreso
-      trackLap(unitId, routeId, msg.routeProgress || 0, msg.speed || 0);
+      // Detección de vuelta completa a partir del progreso (del vehículo)
+      trackLap(vehicleId, routeId, msg.routeProgress || 0, msg.speed || 0);
 
       // Solo se recalcula y emite el estado de SU ruta
       scheduleStateBroadcast(routeId);
@@ -887,6 +1108,7 @@ wss.on('connection', (ws) => {
       const alert = {
         unitId,
         driverName: prof.driverName || 'Conductor',
+        vehicleId: prof.vehicleId || null,
         routeId,
         lat: msg.lat ?? null,
         lng: msg.lng ?? null,
@@ -908,6 +1130,7 @@ wss.on('connection', (ws) => {
       const entry = {
         unitId,
         driverName: prof.driverName || 'Conductor',
+        vehicleId: prof.vehicleId || null,
         routeId,
         text: String(msg.text || '').slice(0, 500),
         timestamp: msg.timestamp || Date.now(),
@@ -932,6 +1155,7 @@ wss.on('connection', (ws) => {
       const entry = {
         unitId,
         driverName: prof.driverName || 'Conductor',
+        vehicleId: prof.vehicleId || null,
         routeId,
         duration: Math.max(1, Math.min(120, Math.round(msg.duration || 0))),
         data,
@@ -942,20 +1166,43 @@ wss.on('connection', (ws) => {
     }
   });
 
-  // Cuando una combi se desconecta
+  // Cuando alguien se desconecta
   ws.on('close', () => {
-    const unitId = clients.get(ws);
-    const routeId = units.get(unitId)?.routeId;
+    const personId = clients.get(ws);
     watching.delete(ws);
-    if (unitId) {
-      clients.delete(ws);
-      console.log(`Desconectado: ${unitId}`);
-      // Solo las unidades en ruta salen del mapa; Despacho no estaba en él
-      if (units.has(unitId)) {
-        units.delete(unitId);
-        broadcastToRoute(routeId, { type: 'unit_left', unitId });
-        scheduleStateBroadcast(routeId, true); // y una que se va, también
+    if (!personId) return;
+    const prof = profiles.get(personId);
+    const vehicleId = prof?.vehicleId;
+    clients.delete(ws);
+    console.log(`Desconectado: ${prof ? prof.driverName : personId}`);
+    if (!vehicleId) return;
+
+    const routeId = units.get(vehicleId)?.routeId || prof?.routeId;
+
+    // ¿Queda alguien más de este vehículo conectado? (chofer + cobrador)
+    const otrosDelVehiculo = [];
+    for (const [otroWs, otroId] of clients) {
+      if (profiles.get(otroId)?.vehicleId === vehicleId && otroWs.readyState === 1) {
+        otrosDelVehiculo.push({ ws: otroWs, prof: profiles.get(otroId) });
       }
+    }
+
+    // Si el que se fue tenía el mando del GPS, lo toma un chofer que siga
+    // conectado; si no queda ninguno, el vehículo deja de reportar.
+    if (gpsOwner.get(vehicleId) === ws) {
+      gpsOwner.delete(vehicleId);
+      const relevo = otrosDelVehiculo.find(o => o.prof.role === 'driver');
+      if (relevo) {
+        gpsOwner.set(vehicleId, relevo.ws);
+        try { relevo.ws.send(JSON.stringify({ type: 'gps_role', reporting: true })); } catch {}
+      }
+    }
+
+    // El vehículo sale del mapa solo cuando se va la ÚLTIMA persona
+    if (otrosDelVehiculo.length === 0 && units.has(vehicleId)) {
+      units.delete(vehicleId);
+      broadcastToRoute(routeId, { type: 'unit_left', unitId: vehicleId });
+      scheduleStateBroadcast(routeId, true);
     }
   });
 
