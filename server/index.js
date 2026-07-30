@@ -9,6 +9,7 @@ const path = require('path');
 const crypto = require('crypto');
 // Compartido con las herramientas de consola (ver `base.js` y `empresa.js`)
 const { openDatabase, hashPassword, verifyPassword, idLimpio } = require('./base');
+const { montarPanelDelCreador } = require('./creador');
 
 const app = express();
 app.use(express.json());
@@ -1929,6 +1930,24 @@ app.get('/ping', (req, res) => {
     historyLength: historyCount(),
     time: new Date().toISOString(),
   });
+});
+
+// ─── PANEL DEL CREADOR ───────────────────────────────────────
+// El nivel de arriba de todas las cooperativas. Vive en `creador.js`, en su
+// propio archivo, para que toda su superficie se pueda leer de una sentada.
+//
+// Se monta ANTES de los estáticos a propósito: así ninguna ruta suya puede
+// quedar tapada por un archivo de project/ que se llame igual.
+//
+// Si CREATOR_PASSWORD no está en el entorno, esto devuelve null y las rutas
+// del creador NO SE REGISTRAN: no dan 401 ni 403, no existen. El panel
+// apagado es indistinguible de un servidor que nunca lo tuvo.
+montarPanelDelCreador(app, {
+  db,
+  audit,
+  origenDe,
+  dbFile: db.memory ? null : db.name,
+  estadoVivo: () => ({ unidades: units.size, conexiones: clients.size }),
 });
 
 // ─── APP WEB ─────────────────────────────────────────────────

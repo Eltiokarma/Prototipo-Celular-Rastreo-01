@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Creador</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+
+<!-- Sin manifest y sin service worker a propósito: este panel no se instala
+     ni se guarda en caché. No tiene que quedar nada de él en el disco de la
+     máquina desde la que se abrió. -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --bg: #0a0d12; --surface: #121820; --line: #222b36; --divider: #1b232d;
+    --fg: #E9F1FA; --fg2: #C3D2E0; --dim: #8296A9; --dim2: #64788C;
+    --campo: #0d131a; --bright: #4AA3F0; --green: #3DD685; --amber: #F5C542;
+    --red: #FF4D6D;
+  }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg); color: var(--fg);
+    font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .black { font-family: "Archivo Black", system-ui, sans-serif; }
+  input, select, button { font-family: inherit; }
+  input, select {
+    width: 100%; height: 40px; padding: 0 12px; font-size: 14px;
+    background: var(--campo); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 10px; outline: none;
+  }
+  input:focus, select:focus { border-color: var(--bright); }
+  label { display: block; font-size: 11px; color: var(--dim); margin-bottom: 4px; }
+  .campo { margin-bottom: 10px; }
+  button { cursor: pointer; border: none; border-radius: 10px; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; color: var(--dim2); font-weight: 700;
+       text-transform: uppercase; letter-spacing: .5px; padding: 6px 8px; }
+  td { padding: 8px; border-top: 1px solid var(--divider); vertical-align: top; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+// ═══════════════════════════════════════════════════════════════
+// PANEL DEL CREADOR
+//
+// El nivel de arriba de todas las cooperativas. Deliberadamente sobrio: es
+// una herramienta de operación, no un producto que se le muestra a nadie.
+//
+// La sesión vive SOLO EN MEMORIA de esta pestaña: no se guarda en
+// localStorage como en los otros paneles. Cerrar la pestaña es cerrar la
+// sesión, y una máquina prestada no queda con la puerta abierta.
+// ═══════════════════════════════════════════════════════════════
+
+// La ruta del panel la fija el servidor por variable de entorno, así que la
+// página no puede tenerla escrita: la lee de su propia URL.
+const BASE = location.pathname.replace(/\/+$/, '');
+
+function fecha(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function duracion(ms) {
+  const min = Math.floor(ms / 60000);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return `${h} h ${min % 60} min`;
+  return `${Math.floor(h / 24)} días`;
+}
+
+// ─── PUERTA ────────────────────────────────────────────────────
+function Puerta({ onEntrar }) {
+  const [clave, setClave] = React.useState('');
+  const [codigo, setCodigo] = React.useState('');
+  const [error, setError] = React.useState(null);
+  const [yendo, setYendo] = React.useState(false);
+
+  const entrar = async () => {
+    setYendo(true); setError(null);
+    try {
+      const res = await fetch(BASE + '/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: clave, codigo }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo entrar');
+      onEntrar(data.token);
+    } catch (e) {
+      setError(e.message === 'Failed to fetch' ? 'No se pudo conectar' : e.message);
+      setClave(''); setCodigo('');
+      setYendo(false);
+    }
+  };
+
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }}>
+      <div style={{
+        width: 340, background: 'var(--surface)', border: '1px solid var(--line)',
+        borderRadius: 18, padding: 26,
+      }} onKeyDown={e => { if (e.key === 'Enter' && !yendo) entrar(); }}>
+        <div className="black" style={{ fontSize: 22 }}>Creador</div>
+        <div className="mono" style={{
+          fontSize: 11, letterSpacing: 1, color: 'var(--dim)',
+          textTransform: 'uppercase', marginBottom: 22,
+        }}>Nivel de arriba</div>
+
+        <div className="campo">
+          <label>Clave</label>
+          <input type="password" value={clave} autoFocus onChange={e => setClave(e.target.value)} />
+        </div>
+        {/* El campo del segundo factor se muestra siempre: si el servidor no
+            lo pide, se manda vacío y no molesta. Preguntarle al servidor si
+            lo exige sería contarle a cualquiera cómo está configurado. */}
+        <div className="campo">
+          <label>Código (si está configurado el segundo factor)</label>
+          <input value={codigo} inputMode="numeric" maxLength={6}
+            onChange={e => setCodigo(e.target.value.replace(/\D/g, ''))} />
+        </div>
+
+        {error && (
+          <div style={{
+            background: 'rgba(255,77,109,.1)', border: '1px solid var(--red)',
+            borderRadius: 10, padding: '9px 11px', margin: '12px 0',
+            fontSize: 13, fontWeight: 600, color: 'var(--red)',
+          }}>{error}</div>
+        )}
+
+        <button disabled={yendo} onClick={entrar} style={{
+          width: '100%', padding: '13px', fontSize: 15, marginTop: 8,
+          background: yendo ? 'var(--line)' : 'var(--bright)', color: '#fff',
+        }}>{yendo ? 'Verificando…' : 'Entrar'}</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── COOPERATIVAS ──────────────────────────────────────────────
+function Empresas({ api, empresas, recargar, aviso, fallo }) {
+  const [abierta, setAbierta] = React.useState(null);
+  const [nueva, setNueva] = React.useState(null);
+  const [form, setForm] = React.useState({
+    companyId: '', name: '', ruc: '', contacto: '',
+    ruta: '', nombreRuta: '', despacho: '', clave: '',
+  });
+  const [sub, setSub] = React.useState({ usuario: '', clave: '' });
+  const [rutaNueva, setRutaNueva] = React.useState({ routeId: '', name: '' });
+  const [confirmar, setConfirmar] = React.useState(null);
+  const [ocupado, setOcupado] = React.useState(false);
+
+  const correr = async (fn, mensaje) => {
+    setOcupado(true);
+    try { await fn(); aviso(mensaje); await recargar(); }
+    catch (e) { fallo(e.message); }
+    setOcupado(false);
+  };
+
+  const crear = () => correr(async () => {
+    await api('/empresas', { method: 'POST', body: JSON.stringify(form) });
+    setForm({ companyId: '', name: '', ruc: '', contacto: '', ruta: '', nombreRuta: '', despacho: '', clave: '' });
+    setNueva(null);
+  }, 'Cooperativa creada');
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <div className="black" style={{ fontSize: 18 }}>Cooperativas</div>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setNueva(nueva ? null : true)} style={{
+          padding: '8px 14px', fontSize: 13,
+          background: nueva ? 'var(--line)' : 'var(--bright)', color: '#fff',
+        }}>{nueva ? 'Cancelar' : '+ Nueva cooperativa'}</button>
+      </div>
+
+      {nueva && (
+        <div style={{
+          background: 'var(--surface)', border: '1px solid var(--line)',
+          borderRadius: 14, padding: 16, marginBottom: 16,
+        }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="campo">
+              <label>Código *</label>
+              <input value={form.companyId} placeholder="COOP-15"
+                onChange={e => setForm({ ...form, companyId: e.target.value })} />
+            </div>
+            <div className="campo">
+              <label>Nombre *</label>
+              <input value={form.name} placeholder="Cooperativa Santa Rosa"
+                onChange={e => setForm({ ...form, name: e.target.value })} />
+            </div>
+            <div className="campo">
+              <label>RUC</label>
+              <input value={form.ruc} onChange={e => setForm({ ...form, ruc: e.target.value })} />
+            </div>
+            <div className="campo">
+              <label>Contacto</label>
+              <input value={form.contacto} onChange={e => setForm({ ...form, contacto: e.target.value })} />
+            </div>
+            <div className="campo">
+              <label>Primera ruta</label>
+              <input value={form.ruta} placeholder="R-15"
+                onChange={e => setForm({ ...form, ruta: e.target.value })} />
+            </div>
+            <div className="campo">
+              <label>Nombre de la ruta</label>
+              <input value={form.nombreRuta} placeholder="Plaza ↔ Salida Cusco"
+                onChange={e => setForm({ ...form, nombreRuta: e.target.value })} />
+            </div>
+            <div className="campo">
+              <label>Usuario de Despacho</label>
+              <input value={form.despacho} placeholder="DESPACHO-15"
+                onChange={e => setForm({ ...form, despacho: e.target.value })} />
+            </div>
+            <div className="campo">
+              <label>Su clave</label>
+              <input value={form.clave} onChange={e => setForm({ ...form, clave: e.target.value })} />
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--dim2)', lineHeight: 1.5, margin: '4px 0 12px' }}>
+            La ruta y la cuenta de Despacho son opcionales, pero conviene
+            cargarlas acá: sin ruta nadie de esa cooperativa se puede conectar,
+            y sin cuenta de Despacho no hay quien la administre. La clave se
+            ve una sola vez — anotala ahora para dictarla.
+          </div>
+          <button disabled={ocupado} onClick={crear} style={{
+            padding: '10px 18px', fontSize: 14, background: 'var(--bright)', color: '#fff',
+          }}>Crear</button>
+        </div>
+      )}
+
+      {empresas.map(e => (
+        // data-empresa deja claro en el DOM de qué cooperativa es cada
+        // tarjeta: con varias una debajo de otra y botones que suspenden,
+        // saber cuál es cuál sin leer el texto vale la pena.
+        <div key={e.companyId} data-empresa={e.companyId} style={{
+          background: 'var(--surface)', border: '1px solid var(--line)',
+          borderRadius: 14, padding: 14, marginBottom: 10,
+          opacity: e.activa ? 1 : .6,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div className="black" style={{ fontSize: 16 }}>{e.name}</div>
+            <div className="mono" style={{ fontSize: 12, color: 'var(--dim)' }}>{e.companyId}</div>
+            {!e.activa && (
+              <div className="mono" style={{ fontSize: 11, fontWeight: 800, color: 'var(--red)' }}>SUSPENDIDA</div>
+            )}
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setAbierta(abierta === e.companyId ? null : e.companyId)} style={{
+              padding: '6px 12px', fontSize: 12, background: 'var(--campo)', color: 'var(--fg2)',
+              border: '1px solid var(--line)',
+            }}>{abierta === e.companyId ? 'Cerrar' : 'Administrar'}</button>
+          </div>
+
+          <div style={{ fontSize: 13, color: 'var(--dim)', marginTop: 6 }}>
+            {e.rutas.length
+              ? e.rutas.map(r => r.routeId).join(' · ')
+              : <span style={{ color: 'var(--amber)' }}>Sin rutas — nadie puede conectarse</span>}
+            {' — '}{e.vehiculos} vehículo(s) · {e.personas} persona(s)
+            {' — '}
+            {e.despacho.length
+              ? `despacho: ${e.despacho.map(d => d.unitId).join(', ')}`
+              : <span style={{ color: 'var(--amber)' }}>sin cuenta de Despacho</span>}
+          </div>
+
+          {abierta === e.companyId && (
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--divider)', paddingTop: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+                <div>
+                  <div className="mono" style={{
+                    fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
+                    textTransform: 'uppercase', marginBottom: 8,
+                  }}>Cuenta de Despacho</div>
+                  <div className="campo">
+                    <label>Usuario</label>
+                    <input value={sub.usuario} placeholder="DESPACHO-15"
+                      onChange={ev => setSub({ ...sub, usuario: ev.target.value })} />
+                  </div>
+                  <div className="campo">
+                    <label>Clave nueva</label>
+                    <input value={sub.clave} onChange={ev => setSub({ ...sub, clave: ev.target.value })} />
+                  </div>
+                  <button disabled={ocupado} onClick={() => correr(async () => {
+                    await api(`/empresas/${e.companyId}/despacho`, {
+                      method: 'POST', body: JSON.stringify(sub),
+                    });
+                    setSub({ usuario: '', clave: '' });
+                  }, 'Cuenta de Despacho lista')} style={{
+                    padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
+                    color: 'var(--fg2)', border: '1px solid var(--line)',
+                  }}>Crear o restablecer</button>
+                  <div style={{ fontSize: 11, color: 'var(--dim2)', marginTop: 6, lineHeight: 1.45 }}>
+                    Si la cuenta ya existe, se le cambia la clave y se le
+                    cierran las sesiones abiertas. Queda registrado en la
+                    actividad de esa cooperativa: ellos van a ver que alguien
+                    de arriba les tocó una cuenta.
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mono" style={{
+                    fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
+                    textTransform: 'uppercase', marginBottom: 8,
+                  }}>Ruta nueva</div>
+                  <div className="campo">
+                    <label>Código</label>
+                    <input value={rutaNueva.routeId} placeholder="R-16"
+                      onChange={ev => setRutaNueva({ ...rutaNueva, routeId: ev.target.value })} />
+                  </div>
+                  <div className="campo">
+                    <label>Nombre</label>
+                    <input value={rutaNueva.name} placeholder="Circunvalación"
+                      onChange={ev => setRutaNueva({ ...rutaNueva, name: ev.target.value })} />
+                  </div>
+                  <button disabled={ocupado} onClick={() => correr(async () => {
+                    await api(`/empresas/${e.companyId}/rutas`, {
+                      method: 'POST', body: JSON.stringify(rutaNueva),
+                    });
+                    setRutaNueva({ routeId: '', name: '' });
+                  }, 'Ruta creada')} style={{
+                    padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
+                    color: 'var(--fg2)', border: '1px solid var(--line)',
+                  }}>Crear ruta</button>
+                  <div style={{ fontSize: 11, color: 'var(--dim2)', marginTop: 6, lineHeight: 1.45 }}>
+                    El recorrido se dibuja después, desde el panel de Despacho
+                    de esa cooperativa.
+                  </div>
+                </div>
+              </div>
+
+              {/* Suspender saca de circulación a una cooperativa entera en el
+                  acto: los choferes que están manejando pierden la pantalla y
+                  Despacho se queda sin mapa. A un solo clic, y con las
+                  tarjetas una debajo de otra, es demasiado fácil apretar la
+                  equivocada — así que hay que confirmar y el cartel dice el
+                  nombre de cuál. Habilitar no necesita confirmación: no rompe
+                  nada. */}
+              <div style={{ marginTop: 16, borderTop: '1px solid var(--divider)', paddingTop: 14 }}>
+                {e.activa && confirmar !== e.companyId && (
+                  <button disabled={ocupado} onClick={() => setConfirmar(e.companyId)} style={{
+                    padding: '8px 14px', fontSize: 13, background: 'rgba(255,77,109,.12)',
+                    color: 'var(--red)', border: '1px solid var(--red)',
+                  }}>Suspender</button>
+                )}
+                {e.activa && confirmar === e.companyId && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, color: 'var(--red)', fontWeight: 700 }}>
+                      ¿Suspender {e.name}?
+                    </span>
+                    <button disabled={ocupado} onClick={() => { setConfirmar(null); correr(
+                      () => api(`/empresas/${e.companyId}/estado`, {
+                        method: 'POST', body: JSON.stringify({ activa: false }),
+                      }), 'Cooperativa suspendida');
+                    }} style={{
+                      padding: '8px 14px', fontSize: 13, background: 'var(--red)', color: '#fff',
+                    }}>Sí, suspender</button>
+                    <button onClick={() => setConfirmar(null)} style={{
+                      padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
+                      color: 'var(--dim)', border: '1px solid var(--line)',
+                    }}>No</button>
+                  </span>
+                )}
+                {!e.activa && (
+                  <button disabled={ocupado} onClick={() => correr(
+                    () => api(`/empresas/${e.companyId}/estado`, {
+                      method: 'POST', body: JSON.stringify({ activa: true }),
+                    }), 'Cooperativa habilitada',
+                  )} style={{
+                    padding: '8px 14px', fontSize: 13, background: 'rgba(61,214,133,.12)',
+                    color: 'var(--green)', border: '1px solid var(--green)',
+                  }}>Habilitar</button>
+                )}
+                <span style={{ fontSize: 12, color: 'var(--dim2)', marginLeft: 12 }}>
+                  Suspender corta el acceso de toda su gente y cierra las
+                  sesiones abiertas en el momento.
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── SALUD DEL SISTEMA ─────────────────────────────────────────
+function Sistema({ datos }) {
+  if (!datos) return <div style={{ color: 'var(--dim)' }}>Cargando…</div>;
+  const tarjetas = [
+    ['Encendido hace', duracion(datos.ahora - datos.arrancadoEn)],
+    ['Unidades en el mapa', datos.unidades],
+    ['Conexiones', datos.conexiones],
+    ['Cooperativas', `${datos.empresasActivas} de ${datos.empresas}`],
+    ['Rutas', datos.rutas],
+    ['Vehículos', datos.vehiculos],
+    ['Personas', datos.personas],
+    ['Sesiones abiertas', datos.sesionesAbiertas],
+    ['Base de datos', `${datos.baseMb} MB`],
+    ['Memoria', `${datos.memoriaMb} MB`],
+    ['Node', datos.node],
+    ['Sesiones de creador', datos.sesionesCreador],
+  ];
+  return (
+    <div>
+      <div className="black" style={{ fontSize: 18, marginBottom: 14 }}>Sistema</div>
+
+      {!datos.basePersistente && (
+        <div style={{
+          background: 'rgba(255,77,109,.1)', border: '1px solid var(--red)',
+          borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+          fontSize: 13, color: 'var(--red)', lineHeight: 1.5,
+        }}>
+          <strong>La base está en memoria.</strong> Todo lo que se cargue se
+          pierde al reiniciar: cuentas, historial, vueltas y turnos. Hay que
+          montar un volumen y apuntarle <code>DB_FILE</code>.
+        </div>
+      )}
+      {!datos.segundoFactor && (
+        <div style={{
+          background: 'rgba(245,197,66,.08)', border: '1px solid var(--amber)',
+          borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+          fontSize: 13, color: 'var(--amber)', lineHeight: 1.5,
+        }}>
+          Este panel entra <strong>solo con clave</strong>. Es el nivel que
+          puede crear cooperativas: conviene sumarle el segundo factor con
+          <code> CREATOR_TOTP_SECRET</code>.
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+        {tarjetas.map(([etiqueta, valor]) => (
+          <div key={etiqueta} style={{
+            background: 'var(--surface)', border: '1px solid var(--line)',
+            borderRadius: 12, padding: '10px 12px',
+          }}>
+            <div className="black" style={{ fontSize: 20 }}>{valor}</div>
+            <div style={{ fontSize: 11, color: 'var(--dim2)', textTransform: 'uppercase', letterSpacing: .5 }}>
+              {etiqueta}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--dim2)', marginTop: 14, lineHeight: 1.5 }}>
+        La base cuenta el archivo y su WAL juntos: el WAL puede crecer más que
+        el archivo principal y es lo primero que llena un volumen chico.
+      </div>
+    </div>
+  );
+}
+
+// ─── ACTIVIDAD ─────────────────────────────────────────────────
+function Actividad({ eventos }) {
+  if (!eventos) return <div style={{ color: 'var(--dim)' }}>Cargando…</div>;
+  return (
+    <div>
+      <div className="black" style={{ fontSize: 18, marginBottom: 6 }}>Actividad</div>
+      <div style={{ fontSize: 12, color: 'var(--dim2)', marginBottom: 12, lineHeight: 1.5 }}>
+        Todas las cooperativas juntas — es el único lugar del sistema donde se
+        ven así. Las acciones del creador figuran como <code>CREADOR</code>.
+      </div>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--line)',
+        borderRadius: 14, padding: '4px 10px 10px',
+      }}>
+        <table>
+          <thead>
+            <tr><th>Cuándo</th><th>Empresa</th><th>Quién</th><th>Qué</th><th>Sobre</th><th>Detalle</th></tr>
+          </thead>
+          <tbody>
+            {eventos.map((e, i) => (
+              <tr key={i}>
+                <td className="mono" style={{ color: 'var(--dim)', whiteSpace: 'nowrap' }}>{fecha(e.timestamp)}</td>
+                <td className="mono" style={{ color: 'var(--dim)' }}>{e.companyId || '—'}</td>
+                <td style={{ fontWeight: 700, color: e.actor === 'CREADOR' ? 'var(--bright)' : 'var(--fg2)' }}>{e.actor}</td>
+                <td>{e.action}</td>
+                <td className="mono" style={{ color: 'var(--dim)' }}>{e.target || ''}</td>
+                <td style={{ color: 'var(--dim)' }}>{e.detail || ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── PANEL ─────────────────────────────────────────────────────
+function Panel({ token, onSalir }) {
+  const [pestana, setPestana] = React.useState('empresas');
+  const [empresas, setEmpresas] = React.useState([]);
+  const [sistema, setSistema] = React.useState(null);
+  const [eventos, setEventos] = React.useState(null);
+  const [aviso, setAviso] = React.useState(null);
+  const [error, setError] = React.useState(null);
+
+  const api = async (ruta, opciones = {}) => {
+    const res = await fetch(BASE + ruta, {
+      ...opciones,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...(opciones.headers || {}) },
+    });
+    const data = await res.json().catch(() => ({}));
+    // La sesión dura 2 horas y no se renueva sola: cuando vence, afuera.
+    if (res.status === 401) { onSalir(); throw new Error('Sesión vencida'); }
+    if (!res.ok) throw new Error(data.error || 'Error del servidor');
+    return data;
+  };
+
+  const cargarEmpresas = () => api('/empresas').then(d => setEmpresas(d.empresas)).catch(e => setError(e.message));
+  const cargarSistema = () => api('/sistema').then(setSistema).catch(e => setError(e.message));
+  const cargarActividad = () => api('/actividad').then(d => setEventos(d.eventos)).catch(e => setError(e.message));
+
+  React.useEffect(() => { cargarEmpresas(); }, []);
+  React.useEffect(() => {
+    setError(null);
+    if (pestana === 'empresas') cargarEmpresas();
+    if (pestana === 'sistema') cargarSistema();
+    if (pestana === 'actividad') cargarActividad();
+  }, [pestana]);
+
+  // El aviso se borra solo a los 4 segundos, pero hay que cancelar el
+  // temporizador del anterior: si no, dos acciones seguidas hacen que el
+  // reloj de la primera apague el cartel de la segunda a mitad de camino.
+  const relojAviso = React.useRef(null);
+  const avisar = (m) => {
+    clearTimeout(relojAviso.current);
+    setError(null); setAviso(m);
+    relojAviso.current = setTimeout(() => setAviso(null), 4000);
+  };
+  const fallar = (m) => { clearTimeout(relojAviso.current); setAviso(null); setError(m); };
+
+  const salir = () => {
+    fetch(BASE + '/salir', { method: 'POST', headers: { Authorization: 'Bearer ' + token } })
+      .catch(() => {})
+      .finally(onSalir);
+  };
+
+  return (
+    <div style={{ maxWidth: 1080, margin: '0 auto', padding: '18px 18px 60px' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+        paddingBottom: 14, borderBottom: '1px solid var(--divider)', marginBottom: 18,
+      }}>
+        <div className="black" style={{ fontSize: 20 }}>Creador</div>
+        {[['empresas', 'COOPERATIVAS'], ['sistema', 'SISTEMA'], ['actividad', 'ACTIVIDAD']].map(([k, etiqueta]) => (
+          <button key={k} onClick={() => setPestana(k)} style={{
+            background: 'transparent', padding: 0, fontSize: 13, letterSpacing: .5,
+            color: pestana === k ? 'var(--fg)' : 'var(--dim2)',
+            borderBottom: pestana === k ? '2px solid var(--bright)' : '2px solid transparent',
+          }} className="mono">{etiqueta}</button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <button onClick={salir} style={{
+          padding: '7px 13px', fontSize: 12, background: 'var(--campo)',
+          color: 'var(--dim)', border: '1px solid var(--line)',
+        }}>Salir</button>
+      </div>
+
+      {aviso && <div style={{ color: 'var(--green)', fontSize: 13, fontWeight: 700, marginBottom: 12 }}>{aviso}</div>}
+      {error && <div style={{ color: 'var(--red)', fontSize: 13, fontWeight: 700, marginBottom: 12 }}>{error}</div>}
+
+      {pestana === 'empresas' && (
+        <Empresas api={api} empresas={empresas} recargar={cargarEmpresas} aviso={avisar} fallo={fallar} />
+      )}
+      {pestana === 'sistema' && <Sistema datos={sistema} />}
+      {pestana === 'actividad' && <Actividad eventos={eventos} />}
+    </div>
+  );
+}
+
+function App() {
+  // El token vive en memoria y nada más. Cerrar la pestaña cierra la sesión.
+  const [token, setToken] = React.useState(null);
+  return token
+    ? <Panel token={token} onSalir={() => setToken(null)} />
+    : <Puerta onEntrar={setToken} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
