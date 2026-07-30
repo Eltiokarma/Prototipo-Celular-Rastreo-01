@@ -172,6 +172,18 @@ db.exec(`
 
 const DEFAULT_ROUTE = process.env.DEFAULT_ROUTE || 'R-14';
 
+// Los identificadores (unidad, vehículo, ruta, usuario) terminan pintados
+// dentro del HTML de los pines del mapa, así que se limitan a un juego de
+// caracteres seguro. Sin esto, alguien con cuenta de Despacho podía dar de
+// alta una unidad llamada "<img onerror=...>" y ejecutar código en el
+// navegador de los demás encargados — con su sesión abierta. Los NOMBRES y
+// alias no tienen esta restricción: van por React, que los escapa solo.
+const ID_VALIDO = /^[A-Za-z0-9._-]{1,24}$/;
+function idLimpio(v) {
+  const s = String(v || '').trim();
+  return ID_VALIDO.test(s) ? s : null;
+}
+
 // Agrega una columna solo si falta: así las bases ya existentes migran
 // solas sin perder nada.
 function addColumnIfMissing(table, column, definition) {
@@ -628,12 +640,20 @@ setInterval(() => {
 // DISPATCH_PASSWORD seteada, la cuenta se crea o actualiza al arrancar.
 // Sin la variable, rige el registro en el primer uso como para
 // cualquier unidad.
+// Mínimo al FIJAR una contraseña. El login no lo exige a propósito: las
+// cuentas viejas con claves cortas tienen que poder entrar hasta que Despacho
+// se las resetee, si no quedarían afuera de golpe.
+const CLAVE_MINIMA = 6;
+
 const DISPATCH_ID = 'DESPACHO';
 if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
   // El login exige 4 caracteres: con una clave más corta la cuenta quedaría
   // creada pero imposible de usar. Mejor avisar y no tocar la que había.
   console.error('DISPATCH_PASSWORD tiene menos de 4 caracteres: el login la va a ' +
     'rechazar siempre. La cuenta DESPACHO queda como estaba — poné una clave más larga.');
+} else if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < CLAVE_MINIMA) {
+  console.warn(`DISPATCH_PASSWORD es más corta que ${CLAVE_MINIMA} caracteres. ` +
+    'Funciona, pero es la cuenta que administra a todos: conviene una más larga.');
 } else if (process.env.DISPATCH_PASSWORD) {
   const hash = hashPassword(process.env.DISPATCH_PASSWORD);
   const exists = db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(DISPATCH_ID);
@@ -644,6 +664,14 @@ if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
       .run(DISPATCH_ID, 'Despacho', 'Despacho', 'dispatch', hash, Date.now());
   }
   console.log('Cuenta DESPACHO lista (desde DISPATCH_PASSWORD)');
+}
+
+if (process.env.OPEN_REGISTRATION === '1') {
+  console.warn('╔══════════════════════════════════════════════════════════╗');
+  console.warn('║ OPEN_REGISTRATION=1: CUALQUIERA que sepa la URL puede    ║');
+  console.warn('║ crear una unidad y entrar. Es solo para demostraciones.  ║');
+  console.warn('║ En producción hay que sacar esta variable.               ║');
+  console.warn('╚══════════════════════════════════════════════════════════╝');
 }
 
 // ─── AUDITORÍA ───────────────────────────────────────────────
@@ -743,11 +771,57 @@ function trackLap(unitId, routeId, progress, speed) {
 // Intentos fallidos por unidad: 5 seguidos → bloqueo de 5 minutos
 const loginAttempts = new Map();
 
+// El bloqueo por cuenta no alcanza: alguien puede probar UNA contraseña
+// contra muchas cuentas distintas y nunca dispararlo. Por eso se cuenta
+// también por origen. Los dos viven en memoria y se limpian solos.
+const intentosPorIp = new Map();
+const IP_MAX_FALLOS = 30;        // en la ventana
+const IP_VENTANA_MS = 600_000;   // 10 minutos
+const IP_BLOQUEO_MS = 600_000;
+
+function origenDe(req) {
+  // Railway y cualquier proxy ponen la IP real acá; el socket vería la del proxy
+  const xf = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return xf || req.socket?.remoteAddress || 'desconocido';
+}
+
+function ipBloqueada(ip) {
+  const e = intentosPorIp.get(ip);
+  return !!(e && e.until > Date.now());
+}
+
+function anotarFalloIp(ip) {
+  const ahora = Date.now();
+  const e = intentosPorIp.get(ip);
+  if (!e || ahora - e.desde > IP_VENTANA_MS) {
+    intentosPorIp.set(ip, { fallos: 1, desde: ahora, until: 0 });
+    return;
+  }
+  e.fallos++;
+  if (e.fallos >= IP_MAX_FALLOS) {
+    e.until = ahora + IP_BLOQUEO_MS;
+    console.warn(`Origen bloqueado por intentos fallidos: ${ip}`);
+  }
+}
+
+// Limpieza cada media hora, para que el Map no crezca sin fin
+setInterval(() => {
+  const ahora = Date.now();
+  for (const [ip, e] of intentosPorIp) {
+    if (e.until < ahora && ahora - e.desde > IP_VENTANA_MS) intentosPorIp.delete(ip);
+  }
+}, 1_800_000);
+
 app.post('/auth/login', (req, res) => {
-  const unitId = String(req.body?.user || '').trim().slice(0, 24);
+  const unitId = idLimpio(req.body?.user);
   const password = String(req.body?.password || '');
   if (!unitId || password.length < 4 || password.length > 64) {
     return res.status(400).json({ error: 'Completá usuario y contraseña (mínimo 4 caracteres)' });
+  }
+
+  const ip = origenDe(req);
+  if (ipBloqueada(ip)) {
+    return res.status(429).json({ error: 'Demasiados intentos desde este dispositivo. Esperá 10 minutos.' });
   }
 
   const a = loginAttempts.get(unitId);
@@ -763,6 +837,9 @@ app.post('/auth/login', (req, res) => {
     // demos sin administración, cualquier unidad si OPEN_REGISTRATION=1.
     const openReg = process.env.OPEN_REGISTRATION === '1';
     if (unitId !== DISPATCH_ID && !openReg) {
+      // Cuenta como fallo: si no, probar usuarios sale gratis y sirve para
+      // averiguar cuáles existen.
+      anotarFalloIp(ip);
       return res.status(403).json({ error: 'Unidad no registrada. Pedí el alta a Despacho.' });
     }
     const role = unitId === DISPATCH_ID ? 'dispatch' : 'driver';
@@ -776,6 +853,7 @@ app.post('/auth/login', (req, res) => {
     created = true;
     console.log(`${role === 'dispatch' ? 'Despacho' : 'Unidad'} registrado: ${unitId}`);
   } else if (!verifyPassword(password, user.passHash)) {
+    anotarFalloIp(ip);
     const count = (a?.count || 0) + 1;
     loginAttempts.set(unitId, { count, until: count >= 5 ? Date.now() + 300_000 : 0 });
     if (count >= 5) audit(unitId, 'login_bloqueado', null, '5 intentos fallidos', user.routeId);
@@ -810,8 +888,15 @@ function requireDispatch(req, res, next) {
   const auth = String(req.headers.authorization || '');
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
   const user = sessionUser(token);
-  if (!user || user.role !== 'dispatch') {
-    return res.status(401).json({ error: 'Requiere sesión de Despacho' });
+  // Se distingue "no hay sesión" (401) de "esta sesión no alcanza" (403).
+  // No es un detalle: el panel trata el 401 como sesión vencida y saca al
+  // usuario al login, así que devolver 401 por falta de permisos echaría a
+  // un despachador que simplemente pidió algo que no le corresponde.
+  if (!user) {
+    return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  }
+  if (user.role !== 'dispatch') {
+    return res.status(403).json({ error: 'Requiere una cuenta de Despacho' });
   }
   req.dispatchUser = user;
   // Alcance del despachador: un supervisor (dispatch sin ruta) administra
@@ -862,7 +947,10 @@ app.get('/admin/routes', requireDispatch, (req, res) => {
 });
 
 app.post('/admin/routes', requireSupervisor, (req, res) => {
-  const routeId = String(req.body?.routeId || '').trim().slice(0, 24);
+  const routeId = idLimpio(req.body?.routeId);
+  if (req.body?.routeId && !routeId) {
+    return res.status(400).json({ error: 'El código de la ruta solo admite letras, números, punto, guion y guion bajo' });
+  }
   const name = String(req.body?.name || '').trim().slice(0, 60) || routeId;
   const targetGapMin = Number(req.body?.targetGapMin);
   const durationMin = Number(req.body?.durationMin);
@@ -1020,7 +1108,10 @@ app.get('/admin/vehicles', requireDispatch, (req, res) => {
 });
 
 app.post('/admin/vehicles', requireDispatch, (req, res) => {
-  const vehicleId = String(req.body?.vehicleId || '').trim().slice(0, 24);
+  const vehicleId = idLimpio(req.body?.vehicleId);
+  if (req.body?.vehicleId && !vehicleId) {
+    return res.status(400).json({ error: 'El código del vehículo solo admite letras, números, punto, guion y guion bajo' });
+  }
   const label = String(req.body?.label || '').trim().slice(0, 40) || null;
   const routeId = rutaObjetivo(req);
   if (!vehicleId) return res.status(400).json({ error: 'Falta el código del vehículo (ej. M-21)' });
@@ -1065,19 +1156,25 @@ app.get('/admin/users', requireDispatch, (req, res) => {
 // Alta de PERSONAS: el nombre real es obligatorio (queda en los registros
 // de la empresa) y el alias es opcional (como la llaman en la ruta).
 app.post('/admin/users', requireDispatch, (req, res) => {
-  const unitId = String(req.body?.unitId || '').trim().slice(0, 24);
+  const unitId = idLimpio(req.body?.unitId);
+  if (req.body?.unitId && !unitId) {
+    return res.status(400).json({ error: 'El usuario solo admite letras, números, punto, guion y guion bajo' });
+  }
   const name = String(req.body?.name || req.body?.driverName || '').trim().slice(0, 60);
   const alias = String(req.body?.alias || '').trim().slice(0, 30) || null;
   const rolPedido = String(req.body?.personRole || 'driver');
   const role = rolPedido === 'collector' ? 'collector' : 'driver';
   const password = String(req.body?.password || '');
   const routeId = rutaObjetivo(req);
-  const vehicleId = String(req.body?.vehicleId || '').trim().slice(0, 24) || null;
+  const vehicleId = req.body?.vehicleId ? idLimpio(req.body.vehicleId) : null;
+  if (req.body?.vehicleId && !vehicleId) {
+    return res.status(400).json({ error: 'El código del vehículo no es válido' });
+  }
 
   if (!unitId) return res.status(400).json({ error: 'Falta el usuario con el que va a entrar' });
   if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
-  if (password.length < 4 || password.length > 64) {
-    return res.status(400).json({ error: 'La contraseña necesita entre 4 y 64 caracteres' });
+  if (password.length < CLAVE_MINIMA || password.length > 64) {
+    return res.status(400).json({ error: `La contraseña necesita entre ${CLAVE_MINIMA} y 64 caracteres` });
   }
   if (!routeOf(routeId)) return res.status(400).json({ error: 'Esa ruta no existe' });
   if (db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
@@ -1159,8 +1256,8 @@ app.post('/admin/users/:unitId/identity', requireDispatch, (req, res) => {
 app.post('/admin/users/:unitId/password', requireDispatch, (req, res) => {
   const unitId = String(req.params.unitId);
   const password = String(req.body?.password || '');
-  if (password.length < 4 || password.length > 64) {
-    return res.status(400).json({ error: 'La contraseña nueva necesita mínimo 4 caracteres' });
+  if (password.length < CLAVE_MINIMA || password.length > 64) {
+    return res.status(400).json({ error: `La contraseña nueva necesita mínimo ${CLAVE_MINIMA} caracteres` });
   }
   const chequeo = cuentaEnAlcance(req, unitId);
   if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
@@ -1310,17 +1407,57 @@ const server = http.createServer(app);
 // Acá empieza lo interesante.
 const wss = new WebSocketServer({ server });
 
+// Tope de mensajes por conexión. Una sesión válida podía mandar miles de
+// mensajes por segundo: cada chat se guarda en la base y se reparte a toda
+// la ruta, y una nota de voz pesa hasta 1,5 MB — un solo cliente descompuesto
+// (o malicioso) le quemaba los datos a todos. El GPS tiene su propio ritmo,
+// más alto, porque llega cada 3 s por diseño.
+const CUPO = {
+  gps:   { max: 40, ventanaMs: 60_000 },   // llega cada 3 s: 20/min es lo normal
+  chat:  { max: 30, ventanaMs: 60_000 },
+  voice: { max: 10, ventanaMs: 60_000 },
+  sos:   { max: 6,  ventanaMs: 60_000 },
+  otro:  { max: 60, ventanaMs: 60_000 },
+};
+const cupos = new WeakMap();
+
+function dentroDelCupo(ws, tipo) {
+  const regla = CUPO[tipo] || CUPO.otro;
+  let porTipo = cupos.get(ws);
+  if (!porTipo) { porTipo = {}; cupos.set(ws, porTipo); }
+  const ahora = Date.now();
+  const e = porTipo[tipo];
+  if (!e || ahora - e.desde > regla.ventanaMs) {
+    porTipo[tipo] = { n: 1, desde: ahora, avisado: false };
+    return true;
+  }
+  e.n++;
+  if (e.n > regla.max) {
+    if (!e.avisado) {
+      e.avisado = true;
+      console.warn(`Cupo excedido (${tipo}) por ${clients.get(ws) || 'sin identificar'}`);
+    }
+    return false;
+  }
+  return true;
+}
+
 wss.on('connection', (ws) => {
   console.log('Nueva conexión WebSocket');
 
   // Cuando llega un mensaje de una combi
   ws.on('message', (raw) => {
+    // Un mensaje descomunal ni se intenta parsear
+    if (raw.length > 2_100_000) return;
+
     let msg;
     try {
       msg = JSON.parse(raw);
     } catch {
       return; // ignorar mensajes que no sean JSON válido
     }
+
+    if (!dentroDelCupo(ws, msg.type)) return;
 
     // TIPO: identificación — el cliente presenta su token de sesión.
     // Sin token válido no hay estado, ni historial, ni chat.
@@ -1532,7 +1669,7 @@ wss.on('connection', (ws) => {
       // personas trae un problema de moderación que no queremos.
       let toVehicleId = null;
       if (prof.role === 'dispatch') {
-        const destino = String(msg.to || '').trim();
+        const destino = idLimpio(msg.to);
         if (destino) {
           if (!units.has(destino) && !vehicleOf(destino)) return;  // unidad inexistente
           toVehicleId = destino;
@@ -1579,7 +1716,7 @@ wss.on('connection', (ws) => {
       // puede hablar con Despacho (su propia conversación).
       let toVehicleId = null;
       if (prof.role === 'dispatch') {
-        const destino = String(msg.to || '').trim();
+        const destino = idLimpio(msg.to);
         if (destino) {
           if (!units.has(destino) && !vehicleOf(destino)) return;
           toVehicleId = destino;
