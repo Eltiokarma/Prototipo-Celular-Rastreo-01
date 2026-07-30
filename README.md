@@ -303,6 +303,22 @@ eso dos rutas con la misma separación física dan brechas distintas.
 | **Supervisor** (`routeId` NULL) | Ve y administra todas las rutas, cambia con el selector del panel, crea rutas nuevas. Es lo que queda la cuenta `DESPACHO` inicial |
 | **Despachador de ruta** (`routeId` con valor) | Solo su ruta: no ve, ni administra, ni recibe nada de las demás |
 
+## Qué frena cada cosa
+
+Repasado antes de salir a la calle con cuentas reales:
+
+| Ataque | Qué lo frena |
+| --- | --- |
+| Adivinar la clave de una cuenta | 5 fallos → 5 minutos bloqueada |
+| Probar una clave contra muchas cuentas | 30 fallos desde un mismo origen en 10 minutos → 10 minutos bloqueado. Un usuario inexistente también suma, así que probar nombres no sale gratis |
+| Meter HTML en un identificador para ejecutar código en el navegador de otro encargado | Los identificadores solo admiten letras, números, punto, guion y guion bajo, y además se escapan al pintarlos |
+| Inundar el chat o mandar notas de voz sin parar con una sesión válida | Cupo por conexión: 30 chats, 10 notas y 40 posiciones por minuto |
+| Mandar un mensaje enorme para tumbar el servidor | Se descarta por encima de 2,1 MB, antes de intentar leerlo |
+| Un chofer entrando a la administración | `/admin/*` exige rol de Despacho (403) y un despachador de ruta solo toca lo suyo |
+| Un token inventado o vencido | 401, y el cliente vuelve al login |
+
+El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
+
 ## Niveles de seguridad
 
 1. **Chofer y cobrador** — su clave abre solo su sesión; no pueden tocar

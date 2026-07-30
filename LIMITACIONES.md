@@ -113,14 +113,35 @@ limitación se resuelva o aparezca una nueva.
 - **Nadie puede cambiar su propia clave**: solo Despacho resetea. Para
   este tamaño es un rasgo (el chofer no se autoexcluye), pero significa
   que una clave dictada por teléfono queda dictada.
+- **Contraseñas:** mínimo 6 caracteres **al fijarlas**. El login no exige
+  ese mínimo a propósito, para que las cuentas cargadas antes con claves
+  cortas puedan seguir entrando hasta que se les resetee. Conviene resetear
+  las viejas.
 - **Sesiones en el celular:** un teléfono robado desbloqueado tiene la
   sesión activa (30 días). Mitigación: Despacho puede resetear la clave
   o dar de baja y la sesión muere al instante.
 - **El "root" es la infraestructura:** quien controla Railway o el repo
   controla todo (documentado en README como diseño intencional).
-- El límite de intentos de login vive en memoria (se resetea al
-  reiniciar el servidor) y no hay captcha: suficiente para este
-  tamaño, no para un ataque masivo desde internet.
+- El límite de intentos vive en memoria (se resetea al reiniciar el
+  servidor) y no hay captcha. Cuenta por cuenta (5 fallos → 5 min) **y por
+  origen** (30 fallos en 10 min → 10 min), que es lo que frena probar una
+  misma clave contra muchas cuentas. Contra una botnet con muchas IPs no
+  alcanza: para eso haría falta captcha o un servicio delante.
+- **Los identificadores** (usuario, vehículo, ruta) están limitados a
+  letras, números, punto, guion y guion bajo, porque terminan pintados
+  dentro del HTML de los pines del mapa. Los nombres y alias no tienen esa
+  restricción: los pinta React, que los escapa solo. Si algún día se pinta
+  un nombre en HTML crudo, hay que pasarlo por `escaparHtml`.
+- **Cupo de mensajes por conexión** (30 chats, 10 notas de voz y 40
+  posiciones por minuto): frena a un cliente descompuesto o malicioso, pero
+  es por conexión — alguien con varias cuentas válidas puede multiplicarlo.
+- **Sin límite de conexiones simultáneas por cuenta**: una misma credencial
+  puede abrir muchas sesiones. Para el GPS no importa (solo una reporta),
+  pero es una vía para consumir memoria del servidor.
+- **CORS abierto** (`Access-Control-Allow-Origin: *`): cualquier página
+  puede llamar a la API. No expone nada por sí solo —todo lo sensible exige
+  el token, que no viaja en cookies— pero conviene cerrarlo al dominio
+  propio cuando haya uno.
 
 ## F. Funcional (recortes conscientes)
 

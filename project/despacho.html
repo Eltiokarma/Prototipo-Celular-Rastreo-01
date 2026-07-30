@@ -108,6 +108,16 @@ function aplicarTema(modo) {
   Object.assign(HUD, TEMAS[modo] || TEMAS.day);
 }
 
+// Cualquier dato que se meta en HTML crudo (los pines del mapa se arman así,
+// que es como los pide Leaflet) pasa por acá. El servidor ya limita los
+// identificadores a caracteres seguros; esto es la segunda pared, para las
+// bases que ya tuvieran algo raro cargado de antes.
+function escaparHtml(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
 const JULIACA_CENTER = [-15.4904, -70.1333];
 // Objetivo de brecha por defecto; cada ruta manda el suyo en el estado
 const TARGET_GAP_DEFAULT = 2;
@@ -1656,7 +1666,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       const color = isSos ? HUD.red : HUD.bright;
       const html = `<div style="position:relative;width:14px;height:14px;">
         <div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid ${HUD.bg};box-shadow:0 0 12px ${color};"></div>
-        <div style="position:absolute;top:18px;left:50%;transform:translateX(-50%);font-family:${mono};font-size:12px;font-weight:700;color:${color};background:rgba(3,6,10,.85);padding:2px 7px;border-radius:6px;white-space:nowrap;">${u.unitId}</div>
+        <div style="position:absolute;top:18px;left:50%;transform:translateX(-50%);font-family:${mono};font-size:12px;font-weight:700;color:${color};background:rgba(3,6,10,.85);padding:2px 7px;border-radius:6px;white-space:nowrap;">${escaparHtml(u.unitId)}</div>
       </div>`;
       const icon = L.divIcon({ html, className: '', iconSize: [14, 14], iconAnchor: [7, 7] });
       if (existing[u.unitId]) {
