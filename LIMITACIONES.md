@@ -11,7 +11,8 @@ limitación se resuelva o aparezca una nueva.
 | 1 | El GPS se corta con la pantalla apagada | La unidad desaparece del mapa a los ~30 s de bloquear el celular o cambiar de app | App nativa (React Native) |
 | 2 | Sin notificaciones con la app cerrada | Un SOS o mensaje no suena si el chofer/encargado no tiene la app abierta | Web Push (Android) o app nativa |
 | 3 | Sin volumen en Railway, un redeploy borra la base | Se pierden usuarios, historial de chat y vueltas | Montar volumen + `DB_FILE=/data/r14.db` (documentado en README) |
-| 4 | Brechas y vueltas son aproximadas | El progreso de ruta es una proyección lineal, no sigue el trazado real de calles | Modelar la ruta con puntos reales |
+| 4 | Brechas y vueltas son aproximadas | El progreso de ruta es una proyección lineal, no sigue el trazado real de calles | Ruta como puntos GPS (ítem 2 de `PENDIENTES.md`) |
+| 8 | **Dos personas con la misma cuenta pisan el GPS** | Si el chofer y el cobrador entran con la misma unidad, ambas conexiones reportan posición y la unidad salta entre los dos celulares | Separar persona de unidad (ítem 1 de `PENDIENTES.md`) |
 | 5 | Una sola cuenta DESPACHO compartida | La auditoría no distingue *cuál* encargado hizo cada cosa | Cuentas de despacho por persona |
 | 6 | Consumo de datos móviles | **Mitigado**: de 839 MB a 40 MB por turno con 20 unidades (98 MB con 50), y los tiles del mapa ya no se rebajan en cada visita. Queda el payload personalizado para rutas de 30+ unidades | Ver `ESCALABILIDAD.md` |
 | 7 | Multi-ruta | **Resuelto**: `routeId` de primera clase, brechas y chat por ruta, supervisor con selector y despachadores por ruta | Ver README, sección Multi-ruta |

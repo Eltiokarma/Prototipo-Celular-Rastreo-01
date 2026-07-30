@@ -61,6 +61,7 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 
 Limitaciones conocidas del sistema: ver **LIMITACIONES.md**.
 Plan de crecimiento a 20+ rutas con números: ver **ESCALABILIDAD.md**.
+Lo que falta construir, ordenado: ver **PENDIENTES.md**.
 
 **Persistencia:** el historial del grupo (últimos 200 mensajes: texto, notas
 de voz y SOS) vive en SQLite (`server/r14.db`). En Railway, para que
