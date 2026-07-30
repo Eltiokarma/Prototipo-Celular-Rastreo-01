@@ -700,6 +700,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   const [metrics, setMetrics] = React.useState(null);
   const [routeList, setRouteList] = React.useState(routes || []);
   const [vehicles, setVehicles] = React.useState(null);
+  const [shifts, setShifts] = React.useState(null);
   const [nuevaRuta, setNuevaRuta] = React.useState({ routeId: '', name: '', targetGapMin: '2', durationMin: '50' });
   const [nuevoVeh, setNuevoVeh] = React.useState({ vehicleId: '', label: '' });
   // Ruta cuyo recorrido se está trazando (null = trazador cerrado)
@@ -762,12 +763,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     .then(d => { setVehicles(d.vehicles || []); })
     .catch(e => setError(e.message));
 
+  const loadShifts = () => api('/admin/shifts')
+    .then(d => { setShifts(d); })
+    .catch(e => setError(e.message));
+
   React.useEffect(() => { load(); loadRoutes(); loadVehicles(); }, []);
   React.useEffect(() => {
     if (tab === 'audit') loadAudit();
     if (tab === 'metrics') loadMetrics();
     if (tab === 'routes') loadRoutes();
     if (tab === 'vehicles') loadVehicles();
+    if (tab === 'shifts') loadShifts();
   }, [tab]);
 
   const run = async (fn, ok) => {
@@ -886,7 +892,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
         borderRadius: 20, padding: 24,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-          {[['users', 'PERSONAS'], ['vehicles', 'VEHÍCULOS'], ['routes', 'RUTAS'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
+          {[['users', 'PERSONAS'], ['vehicles', 'VEHÍCULOS'], ['routes', 'RUTAS'], ['shifts', 'TURNOS'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
               fontFamily: black, fontSize: 17,
@@ -1095,6 +1101,90 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               Hasta juntar 3 vueltas sigue valiendo el número cargado a mano, que
               queda siempre como respaldo.
               {!esSupervisor && ' Solo una cuenta supervisora puede crear rutas.'}
+            </div>
+          </div>
+        )}
+
+        {tab === 'shifts' && (
+          <div>
+            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
+            {!shifts && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
+            {shifts && !shifts.turnos.length && (
+              <div style={{ color: HUD.dim3, fontSize: 14 }}>
+                Todavía nadie salió a ruta hoy. El turno se abre solo cuando alguien
+                entra a su unidad.
+              </div>
+            )}
+            {shifts && shifts.turnos.length > 0 && (() => {
+              const horas = (sec) => {
+                const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+                return h ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
+              };
+              const hora = (ts) => {
+                const d = new Date(ts);
+                return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+              };
+              return (
+                <div>
+                  {/* Lo que le interesa a la cooperativa: horas por persona */}
+                  <div style={{
+                    fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1,
+                    color: HUD.dim3, textTransform: 'uppercase', marginBottom: 8,
+                  }}>Hoy · {shifts.personas.length} persona{shifts.personas.length === 1 ? '' : 's'}</div>
+                  {shifts.personas.map(p => (
+                    <div key={p.personId} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                      padding: '9px 4px', borderBottom: `1px solid ${HUD.divider}`,
+                    }}>
+                      <span style={{ fontSize: 14, color: HUD.fg2, flex: '1 1 150px', minWidth: 0 }}>
+                        {p.alias ? <>{p.alias} <span style={{ color: HUD.dim3 }}>· {p.name}</span></> : (p.name || p.personId)}
+                      </span>
+                      <span style={{ fontFamily: mono, fontSize: 12, color: HUD.dim2, whiteSpace: 'nowrap' }}>
+                        {p.vehiculos.join(', ')}
+                      </span>
+                      <span style={{ fontFamily: black, fontSize: 15, color: HUD.fg, whiteSpace: 'nowrap' }}>
+                        {horas(p.totalSec)}
+                      </span>
+                    </div>
+                  ))}
+
+                  <div style={{
+                    fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1,
+                    color: HUD.dim3, textTransform: 'uppercase', margin: '18px 0 8px',
+                  }}>Detalle</div>
+                  {shifts.turnos.map(t => (
+                    <div key={t.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                      padding: '8px 4px', borderBottom: `1px solid ${HUD.divider}`, fontSize: 13,
+                    }}>
+                      <span style={{
+                        width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                        background: t.abierto ? HUD.green : HUD.apagado,
+                        boxShadow: t.abierto ? `0 0 8px ${HUD.green}` : 'none',
+                      }} title={t.abierto ? 'Todavía arriba' : 'Terminado'} />
+                      <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2, whiteSpace: 'nowrap' }}>
+                        {hora(t.startedAt)} → {t.abierto ? 'ahora' : hora(t.endedAt)}
+                      </span>
+                      <span style={{ color: HUD.fg2, flex: '1 1 140px', minWidth: 0,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.alias || t.name || t.personId}
+                        {t.role === 'collector' && <span style={{ color: HUD.dim3 }}> · cobrador</span>}
+                      </span>
+                      <span style={{ fontFamily: black, fontSize: 13, color: HUD.fg, whiteSpace: 'nowrap' }}>{t.vehicleId}</span>
+                      <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim, whiteSpace: 'nowrap' }}>
+                        {horas(t.duracionSec)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
+              El turno se abre solo cuando alguien entra a su unidad y se cierra
+              cuando se va. Un corte de señal <strong>no</strong> parte el turno: si
+              vuelve dentro de los 15 minutos, se retoma el mismo. Si el servidor se
+              reinicia, los turnos que quedaron abiertos se cierran con la última
+              señal que se les vio.
             </div>
           </div>
         )}

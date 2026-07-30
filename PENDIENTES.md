@@ -10,11 +10,10 @@ compromete nada (ver *Ítems ya cerrados* al final).
 | # | Qué | Por qué en ese lugar | Tamaño |
 | --- | --- | --- | --- |
 | 1 | **Aviso de desvío de ruta** | El servidor ya sabe a cuántos metros del trazado va cada unidad; falta decidir umbral, antirrebote y a quién se le avisa | 1 día |
-| 2 | **Turnos** (quién maneja qué unidad y cuándo) | Ahora que la persona existe aparte del vehículo, es el paso natural: habilita horas trabajadas y relevos planificados | 1–2 días |
+| 2 | **Informes exportables** | Los números ya son buenos (recorrido real, objetivo calculado, turnos registrados); falta exportarlos | 1–2 días |
 | 3 | **Empresas (multi-cooperativa)** | Nivel de agrupación arriba de las rutas; lo pide la venta, no la operación | 2 días |
-| 4 | **Informes exportables** | Los números ya son buenos (recorrido real y objetivo calculado); falta exportarlos | 1–2 días |
-| 5 | **Panel del gerente de ruta** | Vive de los datos de 4 | 2 días |
-| 6 | **Panel del creador (nuestro)** | Encima de todo; sin 3 no tiene mucho que mostrar | 2–3 días |
+| 4 | **Panel del gerente de ruta** | Vive de los datos de 2 | 2 días |
+| 5 | **Panel del creador (nuestro)** | Encima de todo; sin 3 no tiene mucho que mostrar, y necesita su propio nivel de protección | 2–3 días |
 
 ---
 
@@ -37,20 +36,17 @@ convertir eso en un aviso útil.
 - **Qué es un desvío legítimo:** un desvío por obra o por bloqueo es normal y
   no debería sonar toda la mañana. Conviene poder silenciarlo por turno.
 
-## 2. Turnos
+## 2. Informes exportables
 
-**Hoy:** la asignación persona → vehículo vive en la cuenta y es fija. El
-relevo funciona en la práctica (el último chofer que entra toma el mando
-del GPS y al anterior se le avisa), pero no queda registrado: no se sabe
-quién manejó qué unidad y por cuánto tiempo.
+CSV y PDF de: vueltas por unidad y por período, cumplimiento de brecha
+(cuánto tiempo estuvo cada unidad en verde/ámbar/rojo), historial de SOS,
+horas trabajadas por persona (ya se registran los turnos) y actividad de
+administración.
 
-**Propuesta:** una tabla `assignments` (persona, vehículo, desde, hasta).
-Con eso salen las horas trabajadas, quién iba en la unidad cuando pasó
-algo, y Despacho puede planificar el relevo en vez de descubrirlo.
-
-**Cuidado:** no convertirlo en un sistema de RRHH. Alcanza con registrar
-lo que el sistema ya ve solo (quién entró, en qué unidad, cuándo salió) y
-dejar la edición manual para las excepciones.
+Cuidado con una tentación: los informes son fáciles de hacer y difíciles
+de hacer *bien*. Un informe con brechas aproximadas (una ruta sin
+recorrido cargado) da números que parecen precisos y no lo son — y eso es peor que no tener
+informe.
 
 ## 3. Empresas (multi-cooperativa)
 
@@ -62,26 +58,14 @@ licencia.
 Es el cambio que convierte esto de "sistema de la R-14" en "producto que
 se le vende a cualquier cooperativa".
 
-## 4. Informes exportables
-
-CSV y PDF de: vueltas por unidad y por período, cumplimiento de brecha
-(cuánto tiempo estuvo cada unidad en verde/ámbar/rojo), historial de SOS,
-horas trabajadas por persona (necesita el ítem 2, turnos) y actividad de
-administración.
-
-Cuidado con una tentación: los informes son fáciles de hacer y difíciles
-de hacer *bien*. Un informe con brechas aproximadas (una ruta sin
-recorrido cargado) da números que parecen precisos y no lo son — y eso es peor que no tener
-informe.
-
-## 5. Panel del gerente de ruta
+## 4. Panel del gerente de ruta
 
 Distinto del de Despacho a propósito: **Despacho opera, el gerente
 mira**. Sin botones de administración ni chat operativo; con métricas,
 tendencias, cumplimiento, comparación entre unidades y descarga de
 informes. Rol nuevo (`manager`) con alcance a una ruta o a la empresa.
 
-## 6. Panel del creador (nuestro)
+## 5. Panel del creador (nuestro)
 
 El nivel que hoy vive fuera de la app (ver "Niveles de seguridad" en el
 README), hecho pantalla:
@@ -103,6 +87,12 @@ todo se abre con una contraseña más, el nivel de arriba deja de existir.
 
 ## Ítems ya cerrados
 
+- **Turnos.** Se abre cuando la persona entra a su unidad y se cierra cuando
+  se va, tolerando cortes de señal y reinicios del servidor. Panel → TURNOS,
+  con horas por persona. Ver README, sección Turnos.
+- **Revisión de seguridad**: inyección de HTML por identificadores, fuerza
+  bruta por origen, cupo de mensajes por conexión. Ver README, sección Qué
+  frena cada cosa.
 - **Objetivo de brecha automático.** Vuelta promedio del mismo día de la
   semana ÷ unidades en ruta, con arranque en frío que respeta el valor manual,
   suavizado para que el HUD no parpadee y topes de cordura. Ver README,

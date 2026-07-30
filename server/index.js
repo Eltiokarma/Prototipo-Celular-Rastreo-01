@@ -707,6 +707,84 @@ function audit(actor, action, target, detail, routeId) {
 // vuelve al inicio. Se guarda duración y velocidad promedio; con eso
 // Despacho tiene historial y métricas por unidad para ordenar la rueda.
 
+// ─── TURNOS ──────────────────────────────────────────────────
+// Quién manejó qué unidad y cuánto tiempo. Se registra SOLO lo que el
+// sistema ya ve solo: cuándo alguien entra a una unidad y cuándo se va.
+// A propósito no es un sistema de recursos humanos — para las excepciones
+// (se olvidó de salir, prestó el celular) hace falta corrección a mano, y
+// eso es otra discusión.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS shifts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    personId TEXT NOT NULL,      -- la PERSONA (su usuario)
+    vehicleId TEXT NOT NULL,     -- la combi en la que anduvo
+    routeId TEXT,
+    role TEXT NOT NULL,          -- 'driver' | 'collector'
+    startedAt INTEGER NOT NULL,
+    lastSeenAt INTEGER NOT NULL, -- para cerrar bien si el servidor se cae
+    endedAt INTEGER              -- NULL = todavía arriba
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_persona ON shifts (personId, startedAt)');
+
+// Un corte de señal no es un turno nuevo. Si la misma persona vuelve a la
+// misma unidad antes de esto, se retoma el turno que estaba en vez de
+// partirlo en pedazos — en la ruta se pierde la señal todo el tiempo.
+const RECONEXION_MS = 15 * 60_000;
+
+// Al arrancar, los turnos que quedaron abiertos se cierran con la última
+// señal que se les vio. Si el servidor se reinicia a mitad de turno, sin
+// esto quedarían abiertos para siempre y las horas darían cualquier cosa.
+{
+  const abiertos = db.prepare('UPDATE shifts SET endedAt = lastSeenAt WHERE endedAt IS NULL').run();
+  if (abiertos.changes) console.log(`Turnos cerrados al arrancar: ${abiertos.changes}`);
+}
+
+function abrirTurno(personId, vehicleId, routeId, role) {
+  const ahora = Date.now();
+  // ¿Venía de un corte de señal? Se retoma el turno anterior
+  const previo = db.prepare(`
+    SELECT id FROM shifts
+    WHERE personId = ? AND vehicleId = ? AND endedAt IS NOT NULL AND endedAt > ?
+    ORDER BY id DESC LIMIT 1
+  `).get(personId, vehicleId, ahora - RECONEXION_MS);
+
+  if (previo) {
+    db.prepare('UPDATE shifts SET endedAt = NULL, lastSeenAt = ? WHERE id = ?').run(ahora, previo.id);
+    return previo.id;
+  }
+  // ¿Ya tenía uno abierto? (dos celulares con la misma cuenta)
+  const abierto = db.prepare(
+    'SELECT id FROM shifts WHERE personId = ? AND endedAt IS NULL ORDER BY id DESC LIMIT 1'
+  ).get(personId);
+  if (abierto) {
+    db.prepare('UPDATE shifts SET lastSeenAt = ? WHERE id = ?').run(ahora, abierto.id);
+    return abierto.id;
+  }
+  const r = db.prepare(`
+    INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, lastSeenAt)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(personId, vehicleId, routeId || null, role || 'driver', ahora, ahora);
+  return r.lastInsertRowid;
+}
+
+function cerrarTurno(personId) {
+  db.prepare('UPDATE shifts SET endedAt = ?, lastSeenAt = ? WHERE personId = ? AND endedAt IS NULL')
+    .run(Date.now(), Date.now(), personId);
+}
+
+// Se marca que la persona sigue arriba. No en cada posición GPS (llegan cada
+// 3 s): alcanza con una vez por minuto para que el cierre por reinicio no
+// pierda más de un minuto.
+const ultimaMarca = new Map();
+function marcarVivo(personId) {
+  const ahora = Date.now();
+  if (ahora - (ultimaMarca.get(personId) || 0) < 60_000) return;
+  ultimaMarca.set(personId, ahora);
+  db.prepare('UPDATE shifts SET lastSeenAt = ? WHERE personId = ? AND endedAt IS NULL')
+    .run(ahora, personId);
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS laps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1293,6 +1371,57 @@ app.get('/admin/audit', requireDispatch, (req, res) => {
   res.json({ events });
 });
 
+// Turnos: quién anduvo en qué unidad y cuánto. Por defecto los de hoy.
+app.get('/admin/shifts', requireDispatch, (req, res) => {
+  const desde = Number(req.query?.desde);
+  const inicio = Number.isFinite(desde) ? desde : (() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
+  })();
+
+  const filas = db.prepare(`
+    SELECT s.id, s.personId, s.vehicleId, s.routeId, s.role,
+           s.startedAt, s.endedAt, s.lastSeenAt,
+           u.name, u.alias
+    FROM shifts s
+    LEFT JOIN users u ON u.unitId = s.personId
+    WHERE s.startedAt >= @inicio
+      AND (@scope IS NULL OR s.routeId = @scope)
+    ORDER BY s.startedAt DESC
+    LIMIT 500
+  `).all({ inicio, scope: req.scope });
+
+  const ahora = Date.now();
+  const turnos = filas.map(t => ({
+    ...t,
+    abierto: t.endedAt === null,
+    // Lo que lleva arriba: si sigue conectado, hasta ahora
+    duracionSec: Math.max(0, Math.round(((t.endedAt || ahora) - t.startedAt) / 1000)),
+  }));
+
+  // Total por persona, que es el número que le interesa a la cooperativa
+  const porPersona = {};
+  for (const t of turnos) {
+    const k = t.personId;
+    if (!porPersona[k]) {
+      porPersona[k] = {
+        personId: k, name: t.name, alias: t.alias, role: t.role,
+        turnos: 0, totalSec: 0, vehiculos: new Set(),
+      };
+    }
+    porPersona[k].turnos++;
+    porPersona[k].totalSec += t.duracionSec;
+    porPersona[k].vehiculos.add(t.vehicleId);
+  }
+
+  res.json({
+    desde: inicio,
+    turnos,
+    personas: Object.values(porPersona)
+      .map(p => ({ ...p, vehiculos: Array.from(p.vehiculos) }))
+      .sort((a, b) => b.totalSec - a.totalSec),
+  });
+});
+
 // Métricas de vueltas por unidad: hoy, última, promedio, mejor, velocidad
 app.get('/admin/metrics', requireDispatch, (req, res) => {
   const dayStart = new Date();
@@ -1525,6 +1654,9 @@ wss.on('connection', (ws) => {
           ws.send(JSON.stringify({ type: 'gps_role', reporting: false, reason: 'Modo acompañante' }));
         }
 
+        // Queda registrado que esta persona subió a esta unidad
+        abrirTurno(user.unitId, vehicleId, user.routeId || veh?.routeId || rutaInicial, user.role);
+
         if (!yaEstaba) {
           broadcastToRoute(rutaInicial, { type: 'unit_joined', unitId: vehicleId });
           scheduleStateBroadcast(rutaInicial, true); // se ve al instante
@@ -1617,6 +1749,10 @@ wss.on('connection', (ws) => {
 
       // Detección de vuelta completa a partir del progreso (del vehículo)
       trackLap(vehicleId, routeId, progreso, msg.speed || 0);
+
+      // Y que la persona sigue arriba, para poder cerrar bien el turno si el
+      // servidor se reinicia
+      marcarVivo(personId);
 
       // Solo se recalcula y emite el estado de SU ruta
       scheduleStateBroadcast(routeId);
@@ -1755,6 +1891,10 @@ wss.on('connection', (ws) => {
     if (!vehicleId) return;
 
     const routeId = units.get(vehicleId)?.routeId || prof?.routeId;
+
+    // Se cierra el turno. Si vuelve en los próximos minutos —un túnel, una
+    // zona sin señal— se retoma este mismo en vez de abrir otro.
+    cerrarTurno(personId);
 
     // ¿Queda alguien más de este vehículo conectado? (chofer + cobrador)
     const otrosDelVehiculo = [];

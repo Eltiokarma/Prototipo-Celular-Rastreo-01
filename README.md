@@ -303,6 +303,30 @@ eso dos rutas con la misma separación física dan brechas distintas.
 | **Supervisor** (`routeId` NULL) | Ve y administra todas las rutas, cambia con el selector del panel, crea rutas nuevas. Es lo que queda la cuenta `DESPACHO` inicial |
 | **Despachador de ruta** (`routeId` con valor) | Solo su ruta: no ve, ni administra, ni recibe nada de las demás |
 
+## Turnos
+
+Quién manejó qué unidad y cuánto tiempo. Se registra **solo lo que el sistema
+ya ve solo**: el turno se abre cuando alguien entra a su unidad y se cierra
+cuando se va. Panel → Gestión → **TURNOS**: horas por persona arriba, y el
+detalle de cada turno abajo con hora de entrada, de salida y unidad.
+
+Dos cosas que lo hacen utilizable en la calle y no solo en la demo:
+
+- **Un corte de señal no parte el turno.** Si la misma persona vuelve a la
+  misma unidad dentro de los 15 minutos, se retoma el turno que estaba en vez
+  de abrir otro. En ruta se pierde señal todo el tiempo; sin esto, un turno de
+  8 horas quedaría partido en veinte pedazos.
+- **Si el servidor se reinicia**, los turnos que quedaron abiertos se cierran
+  con la última señal que se les vio (`lastSeenAt`, que se marca una vez por
+  minuto). Sin eso quedarían abiertos para siempre y las horas darían
+  cualquier cosa.
+
+A propósito **no es un sistema de recursos humanos**: no hay corrección
+manual, ni fichaje, ni aprobación. Para las excepciones —se olvidó de salir de
+la app, prestó el celular— hace falta edición a mano, y eso es otra discusión.
+Lo que hay sirve para saber quién iba en la unidad cuando pasó algo y para el
+informe de horas trabajadas.
+
 ## Qué frena cada cosa
 
 Repasado antes de salir a la calle con cuentas reales:
