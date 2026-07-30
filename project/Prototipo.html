@@ -22,13 +22,22 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
+  /* El marco de la página sigue al tema de la app (día por defecto).
+     Las variables las fija Root al aplicar el tema. */
+  :root {
+    --pag-bg: #F0F4F9;
+    --pag-fg: #0B2239;
+    --pag-dim: #547693;
+    --pag-dim2: #7591AB;
+  }
   html, body {
     margin: 0; padding: 0;
-    background: #0c0c0e;
+    background: var(--pag-bg);
     min-height: 100vh;
     font-family: system-ui, sans-serif;
-    color: #eee;
+    color: var(--pag-fg);
     overflow-x: hidden;
+    transition: background 0.2s;
   }
   .page {
     display: flex; flex-direction: column; align-items: center;
@@ -42,7 +51,7 @@
   .header .eyebrow {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
     font-size: 10px; letter-spacing: 3px;
-    color: #666; text-transform: uppercase;
+    color: var(--pag-dim2); text-transform: uppercase;
     margin-bottom: 8px;
   }
   .header h1 {
@@ -51,7 +60,7 @@
     margin: 0 0 8px; letter-spacing: -0.5px;
   }
   .header p {
-    font-size: 13px; line-height: 1.5; color: #888;
+    font-size: 13px; line-height: 1.5; color: var(--pag-dim);
     margin: 0;
   }
   .stage {
@@ -62,7 +71,7 @@
     margin-top: 24px;
     font-family: 'JetBrains Mono', ui-monospace, monospace;
     font-size: 10px; letter-spacing: 1.5px;
-    color: #555; text-transform: uppercase;
+    color: var(--pag-dim2); text-transform: uppercase;
     text-align: center;
     max-width: 420px;
   }
@@ -171,20 +180,111 @@ const COOP = {
 
 // Tokens HUD (rediseño 2a/3a/3b) — se suman a PALETTE sin tocarla.
 // Regla: el rojo #FF2D55 queda reservado a emergencia/brecha crítica.
-const HUD = {
-  bg:      '#03060a',  // fondo OLED de las tres pantallas
-  surface: '#0d1116',  // pista del SOS, superficies
-  line:    '#1c2836',  // bordes de chips y barras
-  divider: '#16222f',  // divisores internos
-  green:   '#39FF14',  greenInk: '#EAFFE4',
-  amber:   '#FFD400',  amberInk: '#FFF7D6',
-  red:     '#FF2D55',  redInk:   '#FFE0E7',
-  fg:      '#EAF4FF',  // texto primario
-  fg2:     '#C6D6E6',  // texto secundario / iconos
-  dim:     '#8FA8C0',  // etiquetas
-  dim2:    '#6E88A2',  // metadatos
-  dim3:    '#56708A',  // metadatos mínimos
+// Tres juegos de tokens. El de DÍA es el de fábrica: el celular va en
+// soporte contra el parabrisas y en Juliaca, a 3800 m, el sol pega fuerte —
+// una pantalla clara se lee mucho mejor que una oscura. NOCHE es el diseño
+// OLED original y SOL EXTREMO sube el contraste al máximo.
+//
+// Los tokens se aplican mutando HUD (aplicarTema): así las ~300 referencias
+// de las tres pantallas no necesitan pasar el tema por props.
+const TEMAS = {
+  // ─── DÍA (por defecto): superficies claras, tinta navy
+  day: {
+    bg:      '#F7FAFD',  // fondo de las tres pantallas
+    surface: '#E9F0F8',  // pista del SOS, superficies
+    line:    '#C3D4E4',  // bordes de chips y barras
+    divider: '#D6E2EE',  // divisores internos
+    green:   '#1F8A4F',  greenInk: '#0B3D22',
+    amber:   '#A67300',  amberInk: '#4A3200',
+    red:     '#C2001D',  redInk:   '#5C0010',
+    fg:      '#0B2239',  // texto primario
+    fg2:     '#2A4864',  // texto secundario / iconos
+    dim:     '#41627F',  // etiquetas
+    dim2:    '#547693',  // metadatos
+    dim3:    '#7591AB',  // metadatos mínimos
+    // Chat
+    headerLine: '#D6E2EE',
+    input: '#FFFFFF',      inputLine: '#C3D4E4',
+    mic:   '#E3EDF7',      micLine:   '#C3D4E4',
+    burbuja:      '#FFFFFF', burbujaInk:    '#0B2239',
+    burbujaPropia:'#DCF5E4', burbujaPropiaInk:'#0C3B1E',
+    burbujaAdmin: '#DCEBFB',
+    burbujaWarn:  '#FFF4D6', burbujaWarnInk: '#5C4100', warnEdge: '#A67300',
+    burbujaSos:   '#FFE1E7', burbujaSosInk:  '#68001A',
+    // Mapa: tiles claros y tarjetas claras encima
+    tiles: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    tarjeta: 'rgba(255,255,255,.92)', tarjetaSolida: 'rgba(255,255,255,.96)',
+    resplandor: false,   // el glow no funciona sobre fondo claro
+  },
+  // ─── SOL EXTREMO: blanco puro, tinta casi negra, cero sutilezas
+  sun: {
+    bg:      '#FFFFFF',
+    surface: '#EDF3FA',
+    line:    '#8FA8BE',
+    divider: '#BACBDA',
+    green:   '#146134',  greenInk: '#04220F',
+    amber:   '#7A5400',  amberInk: '#2E2000',
+    red:     '#960016',  redInk:   '#3D000B',
+    fg:      '#04121F',
+    fg2:     '#0B2239',
+    dim:     '#20415C',
+    dim2:    '#2E5273',
+    dim3:    '#4A6C8A',
+    headerLine: '#BACBDA',
+    input: '#FFFFFF',      inputLine: '#8FA8BE',
+    mic:   '#EDF3FA',      micLine:   '#8FA8BE',
+    burbuja:      '#FFFFFF', burbujaInk:    '#04121F',
+    burbujaPropia:'#D2F2DC', burbujaPropiaInk:'#04220F',
+    burbujaAdmin: '#D2E6FA',
+    burbujaWarn:  '#FFEFC2', burbujaWarnInk: '#3D2B00', warnEdge: '#7A5400',
+    burbujaSos:   '#FFD6DE', burbujaSosInk:  '#3D000B',
+    tiles: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    tarjeta: 'rgba(255,255,255,.96)', tarjetaSolida: '#FFFFFF',
+    resplandor: false,
+  },
+  // ─── NOCHE: el diseño OLED original, con resplandor
+  night: {
+    bg:      '#03060a',
+    surface: '#0d1116',
+    line:    '#1c2836',
+    divider: '#16222f',
+    green:   '#39FF14',  greenInk: '#EAFFE4',
+    amber:   '#FFD400',  amberInk: '#FFF7D6',
+    red:     '#FF2D55',  redInk:   '#FFE0E7',
+    fg:      '#EAF4FF',
+    fg2:     '#C6D6E6',
+    dim:     '#8FA8C0',
+    dim2:    '#6E88A2',
+    dim3:    '#56708A',
+    headerLine: '#121a24',
+    input: '#10161d',      inputLine: '#232b36',
+    mic:   '#1a222c',      micLine:   '#2b3542',
+    burbuja:      '#141a21', burbujaInk:    '#DCE8F5',
+    burbujaPropia:'#0b2e17', burbujaPropiaInk:'#DFFFD6',
+    burbujaAdmin: '#14273c',
+    burbujaWarn:  '#2b2008', burbujaWarnInk: '#FFE6B8', warnEdge: '#FFB300',
+    burbujaSos:   '#2b0812', burbujaSosInk:  '#FFD9E0',
+    tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    tarjeta: 'rgba(3,6,10,.8)', tarjetaSolida: 'rgba(3,6,10,.9)',
+    resplandor: true,
+  },
 };
+
+// HUD son los tokens EN USO. Se mutan en vez de reemplazarse para que todo
+// el código que ya los referencia siga funcionando sin pasar props.
+const HUD = { ...TEMAS.day };
+
+const HUD_STATUS = {};
+
+function aplicarTema(modo) {
+  const t = TEMAS[modo] || TEMAS.day;
+  Object.assign(HUD, t);
+  // Los colores de estado se derivan del tema, así que se rearman acá
+  HUD_STATUS.green  = { c: HUD.green, ink: HUD.greenInk };
+  HUD_STATUS.yellow = { c: HUD.amber, ink: HUD.amberInk };
+  HUD_STATUS.red    = { c: HUD.red,   ink: HUD.redInk };
+}
+aplicarTema('day');
 
 // Estado por lado: desvío relativo al objetivo (verde ≤15%, ámbar ≤30%)
 function sideStatus(gapStr, target) {
@@ -193,12 +293,6 @@ function sideStatus(gapStr, target) {
   if (dev <= 0.30) return 'yellow';
   return 'red';
 }
-
-const HUD_STATUS = {
-  green:  { c: HUD.green, ink: HUD.greenInk },
-  yellow: { c: HUD.amber, ink: HUD.amberInk },
-  red:    { c: HUD.red,   ink: HUD.redInk },
-};
 
 // "04:30" → "4:30" (los dígitos héroe no llevan cero inicial)
 function fmtGap(v) {
@@ -326,26 +420,42 @@ function AndroidDevice({ children, width = 412, height = 892, dark = false }) {
 const JULIACA_CENTER = [-15.4904, -70.1333];
 
 // HTML de los pines (Leaflet divIcon). El ancla siempre es el centro del punto.
+// Sobre tiles claros el punto propio en blanco desaparece y el resplandor no
+// se ve: en día el pin va navy con borde blanco, y las burbujas de brecha
+// llevan fondo claro con tinta de color. En noche queda el diseño original.
 function youPinHtml() {
+  const claro = !HUD.resplandor;
+  const punto = claro ? HUD.fg : '#fff';
+  const borde = claro ? '#fff' : HUD.bg;
+  const sombra = claro
+    ? '0 1px 4px rgba(0,0,0,.45)'
+    : '0 0 24px #fff,0 0 48px rgba(255,255,255,.4)';
   return `<div style="position:relative;width:24px;height:24px;">
-    <div style="width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid ${HUD.bg};box-sizing:border-box;box-shadow:0 0 24px #fff,0 0 48px rgba(255,255,255,.4);"></div>
-    <div style="position:absolute;top:29px;left:50%;transform:translateX(-50%);font-family:'Archivo Black',system-ui,sans-serif;font-size:16px;color:${HUD.bg};background:#fff;padding:1px 7px;border-radius:8px;">TÚ</div>
+    <div style="width:24px;height:24px;border-radius:50%;background:${punto};border:3px solid ${borde};box-sizing:border-box;box-shadow:${sombra};"></div>
+    <div style="position:absolute;top:29px;left:50%;transform:translateX(-50%);font-family:'Archivo Black',system-ui,sans-serif;font-size:16px;color:${borde};background:${punto};padding:1px 7px;border-radius:8px;">TÚ</div>
   </div>`;
 }
 
 function gapPinHtml(color, text) {
+  const claro = !HUD.resplandor;
+  const borde = claro ? '#fff' : HUD.bg;
+  const fondo = claro ? 'rgba(255,255,255,.92)' : 'rgba(3,6,10,.82)';
+  const sombraPunto = claro ? '0 1px 3px rgba(0,0,0,.4)' : `0 0 16px ${color}`;
+  const sombraTexto = claro ? 'none' : `0 0 14px ${color}99`;
   return `<div style="position:relative;width:16px;height:16px;">
-    <div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid ${HUD.bg};box-sizing:border-box;box-shadow:0 0 16px ${color};"></div>
-    <div style="position:absolute;top:21px;left:50%;transform:translateX(-50%);font-family:'Archivo Black',system-ui,sans-serif;font-size:20px;color:${color};background:rgba(3,6,10,.82);padding:3px 9px;border-radius:8px;text-shadow:0 0 14px ${color}99;font-variant-numeric:tabular-nums;white-space:nowrap;">${text}</div>
+    <div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid ${borde};box-sizing:border-box;box-shadow:${sombraPunto};"></div>
+    <div style="position:absolute;top:21px;left:50%;transform:translateX(-50%);font-family:'Archivo Black',system-ui,sans-serif;font-size:20px;color:${color};background:${fondo};padding:3px 9px;border-radius:8px;text-shadow:${sombraTexto};font-variant-numeric:tabular-nums;white-space:nowrap;">${text}</div>
   </div>`;
 }
 
 function otherPinHtml() {
-  return `<div style="width:10px;height:10px;border-radius:50%;background:${HUD.dim3};border:2px solid ${HUD.bg};box-sizing:content-box;"></div>`;
+  const borde = HUD.resplandor ? HUD.bg : '#fff';
+  return `<div style="width:10px;height:10px;border-radius:50%;background:${HUD.dim3};border:2px solid ${borde};box-sizing:content-box;"></div>`;
 }
 
-function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, routeId }) {
+function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, routeId, modo }) {
   const leafletRef = React.useRef(null);
+  const tilesRef = React.useRef(null);
   const youMarkerRef = React.useRef(null);
   const otherMarkersRef = React.useRef({});
   const [mapReady, setMapReady] = React.useState(false);
@@ -409,7 +519,7 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
       attributionControl: false,
     });
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    tilesRef.current = L.tileLayer(HUD.tiles, {
       maxZoom: 19,
     }).addTo(map);
 
@@ -421,6 +531,19 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
     setTimeout(() => map.invalidateSize(), 100);
     setTimeout(() => { map.invalidateSize(); setMapReady(true); }, 500);
   }, []);
+
+  // Cambiar de modo cambia el mapa en caliente: tiles claros u oscuros y
+  // pines redibujados. Sin esto habría que reabrir la app para verlo.
+  React.useEffect(() => {
+    if (!tilesRef.current) return;
+    tilesRef.current.setUrl(HUD.tiles);
+    if (youMarkerRef.current) {
+      youMarkerRef.current.setIcon(
+        L.divIcon({ html: youPinHtml(), className: '', iconSize: [24, 24], iconAnchor: [12, 12] })
+      );
+    }
+    Object.values(otherMarkersRef.current).forEach(e => { e.html = null; });
+  }, [modo, mapReady]);
 
   // Sigue la posición GPS real del celular
   React.useEffect(() => {
@@ -444,7 +567,7 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
     position: 'absolute', top: 46,
     fontFamily: '"Archivo Black", system-ui, sans-serif',
     fontSize: 17, whiteSpace: 'nowrap',
-    background: 'rgba(3,6,10,.8)', border: `1px solid ${HUD.line}`,
+    background: HUD.tarjeta, border: `1px solid ${HUD.line}`,
     padding: '8px 12px', borderRadius: 10,
     pointerEvents: 'none', zIndex: 1000,
   };
@@ -462,7 +585,7 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
       {/* Barra inferior: la brecha del HUD nunca se pierde */}
       <div style={{
         position: 'absolute', left: 18, right: 18, bottom: 26,
-        background: 'rgba(3,6,10,.9)', border: `1px solid ${HUD.line}`,
+        background: HUD.tarjetaSolida, border: `1px solid ${HUD.line}`,
         borderRadius: 22, padding: '18px 20px',
         display: 'flex', flexDirection: 'column', gap: 14,
         pointerEvents: 'none', zIndex: 1000,
@@ -481,21 +604,22 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
             <div style={{
               fontFamily: '"Archivo Black", system-ui, sans-serif',
               fontSize: 56, lineHeight: 1, letterSpacing: -3,
-              color: hud.hero.ink,
-              textShadow: `0 0 10px ${hud.hero.color}, 0 0 34px ${hud.hero.color}`,
+              color: HUD.resplandor ? hud.hero.ink : hud.hero.color,
+              textShadow: HUD.resplandor
+                ? `0 0 10px ${hud.hero.color}, 0 0 34px ${hud.hero.color}` : 'none',
               fontVariantNumeric: 'tabular-nums',
             }}>{hud.hero.display}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{
               fontFamily: '"Archivo Black", system-ui, sans-serif',
-              fontSize: 17, color: '#A9C0D6',
+              fontSize: 17, color: HUD.fg2,
             }}>{hud.sec.label}</div>
             <div style={{
               fontFamily: '"Archivo Black", system-ui, sans-serif',
               fontSize: 34, lineHeight: 1.1,
               color: hud.sec.color,
-              textShadow: `0 0 14px ${hud.sec.color}80`,
+              textShadow: HUD.resplandor ? `0 0 14px ${hud.sec.color}80` : 'none',
               fontVariantNumeric: 'tabular-nums',
             }}>{hud.sec.display}</div>
           </div>
@@ -637,25 +761,25 @@ function bubbleStyle(msg) {
     fontSize: 19, fontWeight: 500, lineHeight: 1.35,
   };
   if (msg.role === 'you') {
-    return { ...base, borderRadius: '16px 16px 5px 16px', background: '#0b2e17', color: '#DFFFD6' };
+    return { ...base, borderRadius: '16px 16px 5px 16px', background: HUD.burbujaPropia, color: HUD.burbujaPropiaInk };
   }
   if (msg.role === 'admin') {
-    return { ...base, background: '#14273c', color: HUD.fg };
+    return { ...base, background: HUD.burbujaAdmin, color: HUD.fg };
   }
   if (msg.tone === 'warn') {
-    return { ...base, background: '#2b2008', borderLeft: `3px solid #FFB300`, color: '#FFE6B8' };
+    return { ...base, background: HUD.burbujaWarn, borderLeft: `3px solid ${HUD.warnEdge}`, color: HUD.burbujaWarnInk };
   }
   if (msg.tone === 'sos') {
-    return { ...base, background: '#2b0812', borderLeft: `3px solid ${HUD.red}`, color: '#FFD9E0' };
+    return { ...base, background: HUD.burbujaSos, borderLeft: `3px solid ${HUD.red}`, color: HUD.burbujaSosInk };
   }
-  return { ...base, background: '#141a21', color: '#DCE8F5' };
+  return { ...base, background: HUD.burbuja, color: HUD.burbujaInk };
 }
 
 function ChatMsg({ msg }) {
   const isYou = msg.role === 'you';
   const nameColor =
     isYou ? HUD.green :
-    msg.tone === 'warn' ? '#FFB300' :
+    msg.tone === 'warn' ? HUD.warnEdge :
     msg.tone === 'sos' ? HUD.red :
     HUD.dim;
   return (
@@ -804,7 +928,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
       {/* Header: grupo a la izquierda, brecha persistente a la derecha */}
       <div style={{
         padding: '46px 18px 14px',
-        borderBottom: '1px solid #121a24',
+        borderBottom: `1px solid ${HUD.headerLine}`,
         display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
       }}>
         <div>
@@ -824,8 +948,12 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
           }}>{hud.hero.label}</div>
           <div style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 30, lineHeight: 1, color: hud.hero.ink,
-            textShadow: `0 0 10px ${hud.hero.color}, 0 0 30px ${hud.hero.color}`,
+            fontSize: 30, lineHeight: 1,
+            // Sobre fondo claro el resplandor no se ve: se usa el color de
+            // estado como tinta, que es lo que da la lectura de un vistazo.
+            color: HUD.resplandor ? hud.hero.ink : hud.hero.color,
+            textShadow: HUD.resplandor
+              ? `0 0 10px ${hud.hero.color}, 0 0 30px ${hud.hero.color}` : 'none',
             fontVariantNumeric: 'tabular-nums',
           }}>{hud.hero.display}</div>
         </div>
@@ -849,7 +977,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
           <div style={{
             flex: 1, height: controlH, boxSizing: 'border-box',
             borderRadius: controlH / 2,
-            background: '#10161d', border: `1px solid ${P.bright}`,
+            background: HUD.input, border: `1px solid ${P.bright}`,
             padding: '0 18px',
             display: 'flex', alignItems: 'center', gap: 10,
           }}>
@@ -877,7 +1005,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
             style={{
               flex: 1, minWidth: 0, height: controlH, boxSizing: 'border-box',
               borderRadius: controlH / 2,
-              background: '#10161d', border: '1px solid #232b36',
+              background: HUD.input, border: `1px solid ${HUD.inputLine}`,
               padding: '0 18px',
               fontSize: 17, fontFamily: 'system-ui, sans-serif',
               color: HUD.fg, outline: 'none',
@@ -890,13 +1018,13 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
           style={{
             width: controlH, height: controlH, boxSizing: 'border-box',
             borderRadius: '50%', flexShrink: 0,
-            background: recording ? P.bright : '#1a222c',
-            border: `1px solid ${recording ? P.bright : '#2b3542'}`,
+            background: recording ? P.bright : HUD.mic,
+            border: `1px solid ${recording ? P.bright : HUD.micLine}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
             touchAction: 'none',
           }}>
-          <MicGlyph color={recording ? HUD.bg : HUD.fg2} />
+          <MicGlyph color={recording ? '#FFFFFF' : HUD.fg2} />
         </button>
         <button
           onClick={send}
@@ -905,7 +1033,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
             borderRadius: '50%', flexShrink: 0,
             background: P.bright, border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, color: HUD.bg, cursor: 'pointer',
+            fontSize: 22, color: '#FFFFFF', cursor: 'pointer',
             WebkitTapHighlightColor: 'transparent',
           }}>➤</button>
       </div>
@@ -916,7 +1044,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
 // ═══════════════════════════════════════════════════════════════
 // SOS SLIDER
 // ═══════════════════════════════════════════════════════════════
-function SosSlider({ mode, status, enableAnim, onFire }) {
+function SosSlider({ status, enableAnim, onFire }) {
   const trackRef = React.useRef(null);
   const [progress, setProgress] = React.useState(0);
   const [dragging, setDragging] = React.useState(false);
@@ -970,15 +1098,15 @@ function SosSlider({ mode, status, enableAnim, onFire }) {
 
   const trackH = 84;
   const thumbSize = 70;
-  const sun = mode.bg === '#F5F9FF';
+  const sun = !HUD.resplandor;   // fondo claro
   const suggestSos = status === 'red' && enableAnim;
 
   return (
     <div ref={trackRef} data-noswipe="sos" style={{
       position: 'relative', width: '100%', height: trackH,
       borderRadius: 20,
-      background: sun ? '#eef2f6' : HUD.surface,
-      border: `2px solid ${sun ? '#c9d4de' : '#2a3340'}`,
+      background: HUD.surface,
+      border: `2px solid ${HUD.line}`,
       overflow: 'hidden', userSelect: 'none',
       WebkitTapHighlightColor: 'transparent',
       boxSizing: 'border-box',
@@ -1008,7 +1136,7 @@ function SosSlider({ mode, status, enableAnim, onFire }) {
         display: 'flex', alignItems: 'center',
         fontSize: 16, fontWeight: 700, letterSpacing: 0.5,
         fontFamily: 'system-ui, sans-serif',
-        color: fired || progress > 0.5 ? (sun ? '#B3001B' : HUD.red) : (sun ? '#5A7A99' : '#7C8C9E'),
+        color: fired || progress > 0.5 ? HUD.red : HUD.dim2,
         whiteSpace: 'nowrap',
         transition: 'color 0.2s', pointerEvents: 'none', zIndex: 2,
       }}>
@@ -1029,7 +1157,7 @@ function SosSlider({ mode, status, enableAnim, onFire }) {
           fontSize: 19,
           cursor: 'grab',
           transition: dragging ? 'none' : 'left 0.3s cubic-bezier(.4,0,.2,1)',
-          boxShadow: '0 0 22px rgba(255,45,85,.5)',
+          boxShadow: sun ? '0 2px 8px rgba(0,0,0,.25)' : '0 0 22px rgba(255,45,85,.5)',
           zIndex: 3, touchAction: 'none',
         }}
       >
@@ -1378,23 +1506,6 @@ function computeStatus(front, back, target) {
   return 'red';
 }
 
-const MODES = {
-  day: {
-    bg: P.bg, panel: P.panel, fg: P.white, dim: P.mute, line: P.line,
-    brand: P.brand, bright: P.bright, navy: P.navy, deep: P.deep, sky: P.sky,
-    green: P.green, yellow: P.yellow, red: P.red,
-  },
-  sun: {
-    bg: '#F5F9FF', panel: '#E5EFFA', fg: P.navy, dim: '#5A7A99', line: '#B8CFE3',
-    brand: P.brand, bright: P.deep, navy: P.navy, deep: P.deep, sky: P.brand,
-    green: '#1F8A4F', yellow: '#B58400', red: '#B3001B',
-  },
-  night: {
-    bg: '#050D17', panel: '#0E2236', fg: '#D7E5F4', dim: '#3D5570', line: '#1A3149',
-    brand: P.brand, bright: P.bright, navy: P.navy, deep: P.deep, sky: P.sky,
-    green: '#2BAA68', yellow: '#C49A20', red: '#D43050',
-  },
-};
 
 function AnimatedDigit({ ch, fontSize, color, enableAnim }) {
   const prev = React.useRef(ch);
@@ -1440,19 +1551,19 @@ function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) 
 // Un solo dato dominante: la unidad más desviada del objetivo. El color de
 // estado tiñe el halo, la barra superior y el lavado de fondo.
 function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFireSos }) {
-  const sun = tweaks.mode === 'sun';
   const hud = buildHudModel(tweaks, gapMeta);
   const { hero, sec, target } = hud;
 
-  // En sol extremo el halo no funciona: fondo claro y dígito sólido navy
-  const SUN_STATUS = { green: '#1F8A4F', yellow: '#B58400', red: '#B3001B' };
-  const stateColor = sun ? SUN_STATUS[hero.status] : hero.color;
-  const heroInk = sun ? P.navy : hero.ink;
-  const secColor = sun ? SUN_STATUS[sec.status] : sec.color;
-  const bg = sun ? '#F5F9FF' : HUD.bg;
-  const dim = sun ? '#4A6A88' : HUD.dim;
-  const dim2 = sun ? '#5A7A99' : HUD.dim2;
-  const dim3 = sun ? '#7A93AB' : HUD.dim3;
+  // Sobre fondo claro (día y sol extremo) el halo no funciona: el dígito va
+  // sólido, con el color de estado como tinta. Los tokens ya vienen del tema.
+  const sun = !HUD.resplandor;
+  const stateColor = hero.color;
+  const heroInk = sun ? hero.color : hero.ink;
+  const secColor = sec.color;
+  const bg = HUD.bg;
+  const dim = HUD.dim;
+  const dim2 = HUD.dim2;
+  const dim3 = HUD.dim3;
   const glow = (spec) => sun ? 'none' : spec;
 
   // Cadencia de la barra superior según urgencia (tomada del semáforo viejo)
@@ -1615,7 +1726,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
 
       {/* SOS */}
       <div style={{ padding: '0 18px 26px', position: 'relative' }}>
-        <SosSlider mode={sun ? MODES.sun : MODES.day} status={hero.status} enableAnim={tweaks.microAnims} onFire={onFireSos} />
+        <SosSlider status={hero.status} enableAnim={tweaks.microAnims} onFire={onFireSos} />
       </div>
     </div>
   );
@@ -1695,7 +1806,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
     };
   }, [dragging, page, dragDx]);
 
-  const sun = tweaks.mode === 'sun';
+  const sun = !HUD.resplandor;   // fondo claro (día o sol extremo)
   const hud = buildHudModel(tweaks, gapMeta);
   const unitsOnRoute = otherUnits.length + 1;
   const w = containerRef.current?.offsetWidth || 380;
@@ -1704,7 +1815,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
   return (
     <div ref={containerRef} style={{
       position: 'relative', width: '100%', height: '100%',
-      overflow: 'hidden', background: sun ? '#F5F9FF' : HUD.bg,
+      overflow: 'hidden', background: HUD.bg,
     }}
       onMouseDown={(e) => {
         if (e.target.closest('[data-noswipe]')) return;
@@ -1776,6 +1887,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
             currentStop={tweaks.currentStop}
             nextStop={tweaks.nextStop}
             routeId={routeId}
+            modo={tweaks.mode}
           />
         </div>
       )}
@@ -1801,7 +1913,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
           >
             <div style={{
               width: i === page ? 24 : 10, height: 10, borderRadius: 5,
-              background: i === page ? P.bright : (sun ? '#B8CFE3' : HUD.line),
+              background: i === page ? P.bright : HUD.line,
               transition: 'all 0.3s',
               pointerEvents: 'none',
             }} />
@@ -1974,7 +2086,30 @@ function TweaksPanel({ tweaks, setTweaks, visible, onNav, currentScreen }) {
 // ROOT
 // ═══════════════════════════════════════════════════════════════
 function Root() {
-  const [tweaks, setTweaks] = React.useState(DEFAULT_TWEAKS);
+  const [tweaks, setTweaks] = React.useState(() => {
+    // El modo elegido se recuerda en el celular: el chofer no lo re-elige
+    // cada mañana. De fábrica es DÍA, que es como se usa la app.
+    try {
+      const guardado = localStorage.getItem('r14_modo');
+      if (guardado && TEMAS[guardado]) return { ...DEFAULT_TWEAKS, mode: guardado };
+    } catch {}
+    return DEFAULT_TWEAKS;
+  });
+
+  // Los tokens del tema se aplican ANTES de renderizar los hijos: HUD es un
+  // objeto que se muta, así que tiene que estar en su valor final cuando las
+  // pantallas lo leen. Es idempotente, no importa que corra en cada render.
+  aplicarTema(tweaks.mode);
+  React.useEffect(() => {
+    try { localStorage.setItem('r14_modo', tweaks.mode); } catch {}
+    // El marco de la página también, para que no quede un fondo negro
+    // rodeando una app clara (ni al revés).
+    const r = document.documentElement.style;
+    r.setProperty('--pag-bg', HUD.resplandor ? '#0c0c0e' : '#F0F4F9');
+    r.setProperty('--pag-fg', HUD.resplandor ? '#eee' : HUD.fg);
+    r.setProperty('--pag-dim', HUD.resplandor ? '#888' : HUD.dim2);
+    r.setProperty('--pag-dim2', HUD.resplandor ? '#666' : HUD.dim3);
+  }, [tweaks.mode]);
   const [tweaksVisible, setTweaksVisible] = React.useState(false);
   const [screen, setScreen] = React.useState(DEFAULT_TWEAKS.initialScreen || 'login');
   const [user, setUser] = React.useState(null);
@@ -2222,7 +2357,7 @@ function Root() {
 
   return (
     <>
-      <AndroidDevice width={380} height={780} dark={true}>
+      <AndroidDevice width={380} height={780} dark={HUD.resplandor}>
         {content}
         {/* SOS entrante de otra unidad — aviso a pantalla completa */}
         {incomingSos && (

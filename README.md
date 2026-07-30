@@ -97,7 +97,25 @@ Carrusel de 3 páginas (swipe horizontal): **CHAT ← RUTA → MAPA**.
 - **MAPA** — Leaflet con tiles reales, pines de las unidades ±1 con burbuja
   de brecha y barra inferior que replica el HUD.
 
-El rojo `#FF2D55` está reservado a emergencia/brecha crítica — nada más lo usa.
+El rojo de emergencia está reservado a SOS y brecha crítica — nada más lo usa.
+
+**Modo día por defecto.** El celular va en soporte contra el parabrisas y en
+Juliaca, a 3800 m, el sol pega fuerte: una pantalla clara se lee mucho mejor.
+Las tres pantallas (RUTA, CHAT y MAPA) y el panel de Despacho arrancan en
+claro, con tiles de mapa claros. Hay tres modos y la elección se recuerda en
+el dispositivo:
+
+| Modo | Para qué |
+| --- | --- |
+| **Día** (de fábrica) | Uso normal, con luz |
+| **Sol extremo** | Contraste máximo: blanco puro, tinta casi negra |
+| **Noche** | El diseño OLED original, con resplandor, para madrugada |
+
+En claro el resplandor se apaga (no se ve sobre fondo blanco) y el dígito
+héroe usa el color de estado como tinta, que es lo que da la lectura de un
+vistazo. Los colores son tokens conmutables (`TEMAS` → `HUD`), así que
+cambiar de modo no recarga la app: hasta los tiles del mapa se cambian en
+caliente. El panel tiene su propio botón ☾/☀ en la cabecera.
 
 ## Panel de Despacho
 

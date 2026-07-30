@@ -4,8 +4,8 @@
   "description": "Panel de Despacho — Ruta 14, Cooperativa de Transportes Juliaca",
   "start_url": "/despacho.html",
   "display": "standalone",
-  "background_color": "#03060a",
-  "theme_color": "#03060a",
+  "background_color": "#F7FAFD",
+  "theme_color": "#F7FAFD",
   "icons": [
     {
       "src": "icon-despacho-192.png",
