@@ -313,8 +313,12 @@ sistema que grita en cada uno se apaga el primer día.
 - **Solo cuenta si se sostiene:** 10 posiciones seguidas por afuera (unos 30
   segundos). Un salto de GPS no alcanza; doblar en la esquina equivocada sí.
   Para volver bastan 4.
-- **El umbral es por ruta** (`routes.desvioMaxM`, 60 m por defecto, entre 30
-  y 500): no es lo mismo el centro de Juliaca que la salida a Huancané.
+- **El umbral es por ruta** (`routes.desvioMaxM`): **300 m por defecto**, que
+  en la traza de Juliaca son unas **tres cuadras**. Un chofer puede tomarse un
+  desvío de esa magnitud sin que sea un problema —esquivar un embotellamiento,
+  una calle cortada— y marcarlo sería ruido; recién más allá deja de ser "el
+  camino de siempre con una vuelta" y pasa a ser otro recorrido. Se ajusta
+  entre 50 y 1500 m: no es lo mismo el centro que la salida a Huancané.
 - **Despacho puede silenciarlo** 1 h, 3 h o el turno, cuando el desvío ya se
   sabe. Silenciar **no es quedar ciego**: las unidades se siguen viendo fuera
   de ruta en el panel; lo que se corta es el registro repetido en la

@@ -719,8 +719,23 @@ function audit(actor, action, target, detail, routeId) {
 //  - Despacho puede silenciarlo un rato cuando el desvío es conocido.
 //  - Al chofer NO se le dice nada: puede tener un motivo, y un cartel
 //    acusándolo mientras maneja es peor que el problema.
-addColumnIfMissing('routes', 'desvioMaxM', 'INTEGER NOT NULL DEFAULT 60');
+//
+// El umbral por defecto son 300 m, que en la traza de Juliaca son unas TRES
+// CUADRAS. Un chofer puede tomarse un desvío de esa magnitud sin que sea un
+// problema —esquivar un embotellamiento, una calle cortada— y marcarlo sería
+// ruido. Recién más allá de eso deja de ser "el camino de siempre con una
+// vuelta" y pasa a ser otro recorrido.
+const DESVIO_DEFECTO_M = 300;
+addColumnIfMissing('routes', 'desvioMaxM', `INTEGER NOT NULL DEFAULT ${DESVIO_DEFECTO_M}`);
 addColumnIfMissing('routes', 'desvioMudoHasta', 'INTEGER');
+
+// La primera versión traía 60 m, que es menos de una cuadra: cualquier desvío
+// legítimo caía adentro. Las rutas que quedaron con ese valor pasan al nuevo
+// por defecto; las que alguien haya ajustado a mano se respetan.
+{
+  const r = db.prepare('UPDATE routes SET desvioMaxM = ? WHERE desvioMaxM = 60').run(DESVIO_DEFECTO_M);
+  if (r.changes) console.log(`Umbral de desvío actualizado a ${DESVIO_DEFECTO_M} m en ${r.changes} ruta(s)`);
+}
 
 // Cuántas posiciones seguidas hacen falta. Llegan cada 3 s, así que 10 son
 // unos 30 segundos afuera: un salto de GPS no llega, doblar en la esquina
@@ -740,7 +755,7 @@ function evaluarDesvio(vehicleId, routeId, desvioM) {
     desvios.delete(vehicleId);
     return null;
   }
-  const umbral = ruta.desvioMaxM || 60;
+  const umbral = ruta.desvioMaxM || DESVIO_DEFECTO_M;
   let e = desvios.get(vehicleId);
   if (!e) {
     e = { fuera: false, seguidasFuera: 0, seguidasDentro: 0, desde: null, maxM: 0 };
@@ -1455,13 +1470,14 @@ app.post('/admin/routes/:routeId/desvio', requireDispatch, (req, res) => {
   const ruta = routeOf(routeId);
   if (!ruta) return res.status(404).json({ error: 'Esa ruta no existe' });
 
-  let umbral = ruta.desvioMaxM || 60;
+  let umbral = ruta.desvioMaxM || DESVIO_DEFECTO_M;
   if (req.body?.umbralM !== undefined) {
     const v = Number(req.body.umbralM);
-    // Por debajo de 30 m el GPS urbano solo daría falsas alarmas; por encima
-    // de 500 m ya no se estaría detectando nada.
-    if (!Number.isFinite(v) || v < 30 || v > 500) {
-      return res.status(400).json({ error: 'El umbral va entre 30 y 500 metros' });
+    // Menos de 50 m (media cuadra) es ruido de GPS; más de 1500 m ya no
+    // detecta nada. Entre esos dos hay margen para una ruta de centro
+    // apretada y para un tramo de carretera abierta.
+    if (!Number.isFinite(v) || v < 50 || v > 1500) {
+      return res.status(400).json({ error: 'El umbral va entre 50 y 1500 metros' });
     }
     umbral = Math.round(v);
   }
@@ -2196,7 +2212,7 @@ function buildState(routeId) {
     routeId,
     // Gestión del desvío: umbral vigente y hasta cuándo está silenciado
     desvio: {
-      umbralM: ruta2 ? (ruta2.desvioMaxM || 60) : 60,
+      umbralM: ruta2 ? (ruta2.desvioMaxM || DESVIO_DEFECTO_M) : DESVIO_DEFECTO_M,
       mudoHasta: ruta2 && ruta2.desvioMudoHasta > Date.now() ? ruta2.desvioMudoHasta : null,
     },
     routeName: ruta ? ruta.name : routeId,
