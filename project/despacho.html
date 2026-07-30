@@ -892,7 +892,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
         borderRadius: 20, padding: 24,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-          {[['users', 'PERSONAS'], ['vehicles', 'VEHÍCULOS'], ['routes', 'RUTAS'], ['shifts', 'TURNOS'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
+          {[['users', 'PERSONAS'], ['vehicles', 'VEHÍCULOS'], ['routes', 'RUTAS'], ['shifts', 'TURNOS'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD'], ['informes', 'INFORMES']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
               fontFamily: black, fontSize: 17,
@@ -1105,6 +1105,70 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
           </div>
         )}
 
+        {tab === 'informes' && (() => {
+          const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+          const iso = (d) => new Date(d).toISOString().slice(0, 10);
+          const rangos = [
+            ['Hoy', hoy.getTime(), Date.now()],
+            ['Últimos 7 días', hoy.getTime() - 6 * 86400e3, Date.now()],
+            ['Últimos 30 días', hoy.getTime() - 29 * 86400e3, Date.now()],
+          ];
+          const informes = [
+            ['vueltas', 'Vueltas por unidad', 'Cuántas vueltas hizo cada combi, cuánto tardó y a qué velocidad'],
+            ['horas', 'Horas por persona', 'Turnos: entrada, salida y horas de cada chofer y cobrador'],
+            ['sos', 'Emergencias', 'Cada SOS con quién lo disparó, desde qué unidad y dónde'],
+            ['actividad', 'Actividad de administración', 'Altas, bajas, reseteos de clave y cambios de configuración'],
+          ];
+          const bajar = (tipo, desde, hasta) => {
+            // El navegador no manda el token en una descarga normal, así que
+            // se pide con fetch y se guarda el archivo desde acá.
+            const ruta = esSupervisor && currentRoute ? `&routeId=${encodeURIComponent(currentRoute)}` : '';
+            fetch(`${HTTP_URL}/admin/informe/${tipo}.csv?desde=${desde}&hasta=${hasta}${ruta}`, {
+              headers: { Authorization: 'Bearer ' + session.token },
+            })
+              .then(r => r.ok ? r.blob() : Promise.reject(new Error('No se pudo generar el informe')))
+              .then(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `coop-r14-${tipo}-${iso(desde)}.csv`;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+                setOkMsg(`Informe de ${tipo} descargado`);
+              })
+              .catch(e => setError(e.message));
+          };
+          return (
+            <div>
+              {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
+              {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
+              {informes.map(([tipo, titulo, detalle]) => (
+                <div key={tipo} style={{
+                  padding: '12px 4px', borderBottom: `1px solid ${HUD.divider}`,
+                }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: HUD.fg }}>{titulo}</div>
+                  <div style={{ fontSize: 12, color: HUD.dim2, margin: '3px 0 8px', lineHeight: 1.45 }}>{detalle}</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {rangos.map(([etiqueta, desde, hasta]) => (
+                      <button key={etiqueta} onClick={() => bajar(tipo, desde, hasta)}
+                        title={`Descargar ${titulo.toLowerCase()} · ${etiqueta.toLowerCase()}`}
+                        style={smallBtn(HUD.boton, HUD.fg2)}>{etiqueta}</button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
+                Los informes bajan en <strong>CSV</strong>: se abren en Excel y se
+                pueden sumar y filtrar. Cada uno arranca diciendo el período y
+                <strong> con qué se midió</strong> — si la ruta no tiene recorrido
+                cargado, las vueltas son estimaciones y el archivo lo aclara, para
+                que nadie tome por exacto un número que no lo es. El período máximo
+                son 90 días.
+              </div>
+            </div>
+          );
+        })()}
+
         {tab === 'shifts' && (
           <div>
             {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
@@ -1116,9 +1180,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               </div>
             )}
             {shifts && shifts.turnos.length > 0 && (() => {
+              // Se redondea a minutos PRIMERO y después se parte en horas: al
+              // revés, 4 h 59 min 59 s salía como "4 h 60 min".
               const horas = (sec) => {
-                const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
-                return h ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
+                const min = Math.round(sec / 60);
+                const h = Math.floor(min / 60);
+                return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
               };
               const hora = (ts) => {
                 const d = new Date(ts);

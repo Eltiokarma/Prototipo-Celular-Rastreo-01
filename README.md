@@ -355,6 +355,30 @@ la app, prestó el celular— hace falta edición a mano, y eso es otra discusi�
 Lo que hay sirve para saber quién iba en la unidad cuando pasó algo y para el
 informe de horas trabajadas.
 
+## Informes
+
+Panel → Gestión → **INFORMES**. Cuatro informes, cada uno con período de hoy,
+7 o 30 días:
+
+| Informe | Qué trae |
+| --- | --- |
+| **Vueltas por unidad** | Cuántas vueltas hizo cada combi, cuánto tardó y a qué velocidad |
+| **Horas por persona** | Turnos: entrada, salida y horas de cada chofer y cobrador |
+| **Emergencias** | Cada SOS con quién lo disparó, desde qué unidad y dónde |
+| **Actividad de administración** | Altas, bajas, reseteos de clave y cambios de configuración |
+
+Bajan en **CSV** y no en PDF a propósito: se abren en Excel, se pueden sumar y
+filtrar, y no hace falta ninguna librería en el servidor. Van con separador
+punto y coma y BOM, que es lo que el Excel en español abre bien de una.
+
+**Cada informe arranca diciendo con qué se midió.** Es la parte más
+importante: si la ruta no tiene recorrido cargado, la primera línea aclara que
+las vueltas son estimaciones y no medidas. Un informe con números que parecen
+precisos y no lo son es peor que no tener informe.
+
+El período máximo son 90 días, y un despachador de ruta solo puede sacar los
+de la suya.
+
 ## Qué frena cada cosa
 
 Repasado antes de salir a la calle con cuentas reales:

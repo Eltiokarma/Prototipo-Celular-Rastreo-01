@@ -1500,6 +1500,174 @@ app.post('/admin/routes/:routeId/desvio', requireDispatch, (req, res) => {
   res.json({ ok: true, umbralM: umbral, mudoHasta });
 });
 
+// ─── INFORMES ────────────────────────────────────────────────
+// CSV para que la cooperativa se lleve los números a una planilla. Se elige
+// CSV y no PDF a propósito: se abre en Excel, se puede sumar y filtrar, y no
+// necesita ninguna librería en el servidor.
+//
+// Cada informe empieza con una línea que dice CON QUÉ SE MIDIÓ. Es la parte
+// más importante: un informe de brechas sacado de una ruta sin recorrido
+// cargado da números que parecen precisos y no lo son, y eso es peor que no
+// tener informe.
+
+// Escapa un valor para CSV: comillas dobles y separador punto y coma, que es
+// lo que espera el Excel en español (con coma parte mal los decimales).
+function csvValor(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function csvLinea(campos) {
+  return campos.map(csvValor).join(';');
+}
+
+function fechaHora(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function duracionHm(sec) {
+  if (sec === null || sec === undefined) return '';
+  // Se redondea a minutos PRIMERO y después se parte en horas: al revés,
+  // 4 h 59 min 59 s salía como "4:60".
+  const min = Math.round(sec / 60);
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
+}
+
+// Rango pedido, con tope de 90 días para que un informe no se lleve la base
+function rangoDe(req) {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  let desde = Number(req.query?.desde);
+  let hasta = Number(req.query?.hasta);
+  if (!Number.isFinite(desde)) desde = hoy.getTime();
+  if (!Number.isFinite(hasta)) hasta = Date.now();
+  if (hasta < desde) [desde, hasta] = [hasta, desde];
+  const TOPE = 90 * 86400_000;
+  if (hasta - desde > TOPE) desde = hasta - TOPE;
+  return { desde, hasta };
+}
+
+const INFORMES = {
+  // Vueltas por unidad: cuántas, cuánto tardaron, a qué velocidad
+  vueltas: (rango, scope, routeId) => {
+    const filas = db.prepare(`
+      SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed
+      FROM laps
+      WHERE finishedAt BETWEEN @desde AND @hasta
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY finishedAt
+    `).all({ ...rango, ruta: scope || routeId || null });
+    return {
+      nombre: 'vueltas',
+      cabecera: ['Unidad', 'Ruta', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos', 'Velocidad media (km/h)'],
+      filas: filas.map(l => [
+        l.unitId, l.routeId, fechaHora(l.startedAt), fechaHora(l.finishedAt),
+        duracionHm(l.durationSec), Math.round(l.durationSec / 60), l.avgSpeed,
+      ]),
+    };
+  },
+
+  // Horas por persona, salidas de los turnos
+  horas: (rango, scope, routeId) => {
+    const filas = db.prepare(`
+      SELECT s.personId, s.vehicleId, s.routeId, s.role, s.startedAt, s.endedAt, s.lastSeenAt,
+             u.name, u.alias
+      FROM shifts s
+      LEFT JOIN users u ON u.unitId = s.personId
+      WHERE s.startedAt BETWEEN @desde AND @hasta
+        AND (@ruta IS NULL OR s.routeId = @ruta)
+      ORDER BY s.startedAt
+    `).all({ ...rango, ruta: scope || routeId || null });
+    const ahora = Date.now();
+    return {
+      nombre: 'horas',
+      cabecera: ['Persona', 'Nombre', 'Alias', 'Rol', 'Unidad', 'Ruta', 'Entrada', 'Salida', 'Horas (h:mm)', 'Abierto'],
+      filas: filas.map(t => [
+        t.personId, t.name, t.alias,
+        t.role === 'collector' ? 'cobrador' : 'chofer',
+        t.vehicleId, t.routeId,
+        fechaHora(t.startedAt), fechaHora(t.endedAt),
+        duracionHm(Math.round(((t.endedAt || ahora) - t.startedAt) / 1000)),
+        t.endedAt ? 'no' : 'sí',
+      ]),
+    };
+  },
+
+  // Emergencias
+  sos: (rango, scope, routeId) => {
+    const filas = db.prepare(`
+      SELECT unitId, driverName, vehicleId, routeId, lat, lng, timestamp
+      FROM messages
+      WHERE kind = 'sos' AND timestamp BETWEEN @desde AND @hasta
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY timestamp
+    `).all({ ...rango, ruta: scope || routeId || null });
+    return {
+      nombre: 'sos',
+      cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Latitud', 'Longitud'],
+      filas: filas.map(m => [
+        fechaHora(m.timestamp), m.driverName, m.unitId, m.vehicleId, m.routeId,
+        m.lat ?? '', m.lng ?? '',
+      ]),
+    };
+  },
+
+  // Quién hizo qué en la administración
+  actividad: (rango, scope, routeId) => {
+    const filas = db.prepare(`
+      SELECT actor, action, target, detail, routeId, timestamp
+      FROM audit
+      WHERE timestamp BETWEEN @desde AND @hasta
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY timestamp
+    `).all({ ...rango, ruta: scope || routeId || null });
+    return {
+      nombre: 'actividad',
+      cabecera: ['Cuándo', 'Quién', 'Qué hizo', 'Sobre', 'Detalle', 'Ruta'],
+      filas: filas.map(e => [
+        fechaHora(e.timestamp), e.actor, e.action, e.target, e.detail, e.routeId,
+      ]),
+    };
+  },
+};
+
+app.get('/admin/informe/:tipo.csv', requireDispatch, (req, res) => {
+  const tipo = String(req.params.tipo);
+  const armar = INFORMES[tipo];
+  if (!armar) return res.status(404).json({ error: 'Ese informe no existe' });
+
+  const rango = rangoDe(req);
+  const routeId = idLimpio(req.query?.routeId);
+  const informe = armar(rango, req.scope, routeId);
+
+  // La primera línea dice con qué se midió: sin esto, alguien puede tomar por
+  // exacto un número que es una estimación.
+  const rutaDelInforme = req.scope || routeId || null;
+  const geo = rutaDelInforme ? geometriaDe(rutaDelInforme) : null;
+  const base = !rutaDelInforme
+    ? 'varias rutas: la precisión depende de cada una'
+    : geo
+      ? `ruta ${rutaDelInforme} con recorrido cargado (${(geo.largoTotalM / 1000).toFixed(2)} km${geo.vuelta ? ', ida y vuelta' : ', solo ida'})`
+      : `ruta ${rutaDelInforme} SIN recorrido cargado: las vueltas y brechas son estimaciones, no medidas`;
+
+  const lineas = [
+    csvLinea(['COOP-R14', `Informe de ${informe.nombre}`]),
+    csvLinea(['Período', `${fechaHora(rango.desde)} a ${fechaHora(rango.hasta)}`]),
+    csvLinea(['Medido sobre', base]),
+    csvLinea(['Generado', fechaHora(Date.now()), 'por', req.dispatchUser.unitId]),
+    '',
+    csvLinea(informe.cabecera),
+    ...informe.filas.map(csvLinea),
+  ];
+
+  const archivo = `coop-r14-${informe.nombre}-${new Date(rango.desde).toISOString().slice(0, 10)}.csv`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${archivo}"`);
+  // BOM para que Excel abra bien las tildes
+  res.send('\ufeff' + lineas.join('\r\n'));
+});
+
 // Turnos: quién anduvo en qué unidad y cuánto. Por defecto los de hoy.
 app.get('/admin/shifts', requireDispatch, (req, res) => {
   const desde = Number(req.query?.desde);
