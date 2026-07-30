@@ -33,8 +33,16 @@ server/             Servidor de tiempo real (Node + Express + ws)
                       historial de chat/voz/SOS en SQLite (better-sqlite3)
   base.js             Piezas compartidas con las herramientas de consola
                       (abrir la base, hashear claves, validar identificadores)
-  empresa.js          Alta y baja de cooperativas, DESDE EL SERVIDOR.
-                      No es una pantalla a propósito: ver Niveles de seguridad
+  cooperativas.js     Alta, supervisor, rutas y suspensión de cooperativas.
+                      Escritas una sola vez: las usan la consola y el panel
+  empresa.js          Consola de cooperativas. El piso: funciona aunque el
+                      panel del creador no se pueda abrir
+  creador.js          Panel del creador: el nivel de arriba de todas las
+                      cooperativas. Apagado salvo que CREATOR_PASSWORD esté
+                      en el entorno. En su propio archivo para que toda su
+                      superficie se lea de una sentada
+  creador.html        Su pantalla. NO vive en project/ a propósito: ahí se
+                      serviría como estático aunque el panel esté apagado
 
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -75,6 +83,20 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 Limitaciones conocidas del sistema: ver **LIMITACIONES.md**.
 Plan de crecimiento a 20+ rutas con números: ver **ESCALABILIDAD.md**.
 Lo que falta construir, ordenado: ver **PENDIENTES.md**.
+
+**Variables de entorno**, todas opcionales salvo donde se aclare:
+
+| Variable | Para qué |
+| --- | --- |
+| `DB_FILE` | Dónde vive la base. En Railway hay que montar un volumen y apuntarla ahí (`/data/r14.db`) o **un redeploy borra todo** |
+| `PORT` | Puerto (3001 por defecto) |
+| `DISPATCH_PASSWORD` | Crea o actualiza la cuenta `DESPACHO` al arrancar. Es la ruta de recuperación si esa clave se pierde |
+| `DEFAULT_ROUTE` / `DEFAULT_COMPANY` / `DEFAULT_COMPANY_NAME` | Código de la ruta y de la cooperativa iniciales, y su nombre visible. Solo se usan la primera vez |
+| `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres |
+| `CREATOR_PATH` | Mueve el panel del creador a una ruta propia (por defecto `/creador`) |
+| `CREATOR_TOTP_SECRET` | Segundo factor del panel del creador (base32) |
+| `OPEN_REGISTRATION` | `1` deja que cualquiera se registre. **Solo para demos** |
+| `STATE_INTERVAL_MS` | Cada cuánto se emite el estado (3000 por defecto) |
 
 **Persistencia:** el historial del grupo (últimos 200 mensajes: texto, notas
 de voz y SOS) vive en SQLite (`server/r14.db`). En Railway, para que
@@ -323,8 +345,9 @@ una.
   ya dice de qué cooperativa es. Un equipo recién instalado no muestra
   ninguna.
 
-**Dar de alta una cooperativa no es una pantalla.** Se hace desde el
-servidor con `server/empresa.js`:
+**Dar de alta una cooperativa no se hace desde el panel de Despacho.** Se
+hace desde el nivel de arriba: el *panel del creador* (ver más abajo) o, si
+ese no se puede abrir, la consola del servidor con `server/empresa.js`:
 
 ```bash
 node server/empresa.js listar
@@ -333,18 +356,77 @@ node server/empresa.js alta COOP-15 "Cooperativa Santa Rosa" \
      --ruta R-15 --nombre-ruta "Plaza ↔ Salida Cusco" \
      --despacho DESPACHO-15 --clave unaclavelarga
 node server/empresa.js despacho COOP-15 DESPACHO-15 otraclave   # crea o resetea
+node server/empresa.js ruta COOP-15 R-16 "Circunvalación"
 node server/empresa.js desactivar COOP-15                       # suspender
 node server/empresa.js activar COOP-15
 ```
 
 El porqué está en *Niveles de seguridad*: quien puede crear una empresa
 puede crearse un supervisor y mirar lo que quiera. Esa barrera no puede ser
-una contraseña más — es el acceso al servidor.
+una contraseña más.
 
 Desde el panel, la pestaña **EMPRESA** muestra la ficha de la cooperativa y
 su tamaño (rutas, flota, personas, cuentas de despacho, unidades en línea),
 y el supervisor puede corregir nombre, RUC y contacto. El código no se
 toca: de él cuelga todo lo demás.
+
+## Panel del creador
+
+El nivel que está por encima de todas las cooperativas, hecho pantalla. Es
+donde se dan de alta las empresas, se les crea o restablece la cuenta de
+Despacho, se les agregan rutas y se las suspende; además muestra la salud
+del servidor y la actividad de todas juntas — el único lugar del sistema
+donde se ven así.
+
+**Está apagado.** Se enciende con variables de entorno, y sin ellas las
+rutas ni siquiera se registran:
+
+| Variable | Qué hace |
+| --- | --- |
+| `CREATOR_PASSWORD` | **Enciende el panel.** Mínimo 12 caracteres: con menos, el panel queda apagado y el arranque dice por qué. Sin esta variable no hay panel |
+| `CREATOR_PATH` | Mueve el panel a una ruta propia (`/gestion-x9k2`). Por defecto `/creador` |
+| `CREATOR_TOTP_SECRET` | Segundo factor: además de la clave, el código de 6 dígitos de una app de autenticación. Base32. Si el valor está mal escrito, el panel queda **apagado** en vez de arrancar sin el factor que se pidió |
+
+**Por qué no es un rol más del login**, que era la condición. Son cuatro
+barreras que se suman:
+
+1. **Apagado por defecto.** Sin `CREATOR_PASSWORD`, las rutas del creador no
+   existen: responden **404**, no 401 ni 403. Un panel apagado es
+   indistinguible de un servidor que nunca lo tuvo — no se puede atacar lo
+   que no está.
+2. **Credencial aparte.** No es un usuario de la tabla `users`. No hay
+   ninguna fila de la base que dé este acceso, así que no se llega acá desde
+   una cuenta de Despacho ni comprometiéndola.
+3. **Ruta no adivinable.** `CREATOR_PATH` lo saca de cualquier barrido
+   automático de URLs conocidas. No alcanza solo —por eso hay clave— pero
+   suma.
+4. **Segundo factor opcional.** TOTP implementado con `crypto`, sin
+   librerías: son veinte líneas que no cambian nunca, y una dependencia
+   menos en el camino de la puerta principal.
+
+Y encima: las sesiones viven **solo en memoria** y duran 2 horas sin
+renovarse; reiniciar el servidor las cierra todas. El token del creador no
+sirve en `/admin` y el de Despacho no sirve acá. La pantalla no guarda nada
+en el navegador —ni `localStorage` ni `sessionStorage`—, no se cachea y no
+se indexa: cerrar la pestaña es cerrar la sesión.
+
+**Fuerza bruta:** 5 intentos fallidos desde un origen lo bloquean 15
+minutos, y *cada* intento tarda medio segundo fijo, acierte o no. Eso hace
+inviable adivinar en línea y de paso aplana el tiempo de respuesta, que si
+no cuenta cosas. Cuando hay segundo factor, el error no dice si falló la
+clave o el código: decirlo confirmaría media credencial.
+
+**Lo que hace el creador queda registrado, y no a escondidas.** Restablecer
+la clave de un Despacho o crearle una ruta a una cooperativa aparece en la
+pestaña ACTIVIDAD **de esa cooperativa**, firmado `CREADOR`. Lo único que no
+ven es el login del creador, que no es de nadie. El nivel de arriba puede
+todo, pero deja rastro para abajo.
+
+**`empresa.js` sigue existiendo** y conviene que siga: es el piso. Es la
+salida cuando el panel no se puede abrir —clave perdida, deploy a medias,
+base a mano—. Las dos puertas comparten las mismas operaciones y las mismas
+validaciones (`cooperativas.js`): escritas dos veces se habrían separado, y
+son justamente las que no pueden.
 
 ## Multi-ruta
 
@@ -468,6 +550,9 @@ Repasado antes de salir a la calle con cuentas reales:
 | Un chofer entrando a la administración | `/admin/*` exige rol de Despacho (403) y un despachador de ruta solo toca lo suyo |
 | Un despachador pidiendo datos de otra cooperativa (por URL, por parámetro o cambiando de ruta en el panel) | Todo `/admin` y todo el tiempo real filtran por empresa. Lo ajeno responde **404**, igual que lo inexistente: no sirve para averiguar qué rutas o usuarios hay del otro lado |
 | Una cuenta creada a mano en la base, sin empresa | No pasa de `/admin` (403). No hay "sin empresa = ve todo" |
+| Buscar el panel del creador | Si `CREATOR_PASSWORD` no está, no existe (404). Si está, `CREATOR_PATH` lo saca de las URLs conocidas |
+| Adivinar la clave del creador | 5 fallos desde un origen → 15 minutos bloqueado, y cada intento tarda 500 ms fijos aunque acierte |
+| Llegar al creador desde una cuenta de Despacho robada | No hay camino: la credencial del creador no está en la tabla `users`, y su token vive en otro lado. Un token de Despacho da 401 en el panel del creador, y al revés |
 | Un token inventado o vencido | 401, y el cliente vuelve al login |
 
 El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
@@ -481,26 +566,25 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
    cooperativa**; cada uso de ese poder queda en la tabla `audit`. No puede
    eliminar su propia cuenta. Un supervisor manda sobre todas las rutas de
    su empresa y sobre ninguna de otra.
-3. **Operador (dueño del sistema)** — está por encima **sin clave dentro de
-   la app**: controla el deploy, las variables de entorno y la base. Acá
-   vive el alta de cooperativas (`server/empresa.js`).
+3. **Creador (nosotros)** — puede crear cooperativas, y quien puede crear
+   una puede crearse un supervisor adentro y mirar lo que quiera. Es el
+   poder más grande del sistema, y por eso **no se llega desde el login de
+   siempre**: hace falta una clave que no está en la base, un panel que solo
+   existe si una variable de entorno lo enciende y, si se configura, un
+   segundo factor. Ver *Panel del creador*.
+4. **Operador (dueño de la infraestructura)** — está por encima de todo
+   **sin clave ninguna**: controla el deploy, las variables de entorno y el
+   archivo de la base. Es quien decide si el nivel 3 existe.
 
-   Y es a propósito que sea así. Crear una empresa es el único poder por
-   encima de todas: quien puede crear una puede crearse un supervisor y
-   mirar lo que quiera. Si fuera un endpoint más, alcanzaría con robar una
-   contraseña de Despacho para tenerlo. La barrera no es una contraseña
-   mejor: es tener que estar adentro del servidor donde vive la base.
+   **Rutas de recuperación**: si la clave de Despacho de la cooperativa
+   inicial se pierde o filtra, setear/cambiar `DISPATCH_PASSWORD` y
+   reiniciar — la cuenta se resetea al arrancar. Para las demás,
+   `node server/empresa.js despacho <empresa> <usuario> <clave>`. Si se
+   pierde la del creador, cambiar `CREATOR_PASSWORD` y reiniciar (eso
+   además cierra todas sus sesiones abiertas, que viven en memoria).
 
-   **Ruta de recuperación**: si la clave de Despacho se pierde o filtra,
-   setear/cambiar `DISPATCH_PASSWORD` en Railway y reiniciar — la cuenta
-   se resetea al arrancar. Para las demás cooperativas,
-   `node server/empresa.js despacho <empresa> <usuario> <clave>`. Quien
-   accede al repo o al archivo `r14.db` puede todo; ese es el "root" real
-   del sistema.
-
-   Cuando exista el panel del creador (`PENDIENTES.md`), va a ser una
-   pantalla encima de esto mismo, con su propia credencial **y** su propia
-   barrera fuera de la aplicación. No un rol más del login de siempre.
+   Quien accede al repo o al archivo `r14.db` puede todo; ese es el "root"
+   real del sistema, y ninguna clave de la aplicación lo detiene.
 
 ## Panel de tweaks
 

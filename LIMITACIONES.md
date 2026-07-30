@@ -77,10 +77,10 @@ limitación se resuelva o aparezca una nueva.
   pendiente de operación. Con varias cooperativas adentro hay algo más:
   **no se puede restaurar una sola** — el backup es del archivo entero, así
   que volver atrás por un problema de una empresa arrastra a las otras.
-- **Dar de alta una cooperativa necesita consola.** Es a propósito (ver
-  README, Niveles de seguridad), pero significa que ninguna se puede dar de
-  alta sola ni un vendedor puede hacerlo. Escala hasta donde escale nuestro
-  tiempo. El panel del creador es el ítem 1 de `PENDIENTES.md`.
+- **Dar de alta una cooperativa lo hacemos nosotros**, desde el panel del
+  creador o la consola. Es a propósito (ver README, Niveles de seguridad),
+  pero significa que ninguna se da de alta sola ni la puede dar de alta un
+  vendedor: escala hasta donde escale nuestro tiempo.
 - **Dependencia de CDNs gratuitos:** React, Babel y Leaflet cargan
   desde unpkg, los tiles del mapa desde CartoCDN, las fuentes desde
   Google Fonts. Ninguno tiene contrato de servicio: si un CDN falla y
@@ -158,6 +158,17 @@ limitación se resuelva o aparezca una nueva.
 - **Sin límite de conexiones simultáneas por cuenta**: una misma credencial
   puede abrir muchas sesiones. Para el GPS no importa (solo una reporta),
   pero es una vía para consumir memoria del servidor.
+- **El panel del creador es una clave sola**, salvo que se configure
+  `CREATOR_TOTP_SECRET`. Sin el segundo factor, quien consiga esa clave y la
+  ruta del panel entra a todas las cooperativas. Está apagado por defecto,
+  la ruta se puede mover y la fuerza bruta está frenada, pero eso no
+  reemplaza al segundo factor: conviene ponerlo. El panel lo avisa en su
+  pestaña SISTEMA mientras falte.
+- **Las sesiones del creador viven en memoria del proceso.** Es lo que
+  queremos (un reinicio las cierra todas), pero con varias instancias del
+  servidor detrás de un balanceador no funcionaría: cada una tendría las
+  suyas. Hoy hay una sola instancia; si algún día hay más, esto hay que
+  moverlo a la base o a un almacén compartido.
 - **Los códigos son únicos en todo el servidor**, no por cooperativa: dos
   empresas no pueden tener las dos una ruta "R-14", ni un vehículo "M-05".
   Es necesario —si no, una consulta por `routeId` no sabría de quién habla—
