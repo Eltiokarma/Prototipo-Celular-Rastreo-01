@@ -121,8 +121,9 @@ limitación se resuelva o aparezca una nueva.
   se resuelve entrando uno después del otro (el último toma el mando del
   GPS y al anterior se le avisa), pero no queda registro de turno ni
   horas trabajadas.
-- Modo "Sol extremo" solo aplica a la pantalla RUTA (chat y mapa son
-  siempre oscuros).
+- El tema cubre las tres pantallas y el panel, pero las pantallas de
+  **login y "Salir a ruta"** siguen siendo oscuras a propósito (son las
+  pantallas de marca, no de operación).
 - No hay exportación de reportes (CSV/PDF) de vueltas ni auditoría.
 - El panel de Despacho no puede iniciar una conversación privada con
   una unidad: todo el chat es grupal.

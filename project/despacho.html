@@ -7,7 +7,7 @@
 
 <!-- PWA: el panel se instala como app fija en un celular o tablet -->
 <link rel="manifest" href="manifest-despacho.json">
-<meta name="theme-color" content="#03060a">
+<meta name="theme-color" content="#F7FAFD">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Despacho">
@@ -25,9 +25,11 @@
 <script src="config.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
+  /* Las fija Root al aplicar el tema (día por defecto) */
+  :root { --bg: #F7FAFD; --fg: #0B2239; }
   html, body {
     margin: 0; padding: 0; height: 100%;
-    background: #03060a; color: #EAF4FF;
+    background: var(--bg); color: var(--fg);
     font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
     overflow: hidden;
   }
@@ -57,12 +59,54 @@ const SERVER_URL = window.REALTIME_SERVER_URL ||
 const HTTP_URL = SERVER_URL.replace(/^ws/, 'http');
 
 // Tokens HUD compartidos con la app
-const HUD = {
-  bg: '#03060a', surface: '#0d1116', line: '#1c2836', divider: '#16222f',
-  green: '#39FF14', amber: '#FFD400', red: '#FF2D55',
-  fg: '#EAF4FF', fg2: '#C6D6E6', dim: '#8FA8C0', dim2: '#6E88A2', dim3: '#56708A',
-  bright: '#2E9DFF', sky: '#71BCFF',
+// Dos temas. DÍA es el de fábrica: el encargado puede estar en la calle o en
+// el paradero con el celular en la mano, no en una oficina con luz tenue.
+// NOCHE es el diseño oscuro original, para turnos de madrugada.
+const TEMAS = {
+  day: {
+    bg: '#F7FAFD', surface: '#FFFFFF', line: '#C3D4E4', divider: '#E1E9F2',
+    green: '#1F8A4F', amber: '#A67300', red: '#C2001D',
+    fg: '#0B2239', fg2: '#2A4864', dim: '#41627F', dim2: '#547693', dim3: '#7591AB',
+    bright: '#1668C4', sky: '#1668C4',
+    hueco: '#EDF2F8',       // cajas de alta, fondos hundidos
+    campo: '#FFFFFF',       // inputs
+    campoLinea: '#C3D4E4',
+    boton: '#E3EDF7',       // botones secundarios
+    apagado: '#B9C9D8',     // punto de "desconectado"
+    burbuja: '#FFFFFF',      burbujaInk: '#0B2239',
+    burbujaPropia: '#DCEBFB', burbujaPropiaInk: '#0A2E52',
+    burbujaSos: '#FFE1E7',   burbujaSosInk: '#68001A',
+    okFondo: '#E4F7EA', okClave: '#0B6B33',
+    cargando: '#7FA8D4',
+    tiles: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    oscuro: false,
+  },
+  night: {
+    bg: '#03060a', surface: '#0d1116', line: '#1c2836', divider: '#16222f',
+    green: '#39FF14', amber: '#FFD400', red: '#FF2D55',
+    fg: '#EAF4FF', fg2: '#C6D6E6', dim: '#8FA8C0', dim2: '#6E88A2', dim3: '#56708A',
+    bright: '#2E9DFF', sky: '#71BCFF',
+    hueco: '#0a0f15',
+    campo: '#10161d',
+    campoLinea: '#232b36',
+    boton: '#1a222c',
+    apagado: '#2a3644',
+    burbuja: '#141a21',      burbujaInk: '#DCE8F5',
+    burbujaPropia: '#0e2a45', burbujaPropiaInk: '#D8ECFF',
+    burbujaSos: '#2b0812',   burbujaSosInk: '#FFD9E0',
+    okFondo: '#08251a', okClave: '#7DF06A',
+    cargando: '#1D598F',
+    tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    oscuro: true,
+  },
 };
+
+// Se muta en vez de reemplazarse: así las referencias HUD.* de todo el panel
+// siguen valiendo sin pasar el tema por props.
+const HUD = { ...TEMAS.day };
+function aplicarTema(modo) {
+  Object.assign(HUD, TEMAS[modo] || TEMAS.day);
+}
 
 const JULIACA_CENTER = [-15.4904, -70.1333];
 // Objetivo de brecha por defecto; cada ruta manda el suyo en el estado
@@ -138,7 +182,7 @@ function Login({ onSuccess, notice }) {
 
   const inputStyle = {
     width: '100%', padding: '14px 16px', fontSize: 18, fontWeight: 600,
-    background: '#10161d', border: '1px solid #232b36', borderRadius: 12,
+    background: HUD.campo, border: `1px solid ${HUD.campoLinea}`, borderRadius: 12,
     color: HUD.fg, outline: 'none', fontFamily: 'inherit',
   };
 
@@ -172,7 +216,7 @@ function Login({ onSuccess, notice }) {
 
         <button onClick={submit} disabled={loading} style={{
           width: '100%', padding: 16, fontSize: 17, letterSpacing: 2,
-          fontFamily: black, background: loading ? '#1D598F' : HUD.bright,
+          fontFamily: black, background: loading ? HUD.cargando : HUD.bright,
           color: '#fff', border: 'none', borderRadius: 12,
           cursor: loading ? 'wait' : 'pointer',
         }}>{loading ? 'VERIFICANDO...' : 'INGRESAR'}</button>
@@ -237,9 +281,9 @@ function ChatColumn({ messages, onSend, routeId }) {
               <div style={{
                 maxWidth: '90%', padding: '9px 13px', fontSize: 15, lineHeight: 1.35,
                 borderRadius: own ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                background: sos ? '#2b0812' : own ? '#0e2a45' : '#141a21',
+                background: sos ? HUD.burbujaSos : own ? HUD.burbujaPropia : HUD.burbuja,
                 borderLeft: sos ? `3px solid ${HUD.red}` : 'none',
-                color: sos ? '#FFD9E0' : own ? '#D8ECFF' : '#DCE8F5',
+                color: sos ? HUD.burbujaSosInk : own ? HUD.burbujaPropiaInk : HUD.burbujaInk,
               }}>
                 {m.voice
                   ? (m.audio
@@ -260,7 +304,7 @@ function ChatColumn({ messages, onSend, routeId }) {
           placeholder="Mensaje como DESPACHO…"
           style={{
             flex: 1, minWidth: 0, height: 44, borderRadius: 22,
-            background: '#10161d', border: '1px solid #232b36',
+            background: HUD.campo, border: `1px solid ${HUD.campoLinea}`,
             padding: '0 16px', fontSize: 15, color: HUD.fg, outline: 'none',
             fontFamily: 'inherit',
           }}
@@ -432,8 +476,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
       .filter(Boolean).join(' ').toLowerCase().includes(q);
 
   const inputStyle = {
-    height: 40, borderRadius: 10, background: '#10161d',
-    border: '1px solid #232b36', padding: '0 12px',
+    height: 40, borderRadius: 10, background: HUD.campo,
+    border: `1px solid ${HUD.campoLinea}`, padding: '0 12px',
     fontSize: 14, color: HUD.fg, outline: 'none', fontFamily: 'inherit',
     minWidth: 0, width: '100%', boxSizing: 'border-box',
   };
@@ -475,7 +519,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
             {/* alta de vehículo: la combi física, sin credencial ni clave */}
             <div style={{
               display: 'flex', flexWrap: 'wrap', gap: 8,
-              padding: 14, background: '#0a0f15', borderRadius: 14,
+              padding: 14, background: HUD.hueco, borderRadius: 14,
               border: `1px solid ${HUD.divider}`, marginBottom: 16,
             }}>
               {esSupervisor && routeList.length > 0 && (
@@ -512,7 +556,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 }}>
                   <span style={{
                     width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                    background: v.enLinea ? HUD.green : '#2a3644',
+                    background: v.enLinea ? HUD.green : HUD.apagado,
                     boxShadow: v.enLinea ? `0 0 8px ${HUD.green}` : 'none',
                   }} title={v.enLinea ? 'En ruta ahora' : 'Fuera de ruta'} />
                   <span style={{ fontFamily: black, fontSize: 15, minWidth: 80 }}>{v.vehicleId}</span>
@@ -557,7 +601,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
             {esSupervisor && (
               <div style={{
                 display: 'flex', flexWrap: 'wrap', gap: 8,
-                padding: 14, background: '#0a0f15', borderRadius: 14,
+                padding: 14, background: HUD.hueco, borderRadius: 14,
                 border: `1px solid ${HUD.divider}`, marginBottom: 16,
               }}>
                 <input placeholder="Código (ej. R-20)" value={nuevaRuta.routeId}
@@ -707,7 +751,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
         {tab === 'users' && (<div>
         {/* alta de PERSONA: nombre obligatorio, alias opcional, rol y vehículo */}
         <div style={{
-          padding: 14, background: '#0a0f15', borderRadius: 14,
+          padding: 14, background: HUD.hueco, borderRadius: 14,
           border: `1px solid ${HUD.divider}`, marginBottom: 16,
         }}>
           {/* fila 1 — quién es */}
@@ -770,7 +814,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 style={{ ...inputStyle, width: 'auto', flex: 1 }} />
               <button title="Generar una clave fácil de dictar"
                 onClick={() => setForm(f => ({ ...f, password: suggestPassword() }))}
-                style={{ ...smallBtn('#1a222c', HUD.fg2), height: 40, padding: '0 10px' }}>⟳</button>
+                style={{ ...smallBtn(HUD.boton, HUD.fg2), height: 40, padding: '0 10px' }}>⟳</button>
             </span>
             <button onClick={create} disabled={busy} style={{
               ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13, height: 40,
@@ -789,7 +833,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
         {/* credenciales para dictar — se ven una sola vez */}
         {credential && (
           <div style={{
-            background: '#08251a', border: `1px solid ${HUD.green}`,
+            background: HUD.okFondo, border: `1px solid ${HUD.green}`,
             borderRadius: 14, padding: 16, marginBottom: 16,
           }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: HUD.green, marginBottom: 10 }}>
@@ -812,7 +856,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               </div>
               <div>
                 <div style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1, color: HUD.dim2 }}>CONTRASEÑA</div>
-                <div style={{ fontFamily: black, fontSize: 22, color: '#7DF06A', userSelect: 'all' }}>{credential.password}</div>
+                <div style={{ fontFamily: black, fontSize: 22, color: HUD.okClave, userSelect: 'all' }}>{credential.password}</div>
               </div>
               <div style={{ flex: 1 }} />
               <span style={{ display: 'flex', gap: 8 }}>
@@ -871,7 +915,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
           }}>
             <span style={{
               width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-              background: u.online ? HUD.green : '#2a3644',
+              background: u.online ? HUD.green : HUD.apagado,
               boxShadow: u.online ? `0 0 8px ${HUD.green}` : 'none',
             }} title={u.online ? 'Conectado' : 'Desconectado'} />
             {u.role === 'collector' && (
@@ -934,7 +978,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   setEditForm({ name: u.name || u.driverName || '', alias: u.alias || '' });
                   setResetFor(null); setConfirmDel(null);
                 }}
-                style={smallBtn('#1a222c', HUD.fg2)}>Nombre</button>
+                style={smallBtn(HUD.boton, HUD.fg2)}>Nombre</button>
             )}
             {editFor === u.unitId ? null : resetFor === u.unitId ? (
               <span style={{ display: 'flex', gap: 6 }}>
@@ -947,7 +991,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               </span>
             ) : (
               <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); }}
-                style={smallBtn('#1a222c', HUD.fg2)}>Reset clave</button>
+                style={smallBtn(HUD.boton, HUD.fg2)}>Reset clave</button>
             )}
             {u.role !== 'dispatch' && editFor !== u.unitId && (
               confirmDel === u.unitId ? (
@@ -977,7 +1021,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
 // ═══════════════════════════════════════════════════════════════
 // PANEL
 // ═══════════════════════════════════════════════════════════════
-function Panel({ session, onLogout, onAuthError }) {
+function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const [connected, setConnected] = React.useState(false);
   const [units, setUnits] = React.useState([]);
   const [gaps, setGaps] = React.useState({});
@@ -1002,6 +1046,11 @@ function Panel({ session, onLogout, onAuthError }) {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+  // Cambiar de tema cambia los tiles sin recargar la página
+  React.useEffect(() => {
+    if (tilesRef.current) tilesRef.current.setUrl(HUD.tiles);
+  }, [modo]);
+
   // Leaflet necesita re-medirse cuando su contenedor aparece o cambia
   React.useEffect(() => {
     if (mapRef.current && (!isMobile || view === 'map')) {
@@ -1010,6 +1059,7 @@ function Panel({ session, onLogout, onAuthError }) {
   }, [isMobile, view]);
   const wsRef = React.useRef(null);
   const mapRef = React.useRef(null);
+  const tilesRef = React.useRef(null);
   const markersRef = React.useRef({});
   const fittedRef = React.useRef(false);
 
@@ -1098,7 +1148,7 @@ function Panel({ session, onLogout, onAuthError }) {
   const initMap = React.useCallback((node) => {
     if (!node || mapRef.current) return;
     const map = L.map(node, { center: JULIACA_CENTER, zoom: 14, zoomControl: true, attributionControl: false });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+    tilesRef.current = L.tileLayer(HUD.tiles, { maxZoom: 19 }).addTo(map);
     mapRef.current = map;
     setTimeout(() => map.invalidateSize(), 100);
   }, []);
@@ -1181,7 +1231,7 @@ function Panel({ session, onLogout, onAuthError }) {
             onChange={e => cambiarRuta(e.target.value)}
             title="Ruta que estás mirando"
             style={{
-              background: '#10161d', color: HUD.fg, border: `1px solid ${HUD.line}`,
+              background: HUD.campo, color: HUD.fg, border: `1px solid ${HUD.line}`,
               borderRadius: 8, padding: '6px 8px', fontSize: 13, fontWeight: 700,
               fontFamily: 'inherit', cursor: 'pointer', maxWidth: isMobile ? 120 : 220,
             }}>
@@ -1212,10 +1262,17 @@ function Panel({ session, onLogout, onAuthError }) {
         </span>
         <div style={{ flex: 1 }} />
         <button onClick={() => setAdminOpen(true)} style={{
-          background: '#1a222c', border: `1px solid ${HUD.line}`, borderRadius: 8,
+          background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
           padding: '6px 12px', color: HUD.fg2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
           marginRight: 10, flexShrink: 0,
         }}>Gestión</button>
+        <button onClick={onAlternarModo}
+          title={modo === 'day' ? 'Pasar a modo noche' : 'Pasar a modo día'}
+          style={{
+            background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
+            padding: '6px 10px', color: HUD.fg2, fontSize: 14, cursor: 'pointer',
+            marginRight: 10, flexShrink: 0, lineHeight: 1,
+          }}>{modo === 'day' ? '☾' : '☀'}</button>
         <button onClick={onLogout} style={{
           background: 'transparent', border: `1px solid ${HUD.line}`, borderRadius: 8,
           padding: '6px 12px', color: HUD.dim2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
@@ -1358,6 +1415,25 @@ function Panel({ session, onLogout, onAuthError }) {
 // ROOT
 // ═══════════════════════════════════════════════════════════════
 function Root() {
+  // El tema elegido se recuerda en el dispositivo. De fábrica, DÍA.
+  const [modo, setModo] = React.useState(() => {
+    try {
+      const g = localStorage.getItem('r14_modo_panel');
+      if (g && TEMAS[g]) return g;
+    } catch {}
+    return 'day';
+  });
+  // Antes de renderizar: HUD es un objeto que se muta, así que tiene que
+  // estar en su valor final cuando los hijos lo leen.
+  aplicarTema(modo);
+  React.useEffect(() => {
+    try { localStorage.setItem('r14_modo_panel', modo); } catch {}
+    const r = document.documentElement.style;
+    r.setProperty('--bg', HUD.bg);
+    r.setProperty('--fg', HUD.fg);
+  }, [modo]);
+  const alternarModo = () => setModo(m => (m === 'day' ? 'night' : 'day'));
+
   const [session, setSession] = React.useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('r14_dispatch_session') || 'null');
@@ -1378,6 +1454,8 @@ function Root() {
   return <Panel
     session={session}
     onLogout={logout}
+    modo={modo}
+    onAlternarModo={alternarModo}
     onAuthError={() => { setSession(null); setNotice('Tu sesión expiró. Ingresá de nuevo.'); }}
   />;
 }
