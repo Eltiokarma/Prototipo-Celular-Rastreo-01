@@ -7,6 +7,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+// Compartido con las herramientas de consola (ver `base.js` y `empresa.js`)
+const { openDatabase, hashPassword, verifyPassword, idLimpio } = require('./base');
 
 const app = express();
 app.use(express.json());
@@ -64,44 +66,6 @@ function probeNativeSqlite() {
     if (e.signal) return `el módulo nativo murió con ${e.signal} (Node ${process.version})`;
     return `no se pudo cargar el módulo nativo (Node ${process.version})`;
   }
-}
-
-// Abre la base con red de seguridad: si la ruta configurada no sirve
-// (volumen sin montar, permisos), cae a una ruta local y, en última
-// instancia, a memoria — el sistema sigue en pie aunque sin persistir.
-function openDatabase(Database) {
-  const candidates = [];
-  if (process.env.DB_FILE) candidates.push(process.env.DB_FILE);
-  candidates.push(path.join(__dirname, 'r14.db'));
-  candidates.push(':memory:');
-
-  for (const file of candidates) {
-    try {
-      if (file !== ':memory:') {
-        // Solo se crea el directorio si falta: con el volumen ya montado
-        // no hace falta tocar nada.
-        const dir = path.dirname(file);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      }
-      const database = new Database(file);
-      // WAL es más rápido, pero algunos volúmenes montados no lo soportan:
-      // si falla, se sigue con el journal por defecto en vez de morir.
-      try {
-        database.pragma('journal_mode = WAL');
-      } catch {
-        console.warn('WAL no disponible en este disco — journal por defecto');
-      }
-      if (file === ':memory:') {
-        console.warn('⚠ Base en MEMORIA: los datos se pierden al reiniciar.');
-      } else {
-        console.log('Base de datos:', file);
-      }
-      return database;
-    } catch (e) {
-      console.error(`No se pudo abrir la base en ${file}: ${e.message}`);
-    }
-  }
-  return null;
 }
 
 const nativeProblem = probeNativeSqlite();
@@ -172,17 +136,10 @@ db.exec(`
 
 const DEFAULT_ROUTE = process.env.DEFAULT_ROUTE || 'R-14';
 
-// Los identificadores (unidad, vehículo, ruta, usuario) terminan pintados
-// dentro del HTML de los pines del mapa, así que se limitan a un juego de
-// caracteres seguro. Sin esto, alguien con cuenta de Despacho podía dar de
-// alta una unidad llamada "<img onerror=...>" y ejecutar código en el
-// navegador de los demás encargados — con su sesión abierta. Los NOMBRES y
-// alias no tienen esta restricción: van por React, que los escapa solo.
-const ID_VALIDO = /^[A-Za-z0-9._-]{1,24}$/;
-function idLimpio(v) {
-  const s = String(v || '').trim();
-  return ID_VALIDO.test(s) ? s : null;
-}
+// `idLimpio` (arriba, desde base.js) limita los identificadores a un juego de
+// caracteres seguro. Sin eso, alguien con cuenta de Despacho podía dar de alta
+// una unidad llamada "<img onerror=...>" y ejecutar código en el navegador de
+// los demás encargados — con su sesión abierta.
 
 // Agrega una columna solo si falta: así las bases ya existentes migran
 // solas sin perder nada.
@@ -195,9 +152,78 @@ function addColumnIfMissing(table, column, definition) {
   return false;
 }
 
+// ─── EMPRESAS ────────────────────────────────────────────────
+// Un nivel arriba de las rutas: empresa → rutas → vehículos y personas.
+// Hasta acá esto era "el sistema de la R-14". Con la empresa, una misma
+// instalación atiende a varias cooperativas sin que ninguna vea a la otra:
+// la empresa es el borde de TODO lo que se consulta.
+//
+// Y una regla dura, que es la que sostiene el aislamiento: toda cuenta
+// pertenece a una empresa. No existe la cuenta sin empresa que ve todo. El
+// nivel de arriba —el nuestro— vive fuera de la aplicación (ver
+// `empresa.js` y la sección "Niveles de seguridad" del README), no es un rol
+// más del mismo login. Si el panel que puede todo se abriera con una
+// contraseña más, el nivel de arriba dejaría de existir.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS companies (
+    companyId TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    ruc TEXT,                              -- para los papeles, opcional
+    contacto TEXT,                         -- a quién llamar, opcional
+    activa INTEGER NOT NULL DEFAULT 1,
+    createdAt INTEGER NOT NULL
+  )
+`);
+
+const DEFAULT_COMPANY = idLimpio(process.env.DEFAULT_COMPANY) || 'R14';
+
+if (db.prepare('SELECT COUNT(*) AS c FROM companies').get().c === 0) {
+  db.prepare('INSERT INTO companies (companyId, name, createdAt) VALUES (?, ?, ?)')
+    .run(DEFAULT_COMPANY,
+      String(process.env.DEFAULT_COMPANY_NAME || 'Cooperativa de Transportes Juliaca').slice(0, 80),
+      Date.now());
+  console.log(`Empresa inicial creada: ${DEFAULT_COMPANY}`);
+}
+
+function companyOf(companyId) {
+  if (!companyId) return null;
+  return db.prepare('SELECT * FROM companies WHERE companyId = ?').get(companyId) || null;
+}
+
+// A qué empresa se engancha lo que ya existía. Normalmente la inicial; si
+// esa no está (una base vieja pudo haberla renombrado), la más antigua.
+function empresaBase() {
+  const c = companyOf(DEFAULT_COMPANY) ||
+    db.prepare('SELECT * FROM companies ORDER BY createdAt LIMIT 1').get();
+  return c ? c.companyId : DEFAULT_COMPANY;
+}
+
+// Le pone dueño a una tabla que antes no lo tenía. El relleno corre en cada
+// arranque, no solo al crear la columna: una fila sin empresa quedaría
+// invisible para todos los paneles, y eso se ve como datos perdidos.
+function ligarAEmpresa(tabla, porRuta) {
+  addColumnIfMissing(tabla, 'companyId', 'TEXT');
+  let n = 0;
+  // Lo que cuelga de una ruta hereda la empresa de esa ruta: es más fiel que
+  // mandar todo a la empresa inicial, y en una base con varias ya cargadas es
+  // la diferencia entre migrar bien y mezclarlas.
+  if (porRuta) {
+    n += db.prepare(`
+      UPDATE ${tabla}
+         SET companyId = (SELECT r.companyId FROM routes r WHERE r.routeId = ${tabla}.routeId)
+       WHERE companyId IS NULL AND routeId IN (SELECT routeId FROM routes)
+    `).run().changes;
+  }
+  n += db.prepare(`UPDATE ${tabla} SET companyId = ? WHERE companyId IS NULL`)
+    .run(empresaBase()).changes;
+  if (n) console.log(`${tabla}: ${n} fila(s) sin empresa`);
+}
+
+ligarAEmpresa('routes', false);
+
 if (db.prepare('SELECT COUNT(*) AS c FROM routes').get().c === 0) {
-  db.prepare('INSERT INTO routes (routeId, name, targetGapMin, durationMin, createdAt) VALUES (?, ?, ?, ?, ?)')
-    .run(DEFAULT_ROUTE, 'Terminal Sur ↔ Huancané', 2, 50, Date.now());
+  db.prepare('INSERT INTO routes (routeId, name, targetGapMin, durationMin, companyId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(DEFAULT_ROUTE, 'Terminal Sur ↔ Huancané', 2, 50, empresaBase(), Date.now());
   console.log(`Ruta inicial creada: ${DEFAULT_ROUTE}`);
 }
 
@@ -207,6 +233,21 @@ function routeOf(routeId) {
 
 function allRoutes() {
   return db.prepare('SELECT * FROM routes ORDER BY routeId').all();
+}
+
+// Las rutas de UNA empresa. Es la que se usa en todo lo que mira un
+// despachador: `allRoutes()` queda para lo interno del servidor.
+function routesOfCompany(companyId) {
+  if (!companyId) return [];
+  return db.prepare('SELECT * FROM routes WHERE companyId = ? ORDER BY routeId').all(companyId);
+}
+
+// ¿Esta ruta es de esta empresa? La pregunta que se hace antes de dejar
+// tocar cualquier cosa colgada de una ruta.
+function rutaDeEmpresa(routeId, companyId) {
+  if (!routeId || !companyId) return false;
+  const r = routeOf(routeId);
+  return !!r && r.companyId === companyId;
 }
 
 // ─── GEOMETRÍA DE LA RUTA (por tramos) ───────────────────────
@@ -535,6 +576,13 @@ if (addColumnIfMissing('users', 'routeId', 'TEXT')) {
   console.log('Choferes existentes asignados a la ruta ' + DEFAULT_ROUTE);
 }
 
+// A qué empresa pertenece cada persona. En users, la pareja empresa/ruta dice
+// todo lo que hay que saber del alcance de una cuenta de despacho:
+//   empresa + ruta   → despachador de esa ruta
+//   empresa sin ruta → supervisor de esa empresa (todas sus rutas)
+//   sin empresa      → nadie: la administración no lo deja pasar
+ligarAEmpresa('users', true);
+
 // ─── PERSONAS Y VEHÍCULOS ────────────────────────────────────
 // Antes la cuenta ERA la unidad: el mismo `M-05` era el vehículo, el
 // login y quien reportaba GPS. Con eso, si el chofer y el cobrador
@@ -559,6 +607,8 @@ db.exec(`
   )
 `);
 
+ligarAEmpresa('vehicles', true);
+
 // name es OBLIGATORIO (el nombre real, para los registros de la empresa)
 // y alias es OPCIONAL (como lo llaman en la ruta: "el Chino", "Pocho").
 addColumnIfMissing('users', 'name', 'TEXT');
@@ -570,11 +620,11 @@ addColumnIfMissing('users', 'vehicleId', 'TEXT');
 // vehículo, así que se crea el vehículo con su mismo código y la persona
 // queda asignada ahí. Los choferes siguen entrando con la clave de antes.
 if (db.prepare('SELECT COUNT(*) AS c FROM vehicles').get().c === 0) {
-  const previos = db.prepare("SELECT unitId, driverName, routeId FROM users WHERE role = 'driver'").all();
-  const insVeh = db.prepare('INSERT OR IGNORE INTO vehicles (vehicleId, label, routeId, createdAt) VALUES (?, ?, ?, ?)');
+  const previos = db.prepare("SELECT unitId, driverName, routeId, companyId FROM users WHERE role = 'driver'").all();
+  const insVeh = db.prepare('INSERT OR IGNORE INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES (?, ?, ?, ?, ?)');
   db.transaction(() => {
     for (const p of previos) {
-      insVeh.run(p.unitId, null, p.routeId || DEFAULT_ROUTE, Date.now());
+      insVeh.run(p.unitId, null, p.routeId || DEFAULT_ROUTE, p.companyId || empresaBase(), Date.now());
       db.prepare('UPDATE users SET vehicleId = ? WHERE unitId = ?').run(p.unitId, p.unitId);
     }
   })();
@@ -595,20 +645,6 @@ function vehicleOf(vehicleId) {
   return db.prepare('SELECT * FROM vehicles WHERE vehicleId = ?').get(vehicleId) || null;
 }
 
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 32).toString('hex');
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password, stored) {
-  const [salt, hash] = String(stored).split(':');
-  if (!salt || !hash) return false;
-  const calc = crypto.scryptSync(password, salt, 32);
-  const expected = Buffer.from(hash, 'hex');
-  return calc.length === expected.length && crypto.timingSafeEqual(calc, expected);
-}
-
 const SESSION_DAYS = 30;
 
 function createSession(unitId) {
@@ -625,7 +661,7 @@ function sessionUser(token) {
     .get(token, Date.now());
   if (!s) return null;
   return db.prepare(
-    'SELECT unitId, driverName, name, alias, role, routeId, vehicleId FROM users WHERE unitId = ?'
+    'SELECT unitId, driverName, name, alias, role, routeId, vehicleId, companyId FROM users WHERE unitId = ?'
   ).get(s.unitId) || null;
 }
 
@@ -660,8 +696,8 @@ if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
   if (exists) {
     db.prepare("UPDATE users SET passHash = ?, role = 'dispatch' WHERE unitId = ?").run(hash, DISPATCH_ID);
   } else {
-    db.prepare('INSERT INTO users (unitId, driverName, name, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(DISPATCH_ID, 'Despacho', 'Despacho', 'dispatch', hash, Date.now());
+    db.prepare('INSERT INTO users (unitId, driverName, name, role, companyId, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(DISPATCH_ID, 'Despacho', 'Despacho', 'dispatch', empresaBase(), hash, Date.now());
   }
   console.log('Cuenta DESPACHO lista (desde DISPATCH_PASSWORD)');
 }
@@ -691,12 +727,29 @@ db.exec(`
 `);
 
 addColumnIfMissing('audit', 'routeId', 'TEXT');
+ligarAEmpresa('audit', true);
 
-function audit(actor, action, target, detail, routeId) {
+// Cuántos movimientos se guardan POR EMPRESA. Antes el tope era global, y
+// con varias cooperativas en el mismo servidor la más movida le borraba la
+// auditoría a las demás: el registro de quién tocó qué es justamente lo que
+// no puede depender de cuánto trabaja el vecino.
+const AUDIT_POR_EMPRESA = 1000;
+
+function audit(actor, action, target, detail, routeId, companyId) {
   try {
-    db.prepare('INSERT INTO audit (actor, action, target, detail, routeId, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(actor, action, target || null, detail || null, routeId || null, Date.now());
-    db.prepare('DELETE FROM audit WHERE id NOT IN (SELECT id FROM audit ORDER BY id DESC LIMIT 1000)').run();
+    // Casi ningún llamador conoce la empresa: se deduce de la ruta y, si no
+    // hay ruta (un login, por ejemplo), de la cuenta que hizo la acción.
+    const empresa = companyId
+      || (routeId ? (routeOf(routeId)?.companyId || null) : null)
+      || db.prepare('SELECT companyId FROM users WHERE unitId = ?').get(actor)?.companyId
+      || null;
+    db.prepare('INSERT INTO audit (actor, action, target, detail, routeId, companyId, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(actor, action, target || null, detail || null, routeId || null, empresa, Date.now());
+    db.prepare(`
+      DELETE FROM audit
+       WHERE companyId IS @empresa
+         AND id NOT IN (SELECT id FROM audit WHERE companyId IS @empresa ORDER BY id DESC LIMIT @tope)
+    `).run({ empresa, tope: AUDIT_POR_EMPRESA });
   } catch (e) {
     console.error('No se pudo auditar:', e.message);
   }
@@ -1013,9 +1066,12 @@ app.post('/auth/login', (req, res) => {
     // El DESPACHO de arranque queda como supervisor (routeId null): ve
     // todas las rutas. Una unidad auto-registrada va a la ruta inicial.
     const routeId = role === 'dispatch' ? null : DEFAULT_ROUTE;
-    db.prepare('INSERT INTO users (unitId, driverName, name, role, routeId, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(unitId, driverName, driverName, role, routeId, hashPassword(password), Date.now());
-    user = { unitId, driverName, name: driverName, role, routeId };
+    // Un alta de arranque entra a la empresa inicial: es la única que existe
+    // cuando esto corre. Las demás empresas se dan de alta desde afuera.
+    const companyId = empresaBase();
+    db.prepare('INSERT INTO users (unitId, driverName, name, role, routeId, companyId, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(unitId, driverName, driverName, role, routeId, companyId, hashPassword(password), Date.now());
+    user = { unitId, driverName, name: driverName, role, routeId, companyId };
     created = true;
     console.log(`${role === 'dispatch' ? 'Despacho' : 'Unidad'} registrado: ${unitId}`);
   } else if (!verifyPassword(password, user.passHash)) {
@@ -1026,11 +1082,21 @@ app.post('/auth/login', (req, res) => {
     return res.status(401).json({ error: `Contraseña incorrecta · intento ${count} de 5` });
   }
 
+  // La empresa desactivada corta el acceso de toda su gente de una vez. Se
+  // chequea DESPUÉS de la contraseña a propósito: si no, probar usuarios
+  // contra una empresa suspendida diría cuáles existen.
+  const empresaDeLaCuenta = companyOf(user.companyId);
+  if (empresaDeLaCuenta && !empresaDeLaCuenta.activa) {
+    audit(user.unitId, 'login_empresa_inactiva', null, empresaDeLaCuenta.companyId, user.routeId, user.companyId);
+    return res.status(403).json({ error: 'El acceso de esta cooperativa está suspendido.' });
+  }
+
   loginAttempts.delete(unitId);
   const token = createSession(user.unitId);
   db.prepare('UPDATE users SET lastLogin = ? WHERE unitId = ?').run(Date.now(), user.unitId);
   audit(user.unitId, 'login', null, created ? 'primer registro' : null, user.routeId);
   const ruta = user.routeId ? routeOf(user.routeId) : null;
+  const empresa = companyOf(user.companyId);
   res.json({
     token, unitId: user.unitId,
     // Cómo mostrarlo en pantalla: el alias si lo tiene, el nombre si no
@@ -1041,6 +1107,11 @@ app.post('/auth/login', (req, res) => {
     vehicleId: user.vehicleId || null,
     routeId: user.routeId || null,
     routeName: ruta ? ruta.name : null,
+    // La empresa dueña de la cuenta: es lo que se ve arriba de todo en el
+    // panel y en la app. Sin esto el chofer de otra cooperativa abriría una
+    // pantalla que dice COOP-R14.
+    companyId: user.companyId || null,
+    companyName: empresa ? empresa.name : null,
     supervisor: user.role === 'dispatch' && !user.routeId,
     created,
   });
@@ -1064,14 +1135,23 @@ function requireDispatch(req, res, next) {
   if (user.role !== 'dispatch') {
     return res.status(403).json({ error: 'Requiere una cuenta de Despacho' });
   }
+  // Sin empresa no se administra nada. No es un caso teórico: es la puerta
+  // que quedaría abierta si alguien creara una cuenta a mano en la base, y
+  // dejarla cerrada es lo que mantiene el nivel de arriba fuera del login.
+  if (!user.companyId || !companyOf(user.companyId)) {
+    return res.status(403).json({ error: 'Esta cuenta no está asignada a ninguna empresa' });
+  }
   req.dispatchUser = user;
-  // Alcance del despachador: un supervisor (dispatch sin ruta) administra
-  // todas; uno de ruta solo la suya. `scope` es null para el supervisor.
+  // Alcance del despachador. Dos bordes, y el de afuera manda:
+  //   empresa → nunca se ve ni se toca nada de otra cooperativa
+  //   ruta    → dentro de la empresa, un despachador de ruta ve solo la suya
+  //             y el supervisor (dispatch sin ruta) ve todas las de su empresa
+  req.empresa = user.companyId;
   req.scope = user.routeId || null;
   next();
 }
 
-// Solo el supervisor puede crear rutas o tocar otras rutas
+// Solo el supervisor puede crear rutas o tocar otras rutas de su empresa
 function requireSupervisor(req, res, next) {
   requireDispatch(req, res, () => {
     if (req.scope) {
@@ -1081,19 +1161,76 @@ function requireSupervisor(req, res, next) {
   });
 }
 
-// La ruta sobre la que va a operar: el supervisor puede elegirla, un
-// despachador de ruta siempre trabaja sobre la suya.
+// ¿Puede este despachador operar sobre esta ruta? Primero la empresa, después
+// el alcance por ruta. Devuelve null si puede, o { error, msg } si no.
+//
+// La respuesta cuando la ruta es de otra empresa es la misma que cuando no
+// existe: un 404. Distinguirlas serviría para averiguar qué rutas hay en las
+// otras cooperativas probando códigos.
+function vetoDeRuta(req, routeId) {
+  if (!rutaDeEmpresa(routeId, req.empresa)) {
+    return { error: 404, msg: 'Esa ruta no existe' };
+  }
+  if (req.scope && req.scope !== routeId) {
+    return { error: 403, msg: 'Esa ruta no es tuya' };
+  }
+  return null;
+}
+
+// La ruta sobre la que va a operar: el supervisor puede elegir entre las de
+// su empresa, un despachador de ruta siempre trabaja sobre la suya.
 function rutaObjetivo(req) {
   if (req.scope) return req.scope;
   const pedida = String(req.body?.routeId || req.query?.routeId || '').trim();
-  if (pedida && routeOf(pedida)) return pedida;
-  const rs = allRoutes();
-  return rs[0] ? rs[0].routeId : DEFAULT_ROUTE;
+  if (pedida && rutaDeEmpresa(pedida, req.empresa)) return pedida;
+  const rs = routesOfCompany(req.empresa);
+  return rs[0] ? rs[0].routeId : null;
 }
+
+// ─── LA EMPRESA ──────────────────────────────────────────────
+// Cada cooperativa ve y corrige SUS datos. Crear una empresa nueva no está
+// acá a propósito: eso lo hace el nivel de arriba con `empresa.js`, desde el
+// servidor. Si el alta de empresas fuera un endpoint más, cualquier cuenta
+// de despacho comprometida podría fabricarse una cooperativa entera.
+app.get('/admin/company', requireDispatch, (req, res) => {
+  const c = companyOf(req.empresa);
+  if (!c) return res.status(404).json({ error: 'Esa empresa no existe' });
+  const rutas = routesOfCompany(req.empresa);
+  res.json({
+    empresa: {
+      companyId: c.companyId, name: c.name, ruc: c.ruc, contacto: c.contacto,
+      activa: !!c.activa, createdAt: c.createdAt,
+    },
+    // El tamaño de la cooperativa, que es lo que se mira al facturar
+    resumen: {
+      rutas: rutas.length,
+      vehiculos: db.prepare('SELECT COUNT(*) AS c FROM vehicles WHERE companyId = ?').get(req.empresa).c,
+      personas: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role <> 'dispatch'").get(req.empresa).c,
+      despacho: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role = 'dispatch'").get(req.empresa).c,
+      enLinea: Array.from(units.values()).filter(u => rutas.some(r => r.routeId === u.routeId)).length,
+    },
+    puedeEditar: !req.scope,
+  });
+});
+
+// Corregir los datos de la propia empresa. El código (companyId) no se toca:
+// cuelga de él todo lo demás, y renombrarlo sería mover la cooperativa entera.
+app.post('/admin/company', requireSupervisor, (req, res) => {
+  const c = companyOf(req.empresa);
+  if (!c) return res.status(404).json({ error: 'Esa empresa no existe' });
+  const name = String(req.body?.name || '').trim().slice(0, 80);
+  if (!name) return res.status(400).json({ error: 'El nombre de la cooperativa es obligatorio' });
+  const ruc = String(req.body?.ruc || '').trim().slice(0, 20) || null;
+  const contacto = String(req.body?.contacto || '').trim().slice(0, 80) || null;
+  db.prepare('UPDATE companies SET name = ?, ruc = ?, contacto = ? WHERE companyId = ?')
+    .run(name, ruc, contacto, req.empresa);
+  audit(req.dispatchUser.unitId, 'editar_empresa', req.empresa, name, null, req.empresa);
+  res.json({ ok: true, empresa: { companyId: c.companyId, name, ruc, contacto } });
+});
 
 // ─── RUTAS (alta y listado) ──────────────────────────────────
 app.get('/admin/routes', requireDispatch, (req, res) => {
-  const rutas = allRoutes()
+  const rutas = routesOfCompany(req.empresa)
     .filter(r => !req.scope || r.routeId === req.scope)
     .map(r => {
       const geo = geometriaDe(r.routeId);
@@ -1109,7 +1246,12 @@ app.get('/admin/routes', requireDispatch, (req, res) => {
         largoM: geo ? Math.round(geo.largoTotalM) : 0,
       };
     });
-  res.json({ routes: rutas, supervisor: !req.scope });
+  const empresa = companyOf(req.empresa);
+  res.json({
+    routes: rutas,
+    supervisor: !req.scope,
+    empresa: empresa ? { companyId: empresa.companyId, name: empresa.name } : null,
+  });
 });
 
 app.post('/admin/routes', requireSupervisor, (req, res) => {
@@ -1121,11 +1263,14 @@ app.post('/admin/routes', requireSupervisor, (req, res) => {
   const targetGapMin = Number(req.body?.targetGapMin);
   const durationMin = Number(req.body?.durationMin);
   if (!routeId) return res.status(400).json({ error: 'Falta el código de la ruta (ej. R-15)' });
-  if (routeOf(routeId)) return res.status(409).json({ error: 'Esa ruta ya existe' });
+  // El código de ruta es único en TODO el servidor, no por empresa: si dos
+  // cooperativas tuvieran una "R-14", cualquier consulta por routeId sería
+  // ambigua. El mensaje no dice de quién es la que ya existe.
+  if (routeOf(routeId)) return res.status(409).json({ error: 'Ese código de ruta ya está tomado' });
   const gap = Number.isFinite(targetGapMin) && targetGapMin > 0 ? targetGapMin : 2;
   const dur = Number.isFinite(durationMin) && durationMin > 0 ? Math.round(durationMin) : 50;
-  db.prepare('INSERT INTO routes (routeId, name, targetGapMin, durationMin, createdAt) VALUES (?, ?, ?, ?, ?)')
-    .run(routeId, name, gap, dur, Date.now());
+  db.prepare('INSERT INTO routes (routeId, name, targetGapMin, durationMin, companyId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(routeId, name, gap, dur, req.empresa, Date.now());
   audit(req.dispatchUser.unitId, 'alta_ruta', routeId, `${name} · objetivo ${gap} min · ${dur} min de recorrido`, routeId);
   console.log(`Ruta creada: ${routeId} (${name})`);
   res.json({ ok: true, routeId });
@@ -1135,11 +1280,9 @@ app.post('/admin/routes', requireSupervisor, (req, res) => {
 // la vez el respaldo del automático (arranque en frío, o pocas vueltas).
 app.post('/admin/routes/:routeId/target', requireDispatch, (req, res) => {
   const routeId = String(req.params.routeId);
-  if (req.scope && req.scope !== routeId) {
-    return res.status(403).json({ error: 'Esa ruta no es tuya' });
-  }
+  const veto = vetoDeRuta(req, routeId);
+  if (veto) return res.status(veto.error).json({ error: veto.msg });
   const ruta = routeOf(routeId);
-  if (!ruta) return res.status(404).json({ error: 'Esa ruta no existe' });
 
   const auto = req.body?.auto === undefined ? ruta.autoTarget : (req.body.auto ? 1 : 0);
   let manual = ruta.targetGapMin;
@@ -1165,10 +1308,8 @@ app.post('/admin/routes/:routeId/target', requireDispatch, (req, res) => {
 // ─── RECORRIDO DE LA RUTA (puntos GPS) ───────────────────────
 app.get('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
   const routeId = String(req.params.routeId);
-  if (req.scope && req.scope !== routeId) {
-    return res.status(403).json({ error: 'Esa ruta no es tuya' });
-  }
-  if (!routeOf(routeId)) return res.status(404).json({ error: 'Esa ruta no existe' });
+  const veto = vetoDeRuta(req, routeId);
+  if (veto) return res.status(veto.error).json({ error: veto.msg });
   const leer = (leg) => db.prepare(
     'SELECT lat, lng FROM route_points WHERE routeId = ? AND leg = ? ORDER BY seq'
   ).all(routeId, leg);
@@ -1185,10 +1326,8 @@ app.get('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
 // punto — el panel manda lo que quedó dibujado en el mapa.
 app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
   const routeId = String(req.params.routeId);
-  if (req.scope && req.scope !== routeId) {
-    return res.status(403).json({ error: 'Esa ruta no es tuya' });
-  }
-  if (!routeOf(routeId)) return res.status(404).json({ error: 'Esa ruta no existe' });
+  const veto = vetoDeRuta(req, routeId);
+  if (veto) return res.status(veto.error).json({ error: veto.msg });
 
   // Llegan los dos tramos. Se acepta también una lista suelta, que se toma
   // como la ida (así no se rompe nada que mande el formato viejo).
@@ -1259,9 +1398,10 @@ app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
 app.get('/admin/vehicles', requireDispatch, (req, res) => {
   const vehiculos = db.prepare(`
     SELECT vehicleId, label, routeId, createdAt FROM vehicles
-    WHERE @scope IS NULL OR routeId = @scope
+    WHERE companyId = @empresa
+      AND (@scope IS NULL OR routeId = @scope)
     ORDER BY routeId, vehicleId
-  `).all({ scope: req.scope }).map(v => ({
+  `).all({ empresa: req.empresa, scope: req.scope }).map(v => ({
     ...v,
     enLinea: units.has(v.vehicleId),
     // Quién va arriba ahora mismo (chofer y/o cobrador)
@@ -1281,10 +1421,11 @@ app.post('/admin/vehicles', requireDispatch, (req, res) => {
   const label = String(req.body?.label || '').trim().slice(0, 40) || null;
   const routeId = rutaObjetivo(req);
   if (!vehicleId) return res.status(400).json({ error: 'Falta el código del vehículo (ej. M-21)' });
-  if (!routeOf(routeId)) return res.status(400).json({ error: 'Esa ruta no existe' });
-  if (vehicleOf(vehicleId)) return res.status(409).json({ error: 'Ese vehículo ya existe' });
-  db.prepare('INSERT INTO vehicles (vehicleId, label, routeId, createdAt) VALUES (?, ?, ?, ?)')
-    .run(vehicleId, label, routeId, Date.now());
+  if (!routeId) return res.status(400).json({ error: 'La empresa todavía no tiene ninguna ruta' });
+  // Igual que con las rutas: el código de vehículo es único en el servidor
+  if (vehicleOf(vehicleId)) return res.status(409).json({ error: 'Ese código de vehículo ya está tomado' });
+  db.prepare('INSERT INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES (?, ?, ?, ?, ?)')
+    .run(vehicleId, label, routeId, req.empresa, Date.now());
   audit(req.dispatchUser.unitId, 'alta_vehiculo', vehicleId, `ruta ${routeId}`, routeId);
   console.log(`Vehículo creado: ${vehicleId} en ${routeId}`);
   res.json({ ok: true, vehicleId, routeId });
@@ -1305,13 +1446,18 @@ function kickUnit(unitId, reason) {
 
 app.get('/admin/users', requireDispatch, (req, res) => {
   const online = new Set(clients.values());
-  // Un despachador de ruta solo ve su gente (y las cuentas de despacho);
-  // el supervisor ve todo.
+  // Un despachador de ruta solo ve su gente (y las cuentas de despacho de su
+  // empresa); el supervisor ve toda su empresa. Nadie ve la de al lado.
+  //
+  // Ojo con la excepción de las cuentas de despacho: antes era
+  // `OR role = 'dispatch'` a secas, y así escrita mostraría los despachadores
+  // de TODAS las cooperativas. Va dentro del filtro de empresa.
   const users = db.prepare(`
     SELECT unitId, driverName, name, alias, role, routeId, vehicleId, createdAt, lastLogin FROM users
-    WHERE @scope IS NULL OR routeId = @scope OR role = 'dispatch'
+    WHERE companyId = @empresa
+      AND (@scope IS NULL OR routeId = @scope OR role = 'dispatch')
     ORDER BY CASE role WHEN 'dispatch' THEN 0 ELSE 1 END, routeId, vehicleId, unitId
-  `).all({ scope: req.scope });
+  `).all({ empresa: req.empresa, scope: req.scope });
   res.json({
     users: users.map(u => ({ ...u, online: online.has(u.unitId) })),
     supervisor: !req.scope,
@@ -1342,33 +1488,37 @@ app.post('/admin/users', requireDispatch, (req, res) => {
   if (password.length < CLAVE_MINIMA || password.length > 64) {
     return res.status(400).json({ error: `La contraseña necesita entre ${CLAVE_MINIMA} y 64 caracteres` });
   }
-  if (!routeOf(routeId)) return res.status(400).json({ error: 'Esa ruta no existe' });
+  if (!routeId) return res.status(400).json({ error: 'La empresa todavía no tiene ninguna ruta' });
   if (db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
-    return res.status(409).json({ error: 'Ya existe alguien con ese usuario' });
+    return res.status(409).json({ error: 'Ese usuario ya está tomado' });
   }
   // El vehículo tiene que existir; si no se indica y es chofer, se crea uno
   // con su mismo código (el caso habitual: el chofer y su combi).
   let vehiculoFinal = vehicleId;
   if (vehiculoFinal) {
     const veh = vehicleOf(vehiculoFinal);
-    if (!veh) return res.status(400).json({ error: `El vehículo ${vehiculoFinal} no existe` });
+    // Un vehículo de otra empresa se responde igual que uno inexistente: si
+    // no, este formulario sirve para averiguar las flotas de las demás.
+    if (!veh || veh.companyId !== req.empresa) {
+      return res.status(400).json({ error: `El vehículo ${vehiculoFinal} no existe` });
+    }
     if (req.scope && veh.routeId !== req.scope) {
       return res.status(403).json({ error: 'Ese vehículo pertenece a otra ruta' });
     }
   } else if (role === 'driver') {
     vehiculoFinal = unitId;
     if (!vehicleOf(vehiculoFinal)) {
-      db.prepare('INSERT INTO vehicles (vehicleId, label, routeId, createdAt) VALUES (?, ?, ?, ?)')
-        .run(vehiculoFinal, null, routeId, Date.now());
+      db.prepare('INSERT INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES (?, ?, ?, ?, ?)')
+        .run(vehiculoFinal, null, routeId, req.empresa, Date.now());
     }
   } else {
     return res.status(400).json({ error: 'Un cobrador necesita un vehículo asignado' });
   }
 
   db.prepare(`
-    INSERT INTO users (unitId, driverName, name, alias, role, routeId, vehicleId, passHash, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(unitId, alias || name, name, alias, role, routeId, vehiculoFinal, hashPassword(password), Date.now());
+    INSERT INTO users (unitId, driverName, name, alias, role, routeId, vehicleId, companyId, passHash, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(unitId, alias || name, name, alias, role, routeId, vehiculoFinal, req.empresa, hashPassword(password), Date.now());
 
   const quien = alias ? `${name} (${alias})` : name;
   audit(req.dispatchUser.unitId, 'alta', unitId,
@@ -1379,8 +1529,10 @@ app.post('/admin/users', requireDispatch, (req, res) => {
 
 // Un despachador de ruta solo puede administrar cuentas de SU ruta
 function cuentaEnAlcance(req, unitId) {
-  const u = db.prepare('SELECT unitId, role, routeId FROM users WHERE unitId = ?').get(unitId);
-  if (!u) return { error: 404, msg: 'Esa unidad no existe' };
+  const u = db.prepare('SELECT unitId, role, routeId, companyId FROM users WHERE unitId = ?').get(unitId);
+  // Una cuenta de otra empresa se responde como inexistente. Distinguirlas
+  // convertiría estos endpoints en un buscador de usuarios ajenos.
+  if (!u || u.companyId !== req.empresa) return { error: 404, msg: 'Esa unidad no existe' };
   if (req.scope && u.routeId !== req.scope) {
     return { error: 403, msg: 'Esa unidad pertenece a otra ruta' };
   }
@@ -1453,9 +1605,10 @@ app.delete('/admin/users/:unitId', requireDispatch, (req, res) => {
 app.get('/admin/audit', requireDispatch, (req, res) => {
   const events = db.prepare(`
     SELECT actor, action, target, detail, routeId, timestamp FROM audit
-    WHERE @scope IS NULL OR routeId = @scope
+    WHERE companyId = @empresa
+      AND (@scope IS NULL OR routeId = @scope)
     ORDER BY id DESC LIMIT 100
-  `).all({ scope: req.scope });
+  `).all({ empresa: req.empresa, scope: req.scope });
   res.json({ events });
 });
 
@@ -1464,11 +1617,9 @@ app.get('/admin/audit', requireDispatch, (req, res) => {
 // desfile, un embotellamiento que ya está avisado).
 app.post('/admin/routes/:routeId/desvio', requireDispatch, (req, res) => {
   const routeId = String(req.params.routeId);
-  if (req.scope && req.scope !== routeId) {
-    return res.status(403).json({ error: 'Esa ruta no es tuya' });
-  }
+  const veto = vetoDeRuta(req, routeId);
+  if (veto) return res.status(veto.error).json({ error: veto.msg });
   const ruta = routeOf(routeId);
-  if (!ruta) return res.status(404).json({ error: 'Esa ruta no existe' });
 
   let umbral = ruta.desvioMaxM || DESVIO_DEFECTO_M;
   if (req.body?.umbralM !== undefined) {
@@ -1548,16 +1699,23 @@ function rangoDe(req) {
   return { desde, hasta };
 }
 
+// Todo informe se limita a las rutas de la empresa que lo pide. Va como
+// subconsulta y no como join para no multiplicar filas. Las tablas de datos
+// (vueltas, turnos, mensajes) no guardan la empresa: la heredan de su ruta,
+// que es la única fuente de verdad de a quién pertenece cada cosa.
+const RUTAS_DE_LA_EMPRESA = '(SELECT routeId FROM routes WHERE companyId = @empresa)';
+
 const INFORMES = {
   // Vueltas por unidad: cuántas, cuánto tardaron, a qué velocidad
-  vueltas: (rango, scope, routeId) => {
+  vueltas: (filtro) => {
     const filas = db.prepare(`
       SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed
       FROM laps
       WHERE finishedAt BETWEEN @desde AND @hasta
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
         AND (@ruta IS NULL OR routeId = @ruta)
       ORDER BY finishedAt
-    `).all({ ...rango, ruta: scope || routeId || null });
+    `).all(filtro);
     return {
       nombre: 'vueltas',
       cabecera: ['Unidad', 'Ruta', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos', 'Velocidad media (km/h)'],
@@ -1569,16 +1727,17 @@ const INFORMES = {
   },
 
   // Horas por persona, salidas de los turnos
-  horas: (rango, scope, routeId) => {
+  horas: (filtro) => {
     const filas = db.prepare(`
       SELECT s.personId, s.vehicleId, s.routeId, s.role, s.startedAt, s.endedAt, s.lastSeenAt,
              u.name, u.alias
       FROM shifts s
       LEFT JOIN users u ON u.unitId = s.personId
       WHERE s.startedAt BETWEEN @desde AND @hasta
+        AND s.routeId IN ${RUTAS_DE_LA_EMPRESA}
         AND (@ruta IS NULL OR s.routeId = @ruta)
       ORDER BY s.startedAt
-    `).all({ ...rango, ruta: scope || routeId || null });
+    `).all(filtro);
     const ahora = Date.now();
     return {
       nombre: 'horas',
@@ -1595,14 +1754,15 @@ const INFORMES = {
   },
 
   // Emergencias
-  sos: (rango, scope, routeId) => {
+  sos: (filtro) => {
     const filas = db.prepare(`
       SELECT unitId, driverName, vehicleId, routeId, lat, lng, timestamp
       FROM messages
       WHERE kind = 'sos' AND timestamp BETWEEN @desde AND @hasta
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
         AND (@ruta IS NULL OR routeId = @ruta)
       ORDER BY timestamp
-    `).all({ ...rango, ruta: scope || routeId || null });
+    `).all(filtro);
     return {
       nombre: 'sos',
       cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Latitud', 'Longitud'],
@@ -1613,15 +1773,17 @@ const INFORMES = {
     };
   },
 
-  // Quién hizo qué en la administración
-  actividad: (rango, scope, routeId) => {
+  // Quién hizo qué en la administración. La auditoría sí guarda la empresa:
+  // hay movimientos que no cuelgan de ninguna ruta, como un login.
+  actividad: (filtro) => {
     const filas = db.prepare(`
       SELECT actor, action, target, detail, routeId, timestamp
       FROM audit
       WHERE timestamp BETWEEN @desde AND @hasta
+        AND companyId = @empresa
         AND (@ruta IS NULL OR routeId = @ruta)
       ORDER BY timestamp
-    `).all({ ...rango, ruta: scope || routeId || null });
+    `).all(filtro);
     return {
       nombre: 'actividad',
       cabecera: ['Cuándo', 'Quién', 'Qué hizo', 'Sobre', 'Detalle', 'Ruta'],
@@ -1638,12 +1800,16 @@ app.get('/admin/informe/:tipo.csv', requireDispatch, (req, res) => {
   if (!armar) return res.status(404).json({ error: 'Ese informe no existe' });
 
   const rango = rangoDe(req);
-  const routeId = idLimpio(req.query?.routeId);
-  const informe = armar(rango, req.scope, routeId);
+  const pedida = idLimpio(req.query?.routeId);
+  // Pedir una ruta ajena no devuelve un informe vacío: devuelve que no existe
+  if (pedida && !rutaDeEmpresa(pedida, req.empresa)) {
+    return res.status(404).json({ error: 'Esa ruta no existe' });
+  }
+  const rutaDelInforme = req.scope || pedida || null;
+  const informe = armar({ ...rango, empresa: req.empresa, ruta: rutaDelInforme });
 
   // La primera línea dice con qué se midió: sin esto, alguien puede tomar por
   // exacto un número que es una estimación.
-  const rutaDelInforme = req.scope || routeId || null;
   const geo = rutaDelInforme ? geometriaDe(rutaDelInforme) : null;
   const base = !rutaDelInforme
     ? 'varias rutas: la precisión depende de cada una'
@@ -1651,8 +1817,11 @@ app.get('/admin/informe/:tipo.csv', requireDispatch, (req, res) => {
       ? `ruta ${rutaDelInforme} con recorrido cargado (${(geo.largoTotalM / 1000).toFixed(2)} km${geo.vuelta ? ', ida y vuelta' : ', solo ida'})`
       : `ruta ${rutaDelInforme} SIN recorrido cargado: las vueltas y brechas son estimaciones, no medidas`;
 
+  // El informe sale con el nombre de SU cooperativa, no con el de la R-14:
+  // es un papel que se lleva a una reunión y tiene que decir de quién es.
+  const empresa = companyOf(req.empresa);
   const lineas = [
-    csvLinea(['COOP-R14', `Informe de ${informe.nombre}`]),
+    csvLinea([empresa ? empresa.name : req.empresa, `Informe de ${informe.nombre}`]),
     csvLinea(['Período', `${fechaHora(rango.desde)} a ${fechaHora(rango.hasta)}`]),
     csvLinea(['Medido sobre', base]),
     csvLinea(['Generado', fechaHora(Date.now()), 'por', req.dispatchUser.unitId]),
@@ -1661,7 +1830,7 @@ app.get('/admin/informe/:tipo.csv', requireDispatch, (req, res) => {
     ...informe.filas.map(csvLinea),
   ];
 
-  const archivo = `coop-r14-${informe.nombre}-${new Date(rango.desde).toISOString().slice(0, 10)}.csv`;
+  const archivo = `${req.empresa.toLowerCase()}-${informe.nombre}-${new Date(rango.desde).toISOString().slice(0, 10)}.csv`;
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${archivo}"`);
   // BOM para que Excel abra bien las tildes
@@ -1682,10 +1851,11 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
     FROM shifts s
     LEFT JOIN users u ON u.unitId = s.personId
     WHERE s.startedAt >= @inicio
+      AND s.routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@scope IS NULL OR s.routeId = @scope)
     ORDER BY s.startedAt DESC
     LIMIT 500
-  `).all({ inicio, scope: req.scope });
+  `).all({ inicio, empresa: req.empresa, scope: req.scope });
 
   const ahora = Date.now();
   const turnos = filas.map(t => ({
@@ -1723,8 +1893,13 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
 app.get('/admin/metrics', requireDispatch, (req, res) => {
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
-  // El supervisor puede pedir una ruta con ?routeId=; sin eso ve todas
-  const filtro = req.scope || String(req.query?.routeId || '').trim() || null;
+  // El supervisor puede pedir una ruta de SU empresa con ?routeId=; sin eso
+  // ve todas las suyas.
+  const pedida = String(req.query?.routeId || '').trim();
+  if (pedida && !rutaDeEmpresa(pedida, req.empresa)) {
+    return res.status(404).json({ error: 'Esa ruta no existe' });
+  }
+  const filtro = req.scope || pedida || null;
   const rows = db.prepare(`
     SELECT unitId, routeId,
       COUNT(*) AS lapsTotal,
@@ -1735,10 +1910,11 @@ app.get('/admin/metrics', requireDispatch, (req, res) => {
       (SELECT durationSec FROM laps l2 WHERE l2.unitId = laps.unitId ORDER BY l2.id DESC LIMIT 1) AS lastSec,
       MAX(finishedAt) AS lastFinish
     FROM laps
-    WHERE @filtro IS NULL OR routeId = @filtro
+    WHERE routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@filtro IS NULL OR routeId = @filtro)
     GROUP BY unitId
     ORDER BY lapsToday DESC, lapsTotal DESC
-  `).all({ dayStart: dayStart.getTime(), filtro });
+  `).all({ dayStart: dayStart.getTime(), empresa: req.empresa, filtro });
   res.json({ metrics: rows, routeId: filtro });
 });
 
@@ -1902,14 +2078,21 @@ wss.on('connection', (ws) => {
         alias: user.alias || null,
         role: user.role || 'driver',
         routeId: user.routeId || null,
+        companyId: user.companyId || null,
         vehicleId,
       });
 
       // Un chofer mira su ruta; un despachador de ruta, la que administra;
-      // un supervisor (dispatch sin ruta) arranca en la primera y cambia
-      // con el mensaje 'watch'.
-      const rutas = allRoutes();
-      const rutaInicial = user.routeId || (rutas[0] ? rutas[0].routeId : DEFAULT_ROUTE);
+      // un supervisor (dispatch sin ruta) arranca en la primera DE SU EMPRESA
+      // y cambia con el mensaje 'watch'. Antes arrancaba en la primera del
+      // servidor, que con varias cooperativas es la de otro.
+      const rutas = routesOfCompany(user.companyId);
+      const rutaInicial = user.routeId || (rutas[0] ? rutas[0].routeId : null);
+      if (!rutaInicial) {
+        ws.send(JSON.stringify({ type: 'auth_error', error: 'Tu cooperativa todavía no tiene ninguna ruta cargada' }));
+        ws.close();
+        return;
+      }
       watching.set(ws, rutaInicial);
 
       // Despacho observa y habla, pero NO va en un vehículo: no entra al
@@ -1981,7 +2164,11 @@ wss.on('connection', (ws) => {
     // TIPO: watch — un supervisor cambia de ruta en el panel
     if (msg.type === 'watch') {
       if (!esSupervisor(ws)) return;         // un chofer no elige ruta
-      if (!routeOf(msg.routeId)) return;     // ruta inexistente
+      // Y solo entre las rutas de su propia cooperativa: sin este chequeo,
+      // un supervisor podía pedir el código de una ruta ajena y quedarse
+      // mirando el mapa y el chat de otra empresa.
+      const prof = profiles.get(clients.get(ws));
+      if (!rutaDeEmpresa(msg.routeId, prof?.companyId)) return;
       watching.set(ws, msg.routeId);
       ws.send(JSON.stringify({ type: 'state', ...buildState(msg.routeId) }));
       // Solo un supervisor llega acá, y ve los privados de la ruta que mira
@@ -2446,6 +2633,13 @@ function esSupervisor(ws) {
   return !!prof && prof.role === 'dispatch' && !prof.routeId;
 }
 
+// De qué empresa es la conexión
+function empresaDe(ws) {
+  const unitId = clients.get(ws);
+  const prof = unitId ? profiles.get(unitId) : null;
+  return prof ? prof.companyId || null : null;
+}
+
 // Manda un mensaje solo a quienes están mirando esa ruta
 function broadcastToRoute(routeId, data) {
   const msg = JSON.stringify(data);
@@ -2460,8 +2654,13 @@ function broadcastToRoute(routeId, data) {
 // Se usa para los SOS: una emergencia tiene que escalar igual.
 function broadcastToSupervisors(data, exceptRoute) {
   const msg = JSON.stringify(data);
+  // Escala dentro de la cooperativa, no más allá: el supervisor de la empresa
+  // de al lado no tiene nada que hacer con una emergencia que no es suya, y
+  // vería la ubicación exacta de una unidad ajena.
+  const empresa = exceptRoute ? (routeOf(exceptRoute)?.companyId || null) : null;
   wss.clients.forEach((client) => {
-    if (client.readyState === 1 && esSupervisor(client) && watching.get(client) !== exceptRoute) {
+    if (client.readyState === 1 && esSupervisor(client) &&
+        empresaDe(client) === empresa && watching.get(client) !== exceptRoute) {
       client.send(msg);
     }
   });

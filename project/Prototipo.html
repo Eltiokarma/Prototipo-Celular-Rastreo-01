@@ -11,7 +11,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="R-14">
+<meta name="apple-mobile-web-app-title" content="Conductor">
 
 <!-- Leaflet: mapa de calles reales -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -172,11 +172,25 @@ const PALETTE = {
 };
 const P = PALETTE;
 
+// Lo que se ve arriba de todo YA NO ES FIJO. El servidor manda el nombre de
+// la cooperativa al iniciar sesión, y este celular lo recuerda: la app la usa
+// gente de empresas distintas y ninguna tiene por qué ver el nombre de otra.
+// Esto queda solo para la primerísima pantalla, antes del primer ingreso.
 const COOP = {
-  name:  'COOP-R14',
-  full:  'Cooperativa de Transportes Juliaca',
-  route: 'Ruta 14 · Terminal Sur ↔ Huancané',
+  name:  'CONTROL DE RUTA',
+  full:  'Ingresá con el usuario que te dio tu cooperativa',
 };
+
+// El nombre de la cooperativa sobrevive al cierre de sesión: si no, el
+// chofer que sale volvería a ver la pantalla genérica cada mañana.
+function coopRecordada() {
+  try { return localStorage.getItem('r14_coop') || null; } catch { return null; }
+}
+function recordarCoop(nombre) {
+  try {
+    if (nombre) localStorage.setItem('r14_coop', nombre);
+  } catch {}
+}
 
 // Tokens HUD (rediseño 2a/3a/3b) — se suman a PALETTE sin tocarla.
 // Regla: el rojo #FF2D55 queda reservado a emergencia/brecha crítica.
@@ -612,7 +626,7 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
       <div ref={initMap} style={{ position: 'absolute', inset: 0 }} data-noswipe="map" />
 
       {/* Chips superiores: ruta y unidades en línea */}
-      <div style={{ ...chipStyle, left: 18, color: HUD.fg }}>{routeId || 'R-14'} · TERMINAL</div>
+      <div style={{ ...chipStyle, left: 18, color: HUD.fg }}>{routeId || 'RUTA'} · TERMINAL</div>
       <div style={{ ...chipStyle, right: 18, color: HUD.green }}>
         {otherUnits.length > 0 ? `${otherUnits.length + 1} EN RUTA` : 'SOLO TÚ'}
       </div>
@@ -993,7 +1007,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
           <div style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 24, color: HUD.fg, letterSpacing: -0.5,
-          }}>{canal === 'despacho' ? 'DESPACHO' : `GRUPO ${routeId || 'R-14'}`}</div>
+          }}>{canal === 'despacho' ? 'DESPACHO' : `GRUPO ${routeId || 'RUTA'}`}</div>
           <div style={{
             fontSize: 15, fontWeight: 700,
             color: canal === 'despacho' ? HUD.warnEdge : (connected ? HUD.dim2 : HUD.amber),
@@ -1024,7 +1038,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
       <div style={{
         display: 'flex', gap: 8, padding: '10px 16px 0',
       }}>
-        {[['grupo', `GRUPO ${routeId || 'R-14'}`], ['despacho', 'DESPACHO']].map(([k, etiqueta]) => {
+        {[['grupo', `GRUPO ${routeId || 'RUTA'}`], ['despacho', 'DESPACHO']].map(([k, etiqueta]) => {
           const activo = canal === k;
           const pendientes = k === 'despacho' ? privadosPendientes : 0;
           return (
@@ -1268,7 +1282,10 @@ function SosSlider({ status, enableAnim, onFire }) {
 // ═══════════════════════════════════════════════════════════════
 // AUTH — Login + Salir a ruta
 // ═══════════════════════════════════════════════════════════════
-function CoopLogo({ size = 72 }) {
+// La marca de la rueda es genérica a propósito: sirve para cualquier
+// cooperativa. El código de la ruta va abajo solo cuando se sabe cuál es —
+// antes de entrar, este celular no tiene por qué mostrar una ruta ajena.
+function CoopLogo({ size = 72, ruta }) {
   return (
     <svg width={size} height={size} viewBox="0 0 72 72">
       <circle cx="36" cy="36" r="33" fill={P.brand} />
@@ -1279,9 +1296,11 @@ function CoopLogo({ size = 72 }) {
       <line x1="36" y1="42" x2="36" y2="50" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
       <line x1="22" y1="36" x2="30" y2="36" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
       <line x1="42" y1="36" x2="50" y2="36" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
-      <text x="36" y="66" textAnchor="middle"
-        fontFamily="Archivo Black, sans-serif" fontSize="9"
-        fill={P.sky} fontWeight="900">R-14</text>
+      {ruta && (
+        <text x="36" y="66" textAnchor="middle"
+          fontFamily="Archivo Black, sans-serif" fontSize="9"
+          fill={P.sky} fontWeight="900">{ruta}</text>
+      )}
     </svg>
   );
 }
@@ -1321,6 +1340,9 @@ function LoginScreen({ onSuccess, notice }) {
   const [error, setError] = React.useState(null);
   const [offerDemo, setOfferDemo] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  // La cooperativa de la última vez. En un celular recién instalado no hay
+  // ninguna, y la pantalla queda genérica hasta el primer ingreso.
+  const coop = coopRecordada();
 
   // Login real contra el servidor. La primera vez que una unidad entra,
   // esa contraseña queda registrada (después Despacho administrará altas).
@@ -1335,6 +1357,7 @@ function LoginScreen({ onSuccess, notice }) {
     try {
       const session = await window.RealtimeClient.login(user.trim(), pass);
       try { localStorage.setItem('r14_lastUser', session.unitId); } catch {}
+      recordarCoop(session.companyName);
       onSuccess(session);
     } catch (e) {
       setLoading(false);
@@ -1370,12 +1393,12 @@ function LoginScreen({ onSuccess, notice }) {
           fontFamily: '"Archivo Black", system-ui, sans-serif',
           fontSize: 26, fontWeight: 900, letterSpacing: -0.5,
           color: P.white, marginTop: 14,
-        }}>{COOP.name}</div>
+        }}>{coop || COOP.name}</div>
         <div style={{
           fontFamily: 'JetBrains Mono, ui-monospace, monospace',
           fontSize: 10, letterSpacing: 1.5, color: P.sky,
           textTransform: 'uppercase', marginTop: 4, textAlign: 'center',
-        }}>{COOP.route}</div>
+        }}>{coop ? 'Panel del conductor' : COOP.full}</div>
       </div>
 
       <div style={{
@@ -1449,7 +1472,7 @@ function LoginScreen({ onSuccess, notice }) {
         fontSize: 9, letterSpacing: 1.5, color: P.mute,
         textAlign: 'center', textTransform: 'uppercase',
       }}>
-        {COOP.full}<br/>Juliaca · Puno · 3 824 m
+        {coop ? 'Juliaca · Puno · 3 824 m' : COOP.full}
       </div>
     </div>
   );
@@ -1472,7 +1495,7 @@ function StartRouteScreen({ user, lapNumber, onStart, onRest, onLogout }) {
       color: P.white, overflowY: 'auto',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <CoopLogo size={36} />
+        <CoopLogo size={36} ruta={user?.routeId} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',

@@ -1,7 +1,7 @@
 {
-  "name": "COOP-R14 · Conductor",
-  "short_name": "R-14",
-  "description": "Pantalla de conductor para Ruta 14 — Cooperativa de Transportes Juliaca",
+  "name": "Conductor · Control de ruta",
+  "short_name": "Conductor",
+  "description": "Pantalla del conductor: brecha con la unidad de adelante, chat de la ruta y emergencia",
   "start_url": "/Prototipo.html",
   "display": "standalone",
   "orientation": "portrait",
