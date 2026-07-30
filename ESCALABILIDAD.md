@@ -12,6 +12,23 @@ cualquier piloto grande — de hecho ya conviene cambiarlo hoy.
 - Una unidad en el JSON de estado ≈ 230 bytes (posición + su objeto de brechas).
 - Estimaciones de orden de magnitud, para decidir arquitectura.
 
+## Medición real (no modelo)
+
+Con el servidor corriendo y unidades simuladas conectadas de verdad,
+midiendo los bytes que **recibe cada chofer** en **una sola ruta**:
+
+| Unidades en la ruta | Mensajes/s | Bajada | Por turno de 8 h |
+| --- | --- | --- | --- |
+| 5 | 1,6/s | 1,9 KB/s | **54 MB** |
+| 10 | 3,3/s | 7,1 KB/s | **208 MB** |
+| 20 | 6,0/s | 28,5 KB/s | **839 MB** |
+
+Crece al cuadrado **dentro de una misma ruta**: duplicar las unidades
+cuadruplica el consumo. Que las rutas sean independientes evita que el
+problema se multiplique por 20 — un chofer nunca recibe datos de las
+otras rutas — pero **no cambia estos números**, porque ya son de una
+ruta sola.
+
 ## El problema que ya existe hoy
 
 Hoy **cada posición GPS dispara el envío del estado completo a todos los
@@ -94,10 +111,32 @@ un archivo SQLite no se comparte entre servidores.
    celulares nuevos todos los días. El panel de Despacho necesita, a esa
    escala, que cada cooperativa administre lo suyo.
 
+## Qué se sacrifica en cada optimización
+
+Nada sale gratis. Ordenado de mejor a peor relación beneficio/costo, con
+una ruta de 20 unidades como referencia:
+
+| Optimización | Queda en | Qué se sacrifica | Esfuerzo |
+| --- | --- | --- | --- |
+| **1. Limitar la cadencia** a 1 envío/s (hoy: uno por cada GPS de cualquiera) | 137 MB | **Prácticamente nada.** Cada unidad reporta cada 3 s: emitir más seguido reenvía lo mismo. Se pierde ≤1 s de frescura en números que cambian en minutos | 1–2 h |
+| **1b. Cadencia de 1 cada 3 s** (igual al GPS) | 46 MB | Igual que arriba; ≤3 s de retraso al cruzar un umbral de color | 1–2 h |
+| **2. Cachear los tiles** del mapa | −20 a −50 MB extra | ~50–100 MB de espacio en el celular; mapa desactualizado si cambian las calles (no cambian). Primera carga más pesada | ½ día |
+| **3. Payload personalizado** (mis brechas + unidades cercanas) | ~19 MB | El chofer **deja de ver toda la flota** de su ruta en el mapa, solo las cercanas. Y aparecen **dos formatos de mensaje** (Despacho necesita todo): cada función futura debe contemplar ambos, y app y panel dejan de compartir el mismo contrato — más código, más pruebas, más lugares donde romper | 1 día |
+| **4. Deltas** (enviar solo lo que cambió) | ~5 MB | **Fragilidad seria:** el cliente mantiene estado y aplica parches; si un delta se pierde o llega desordenado, el chofer ve un número **equivocado sin enterarse**. Exige numeración y resincronización periódica. En la red móvil de Juliaca, donde perder mensajes es normal, es el peor lugar para esto. Y depurar se vuelve mucho más difícil | 2 días + deuda permanente |
+| **5. Bajar la frecuencia de GPS** (3 s → 10 s) | ÷3 la subida | **Costo visible:** a 30 km/h la combi avanza ~83 m entre reportes; el pin del mapa se mueve a saltos y las brechas quedan más viejas | 10 min |
+
 ## Recomendación
 
-Hacer las **etapas 1 y 2 juntas** antes del piloto de 4 rutas: tocan el
-mismo código y la 2 arregla un problema que ya existe. Con eso el sistema
-queda listo para 20 rutas y 1 000 micros sin volver a tocar la
-arquitectura — lo que venga después es operación (backups, redundancia),
-no rediseño.
+Hacer **la 1b y la 2**: juntas llevan el consumo de ~840 MB a menos de
+50 MB por turno **sin sacrificar ninguna funcionalidad** — solo se deja
+de reenviar información repetida. Son unas horas de trabajo y bajo riesgo.
+
+Dejar la **3** para cuando una ruta pase de ~30 unidades (ahí el payload
+completo empieza a pesar de verdad). **No hacer la 4** salvo que el costo
+de datos se vuelva crítico: cambiar robustez por 14 MB es mal negocio en
+una red inestable. La **5** solo si el cliente reporta problemas de
+batería o datos de subida, porque sí se nota.
+
+La etapa **multi-ruta (`routeId`)** sigue siendo necesaria para 4+ rutas,
+pero es un tema aparte del consumo de datos: hace falta para que las
+brechas y el chat no se mezclen entre rutas, no para ahorrar megas.
