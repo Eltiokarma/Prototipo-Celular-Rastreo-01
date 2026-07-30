@@ -151,11 +151,12 @@ limitación se resuelva o aparezca una nueva.
   se puede editar ni borrar un mensaje.
 - La pantalla "Salir a ruta" muestra datos decorativos ("48 min · 42
   pasajeros", "V-247", turno): el conteo de pasajeros no existe.
-- **No hay turnos**: la asignación persona → vehículo es fija en la
-  cuenta. Si el chofer de la mañana y el de la tarde son distintos, hoy
-  se resuelve entrando uno después del otro (el último toma el mando del
-  GPS y al anterior se le avisa), pero no queda registro de turno ni
-  horas trabajadas.
+- **Los turnos se registran, pero no se corrigen.** Se abre cuando la persona
+  entra a su unidad y se cierra cuando se va: si se olvida de salir de la app,
+  el turno sigue corriendo hasta que se corta la sesión, y si le presta el
+  celular a otro, las horas quedan a nombre de quien inició sesión. No hay
+  edición manual ni aprobación — para nómina no alcanza, para saber quién iba
+  en la unidad sí.
 - El tema cubre las tres pantallas y el panel, pero las pantallas de
   **login y "Salir a ruta"** siguen siendo oscuras a propósito (son las
   pantallas de marca, no de operación).
