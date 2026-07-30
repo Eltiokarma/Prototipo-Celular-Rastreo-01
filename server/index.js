@@ -661,6 +661,7 @@ wss.on('connection', (ws) => {
           timestamp: Date.now(),
         });
         broadcast({ type: 'unit_joined', unitId: user.unitId });
+        scheduleStateBroadcast(true); // una unidad nueva se ve al instante
       }
       console.log(`${user.role === 'dispatch' ? 'Despacho conectado' : 'Unidad identificada'}: ${user.unitId}`);
 
@@ -688,10 +689,8 @@ wss.on('connection', (ws) => {
       // Detección de vuelta completa a partir del progreso
       trackLap(unitId, msg.routeProgress || 0, msg.speed || 0);
 
-      // Cada vez que llega una posición, recalculamos los gaps
-      // y mandamos el estado completo a todos
-      const state = buildState();
-      broadcast({ type: 'state', ...state });
+      // El estado se emite con cadencia limitada, no en cada GPS
+      scheduleStateBroadcast();
     }
 
     // TIPO: SOS — el chofer desliza el botón de emergencia
@@ -764,6 +763,7 @@ wss.on('connection', (ws) => {
       if (units.has(unitId)) {
         units.delete(unitId);
         broadcast({ type: 'unit_left', unitId });
+        scheduleStateBroadcast(true); // y una que se va, también
       }
     }
   });
@@ -840,19 +840,50 @@ function broadcast(data) {
   });
 }
 
+// ─── CADENCIA DEL ESTADO ─────────────────────────────────────
+// Antes cada posición GPS disparaba el estado completo a todos: con 20
+// unidades eran 6 envíos por segundo a cada celular, casi todos
+// repitiendo datos que no habían cambiado (~840 MB por turno medidos).
+// Ahora las posiciones se acumulan y se emiten como máximo una vez cada
+// STATE_INTERVAL_MS. Como cada unidad reporta cada 3 s, emitir más
+// seguido no aporta información nueva.
+const STATE_INTERVAL_MS = Number(process.env.STATE_INTERVAL_MS || 3000);
+let stateTimer = null;
+let lastStateAt = 0;
+
+function flushState() {
+  clearTimeout(stateTimer);
+  stateTimer = null;
+  lastStateAt = Date.now();
+  broadcast({ type: 'state', ...buildState() });
+}
+
+// Agenda un envío del estado respetando la cadencia. Con `immediate` se
+// emite ya (altas y bajas de unidades, que no conviene demorar).
+function scheduleStateBroadcast(immediate = false) {
+  if (immediate) { flushState(); return; }
+  if (stateTimer) return; // ya hay uno agendado: este cambio viaja con él
+  const espera = Math.max(0, STATE_INTERVAL_MS - (Date.now() - lastStateAt));
+  stateTimer = setTimeout(flushState, espera);
+}
+
 // ─── LIMPIAR UNIDADES INACTIVAS ──────────────────────────────
 // Si una unidad no manda GPS en más de 30 segundos, la sacamos.
 // Evita que fantasmas queden en el mapa después de que alguien cierra la app.
 setInterval(() => {
   const cutoff = Date.now() - 30_000;
+  let salieron = false;
   for (const [unitId, unit] of units) {
     if (unit.timestamp < cutoff) {
       units.delete(unitId);
       lapState.delete(unitId); // la vuelta a medias no cuenta
       console.log(`Unidad eliminada por inactividad: ${unitId}`);
       broadcast({ type: 'unit_left', unitId });
+      salieron = true;
     }
   }
+  // Sin este envío, si todas dejan de reportar el mapa queda congelado
+  if (salieron) scheduleStateBroadcast(true);
 }, 10_000);
 
 // ─── ARRANCAR ────────────────────────────────────────────────
