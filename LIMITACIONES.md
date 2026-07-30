@@ -79,6 +79,10 @@ limitación se resuelva o aparezca una nueva.
 
 ## D. Precisión del modelo de ruta
 
+- El **objetivo automático** hereda la calidad de la detección de vueltas: si
+  una vuelta se mide mal, entra al promedio. Se mitiga con la muestra de las
+  últimas 30 vueltas y el mínimo de 3, pero un historial sucio da un objetivo
+  sucio. Ante la duda, Despacho lo pasa a manual.
 - **Mientras la ruta no tenga recorrido cargado**, el progreso sigue siendo
   una proyección lineal entre dos puntos y las brechas son aproximaciones.
   Con el recorrido cargado se mide sobre el trazado real (ver README).

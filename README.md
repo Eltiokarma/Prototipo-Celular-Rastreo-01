@@ -246,6 +246,36 @@ lo reciben las dos partes**: al reconectar, una unidad recibe el grupo más su
 propia conversación, y Despacho el grupo más las conversaciones de su ruta.
 Las notas de voz también pueden ir por el canal privado.
 
+## Objetivo de brecha automático
+
+**La matemática de la rueda:** si la vuelta dura 60 minutos y hay 12 unidades
+repartidas, la separación natural entre una y otra es 60/12 = 5 minutos. El
+sistema ya tiene los dos datos (historial de vueltas en `laps` y unidades en
+ruta), así que puede calcular el objetivo en vez de que se cargue a mano.
+
+Se prende por ruta desde el panel (Gestión → RUTAS → **Automático**). Usa el
+promedio de vuelta del **mismo día de la semana** —el tráfico de un domingo no
+es el de un lunes— y si ese día todavía no juntó vueltas, cae al promedio
+general. El chip de la fila dice siempre de dónde sale el número: `AUTO · 12
+vueltas · lunes`, `AUTO · faltan vueltas (2/3)`, `AUTO · sin unidades en ruta`
+o `A MANO`.
+
+Tres cuidados, que son la diferencia entre útil y molesto:
+
+1. **Arranque en frío:** con menos de 3 vueltas **no se inventa nada** — vale
+   el número cargado a mano, que queda siempre como respaldo. Igual si no hay
+   ninguna unidad en ruta: sin combis no hay vuelta que repartir.
+2. **Que no parpadee:** el objetivo tiñe los colores del HUD del chofer, así
+   que se recalcula como máximo cada minuto y solo se mueve si el cambio pasa
+   los 6 segundos.
+3. **Topes:** el resultado queda entre 30 segundos y 30 minutos, por más raro
+   que venga el historial.
+
+Se recalcula cuando se cierra una vuelta y cuando cambia la cantidad de
+unidades en ruta: si tres combis salen de servicio al mediodía, el objetivo
+sube solo. Despacho puede volver a manual en cualquier momento, y cada cambio
+queda en la auditoría.
+
 ## Multi-ruta
 
 Cada ruta es independiente: sus unidades, sus brechas, su chat y su
