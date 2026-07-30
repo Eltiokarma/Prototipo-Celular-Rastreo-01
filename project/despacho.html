@@ -65,7 +65,8 @@ const HUD = {
 };
 
 const JULIACA_CENTER = [-15.4904, -70.1333];
-const TARGET_GAP = 2; // minutos objetivo entre unidades (mismo default que la app)
+// Objetivo de brecha por defecto; cada ruta manda el suyo en el estado
+const TARGET_GAP_DEFAULT = 2;
 
 function parseMin(s) {
   if (!s) return null;
@@ -73,10 +74,10 @@ function parseMin(s) {
   return m + (sec || 0) / 60;
 }
 
-function gapColor(gapStr) {
+function gapColor(gapStr, target = TARGET_GAP_DEFAULT) {
   const v = parseMin(gapStr);
   if (v === null || isNaN(v)) return HUD.dim3;
-  const dev = Math.abs(v - TARGET_GAP) / TARGET_GAP;
+  const dev = Math.abs(v - target) / target;
   if (dev <= 0.15) return HUD.green;
   if (dev <= 0.30) return HUD.amber;
   return HUD.red;
@@ -188,7 +189,7 @@ function Login({ onSuccess, notice }) {
 // ═══════════════════════════════════════════════════════════════
 // CHAT (columna derecha)
 // ═══════════════════════════════════════════════════════════════
-function ChatColumn({ messages, onSend }) {
+function ChatColumn({ messages, onSend, routeId }) {
   const [draft, setDraft] = React.useState('');
   const scrollRef = React.useRef(null);
   React.useEffect(() => {
@@ -207,7 +208,7 @@ function ChatColumn({ messages, onSend }) {
       <div style={{
         padding: '14px 16px', borderBottom: `1px solid ${HUD.divider}`,
         fontFamily: black, fontSize: 16,
-      }}>GRUPO R-14</div>
+      }}>GRUPO {routeId || ''}</div>
 
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto', padding: 14,
@@ -269,14 +270,20 @@ function ChatColumn({ messages, onSend }) {
 // ADMINISTRACIÓN DE UNIDADES (fase 2)
 // Altas, resets de contraseña y bajas contra /admin/* del servidor.
 // ═══════════════════════════════════════════════════════════════
-function AdminModal({ session, onClose, onAuthError }) {
-  const [tab, setTab] = React.useState('users'); // 'users' | 'metrics' | 'audit'
+function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
+  const [tab, setTab] = React.useState('users'); // users | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
   const [events, setEvents] = React.useState(null);
   const [metrics, setMetrics] = React.useState(null);
+  const [routeList, setRouteList] = React.useState(routes || []);
+  const [nuevaRuta, setNuevaRuta] = React.useState({ routeId: '', name: '', targetGapMin: '2', durationMin: '50' });
+  const esSupervisor = !!session.supervisor;
   const [error, setError] = React.useState(null);
   const [okMsg, setOkMsg] = React.useState(null);
-  const [form, setForm] = React.useState({ unitId: '', driverName: '', password: '' });
+  const [form, setForm] = React.useState({
+    unitId: '', driverName: '', password: '',
+    routeId: session.routeId || currentRoute || '',
+  });
   const [resetFor, setResetFor] = React.useState(null);
   const [resetPass, setResetPass] = React.useState('');
   const [confirmDel, setConfirmDel] = React.useState(null);
@@ -314,11 +321,22 @@ function AdminModal({ session, onClose, onAuthError }) {
     .then(d => { setMetrics(d.metrics); })
     .catch(e => setError(e.message));
 
-  React.useEffect(() => { load(); }, []);
+  const loadRoutes = () => api('/admin/routes')
+    .then(d => { setRouteList(d.routes || []); })
+    .catch(e => setError(e.message));
+
+  React.useEffect(() => { load(); loadRoutes(); }, []);
   React.useEffect(() => {
     if (tab === 'audit') loadAudit();
     if (tab === 'metrics') loadMetrics();
+    if (tab === 'routes') loadRoutes();
   }, [tab]);
+
+  const crearRuta = () => run(async () => {
+    await api('/admin/routes', { method: 'POST', body: JSON.stringify(nuevaRuta) });
+    setNuevaRuta({ routeId: '', name: '', targetGapMin: '2', durationMin: '50' });
+    await loadRoutes();
+  }, 'Ruta creada');
 
   const run = async (fn, ok) => {
     setBusy(true); setError(null); setOkMsg(null); setCredential(null); setCopied(false);
@@ -336,9 +354,9 @@ function AdminModal({ session, onClose, onAuthError }) {
 
   const create = () => run(async () => {
     const payload = { ...form, password: form.password || suggestPassword() };
-    await api('/admin/users', { method: 'POST', body: JSON.stringify(payload) });
-    setCredential({ unitId: payload.unitId, password: payload.password, isNew: true });
-    setForm({ unitId: '', driverName: '', password: '' });
+    const r = await api('/admin/users', { method: 'POST', body: JSON.stringify(payload) });
+    setCredential({ unitId: payload.unitId, password: payload.password, routeId: r.routeId, isNew: true });
+    setForm(f => ({ unitId: '', driverName: '', password: '', routeId: f.routeId }));
   }, null);
 
   const resetPassword = (unitId) => run(async () => {
@@ -379,7 +397,7 @@ function AdminModal({ session, onClose, onAuthError }) {
         borderRadius: 20, padding: 24,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-          {[['users', 'UNIDADES'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
+          {[['users', 'UNIDADES'], ['routes', 'RUTAS'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
               fontFamily: black, fontSize: 20,
@@ -390,6 +408,66 @@ function AdminModal({ session, onClose, onAuthError }) {
           <div style={{ flex: 1 }} />
           <button onClick={onClose} style={smallBtn('transparent', HUD.dim2)}>✕ Cerrar</button>
         </div>
+
+        {tab === 'routes' && (
+          <div>
+            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
+            {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
+
+            {esSupervisor && (
+              <div style={{
+                display: 'flex', flexWrap: 'wrap', gap: 8,
+                padding: 14, background: '#0a0f15', borderRadius: 14,
+                border: `1px solid ${HUD.divider}`, marginBottom: 16,
+              }}>
+                <input placeholder="Código (ej. R-20)" value={nuevaRuta.routeId}
+                  onChange={e => setNuevaRuta(r => ({ ...r, routeId: e.target.value }))}
+                  style={{ ...inputStyle, width: 'auto', flex: '1 1 110px' }} />
+                <input placeholder="Nombre del recorrido" value={nuevaRuta.name}
+                  onChange={e => setNuevaRuta(r => ({ ...r, name: e.target.value }))}
+                  style={{ ...inputStyle, width: 'auto', flex: '1 1 160px' }} />
+                <input placeholder="Objetivo min" value={nuevaRuta.targetGapMin} inputMode="decimal"
+                  onChange={e => setNuevaRuta(r => ({ ...r, targetGapMin: e.target.value }))}
+                  title="Brecha objetivo entre unidades, en minutos"
+                  style={{ ...inputStyle, width: 'auto', flex: '0 1 100px' }} />
+                <input placeholder="Recorrido min" value={nuevaRuta.durationMin} inputMode="numeric"
+                  onChange={e => setNuevaRuta(r => ({ ...r, durationMin: e.target.value }))}
+                  title="Cuánto dura la ruta de punta a punta, en minutos"
+                  style={{ ...inputStyle, width: 'auto', flex: '0 1 110px' }} />
+                <button onClick={crearRuta} disabled={busy} style={{
+                  ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13, height: 40,
+                }}>+ RUTA</button>
+              </div>
+            )}
+
+            {routeList.map(r => (
+              <div key={r.routeId} style={{
+                display: 'flex', alignItems: 'baseline', gap: 12,
+                padding: '11px 4px', borderBottom: `1px solid ${HUD.divider}`,
+                background: r.routeId === currentRoute ? 'rgba(46,157,255,.08)' : 'transparent',
+              }}>
+                <span style={{ fontFamily: black, fontSize: 16, minWidth: 70 }}>{r.routeId}</span>
+                <span style={{ fontSize: 14, color: HUD.dim, flex: 1, minWidth: 0,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2, whiteSpace: 'nowrap' }}>
+                  objetivo {r.targetGapMin} min · recorrido {r.durationMin} min
+                </span>
+                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
+                  color: r.enLinea > 0 ? HUD.green : HUD.dim3 }}>
+                  {r.unidades} unid · {r.enLinea} en línea
+                </span>
+              </div>
+            ))}
+
+            <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
+              Cada ruta calcula sus brechas por separado y tiene su propio chat.
+              El <strong>objetivo</strong> es la separación ideal entre unidades y el
+              <strong> recorrido</strong> cuánto tarda de punta a punta: con esos dos
+              números se convierte la distancia en minutos.
+              {!esSupervisor && ' Solo una cuenta supervisora puede crear rutas.'}
+            </div>
+          </div>
+        )}
 
         {tab === 'metrics' && (
           <div>
@@ -490,6 +568,14 @@ function AdminModal({ session, onClose, onAuthError }) {
           padding: 14, background: '#0a0f15', borderRadius: 14,
           border: `1px solid ${HUD.divider}`, marginBottom: 16,
         }}>
+          {esSupervisor && routeList.length > 0 && (
+            <select value={form.routeId}
+              onChange={e => setForm(f => ({ ...f, routeId: e.target.value }))}
+              title="Ruta en la que trabaja el chofer"
+              style={{ ...inputStyle, width: 'auto', flex: '0 1 120px', cursor: 'pointer' }}>
+              {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}</option>)}
+            </select>
+          )}
           <input placeholder="Unidad (ej. M-21)" value={form.unitId}
             onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
             style={{ ...inputStyle, width: 'auto', flex: '1 1 130px' }} />
@@ -519,7 +605,9 @@ function AdminModal({ session, onClose, onAuthError }) {
             borderRadius: 14, padding: 16, marginBottom: 16,
           }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: HUD.green, marginBottom: 10 }}>
-              {credential.isNew ? '✓ Unidad creada' : '✓ Contraseña reseteada — su sesión fue cerrada'}
+              {credential.isNew
+                ? `✓ Unidad creada${credential.routeId ? ' en la ruta ' + credential.routeId : ''}`
+                : '✓ Contraseña reseteada — su sesión fue cerrada'}
               {' '}· anotá o dictá estos datos ahora
             </div>
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -588,6 +676,13 @@ function AdminModal({ session, onClose, onAuthError }) {
               boxShadow: u.online ? `0 0 8px ${HUD.green}` : 'none',
             }} title={u.online ? 'Conectado' : 'Desconectado'} />
             <span style={{ fontFamily: black, fontSize: 15, minWidth: 90 }}>{u.unitId}</span>
+            {u.role !== 'dispatch' && (
+              <span style={{
+                fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.sky,
+                background: 'rgba(46,157,255,.12)', border: `1px solid ${HUD.line}`,
+                padding: '2px 6px', borderRadius: 4, flexShrink: 0,
+              }}>{u.routeId || '—'}</span>
+            )}
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ fontSize: 13, color: HUD.dim, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {u.driverName}
@@ -650,6 +745,14 @@ function Panel({ session, onLogout, onAuthError }) {
   const [messages, setMessages] = React.useState([]);
   const [sos, setSos] = React.useState(null); // alerta activa hasta que se atienda
   const [adminOpen, setAdminOpen] = React.useState(false);
+  // Multi-ruta: la ruta que se está mirando y los datos que llegan de ella
+  const [routes, setRoutes] = React.useState([]);
+  const [routeInfo, setRouteInfo] = React.useState({
+    routeId: session.routeId || null,
+    routeName: session.routeName || null,
+    targetGapMin: TARGET_GAP_DEFAULT,
+  });
+  const esSupervisor = !!session.supervisor;
 
   // El mismo panel sirve en PC y en celular: bajo 900px pasa a vista
   // única (Unidades / Mapa / Chat) con navegación inferior.
@@ -707,6 +810,14 @@ function Panel({ session, onLogout, onAuthError }) {
         if (msg.type === 'state') {
           setUnits(msg.units || []);
           setGaps(msg.gaps || {});
+          setRouteInfo({
+            routeId: msg.routeId,
+            routeName: msg.routeName,
+            targetGapMin: msg.targetGapMin || TARGET_GAP_DEFAULT,
+          });
+          fittedRef.current = false; // reencuadrar el mapa al cambiar de ruta
+        } else if (msg.type === 'routes') {
+          setRoutes(msg.routes || []);
         } else if (msg.type === 'chat_msg') {
           pushMsg(mapMsg(msg, 'chat'));
         } else if (msg.type === 'voice_msg') {
@@ -796,6 +907,14 @@ function Panel({ session, onLogout, onAuthError }) {
     }
   };
 
+  // Cambiar de ruta: el servidor responde con el estado y el chat de la nueva
+  const cambiarRuta = (routeId) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    setUnits([]); setGaps({}); setMessages([]);
+    ws.send(JSON.stringify({ type: 'watch', routeId }));
+  };
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* header */}
@@ -810,6 +929,29 @@ function Panel({ session, onLogout, onAuthError }) {
           fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1,
           color: HUD.bright, textTransform: 'uppercase',
         }}>Despacho</span>
+
+        {/* Selector de ruta: el supervisor cambia; el de ruta la ve fija */}
+        {esSupervisor && routes.length > 0 ? (
+          <select
+            value={routeInfo.routeId || ''}
+            onChange={e => cambiarRuta(e.target.value)}
+            title="Ruta que estás mirando"
+            style={{
+              background: '#10161d', color: HUD.fg, border: `1px solid ${HUD.line}`,
+              borderRadius: 8, padding: '6px 8px', fontSize: 13, fontWeight: 700,
+              fontFamily: 'inherit', cursor: 'pointer', maxWidth: isMobile ? 120 : 220,
+            }}>
+            {routes.map(r => (
+              <option key={r.routeId} value={r.routeId}>
+                {r.routeId}{isMobile ? '' : ` · ${r.name}`}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span style={{ fontFamily: black, fontSize: 14, color: HUD.fg2, whiteSpace: 'nowrap' }}>
+            {routeInfo.routeId || ''}
+          </span>
+        )}
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: isMobile ? 0 : 10, minWidth: 0 }}>
           <span style={{
             width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
@@ -841,6 +983,8 @@ function Panel({ session, onLogout, onAuthError }) {
           session={session}
           onClose={() => setAdminOpen(false)}
           onAuthError={onAuthError}
+          routes={routes}
+          currentRoute={routeInfo.routeId}
         />
       )}
 
@@ -854,6 +998,7 @@ function Panel({ session, onLogout, onAuthError }) {
           <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 2 }}>SOS</span>
           <span style={{ fontSize: 15, fontWeight: 700 }}>
             {(sos.driverName || sos.unitId || 'Unidad').toUpperCase()} pide ayuda · {nowTime(sos.timestamp)}
+            {sos.routeId && sos.routeId !== routeInfo.routeId ? ` · RUTA ${sos.routeId}` : ''}
             {sos.lat ? ` · ${sos.lat.toFixed(4)}, ${sos.lng.toFixed(4)}` : ''}
           </span>
           <div style={{ flex: 1 }} />
@@ -884,7 +1029,7 @@ function Panel({ session, onLogout, onAuthError }) {
           <div style={{
             padding: '14px 16px', fontFamily: mono, fontSize: 12, fontWeight: 700,
             letterSpacing: 1, color: HUD.dim2, textTransform: 'uppercase',
-          }}>Unidades en ruta ({units.length})</div>
+          }}>{routeInfo.routeName || 'Unidades'} · {units.length} en ruta</div>
           {units.length === 0 && (
             <div style={{ padding: '8px 16px', fontSize: 14, color: HUD.dim3 }}>
               Sin unidades conectadas.
@@ -909,8 +1054,8 @@ function Panel({ session, onLogout, onAuthError }) {
                   {!u.lat && <span style={{ fontFamily: mono, fontSize: 11, color: HUD.amber }}>SIN GPS</span>}
                 </div>
                 <div style={{ display: 'flex', gap: 14, marginTop: 4, fontFamily: mono, fontSize: 13, fontWeight: 700 }}>
-                  <span style={{ color: HUD.dim3 }}>+1 <span style={{ color: gapColor(g.toAhead) }}>{g.toAhead || '—'}</span></span>
-                  <span style={{ color: HUD.dim3 }}>−1 <span style={{ color: gapColor(g.toBehind) }}>{g.toBehind || '—'}</span></span>
+                  <span style={{ color: HUD.dim3 }}>+1 <span style={{ color: gapColor(g.toAhead, routeInfo.targetGapMin) }}>{g.toAhead || '—'}</span></span>
+                  <span style={{ color: HUD.dim3 }}>−1 <span style={{ color: gapColor(g.toBehind, routeInfo.targetGapMin) }}>{g.toBehind || '—'}</span></span>
                 </div>
               </div>
             );
@@ -932,7 +1077,7 @@ function Panel({ session, onLogout, onAuthError }) {
             ? { flex: 1, display: view === 'chat' ? 'flex' : 'none', flexDirection: 'column' }
             : { borderLeft: `1px solid ${HUD.divider}` }),
         }}>
-          <ChatColumn messages={messages} onSend={sendChat} />
+          <ChatColumn messages={messages} onSend={sendChat} routeId={routeInfo.routeId} />
         </div>
       </div>
 

@@ -151,6 +151,47 @@ db.exec(`
   )
 `);
 
+// ─── RUTAS ───────────────────────────────────────────────────
+// Cada ruta es un mundo aparte: sus unidades, sus brechas, su chat.
+// Cada una define su objetivo de brecha y cuánto dura el recorrido,
+// porque no son iguales entre rutas.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS routes (
+    routeId TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    targetGapMin REAL NOT NULL DEFAULT 2,
+    durationMin INTEGER NOT NULL DEFAULT 50,
+    createdAt INTEGER NOT NULL
+  )
+`);
+
+const DEFAULT_ROUTE = process.env.DEFAULT_ROUTE || 'R-14';
+
+// Agrega una columna solo si falta: así las bases ya existentes migran
+// solas sin perder nada.
+function addColumnIfMissing(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some(c => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    return true;
+  }
+  return false;
+}
+
+if (db.prepare('SELECT COUNT(*) AS c FROM routes').get().c === 0) {
+  db.prepare('INSERT INTO routes (routeId, name, targetGapMin, durationMin, createdAt) VALUES (?, ?, ?, ?, ?)')
+    .run(DEFAULT_ROUTE, 'Terminal Sur ↔ Huancané', 2, 50, Date.now());
+  console.log(`Ruta inicial creada: ${DEFAULT_ROUTE}`);
+}
+
+function routeOf(routeId) {
+  return db.prepare('SELECT * FROM routes WHERE routeId = ?').get(routeId) || null;
+}
+
+function allRoutes() {
+  return db.prepare('SELECT * FROM routes ORDER BY routeId').all();
+}
+
 // Migración única desde el chat-history.json de la versión anterior
 const LEGACY_FILE = path.join(__dirname, 'chat-history.json');
 if (db.prepare('SELECT COUNT(*) AS c FROM messages').get().c === 0 && fs.existsSync(LEGACY_FILE)) {
@@ -170,13 +211,19 @@ if (db.prepare('SELECT COUNT(*) AS c FROM messages').get().c === 0 && fs.existsS
   }
 }
 
+// Los mensajes viejos (de cuando había una sola ruta) pasan a la ruta inicial
+if (addColumnIfMissing('messages', 'routeId', 'TEXT')) {
+  db.prepare('UPDATE messages SET routeId = ? WHERE routeId IS NULL').run(DEFAULT_ROUTE);
+  console.log('Historial migrado a la ruta ' + DEFAULT_ROUTE);
+}
+
 const HISTORY_MAX = 200;   // mensajes que recibe un cliente al conectarse
 const KEEP_ROWS = 1000;    // filas totales que retiene la base
 const VOICE_KEEP = 30;     // notas de voz que conservan su audio
 
 const insertStmt = db.prepare(`
-  INSERT INTO messages (kind, unitId, driverName, text, duration, data, lat, lng, timestamp)
-  VALUES (@kind, @unitId, @driverName, @text, @duration, @data, @lat, @lng, @timestamp)
+  INSERT INTO messages (kind, unitId, driverName, routeId, text, duration, data, lat, lng, timestamp)
+  VALUES (@kind, @unitId, @driverName, @routeId, @text, @duration, @data, @lat, @lng, @timestamp)
 `);
 const pruneRowsStmt = db.prepare(`
   DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY id DESC LIMIT ${KEEP_ROWS})
@@ -199,15 +246,16 @@ function remember(item) {
   }
 }
 
-function recentHistory() {
+// Historial de UNA ruta: un chofer nunca ve la conversación de otra
+function recentHistory(routeId) {
   // El rol sale de la tabla users (los mensajes viejos no lo guardan)
   return db.prepare(`
     SELECT m.kind, m.unitId, m.driverName, m.text, m.duration, m.data,
            m.lat, m.lng, m.timestamp, COALESCE(u.role, 'driver') AS role
-    FROM (SELECT * FROM messages ORDER BY id DESC LIMIT ${HISTORY_MAX}) m
+    FROM (SELECT * FROM messages WHERE routeId = @routeId ORDER BY id DESC LIMIT ${HISTORY_MAX}) m
     LEFT JOIN users u ON u.unitId = m.unitId
     ORDER BY m.id ASC
-  `).all();
+  `).all({ routeId });
 }
 
 function historyCount() {
@@ -238,8 +286,15 @@ db.exec(`
 
 // Migración: última conexión de cada cuenta, para que Despacho vea de un
 // vistazo quién nunca entró (típico de un alta con la clave mal dictada).
-if (!db.prepare("PRAGMA table_info(users)").all().some(c => c.name === 'lastLogin')) {
-  db.exec('ALTER TABLE users ADD COLUMN lastLogin INTEGER');
+addColumnIfMissing('users', 'lastLogin', 'INTEGER');
+
+// Migración a multi-ruta. En users, routeId significa:
+//   chofer      → la ruta en la que trabaja (obligatoria)
+//   dispatch    → la ruta que administra, o NULL = supervisor de todas
+if (addColumnIfMissing('users', 'routeId', 'TEXT')) {
+  db.prepare("UPDATE users SET routeId = ? WHERE role = 'driver' AND routeId IS NULL")
+    .run(DEFAULT_ROUTE);
+  console.log('Choferes existentes asignados a la ruta ' + DEFAULT_ROUTE);
 }
 
 function hashPassword(password) {
@@ -271,7 +326,7 @@ function sessionUser(token) {
   const s = db.prepare('SELECT unitId FROM sessions WHERE token = ? AND expiresAt > ?')
     .get(token, Date.now());
   if (!s) return null;
-  return db.prepare('SELECT unitId, driverName, role FROM users WHERE unitId = ?').get(s.unitId) || null;
+  return db.prepare('SELECT unitId, driverName, role, routeId FROM users WHERE unitId = ?').get(s.unitId) || null;
 }
 
 // Limpieza de sesiones vencidas una vez por hora
@@ -314,10 +369,12 @@ db.exec(`
   )
 `);
 
-function audit(actor, action, target, detail) {
+addColumnIfMissing('audit', 'routeId', 'TEXT');
+
+function audit(actor, action, target, detail, routeId) {
   try {
-    db.prepare('INSERT INTO audit (actor, action, target, detail, timestamp) VALUES (?, ?, ?, ?, ?)')
-      .run(actor, action, target || null, detail || null, Date.now());
+    db.prepare('INSERT INTO audit (actor, action, target, detail, routeId, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(actor, action, target || null, detail || null, routeId || null, Date.now());
     db.prepare('DELETE FROM audit WHERE id NOT IN (SELECT id FROM audit ORDER BY id DESC LIMIT 1000)').run();
   } catch (e) {
     console.error('No se pudo auditar:', e.message);
@@ -340,10 +397,15 @@ db.exec(`
   )
 `);
 
+addColumnIfMissing('laps', 'routeId', 'TEXT');
+if (db.prepare('SELECT COUNT(*) AS c FROM laps WHERE routeId IS NULL').get().c > 0) {
+  db.prepare('UPDATE laps SET routeId = ? WHERE routeId IS NULL').run(DEFAULT_ROUTE);
+}
+
 const lapState = new Map();
 // lapState = { unitId → { lapStart, speedSum, speedCount, samples, lastProgress } }
 
-function trackLap(unitId, progress, speed) {
+function trackLap(unitId, routeId, progress, speed) {
   let st = lapState.get(unitId);
   if (!st) {
     lapState.set(unitId, {
@@ -361,8 +423,8 @@ function trackLap(unitId, progress, speed) {
     const now = Date.now();
     const durationSec = Math.round((now - st.lapStart) / 1000);
     const avgSpeed = st.speedCount ? Math.round(st.speedSum / st.speedCount) : 0;
-    db.prepare('INSERT INTO laps (unitId, startedAt, finishedAt, durationSec, avgSpeed) VALUES (?, ?, ?, ?, ?)')
-      .run(unitId, st.lapStart, now, durationSec, avgSpeed);
+    db.prepare('INSERT INTO laps (unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(unitId, routeId || null, st.lapStart, now, durationSec, avgSpeed);
     db.prepare('DELETE FROM laps WHERE id NOT IN (SELECT id FROM laps ORDER BY id DESC LIMIT 2000)').run();
     console.log(`Vuelta completada: ${unitId} en ${Math.round(durationSec / 60)} min`);
     lapState.set(unitId, {
@@ -400,23 +462,33 @@ app.post('/auth/login', (req, res) => {
     }
     const role = unitId === DISPATCH_ID ? 'dispatch' : 'driver';
     const driverName = role === 'dispatch' ? 'Despacho' : unitId;
-    db.prepare('INSERT INTO users (unitId, driverName, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?)')
-      .run(unitId, driverName, role, hashPassword(password), Date.now());
-    user = { unitId, driverName, role };
+    // El DESPACHO de arranque queda como supervisor (routeId null): ve
+    // todas las rutas. Una unidad auto-registrada va a la ruta inicial.
+    const routeId = role === 'dispatch' ? null : DEFAULT_ROUTE;
+    db.prepare('INSERT INTO users (unitId, driverName, role, routeId, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(unitId, driverName, role, routeId, hashPassword(password), Date.now());
+    user = { unitId, driverName, role, routeId };
     created = true;
     console.log(`${role === 'dispatch' ? 'Despacho' : 'Unidad'} registrado: ${unitId}`);
   } else if (!verifyPassword(password, user.passHash)) {
     const count = (a?.count || 0) + 1;
     loginAttempts.set(unitId, { count, until: count >= 5 ? Date.now() + 300_000 : 0 });
-    if (count >= 5) audit(unitId, 'login_bloqueado', null, '5 intentos fallidos');
+    if (count >= 5) audit(unitId, 'login_bloqueado', null, '5 intentos fallidos', user.routeId);
     return res.status(401).json({ error: `Contraseña incorrecta · intento ${count} de 5` });
   }
 
   loginAttempts.delete(unitId);
   const token = createSession(user.unitId);
   db.prepare('UPDATE users SET lastLogin = ? WHERE unitId = ?').run(Date.now(), user.unitId);
-  audit(user.unitId, 'login', null, created ? 'primer registro' : null);
-  res.json({ token, unitId: user.unitId, driverName: user.driverName, role: user.role, created });
+  audit(user.unitId, 'login', null, created ? 'primer registro' : null, user.routeId);
+  const ruta = user.routeId ? routeOf(user.routeId) : null;
+  res.json({
+    token, unitId: user.unitId, driverName: user.driverName, role: user.role,
+    routeId: user.routeId || null,
+    routeName: ruta ? ruta.name : null,
+    supervisor: user.role === 'dispatch' && !user.routeId,
+    created,
+  });
 });
 
 // ─── ADMINISTRACIÓN (solo Despacho) ──────────────────────────
@@ -431,8 +503,59 @@ function requireDispatch(req, res, next) {
     return res.status(401).json({ error: 'Requiere sesión de Despacho' });
   }
   req.dispatchUser = user;
+  // Alcance del despachador: un supervisor (dispatch sin ruta) administra
+  // todas; uno de ruta solo la suya. `scope` es null para el supervisor.
+  req.scope = user.routeId || null;
   next();
 }
+
+// Solo el supervisor puede crear rutas o tocar otras rutas
+function requireSupervisor(req, res, next) {
+  requireDispatch(req, res, () => {
+    if (req.scope) {
+      return res.status(403).json({ error: 'Requiere una cuenta supervisora (sin ruta asignada)' });
+    }
+    next();
+  });
+}
+
+// La ruta sobre la que va a operar: el supervisor puede elegirla, un
+// despachador de ruta siempre trabaja sobre la suya.
+function rutaObjetivo(req) {
+  if (req.scope) return req.scope;
+  const pedida = String(req.body?.routeId || req.query?.routeId || '').trim();
+  if (pedida && routeOf(pedida)) return pedida;
+  const rs = allRoutes();
+  return rs[0] ? rs[0].routeId : DEFAULT_ROUTE;
+}
+
+// ─── RUTAS (alta y listado) ──────────────────────────────────
+app.get('/admin/routes', requireDispatch, (req, res) => {
+  const rutas = allRoutes()
+    .filter(r => !req.scope || r.routeId === req.scope)
+    .map(r => ({
+      ...r,
+      unidades: db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'driver' AND routeId = ?").get(r.routeId).c,
+      enLinea: Array.from(units.values()).filter(u => u.routeId === r.routeId).length,
+    }));
+  res.json({ routes: rutas, supervisor: !req.scope });
+});
+
+app.post('/admin/routes', requireSupervisor, (req, res) => {
+  const routeId = String(req.body?.routeId || '').trim().slice(0, 24);
+  const name = String(req.body?.name || '').trim().slice(0, 60) || routeId;
+  const targetGapMin = Number(req.body?.targetGapMin);
+  const durationMin = Number(req.body?.durationMin);
+  if (!routeId) return res.status(400).json({ error: 'Falta el código de la ruta (ej. R-15)' });
+  if (routeOf(routeId)) return res.status(409).json({ error: 'Esa ruta ya existe' });
+  const gap = Number.isFinite(targetGapMin) && targetGapMin > 0 ? targetGapMin : 2;
+  const dur = Number.isFinite(durationMin) && durationMin > 0 ? Math.round(durationMin) : 50;
+  db.prepare('INSERT INTO routes (routeId, name, targetGapMin, durationMin, createdAt) VALUES (?, ?, ?, ?, ?)')
+    .run(routeId, name, gap, dur, Date.now());
+  audit(req.dispatchUser.unitId, 'alta_ruta', routeId, `${name} · objetivo ${gap} min · ${dur} min de recorrido`, routeId);
+  console.log(`Ruta creada: ${routeId} (${name})`);
+  res.json({ ok: true, routeId });
+});
 
 // Cierra en vivo las conexiones de una unidad (clave reseteada o baja)
 function kickUnit(unitId, reason) {
@@ -449,29 +572,50 @@ function kickUnit(unitId, reason) {
 
 app.get('/admin/users', requireDispatch, (req, res) => {
   const online = new Set(clients.values());
+  // Un despachador de ruta solo ve su gente (y las cuentas de despacho);
+  // el supervisor ve todo.
   const users = db.prepare(`
-    SELECT unitId, driverName, role, createdAt, lastLogin FROM users
-    ORDER BY CASE role WHEN 'dispatch' THEN 0 ELSE 1 END, unitId
-  `).all();
-  res.json({ users: users.map(u => ({ ...u, online: online.has(u.unitId) })) });
+    SELECT unitId, driverName, role, routeId, createdAt, lastLogin FROM users
+    WHERE @scope IS NULL OR routeId = @scope OR role = 'dispatch'
+    ORDER BY CASE role WHEN 'dispatch' THEN 0 ELSE 1 END, routeId, unitId
+  `).all({ scope: req.scope });
+  res.json({
+    users: users.map(u => ({ ...u, online: online.has(u.unitId) })),
+    supervisor: !req.scope,
+    scope: req.scope,
+  });
 });
 
 app.post('/admin/users', requireDispatch, (req, res) => {
   const unitId = String(req.body?.unitId || '').trim().slice(0, 24);
   const driverName = String(req.body?.driverName || '').trim().slice(0, 40) || unitId;
   const password = String(req.body?.password || '');
+  const routeId = rutaObjetivo(req);
   if (!unitId || password.length < 4 || password.length > 64) {
     return res.status(400).json({ error: 'Completá unidad y contraseña (mínimo 4 caracteres)' });
+  }
+  if (!routeOf(routeId)) {
+    return res.status(400).json({ error: 'Esa ruta no existe' });
   }
   if (db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
     return res.status(409).json({ error: 'Esa unidad ya existe' });
   }
-  db.prepare('INSERT INTO users (unitId, driverName, role, passHash, createdAt) VALUES (?, ?, ?, ?, ?)')
-    .run(unitId, driverName, 'driver', hashPassword(password), Date.now());
-  audit(req.dispatchUser.unitId, 'alta', unitId, driverName !== unitId ? driverName : null);
-  console.log(`Alta de unidad por Despacho: ${unitId}`);
-  res.json({ ok: true, unitId });
+  db.prepare('INSERT INTO users (unitId, driverName, role, routeId, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(unitId, driverName, 'driver', routeId, hashPassword(password), Date.now());
+  audit(req.dispatchUser.unitId, 'alta', unitId, `${driverName !== unitId ? driverName + ' · ' : ''}ruta ${routeId}`, routeId);
+  console.log(`Alta de unidad por Despacho: ${unitId} en ${routeId}`);
+  res.json({ ok: true, unitId, routeId });
 });
+
+// Un despachador de ruta solo puede administrar cuentas de SU ruta
+function cuentaEnAlcance(req, unitId) {
+  const u = db.prepare('SELECT unitId, role, routeId FROM users WHERE unitId = ?').get(unitId);
+  if (!u) return { error: 404, msg: 'Esa unidad no existe' };
+  if (req.scope && u.routeId !== req.scope) {
+    return { error: 403, msg: 'Esa unidad pertenece a otra ruta' };
+  }
+  return { user: u };
+}
 
 app.post('/admin/users/:unitId/password', requireDispatch, (req, res) => {
   const unitId = String(req.params.unitId);
@@ -479,13 +623,12 @@ app.post('/admin/users/:unitId/password', requireDispatch, (req, res) => {
   if (password.length < 4 || password.length > 64) {
     return res.status(400).json({ error: 'La contraseña nueva necesita mínimo 4 caracteres' });
   }
-  if (!db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
-    return res.status(404).json({ error: 'Esa unidad no existe' });
-  }
+  const chequeo = cuentaEnAlcance(req, unitId);
+  if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
   db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(password), unitId);
   // Las sesiones viejas dejan de valer y la unidad conectada vuelve al login
   kickUnit(unitId, 'Despacho reseteó tu contraseña. Ingresá con la nueva.');
-  audit(req.dispatchUser.unitId, 'reset_clave', unitId);
+  audit(req.dispatchUser.unitId, 'reset_clave', unitId, null, chequeo.user.routeId);
   console.log(`Contraseña reseteada por Despacho: ${unitId}`);
   res.json({ ok: true });
 });
@@ -495,21 +638,22 @@ app.delete('/admin/users/:unitId', requireDispatch, (req, res) => {
   if (unitId === DISPATCH_ID) {
     return res.status(400).json({ error: 'La cuenta de Despacho no se puede eliminar' });
   }
-  if (!db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
-    return res.status(404).json({ error: 'Esa unidad no existe' });
-  }
+  const chequeo = cuentaEnAlcance(req, unitId);
+  if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
   db.prepare('DELETE FROM users WHERE unitId = ?').run(unitId);
   kickUnit(unitId, 'Tu acceso fue dado de baja por Despacho.');
-  audit(req.dispatchUser.unitId, 'baja', unitId);
+  audit(req.dispatchUser.unitId, 'baja', unitId, null, chequeo.user.routeId);
   console.log(`Baja de unidad por Despacho: ${unitId}`);
   res.json({ ok: true });
 });
 
 // Últimos movimientos: logins, altas, resets, bajas y SOS
 app.get('/admin/audit', requireDispatch, (req, res) => {
-  const events = db.prepare(
-    'SELECT actor, action, target, detail, timestamp FROM audit ORDER BY id DESC LIMIT 100'
-  ).all();
+  const events = db.prepare(`
+    SELECT actor, action, target, detail, routeId, timestamp FROM audit
+    WHERE @scope IS NULL OR routeId = @scope
+    ORDER BY id DESC LIMIT 100
+  `).all({ scope: req.scope });
   res.json({ events });
 });
 
@@ -517,8 +661,10 @@ app.get('/admin/audit', requireDispatch, (req, res) => {
 app.get('/admin/metrics', requireDispatch, (req, res) => {
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
+  // El supervisor puede pedir una ruta con ?routeId=; sin eso ve todas
+  const filtro = req.scope || String(req.query?.routeId || '').trim() || null;
   const rows = db.prepare(`
-    SELECT unitId,
+    SELECT unitId, routeId,
       COUNT(*) AS lapsTotal,
       SUM(CASE WHEN finishedAt >= @dayStart THEN 1 ELSE 0 END) AS lapsToday,
       ROUND(AVG(durationSec)) AS avgSec,
@@ -527,10 +673,11 @@ app.get('/admin/metrics', requireDispatch, (req, res) => {
       (SELECT durationSec FROM laps l2 WHERE l2.unitId = laps.unitId ORDER BY l2.id DESC LIMIT 1) AS lastSec,
       MAX(finishedAt) AS lastFinish
     FROM laps
+    WHERE @filtro IS NULL OR routeId = @filtro
     GROUP BY unitId
     ORDER BY lapsToday DESC, lapsTotal DESC
-  `).all({ dayStart: dayStart.getTime() });
-  res.json({ metrics: rows });
+  `).all({ dayStart: dayStart.getTime(), filtro });
+  res.json({ metrics: rows, routeId: filtro });
 });
 
 // ─── RUTA DE SALUD ───────────────────────────────────────────
@@ -646,7 +793,18 @@ wss.on('connection', (ws) => {
         return;
       }
       clients.set(ws, user.unitId);
-      profiles.set(user.unitId, { driverName: user.driverName || 'Conductor', role: user.role || 'driver' });
+      profiles.set(user.unitId, {
+        driverName: user.driverName || 'Conductor',
+        role: user.role || 'driver',
+        routeId: user.routeId || null,
+      });
+
+      // Un chofer mira su ruta; un despachador de ruta, la que administra;
+      // un supervisor (dispatch sin ruta) arranca en la primera y cambia
+      // con el mensaje 'watch'.
+      const rutas = allRoutes();
+      const rutaInicial = user.routeId || (rutas[0] ? rutas[0].routeId : DEFAULT_ROUTE);
+      watching.set(ws, rutaInicial);
 
       // Despacho observa y habla, pero NO es una unidad en ruta:
       // no entra al mapa de units ni al cálculo de brechas
@@ -654,20 +812,34 @@ wss.on('connection', (ws) => {
         units.set(user.unitId, {
           unitId: user.unitId,
           driverName: user.driverName || 'Conductor',
+          routeId: user.routeId || DEFAULT_ROUTE,
           lat: null,
           lng: null,
           speed: 0,
           routeProgress: 0,
           timestamp: Date.now(),
         });
-        broadcast({ type: 'unit_joined', unitId: user.unitId });
-        scheduleStateBroadcast(true); // una unidad nueva se ve al instante
+        broadcastToRoute(rutaInicial, { type: 'unit_joined', unitId: user.unitId });
+        scheduleStateBroadcast(rutaInicial, true); // se ve al instante
       }
-      console.log(`${user.role === 'dispatch' ? 'Despacho conectado' : 'Unidad identificada'}: ${user.unitId}`);
+      console.log(`${user.role === 'dispatch' ? 'Despacho conectado' : 'Unidad identificada'}: ${user.unitId} (${rutaInicial})`);
 
       // Recién ahora recibe el estado y la conversación en curso
-      ws.send(JSON.stringify({ type: 'state', ...buildState() }));
-      ws.send(JSON.stringify({ type: 'chat_history', items: recentHistory() }));
+      ws.send(JSON.stringify({ type: 'state', ...buildState(rutaInicial) }));
+      ws.send(JSON.stringify({ type: 'chat_history', routeId: rutaInicial, items: recentHistory(rutaInicial) }));
+      // Los supervisores además reciben la lista de rutas para el selector
+      if (esSupervisor(ws)) {
+        ws.send(JSON.stringify({ type: 'routes', routes: rutas, watching: rutaInicial }));
+      }
+    }
+
+    // TIPO: watch — un supervisor cambia de ruta en el panel
+    if (msg.type === 'watch') {
+      if (!esSupervisor(ws)) return;         // un chofer no elige ruta
+      if (!routeOf(msg.routeId)) return;     // ruta inexistente
+      watching.set(ws, msg.routeId);
+      ws.send(JSON.stringify({ type: 'state', ...buildState(msg.routeId) }));
+      ws.send(JSON.stringify({ type: 'chat_history', routeId: msg.routeId, items: recentHistory(msg.routeId) }));
     }
 
     // TIPO: posición GPS — llega cada ~3 segundos desde cada combi
@@ -676,9 +848,11 @@ wss.on('connection', (ws) => {
       if (!unitId) return;
 
       const unit = units.get(unitId) || {};
+      const routeId = unit.routeId || profiles.get(unitId)?.routeId || DEFAULT_ROUTE;
       units.set(unitId, {
         ...unit,
         unitId,
+        routeId,
         lat: msg.lat,
         lng: msg.lng,
         speed: msg.speed || 0,
@@ -687,46 +861,59 @@ wss.on('connection', (ws) => {
       });
 
       // Detección de vuelta completa a partir del progreso
-      trackLap(unitId, msg.routeProgress || 0, msg.speed || 0);
+      trackLap(unitId, routeId, msg.routeProgress || 0, msg.speed || 0);
 
-      // El estado se emite con cadencia limitada, no en cada GPS
-      scheduleStateBroadcast();
+      // Solo se recalcula y emite el estado de SU ruta
+      scheduleStateBroadcast(routeId);
     }
 
+    // La ruta a la que pertenece lo que este cliente emite: la del chofer,
+    // o la que el supervisor está mirando en el panel.
+    const rutaDelEmisor = () => {
+      const unitId = clients.get(ws);
+      const prof = unitId ? profiles.get(unitId) : null;
+      return (prof && prof.routeId) || watching.get(ws) || DEFAULT_ROUTE;
+    };
+
     // TIPO: SOS — el chofer desliza el botón de emergencia
-    // El servidor reenvía a TODOS los conectados (incluido el emisor)
-    // con el nombre del chofer que pidió ayuda y su última posición.
+    // Llega a su ruta y ADEMÁS a todos los supervisores, aunque estén
+    // mirando otra: una emergencia tiene que escalar igual.
     if (msg.type === 'sos') {
       const unitId = clients.get(ws);
       if (!unitId) return;
       const prof = profiles.get(unitId) || {};
-      console.log(`🚨 SOS de ${unitId}`);
+      const routeId = rutaDelEmisor();
+      console.log(`🚨 SOS de ${unitId} (${routeId})`);
       const alert = {
         unitId,
         driverName: prof.driverName || 'Conductor',
+        routeId,
         lat: msg.lat ?? null,
         lng: msg.lng ?? null,
         timestamp: msg.timestamp || Date.now(),
       };
       remember({ kind: 'sos', ...alert });
-      audit(unitId, 'sos', null, alert.lat ? `${alert.lat.toFixed(4)}, ${alert.lng.toFixed(4)}` : null);
-      broadcast({ type: 'sos_alert', ...alert });
+      audit(unitId, 'sos', null, alert.lat ? `${alert.lat.toFixed(4)}, ${alert.lng.toFixed(4)}` : null, routeId);
+      broadcastToRoute(routeId, { type: 'sos_alert', ...alert });
+      broadcastToSupervisors({ type: 'sos_alert', ...alert }, routeId);
     }
 
-    // TIPO: chat — mensaje de texto entre choferes del grupo
+    // TIPO: chat — mensaje de texto entre choferes de la MISMA ruta
     // Limitamos a 500 caracteres para evitar abuso.
     if (msg.type === 'chat') {
       const unitId = clients.get(ws);
       if (!unitId) return;
       const prof = profiles.get(unitId) || {};
+      const routeId = rutaDelEmisor();
       const entry = {
         unitId,
         driverName: prof.driverName || 'Conductor',
+        routeId,
         text: String(msg.text || '').slice(0, 500),
         timestamp: msg.timestamp || Date.now(),
       };
       remember({ kind: 'chat', ...entry });
-      broadcast({ type: 'chat_msg', role: prof.role || 'driver', ...entry });
+      broadcastToRoute(routeId, { type: 'chat_msg', role: prof.role || 'driver', ...entry });
     }
 
     // TIPO: voz — nota de voz grabada en el celular
@@ -741,29 +928,33 @@ wss.on('connection', (ws) => {
         ? msg.data : null;
       if (!data) return; // audio inválido o demasiado grande — se descarta
       const prof = profiles.get(unitId) || {};
+      const routeId = rutaDelEmisor();
       const entry = {
         unitId,
         driverName: prof.driverName || 'Conductor',
+        routeId,
         duration: Math.max(1, Math.min(120, Math.round(msg.duration || 0))),
         data,
         timestamp: msg.timestamp || Date.now(),
       };
       remember({ kind: 'voice', ...entry });
-      broadcast({ type: 'voice_msg', role: prof.role || 'driver', ...entry });
+      broadcastToRoute(routeId, { type: 'voice_msg', role: prof.role || 'driver', ...entry });
     }
   });
 
   // Cuando una combi se desconecta
   ws.on('close', () => {
     const unitId = clients.get(ws);
+    const routeId = units.get(unitId)?.routeId;
+    watching.delete(ws);
     if (unitId) {
       clients.delete(ws);
       console.log(`Desconectado: ${unitId}`);
       // Solo las unidades en ruta salen del mapa; Despacho no estaba en él
       if (units.has(unitId)) {
         units.delete(unitId);
-        broadcast({ type: 'unit_left', unitId });
-        scheduleStateBroadcast(true); // y una que se va, también
+        broadcastToRoute(routeId, { type: 'unit_left', unitId });
+        scheduleStateBroadcast(routeId, true); // y una que se va, también
       }
     }
   });
@@ -777,27 +968,32 @@ wss.on('connection', (ws) => {
 // routeProgress es un número 0-1 que indica qué tan avanzado está en la ruta.
 // 0 = terminal sur, 1 = Huancané.
 
-function buildState() {
+// El estado es SIEMPRE de una ruta: las unidades de otras rutas no
+// aparecen ni entran en el cálculo de brechas. Sin esto, un chofer vería
+// "su" brecha contra una combi de otro recorrido.
+function buildState(routeId) {
+  const ruta = routeOf(routeId);
   const all = Array.from(units.values())
-    .filter(u => u.lat !== null) // solo unidades con GPS activo
-    .sort((a, b) => b.routeProgress - a.routeProgress); // ordenar por posición en ruta
+    .filter(u => u.routeId === routeId && u.lat !== null) // solo su ruta, con GPS
+    .sort((a, b) => b.routeProgress - a.routeProgress);    // ordenadas por avance
 
   return {
+    routeId,
+    routeName: ruta ? ruta.name : routeId,
+    targetGapMin: ruta ? ruta.targetGapMin : 2,
     units: all,
-    gaps: calculateGaps(all),
+    gaps: calculateGaps(all, ruta ? ruta.durationMin : 50),
     totalOnRoute: all.length,
     timestamp: Date.now(),
   };
 }
 
 // ─── CALCULAR GAPS ───────────────────────────────────────────
-// Dado el orden en la ruta, calcula cuántos minutos separa cada par de unidades.
-// La fórmula es una aproximación: diferencia de progreso * duración total de la ruta.
-// La ruta R-14 dura ~50 minutos de punta a punta.
+// Dado el orden en la ruta, calcula cuántos minutos separa cada par de
+// unidades. La fórmula es una aproximación: diferencia de progreso por la
+// duración del recorrido, que cada ruta define por su cuenta.
 
-const ROUTE_DURATION_MIN = 50;
-
-function calculateGaps(sortedUnits) {
+function calculateGaps(sortedUnits, durationMin) {
   const gaps = {};
   for (let i = 0; i < sortedUnits.length; i++) {
     const current = sortedUnits[i];
@@ -805,11 +1001,11 @@ function calculateGaps(sortedUnits) {
     const behind = sortedUnits[i + 1]; // la que viene atrás (menos progreso)
 
     const gapToAhead = ahead
-      ? (ahead.routeProgress - current.routeProgress) * ROUTE_DURATION_MIN
+      ? (ahead.routeProgress - current.routeProgress) * durationMin
       : null;
 
     const gapToBehind = behind
-      ? (current.routeProgress - behind.routeProgress) * ROUTE_DURATION_MIN
+      ? (current.routeProgress - behind.routeProgress) * durationMin
       : null;
 
     gaps[current.unitId] = {
@@ -830,11 +1026,32 @@ function formatMinutes(mins) {
 }
 
 // ─── BROADCAST ───────────────────────────────────────────────
-// Manda un mensaje a TODOS los clientes conectados.
-function broadcast(data) {
+// Qué ruta está mirando cada conexión. Un chofer mira la suya siempre; un
+// supervisor puede cambiarla desde el panel (mensaje 'watch').
+const watching = new Map();   // websocket → routeId
+
+function esSupervisor(ws) {
+  const unitId = clients.get(ws);
+  const prof = unitId ? profiles.get(unitId) : null;
+  return !!prof && prof.role === 'dispatch' && !prof.routeId;
+}
+
+// Manda un mensaje solo a quienes están mirando esa ruta
+function broadcastToRoute(routeId, data) {
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
-    if (client.readyState === 1) { // 1 = OPEN
+    if (client.readyState === 1 && watching.get(client) === routeId) {
+      client.send(msg);
+    }
+  });
+}
+
+// Manda un mensaje a todos los supervisores, sin importar qué ruta miran.
+// Se usa para los SOS: una emergencia tiene que escalar igual.
+function broadcastToSupervisors(data, exceptRoute) {
+  const msg = JSON.stringify(data);
+  wss.clients.forEach((client) => {
+    if (client.readyState === 1 && esSupervisor(client) && watching.get(client) !== exceptRoute) {
       client.send(msg);
     }
   });
@@ -845,26 +1062,26 @@ function broadcast(data) {
 // unidades eran 6 envíos por segundo a cada celular, casi todos
 // repitiendo datos que no habían cambiado (~840 MB por turno medidos).
 // Ahora las posiciones se acumulan y se emiten como máximo una vez cada
-// STATE_INTERVAL_MS. Como cada unidad reporta cada 3 s, emitir más
-// seguido no aporta información nueva.
+// STATE_INTERVAL_MS, y por separado para cada ruta.
 const STATE_INTERVAL_MS = Number(process.env.STATE_INTERVAL_MS || 3000);
-let stateTimer = null;
-let lastStateAt = 0;
+const stateTimers = new Map();  // routeId → timeout
+const lastStateAt = new Map();  // routeId → cuándo se emitió por última vez
 
-function flushState() {
-  clearTimeout(stateTimer);
-  stateTimer = null;
-  lastStateAt = Date.now();
-  broadcast({ type: 'state', ...buildState() });
+function flushState(routeId) {
+  clearTimeout(stateTimers.get(routeId));
+  stateTimers.delete(routeId);
+  lastStateAt.set(routeId, Date.now());
+  broadcastToRoute(routeId, { type: 'state', ...buildState(routeId) });
 }
 
-// Agenda un envío del estado respetando la cadencia. Con `immediate` se
-// emite ya (altas y bajas de unidades, que no conviene demorar).
-function scheduleStateBroadcast(immediate = false) {
-  if (immediate) { flushState(); return; }
-  if (stateTimer) return; // ya hay uno agendado: este cambio viaja con él
-  const espera = Math.max(0, STATE_INTERVAL_MS - (Date.now() - lastStateAt));
-  stateTimer = setTimeout(flushState, espera);
+// Agenda el envío del estado de UNA ruta respetando la cadencia. Con
+// `immediate` se emite ya (altas y bajas, que no conviene demorar).
+function scheduleStateBroadcast(routeId, immediate = false) {
+  if (!routeId) return;
+  if (immediate) { flushState(routeId); return; }
+  if (stateTimers.has(routeId)) return; // ya hay uno agendado para esta ruta
+  const espera = Math.max(0, STATE_INTERVAL_MS - (Date.now() - (lastStateAt.get(routeId) || 0)));
+  stateTimers.set(routeId, setTimeout(() => flushState(routeId), espera));
 }
 
 // ─── LIMPIAR UNIDADES INACTIVAS ──────────────────────────────
@@ -872,18 +1089,18 @@ function scheduleStateBroadcast(immediate = false) {
 // Evita que fantasmas queden en el mapa después de que alguien cierra la app.
 setInterval(() => {
   const cutoff = Date.now() - 30_000;
-  let salieron = false;
+  const rutasAfectadas = new Set();
   for (const [unitId, unit] of units) {
     if (unit.timestamp < cutoff) {
       units.delete(unitId);
       lapState.delete(unitId); // la vuelta a medias no cuenta
       console.log(`Unidad eliminada por inactividad: ${unitId}`);
-      broadcast({ type: 'unit_left', unitId });
-      salieron = true;
+      broadcastToRoute(unit.routeId, { type: 'unit_left', unitId });
+      rutasAfectadas.add(unit.routeId);
     }
   }
   // Sin este envío, si todas dejan de reportar el mapa queda congelado
-  if (salieron) scheduleStateBroadcast(true);
+  rutasAfectadas.forEach(r => scheduleStateBroadcast(r, true));
 }, 10_000);
 
 // ─── ARRANCAR ────────────────────────────────────────────────

@@ -120,6 +120,29 @@ La pestaña **Vueltas** muestra el historial por unidad (vueltas de hoy,
 solo — cuando el `routeProgress` llega cerca del final y vuelve al
 inicio — y la guarda en la tabla `laps` (últimas 2000).
 
+## Multi-ruta
+
+Cada ruta es independiente: sus unidades, sus brechas, su chat y su
+historial. Una ruta define **su** objetivo de brecha y **su** duración de
+recorrido, y con esos dos números se convierte distancia en minutos — por
+eso dos rutas con la misma separación física dan brechas distintas.
+
+- Tabla `routes` (`routeId`, `name`, `targetGapMin`, `durationMin`) y
+  columna `routeId` en `users`, `messages`, `laps` y `audit`. Las bases
+  existentes migran solas: todo lo que había pasa a la ruta inicial
+  (`DEFAULT_ROUTE`, por defecto `R-14`).
+- El estado, el chat y las brechas se calculan y emiten **por ruta**: un
+  chofer nunca ve unidades ni mensajes de otro recorrido.
+- **Un SOS escala**: llega a su ruta y además a todos los supervisores,
+  aunque estén mirando otra (el banner marca de qué ruta viene).
+
+**Dos tipos de cuenta de despacho**, según `users.routeId`:
+
+| | Alcance |
+| --- | --- |
+| **Supervisor** (`routeId` NULL) | Ve y administra todas las rutas, cambia con el selector del panel, crea rutas nuevas. Es lo que queda la cuenta `DESPACHO` inicial |
+| **Despachador de ruta** (`routeId` con valor) | Solo su ruta: no ve, ni administra, ni recibe nada de las demás |
+
 ## Niveles de seguridad
 
 1. **Chofer** — su clave abre solo su sesión; no puede tocar `/admin`.
