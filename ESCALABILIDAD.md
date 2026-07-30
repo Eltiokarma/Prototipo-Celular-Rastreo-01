@@ -12,6 +12,25 @@ cualquier piloto grande — de hecho ya conviene cambiarlo hoy.
 - Una unidad en el JSON de estado ≈ 230 bytes (posición + su objeto de brechas).
 - Estimaciones de orden de magnitud, para decidir arquitectura.
 
+## Estado: optimizaciones 1b y 2 aplicadas
+
+Medido con unidades reales conectadas al servidor, una sola ruta:
+
+| Unidades | Antes | Después | Mejora |
+| --- | --- | --- | --- |
+| 20 | 839 MB | **40 MB** | 21× |
+| 50 | 5 194 MB (5,2 GB) | **98 MB** | 53× |
+
+Más el caché de tiles: la segunda visita en adelante **no gasta un byte**
+en el mapa (medido: 12 tiles la primera vez, 0 la segunda).
+
+Cómo: el estado se emite como máximo una vez cada `STATE_INTERVAL_MS`
+(3 s por defecto, configurable) en vez de una vez por cada GPS recibido,
+y las altas/bajas de unidades siguen emitiéndose al instante. Sin pérdida
+de funcionalidad: las brechas se siguen actualizando (verificado en
+navegador con 50 unidades) porque cada unidad reporta cada 3 s de todas
+formas.
+
 ## Medición real (no modelo)
 
 Con el servidor corriendo y unidades simuladas conectadas de verdad,

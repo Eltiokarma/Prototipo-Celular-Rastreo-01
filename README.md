@@ -12,7 +12,9 @@ project/            La app (PWA servida como archivos estáticos)
   Prototipo.html      TODA la app del chofer: React + Babel inline (sin build)
   despacho.html       Panel web de Despacho (flota, chat, SOS) — desktop
   realtime.js         Cliente WebSocket: GPS, estado, chat y SOS
-  service-worker.js   Caché offline (bump CACHE_NAME en cada release)
+  service-worker.js   Caché offline + caché de tiles del mapa
+                      (bump CACHE_NAME en cada release; tiles y librerías
+                      se conservan entre versiones a propósito)
   manifest.json       Manifest PWA
   index.html          Redirect a Prototipo.html
   uploads/            Referencias de diseño (tema de color)
