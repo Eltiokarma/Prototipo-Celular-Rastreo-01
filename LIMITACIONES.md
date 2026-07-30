@@ -89,10 +89,15 @@ limitación se resuelva o aparezca una nueva.
 - **La calidad depende de cómo se cargó el recorrido**: marcado a mano con
   pocos puntos, el trazado corta esquinas y el progreso se corre unos
   metros. Un GPX de una vuelta real es mucho más fiel.
-- **Ida y vuelta por la misma calle**: si el recorrido va y vuelve por el
-  mismo tramo, la proyección puede engancharse al tramo equivocado (los dos
-  están a la misma distancia). Para rutas así conviene cargar el circuito
-  completo como un solo trazado en el orden real de manejo.
+- **Ida y vuelta por la misma calle**: resuelto cargando el circuito en dos
+  tramos — cuando empatan por cercanía, decide el sentido de marcha. Queda un
+  caso límite: una combi **detenida** en un tramo compartido (semáforo,
+  paradero) no tiene rumbo, así que se mantiene en el tramo en el que venía.
+  Si el GPS la ubica mal justo ahí, puede quedar en el tramo equivocado hasta
+  que vuelva a moverse.
+- **La vuelta es opcional pero conviene cargarla**: con solo la ida, el
+  circuito es media rutina y las vueltas (y el objetivo automático) se miden
+  sobre esa mitad.
 - La **detección de vueltas** sigue siendo una heurística (llegar cerca del
   final y volver al inicio): un desvío grande o GPS muy errático puede
   perder o duplicar una vuelta.

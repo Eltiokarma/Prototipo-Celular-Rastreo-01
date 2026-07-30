@@ -423,23 +423,33 @@ function leerRecorrido(texto) {
 const TOPE_ARRASTRABLES = 200;
 
 function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
-  const [puntos, setPuntos] = React.useState(null);   // null = cargando
+  // Los dos tramos del circuito. Se dibuja el activo; el otro queda de fondo
+  // para poder calzarlos (la vuelta suele ir pegada a la ida).
+  const [tramos, setTramos] = React.useState(null);   // null = cargando
+  const [tramo, setTramo] = React.useState('ida');
   const [error, setError] = React.useState(null);
   const [aviso, setAviso] = React.useState(null);
   const [guardando, setGuardando] = React.useState(false);
   const mapRef = React.useRef(null);
   const capaRef = React.useRef(null);
-  const puntosRef = React.useRef([]);
   const archivoRef = React.useRef(null);
   const encuadradoRef = React.useRef(false);
+  const tramoRef = React.useRef('ida');
 
-  React.useEffect(() => { puntosRef.current = puntos || []; }, [puntos]);
+  React.useEffect(() => { tramoRef.current = tramo; }, [tramo]);
+
+  const puntos = tramos ? tramos[tramo] : null;
+  const setPuntos = (fn) => setTramos(t => ({ ...t, [tramoRef.current]:
+    typeof fn === 'function' ? fn(t[tramoRef.current]) : fn }));
 
   // El recorrido que ya tenía la ruta
   React.useEffect(() => {
     api(`/admin/routes/${encodeURIComponent(routeId)}/points`)
-      .then(d => setPuntos((d.points || []).map(p => [p.lat, p.lng])))
-      .catch(e => { setError(e.message); setPuntos([]); });
+      .then(d => setTramos({
+        ida: (d.tramos?.ida || []).map(p => [p.lat, p.lng]),
+        vuelta: (d.tramos?.vuelta || []).map(p => [p.lat, p.lng]),
+      }))
+      .catch(e => { setError(e.message); setTramos({ ida: [], vuelta: [] }); });
   }, [routeId]);
 
   const initMap = React.useCallback((node) => {
@@ -447,7 +457,7 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
     const map = L.map(node, { center: JULIACA_CENTER, zoom: 14, zoomControl: true, attributionControl: false });
     L.tileLayer(HUD.tiles, { maxZoom: 19 }).addTo(map);
     capaRef.current = L.layerGroup().addTo(map);
-    // Tocar el mapa agrega un punto al final del recorrido
+    // Tocar el mapa agrega un punto al final del tramo que se esté dibujando
     map.on('click', (e) => {
       setPuntos(p => [...(p || []), [e.latlng.lat, e.latlng.lng]]);
       setAviso(null);
@@ -460,21 +470,30 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
   // Redibuja línea y puntos cada vez que cambian
   React.useEffect(() => {
     const map = mapRef.current, capa = capaRef.current;
-    if (!map || !capa || !puntos) return;
+    if (!map || !capa || !tramos) return;
     capa.clearLayers();
 
-    if (puntos.length > 1) {
-      L.polyline(puntos, { color: HUD.bright, weight: 5, opacity: 0.85 }).addTo(capa);
+    // El tramo que NO se está editando, de fondo
+    const otro = tramo === 'ida' ? 'vuelta' : 'ida';
+    if (tramos[otro].length > 1) {
+      L.polyline(tramos[otro], {
+        color: HUD.dim2, weight: 4, opacity: 0.45, dashArray: '7 7',
+      }).addTo(capa);
     }
 
-    const arrastrables = puntos.length <= TOPE_ARRASTRABLES;
-    puntos.forEach((p, i) => {
-      const extremo = i === 0 || i === puntos.length - 1;
+    const activos = tramos[tramo];
+    if (activos.length > 1) {
+      L.polyline(activos, { color: HUD.bright, weight: 5, opacity: 0.9 }).addTo(capa);
+    }
+
+    const arrastrables = activos.length <= TOPE_ARRASTRABLES;
+    activos.forEach((p, i) => {
+      const extremo = i === 0 || i === activos.length - 1;
       if (!arrastrables) {
         L.circleMarker(p, { radius: 3, color: HUD.bright, fillOpacity: 1, stroke: false }).addTo(capa);
         return;
       }
-      const etiqueta = i === 0 ? 'A' : i === puntos.length - 1 ? 'B' : String(i + 1);
+      const etiqueta = i === 0 ? 'A' : i === activos.length - 1 ? 'B' : String(i + 1);
       const marcador = L.marker(p, {
         draggable: true,
         icon: L.divIcon({
@@ -502,11 +521,12 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
     });
 
     // Encuadrar una sola vez, cuando llega el recorrido que ya existía
-    if (!encuadradoRef.current && puntos.length > 1) {
-      map.fitBounds(L.latLngBounds(puntos).pad(0.15));
+    const todos = [...tramos.ida, ...tramos.vuelta];
+    if (!encuadradoRef.current && todos.length > 1) {
+      map.fitBounds(L.latLngBounds(todos).pad(0.15));
       encuadradoRef.current = true;
     }
-  }, [puntos]);
+  }, [tramos, tramo]);
 
   const importar = (texto) => {
     try {
@@ -516,7 +536,7 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
       setPuntos(final);
       encuadradoRef.current = false;
       setError(null);
-      setAviso(`Importados ${crudos.length} puntos, simplificados a ${final.length} sin cambiar la forma` +
+      setAviso(`Importados ${crudos.length} puntos a la ${tramo}, simplificados a ${final.length} sin cambiar la forma` +
         (simple.length > 2000 ? ' (recortado al tope de 2000)' : ''));
     } catch (e) {
       setError('No se pudo leer el archivo: ' + e.message);
@@ -526,9 +546,10 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
   const guardar = async () => {
     setGuardando(true); setError(null);
     try {
+      const aPuntos = (ps) => ps.map(p => ({ lat: p[0], lng: p[1] }));
       const r = await api(`/admin/routes/${encodeURIComponent(routeId)}/points`, {
         method: 'PUT',
-        body: JSON.stringify({ points: puntos.map(p => ({ lat: p[0], lng: p[1] })) }),
+        body: JSON.stringify({ tramos: { ida: aPuntos(tramos.ida), vuelta: aPuntos(tramos.vuelta) } }),
       });
       onGuardado && onGuardado(r);
       onClose();
@@ -536,12 +557,17 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
     setGuardando(false);
   };
 
-  const km = puntos ? (largoDe(puntos) / 1000).toFixed(2) : '0';
+  const kmDe = (ps) => (largoDe(ps || []) / 1000).toFixed(2);
   const btn = (bg, color, extra = {}) => ({
     border: 'none', borderRadius: 10, padding: '0 14px', height: 38,
     fontSize: 13, fontWeight: 700, cursor: 'pointer', background: bg, color,
     fontFamily: 'inherit', ...extra,
   });
+
+  // Guardar con la vuelta a medias sería un circuito roto
+  const vueltaIncompleta = tramos && tramos.vuelta.length === 1;
+  const idaIncompleta = tramos && tramos.ida.length === 1;
+  const sinIda = tramos && !tramos.ida.length && tramos.vuelta.length > 0;
 
   return (
     <div style={{
@@ -557,22 +583,43 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
         <span style={{ fontSize: 13, color: HUD.dim, flex: '1 1 auto', minWidth: 0,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{routeName || ''}</span>
         <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.fg2, whiteSpace: 'nowrap' }}>
-          {puntos ? puntos.length : '…'} puntos · {km} km
+          {tramos
+            ? `ida ${tramos.ida.length} pts · ${kmDe(tramos.ida)} km` +
+              (tramos.vuelta.length ? ` · vuelta ${tramos.vuelta.length} pts · ${kmDe(tramos.vuelta)} km` : '')
+            : '…'}
         </span>
         <button onClick={onClose} style={btn('transparent', HUD.dim2)}>✕ Salir</button>
       </div>
 
+      {/* qué tramo se está dibujando */}
+      <div style={{
+        flexShrink: 0, padding: '10px 16px 0', display: 'flex', gap: 8, flexWrap: 'wrap',
+      }}>
+        {[['ida', 'IDA'], ['vuelta', 'VUELTA']].map(([k, etiqueta]) => {
+          const activo = tramo === k;
+          const n = tramos ? tramos[k].length : 0;
+          return (
+            <button key={k} onClick={() => setTramo(k)} style={{
+              ...btn(activo ? HUD.bright : HUD.boton, activo ? '#fff' : HUD.fg2),
+              border: `1px solid ${activo ? HUD.bright : HUD.line}`,
+            }}>{etiqueta} · {n} pts</button>
+          );
+        })}
+      </div>
+
       {/* instrucción */}
       <div style={{
-        flexShrink: 0, padding: '9px 16px', background: HUD.hueco,
+        flexShrink: 0, padding: '9px 16px', margin: '10px 0 0', background: HUD.hueco,
         fontSize: 13, color: HUD.dim, lineHeight: 1.45,
       }}>
-        Tocá el mapa siguiendo el recorrido, <strong>en el orden en que maneja la combi</strong>:
-        el primer punto es la salida (<span style={{ color: HUD.green, fontWeight: 700 }}>A</span>) y
-        el último el final (<span style={{ color: HUD.green, fontWeight: 700 }}>B</span>).
+        La combi hace un circuito: marcá primero la <strong>ida</strong> y después
+        la <strong>vuelta</strong>, cada una en el orden en que se maneja. En cada
+        tramo el primer punto es la salida (<span style={{ color: HUD.green, fontWeight: 700 }}>A</span>)
+        y el último el final (<span style={{ color: HUD.green, fontWeight: 700 }}>B</span>).
         {puntos && puntos.length > TOPE_ARRASTRABLES
           ? ' Con más de ' + TOPE_ARRASTRABLES + ' puntos no se pueden arrastrar (serían miles de marcadores): usá Deshacer o Borrar todo.'
           : ' Arrastrá un punto para corregirlo, tocalo para borrarlo.'}
+        {' '}El tramo que no estás editando queda punteado de fondo.
       </div>
 
       {error && <div style={{ flexShrink: 0, padding: '8px 16px', background: HUD.burbujaSos,
@@ -595,10 +642,10 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
           style={btn(HUD.boton, HUD.fg2)}>↶ Deshacer</button>
         <button onClick={() => { setPuntos([]); setAviso(null); }}
           disabled={!puntos || !puntos.length}
-          style={btn(HUD.boton, HUD.red)}>Borrar todo</button>
+          style={btn(HUD.boton, HUD.red)}>Borrar {tramo}</button>
         <button onClick={() => archivoRef.current?.click()}
-          title="Un GPX o GeoJSON, por ejemplo de una vuelta grabada manejando"
-          style={btn(HUD.boton, HUD.fg2)}>Importar GPX</button>
+          title={`Un GPX o GeoJSON para la ${tramo}, por ejemplo de esa mitad grabada manejando`}
+          style={btn(HUD.boton, HUD.fg2)}>Importar GPX a la {tramo}</button>
         <input ref={archivoRef} type="file" accept=".gpx,.geojson,.json,.xml,text/*"
           style={{ display: 'none' }}
           onChange={(e) => {
@@ -611,7 +658,14 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
             e.target.value = '';
           }} />
         <div style={{ flex: 1 }} />
-        <button onClick={guardar} disabled={guardando || !puntos || puntos.length === 1}
+        {(vueltaIncompleta || idaIncompleta || sinIda) && (
+          <span style={{ fontSize: 12, color: HUD.amber, fontWeight: 700 }}>
+            {sinIda ? 'Falta la ida: el circuito arranca por ahí'
+              : `La ${idaIncompleta ? 'ida' : 'vuelta'} tiene un solo punto`}
+          </span>
+        )}
+        <button onClick={guardar}
+          disabled={guardando || !tramos || vueltaIncompleta || idaIncompleta || sinIda}
           style={btn(HUD.bright, '#fff', { padding: '0 20px', height: 40, fontSize: 14 })}>
           {guardando ? 'Guardando…' : 'Guardar recorrido'}
         </button>
@@ -1412,7 +1466,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const [adminOpen, setAdminOpen] = React.useState(false);
   // Multi-ruta: la ruta que se está mirando y los datos que llegan de ella
   const [routes, setRoutes] = React.useState([]);
-  const [trazado, setTrazado] = React.useState([]);
+  const [trazado, setTrazado] = React.useState({ ida: [], vuelta: [] });
   // Conversación privada abierta (vehicleId) o null = el grupo de la ruta
   const [privadoCon, setPrivadoCon] = React.useState(null);
   // Privados sin leer por unidad, para el punto en la lista
@@ -1438,17 +1492,25 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     if (tilesRef.current) tilesRef.current.setUrl(HUD.tiles);
   }, [modo]);
 
-  // El recorrido de la ruta, dibujado debajo de las unidades
+  // El recorrido de la ruta, debajo de las unidades. La vuelta va punteada
+  // para distinguirla de la ida cuando comparten calle.
   React.useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     if (trazadoRef.current) { trazadoRef.current.remove(); trazadoRef.current = null; }
-    if (trazado && trazado.length > 1) {
-      trazadoRef.current = L.polyline(trazado, {
-        color: HUD.bright, weight: 4, opacity: 0.5,
-      }).addTo(map);
-      trazadoRef.current.bringToBack();
+    const capa = L.layerGroup();
+    let hay = false;
+    if (trazado?.ida?.length > 1) {
+      L.polyline(trazado.ida, { color: HUD.bright, weight: 4, opacity: 0.5 }).addTo(capa);
+      hay = true;
     }
+    if (trazado?.vuelta?.length > 1) {
+      L.polyline(trazado.vuelta, {
+        color: HUD.bright, weight: 4, opacity: 0.5, dashArray: '8 8',
+      }).addTo(capa);
+      hay = true;
+    }
+    if (hay) { capa.addTo(map); trazadoRef.current = capa; }
   }, [trazado, modo]);
 
   // Leaflet necesita re-medirse cuando su contenedor aparece o cambia
@@ -1526,7 +1588,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         } else if (msg.type === 'route_geometry') {
           // El trazado llega una vez (al conectar, al cambiar de ruta o
           // cuando alguien lo edita), no en cada estado
-          setTrazado(msg.points || []);
+          setTrazado(msg.tramos || { ida: [], vuelta: [] });
         } else if (msg.type === 'chat_msg') {
           pushMsg(mapMsg(msg, 'chat'));
           // Privado de una unidad que no estoy mirando: queda marcado
@@ -1788,6 +1850,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                   <div style={{ flex: 1 }} />
                   {!u.lat && <span style={{ fontFamily: mono, fontSize: 11, color: HUD.amber }}>SIN GPS</span>}
                 </div>
+                {u.tramo && (
+                  <span title="Tramo del circuito en el que va" style={{
+                    fontFamily: mono, fontSize: 11, fontWeight: 700, marginLeft: 8,
+                    color: u.tramo === 'vuelta' ? HUD.dim2 : HUD.sky,
+                  }}>{u.tramo === 'vuelta' ? '↩ vuelta' : '↪ ida'}</span>
+                )}
                 {u.driverName && u.driverName !== u.unitId && (
                   <div style={{
                     fontSize: 12, color: HUD.dim2, marginTop: 2,

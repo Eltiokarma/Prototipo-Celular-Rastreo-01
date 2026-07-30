@@ -188,14 +188,40 @@ código como nombre provisional. Despacho lo corrige después con el botón
 **Nombre** de la lista de personas, sin dar de baja a nadie — el cambio
 se ve en vivo, incluso con el chofer conectado.
 
-## El recorrido de la ruta (puntos GPS)
+## El recorrido de la ruta (ida y vuelta)
 
 Antes el progreso de cada unidad era una **proyección lineal** entre dos
 puntos (Terminal Sur → Huancané): no seguía las calles, así que las brechas
-eran aproximaciones útiles pero no medidas. Ahora cada ruta puede tener su
-**trazado real** como polilínea de puntos GPS (tabla `route_points`), y el
-progreso se calcula proyectando la posición de la unidad sobre esa línea:
-metros recorridos sobre metros totales.
+eran aproximaciones útiles pero no medidas. Ahora cada ruta tiene su
+**trazado real** como puntos GPS, y el progreso se calcula proyectando la
+posición sobre esa línea.
+
+**Una combi no recorre una línea: hace un circuito.** Sale por un lado y
+vuelve por otro, y muchas veces la vuelta va por calles distintas (mano
+única) o por la misma calle en sentido contrario. Por eso el recorrido se
+guarda en **dos tramos, IDA y VUELTA**, cada uno con su polilínea
+(`route_points.leg`).
+
+- El progreso se mide dentro del tramo y después se convierte a una
+  **coordenada del circuito completo** (0 = salida de la ida, 1 = fin de la
+  vuelta). Esa es la que usan las brechas: dos combis se comparan sobre la
+  misma rueda aunque una vaya de ida y la otra de vuelta.
+- **Una vuelta pasa a ser el circuito entero** — salir y volver, que es lo
+  que la cooperativa llama una vuelta. Es también lo que corresponde para el
+  objetivo automático, porque la rueda que se reparte entre las combis es el
+  circuito completo.
+- Una ruta puede tener **solo ida**: ahí el circuito es ese tramo y funciona
+  como antes. Lo que no se puede es cargar la vuelta sin la ida.
+
+**Cómo se decide en qué tramo va cada combi**, que es lo delicado cuando ida
+y vuelta comparten calle:
+
+1. **Cercanía**: si un tramo está claramente más cerca (más de 25 m de
+   diferencia), es ese — son calles distintas.
+2. **Sentido de marcha**: si empatan, van por la misma calle. Gana el tramo
+   cuya dirección coincide con hacia dónde se está moviendo la combi.
+3. **Continuidad**: si está parada y no hay rumbo, se queda en el tramo en el
+   que venía.
 
 **El cálculo vive en el servidor**, no en el celular. Cargar o corregir un
 recorrido tiene efecto al instante, sin actualizar la app de nadie. De paso
@@ -204,47 +230,25 @@ que es la base para detectar que una combi se salió de la ruta.
 
 **Cómo se carga** — panel → Gestión → RUTAS → botón *Recorrido*:
 
-- **Tocando el mapa** en el orden en que maneja la combi: el primer punto es
-  la salida (**A**) y el último el final (**B**). Se arrastra un punto para
-  corregirlo y se lo toca para borrarlo; hay *Deshacer* y *Borrar todo*, y
-  arriba se ve todo el tiempo cuántos puntos y cuántos km lleva. Funciona
-  igual con el mouse en PC que con el dedo en un celular.
-- **Importando un GPX o GeoJSON**, por ejemplo de una vuelta grabada
-  manejando con cualquier app de GPS. Se simplifica con Douglas-Peucker
-  (tolerancia 10 m): un GPX de 600 puntos queda en unas decenas **sin
-  cambiar la forma** del recorrido. Tope: 2000 puntos por ruta.
+- **Tocando el mapa**, un tramo a la vez: se elige IDA o VUELTA arriba y se
+  marca en el orden en que se maneja; el primer punto de cada tramo es la
+  salida (**A**) y el último el final (**B**). El tramo que no se está
+  editando queda punteado de fondo, para poder calzarlos. Se arrastra un
+  punto para corregirlo y se lo toca para borrarlo; hay *Deshacer* y *Borrar*,
+  y arriba se ven los puntos y los km de cada tramo. Funciona igual con el
+  mouse en PC que con el dedo en un celular.
+- **Importando un GPX o GeoJSON** al tramo activo, por ejemplo de esa mitad
+  grabada manejando. Se simplifica con Douglas-Peucker (tolerancia 10 m): un
+  GPX de 600 puntos queda en unas decenas **sin cambiar la forma**. Tope:
+  2000 puntos por tramo.
 
 Una ruta sin recorrido cargado sigue funcionando con la estimación lineal de
 siempre, así que se puede ir cargando ruta por ruta. El trazado se dibuja en
-el mapa del panel y en el del chofer, y **viaja una sola vez** (al conectar,
-al cambiar de ruta o cuando se edita) — nunca dentro del estado, que sale
-cada 3 s: mandar ahí una ruta de 300 puntos serían ~7 KB por emisión y
-tiraría por la borda el ahorro de datos de `ESCALABILIDAD.md`.
-
-## Mensaje directo a una unidad
-
-Además del grupo, Despacho puede hablar en privado con una unidad: en la
-lista de unidades, botón **Mensaje directo**. La conversación es con el
-**vehículo**, no con una persona, así que la ven tanto el chofer como su
-cobrador — que es lo coherente: si Despacho manda volver al terminal, eso es
-para la combi.
-
-Las reglas están puestas a propósito:
-
-| | |
-| --- | --- |
-| Despacho → una unidad | Sí |
-| Una unidad → Despacho | Sí (canal DESPACHO en su chat) |
-| Chofer → chofer en privado | **No.** El canal entre choferes es el grupo |
-
-Un chofer que intente mandar un privado a otra unidad termina hablándole a
-Despacho, no al otro chofer. Abrir mensajería privada entre cientos de
-personas traería un problema de moderación que no queremos.
-
-El historial privado se guarda (columna `toVehicleId` en `messages`) y **solo
-lo reciben las dos partes**: al reconectar, una unidad recibe el grupo más su
-propia conversación, y Despacho el grupo más las conversaciones de su ruta.
-Las notas de voz también pueden ir por el canal privado.
+el mapa del panel y en el del chofer —la vuelta punteada, para distinguirla
+de la ida cuando comparten calle— y **viaja una sola vez** (al conectar, al
+cambiar de ruta o cuando se edita), nunca dentro del estado, que sale cada
+3 s: mandar ahí una ruta de 300 puntos serían ~7 KB por emisión y tiraría por
+la borda el ahorro de datos de `ESCALABILIDAD.md`.
 
 ## Objetivo de brecha automático
 
