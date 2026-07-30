@@ -1,9 +1,14 @@
 # COOP-R14 — Rastreo de combis (Juliaca)
 
-App para el chofer de la Cooperativa R-14: muestra de un vistazo la brecha
-de tiempo con la unidad de adelante y la de atrás, chat grupal de la ruta
-y mapa en vivo. Diseñada para leerse en menos de 1 segundo con el celular
-en soporte, sol lateral y el vehículo en movimiento.
+App para el chofer de una cooperativa de transporte: muestra de un vistazo
+la brecha de tiempo con la unidad de adelante y la de atrás, chat grupal de
+la ruta y mapa en vivo. Diseñada para leerse en menos de 1 segundo con el
+celular en soporte, sol lateral y el vehículo en movimiento.
+
+Nació para la Cooperativa R-14 de Juliaca —de ahí el nombre del repo— pero
+una misma instalación atiende a **varias cooperativas a la vez**, cada una
+con sus rutas, su gente y sus informes, sin ver nada de las demás (ver
+*Empresas*).
 
 ## Estructura
 
@@ -26,6 +31,10 @@ project/            La app (PWA servida como archivos estáticos)
 server/             Servidor de tiempo real (Node + Express + ws)
   index.js            Estado en memoria, cálculo de brechas, broadcast,
                       historial de chat/voz/SOS en SQLite (better-sqlite3)
+  base.js             Piezas compartidas con las herramientas de consola
+                      (abrir la base, hashear claves, validar identificadores)
+  empresa.js          Alta y baja de cooperativas, DESDE EL SERVIDOR.
+                      No es una pantalla a propósito: ver Niveles de seguridad
 
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -280,6 +289,63 @@ unidades en ruta: si tres combis salen de servicio al mediodía, el objetivo
 sube solo. Despacho puede volver a manual en cualquier momento, y cada cambio
 queda en la auditoría.
 
+## Empresas (varias cooperativas)
+
+Arriba de las rutas hay un nivel más: la **empresa**. El modelo completo es
+`empresa → rutas → vehículos y personas`, y la empresa es el borde de todo
+lo que se consulta: rutas, gente, flota, turnos, vueltas, auditoría,
+informes, chat, mapa y SOS. Ninguna cooperativa ve nada de otra.
+
+Es lo que convierte esto de "el sistema de la R-14" en un producto que se
+le puede vender a cualquier cooperativa sin levantar un servidor por cada
+una.
+
+- Tabla `companies` (`companyId`, `name`, `ruc`, `contacto`, `activa`) y
+  columna `companyId` en `routes`, `users`, `vehicles` y `audit`. Lo que
+  cuelga de una ruta —vueltas, turnos, mensajes, puntos del recorrido—
+  hereda la empresa de su ruta y no repite el dato.
+- Las bases existentes **migran solas**: todo lo que había pasa a la
+  empresa inicial (`DEFAULT_COMPANY`, por defecto `R14`; su nombre visible
+  sale de `DEFAULT_COMPANY_NAME`). Lo que cuelga de una ruta hereda la
+  empresa de esa ruta, no la inicial.
+- Los códigos de **ruta**, **vehículo** y **usuario** son únicos en todo el
+  servidor, no por empresa: si dos cooperativas tuvieran una "R-14",
+  cualquier consulta por `routeId` sería ambigua. Cuando un código está
+  tomado, el error no dice de quién es.
+- Pedir algo de otra empresa responde **404, no 403**: distinguirlos
+  convertiría los endpoints en un buscador de rutas y usuarios ajenos.
+- `activa = 0` suspende la cooperativa entera: nadie de esa empresa entra,
+  y las sesiones abiertas se cierran en el momento. Es la palanca para
+  cuando exista un plan o una licencia.
+- El panel muestra **el nombre de su cooperativa**, no una marca fija, y
+  los informes salen encabezados con ese nombre. La app del chofer lo
+  recuerda en el celular: después del primer ingreso, la pantalla de login
+  ya dice de qué cooperativa es. Un equipo recién instalado no muestra
+  ninguna.
+
+**Dar de alta una cooperativa no es una pantalla.** Se hace desde el
+servidor con `server/empresa.js`:
+
+```bash
+node server/empresa.js listar
+node server/empresa.js alta COOP-15 "Cooperativa Santa Rosa" \
+     --ruc 20123456789 --contacto "Juan Pérez 951..." \
+     --ruta R-15 --nombre-ruta "Plaza ↔ Salida Cusco" \
+     --despacho DESPACHO-15 --clave unaclavelarga
+node server/empresa.js despacho COOP-15 DESPACHO-15 otraclave   # crea o resetea
+node server/empresa.js desactivar COOP-15                       # suspender
+node server/empresa.js activar COOP-15
+```
+
+El porqué está en *Niveles de seguridad*: quien puede crear una empresa
+puede crearse un supervisor y mirar lo que quiera. Esa barrera no puede ser
+una contraseña más — es el acceso al servidor.
+
+Desde el panel, la pestaña **EMPRESA** muestra la ficha de la cooperativa y
+su tamaño (rutas, flota, personas, cuentas de despacho, unidades en línea),
+y el supervisor puede corregir nombre, RUC y contacto. El código no se
+toca: de él cuelga todo lo demás.
+
 ## Multi-ruta
 
 Cada ruta es independiente: sus unidades, sus brechas, su chat y su
@@ -293,15 +359,24 @@ eso dos rutas con la misma separación física dan brechas distintas.
   (`DEFAULT_ROUTE`, por defecto `R-14`).
 - El estado, el chat y las brechas se calculan y emiten **por ruta**: un
   chofer nunca ve unidades ni mensajes de otro recorrido.
-- **Un SOS escala**: llega a su ruta y además a todos los supervisores,
-  aunque estén mirando otra (el banner marca de qué ruta viene).
+- **Un SOS escala**: llega a su ruta y además a todos los supervisores de
+  **esa cooperativa**, aunque estén mirando otra ruta (el banner marca de
+  cuál viene). No cruza de empresa: el supervisor de al lado no tiene nada
+  que hacer con esa emergencia y vería la ubicación exacta de una unidad
+  ajena.
 
-**Dos tipos de cuenta de despacho**, según `users.routeId`:
+**Dos tipos de cuenta de despacho**, según `users.routeId` — siempre dentro
+de su empresa:
 
 | | Alcance |
 | --- | --- |
-| **Supervisor** (`routeId` NULL) | Ve y administra todas las rutas, cambia con el selector del panel, crea rutas nuevas. Es lo que queda la cuenta `DESPACHO` inicial |
+| **Supervisor** (`routeId` NULL) | Todas las rutas **de su empresa**: las ve, las administra, cambia con el selector del panel y crea rutas nuevas. Es lo que queda la cuenta `DESPACHO` inicial |
 | **Despachador de ruta** (`routeId` con valor) | Solo su ruta: no ve, ni administra, ni recibe nada de las demás |
+
+Y una regla dura, que es la que sostiene el aislamiento: **toda cuenta
+pertenece a una empresa**. No existe la cuenta sin empresa que ve todo —
+una así no pasa de `/admin`. El nivel de arriba vive fuera de la
+aplicación.
 
 ## Desvío de ruta
 
@@ -391,6 +466,8 @@ Repasado antes de salir a la calle con cuentas reales:
 | Inundar el chat o mandar notas de voz sin parar con una sesión válida | Cupo por conexión: 30 chats, 10 notas y 40 posiciones por minuto |
 | Mandar un mensaje enorme para tumbar el servidor | Se descarta por encima de 2,1 MB, antes de intentar leerlo |
 | Un chofer entrando a la administración | `/admin/*` exige rol de Despacho (403) y un despachador de ruta solo toca lo suyo |
+| Un despachador pidiendo datos de otra cooperativa (por URL, por parámetro o cambiando de ruta en el panel) | Todo `/admin` y todo el tiempo real filtran por empresa. Lo ajeno responde **404**, igual que lo inexistente: no sirve para averiguar qué rutas o usuarios hay del otro lado |
+| Una cuenta creada a mano en la base, sin empresa | No pasa de `/admin` (403). No hay "sin empresa = ve todo" |
 | Un token inventado o vencido | 401, y el cliente vuelve al login |
 
 El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
@@ -400,14 +477,30 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
 1. **Chofer y cobrador** — su clave abre solo su sesión; no pueden tocar
    `/admin`. Dar de baja a un cobrador no toca al chofer ni al vehículo,
    y un cobrador no hereda permisos del chofer.
-2. **Despacho** — administra las claves de los choferes; cada uso de ese
-   poder queda en la tabla `audit`. No puede eliminar su propia cuenta.
-3. **Operador (dueño del sistema)** — está por encima sin clave dentro de
-   la app: controla el deploy, las variables de entorno y la base.
+2. **Despacho** — administra las claves de los choferes **de su
+   cooperativa**; cada uso de ese poder queda en la tabla `audit`. No puede
+   eliminar su propia cuenta. Un supervisor manda sobre todas las rutas de
+   su empresa y sobre ninguna de otra.
+3. **Operador (dueño del sistema)** — está por encima **sin clave dentro de
+   la app**: controla el deploy, las variables de entorno y la base. Acá
+   vive el alta de cooperativas (`server/empresa.js`).
+
+   Y es a propósito que sea así. Crear una empresa es el único poder por
+   encima de todas: quien puede crear una puede crearse un supervisor y
+   mirar lo que quiera. Si fuera un endpoint más, alcanzaría con robar una
+   contraseña de Despacho para tenerlo. La barrera no es una contraseña
+   mejor: es tener que estar adentro del servidor donde vive la base.
+
    **Ruta de recuperación**: si la clave de Despacho se pierde o filtra,
    setear/cambiar `DISPATCH_PASSWORD` en Railway y reiniciar — la cuenta
-   se resetea al arrancar. Quien accede al repo o al archivo `r14.db`
-   puede todo; ese es el "root" real del sistema.
+   se resetea al arrancar. Para las demás cooperativas,
+   `node server/empresa.js despacho <empresa> <usuario> <clave>`. Quien
+   accede al repo o al archivo `r14.db` puede todo; ese es el "root" real
+   del sistema.
+
+   Cuando exista el panel del creador (`PENDIENTES.md`), va a ser una
+   pantalla encima de esto mismo, con su propia credencial **y** su propia
+   barrera fuera de la aplicación. No un rol más del login de siempre.
 
 ## Panel de tweaks
 

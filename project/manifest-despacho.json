@@ -1,7 +1,7 @@
 {
-  "name": "COOP-R14 · Despacho",
+  "name": "Despacho · Control de flota",
   "short_name": "Despacho",
-  "description": "Panel de Despacho — Ruta 14, Cooperativa de Transportes Juliaca",
+  "description": "Panel de Despacho: mapa de la ruta, brechas, gestión de unidades e informes",
   "start_url": "/despacho.html",
   "display": "standalone",
   "background_color": "#F7FAFD",

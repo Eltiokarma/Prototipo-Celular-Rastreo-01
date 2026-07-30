@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>COOP-R14 — Panel de Despacho</title>
+<title>Panel de Despacho — Control de flota</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <!-- PWA: el panel se instala como app fija en un celular o tablet -->
@@ -160,11 +160,19 @@ const black = '"Archivo Black", system-ui, sans-serif';
 // ═══════════════════════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════════════════════
+// El nombre de la cooperativa sobrevive al cierre de sesión: al volver a
+// entrar, el encargado ve el suyo y no una marca fija que puede no ser la
+// de su empresa. En una máquina recién instalada no hay ninguno todavía.
+function coopRecordada() {
+  try { return localStorage.getItem('r14_coop_panel') || null; } catch { return null; }
+}
+
 function Login({ onSuccess, notice }) {
   const [user, setUser] = React.useState('DESPACHO');
   const [pass, setPass] = React.useState('');
   const [error, setError] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
+  const coop = coopRecordada();
 
   const submit = async () => {
     if (!user.trim() || pass.length < 4) {
@@ -182,7 +190,10 @@ function Login({ onSuccess, notice }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Error de autenticación');
       if (data.role !== 'dispatch') throw new Error('Esta cuenta no es de Despacho');
-      try { localStorage.setItem('r14_dispatch_session', JSON.stringify(data)); } catch {}
+      try {
+        localStorage.setItem('r14_dispatch_session', JSON.stringify(data));
+        if (data.companyName) localStorage.setItem('r14_coop_panel', data.companyName);
+      } catch {}
       onSuccess(data);
     } catch (e) {
       setLoading(false);
@@ -205,11 +216,13 @@ function Login({ onSuccess, notice }) {
         width: 380, background: HUD.surface, border: `1px solid ${HUD.line}`,
         borderRadius: 20, padding: 32,
       }} onKeyDown={e => { if (e.key === 'Enter') submit(); }}>
-        <div style={{ fontFamily: black, fontSize: 26, letterSpacing: -0.5 }}>COOP-R14</div>
+        <div style={{ fontFamily: black, fontSize: 26, letterSpacing: -0.5 }}>
+          {coop || 'Panel de Despacho'}
+        </div>
         <div style={{
           fontFamily: mono, fontSize: 13, fontWeight: 700, letterSpacing: 1,
           color: HUD.bright, textTransform: 'uppercase', marginBottom: 24,
-        }}>Panel de Despacho</div>
+        }}>{coop ? 'Panel de Despacho' : 'Control de flota'}</div>
 
         <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1, color: HUD.dim2, marginBottom: 6 }}>USUARIO</div>
         <input value={user} onChange={e => setUser(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
@@ -701,6 +714,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   const [routeList, setRouteList] = React.useState(routes || []);
   const [vehicles, setVehicles] = React.useState(null);
   const [shifts, setShifts] = React.useState(null);
+  const [empresa, setEmpresa] = React.useState(null);
+  const [empForm, setEmpForm] = React.useState({ name: '', ruc: '', contacto: '' });
   const [nuevaRuta, setNuevaRuta] = React.useState({ routeId: '', name: '', targetGapMin: '2', durationMin: '50' });
   const [nuevoVeh, setNuevoVeh] = React.useState({ vehicleId: '', label: '' });
   // Ruta cuyo recorrido se está trazando (null = trazador cerrado)
@@ -767,6 +782,16 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     .then(d => { setShifts(d); })
     .catch(e => setError(e.message));
 
+  const loadEmpresa = () => api('/admin/company')
+    .then(d => {
+      setEmpresa(d);
+      setEmpForm({
+        name: d.empresa.name || '', ruc: d.empresa.ruc || '',
+        contacto: d.empresa.contacto || '',
+      });
+    })
+    .catch(e => setError(e.message));
+
   React.useEffect(() => { load(); loadRoutes(); loadVehicles(); }, []);
   React.useEffect(() => {
     if (tab === 'audit') loadAudit();
@@ -774,6 +799,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     if (tab === 'routes') loadRoutes();
     if (tab === 'vehicles') loadVehicles();
     if (tab === 'shifts') loadShifts();
+    if (tab === 'empresa') loadEmpresa();
   }, [tab]);
 
   const run = async (fn, ok) => {
@@ -892,7 +918,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
         borderRadius: 20, padding: 24,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-          {[['users', 'PERSONAS'], ['vehicles', 'VEHÍCULOS'], ['routes', 'RUTAS'], ['shifts', 'TURNOS'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD'], ['informes', 'INFORMES']].map(([key, label]) => (
+          {[['users', 'PERSONAS'], ['vehicles', 'VEHÍCULOS'], ['routes', 'RUTAS'], ['shifts', 'TURNOS'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD'], ['informes', 'INFORMES'], ['empresa', 'EMPRESA']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
               fontFamily: black, fontSize: 17,
@@ -1131,7 +1157,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `coop-r14-${tipo}-${iso(desde)}.csv`;
+                a.download = `${(session.companyId || 'informe').toLowerCase()}-${tipo}-${iso(desde)}.csv`;
                 document.body.appendChild(a); a.click(); a.remove();
                 setTimeout(() => URL.revokeObjectURL(url), 5000);
                 setOkMsg(`Informe de ${tipo} descargado`);
@@ -1168,6 +1194,92 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
             </div>
           );
         })()}
+
+        {tab === 'empresa' && (
+          <div>
+            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
+            {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
+            {!empresa && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
+            {empresa && (<div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+                <div style={{ fontFamily: black, fontSize: 22, color: HUD.fg }}>{empresa.empresa.name}</div>
+                <div style={{ fontFamily: mono, fontSize: 12, color: HUD.dim2 }}>{empresa.empresa.companyId}</div>
+                {!empresa.empresa.activa && (
+                  <div style={{ fontSize: 12, fontWeight: 700, color: HUD.red }}>SUSPENDIDA</div>
+                )}
+              </div>
+
+              {/* El tamaño de la cooperativa de un vistazo */}
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '14px 0 20px' }}>
+                {[
+                  ['Rutas', empresa.resumen.rutas],
+                  ['Vehículos', empresa.resumen.vehiculos],
+                  ['Personas', empresa.resumen.personas],
+                  ['Cuentas de despacho', empresa.resumen.despacho],
+                  ['En línea ahora', empresa.resumen.enLinea],
+                ].map(([etiqueta, valor]) => (
+                  <div key={etiqueta} style={{
+                    flex: '1 1 110px', background: HUD.campo, border: `1px solid ${HUD.line}`,
+                    borderRadius: 12, padding: '10px 12px',
+                  }}>
+                    <div style={{ fontFamily: black, fontSize: 24, color: HUD.fg }}>{valor}</div>
+                    <div style={{ fontSize: 11, color: HUD.dim2, textTransform: 'uppercase', letterSpacing: 0.5 }}>{etiqueta}</div>
+                  </div>
+                ))}
+              </div>
+
+              {empresa.puedeEditar ? (
+                <div>
+                  <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1, color: HUD.dim2, marginBottom: 8 }}>
+                    DATOS DE LA COOPERATIVA
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <div style={{ fontSize: 11, color: HUD.dim2, marginBottom: 4 }}>Nombre</div>
+                      <input value={empForm.name} placeholder="Cooperativa de Transportes…"
+                        onChange={e => setEmpForm({ ...empForm, name: e.target.value })}
+                        style={inputStyle} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: HUD.dim2, marginBottom: 4 }}>RUC (opcional)</div>
+                      <input value={empForm.ruc} placeholder="20123456789"
+                        onChange={e => setEmpForm({ ...empForm, ruc: e.target.value })}
+                        style={inputStyle} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: HUD.dim2, marginBottom: 4 }}>Contacto (opcional)</div>
+                      <input value={empForm.contacto} placeholder="Nombre y teléfono"
+                        onChange={e => setEmpForm({ ...empForm, contacto: e.target.value })}
+                        style={inputStyle} />
+                    </div>
+                  </div>
+                  <button disabled={busy} onClick={() => run(async () => {
+                    await api('/admin/company', { method: 'POST', body: JSON.stringify(empForm) });
+                    await loadEmpresa();
+                  }, 'Datos de la cooperativa guardados')} style={{
+                    ...smallBtn(HUD.bright, '#fff'), padding: '10px 16px', fontSize: 14,
+                  }}>Guardar</button>
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: HUD.dim2, lineHeight: 1.5 }}>
+                  {empresa.empresa.ruc && <div>RUC · {empresa.empresa.ruc}</div>}
+                  {empresa.empresa.contacto && <div>Contacto · {empresa.empresa.contacto}</div>}
+                  <div style={{ marginTop: 8 }}>
+                    Solo una cuenta supervisora puede corregir estos datos.
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginTop: 18, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
+                Cada cooperativa es un mundo aparte: sus rutas, su gente, su flota y
+                sus informes. Ninguna ve nada de otra, ni desde el panel ni desde el
+                mapa. <strong>El código no se puede cambiar</strong> — de él cuelga
+                todo lo demás. Dar de alta una cooperativa nueva se hace desde el
+                servidor, no desde acá.
+              </div>
+            </div>)}
+          </div>
+        )}
 
         {tab === 'shifts' && (
           <div>
@@ -1892,7 +2004,16 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         padding: isMobile ? '0 10px' : '0 18px',
         borderBottom: `1px solid ${HUD.divider}`, background: HUD.surface,
       }}>
-        {!isMobile && <span style={{ fontFamily: black, fontSize: 18 }}>COOP-R14</span>}
+        {/* El nombre de la cooperativa, no una marca fija: el mismo panel lo
+            usan empresas distintas y cada una tiene que ver la suya. */}
+        {!isMobile && (
+          <span style={{
+            fontFamily: black, fontSize: 18, maxWidth: 260,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }} title={session.companyName || ''}>
+            {session.companyName || session.companyId || 'Despacho'}
+          </span>
+        )}
         <span style={{
           fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1,
           color: HUD.bright, textTransform: 'uppercase',

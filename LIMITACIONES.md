@@ -16,6 +16,7 @@ limitación se resuelva o aparezca una nueva.
 | 5 | Una sola cuenta DESPACHO compartida | La auditoría no distingue *cuál* encargado hizo cada cosa | Cuentas de despacho por persona |
 | 6 | Consumo de datos móviles | **Mitigado**: de 839 MB a 40 MB por turno con 20 unidades (98 MB con 50), y los tiles del mapa ya no se rebajan en cada visita. Queda el payload personalizado para rutas de 30+ unidades | Ver `ESCALABILIDAD.md` |
 | 7 | Multi-ruta | **Resuelto**: `routeId` de primera clase, brechas y chat por ruta, supervisor con selector y despachadores por ruta | Ver README, sección Multi-ruta |
+| 9 | Un servidor por cooperativa | **Resuelto**: la empresa es un nivel arriba de las rutas y el borde de todo lo que se consulta. Una instalación atiende a varias sin que ninguna vea nada de otra. El aislamiento es lógico, no físico: comparten proceso, base y backup | Ver README, sección Empresas, y C acá abajo |
 
 ## A. App web en el celular del chofer (límites de PWA)
 
@@ -65,9 +66,21 @@ limitación se resuelva o aparezca una nueva.
 - **SQLite:** perfecto para una cooperativa (una ruta, decenas de
   unidades). Para muchas rutas/cooperativas simultáneas habría que
   migrar a Postgres — el código lo permite, pero es trabajo.
+- **Todas las cooperativas comparten proceso y archivo de base.** El
+  aislamiento es lógico, no físico: los datos no se cruzan, pero la CPU, la
+  memoria y el disco sí. Una cooperativa muy movida hace más lento a todo
+  el mundo, y no hay cupos por empresa. La auditoría sí está acotada por
+  empresa (1000 movimientos cada una), que era el caso donde la más movida
+  le borraba el registro a las demás.
 - **Sin backups automáticos** de la base (usuarios, chat, vueltas,
   auditoría). Un backup periódico del archivo `r14.db` es tarea
-  pendiente de operación.
+  pendiente de operación. Con varias cooperativas adentro hay algo más:
+  **no se puede restaurar una sola** — el backup es del archivo entero, así
+  que volver atrás por un problema de una empresa arrastra a las otras.
+- **Dar de alta una cooperativa necesita consola.** Es a propósito (ver
+  README, Niveles de seguridad), pero significa que ninguna se puede dar de
+  alta sola ni un vendedor puede hacerlo. Escala hasta donde escale nuestro
+  tiempo. El panel del creador es el ítem 1 de `PENDIENTES.md`.
 - **Dependencia de CDNs gratuitos:** React, Babel y Leaflet cargan
   desde unpkg, los tiles del mapa desde CartoCDN, las fuentes desde
   Google Fonts. Ninguno tiene contrato de servicio: si un CDN falla y
@@ -145,6 +158,12 @@ limitación se resuelva o aparezca una nueva.
 - **Sin límite de conexiones simultáneas por cuenta**: una misma credencial
   puede abrir muchas sesiones. Para el GPS no importa (solo una reporta),
   pero es una vía para consumir memoria del servidor.
+- **Los códigos son únicos en todo el servidor**, no por cooperativa: dos
+  empresas no pueden tener las dos una ruta "R-14", ni un vehículo "M-05".
+  Es necesario —si no, una consulta por `routeId` no sabría de quién habla—
+  pero deja un rastro: al intentar crear un código ya tomado, el error dice
+  que está tomado. No dice por quién, así que revela la existencia de un
+  código, no a qué cooperativa pertenece ni ningún dato de ella.
 - **CORS abierto** (`Access-Control-Allow-Origin: *`): cualquier página
   puede llamar a la API. No expone nada por sí solo —todo lo sensible exige
   el token, que no viaja en cookies— pero conviene cerrarlo al dominio

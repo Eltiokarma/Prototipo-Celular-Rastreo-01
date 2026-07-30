@@ -1,23 +1,50 @@
 # Pendientes — COOP-R14
 
 Lo que falta construir, con su tamaño y sus dependencias. El orden
-importa: algunos ítems son cimiento de otros. El más invasivo —separar la
-persona del vehículo— ya está hecho, así que cargar más choferes ya no
-compromete nada (ver *Ítems ya cerrados* al final).
+importa: algunos ítems son cimiento de otros. Los dos más invasivos —separar
+la persona del vehículo, y poner la empresa arriba de las rutas— ya están
+hechos, así que cargar choferes o cooperativas nuevas ya no compromete nada
+(ver *Ítems ya cerrados* al final).
 
 ## Orden recomendado
 
 | # | Qué | Por qué en ese lugar | Tamaño |
 | --- | --- | --- | --- |
-| 1 | **Rutas alternas** | Los desvíos programados (una obra de tres meses) no se resuelven silenciando: el trazado cambió. Se diseñan desde el panel del creador | 2–3 días |
-| 2 | **Cumplimiento de brecha** | El único número que la cooperativa querría y todavía no existe: cuánto tiempo estuvo cada unidad en verde, ámbar y rojo. Hace falta guardarlo, no se puede reconstruir | 1 día |
-| 3 | **Empresas (multi-cooperativa)** | Nivel de agrupación arriba de las rutas; lo pide la venta, no la operación | 2 días |
-| 4 | **Panel del gerente de ruta** | Vive de los informes, que ya existen | 2 días |
-| 5 | **Panel del creador (nuestro)** | Encima de todo; sin 3 no tiene mucho que mostrar, y necesita su propio nivel de protección | 2–3 días |
+| 1 | **Panel del creador (nuestro)** | Ya existe la capa que administra (`server/empresa.js`); falta la pantalla, con su credencial aparte y su barrera fuera de la app | 2–3 días |
+| 2 | **Rutas alternas** | Los desvíos programados (una obra de tres meses) no se resuelven silenciando: el trazado cambió. Se diseñan desde el panel del creador, así que van después de 1 | 2–3 días |
+| 3 | **Cumplimiento de brecha** | El único número que la cooperativa querría y todavía no existe: cuánto tiempo estuvo cada unidad en verde, ámbar y rojo. Hace falta guardarlo, no se puede reconstruir — pero mientras nadie use la app no se está perdiendo nada | 1 día |
+| 4 | **Panel del gerente de ruta** | Vive de los informes, que ya existen. Es el que más se beneficia de esperar: hoy estaríamos adivinando qué mira un gerente | 2 días |
+
+**Rutas alternas** va arriba porque es el cambio de esquema que queda, y el
+esquema es lo único que se encarece con el uso: mover tablas con seis meses
+de datos adentro es una migración con riesgo, y hoy no. El resto se suma
+encima y cuesta lo mismo después.
 
 ---
 
-## 1. Rutas alternas
+## 1. Panel del creador (nuestro)
+
+El nivel que hoy vive en la consola del servidor (`server/empresa.js` y la
+sección "Niveles de seguridad" del README), hecho pantalla:
+
+- Alta de empresas y de rutas. (La carga de geometrías ya existe en el
+  panel de Despacho.)
+- Estado del sistema: unidades conectadas por empresa, uso, errores.
+- Salud del servidor y de la base, tamaño, backups.
+- Reseteo de cuentas de Despacho.
+- Uso por empresa (para facturar, si se cobra por unidad).
+
+**Cómo protegerlo, que es lo importante:** no debe ser un rol más del
+mismo login. Conviene una credencial aparte y, además, una barrera fuera
+de la aplicación — que solo funcione con una variable de entorno activa,
+o en una URL no adivinable, o con doble factor. Si el panel que puede
+todo se abre con una contraseña más, el nivel de arriba deja de existir.
+
+Hoy esa barrera es el acceso al servidor, que es fuerte pero no escala:
+cada alta de cooperativa necesita a alguien con consola. La pantalla es
+para que deje de necesitarlo **sin** aflojar la barrera.
+
+## 2. Rutas alternas
 
 **El caso real:** una ruta no siempre se maneja igual. Hay desvíos
 **programados** (una obra que dura tres meses, un feriado con desfile, el
@@ -34,7 +61,7 @@ guardadas para activarlas cuando corresponda.
   variante en vez de la ruta.
 - Activar una variante recalcula progreso y brechas al instante — la
   infraestructura ya está, porque el cálculo vive en el servidor.
-- **Se diseña desde el panel del creador** (ítem 5), no desde Despacho: es
+- **Se diseña desde el panel del creador** (ítem 1), no desde Despacho: es
   cartografía, no operación del día. Despacho **elige** entre las variantes
   cargadas; nosotros las dibujamos.
 
@@ -55,7 +82,7 @@ guardadas para activarlas cuando corresponda.
   vale la pena — para eso está silenciar el desvío, que ya existe. La
   variante es para cuando el recorrido cambia de verdad.
 
-## 2. Cumplimiento de brecha
+## 3. Cumplimiento de brecha
 
 **Lo que falta para cerrar los informes.** Hoy se puede sacar cuántas vueltas
 hizo cada unidad y cuántas horas trabajó cada persona, pero no *qué tan bien
@@ -79,16 +106,6 @@ apagarse). Son tres contadores por unidad: nada de peso.
 - **Que el número no sea injusto:** una unidad sola en la ruta no tiene con
   quién compararse. Esos tramos no deberían contar ni a favor ni en contra.
 
-## 3. Empresas (multi-cooperativa)
-
-Un nivel arriba de las rutas: `companies` → `routes` → unidades. Cada
-empresa ve solo lo suyo; el panel del creador ve todas. Incluye los datos
-de la empresa (nombre, RUC, contacto, logo) y, cuando exista, su plan o
-licencia.
-
-Es el cambio que convierte esto de "sistema de la R-14" en "producto que
-se le vende a cualquier cooperativa".
-
 ## 4. Panel del gerente de ruta
 
 Distinto del de Despacho a propósito: **Despacho opera, el gerente
@@ -96,28 +113,28 @@ mira**. Sin botones de administración ni chat operativo; con métricas,
 tendencias, cumplimiento, comparación entre unidades y descarga de
 informes. Rol nuevo (`manager`) con alcance a una ruta o a la empresa.
 
-## 5. Panel del creador (nuestro)
+---
 
-El nivel que hoy vive fuera de la app (ver "Niveles de seguridad" en el
-README), hecho pantalla:
+## Lo que ningún diseño resuelve
 
-- Alta de empresas y de rutas. (La carga de geometrías ya existe en el
-  panel de Despacho.)
-- Estado del sistema: unidades conectadas por empresa, uso, errores.
-- Salud del servidor y de la base, tamaño, backups.
-- Reseteo de cuentas de Despacho.
-- Uso por empresa (para facturar, si se cobra por unidad).
-
-**Cómo protegerlo, que es lo importante:** no debe ser un rol más del
-mismo login. Conviene una credencial aparte y, además, una barrera fuera
-de la aplicación — que solo funcione con una variable de entorno activa,
-o en una URL no adivinable, o con doble factor. Si el panel que puede
-todo se abre con una contraseña más, el nivel de arriba deja de existir.
+Hay preguntas que no se contestan construyendo: si el celular aguanta un
+turno con el GPS prendido a 3800 m, si el chofer efectivamente mira el HUD
+manejando, si Despacho usa el chat o levanta el teléfono igual, si el
+trazado real coincide con lo que dibujemos. Cuando estén los ítems 1 y 2
+hay algo que se puede poner en dos o tres unidades una semana, y esa semana
+va a reordenar esta lista mejor que nosotros.
 
 ---
 
 ## Ítems ya cerrados
 
+- **Empresas (multi-cooperativa).** `companies` arriba de las rutas, con la
+  empresa como borde de todo lo que se consulta —rutas, gente, flota,
+  turnos, vueltas, auditoría, informes, chat, mapa y SOS—, alta de
+  cooperativas desde el servidor (`server/empresa.js`) y no desde una
+  pantalla, y suspensión que cierra las sesiones en el momento. Toda cuenta
+  pertenece a una empresa: no hay "sin empresa = ve todo". Ver README,
+  sección Empresas.
 - **Informes exportables** en CSV: vueltas, horas por persona, emergencias y
   actividad de administración, cada uno declarando con qué se midió. Ver
   README, sección Informes.
