@@ -313,8 +313,12 @@ sistema que grita en cada uno se apaga el primer día.
 - **Solo cuenta si se sostiene:** 10 posiciones seguidas por afuera (unos 30
   segundos). Un salto de GPS no alcanza; doblar en la esquina equivocada sí.
   Para volver bastan 4.
-- **El umbral es por ruta** (`routes.desvioMaxM`, 60 m por defecto, entre 30
-  y 500): no es lo mismo el centro de Juliaca que la salida a Huancané.
+- **El umbral es por ruta** (`routes.desvioMaxM`): **300 m por defecto**, que
+  en la traza de Juliaca son unas **tres cuadras**. Un chofer puede tomarse un
+  desvío de esa magnitud sin que sea un problema —esquivar un embotellamiento,
+  una calle cortada— y marcarlo sería ruido; recién más allá deja de ser "el
+  camino de siempre con una vuelta" y pasa a ser otro recorrido. Se ajusta
+  entre 50 y 1500 m: no es lo mismo el centro que la salida a Huancané.
 - **Despacho puede silenciarlo** 1 h, 3 h o el turno, cuando el desvío ya se
   sabe. Silenciar **no es quedar ciego**: las unidades se siguen viendo fuera
   de ruta en el panel; lo que se corta es el registro repetido en la
@@ -350,6 +354,30 @@ manual, ni fichaje, ni aprobación. Para las excepciones —se olvidó de salir 
 la app, prestó el celular— hace falta edición a mano, y eso es otra discusión.
 Lo que hay sirve para saber quién iba en la unidad cuando pasó algo y para el
 informe de horas trabajadas.
+
+## Informes
+
+Panel → Gestión → **INFORMES**. Cuatro informes, cada uno con período de hoy,
+7 o 30 días:
+
+| Informe | Qué trae |
+| --- | --- |
+| **Vueltas por unidad** | Cuántas vueltas hizo cada combi, cuánto tardó y a qué velocidad |
+| **Horas por persona** | Turnos: entrada, salida y horas de cada chofer y cobrador |
+| **Emergencias** | Cada SOS con quién lo disparó, desde qué unidad y dónde |
+| **Actividad de administración** | Altas, bajas, reseteos de clave y cambios de configuración |
+
+Bajan en **CSV** y no en PDF a propósito: se abren en Excel, se pueden sumar y
+filtrar, y no hace falta ninguna librería en el servidor. Van con separador
+punto y coma y BOM, que es lo que el Excel en español abre bien de una.
+
+**Cada informe arranca diciendo con qué se midió.** Es la parte más
+importante: si la ruta no tiene recorrido cargado, la primera línea aclara que
+las vueltas son estimaciones y no medidas. Un informe con números que parecen
+precisos y no lo son es peor que no tener informe.
+
+El período máximo son 90 días, y un despachador de ruta solo puede sacar los
+de la suya.
 
 ## Qué frena cada cosa
 

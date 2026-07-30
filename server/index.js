@@ -719,8 +719,23 @@ function audit(actor, action, target, detail, routeId) {
 //  - Despacho puede silenciarlo un rato cuando el desvío es conocido.
 //  - Al chofer NO se le dice nada: puede tener un motivo, y un cartel
 //    acusándolo mientras maneja es peor que el problema.
-addColumnIfMissing('routes', 'desvioMaxM', 'INTEGER NOT NULL DEFAULT 60');
+//
+// El umbral por defecto son 300 m, que en la traza de Juliaca son unas TRES
+// CUADRAS. Un chofer puede tomarse un desvío de esa magnitud sin que sea un
+// problema —esquivar un embotellamiento, una calle cortada— y marcarlo sería
+// ruido. Recién más allá de eso deja de ser "el camino de siempre con una
+// vuelta" y pasa a ser otro recorrido.
+const DESVIO_DEFECTO_M = 300;
+addColumnIfMissing('routes', 'desvioMaxM', `INTEGER NOT NULL DEFAULT ${DESVIO_DEFECTO_M}`);
 addColumnIfMissing('routes', 'desvioMudoHasta', 'INTEGER');
+
+// La primera versión traía 60 m, que es menos de una cuadra: cualquier desvío
+// legítimo caía adentro. Las rutas que quedaron con ese valor pasan al nuevo
+// por defecto; las que alguien haya ajustado a mano se respetan.
+{
+  const r = db.prepare('UPDATE routes SET desvioMaxM = ? WHERE desvioMaxM = 60').run(DESVIO_DEFECTO_M);
+  if (r.changes) console.log(`Umbral de desvío actualizado a ${DESVIO_DEFECTO_M} m en ${r.changes} ruta(s)`);
+}
 
 // Cuántas posiciones seguidas hacen falta. Llegan cada 3 s, así que 10 son
 // unos 30 segundos afuera: un salto de GPS no llega, doblar en la esquina
@@ -740,7 +755,7 @@ function evaluarDesvio(vehicleId, routeId, desvioM) {
     desvios.delete(vehicleId);
     return null;
   }
-  const umbral = ruta.desvioMaxM || 60;
+  const umbral = ruta.desvioMaxM || DESVIO_DEFECTO_M;
   let e = desvios.get(vehicleId);
   if (!e) {
     e = { fuera: false, seguidasFuera: 0, seguidasDentro: 0, desde: null, maxM: 0 };
@@ -1455,13 +1470,14 @@ app.post('/admin/routes/:routeId/desvio', requireDispatch, (req, res) => {
   const ruta = routeOf(routeId);
   if (!ruta) return res.status(404).json({ error: 'Esa ruta no existe' });
 
-  let umbral = ruta.desvioMaxM || 60;
+  let umbral = ruta.desvioMaxM || DESVIO_DEFECTO_M;
   if (req.body?.umbralM !== undefined) {
     const v = Number(req.body.umbralM);
-    // Por debajo de 30 m el GPS urbano solo daría falsas alarmas; por encima
-    // de 500 m ya no se estaría detectando nada.
-    if (!Number.isFinite(v) || v < 30 || v > 500) {
-      return res.status(400).json({ error: 'El umbral va entre 30 y 500 metros' });
+    // Menos de 50 m (media cuadra) es ruido de GPS; más de 1500 m ya no
+    // detecta nada. Entre esos dos hay margen para una ruta de centro
+    // apretada y para un tramo de carretera abierta.
+    if (!Number.isFinite(v) || v < 50 || v > 1500) {
+      return res.status(400).json({ error: 'El umbral va entre 50 y 1500 metros' });
     }
     umbral = Math.round(v);
   }
@@ -1482,6 +1498,174 @@ app.post('/admin/routes/:routeId/desvio', requireDispatch, (req, res) => {
     routeId);
   scheduleStateBroadcast(routeId, true);
   res.json({ ok: true, umbralM: umbral, mudoHasta });
+});
+
+// ─── INFORMES ────────────────────────────────────────────────
+// CSV para que la cooperativa se lleve los números a una planilla. Se elige
+// CSV y no PDF a propósito: se abre en Excel, se puede sumar y filtrar, y no
+// necesita ninguna librería en el servidor.
+//
+// Cada informe empieza con una línea que dice CON QUÉ SE MIDIÓ. Es la parte
+// más importante: un informe de brechas sacado de una ruta sin recorrido
+// cargado da números que parecen precisos y no lo son, y eso es peor que no
+// tener informe.
+
+// Escapa un valor para CSV: comillas dobles y separador punto y coma, que es
+// lo que espera el Excel en español (con coma parte mal los decimales).
+function csvValor(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function csvLinea(campos) {
+  return campos.map(csvValor).join(';');
+}
+
+function fechaHora(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function duracionHm(sec) {
+  if (sec === null || sec === undefined) return '';
+  // Se redondea a minutos PRIMERO y después se parte en horas: al revés,
+  // 4 h 59 min 59 s salía como "4:60".
+  const min = Math.round(sec / 60);
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
+}
+
+// Rango pedido, con tope de 90 días para que un informe no se lleve la base
+function rangoDe(req) {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  let desde = Number(req.query?.desde);
+  let hasta = Number(req.query?.hasta);
+  if (!Number.isFinite(desde)) desde = hoy.getTime();
+  if (!Number.isFinite(hasta)) hasta = Date.now();
+  if (hasta < desde) [desde, hasta] = [hasta, desde];
+  const TOPE = 90 * 86400_000;
+  if (hasta - desde > TOPE) desde = hasta - TOPE;
+  return { desde, hasta };
+}
+
+const INFORMES = {
+  // Vueltas por unidad: cuántas, cuánto tardaron, a qué velocidad
+  vueltas: (rango, scope, routeId) => {
+    const filas = db.prepare(`
+      SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed
+      FROM laps
+      WHERE finishedAt BETWEEN @desde AND @hasta
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY finishedAt
+    `).all({ ...rango, ruta: scope || routeId || null });
+    return {
+      nombre: 'vueltas',
+      cabecera: ['Unidad', 'Ruta', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos', 'Velocidad media (km/h)'],
+      filas: filas.map(l => [
+        l.unitId, l.routeId, fechaHora(l.startedAt), fechaHora(l.finishedAt),
+        duracionHm(l.durationSec), Math.round(l.durationSec / 60), l.avgSpeed,
+      ]),
+    };
+  },
+
+  // Horas por persona, salidas de los turnos
+  horas: (rango, scope, routeId) => {
+    const filas = db.prepare(`
+      SELECT s.personId, s.vehicleId, s.routeId, s.role, s.startedAt, s.endedAt, s.lastSeenAt,
+             u.name, u.alias
+      FROM shifts s
+      LEFT JOIN users u ON u.unitId = s.personId
+      WHERE s.startedAt BETWEEN @desde AND @hasta
+        AND (@ruta IS NULL OR s.routeId = @ruta)
+      ORDER BY s.startedAt
+    `).all({ ...rango, ruta: scope || routeId || null });
+    const ahora = Date.now();
+    return {
+      nombre: 'horas',
+      cabecera: ['Persona', 'Nombre', 'Alias', 'Rol', 'Unidad', 'Ruta', 'Entrada', 'Salida', 'Horas (h:mm)', 'Abierto'],
+      filas: filas.map(t => [
+        t.personId, t.name, t.alias,
+        t.role === 'collector' ? 'cobrador' : 'chofer',
+        t.vehicleId, t.routeId,
+        fechaHora(t.startedAt), fechaHora(t.endedAt),
+        duracionHm(Math.round(((t.endedAt || ahora) - t.startedAt) / 1000)),
+        t.endedAt ? 'no' : 'sí',
+      ]),
+    };
+  },
+
+  // Emergencias
+  sos: (rango, scope, routeId) => {
+    const filas = db.prepare(`
+      SELECT unitId, driverName, vehicleId, routeId, lat, lng, timestamp
+      FROM messages
+      WHERE kind = 'sos' AND timestamp BETWEEN @desde AND @hasta
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY timestamp
+    `).all({ ...rango, ruta: scope || routeId || null });
+    return {
+      nombre: 'sos',
+      cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Latitud', 'Longitud'],
+      filas: filas.map(m => [
+        fechaHora(m.timestamp), m.driverName, m.unitId, m.vehicleId, m.routeId,
+        m.lat ?? '', m.lng ?? '',
+      ]),
+    };
+  },
+
+  // Quién hizo qué en la administración
+  actividad: (rango, scope, routeId) => {
+    const filas = db.prepare(`
+      SELECT actor, action, target, detail, routeId, timestamp
+      FROM audit
+      WHERE timestamp BETWEEN @desde AND @hasta
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY timestamp
+    `).all({ ...rango, ruta: scope || routeId || null });
+    return {
+      nombre: 'actividad',
+      cabecera: ['Cuándo', 'Quién', 'Qué hizo', 'Sobre', 'Detalle', 'Ruta'],
+      filas: filas.map(e => [
+        fechaHora(e.timestamp), e.actor, e.action, e.target, e.detail, e.routeId,
+      ]),
+    };
+  },
+};
+
+app.get('/admin/informe/:tipo.csv', requireDispatch, (req, res) => {
+  const tipo = String(req.params.tipo);
+  const armar = INFORMES[tipo];
+  if (!armar) return res.status(404).json({ error: 'Ese informe no existe' });
+
+  const rango = rangoDe(req);
+  const routeId = idLimpio(req.query?.routeId);
+  const informe = armar(rango, req.scope, routeId);
+
+  // La primera línea dice con qué se midió: sin esto, alguien puede tomar por
+  // exacto un número que es una estimación.
+  const rutaDelInforme = req.scope || routeId || null;
+  const geo = rutaDelInforme ? geometriaDe(rutaDelInforme) : null;
+  const base = !rutaDelInforme
+    ? 'varias rutas: la precisión depende de cada una'
+    : geo
+      ? `ruta ${rutaDelInforme} con recorrido cargado (${(geo.largoTotalM / 1000).toFixed(2)} km${geo.vuelta ? ', ida y vuelta' : ', solo ida'})`
+      : `ruta ${rutaDelInforme} SIN recorrido cargado: las vueltas y brechas son estimaciones, no medidas`;
+
+  const lineas = [
+    csvLinea(['COOP-R14', `Informe de ${informe.nombre}`]),
+    csvLinea(['Período', `${fechaHora(rango.desde)} a ${fechaHora(rango.hasta)}`]),
+    csvLinea(['Medido sobre', base]),
+    csvLinea(['Generado', fechaHora(Date.now()), 'por', req.dispatchUser.unitId]),
+    '',
+    csvLinea(informe.cabecera),
+    ...informe.filas.map(csvLinea),
+  ];
+
+  const archivo = `coop-r14-${informe.nombre}-${new Date(rango.desde).toISOString().slice(0, 10)}.csv`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${archivo}"`);
+  // BOM para que Excel abra bien las tildes
+  res.send('\ufeff' + lineas.join('\r\n'));
 });
 
 // Turnos: quién anduvo en qué unidad y cuánto. Por defecto los de hoy.
@@ -2196,7 +2380,7 @@ function buildState(routeId) {
     routeId,
     // Gestión del desvío: umbral vigente y hasta cuándo está silenciado
     desvio: {
-      umbralM: ruta2 ? (ruta2.desvioMaxM || 60) : 60,
+      umbralM: ruta2 ? (ruta2.desvioMaxM || DESVIO_DEFECTO_M) : DESVIO_DEFECTO_M,
       mudoHasta: ruta2 && ruta2.desvioMudoHasta > Date.now() ? ruta2.desvioMudoHasta : null,
     },
     routeName: ruta ? ruta.name : routeId,

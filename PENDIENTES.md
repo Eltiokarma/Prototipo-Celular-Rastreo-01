@@ -10,9 +10,9 @@ compromete nada (ver *Ítems ya cerrados* al final).
 | # | Qué | Por qué en ese lugar | Tamaño |
 | --- | --- | --- | --- |
 | 1 | **Rutas alternas** | Los desvíos programados (una obra de tres meses) no se resuelven silenciando: el trazado cambió. Se diseñan desde el panel del creador | 2–3 días |
-| 2 | **Informes exportables** | Los números ya son buenos (recorrido real, objetivo calculado, turnos registrados); falta exportarlos | 1–2 días |
+| 2 | **Cumplimiento de brecha** | El único número que la cooperativa querría y todavía no existe: cuánto tiempo estuvo cada unidad en verde, ámbar y rojo. Hace falta guardarlo, no se puede reconstruir | 1 día |
 | 3 | **Empresas (multi-cooperativa)** | Nivel de agrupación arriba de las rutas; lo pide la venta, no la operación | 2 días |
-| 4 | **Panel del gerente de ruta** | Vive de los datos de 2 | 2 días |
+| 4 | **Panel del gerente de ruta** | Vive de los informes, que ya existen | 2 días |
 | 5 | **Panel del creador (nuestro)** | Encima de todo; sin 3 no tiene mucho que mostrar, y necesita su propio nivel de protección | 2–3 días |
 
 ---
@@ -55,17 +55,29 @@ guardadas para activarlas cuando corresponda.
   vale la pena — para eso está silenciar el desvío, que ya existe. La
   variante es para cuando el recorrido cambia de verdad.
 
-## 2. Informes exportables
+## 2. Cumplimiento de brecha
 
-CSV y PDF de: vueltas por unidad y por período, cumplimiento de brecha
-(cuánto tiempo estuvo cada unidad en verde/ámbar/rojo), historial de SOS,
-horas trabajadas por persona (ya se registran los turnos) y actividad de
-administración.
+**Lo que falta para cerrar los informes.** Hoy se puede sacar cuántas vueltas
+hizo cada unidad y cuántas horas trabajó cada persona, pero no *qué tan bien
+mantuvo la brecha*, que es lo que mide si la rueda funciona.
 
-Cuidado con una tentación: los informes son fáciles de hacer y difíciles
-de hacer *bien*. Un informe con brechas aproximadas (una ruta sin
-recorrido cargado) da números que parecen precisos y no lo son — y eso es peor que no tener
-informe.
+**Por qué no está:** la brecha se calcula en vivo y no se guarda. Reconstruir
+el pasado es imposible — habría que rehacer el cálculo posición por posición,
+y las posiciones tampoco se guardan (a propósito: serían millones de filas).
+
+**Propuesta:** acumular en memoria, por unidad y por día, cuántos segundos
+estuvo en verde, en ámbar y en rojo, y volcarlo a una tabla cada tanto (y al
+apagarse). Son tres contadores por unidad: nada de peso.
+
+**Lo que hay que resolver:**
+
+- **Qué cuenta como "en ruta":** una unidad detenida en el terminal no debería
+  sumar rojo. Probablemente haya que contar solo mientras se mueve.
+- **Con qué objetivo se compara:** si el objetivo automático cambió durante el
+  día, el porcentaje del día mezcla dos varas. Conviene guardar también contra
+  qué objetivo se midió.
+- **Que el número no sea injusto:** una unidad sola en la ruta no tiene con
+  quién compararse. Esos tramos no deberían contar ni a favor ni en contra.
 
 ## 3. Empresas (multi-cooperativa)
 
@@ -106,6 +118,9 @@ todo se abre con una contraseña más, el nivel de arriba deja de existir.
 
 ## Ítems ya cerrados
 
+- **Informes exportables** en CSV: vueltas, horas por persona, emergencias y
+  actividad de administración, cada uno declarando con qué se midió. Ver
+  README, sección Informes.
 - **Desvío de ruta**, tratado como gestión y no como alarma: solo si se
   sostiene, umbral por ruta, y Despacho puede silenciarlo cuando el desvío ya
   se sabe. Ver README, sección Desvío de ruta.
