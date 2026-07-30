@@ -14,7 +14,7 @@ limitación se resuelva o aparezca una nueva.
 | 4 | Brechas y vueltas son aproximadas | El progreso de ruta es una proyección lineal, no sigue el trazado real de calles | Modelar la ruta con puntos reales |
 | 5 | Una sola cuenta DESPACHO compartida | La auditoría no distingue *cuál* encargado hizo cada cosa | Cuentas de despacho por persona |
 | 6 | Consumo de datos móviles | **Mitigado**: de 839 MB a 40 MB por turno con 20 unidades (98 MB con 50), y los tiles del mapa ya no se rebajan en cada visita. Queda el payload personalizado para rutas de 30+ unidades | Ver `ESCALABILIDAD.md` |
-| 7 | Una sola ruta modelada | Con varias rutas las brechas se calcularían entre unidades de rutas distintas y el chat sería uno solo | `routeId` de primera clase (etapa 1 de `ESCALABILIDAD.md`) |
+| 7 | Multi-ruta | **Resuelto**: `routeId` de primera clase, brechas y chat por ruta, supervisor con selector y despachadores por ruta | Ver README, sección Multi-ruta |
 
 ## A. App web en el celular del chofer (límites de PWA)
 

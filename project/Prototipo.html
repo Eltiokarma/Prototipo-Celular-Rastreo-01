@@ -344,7 +344,7 @@ function otherPinHtml() {
   return `<div style="width:10px;height:10px;border-radius:50%;background:${HUD.dim3};border:2px solid ${HUD.bg};box-sizing:content-box;"></div>`;
 }
 
-function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop }) {
+function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, routeId }) {
   const leafletRef = React.useRef(null);
   const youMarkerRef = React.useRef(null);
   const otherMarkersRef = React.useRef({});
@@ -454,7 +454,7 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop }
       <div ref={initMap} style={{ position: 'absolute', inset: 0 }} data-noswipe="map" />
 
       {/* Chips superiores: ruta y unidades en línea */}
-      <div style={{ ...chipStyle, left: 18, color: HUD.fg }}>R-14 · TERMINAL</div>
+      <div style={{ ...chipStyle, left: 18, color: HUD.fg }}>{routeId || 'R-14'} · TERMINAL</div>
       <div style={{ ...chipStyle, right: 18, color: HUD.green }}>
         {otherUnits.length > 0 ? `${otherUnits.length + 1} EN RUTA` : 'SOLO TÚ'}
       </div>
@@ -703,7 +703,7 @@ function MicGlyph({ color, size = 24 }) {
   );
 }
 
-function ChatScreen({ messages, hud, online, connected, onSendText, onSendVoice }) {
+function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onSendVoice }) {
   const scrollRef = React.useRef(null);
   const [draft, setDraft] = React.useState('');
   const [recording, setRecording] = React.useState(false);
@@ -802,7 +802,7 @@ function ChatScreen({ messages, hud, online, connected, onSendText, onSendVoice 
           <div style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 24, color: HUD.fg, letterSpacing: -0.5,
-          }}>GRUPO R-14</div>
+          }}>GRUPO {routeId || 'R-14'}</div>
           <div style={{
             fontSize: 15, fontWeight: 700, color: connected ? HUD.dim2 : HUD.amber,
             fontFamily: 'system-ui, sans-serif',
@@ -1601,7 +1601,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, onFireSos }) {
   );
 }
 
-function Carousel({ tweaks, otherUnits = [], gapMeta, connected, messages, onSendText, onSendVoice, onSos }) {
+function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, messages, onSendText, onSendVoice, onSos }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -1723,6 +1723,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, connected, messages, onSen
             hud={hud}
             online={unitsOnRoute}
             connected={connected}
+            routeId={routeId}
             onSendText={onSendText}
             onSendVoice={onSendVoice}
           />
@@ -1753,6 +1754,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, connected, messages, onSen
             gapMeta={gapMeta}
             currentStop={tweaks.currentStop}
             nextStop={tweaks.nextStop}
+            routeId={routeId}
           />
         </div>
       )}
@@ -1959,6 +1961,7 @@ function Root() {
   const [connected, setConnected] = React.useState(false);
   const [otherUnits, setOtherUnits] = React.useState([]);
   const [gapMeta, setGapMeta] = React.useState(null); // { aheadUnit, behindUnit }
+  const [routeId, setRouteId] = React.useState(null); // ruta del chofer, la manda el servidor
   const [messages, setMessages] = React.useState(CHAT_SEED);
   const [incomingSos, setIncomingSos] = React.useState(null);
   const [authNotice, setAuthNotice] = React.useState(null);
@@ -2023,6 +2026,12 @@ function Root() {
     });
 
     window.RealtimeClient.on('state', (state) => {
+      // La ruta y su objetivo de brecha los define el servidor, no la app:
+      // cada ruta tiene su propia separación ideal entre unidades.
+      setRouteId(state.routeId || null);
+      if (state.targetGapMin) {
+        setTweaks(t => t.targetGap === state.targetGapMin ? t : { ...t, targetGap: state.targetGapMin });
+      }
       const myGaps = state.gaps?.[myUnitId];
       if (myGaps) {
         setTweaks(t => ({
@@ -2033,7 +2042,7 @@ function Root() {
         }));
         setGapMeta({ aheadUnit: myGaps.aheadUnit, behindUnit: myGaps.behindUnit });
       }
-      // Todos los que están en ruta excepto yo
+      // Todos los que están en ruta excepto yo (ya vienen solo de mi ruta)
       const others = (state.units || []).filter(u => u.unitId !== myUnitId && u.lat);
       setOtherUnits(others);
     });
@@ -2162,6 +2171,7 @@ function Root() {
       tweaks={tweaks}
       otherUnits={otherUnits}
       gapMeta={gapMeta}
+      routeId={routeId || user?.routeId || null}
       connected={connected}
       messages={messages}
       onSendText={sendText}

@@ -6,7 +6,7 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v14';       // app: HTML, JS propio, iconos
+const CACHE_NAME = 'coop-r14-v15';       // app: HTML, JS propio, iconos
 const TILE_CACHE = 'coop-r14-tiles-v1';  // tiles del mapa
 const LIB_CACHE  = 'coop-r14-libs-v1';   // React, Babel, Leaflet, fuentes
 
