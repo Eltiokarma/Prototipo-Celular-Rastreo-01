@@ -303,6 +303,30 @@ eso dos rutas con la misma separación física dan brechas distintas.
 | **Supervisor** (`routeId` NULL) | Ve y administra todas las rutas, cambia con el selector del panel, crea rutas nuevas. Es lo que queda la cuenta `DESPACHO` inicial |
 | **Despachador de ruta** (`routeId` con valor) | Solo su ruta: no ve, ni administra, ni recibe nada de las demás |
 
+## Desvío de ruta
+
+Con el recorrido cargado, el servidor sabe a cuántos metros del trazado va
+cada unidad. Está pensado como **gestión y no como alarma**, porque en una
+ciudad siempre hay desvíos —una obra, un desfile, un embotellamiento— y un
+sistema que grita en cada uno se apaga el primer día.
+
+- **Solo cuenta si se sostiene:** 10 posiciones seguidas por afuera (unos 30
+  segundos). Un salto de GPS no alcanza; doblar en la esquina equivocada sí.
+  Para volver bastan 4.
+- **El umbral es por ruta** (`routes.desvioMaxM`, 60 m por defecto, entre 30
+  y 500): no es lo mismo el centro de Juliaca que la salida a Huancané.
+- **Despacho puede silenciarlo** 1 h, 3 h o el turno, cuando el desvío ya se
+  sabe. Silenciar **no es quedar ciego**: las unidades se siguen viendo fuera
+  de ruta en el panel; lo que se corta es el registro repetido en la
+  auditoría.
+- **Al chofer no se le dice nada.** Puede tener un motivo, y un cartel
+  acusándolo mientras maneja es peor que el problema.
+
+En el panel, los desvíos se agrupan en un aviso arriba de la lista de
+unidades (cuál y a cuántos metros), y cada fila lleva su chip
+`FUERA DE RUTA · 150 m`. **Mientras la ruta no tenga recorrido cargado no se
+marca nada** — no hay con qué comparar.
+
 ## Turnos
 
 Quién manejó qué unidad y cuánto tiempo. Se registra **solo lo que el sistema

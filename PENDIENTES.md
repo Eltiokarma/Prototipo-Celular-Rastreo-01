@@ -9,7 +9,7 @@ compromete nada (ver *Ítems ya cerrados* al final).
 
 | # | Qué | Por qué en ese lugar | Tamaño |
 | --- | --- | --- | --- |
-| 1 | **Aviso de desvío de ruta** | El servidor ya sabe a cuántos metros del trazado va cada unidad; falta decidir umbral, antirrebote y a quién se le avisa | 1 día |
+| 1 | **Rutas alternas** | Los desvíos programados (una obra de tres meses) no se resuelven silenciando: el trazado cambió. Se diseñan desde el panel del creador | 2–3 días |
 | 2 | **Informes exportables** | Los números ya son buenos (recorrido real, objetivo calculado, turnos registrados); falta exportarlos | 1–2 días |
 | 3 | **Empresas (multi-cooperativa)** | Nivel de agrupación arriba de las rutas; lo pide la venta, no la operación | 2 días |
 | 4 | **Panel del gerente de ruta** | Vive de los datos de 2 | 2 días |
@@ -17,24 +17,43 @@ compromete nada (ver *Ítems ya cerrados* al final).
 
 ---
 
-## 1. Aviso de desvío de ruta
+## 1. Rutas alternas
 
-**Ya está la mitad hecha:** con el recorrido cargado, el servidor calcula en
-cada posición a cuántos metros del trazado va la unidad (`desvioM`). Falta
-convertir eso en un aviso útil.
+**El caso real:** una ruta no siempre se maneja igual. Hay desvíos
+**programados** (una obra que dura tres meses, un feriado con desfile, el
+mercado de los domingos que cierra dos cuadras) y desvíos **del momento** (un
+embotellamiento, un bloqueo). Hoy el recorrido de una ruta es uno solo: si el
+trazado real cambia por un mes, o se corrige a mano o todas las unidades
+figuran fuera de ruta.
 
-**Lo que hay que decidir, que es lo difícil:**
+**Propuesta:** que una ruta pueda tener **variantes** de su recorrido, cada
+una con sus tramos de ida y vuelta. Una es la vigente; las demás quedan
+guardadas para activarlas cuando corresponda.
 
-- **Umbral:** en Juliaca el GPS tiene error de 5–30 m y hay calles paralelas
-  a 40 m. Un umbral chico llena de falsas alarmas; uno grande no detecta un
-  atajo de una cuadra.
-- **Antirrebote:** avisar solo si el desvío se sostiene (varias muestras
-  seguidas, o N segundos), no en el primer salto de GPS.
-- **A quién se le avisa:** a Despacho seguro; al chofer probablemente no
-  (puede tener un motivo, y un cartel acusándolo mientras maneja es peor que
-  el problema).
-- **Qué es un desvío legítimo:** un desvío por obra o por bloqueo es normal y
-  no debería sonar toda la mañana. Conviene poder silenciarlo por turno.
+- `route_variants` (routeId, nombre, activa) y `route_points` colgando de la
+  variante en vez de la ruta.
+- Activar una variante recalcula progreso y brechas al instante — la
+  infraestructura ya está, porque el cálculo vive en el servidor.
+- **Se diseña desde el panel del creador** (ítem 5), no desde Despacho: es
+  cartografía, no operación del día. Despacho **elige** entre las variantes
+  cargadas; nosotros las dibujamos.
+
+**Lo que hay que pensar bien:**
+
+- **Las vueltas en curso:** si se cambia la variante a mitad del turno, las
+  unidades que venían midiendo sobre la anterior tienen su progreso corrido.
+  Probablemente convenga cerrar la vuelta en curso y arrancar de nuevo, y
+  dejar constancia de que ese tramo del historial se midió con otra
+  geometría.
+- **Vigencia:** una variante por obra tiene fecha de fin. Vale la pena poder
+  programarla (del 1 al 30) en vez de tener que acordarse de desactivarla.
+- **El objetivo automático:** si la variante es más larga, la vuelta dura más
+  y el objetivo sube solo — eso ya funciona. Pero el promedio histórico
+  mezcla vueltas de geometrías distintas; habría que guardar con qué variante
+  se midió cada vuelta.
+- **Cuándo NO usar una variante:** para un embotellamiento de dos horas no
+  vale la pena — para eso está silenciar el desvío, que ya existe. La
+  variante es para cuando el recorrido cambia de verdad.
 
 ## 2. Informes exportables
 
@@ -87,6 +106,9 @@ todo se abre con una contraseña más, el nivel de arriba deja de existir.
 
 ## Ítems ya cerrados
 
+- **Desvío de ruta**, tratado como gestión y no como alarma: solo si se
+  sostiene, umbral por ruta, y Despacho puede silenciarlo cuando el desvío ya
+  se sabe. Ver README, sección Desvío de ruta.
 - **Turnos.** Se abre cuando la persona entra a su unidad y se cierra cuando
   se va, tolerando cortes de señal y reinicios del servidor. Panel → TURNOS,
   con horas por persona. Ver README, sección Turnos.
