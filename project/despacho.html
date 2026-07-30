@@ -1673,6 +1673,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             routeId: msg.routeId,
             routeName: msg.routeName,
             targetGapMin: msg.targetGapMin || TARGET_GAP_DEFAULT,
+            desvio: msg.desvio || null,
           });
           fittedRef.current = false; // reencuadrar el mapa al cambiar de ruta
           setRouteInfo(prev => {
@@ -1788,6 +1789,17 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         type: 'chat', text, to: privadoCon || undefined, timestamp: Date.now(),
       }));
     }
+  };
+
+  const silenciarDesvio = async (minutos) => {
+    if (!routeInfo.routeId) return;
+    try {
+      await fetch(`${HTTP_URL}/admin/routes/${encodeURIComponent(routeInfo.routeId)}/desvio`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+        body: JSON.stringify({ silenciarMin: minutos }),
+      });
+    } catch {}
   };
 
   const abrirPrivado = (vehicleId) => {
@@ -1927,6 +1939,55 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             padding: '14px 16px', fontFamily: mono, fontSize: 12, fontWeight: 700,
             letterSpacing: 1, color: HUD.dim2, textTransform: 'uppercase',
           }}>{routeInfo.routeName || 'Unidades'} · {units.length} en ruta</div>
+
+          {/* Desvíos: se agrupan acá en vez de gritar uno por uno. En una
+              ciudad siempre hay alguno, así que lo importante es poder
+              silenciarlo cuando ya se sabe (obra, desfile, embotellamiento). */}
+          {(() => {
+            const fuera = units.filter(u => u.fueraDeRuta);
+            const mudo = routeInfo.desvio?.mudoHasta;
+            if (!fuera.length && !mudo) return null;
+            return (
+              <div style={{
+                margin: '0 12px 10px', padding: '10px 12px', borderRadius: 12,
+                background: mudo ? HUD.hueco : 'rgba(166,115,0,.12)',
+                border: `1px solid ${mudo ? HUD.line : HUD.amber}`,
+              }}>
+                <div style={{
+                  fontSize: 13, fontWeight: 700, color: mudo ? HUD.dim2 : HUD.amber,
+                  marginBottom: fuera.length ? 6 : 0,
+                }}>
+                  {mudo
+                    ? `Desvíos silenciados hasta ${nowTime(mudo)}`
+                    : `${fuera.length} unidad${fuera.length === 1 ? '' : 'es'} fuera del recorrido`}
+                </div>
+                {fuera.length > 0 && (
+                  <div style={{ fontFamily: mono, fontSize: 12, color: HUD.dim, marginBottom: 8 }}>
+                    {fuera.map(u => `${u.unitId} (${u.desvioM} m)`).join(' · ')}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {mudo ? (
+                    <button onClick={() => silenciarDesvio(0)} style={{
+                      background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
+                      padding: '4px 10px', color: HUD.fg2, fontSize: 12, fontWeight: 700,
+                      cursor: 'pointer', fontFamily: 'inherit',
+                    }}>Volver a avisar</button>
+                  ) : (
+                    [['1 h', 60], ['3 h', 180], ['el turno', 480]].map(([etiqueta, min]) => (
+                      <button key={min} onClick={() => silenciarDesvio(min)}
+                        title="Cuando el desvío ya se sabe: una obra, un desfile, un embotellamiento"
+                        style={{
+                          background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
+                          padding: '4px 10px', color: HUD.fg2, fontSize: 12, fontWeight: 700,
+                          cursor: 'pointer', fontFamily: 'inherit',
+                        }}>Silenciar {etiqueta}</button>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           {units.length === 0 && (
             <div style={{ padding: '8px 16px', fontSize: 14, color: HUD.dim3 }}>
               Sin unidades conectadas.
@@ -1950,6 +2011,15 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                   <div style={{ flex: 1 }} />
                   {!u.lat && <span style={{ fontFamily: mono, fontSize: 11, color: HUD.amber }}>SIN GPS</span>}
                 </div>
+                {u.fueraDeRuta && (
+                  <span title={`A ${u.desvioM} m del recorrido${u.fueraDesde ? ' desde ' + nowTime(u.fueraDesde) : ''}`}
+                    style={{
+                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .5,
+                      marginLeft: 8, padding: '2px 6px', borderRadius: 4,
+                      background: 'rgba(166,115,0,.18)', color: HUD.amber,
+                      border: `1px solid ${HUD.amber}`,
+                    }}>FUERA DE RUTA · {u.desvioM} m</span>
+                )}
                 {u.tramo && (
                   <span title="Tramo del circuito en el que va" style={{
                     fontFamily: mono, fontSize: 11, fontWeight: 700, marginLeft: 8,

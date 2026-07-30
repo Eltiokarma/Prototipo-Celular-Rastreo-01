@@ -89,6 +89,13 @@ limitación se resuelva o aparezca una nueva.
 - **La calidad depende de cómo se cargó el recorrido**: marcado a mano con
   pocos puntos, el trazado corta esquinas y el progreso se corre unos
   metros. Un GPX de una vuelta real es mucho más fiel.
+- **El desvío de ruta no distingue el motivo.** Un atajo, un bloqueo y una
+  obra se ven igual: una unidad a X metros del trazado. Despacho puede
+  silenciarlo cuando ya lo sabe, pero para un desvío que dura semanas la
+  salida es cargar el recorrido nuevo (rutas alternas, ítem 1 de
+  `PENDIENTES.md`).
+- **El silencio es por ruta, no por unidad**: si una sola combi se desvió por
+  su cuenta y se silencia, quedan silenciadas todas las de esa ruta.
 - **Ida y vuelta por la misma calle**: resuelto cargando el circuito en dos
   tramos — cuando empatan por cercanía, decide el sentido de marcha. Queda un
   caso límite: una combi **detenida** en un tramo compartido (semáforo,

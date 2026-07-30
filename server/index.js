@@ -707,6 +707,79 @@ function audit(actor, action, target, detail, routeId) {
 // vuelve al inicio. Se guarda duración y velocidad promedio; con eso
 // Despacho tiene historial y métricas por unidad para ordenar la rueda.
 
+// ─── DESVÍO DE RUTA ──────────────────────────────────────────
+// Con el recorrido cargado, el servidor sabe a cuántos metros del trazado va
+// cada unidad. Convertir eso en un aviso útil es lo difícil, porque en una
+// ciudad SIEMPRE hay desvíos: una obra, un desfile, un embotellamiento. Un
+// sistema que grita en cada uno se apaga el primer día.
+//
+// Por eso está pensado como GESTIÓN y no como alarma:
+//  - Solo se marca si el desvío se SOSTIENE (un salto de GPS no cuenta).
+//  - El umbral es por ruta: no es lo mismo el centro que la salida a Huancané.
+//  - Despacho puede silenciarlo un rato cuando el desvío es conocido.
+//  - Al chofer NO se le dice nada: puede tener un motivo, y un cartel
+//    acusándolo mientras maneja es peor que el problema.
+addColumnIfMissing('routes', 'desvioMaxM', 'INTEGER NOT NULL DEFAULT 60');
+addColumnIfMissing('routes', 'desvioMudoHasta', 'INTEGER');
+
+// Cuántas posiciones seguidas hacen falta. Llegan cada 3 s, así que 10 son
+// unos 30 segundos afuera: un salto de GPS no llega, doblar en la esquina
+// equivocada sí.
+const DESVIO_MUESTRAS = 10;
+// Para volver alcanza con menos: si ya está de nuevo sobre el trazado, no
+// tiene sentido seguir mostrándolo fuera.
+const REGRESO_MUESTRAS = 4;
+
+// { vehicleId → { fuera, seguidasFuera, seguidasDentro, desde, maxM } }
+const desvios = new Map();
+
+function evaluarDesvio(vehicleId, routeId, desvioM) {
+  const ruta = routeOf(routeId);
+  // Sin geometría no hay nada que comparar
+  if (desvioM === null || desvioM === undefined || !ruta) {
+    desvios.delete(vehicleId);
+    return null;
+  }
+  const umbral = ruta.desvioMaxM || 60;
+  let e = desvios.get(vehicleId);
+  if (!e) {
+    e = { fuera: false, seguidasFuera: 0, seguidasDentro: 0, desde: null, maxM: 0 };
+    desvios.set(vehicleId, e);
+  }
+
+  if (desvioM > umbral) {
+    e.seguidasFuera++;
+    e.seguidasDentro = 0;
+    e.maxM = Math.max(e.maxM, Math.round(desvioM));
+    if (!e.fuera && e.seguidasFuera >= DESVIO_MUESTRAS) {
+      e.fuera = true;
+      e.desde = Date.now();
+      const mudo = ruta.desvioMudoHasta && ruta.desvioMudoHasta > Date.now();
+      if (!mudo) {
+        console.log(`Fuera de ruta: ${vehicleId} a ${Math.round(desvioM)} m del trazado`);
+        audit('sistema', 'desvio', vehicleId, `${Math.round(desvioM)} m del trazado`, routeId);
+      }
+    }
+  } else {
+    e.seguidasDentro++;
+    e.seguidasFuera = 0;
+    if (e.fuera && e.seguidasDentro >= REGRESO_MUESTRAS) {
+      const minutos = Math.round((Date.now() - e.desde) / 60000);
+      console.log(`De vuelta en ruta: ${vehicleId} (estuvo ${minutos} min fuera)`);
+      e.fuera = false;
+      e.desde = null;
+      e.maxM = 0;
+    }
+  }
+  return e;
+}
+
+// ¿Se muestra el desvío de esta ruta, o Despacho lo silenció?
+function desvioSilenciado(routeId) {
+  const ruta = routeOf(routeId);
+  return !!(ruta && ruta.desvioMudoHasta && ruta.desvioMudoHasta > Date.now());
+}
+
 // ─── TURNOS ──────────────────────────────────────────────────
 // Quién manejó qué unidad y cuánto tiempo. Se registra SOLO lo que el
 // sistema ya ve solo: cuándo alguien entra a una unidad y cuándo se va.
@@ -1371,6 +1444,46 @@ app.get('/admin/audit', requireDispatch, (req, res) => {
   res.json({ events });
 });
 
+// Gestión del desvío de una ruta: a partir de cuántos metros se considera
+// fuera, y silenciarlo un rato cuando el desvío es conocido (una obra, un
+// desfile, un embotellamiento que ya está avisado).
+app.post('/admin/routes/:routeId/desvio', requireDispatch, (req, res) => {
+  const routeId = String(req.params.routeId);
+  if (req.scope && req.scope !== routeId) {
+    return res.status(403).json({ error: 'Esa ruta no es tuya' });
+  }
+  const ruta = routeOf(routeId);
+  if (!ruta) return res.status(404).json({ error: 'Esa ruta no existe' });
+
+  let umbral = ruta.desvioMaxM || 60;
+  if (req.body?.umbralM !== undefined) {
+    const v = Number(req.body.umbralM);
+    // Por debajo de 30 m el GPS urbano solo daría falsas alarmas; por encima
+    // de 500 m ya no se estaría detectando nada.
+    if (!Number.isFinite(v) || v < 30 || v > 500) {
+      return res.status(400).json({ error: 'El umbral va entre 30 y 500 metros' });
+    }
+    umbral = Math.round(v);
+  }
+
+  let mudoHasta = ruta.desvioMudoHasta || null;
+  if (req.body?.silenciarMin !== undefined) {
+    const m = Number(req.body.silenciarMin);
+    if (!Number.isFinite(m) || m < 0 || m > 720) {
+      return res.status(400).json({ error: 'Se puede silenciar hasta 12 horas' });
+    }
+    mudoHasta = m > 0 ? Date.now() + m * 60_000 : null;
+  }
+
+  db.prepare('UPDATE routes SET desvioMaxM = ?, desvioMudoHasta = ? WHERE routeId = ?')
+    .run(umbral, mudoHasta, routeId);
+  audit(req.dispatchUser.unitId, 'desvio_config', routeId,
+    `umbral ${umbral} m` + (mudoHasta ? ` · silenciado hasta ${new Date(mudoHasta).toLocaleTimeString('es-PE')}` : ' · sin silenciar'),
+    routeId);
+  scheduleStateBroadcast(routeId, true);
+  res.json({ ok: true, umbralM: umbral, mudoHasta });
+});
+
 // Turnos: quién anduvo en qué unidad y cuánto. Por defecto los de hoy.
 app.get('/admin/shifts', requireDispatch, (req, res) => {
   const desde = Number(req.query?.desde);
@@ -1730,6 +1843,9 @@ wss.on('connection', (ws) => {
       });
       const progreso = proy ? proy.progreso : (msg.routeProgress || 0);
 
+      // ¿Se salió del recorrido? Solo cuenta si se sostiene (ver arriba)
+      const desvio = evaluarDesvio(vehicleId, routeId, proy ? proy.desvioM : null);
+
       units.set(vehicleId, {
         ...unit,
         unitId: vehicleId,
@@ -1744,6 +1860,10 @@ wss.on('connection', (ws) => {
         rumbo: rumboReal,
         // A cuántos metros del trazado va. null si la ruta no tiene geometría.
         desvioM: proy ? Math.round(proy.desvioM) : null,
+        // Va por afuera del recorrido, sostenido. Viaja como un booleano
+        // dentro del estado que ya se emite: no hace falta mensaje aparte.
+        fueraDeRuta: !!(desvio && desvio.fuera),
+        fueraDesde: desvio && desvio.fuera ? desvio.desde : null,
         timestamp: Date.now(),
       });
 
@@ -2071,8 +2191,14 @@ function buildState(routeId) {
     .sort((a, b) => b.routeProgress - a.routeProgress);    // ordenadas por avance
 
   const objetivo = objetivoDe(routeId);
+  const ruta2 = routeOf(routeId);
   return {
     routeId,
+    // Gestión del desvío: umbral vigente y hasta cuándo está silenciado
+    desvio: {
+      umbralM: ruta2 ? (ruta2.desvioMaxM || 60) : 60,
+      mudoHasta: ruta2 && ruta2.desvioMudoHasta > Date.now() ? ruta2.desvioMudoHasta : null,
+    },
     routeName: ruta ? ruta.name : routeId,
     targetGapMin: objetivo.min,
     // De dónde sale ese número, para que el panel lo pueda explicar
