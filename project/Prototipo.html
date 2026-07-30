@@ -453,9 +453,10 @@ function otherPinHtml() {
   return `<div style="width:10px;height:10px;border-radius:50%;background:${HUD.dim3};border:2px solid ${borde};box-sizing:content-box;"></div>`;
 }
 
-function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, routeId, modo }) {
+function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, routeId, modo, trazado }) {
   const leafletRef = React.useRef(null);
   const tilesRef = React.useRef(null);
+  const trazadoRef = React.useRef(null);
   const youMarkerRef = React.useRef(null);
   const otherMarkersRef = React.useRef({});
   const [mapReady, setMapReady] = React.useState(false);
@@ -531,6 +532,23 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
     setTimeout(() => map.invalidateSize(), 100);
     setTimeout(() => { map.invalidateSize(); setMapReady(true); }, 500);
   }, []);
+
+  // El recorrido de la ruta, debajo de las unidades: el chofer ve por dónde
+  // va la ruta, no solo dónde está él.
+  React.useEffect(() => {
+    const map = leafletRef.current;
+    if (!map) return;
+    if (trazadoRef.current) { trazadoRef.current.remove(); trazadoRef.current = null; }
+    if (trazado && trazado.length > 1) {
+      trazadoRef.current = L.polyline(trazado, {
+        color: P.bright, weight: 5, opacity: HUD.resplandor ? 0.5 : 0.45,
+      }).addTo(map);
+      trazadoRef.current.bringToBack();
+    }
+    // 'active' entra en las dependencias por precaución: el mapa vive oculto
+    // hasta que el chofer llega a su página, y conviene redibujar cuando se
+    // vuelve visible y Leaflet ya se remidió.
+  }, [trazado, mapReady, modo, active]);
 
   // Cambiar de modo cambia el mapa en caliente: tiles claros u oscuros y
   // pines redibujados. Sin esto habría que reabrir la app para verlo.
@@ -1732,7 +1750,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   );
 }
 
-function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRole, messages, onSendText, onSendVoice, onSos }) {
+function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -1888,6 +1906,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
             nextStop={tweaks.nextStop}
             routeId={routeId}
             modo={tweaks.mode}
+            trazado={trazado}
           />
         </div>
       )}
@@ -2124,6 +2143,8 @@ function Root() {
   // { reporting, reason } — si reporting es false, este celular va de
   // acompañante: ve todo, pero la posición de la unidad la manda otro.
   const [gpsRole, setGpsRole] = React.useState({ reporting: true, reason: null });
+  // Trazado real de la ruta (lista de [lat, lng]); vacío hasta que Despacho lo cargue
+  const [trazado, setTrazado] = React.useState([]);
   const connectedRef = React.useRef(false);
   const myUnitIdRef = React.useRef(null);
 
@@ -2280,6 +2301,10 @@ function Root() {
     // El servidor decide quién reporta la posición de la unidad: uno solo por
     // vehículo. El cobrador —o el chofer al que relevaron— queda en modo
     // acompañante y hay que decírselo, porque si no parece que su GPS falla.
+    window.RealtimeClient.on('geometry', (g) => {
+      setTrazado(g.points || []);
+    });
+
     window.RealtimeClient.on('gpsrole', (r) => {
       setGpsRole({ reporting: r.reporting !== false, reason: r.reason || null });
     });
@@ -2348,6 +2373,7 @@ function Root() {
       routeId={routeId || user?.routeId || null}
       connected={connected}
       gpsRole={gpsRole}
+      trazado={trazado}
       messages={messages}
       onSendText={sendText}
       onSendVoice={sendVoice}

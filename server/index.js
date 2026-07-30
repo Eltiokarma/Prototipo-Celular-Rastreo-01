@@ -197,6 +197,94 @@ function allRoutes() {
   return db.prepare('SELECT * FROM routes ORDER BY routeId').all();
 }
 
+// ─── GEOMETRÍA DE LA RUTA ────────────────────────────────────
+// El recorrido de cada ruta como una polilínea de puntos GPS, en orden.
+// Antes el progreso era una proyección lineal entre dos puntos (Terminal Sur
+// → Huancané): no seguía las calles, así que las brechas eran aproximaciones.
+// Con la geometría real se proyecta la posición sobre el trazado y el
+// progreso pasa a ser distancia recorrida sobre distancia total.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS route_points (
+    routeId TEXT NOT NULL,
+    seq INTEGER NOT NULL,       -- orden del punto en el recorrido
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    PRIMARY KEY (routeId, seq)
+  )
+`);
+
+// Metros entre dos puntos GPS. A escala de una ruta urbana alcanza con
+// aplanar la Tierra: se corrige la longitud por el coseno de la latitud.
+const METROS_POR_GRADO = 111_320;
+function metrosEntre(aLat, aLng, bLat, bLng) {
+  const kLng = Math.cos((aLat + bLat) / 2 * Math.PI / 180);
+  const dLat = (bLat - aLat) * METROS_POR_GRADO;
+  const dLng = (bLng - aLng) * METROS_POR_GRADO * kLng;
+  return Math.hypot(dLat, dLng);
+}
+
+// Geometrías en memoria: { routeId → { puntos, acumulado, largoM } }
+// acumulado[i] = metros desde el inicio hasta el punto i, para no recalcular
+// en cada posición GPS (llegan cada 3 s por unidad).
+const geometrias = new Map();
+
+function cargarGeometria(routeId) {
+  const puntos = db.prepare('SELECT lat, lng FROM route_points WHERE routeId = ? ORDER BY seq').all(routeId);
+  if (puntos.length < 2) { geometrias.delete(routeId); return null; }
+  const acumulado = [0];
+  for (let i = 1; i < puntos.length; i++) {
+    acumulado[i] = acumulado[i - 1] +
+      metrosEntre(puntos[i - 1].lat, puntos[i - 1].lng, puntos[i].lat, puntos[i].lng);
+  }
+  const geo = { puntos, acumulado, largoM: acumulado[acumulado.length - 1] };
+  geometrias.set(routeId, geo);
+  return geo;
+}
+
+function geometriaDe(routeId) {
+  if (geometrias.has(routeId)) return geometrias.get(routeId);
+  return cargarGeometria(routeId);
+}
+
+// Todas las geometrías se cargan al arrancar
+for (const r of allRoutes()) cargarGeometria(r.routeId);
+
+// Proyecta una posición sobre el recorrido.
+// Devuelve { progreso 0..1, desvioM } o null si la ruta no tiene geometría.
+// desvioM es a cuántos metros del trazado está la unidad: sirve para saber
+// si se salió de la ruta (y para no ensuciar el progreso con un GPS malo).
+function proyectarEnRuta(routeId, lat, lng) {
+  const geo = geometriaDe(routeId);
+  if (!geo) return null;
+  const { puntos, acumulado, largoM } = geo;
+
+  let mejor = { dist2: Infinity, metros: 0 };
+  for (let i = 0; i < puntos.length - 1; i++) {
+    const a = puntos[i], b = puntos[i + 1];
+    // Se trabaja en metros locales para que el eje X no pese menos que el Y
+    const kLng = Math.cos(a.lat * Math.PI / 180);
+    const ax = 0, ay = 0;
+    const bx = (b.lng - a.lng) * METROS_POR_GRADO * kLng;
+    const by = (b.lat - a.lat) * METROS_POR_GRADO;
+    const px = (lng - a.lng) * METROS_POR_GRADO * kLng;
+    const py = (lat - a.lat) * METROS_POR_GRADO;
+
+    const largo2 = bx * bx + by * by;
+    // t = cuánto del segmento se recorrió, recortado a [0,1] para que la
+    // proyección no se escape más allá de los extremos
+    const t = largo2 === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / largo2));
+    const cx = ax + t * bx, cy = ay + t * by;
+    const dist2 = (px - cx) ** 2 + (py - cy) ** 2;
+    if (dist2 < mejor.dist2) {
+      mejor = { dist2, metros: acumulado[i] + t * Math.sqrt(largo2) };
+    }
+  }
+  return {
+    progreso: largoM > 0 ? Math.max(0, Math.min(1, mejor.metros / largoM)) : 0,
+    desvioM: Math.sqrt(mejor.dist2),
+  };
+}
+
 // Migración única desde el chat-history.json de la versión anterior
 const LEGACY_FILE = path.join(__dirname, 'chat-history.json');
 if (db.prepare('SELECT COUNT(*) AS c FROM messages').get().c === 0 && fs.existsSync(LEGACY_FILE)) {
@@ -618,11 +706,17 @@ function rutaObjetivo(req) {
 app.get('/admin/routes', requireDispatch, (req, res) => {
   const rutas = allRoutes()
     .filter(r => !req.scope || r.routeId === req.scope)
-    .map(r => ({
-      ...r,
-      unidades: db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'driver' AND routeId = ?").get(r.routeId).c,
-      enLinea: Array.from(units.values()).filter(u => u.routeId === r.routeId).length,
-    }));
+    .map(r => {
+      const geo = geometriaDe(r.routeId);
+      return {
+        ...r,
+        unidades: db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'driver' AND routeId = ?").get(r.routeId).c,
+        enLinea: Array.from(units.values()).filter(u => u.routeId === r.routeId).length,
+        // Recorrido cargado: cuántos puntos y cuántos metros
+        puntos: geo ? geo.puntos.length : 0,
+        largoM: geo ? Math.round(geo.largoM) : 0,
+      };
+    });
   res.json({ routes: rutas, supervisor: !req.scope });
 });
 
@@ -640,6 +734,76 @@ app.post('/admin/routes', requireSupervisor, (req, res) => {
   audit(req.dispatchUser.unitId, 'alta_ruta', routeId, `${name} · objetivo ${gap} min · ${dur} min de recorrido`, routeId);
   console.log(`Ruta creada: ${routeId} (${name})`);
   res.json({ ok: true, routeId });
+});
+
+// ─── RECORRIDO DE LA RUTA (puntos GPS) ───────────────────────
+app.get('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
+  const routeId = String(req.params.routeId);
+  if (req.scope && req.scope !== routeId) {
+    return res.status(403).json({ error: 'Esa ruta no es tuya' });
+  }
+  if (!routeOf(routeId)) return res.status(404).json({ error: 'Esa ruta no existe' });
+  const puntos = db.prepare('SELECT lat, lng FROM route_points WHERE routeId = ? ORDER BY seq').all(routeId);
+  const geo = geometriaDe(routeId);
+  res.json({ routeId, points: puntos, largoM: geo ? Math.round(geo.largoM) : 0 });
+});
+
+// Guarda el recorrido completo de una vez: llega la lista entera de puntos y
+// reemplaza la anterior. Es más simple y más seguro que editar punto por
+// punto — el panel manda lo que quedó dibujado en el mapa.
+app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
+  const routeId = String(req.params.routeId);
+  if (req.scope && req.scope !== routeId) {
+    return res.status(403).json({ error: 'Esa ruta no es tuya' });
+  }
+  if (!routeOf(routeId)) return res.status(404).json({ error: 'Esa ruta no existe' });
+
+  const crudos = Array.isArray(req.body?.points) ? req.body.points : null;
+  if (!crudos) return res.status(400).json({ error: 'Faltan los puntos del recorrido' });
+  if (crudos.length > 2000) {
+    return res.status(400).json({ error: 'Demasiados puntos: el tope es 2000' });
+  }
+
+  // Se validan uno por uno: un punto fuera de rango arruinaría el cálculo de
+  // todas las brechas de la ruta, así que se rechaza el lote entero.
+  const puntos = [];
+  for (const p of crudos) {
+    const lat = Number(p?.lat), lng = Number(p?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
+        lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ error: 'Hay un punto con coordenadas inválidas' });
+    }
+    puntos.push({ lat, lng });
+  }
+  // Vaciar el recorrido es válido (vuelve a la estimación lineal), pero con
+  // un solo punto no hay trazado posible.
+  if (puntos.length === 1) {
+    return res.status(400).json({ error: 'Un recorrido necesita al menos 2 puntos' });
+  }
+
+  const guardar = db.transaction(() => {
+    db.prepare('DELETE FROM route_points WHERE routeId = ?').run(routeId);
+    const ins = db.prepare('INSERT INTO route_points (routeId, seq, lat, lng) VALUES (?, ?, ?, ?)');
+    puntos.forEach((p, i) => ins.run(routeId, i, p.lat, p.lng));
+  });
+  guardar();
+
+  const geo = cargarGeometria(routeId);
+  const largoKm = geo ? (geo.largoM / 1000).toFixed(2) : '0';
+  audit(req.dispatchUser.unitId, 'recorrido', routeId,
+    puntos.length ? `${puntos.length} puntos · ${largoKm} km` : 'recorrido borrado', routeId);
+  console.log(`Recorrido de ${routeId}: ${puntos.length} puntos (${largoKm} km)`);
+
+  // Los mapas de esa ruta reciben el trazado nuevo, y las brechas se
+  // recalculan con él al instante
+  const geoMsg = mensajeGeometria(routeId);
+  for (const [ws, mirando] of watching) {
+    if (mirando === routeId && ws.readyState === 1) {
+      try { ws.send(geoMsg); } catch {}
+    }
+  }
+  scheduleStateBroadcast(routeId, true);
+  res.json({ ok: true, points: puntos.length, largoM: geo ? Math.round(geo.largoM) : 0 });
 });
 
 // ─── VEHÍCULOS ───────────────────────────────────────────────
@@ -1040,6 +1204,7 @@ wss.on('connection', (ws) => {
       // Recién ahora recibe el estado y la conversación en curso
       ws.send(JSON.stringify({ type: 'state', ...buildState(rutaInicial) }));
       ws.send(JSON.stringify({ type: 'chat_history', routeId: rutaInicial, items: recentHistory(rutaInicial) }));
+      ws.send(mensajeGeometria(rutaInicial));
       // Los supervisores además reciben la lista de rutas para el selector
       if (esSupervisor(ws)) {
         ws.send(JSON.stringify({ type: 'routes', routes: rutas, watching: rutaInicial }));
@@ -1053,6 +1218,7 @@ wss.on('connection', (ws) => {
       watching.set(ws, msg.routeId);
       ws.send(JSON.stringify({ type: 'state', ...buildState(msg.routeId) }));
       ws.send(JSON.stringify({ type: 'chat_history', routeId: msg.routeId, items: recentHistory(msg.routeId) }));
+      ws.send(mensajeGeometria(msg.routeId));
     }
 
     // TIPO: posición GPS — llega cada ~3 segundos desde cada combi
@@ -1070,6 +1236,14 @@ wss.on('connection', (ws) => {
 
       const unit = units.get(vehicleId) || {};
       const routeId = unit.routeId || prof.routeId || DEFAULT_ROUTE;
+
+      // El progreso lo calcula EL SERVIDOR, que es donde vive la geometría:
+      // así cargar o corregir el recorrido tiene efecto al instante, sin
+      // actualizar la app de nadie. Si la ruta todavía no tiene trazado, se
+      // usa el que estima el cliente (proyección lineal, como antes).
+      const proy = proyectarEnRuta(routeId, msg.lat, msg.lng);
+      const progreso = proy ? proy.progreso : (msg.routeProgress || 0);
+
       units.set(vehicleId, {
         ...unit,
         unitId: vehicleId,
@@ -1077,12 +1251,14 @@ wss.on('connection', (ws) => {
         lat: msg.lat,
         lng: msg.lng,
         speed: msg.speed || 0,
-        routeProgress: msg.routeProgress || 0,
+        routeProgress: progreso,
+        // A cuántos metros del trazado va. null si la ruta no tiene geometría.
+        desvioM: proy ? Math.round(proy.desvioM) : null,
         timestamp: Date.now(),
       });
 
       // Detección de vuelta completa a partir del progreso (del vehículo)
-      trackLap(vehicleId, routeId, msg.routeProgress || 0, msg.speed || 0);
+      trackLap(vehicleId, routeId, progreso, msg.speed || 0);
 
       // Solo se recalcula y emite el estado de SU ruta
       scheduleStateBroadcast(routeId);
@@ -1209,6 +1385,19 @@ wss.on('connection', (ws) => {
   // El estado y el historial se mandan recién después de un identify
   // válido — una conexión sin autenticar no recibe nada.
 });
+
+// El trazado se manda UNA vez (al conectar, al cambiar de ruta o cuando se
+// edita), nunca dentro del estado: el estado sale cada 3 s y una ruta de 300
+// puntos son ~7 KB — mandarlo ahí sería tirar por la borda el ahorro de datos.
+function mensajeGeometria(routeId) {
+  const geo = geometriaDe(routeId);
+  return JSON.stringify({
+    type: 'route_geometry',
+    routeId,
+    points: geo ? geo.puntos.map(p => [p.lat, p.lng]) : [],
+    largoM: geo ? Math.round(geo.largoM) : 0,
+  });
+}
 
 // ─── CONSTRUIR ESTADO ────────────────────────────────────────
 // Toma todas las posiciones y calcula quién va adelante/atrás de quién.

@@ -9,47 +9,18 @@ compromete nada (ver *Ítems ya cerrados* al final).
 
 | # | Qué | Por qué en ese lugar | Tamaño |
 | --- | --- | --- | --- |
-| 1 | **Ruta como puntos GPS** | Cimiento de la precisión: sin geometría real las brechas son aproximaciones, y el objetivo automático necesita datos buenos | 3–4 días |
-| 2 | **Objetivo de brecha automático** (y por día de semana) | Depende de 1 y del historial de vueltas | 1–2 días |
-| 3 | **Mensaje directo Despacho → unidad** | Autocontenido, valor inmediato, no depende de nada | 1 día |
+| 1 | **Objetivo de brecha automático** (y por día de semana) | Ya hay geometría real y historial de vueltas: es lo que falta para que el objetivo deje de cargarse a mano | 1–2 días |
+| 2 | **Mensaje directo Despacho → unidad** | Autocontenido, valor inmediato, no depende de nada | 1 día |
+| 3 | **Aviso de desvío de ruta** | El servidor ya sabe a cuántos metros del trazado va cada unidad; falta decidir umbral, antirrebote y a quién se le avisa | 1 día |
 | 4 | **Turnos** (quién maneja qué unidad y cuándo) | Ahora que la persona existe aparte del vehículo, es el paso natural: habilita horas trabajadas y relevos planificados | 1–2 días |
 | 5 | **Empresas (multi-cooperativa)** | Nivel de agrupación arriba de las rutas; lo pide la venta, no la operación | 2 días |
-| 6 | **Informes exportables** | Necesita que 1 y 2 estén bien para que los números sirvan | 1–2 días |
-| 7 | **Panel del gerente de ruta** | Vive de los datos de 2 y 6 | 2 días |
+| 6 | **Informes exportables** | Necesita que el objetivo automático esté bien para que los números sirvan | 1–2 días |
+| 7 | **Panel del gerente de ruta** | Vive de los datos de 1 y 6 | 2 días |
 | 8 | **Panel del creador (nuestro)** | Encima de todo; sin 5 no tiene mucho que mostrar | 2–3 días |
 
 ---
 
-## 1. Ruta como puntos GPS
-
-**Hoy:** el progreso en la ruta es una proyección lineal entre dos puntos
-(Terminal Sur → Huancané). No sigue las calles, así que las brechas son
-aproximaciones útiles pero no medidas.
-
-**Propuesta:**
-
-- Guardar la geometría de cada ruta como polilínea de puntos GPS
-  (`route_points`, o un JSON en `routes`).
-- Calcular el progreso **proyectando** la posición de cada unidad sobre
-  la polilínea (segmento más cercano + distancia recorrida hasta ahí).
-  Eso da progreso real, y con él brechas reales.
-- Detección de vueltas más confiable: se sabe cuándo se pasó por el
-  final de verdad, no por una heurística de "el progreso bajó".
-
-**Cómo se cargan los puntos** (tres opciones, se pueden combinar):
-
-1. **Dibujar en el mapa** desde una ventana nuestra: clics sobre Leaflet
-   → lista de puntos. Simple y suficiente.
-2. **Importar GPX/GeoJSON**: sirve si alguien graba la ruta manejando con
-   una app de GPS. Probablemente el camino más práctico y preciso.
-3. **Grabar desde la app**: un chofer hace una vuelta en "modo
-   grabación" y el recorrido queda como geometría. Elegante, y no
-   necesita que nadie dibuje nada.
-
-**Beneficio extra:** con geometría real se puede detectar que una unidad
-**se salió de la ruta** (desvío, atajo) y avisarle a Despacho.
-
-## 2. Objetivo de brecha automático (y por día de semana)
+## 1. Objetivo de brecha automático (y por día de semana)
 
 **Hoy:** es un número fijo por ruta, cargado a mano.
 
@@ -77,7 +48,7 @@ que la duración media de vuelta cambia. Guardar el promedio por día
   ruta al mediodía, el objetivo debería subir. Decidir si se recalcula en
   vivo o por turno.
 
-## 3. Mensaje directo Despacho → unidad
+## 2. Mensaje directo Despacho → unidad
 
 **Hoy:** todo el chat es grupal por ruta.
 
@@ -91,6 +62,25 @@ chofer ↔ chofer en privado no (el grupo es el canal entre choferes, y
 abrir mensajería privada entre 1 000 personas trae problemas de
 moderación que no queremos). El historial privado se guarda igual y solo
 lo ven las dos partes.
+
+## 3. Aviso de desvío de ruta
+
+**Ya está la mitad hecha:** con el recorrido cargado, el servidor calcula en
+cada posición a cuántos metros del trazado va la unidad (`desvioM`). Falta
+convertir eso en un aviso útil.
+
+**Lo que hay que decidir, que es lo difícil:**
+
+- **Umbral:** en Juliaca el GPS tiene error de 5–30 m y hay calles paralelas
+  a 40 m. Un umbral chico llena de falsas alarmas; uno grande no detecta un
+  atajo de una cuadra.
+- **Antirrebote:** avisar solo si el desvío se sostiene (varias muestras
+  seguidas, o N segundos), no en el primer salto de GPS.
+- **A quién se le avisa:** a Despacho seguro; al chofer probablemente no
+  (puede tener un motivo, y un cartel acusándolo mientras maneja es peor que
+  el problema).
+- **Qué es un desvío legítimo:** un desvío por obra o por bloqueo es normal y
+  no debería sonar toda la mañana. Conviene poder silenciarlo por turno.
 
 ## 4. Turnos
 
@@ -125,8 +115,9 @@ horas trabajadas por persona (necesita el ítem 4, turnos) y actividad de
 administración.
 
 Cuidado con una tentación: los informes son fáciles de hacer y difíciles
-de hacer *bien*. Un informe con brechas aproximadas (ítem 1 sin resolver)
-da números que parecen precisos y no lo son — y eso es peor que no tener
+de hacer *bien*. Un informe con brechas aproximadas (una ruta sin
+recorrido cargado, o el objetivo automático sin resolver) da números que
+parecen precisos y no lo son — y eso es peor que no tener
 informe.
 
 ## 7. Panel del gerente de ruta
@@ -141,7 +132,8 @@ informes. Rol nuevo (`manager`) con alcance a una ruta o a la empresa.
 El nivel que hoy vive fuera de la app (ver "Niveles de seguridad" en el
 README), hecho pantalla:
 
-- Alta de empresas y de rutas, carga de geometrías.
+- Alta de empresas y de rutas. (La carga de geometrías ya existe en el
+  panel de Despacho.)
 - Estado del sistema: unidades conectadas por empresa, uso, errores.
 - Salud del servidor y de la base, tamaño, backups.
 - Reseteo de cuentas de Despacho.
@@ -157,6 +149,10 @@ todo se abre con una contraseña más, el nivel de arriba deja de existir.
 
 ## Ítems ya cerrados
 
+- **Ruta como puntos GPS.** Trazado real por ruta (`route_points`), progreso
+  calculado en el servidor proyectando la posición sobre la polilínea, y un
+  trazador en el panel para cargarlo tocando el mapa o importando un GPX.
+  Ver README, sección El recorrido de la ruta.
 - **Identidad: persona ≠ unidad.** Personas (chofer/cobrador) con nombre
   obligatorio y alias opcional, vehículos aparte, un solo reportero de
   GPS por vehículo y modo acompañante para el que no maneja. Las bases
