@@ -92,8 +92,11 @@ Carrusel de 3 páginas (swipe horizontal): **CHAT ← RUTA → MAPA**.
 - **RUTA** — HUD "Temporizador": un dato dominante (la unidad más desviada
   del objetivo), color de estado por tolerancia relativa (verde ≤ ±15 %,
   ámbar ≤ ±30 %, rojo por encima) y slider SOS de deslizar para disparar.
-- **CHAT** — grupo de la ruta en vivo por WebSocket; el SOS de otra unidad
-  entra al hilo y como aviso a pantalla completa.
+- **CHAT** — dos canales: **GRUPO** (toda la ruta en vivo por WebSocket) y
+  **DESPACHO**, la conversación privada de esa unidad con Despacho. Lo
+  privado llega con la etiqueta *DESPACHO · PARA TU UNIDAD* y burbuja ámbar,
+  y la pestaña marca cuántos mensajes faltan ver. El SOS de otra unidad entra
+  al hilo del grupo y como aviso a pantalla completa.
 - **MAPA** — Leaflet con tiles reales, pines de las unidades ±1 con burbuja
   de brecha y barra inferior que replica el HUD.
 
@@ -217,6 +220,31 @@ el mapa del panel y en el del chofer, y **viaja una sola vez** (al conectar,
 al cambiar de ruta o cuando se edita) — nunca dentro del estado, que sale
 cada 3 s: mandar ahí una ruta de 300 puntos serían ~7 KB por emisión y
 tiraría por la borda el ahorro de datos de `ESCALABILIDAD.md`.
+
+## Mensaje directo a una unidad
+
+Además del grupo, Despacho puede hablar en privado con una unidad: en la
+lista de unidades, botón **Mensaje directo**. La conversación es con el
+**vehículo**, no con una persona, así que la ven tanto el chofer como su
+cobrador — que es lo coherente: si Despacho manda volver al terminal, eso es
+para la combi.
+
+Las reglas están puestas a propósito:
+
+| | |
+| --- | --- |
+| Despacho → una unidad | Sí |
+| Una unidad → Despacho | Sí (canal DESPACHO en su chat) |
+| Chofer → chofer en privado | **No.** El canal entre choferes es el grupo |
+
+Un chofer que intente mandar un privado a otra unidad termina hablándole a
+Despacho, no al otro chofer. Abrir mensajería privada entre cientos de
+personas traería un problema de moderación que no queremos.
+
+El historial privado se guarda (columna `toVehicleId` en `messages`) y **solo
+lo reciben las dos partes**: al reconectar, una unidad recibe el grupo más su
+propia conversación, y Despacho el grupo más las conversaciones de su ruta.
+Las notas de voz también pueden ir por el canal privado.
 
 ## Multi-ruta
 

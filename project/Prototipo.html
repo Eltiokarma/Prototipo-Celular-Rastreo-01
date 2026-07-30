@@ -778,6 +778,14 @@ function bubbleStyle(msg) {
     fontFamily: 'system-ui, -apple-system, "Helvetica Neue", sans-serif',
     fontSize: 19, fontWeight: 500, lineHeight: 1.35,
   };
+  // Un mensaje privado de Despacho es para ESTA unidad: tiene que verse
+  // distinto del grupo, porque exige respuesta.
+  if (msg.privado && msg.role === 'admin') {
+    return {
+      ...base, background: HUD.burbujaWarn, color: HUD.burbujaWarnInk,
+      borderLeft: `4px solid ${HUD.warnEdge}`,
+    };
+  }
   if (msg.role === 'you') {
     return { ...base, borderRadius: '16px 16px 5px 16px', background: HUD.burbujaPropia, color: HUD.burbujaPropiaInk };
   }
@@ -812,9 +820,10 @@ function ChatMsg({ msg }) {
         {msg.role === 'admin' && (
           <span style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 11, background: P.bright, color: HUD.bg,
+            fontSize: 11, background: msg.privado ? HUD.warnEdge : P.bright,
+            color: '#fff',
             padding: '2px 6px', borderRadius: 4, letterSpacing: 0.5,
-          }}>DESPACHO</span>
+          }}>{msg.privado ? 'DESPACHO · PARA TU UNIDAD' : 'DESPACHO'}</span>
         )}
         <span style={{
           fontSize: 15, fontWeight: 700, color: nameColor,
@@ -856,6 +865,11 @@ function MicGlyph({ color, size = 24 }) {
 
 function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onSendVoice }) {
   const scrollRef = React.useRef(null);
+  // 'grupo' = toda la ruta · 'despacho' = solo con Despacho, sobre esta unidad
+  const [canal, setCanal] = React.useState('grupo');
+  // Cuántos privados de Despacho ya vio el chofer, para que el número de la
+  // pestaña sea "lo que falta ver" y no el total de la conversación.
+  const [privadosVistos, setPrivadosVistos] = React.useState(0);
   const [draft, setDraft] = React.useState('');
   const [recording, setRecording] = React.useState(false);
   const [recElapsed, setRecElapsed] = React.useState(0);
@@ -892,7 +906,8 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
     setRecording(false);
     setRecElapsed(0);
     const dur = Math.round((Date.now() - rec.started) / 1000);
-    const finish = (dataUrl) => { if (dur >= 1) onSendVoice(Math.min(dur, 60), dataUrl || null); };
+    const privado = canal === 'despacho';
+    const finish = (dataUrl) => { if (dur >= 1) onSendVoice(Math.min(dur, 60), dataUrl || null, privado); };
     if (rec.recorder && rec.recorder.state === 'recording') {
       rec.recorder.onstop = () => {
         rec.stream.getTracks().forEach(t => t.stop());
@@ -927,10 +942,18 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
     };
   }, [recording]);
 
+  // Los que manda Despacho: son los que exigen atención del chofer
+  const privadosDeDespacho = messages.filter(m => m.privado && m.role === 'admin').length;
+  React.useEffect(() => {
+    if (canal === 'despacho') setPrivadosVistos(privadosDeDespacho);
+  }, [canal, privadosDeDespacho]);
+  const privadosPendientes = canal === 'despacho'
+    ? 0 : Math.max(0, privadosDeDespacho - privadosVistos);
+
   const send = () => {
     const text = draft.trim();
     if (!text) return;
-    onSendText(text);
+    onSendText(text, canal === 'despacho');
     setDraft('');
   };
 
@@ -953,11 +976,14 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
           <div style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 24, color: HUD.fg, letterSpacing: -0.5,
-          }}>GRUPO {routeId || 'R-14'}</div>
+          }}>{canal === 'despacho' ? 'DESPACHO' : `GRUPO ${routeId || 'R-14'}`}</div>
           <div style={{
-            fontSize: 15, fontWeight: 700, color: connected ? HUD.dim2 : HUD.amber,
+            fontSize: 15, fontWeight: 700,
+            color: canal === 'despacho' ? HUD.warnEdge : (connected ? HUD.dim2 : HUD.amber),
             fontFamily: 'system-ui, sans-serif',
-          }}>{connected ? `${online} en línea` : 'sin conexión'}</div>
+          }}>{canal === 'despacho'
+            ? 'solo con tu unidad'
+            : (connected ? `${online} en línea` : 'sin conexión')}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{
@@ -977,13 +1003,50 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
         </div>
       </div>
 
+      {/* Canales: el grupo de la ruta y lo de Despacho con esta unidad */}
+      <div style={{
+        display: 'flex', gap: 8, padding: '10px 16px 0',
+      }}>
+        {[['grupo', `GRUPO ${routeId || 'R-14'}`], ['despacho', 'DESPACHO']].map(([k, etiqueta]) => {
+          const activo = canal === k;
+          const pendientes = k === 'despacho' ? privadosPendientes : 0;
+          return (
+            <button key={k} onClick={() => setCanal(k)} style={{
+              flex: 1, height: 40, borderRadius: 12, cursor: 'pointer',
+              border: `1px solid ${activo ? P.bright : HUD.line}`,
+              background: activo ? P.bright : 'transparent',
+              color: activo ? '#fff' : HUD.dim,
+              fontFamily: 'system-ui, sans-serif', fontSize: 14, fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+            }}>
+              {etiqueta}
+              {pendientes > 0 && (
+                <span style={{
+                  background: HUD.warnEdge, color: '#fff', borderRadius: 9,
+                  minWidth: 18, padding: '1px 5px', fontSize: 12, fontWeight: 800,
+                }}>{pendientes}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Hilo */}
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto', overflowX: 'hidden',
-        padding: '16px 16px 10px',
+        padding: '12px 16px 10px',
         display: 'flex', flexDirection: 'column', gap: 14,
       }}>
-        {messages.map((m, i) => <ChatMsg key={i} msg={m} />)}
+        {(canal === 'despacho'
+          ? messages.filter(m => m.privado)
+          : messages.filter(m => !m.privado)
+        ).map((m, i) => <ChatMsg key={i} msg={m} />)}
+        {canal === 'despacho' && !messages.some(m => m.privado) && (
+          <div style={{ fontSize: 15, color: HUD.dim2, lineHeight: 1.5, padding: '4px 2px' }}>
+            Acá va lo que hablás <strong>solo con Despacho</strong> sobre tu unidad.
+            Lo que escribas de este lado no lo ven los otros choferes.
+          </div>
+        )}
       </div>
 
       {/* Barra de entrada — los tres controles a 56px */}
@@ -1019,7 +1082,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') send(); }}
-            placeholder="Mensaje…"
+            placeholder={canal === 'despacho' ? 'Mensaje a Despacho…' : 'Mensaje…'}
             style={{
               flex: 1, minWidth: 0, height: controlH, boxSizing: 'border-box',
               borderRadius: controlH / 2,
@@ -2243,14 +2306,15 @@ function Root() {
         const msgRole = own ? 'you' : (isDispatch ? 'admin' : 'driver');
         const tone = isDispatch ? 'info' : 'normal';
         const unit = it.vehicleId && it.vehicleId !== myVehicleId ? it.vehicleId : null;
+        const privado = !!it.toVehicleId;
         if (it.kind === 'sos') {
           return { from: it.driverName || it.unitId || 'Conductor', role: 'driver', unit, text: 'SOS — pide ayuda', time, tone: 'sos' };
         }
         if (it.kind === 'voice') {
           // las notas viejas pierden el audio en el servidor: quedan expiradas
-          return { from, role: msgRole, unit, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
+          return { from, role: msgRole, unit, privado, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
         }
-        return { from, role: msgRole, unit, text: it.text, time, tone };
+        return { from, role: msgRole, unit, privado, text: it.text, time, tone };
       }));
     });
 
@@ -2263,6 +2327,7 @@ function Root() {
         from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
         role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
         unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
+        privado: !!m.toVehicleId,
         text: m.text,
         time: nowTime(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
@@ -2277,6 +2342,7 @@ function Root() {
         from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
         role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
         unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
+        privado: !!m.toVehicleId,
         voice: m.duration,
         audio: m.data,
         time: nowTime(m.timestamp),
@@ -2314,21 +2380,22 @@ function Root() {
     return () => window.RealtimeClient.disconnect();
   }, [user, screen]);
 
-  const sendText = (text) => {
+  // privado = solo con Despacho, sobre esta unidad; si no, al grupo de la ruta
+  const sendText = (text, privado) => {
     if (connectedRef.current) {
-      window.RealtimeClient.sendChat(text); // el eco del servidor lo agrega al hilo
+      window.RealtimeClient.sendChat(text, privado); // el eco del servidor lo agrega al hilo
     } else {
-      pushMsg({ from: 'TÚ', role: 'you', text, time: nowTime(), tone: 'normal' });
+      pushMsg({ from: 'TÚ', role: 'you', privado: !!privado, text, time: nowTime(), tone: 'normal' });
     }
   };
 
-  // Nota de voz: si hay audio y conexión va al grupo (el eco la agrega al
-  // hilo); sin conexión o sin permiso de micrófono queda local
-  const sendVoice = (seconds, dataUrl) => {
+  // Nota de voz: si hay audio y conexión va al canal elegido (el eco la
+  // agrega al hilo); sin conexión o sin permiso de micrófono queda local
+  const sendVoice = (seconds, dataUrl, privado) => {
     if (connectedRef.current && dataUrl) {
-      window.RealtimeClient.sendVoice(dataUrl, seconds);
+      window.RealtimeClient.sendVoice(dataUrl, seconds, privado);
     } else {
-      pushMsg({ from: 'TÚ', role: 'you', voice: seconds, audio: dataUrl || null, time: nowTime(), tone: 'normal' });
+      pushMsg({ from: 'TÚ', role: 'you', privado: !!privado, voice: seconds, audio: dataUrl || null, time: nowTime(), tone: 'normal' });
     }
   };
 

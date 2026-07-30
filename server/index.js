@@ -316,13 +316,18 @@ if (addColumnIfMissing('messages', 'vehicleId', 'TEXT')) {
   db.prepare('UPDATE messages SET vehicleId = unitId WHERE vehicleId IS NULL').run();
 }
 
+// Destinatario de un mensaje privado. Es un VEHÍCULO, no una persona: la
+// conversación es "Despacho ↔ esa combi", así que la ven tanto el chofer como
+// su cobrador. NULL = mensaje del grupo, lo ve toda la ruta.
+addColumnIfMissing('messages', 'toVehicleId', 'TEXT');
+
 const HISTORY_MAX = 200;   // mensajes que recibe un cliente al conectarse
 const KEEP_ROWS = 1000;    // filas totales que retiene la base
 const VOICE_KEEP = 30;     // notas de voz que conservan su audio
 
 const insertStmt = db.prepare(`
-  INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, text, duration, data, lat, lng, timestamp)
-  VALUES (@kind, @unitId, @driverName, @routeId, @vehicleId, @text, @duration, @data, @lat, @lng, @timestamp)
+  INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, toVehicleId, text, duration, data, lat, lng, timestamp)
+  VALUES (@kind, @unitId, @driverName, @routeId, @vehicleId, @toVehicleId, @text, @duration, @data, @lat, @lng, @timestamp)
 `);
 const pruneRowsStmt = db.prepare(`
   DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY id DESC LIMIT ${KEEP_ROWS})
@@ -337,7 +342,8 @@ const pruneVoiceStmt = db.prepare(`
 
 function remember(item) {
   try {
-    insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null, vehicleId: null, ...item });
+    insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null,
+      vehicleId: null, toVehicleId: null, ...item });
     pruneRowsStmt.run();
     pruneVoiceStmt.run();
   } catch (e) {
@@ -346,15 +352,30 @@ function remember(item) {
 }
 
 // Historial de UNA ruta: un chofer nunca ve la conversación de otra
-function recentHistory(routeId) {
+// Historial de la ruta. 'verPrivadosDe' decide qué conversación privada se
+// incluye: para una combi, la suya; para Despacho, todas las de su ruta
+// ('*'); sin eso, solo el grupo. Un chofer nunca ve lo privado de otro.
+function recentHistory(routeId, verPrivadosDe = null) {
   // El rol sale de la tabla users (los mensajes viejos no lo guardan)
   return db.prepare(`
-    SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.text, m.duration, m.data,
-           m.lat, m.lng, m.timestamp, COALESCE(u.role, 'driver') AS role
-    FROM (SELECT * FROM messages WHERE routeId = @routeId ORDER BY id DESC LIMIT ${HISTORY_MAX}) m
+    SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.toVehicleId, m.text,
+           m.duration, m.data, m.lat, m.lng, m.timestamp,
+           COALESCE(u.role, 'driver') AS role
+    FROM (
+      SELECT * FROM messages
+      WHERE routeId = @routeId
+        AND (toVehicleId IS NULL
+             OR @todos = 1
+             OR toVehicleId = @propio)
+      ORDER BY id DESC LIMIT ${HISTORY_MAX}
+    ) m
     LEFT JOIN users u ON u.unitId = m.unitId
     ORDER BY m.id ASC
-  `).all({ routeId });
+  `).all({
+    routeId,
+    todos: verPrivadosDe === '*' ? 1 : 0,
+    propio: verPrivadosDe && verPrivadosDe !== '*' ? verPrivadosDe : '',
+  });
 }
 
 function historyCount() {
@@ -1203,7 +1224,13 @@ wss.on('connection', (ws) => {
 
       // Recién ahora recibe el estado y la conversación en curso
       ws.send(JSON.stringify({ type: 'state', ...buildState(rutaInicial) }));
-      ws.send(JSON.stringify({ type: 'chat_history', routeId: rutaInicial, items: recentHistory(rutaInicial) }));
+      // Qué conversación privada le corresponde ver: Despacho todas las de
+      // su ruta, una combi la suya, nadie la de otro.
+      const privados = user.role === 'dispatch' ? '*' : (vehicleId || null);
+      ws.send(JSON.stringify({
+        type: 'chat_history', routeId: rutaInicial,
+        items: recentHistory(rutaInicial, privados),
+      }));
       ws.send(mensajeGeometria(rutaInicial));
       // Los supervisores además reciben la lista de rutas para el selector
       if (esSupervisor(ws)) {
@@ -1217,7 +1244,11 @@ wss.on('connection', (ws) => {
       if (!routeOf(msg.routeId)) return;     // ruta inexistente
       watching.set(ws, msg.routeId);
       ws.send(JSON.stringify({ type: 'state', ...buildState(msg.routeId) }));
-      ws.send(JSON.stringify({ type: 'chat_history', routeId: msg.routeId, items: recentHistory(msg.routeId) }));
+      // Solo un supervisor llega acá, y ve los privados de la ruta que mira
+      ws.send(JSON.stringify({
+        type: 'chat_history', routeId: msg.routeId,
+        items: recentHistory(msg.routeId, '*'),
+      }));
       ws.send(mensajeGeometria(msg.routeId));
     }
 
@@ -1303,16 +1334,41 @@ wss.on('connection', (ws) => {
       if (!unitId) return;
       const prof = profiles.get(unitId) || {};
       const routeId = rutaDelEmisor();
+
+      // ¿Privado? Despacho elige a qué unidad le escribe; una unidad solo
+      // puede escribirle a Despacho, y eso es su propia conversación.
+      // A propósito NO existe chofer ↔ chofer en privado: el canal entre
+      // choferes es el grupo, y abrir mensajería privada entre cientos de
+      // personas trae un problema de moderación que no queremos.
+      let toVehicleId = null;
+      if (prof.role === 'dispatch') {
+        const destino = String(msg.to || '').trim();
+        if (destino) {
+          if (!units.has(destino) && !vehicleOf(destino)) return;  // unidad inexistente
+          toVehicleId = destino;
+        }
+      } else if (msg.to || msg.privado) {
+        toVehicleId = prof.vehicleId || null;
+        if (!toVehicleId) return;
+      }
+
       const entry = {
         unitId,
         driverName: prof.driverName || 'Conductor',
         vehicleId: prof.vehicleId || null,
+        toVehicleId,
         routeId,
         text: String(msg.text || '').slice(0, 500),
         timestamp: msg.timestamp || Date.now(),
       };
       remember({ kind: 'chat', ...entry });
-      broadcastToRoute(routeId, { type: 'chat_msg', role: prof.role || 'driver', ...entry });
+      const payload = { type: 'chat_msg', role: prof.role || 'driver', ...entry };
+      if (toVehicleId) {
+        enviarPrivado(routeId, toVehicleId, payload);
+        console.log(`Privado ${prof.role === 'dispatch' ? 'Despacho → ' + toVehicleId : toVehicleId + ' → Despacho'}`);
+      } else {
+        broadcastToRoute(routeId, payload);
+      }
     }
 
     // TIPO: voz — nota de voz grabada en el celular
@@ -1328,17 +1384,35 @@ wss.on('connection', (ws) => {
       if (!data) return; // audio inválido o demasiado grande — se descarta
       const prof = profiles.get(unitId) || {};
       const routeId = rutaDelEmisor();
+
+      // Mismas reglas que el texto: Despacho elige unidad, una unidad solo
+      // puede hablar con Despacho (su propia conversación).
+      let toVehicleId = null;
+      if (prof.role === 'dispatch') {
+        const destino = String(msg.to || '').trim();
+        if (destino) {
+          if (!units.has(destino) && !vehicleOf(destino)) return;
+          toVehicleId = destino;
+        }
+      } else if (msg.to || msg.privado) {
+        toVehicleId = prof.vehicleId || null;
+        if (!toVehicleId) return;
+      }
+
       const entry = {
         unitId,
         driverName: prof.driverName || 'Conductor',
         vehicleId: prof.vehicleId || null,
+        toVehicleId,
         routeId,
         duration: Math.max(1, Math.min(120, Math.round(msg.duration || 0))),
         data,
         timestamp: msg.timestamp || Date.now(),
       };
       remember({ kind: 'voice', ...entry });
-      broadcastToRoute(routeId, { type: 'voice_msg', role: prof.role || 'driver', ...entry });
+      const payload = { type: 'voice_msg', role: prof.role || 'driver', ...entry };
+      if (toVehicleId) enviarPrivado(routeId, toVehicleId, payload);
+      else broadcastToRoute(routeId, payload);
     }
   });
 
@@ -1385,6 +1459,22 @@ wss.on('connection', (ws) => {
   // El estado y el historial se mandan recién después de un identify
   // válido — una conexión sin autenticar no recibe nada.
 });
+
+// Reparto de un mensaje privado: los que van ARRIBA de ese vehículo (chofer y
+// cobrador) y Despacho mirando esa ruta. Nadie más — ni los otros choferes.
+function enviarPrivado(routeId, toVehicleId, payload) {
+  const crudo = JSON.stringify(payload);
+  for (const [ws, personId] of clients) {
+    if (ws.readyState !== 1) continue;
+    const prof = profiles.get(personId);
+    if (!prof) continue;
+    const esDeEsaCombi = prof.vehicleId === toVehicleId;
+    const esDespachoDeLaRuta = prof.role === 'dispatch' && watching.get(ws) === routeId;
+    if (esDeEsaCombi || esDespachoDeLaRuta) {
+      try { ws.send(crudo); } catch {}
+    }
+  }
+}
 
 // El trazado se manda UNA vez (al conectar, al cambiar de ruta o cuando se
 // edita), nunca dentro del estado: el estado sale cada 3 s y una ruta de 300

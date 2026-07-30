@@ -267,15 +267,20 @@
   // El servidor rebota estos mensajes a todos los conectados
   // (incluido el emisor), así el hilo queda igual para todo el grupo.
 
-  function sendChat(text) {
-    send({ type: 'chat', text: String(text).slice(0, 500), timestamp: Date.now() });
+  // privado = va solo a Despacho (y a quien vaya en la misma combi), no al
+  // grupo de la ruta. El servidor decide el destinatario: la propia unidad.
+  function sendChat(text, privado) {
+    send({
+      type: 'chat', text: String(text).slice(0, 500),
+      privado: !!privado, timestamp: Date.now(),
+    });
   }
 
   // Nota de voz como data-URL base64 (webm/opus). El servidor la rebota
   // a todo el grupo y la guarda en el historial.
-  function sendVoice(dataUrl, duration) {
+  function sendVoice(dataUrl, duration, privado) {
     if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:audio')) return;
-    send({ type: 'voice', data: dataUrl, duration, timestamp: Date.now() });
+    send({ type: 'voice', data: dataUrl, duration, privado: !!privado, timestamp: Date.now() });
   }
 
   function sendSos() {
