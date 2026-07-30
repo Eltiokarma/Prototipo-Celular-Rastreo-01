@@ -15,7 +15,10 @@ project/            La app (PWA servida como archivos estáticos)
   realtime.js         Cliente WebSocket: GPS, estado, chat y SOS
   service-worker.js   Caché offline + caché de tiles del mapa
                       (bump CACHE_NAME en cada release; tiles y librerías
-                      se conservan entre versiones a propósito)
+                      se conservan entre versiones a propósito.
+                      El HTML de las apps va a la RED primero, con 4 s de
+                      tope: una versión nueva se ve en la primera recarga
+                      y sin señal igual abre de la copia guardada)
   manifest.json       Manifest PWA
   index.html          Redirect a Prototipo.html
   uploads/            Referencias de diseño (tema de color)

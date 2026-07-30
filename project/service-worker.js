@@ -6,7 +6,7 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v16';       // app: HTML, JS propio, iconos
+const CACHE_NAME = 'coop-r14-v19';       // app: HTML, JS propio, iconos
 const TILE_CACHE = 'coop-r14-tiles-v1';  // tiles del mapa
 const LIB_CACHE  = 'coop-r14-libs-v1';   // React, Babel, Leaflet, fuentes
 
@@ -32,6 +32,18 @@ const NUNCA_CACHEAR = [
 
 const ES_TILE = /basemaps\.cartocdn\.com|tile\.openstreetmap\.org/;
 const ES_LIB  = /unpkg\.com|fonts\.googleapis\.com|fonts\.gstatic\.com/;
+
+// Los archivos NUESTROS (el HTML de las apps y realtime.js) van a la red
+// primero. Antes eran caché-primero y una versión nueva no aparecía hasta
+// cerrar y reabrir la app: el chofer seguía con la pantalla vieja sin saberlo.
+// No cuesta datos: son ~100 KB y el navegador revalida con ETag, así que si
+// no cambió nada la respuesta es un 304 de ~1 KB. Los tiles y las librerías
+// siguen siendo caché-primero — ahí está el ahorro de verdad.
+const ES_APP_PROPIA = /\.html$|\/realtime\.js$|\/manifest[^/]*\.json$/;
+
+// Cuánto se espera a la red antes de servir la copia guardada. En una zona
+// sin señal la app tiene que abrir igual, no quedarse en blanco.
+const RED_TIMEOUT_MS = 4000;
 
 // INSTALL: guarda la app. Si algún archivo falla, no aborta la instalación.
 self.addEventListener('install', (event) => {
@@ -65,6 +77,47 @@ async function podarTiles(cache) {
 // Caché primero: si está guardado se sirve sin tocar la red (0 datos).
 // Los tiles y las librerías llegan como respuestas opaque (status 0)
 // porque son de otro dominio: hay que guardarlas igual.
+// Red primero con tope de espera: si el servidor responde, esa copia es la
+// buena y se guarda; si tarda o no hay señal, se sirve la guardada.
+async function redPrimero(request, cacheName) {
+  const cache = await caches.open(cacheName);
+
+  // Se pide por URL en vez de reenviar la petición original: las de
+  // navegación (abrir la app) son un caso especial y reenviarlas tal cual
+  // no traía la copia fresca — se seguía viendo la versión vieja. Sin
+  // 'no-store' a propósito: así el navegador revalida con ETag y, cuando
+  // no cambió nada, la respuesta es un 304 de ~1 KB.
+  const pedido = new Request(request.url);
+
+  let respuesta;
+  try {
+    respuesta = await Promise.race([
+      fetch(pedido),
+      new Promise((_, rechazar) => setTimeout(() => rechazar(new Error('timeout')), RED_TIMEOUT_MS)),
+    ]);
+  } catch {
+    // Sin red o demasiado lenta: la copia guardada
+    const guardado = await cache.match(request);
+    if (guardado) return guardado;
+    throw new Error('sin red y sin copia guardada');
+  }
+
+  if (respuesta && respuesta.ok) {
+    // Guardar en un try aparte: si falla (la Cache API rechaza algunos
+    // pedidos, como los de navegación) igual se sirve la copia fresca.
+    // Se guarda una petición simple por URL, que es la que después
+    // encuentra cache.match cuando no hay señal.
+    try {
+      await cache.put(pedido, respuesta.clone());
+    } catch {}
+    return respuesta;
+  }
+
+  // Respuesta rara (500, etc.): mejor lo guardado que un error en pantalla
+  const guardado = await cache.match(request);
+  return guardado || respuesta;
+}
+
 async function cachePrimero(request, cacheName, podar) {
   const cache = await caches.open(cacheName);
   const guardado = await cache.match(request);
@@ -101,7 +154,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Resto (la app): caché primero, y si no está se busca y se guarda
+  // Las apps propias: red primero, para que una versión nueva se vea en la
+  // primera recarga. Una navegación (abrir la app) entra por acá aunque la
+  // URL no termine en .html — p. ej. la raíz del sitio.
+  if (req.mode === 'navigate' || ES_APP_PROPIA.test(new URL(url).pathname)) {
+    event.respondWith(
+      redPrimero(req, CACHE_NAME).catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  // Resto (iconos, etc.): caché primero, y si no está se busca y se guarda
   event.respondWith(
     cachePrimero(req, CACHE_NAME, false).catch(() => caches.match(req))
   );
