@@ -539,12 +539,21 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
     const map = leafletRef.current;
     if (!map) return;
     if (trazadoRef.current) { trazadoRef.current.remove(); trazadoRef.current = null; }
-    if (trazado && trazado.length > 1) {
-      trazadoRef.current = L.polyline(trazado, {
-        color: P.bright, weight: 5, opacity: HUD.resplandor ? 0.5 : 0.45,
-      }).addTo(map);
-      trazadoRef.current.bringToBack();
+    const capa = L.layerGroup();
+    let hay = false;
+    const op = HUD.resplandor ? 0.5 : 0.45;
+    if (trazado?.ida?.length > 1) {
+      L.polyline(trazado.ida, { color: P.bright, weight: 5, opacity: op }).addTo(capa);
+      hay = true;
     }
+    // La vuelta punteada: si comparte calle con la ida, se distinguen
+    if (trazado?.vuelta?.length > 1) {
+      L.polyline(trazado.vuelta, {
+        color: P.bright, weight: 5, opacity: op, dashArray: '10 10',
+      }).addTo(capa);
+      hay = true;
+    }
+    if (hay) { capa.addTo(map); trazadoRef.current = capa; }
     // 'active' entra en las dependencias por precaución: el mapa vive oculto
     // hasta que el chofer llega a su página, y conviene redibujar cuando se
     // vuelve visible y Leaflet ya se remidió.
@@ -2206,8 +2215,8 @@ function Root() {
   // { reporting, reason } — si reporting es false, este celular va de
   // acompañante: ve todo, pero la posición de la unidad la manda otro.
   const [gpsRole, setGpsRole] = React.useState({ reporting: true, reason: null });
-  // Trazado real de la ruta (lista de [lat, lng]); vacío hasta que Despacho lo cargue
-  const [trazado, setTrazado] = React.useState([]);
+  // Trazado real de la ruta, por tramos; vacío hasta que Despacho lo cargue
+  const [trazado, setTrazado] = React.useState({ ida: [], vuelta: [] });
   const connectedRef = React.useRef(false);
   const myUnitIdRef = React.useRef(null);
 
@@ -2368,7 +2377,7 @@ function Root() {
     // vehículo. El cobrador —o el chofer al que relevaron— queda en modo
     // acompañante y hay que decírselo, porque si no parece que su GPS falla.
     window.RealtimeClient.on('geometry', (g) => {
-      setTrazado(g.points || []);
+      setTrazado(g.tramos || { ida: [], vuelta: [] });
     });
 
     window.RealtimeClient.on('gpsrole', (r) => {

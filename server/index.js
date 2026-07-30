@@ -197,21 +197,52 @@ function allRoutes() {
   return db.prepare('SELECT * FROM routes ORDER BY routeId').all();
 }
 
-// ─── GEOMETRÍA DE LA RUTA ────────────────────────────────────
-// El recorrido de cada ruta como una polilínea de puntos GPS, en orden.
-// Antes el progreso era una proyección lineal entre dos puntos (Terminal Sur
-// → Huancané): no seguía las calles, así que las brechas eran aproximaciones.
-// Con la geometría real se proyecta la posición sobre el trazado y el
-// progreso pasa a ser distancia recorrida sobre distancia total.
-db.exec(`
+// ─── GEOMETRÍA DE LA RUTA (por tramos) ───────────────────────
+// Una combi no recorre una línea: hace un CIRCUITO. Sale por un lado y
+// vuelve por otro, y muchas veces la vuelta va por calles distintas (mano
+// única) o por la misma calle en sentido contrario.
+//
+// Por eso el recorrido se guarda en dos tramos, IDA y VUELTA, cada uno con
+// su propia polilínea. El progreso se mide dentro del tramo y después se
+// convierte a una coordenada del circuito completo (0 = salida de la ida,
+// 1 = fin de la vuelta), que es la que necesitan las brechas: dos combis se
+// comparan sobre la misma rueda aunque una vaya de ida y la otra de vuelta.
+//
+// Una ruta puede tener solo IDA: ahí el circuito es ese tramo y funciona
+// como antes.
+const CREAR_ROUTE_POINTS = `
   CREATE TABLE IF NOT EXISTS route_points (
     routeId TEXT NOT NULL,
-    seq INTEGER NOT NULL,       -- orden del punto en el recorrido
+    leg TEXT NOT NULL DEFAULT 'ida',   -- 'ida' | 'vuelta'
+    seq INTEGER NOT NULL,              -- orden del punto DENTRO del tramo
     lat REAL NOT NULL,
     lng REAL NOT NULL,
-    PRIMARY KEY (routeId, seq)
+    PRIMARY KEY (routeId, leg, seq)
   )
-`);
+`;
+db.exec(CREAR_ROUTE_POINTS);
+
+// La primera versión guardaba el recorrido de una sola pieza, con clave
+// (routeId, seq). Con dos tramos, ida y vuelta usan los mismos números de
+// orden y chocan, así que hay que rehacer la tabla — en SQLite es la única
+// forma de cambiar una clave primaria. Lo que había pasa a ser la ida.
+{
+  const info = db.prepare('PRAGMA table_info(route_points)').all();
+  const clave = info.filter(c => c.pk > 0).sort((a, b) => a.pk - b.pk).map(c => c.name).join(',');
+  if (clave !== 'routeId,leg,seq') {
+    const tieneLeg = info.some(c => c.name === 'leg');
+    db.exec('ALTER TABLE route_points RENAME TO route_points_v1');
+    db.exec(CREAR_ROUTE_POINTS);
+    db.exec(`
+      INSERT INTO route_points (routeId, leg, seq, lat, lng)
+      SELECT routeId, ${tieneLeg ? 'leg' : "'ida'"}, seq, lat, lng FROM route_points_v1
+    `);
+    db.exec('DROP TABLE route_points_v1');
+    console.log('Recorridos migrados a tramos (ida/vuelta)');
+  }
+}
+
+const TRAMOS = ['ida', 'vuelta'];
 
 // Metros entre dos puntos GPS. A escala de una ruta urbana alcanza con
 // aplanar la Tierra: se corrige la longitud por el coseno de la latitud.
@@ -223,20 +254,32 @@ function metrosEntre(aLat, aLng, bLat, bLng) {
   return Math.hypot(dLat, dLng);
 }
 
-// Geometrías en memoria: { routeId → { puntos, acumulado, largoM } }
-// acumulado[i] = metros desde el inicio hasta el punto i, para no recalcular
-// en cada posición GPS (llegan cada 3 s por unidad).
+// Geometrías en memoria: { routeId → { ida, vuelta, largoTotalM } }
+// Cada tramo es { puntos, acumulado, largoM }; acumulado[i] son los metros
+// desde el inicio del tramo hasta el punto i, para no recalcularlo en cada
+// posición GPS (llegan cada 3 s por unidad).
 const geometrias = new Map();
 
-function cargarGeometria(routeId) {
-  const puntos = db.prepare('SELECT lat, lng FROM route_points WHERE routeId = ? ORDER BY seq').all(routeId);
-  if (puntos.length < 2) { geometrias.delete(routeId); return null; }
+function armarTramo(puntos) {
+  if (puntos.length < 2) return null;
   const acumulado = [0];
   for (let i = 1; i < puntos.length; i++) {
     acumulado[i] = acumulado[i - 1] +
       metrosEntre(puntos[i - 1].lat, puntos[i - 1].lng, puntos[i].lat, puntos[i].lng);
   }
-  const geo = { puntos, acumulado, largoM: acumulado[acumulado.length - 1] };
+  return { puntos, acumulado, largoM: acumulado[acumulado.length - 1] };
+}
+
+function cargarGeometria(routeId) {
+  const leer = (leg) => db.prepare(
+    'SELECT lat, lng FROM route_points WHERE routeId = ? AND leg = ? ORDER BY seq'
+  ).all(routeId, leg);
+
+  const ida = armarTramo(leer('ida'));
+  const vuelta = armarTramo(leer('vuelta'));
+  if (!ida) { geometrias.delete(routeId); return null; }
+
+  const geo = { ida, vuelta, largoTotalM: ida.largoM + (vuelta ? vuelta.largoM : 0) };
   geometrias.set(routeId, geo);
   return geo;
 }
@@ -249,21 +292,17 @@ function geometriaDe(routeId) {
 // Todas las geometrías se cargan al arrancar
 for (const r of allRoutes()) cargarGeometria(r.routeId);
 
-// Proyecta una posición sobre el recorrido.
-// Devuelve { progreso 0..1, desvioM } o null si la ruta no tiene geometría.
-// desvioM es a cuántos metros del trazado está la unidad: sirve para saber
-// si se salió de la ruta (y para no ensuciar el progreso con un GPS malo).
-function proyectarEnRuta(routeId, lat, lng) {
-  const geo = geometriaDe(routeId);
-  if (!geo) return null;
-  const { puntos, acumulado, largoM } = geo;
-
-  let mejor = { dist2: Infinity, metros: 0 };
+// Proyecta una posición sobre UN tramo.
+// Devuelve { metros, desvioM, rumbo } — rumbo es la dirección del tramo en
+// ese punto, en grados, que sirve para saber por cuál de los dos va la combi
+// cuando ida y vuelta comparten la calle.
+function proyectarEnTramo(tramo, lat, lng) {
+  const { puntos, acumulado } = tramo;
+  let mejor = { dist2: Infinity, metros: 0, rumbo: null };
   for (let i = 0; i < puntos.length - 1; i++) {
     const a = puntos[i], b = puntos[i + 1];
     // Se trabaja en metros locales para que el eje X no pese menos que el Y
     const kLng = Math.cos(a.lat * Math.PI / 180);
-    const ax = 0, ay = 0;
     const bx = (b.lng - a.lng) * METROS_POR_GRADO * kLng;
     const by = (b.lat - a.lat) * METROS_POR_GRADO;
     const px = (lng - a.lng) * METROS_POR_GRADO * kLng;
@@ -273,15 +312,82 @@ function proyectarEnRuta(routeId, lat, lng) {
     // t = cuánto del segmento se recorrió, recortado a [0,1] para que la
     // proyección no se escape más allá de los extremos
     const t = largo2 === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / largo2));
-    const cx = ax + t * bx, cy = ay + t * by;
-    const dist2 = (px - cx) ** 2 + (py - cy) ** 2;
+    const dist2 = (px - t * bx) ** 2 + (py - t * by) ** 2;
     if (dist2 < mejor.dist2) {
-      mejor = { dist2, metros: acumulado[i] + t * Math.sqrt(largo2) };
+      mejor = {
+        dist2,
+        metros: acumulado[i] + t * Math.sqrt(largo2),
+        rumbo: Math.atan2(bx, by) * 180 / Math.PI,
+      };
     }
   }
+  return { metros: mejor.metros, desvioM: Math.sqrt(mejor.dist2), rumbo: mejor.rumbo };
+}
+
+// Diferencia entre dos rumbos, siempre entre 0 y 180 grados
+function difRumbo(a, b) {
+  if (a === null || b === null) return null;
+  let d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+// Cuánto más cerca tiene que estar un tramo del otro para ganar por cercanía
+// sola. Por debajo de eso se considera empate y decide el sentido de marcha.
+const EMPATE_M = 25;
+
+// Proyecta una posición sobre el recorrido completo.
+// 'previo' es lo que se sabe de esa unidad: { tramo, rumbo } — el rumbo es
+// hacia dónde venía yendo, que es lo que desempata cuando ida y vuelta van
+// por la misma calle en sentidos opuestos.
+// Devuelve { progreso 0..1 del CIRCUITO, tramo, progresoTramo, desvioM }
+// o null si la ruta no tiene geometría.
+function proyectarEnRuta(routeId, lat, lng, previo) {
+  const geo = geometriaDe(routeId);
+  if (!geo) return null;
+
+  const candidatos = [{ leg: 'ida', tramo: geo.ida, p: proyectarEnTramo(geo.ida, lat, lng) }];
+  if (geo.vuelta) {
+    candidatos.push({ leg: 'vuelta', tramo: geo.vuelta, p: proyectarEnTramo(geo.vuelta, lat, lng) });
+  }
+
+  let elegido;
+  if (candidatos.length === 1) {
+    elegido = candidatos[0];
+  } else {
+    const [a, b] = candidatos.slice().sort((x, y) => x.p.desvioM - y.p.desvioM);
+    if (b.p.desvioM - a.p.desvioM > EMPATE_M) {
+      // Uno está claramente más cerca: son calles distintas
+      elegido = a;
+    } else if (previo && previo.rumbo !== null && previo.rumbo !== undefined) {
+      // Empate: van por la misma calle. Gana el tramo cuyo sentido coincide
+      // con hacia dónde se está moviendo la combi.
+      const dA = difRumbo(previo.rumbo, a.p.rumbo);
+      const dB = difRumbo(previo.rumbo, b.p.rumbo);
+      elegido = (dB !== null && dA !== null && dB < dA) ? b : a;
+    } else if (previo && previo.tramo) {
+      // Sin rumbo (parada, o primer punto): se queda en el que venía
+      elegido = candidatos.find(c => c.leg === previo.tramo) || a;
+    } else {
+      elegido = a;
+    }
+  }
+
+  const progresoTramo = elegido.tramo.largoM > 0
+    ? Math.max(0, Math.min(1, elegido.p.metros / elegido.tramo.largoM)) : 0;
+
+  // Coordenada del circuito completo: la vuelta arranca donde termina la ida
+  const recorridoM = elegido.leg === 'vuelta'
+    ? geo.ida.largoM + elegido.p.metros
+    : elegido.p.metros;
+  const progreso = geo.largoTotalM > 0
+    ? Math.max(0, Math.min(1, recorridoM / geo.largoTotalM)) : 0;
+
   return {
-    progreso: largoM > 0 ? Math.max(0, Math.min(1, mejor.metros / largoM)) : 0,
-    desvioM: Math.sqrt(mejor.dist2),
+    progreso,
+    tramo: elegido.leg,
+    progresoTramo,
+    desvioM: elegido.p.desvioM,
+    rumbo: elegido.p.rumbo,
   };
 }
 
@@ -611,6 +717,12 @@ function trackLap(unitId, routeId, progress, speed) {
 
   // Caída brusca del progreso habiendo llegado cerca del final, con un
   // mínimo de muestras: eso es una vuelta completa, no ruido de GPS.
+  //
+  // Con el recorrido cargado por tramos, el progreso recorre TODO el circuito
+  // (ida + vuelta), así que una "vuelta" es lo que la cooperativa llama una
+  // vuelta: salir y volver. Es también lo que corresponde para el objetivo
+  // automático, porque la rueda que se reparte entre las combis es el
+  // circuito entero.
   if (st.lastProgress - progress > 0.5 && st.lastProgress > 0.8 && st.samples >= 5) {
     const now = Date.now();
     const durationSec = Math.round((now - st.lapStart) / 1000);
@@ -740,9 +852,10 @@ app.get('/admin/routes', requireDispatch, (req, res) => {
         objetivo,
         unidades: db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'driver' AND routeId = ?").get(r.routeId).c,
         enLinea: Array.from(units.values()).filter(u => u.routeId === r.routeId).length,
-        // Recorrido cargado: cuántos puntos y cuántos metros
-        puntos: geo ? geo.puntos.length : 0,
-        largoM: geo ? Math.round(geo.largoM) : 0,
+        // Recorrido cargado: cuántos puntos por tramo y cuántos metros
+        puntos: geo ? geo.ida.puntos.length + (geo.vuelta ? geo.vuelta.puntos.length : 0) : 0,
+        tieneVuelta: !!(geo && geo.vuelta),
+        largoM: geo ? Math.round(geo.largoTotalM) : 0,
       };
     });
   res.json({ routes: rutas, supervisor: !req.scope });
@@ -802,9 +915,15 @@ app.get('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
     return res.status(403).json({ error: 'Esa ruta no es tuya' });
   }
   if (!routeOf(routeId)) return res.status(404).json({ error: 'Esa ruta no existe' });
-  const puntos = db.prepare('SELECT lat, lng FROM route_points WHERE routeId = ? ORDER BY seq').all(routeId);
+  const leer = (leg) => db.prepare(
+    'SELECT lat, lng FROM route_points WHERE routeId = ? AND leg = ? ORDER BY seq'
+  ).all(routeId, leg);
   const geo = geometriaDe(routeId);
-  res.json({ routeId, points: puntos, largoM: geo ? Math.round(geo.largoM) : 0 });
+  res.json({
+    routeId,
+    tramos: { ida: leer('ida'), vuelta: leer('vuelta') },
+    largoM: geo ? Math.round(geo.largoTotalM) : 0,
+  });
 });
 
 // Guarda el recorrido completo de una vez: llega la lista entera de puntos y
@@ -817,41 +936,54 @@ app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
   }
   if (!routeOf(routeId)) return res.status(404).json({ error: 'Esa ruta no existe' });
 
-  const crudos = Array.isArray(req.body?.points) ? req.body.points : null;
-  if (!crudos) return res.status(400).json({ error: 'Faltan los puntos del recorrido' });
-  if (crudos.length > 2000) {
-    return res.status(400).json({ error: 'Demasiados puntos: el tope es 2000' });
-  }
+  // Llegan los dos tramos. Se acepta también una lista suelta, que se toma
+  // como la ida (así no se rompe nada que mande el formato viejo).
+  const cuerpo = Array.isArray(req.body?.points)
+    ? { ida: req.body.points, vuelta: [] }
+    : (req.body?.tramos || null);
+  if (!cuerpo) return res.status(400).json({ error: 'Faltan los puntos del recorrido' });
 
-  // Se validan uno por uno: un punto fuera de rango arruinaría el cálculo de
-  // todas las brechas de la ruta, así que se rechaza el lote entero.
-  const puntos = [];
-  for (const p of crudos) {
-    const lat = Number(p?.lat), lng = Number(p?.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
-        lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      return res.status(400).json({ error: 'Hay un punto con coordenadas inválidas' });
+  const limpios = {};
+  for (const leg of TRAMOS) {
+    const crudos = Array.isArray(cuerpo[leg]) ? cuerpo[leg] : [];
+    if (crudos.length > 2000) {
+      return res.status(400).json({ error: `Demasiados puntos en la ${leg}: el tope es 2000` });
     }
-    puntos.push({ lat, lng });
+    // Se validan uno por uno: un punto fuera de rango arruinaría el cálculo
+    // de todas las brechas de la ruta, así que se rechaza el lote entero.
+    const puntos = [];
+    for (const p of crudos) {
+      const lat = Number(p?.lat), lng = Number(p?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
+          lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return res.status(400).json({ error: `Hay un punto con coordenadas inválidas en la ${leg}` });
+      }
+      puntos.push({ lat, lng });
+    }
+    if (puntos.length === 1) {
+      return res.status(400).json({ error: `La ${leg} necesita al menos 2 puntos` });
+    }
+    limpios[leg] = puntos;
   }
-  // Vaciar el recorrido es válido (vuelve a la estimación lineal), pero con
-  // un solo punto no hay trazado posible.
-  if (puntos.length === 1) {
-    return res.status(400).json({ error: 'Un recorrido necesita al menos 2 puntos' });
+  // Una vuelta sin ida no tiene sentido: el circuito arranca por la ida
+  if (!limpios.ida.length && limpios.vuelta.length) {
+    return res.status(400).json({ error: 'No se puede cargar la vuelta sin la ida' });
   }
 
   const guardar = db.transaction(() => {
     db.prepare('DELETE FROM route_points WHERE routeId = ?').run(routeId);
-    const ins = db.prepare('INSERT INTO route_points (routeId, seq, lat, lng) VALUES (?, ?, ?, ?)');
-    puntos.forEach((p, i) => ins.run(routeId, i, p.lat, p.lng));
+    const ins = db.prepare('INSERT INTO route_points (routeId, leg, seq, lat, lng) VALUES (?, ?, ?, ?, ?)');
+    for (const leg of TRAMOS) limpios[leg].forEach((p, i) => ins.run(routeId, leg, i, p.lat, p.lng));
   });
   guardar();
 
   const geo = cargarGeometria(routeId);
-  const largoKm = geo ? (geo.largoM / 1000).toFixed(2) : '0';
-  audit(req.dispatchUser.unitId, 'recorrido', routeId,
-    puntos.length ? `${puntos.length} puntos · ${largoKm} km` : 'recorrido borrado', routeId);
-  console.log(`Recorrido de ${routeId}: ${puntos.length} puntos (${largoKm} km)`);
+  const largoKm = geo ? (geo.largoTotalM / 1000).toFixed(2) : '0';
+  const detalle = geo
+    ? `ida ${limpios.ida.length} pts${limpios.vuelta.length ? ` · vuelta ${limpios.vuelta.length} pts` : ''} · ${largoKm} km`
+    : 'recorrido borrado';
+  audit(req.dispatchUser.unitId, 'recorrido', routeId, detalle, routeId);
+  console.log(`Recorrido de ${routeId}: ${detalle}`);
 
   // Los mapas de esa ruta reciben el trazado nuevo, y las brechas se
   // recalculan con él al instante
@@ -862,7 +994,11 @@ app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
     }
   }
   scheduleStateBroadcast(routeId, true);
-  res.json({ ok: true, points: puntos.length, largoM: geo ? Math.round(geo.largoM) : 0 });
+  res.json({
+    ok: true,
+    puntos: { ida: limpios.ida.length, vuelta: limpios.vuelta.length },
+    largoM: geo ? Math.round(geo.largoTotalM) : 0,
+  });
 });
 
 // ─── VEHÍCULOS ───────────────────────────────────────────────
@@ -1310,7 +1446,19 @@ wss.on('connection', (ws) => {
       // así cargar o corregir el recorrido tiene efecto al instante, sin
       // actualizar la app de nadie. Si la ruta todavía no tiene trazado, se
       // usa el que estima el cliente (proyección lineal, como antes).
-      const proy = proyectarEnRuta(routeId, msg.lat, msg.lng);
+      // Hacia dónde venía yendo: es lo que desempata entre ida y vuelta
+      // cuando las dos pasan por la misma calle en sentidos opuestos.
+      const rumboReal = (unit.lat != null && unit.lng != null &&
+                         metrosEntre(unit.lat, unit.lng, msg.lat, msg.lng) > 8)
+        ? Math.atan2(
+            (msg.lng - unit.lng) * METROS_POR_GRADO * Math.cos(unit.lat * Math.PI / 180),
+            (msg.lat - unit.lat) * METROS_POR_GRADO
+          ) * 180 / Math.PI
+        : (unit.rumbo ?? null);
+
+      const proy = proyectarEnRuta(routeId, msg.lat, msg.lng, {
+        tramo: unit.tramo || null, rumbo: rumboReal,
+      });
       const progreso = proy ? proy.progreso : (msg.routeProgress || 0);
 
       units.set(vehicleId, {
@@ -1321,6 +1469,10 @@ wss.on('connection', (ws) => {
         lng: msg.lng,
         speed: msg.speed || 0,
         routeProgress: progreso,
+        // En qué tramo del circuito va y cuánto lleva de ese tramo
+        tramo: proy ? proy.tramo : null,
+        progresoTramo: proy ? proy.progresoTramo : null,
+        rumbo: rumboReal,
         // A cuántos metros del trazado va. null si la ruta no tiene geometría.
         desvioM: proy ? Math.round(proy.desvioM) : null,
         timestamp: Date.now(),
@@ -1519,11 +1671,12 @@ function enviarPrivado(routeId, toVehicleId, payload) {
 // puntos son ~7 KB — mandarlo ahí sería tirar por la borda el ahorro de datos.
 function mensajeGeometria(routeId) {
   const geo = geometriaDe(routeId);
+  const dibujar = (t) => (t ? t.puntos.map(p => [p.lat, p.lng]) : []);
   return JSON.stringify({
     type: 'route_geometry',
     routeId,
-    points: geo ? geo.puntos.map(p => [p.lat, p.lng]) : [],
-    largoM: geo ? Math.round(geo.largoM) : 0,
+    tramos: { ida: dibujar(geo && geo.ida), vuelta: dibujar(geo && geo.vuelta) },
+    largoM: geo ? Math.round(geo.largoTotalM) : 0,
   });
 }
 
