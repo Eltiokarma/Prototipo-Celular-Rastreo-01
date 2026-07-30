@@ -719,6 +719,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     await loadRoutes();
   }, 'Ruta creada');
 
+  const cambiarObjetivo = (routeId, cambio) => run(async () => {
+    await api(`/admin/routes/${encodeURIComponent(routeId)}/target`, {
+      method: 'POST', body: JSON.stringify(cambio),
+    });
+    await loadRoutes();
+  }, 'Objetivo actualizado');
+
   const crearVehiculo = () => run(async () => {
     await api('/admin/vehicles', {
       method: 'POST',
@@ -941,17 +948,59 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
             )}
 
             {routeList.map(r => (
+              // La fila envuelve: con objetivo, recorrido y unidades no entra
+              // en una línea, y menos en un celular.
               <div key={r.routeId} style={{
-                display: 'flex', alignItems: 'baseline', gap: 12,
+                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
                 padding: '11px 4px', borderBottom: `1px solid ${HUD.divider}`,
-                background: r.routeId === currentRoute ? 'rgba(46,157,255,.08)' : 'transparent',
+                background: r.routeId === currentRoute
+                  ? (HUD.oscuro ? 'rgba(46,157,255,.08)' : 'rgba(22,104,196,.07)') : 'transparent',
               }}>
                 <span style={{ fontFamily: black, fontSize: 16, minWidth: 70 }}>{r.routeId}</span>
-                <span style={{ fontSize: 14, color: HUD.dim, flex: 1, minWidth: 0,
+                <span style={{ fontSize: 14, color: HUD.dim, flex: '1 1 130px', minWidth: 0,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
                 <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2, whiteSpace: 'nowrap' }}>
-                  objetivo {r.targetGapMin} min · recorrido {r.durationMin} min
+                  objetivo {r.objetivo ? r.objetivo.min : r.targetGapMin} min · recorrido {r.durationMin} min
                 </span>
+                {/* De dónde sale el objetivo: calculado, esperando datos, o
+                    fijado a mano. Que se entienda sin preguntar. */}
+                {r.objetivo && (
+                  <span title={
+                    r.objetivo.modo === 'auto'
+                      ? `Vuelta promedio de ${r.objetivo.dia || 'todos los días'} sobre ${r.objetivo.unidades} unidades en ruta (${r.objetivo.vueltas} vueltas)`
+                      : r.objetivo.modo === 'esperando'
+                        ? (r.objetivo.motivo === 'unidades'
+                            ? `No hay ninguna unidad en ruta: sin eso no se puede repartir la vuelta. Por ahora vale el manual de ${r.objetivo.manual} min`
+                            : `Faltan vueltas para calcularlo (${r.objetivo.vueltas} de 3): por ahora vale el manual de ${r.objetivo.manual} min`)
+                        : 'Fijado a mano'
+                  } style={{
+                    fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .5,
+                    padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap',
+                    background: r.objetivo.modo === 'auto' ? 'rgba(31,138,79,.14)'
+                      : r.objetivo.modo === 'esperando' ? 'rgba(166,115,0,.16)' : 'transparent',
+                    color: r.objetivo.modo === 'auto' ? HUD.green
+                      : r.objetivo.modo === 'esperando' ? HUD.amber : HUD.dim3,
+                    border: `1px solid ${HUD.line}`,
+                  }}>
+                    {r.objetivo.modo === 'auto'
+                      ? `AUTO · ${r.objetivo.vueltas} vueltas${r.objetivo.dia ? ' · ' + r.objetivo.dia : ''}`
+                      : r.objetivo.modo === 'esperando'
+                        ? (r.objetivo.motivo === 'unidades'
+                            ? 'AUTO · sin unidades en ruta'
+                            : `AUTO · faltan vueltas (${r.objetivo.vueltas}/3)`)
+                        : 'A MANO'}
+                  </span>
+                )}
+                <button
+                  onClick={() => cambiarObjetivo(r.routeId, { auto: !r.autoTarget })}
+                  title={r.autoTarget
+                    ? 'Volver al objetivo fijado a mano'
+                    : 'Calcular el objetivo solo: vuelta promedio ÷ unidades en ruta'}
+                  disabled={busy}
+                  style={{ ...smallBtn(r.autoTarget ? HUD.bright : HUD.boton,
+                    r.autoTarget ? '#fff' : HUD.fg2), whiteSpace: 'nowrap' }}>
+                  {r.autoTarget ? 'Automático' : 'Automático off'}
+                </button>
                 <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
                   color: r.enLinea > 0 ? HUD.green : HUD.dim3 }}>
                   {r.unidades} unid · {r.enLinea} en línea
@@ -976,6 +1025,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               El <strong>objetivo</strong> es la separación ideal entre unidades y el
               <strong> recorrido</strong> cuánto tarda de punta a punta: con esos dos
               números se convierte la distancia en minutos.
+              {' '}Con <strong>Automático</strong> el objetivo se calcula solo —
+              vuelta promedio ÷ unidades en ruta, usando el promedio del mismo
+              día de la semana— y se recalcula cuando entra o sale una unidad.
+              Hasta juntar 3 vueltas sigue valiendo el número cargado a mano, que
+              queda siempre como respaldo.
               {!esSupervisor && ' Solo una cuenta supervisora puede crear rutas.'}
             </div>
           </div>

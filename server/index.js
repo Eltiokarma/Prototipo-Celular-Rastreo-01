@@ -585,6 +585,10 @@ db.exec(`
   )
 `);
 
+// ¿El objetivo de brecha se calcula solo? Apagado por defecto: una ruta
+// recién cargada no tiene historial y el número manual es el que vale.
+addColumnIfMissing('routes', 'autoTarget', 'INTEGER NOT NULL DEFAULT 0');
+
 addColumnIfMissing('laps', 'routeId', 'TEXT');
 if (db.prepare('SELECT COUNT(*) AS c FROM laps WHERE routeId IS NULL').get().c > 0) {
   db.prepare('UPDATE laps SET routeId = ? WHERE routeId IS NULL').run(DEFAULT_ROUTE);
@@ -615,6 +619,7 @@ function trackLap(unitId, routeId, progress, speed) {
       .run(unitId, routeId || null, st.lapStart, now, durationSec, avgSpeed);
     db.prepare('DELETE FROM laps WHERE id NOT IN (SELECT id FROM laps ORDER BY id DESC LIMIT 2000)').run();
     console.log(`Vuelta completada: ${unitId} en ${Math.round(durationSec / 60)} min`);
+    objetivoCache.delete(routeId);   // hay un dato nuevo: que se recalcule
     lapState.set(unitId, {
       lapStart: now, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
     });
@@ -729,8 +734,10 @@ app.get('/admin/routes', requireDispatch, (req, res) => {
     .filter(r => !req.scope || r.routeId === req.scope)
     .map(r => {
       const geo = geometriaDe(r.routeId);
+      const objetivo = objetivoDe(r.routeId);
       return {
         ...r,
+        objetivo,
         unidades: db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'driver' AND routeId = ?").get(r.routeId).c,
         enLinea: Array.from(units.values()).filter(u => u.routeId === r.routeId).length,
         // Recorrido cargado: cuántos puntos y cuántos metros
@@ -755,6 +762,37 @@ app.post('/admin/routes', requireSupervisor, (req, res) => {
   audit(req.dispatchUser.unitId, 'alta_ruta', routeId, `${name} · objetivo ${gap} min · ${dur} min de recorrido`, routeId);
   console.log(`Ruta creada: ${routeId} (${name})`);
   res.json({ ok: true, routeId });
+});
+
+// Objetivo de brecha: prenderlo/apagarlo y fijar el valor manual, que es a
+// la vez el respaldo del automático (arranque en frío, o pocas vueltas).
+app.post('/admin/routes/:routeId/target', requireDispatch, (req, res) => {
+  const routeId = String(req.params.routeId);
+  if (req.scope && req.scope !== routeId) {
+    return res.status(403).json({ error: 'Esa ruta no es tuya' });
+  }
+  const ruta = routeOf(routeId);
+  if (!ruta) return res.status(404).json({ error: 'Esa ruta no existe' });
+
+  const auto = req.body?.auto === undefined ? ruta.autoTarget : (req.body.auto ? 1 : 0);
+  let manual = ruta.targetGapMin;
+  if (req.body?.targetGapMin !== undefined) {
+    const v = Number(req.body.targetGapMin);
+    if (!Number.isFinite(v) || v < OBJETIVO_MIN || v > OBJETIVO_MAX) {
+      return res.status(400).json({ error: `El objetivo manual va entre ${OBJETIVO_MIN} y ${OBJETIVO_MAX} minutos` });
+    }
+    manual = v;
+  }
+
+  db.prepare('UPDATE routes SET autoTarget = ?, targetGapMin = ? WHERE routeId = ?')
+    .run(auto, manual, routeId);
+  objetivoCache.delete(routeId);   // que se recalcule ya, sin esperar el minuto
+
+  const vigente = objetivoDe(routeId);
+  audit(req.dispatchUser.unitId, 'objetivo', routeId,
+    auto ? `automático (vigente ${vigente.min} min)` : `manual ${manual} min`, routeId);
+  scheduleStateBroadcast(routeId, true);
+  res.json({ ok: true, auto: !!auto, targetGapMin: manual, vigente });
 });
 
 // ─── RECORRIDO DE LA RUTA (puntos GPS) ───────────────────────
@@ -1494,6 +1532,105 @@ function mensajeGeometria(routeId) {
 // routeProgress es un número 0-1 que indica qué tan avanzado está en la ruta.
 // 0 = terminal sur, 1 = Huancané.
 
+// ─── OBJETIVO DE BRECHA AUTOMÁTICO ───────────────────────────
+// La matemática de la rueda: si la vuelta dura 60 minutos y hay 12 unidades
+// repartidas, la separación natural entre una y otra es 60/12 = 5 minutos.
+// El sistema ya tiene los dos datos (historial de vueltas y unidades en
+// ruta), así que puede calcular el objetivo en vez de que se cargue a mano.
+//
+// Tres cuidados, que son lo que hace la diferencia entre útil y molesto:
+//  1. ARRANQUE EN FRÍO: sin vueltas suficientes NO se inventa nada, se usa
+//     el valor manual de la ruta.
+//  2. QUE NO PARPADEE: el objetivo tiñe los colores del HUD del chofer. Se
+//     recalcula como máximo cada minuto y solo se mueve si el cambio es
+//     apreciable.
+//  3. TOPES: por más raro que venga el historial, el objetivo queda dentro
+//     de un rango con sentido para una combi urbana.
+const MIN_VUELTAS = 3;          // menos que esto no es un promedio, es una anécdota
+const VUELTAS_MUESTRA = 30;     // se miran las últimas, no toda la historia
+const RECALCULO_MS = 60_000;    // cada cuánto se recalcula, como mucho
+const CAMBIO_MINIMO = 0.1;      // 6 segundos: menos que esto no se mueve
+const OBJETIVO_MIN = 0.5;       // 30 s
+const OBJETIVO_MAX = 30;        // 30 min
+
+// { routeId → { min, modo, vueltas, unidades, dia, calculadoEn } }
+const objetivoCache = new Map();
+
+const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+// Promedio de vuelta en segundos. Primero se busca el del MISMO día de la
+// semana (el tráfico de un domingo no es el de un lunes); si ese día todavía
+// no juntó vueltas suficientes, se cae al promedio general.
+function promedioVuelta(routeId, diaSemana) {
+  const delDia = db.prepare(`
+    SELECT durationSec FROM laps
+    WHERE routeId = @routeId
+      AND CAST(strftime('%w', finishedAt / 1000, 'unixepoch', 'localtime') AS INTEGER) = @dia
+    ORDER BY id DESC LIMIT ${VUELTAS_MUESTRA}
+  `).all({ routeId, dia: diaSemana });
+
+  if (delDia.length >= MIN_VUELTAS) {
+    return { sec: delDia.reduce((a, l) => a + l.durationSec, 0) / delDia.length,
+             vueltas: delDia.length, porDia: true };
+  }
+
+  const todas = db.prepare(`
+    SELECT durationSec FROM laps WHERE routeId = @routeId
+    ORDER BY id DESC LIMIT ${VUELTAS_MUESTRA}
+  `).all({ routeId });
+
+  if (todas.length >= MIN_VUELTAS) {
+    return { sec: todas.reduce((a, l) => a + l.durationSec, 0) / todas.length,
+             vueltas: todas.length, porDia: false };
+  }
+  return null;
+}
+
+// El objetivo vigente de una ruta y de dónde salió, para poder mostrarlo.
+function objetivoDe(routeId) {
+  const ruta = routeOf(routeId);
+  const manual = ruta ? ruta.targetGapMin : 2;
+  if (!ruta || !ruta.autoTarget) {
+    return { min: manual, modo: 'manual', motivo: null, vueltas: 0, unidades: 0, dia: null };
+  }
+
+  const previo = objetivoCache.get(routeId);
+  if (previo && Date.now() - previo.calculadoEn < RECALCULO_MS) return previo;
+
+  const unidades = Array.from(units.values())
+    .filter(u => u.routeId === routeId && u.lat !== null).length;
+  const diaSemana = new Date().getDay();
+  const prom = promedioVuelta(routeId, diaSemana);
+
+  let resultado;
+  if (!prom || unidades < 1) {
+    // Arranque en frío: el manual manda, y se dice QUÉ falta — no es lo mismo
+    // no tener historial que no tener ninguna combi en ruta ahora mismo.
+    resultado = {
+      min: manual, modo: 'esperando',
+      motivo: !prom ? 'vueltas' : 'unidades',
+      vueltas: prom ? prom.vueltas : 0,
+      unidades, dia: null,
+    };
+  } else {
+    const crudo = (prom.sec / 60) / unidades;
+    let min = Math.max(OBJETIVO_MIN, Math.min(OBJETIVO_MAX, crudo));
+    min = Math.round(min * 10) / 10;
+    // Suavizado: si el valor nuevo casi no cambia, se queda el de antes para
+    // que los colores del HUD no bailen
+    if (previo && previo.modo === 'auto' && Math.abs(previo.min - min) < CAMBIO_MINIMO) {
+      min = previo.min;
+    }
+    resultado = {
+      min, modo: 'auto', motivo: null, vueltas: prom.vueltas, unidades,
+      dia: prom.porDia ? DIAS[diaSemana] : null,
+    };
+  }
+  resultado.calculadoEn = Date.now();
+  objetivoCache.set(routeId, resultado);
+  return resultado;
+}
+
 // El estado es SIEMPRE de una ruta: las unidades de otras rutas no
 // aparecen ni entran en el cálculo de brechas. Sin esto, un chofer vería
 // "su" brecha contra una combi de otro recorrido.
@@ -1503,10 +1640,17 @@ function buildState(routeId) {
     .filter(u => u.routeId === routeId && u.lat !== null) // solo su ruta, con GPS
     .sort((a, b) => b.routeProgress - a.routeProgress);    // ordenadas por avance
 
+  const objetivo = objetivoDe(routeId);
   return {
     routeId,
     routeName: ruta ? ruta.name : routeId,
-    targetGapMin: ruta ? ruta.targetGapMin : 2,
+    targetGapMin: objetivo.min,
+    // De dónde sale ese número, para que el panel lo pueda explicar
+    objetivo: {
+      modo: objetivo.modo, motivo: objetivo.motivo || null,
+      vueltas: objetivo.vueltas, unidades: objetivo.unidades, dia: objetivo.dia,
+      manual: ruta ? ruta.targetGapMin : 2,
+    },
     units: all,
     gaps: calculateGaps(all, ruta ? ruta.durationMin : 50),
     totalOnRoute: all.length,
