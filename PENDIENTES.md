@@ -10,13 +10,12 @@ compromete nada (ver *Ítems ya cerrados* al final).
 | # | Qué | Por qué en ese lugar | Tamaño |
 | --- | --- | --- | --- |
 | 1 | **Objetivo de brecha automático** (y por día de semana) | Ya hay geometría real y historial de vueltas: es lo que falta para que el objetivo deje de cargarse a mano | 1–2 días |
-| 2 | **Mensaje directo Despacho → unidad** | Autocontenido, valor inmediato, no depende de nada | 1 día |
-| 3 | **Aviso de desvío de ruta** | El servidor ya sabe a cuántos metros del trazado va cada unidad; falta decidir umbral, antirrebote y a quién se le avisa | 1 día |
-| 4 | **Turnos** (quién maneja qué unidad y cuándo) | Ahora que la persona existe aparte del vehículo, es el paso natural: habilita horas trabajadas y relevos planificados | 1–2 días |
-| 5 | **Empresas (multi-cooperativa)** | Nivel de agrupación arriba de las rutas; lo pide la venta, no la operación | 2 días |
-| 6 | **Informes exportables** | Necesita que el objetivo automático esté bien para que los números sirvan | 1–2 días |
-| 7 | **Panel del gerente de ruta** | Vive de los datos de 1 y 6 | 2 días |
-| 8 | **Panel del creador (nuestro)** | Encima de todo; sin 5 no tiene mucho que mostrar | 2–3 días |
+| 2 | **Aviso de desvío de ruta** | El servidor ya sabe a cuántos metros del trazado va cada unidad; falta decidir umbral, antirrebote y a quién se le avisa | 1 día |
+| 3 | **Turnos** (quién maneja qué unidad y cuándo) | Ahora que la persona existe aparte del vehículo, es el paso natural: habilita horas trabajadas y relevos planificados | 1–2 días |
+| 4 | **Empresas (multi-cooperativa)** | Nivel de agrupación arriba de las rutas; lo pide la venta, no la operación | 2 días |
+| 5 | **Informes exportables** | Necesita que el objetivo automático esté bien para que los números sirvan | 1–2 días |
+| 6 | **Panel del gerente de ruta** | Vive de los datos de 1 y 5 | 2 días |
+| 7 | **Panel del creador (nuestro)** | Encima de todo; sin 4 no tiene mucho que mostrar | 2–3 días |
 
 ---
 
@@ -48,22 +47,7 @@ que la duración media de vuelta cambia. Guardar el promedio por día
   ruta al mediodía, el objetivo debería subir. Decidir si se recalcula en
   vivo o por turno.
 
-## 2. Mensaje directo Despacho → unidad
-
-**Hoy:** todo el chat es grupal por ruta.
-
-**Propuesta:** mensajes con destinatario (`toUnitId`). En el panel, un
-botón en cada unidad de la lista abre la conversación directa; en la app
-del chofer se distingue visualmente del grupo (y conviene que suene o
-avise distinto, porque es para él).
-
-**Reglas coherentes con los roles:** Despacho ↔ chofer en privado sí;
-chofer ↔ chofer en privado no (el grupo es el canal entre choferes, y
-abrir mensajería privada entre 1 000 personas trae problemas de
-moderación que no queremos). El historial privado se guarda igual y solo
-lo ven las dos partes.
-
-## 3. Aviso de desvío de ruta
+## 2. Aviso de desvío de ruta
 
 **Ya está la mitad hecha:** con el recorrido cargado, el servidor calcula en
 cada posición a cuántos metros del trazado va la unidad (`desvioM`). Falta
@@ -82,7 +66,7 @@ convertir eso en un aviso útil.
 - **Qué es un desvío legítimo:** un desvío por obra o por bloqueo es normal y
   no debería sonar toda la mañana. Conviene poder silenciarlo por turno.
 
-## 4. Turnos
+## 3. Turnos
 
 **Hoy:** la asignación persona → vehículo vive en la cuenta y es fija. El
 relevo funciona en la práctica (el último chofer que entra toma el mando
@@ -97,7 +81,7 @@ algo, y Despacho puede planificar el relevo en vez de descubrirlo.
 lo que el sistema ya ve solo (quién entró, en qué unidad, cuándo salió) y
 dejar la edición manual para las excepciones.
 
-## 5. Empresas (multi-cooperativa)
+## 4. Empresas (multi-cooperativa)
 
 Un nivel arriba de las rutas: `companies` → `routes` → unidades. Cada
 empresa ve solo lo suyo; el panel del creador ve todas. Incluye los datos
@@ -107,11 +91,11 @@ licencia.
 Es el cambio que convierte esto de "sistema de la R-14" en "producto que
 se le vende a cualquier cooperativa".
 
-## 6. Informes exportables
+## 5. Informes exportables
 
 CSV y PDF de: vueltas por unidad y por período, cumplimiento de brecha
 (cuánto tiempo estuvo cada unidad en verde/ámbar/rojo), historial de SOS,
-horas trabajadas por persona (necesita el ítem 4, turnos) y actividad de
+horas trabajadas por persona (necesita el ítem 3, turnos) y actividad de
 administración.
 
 Cuidado con una tentación: los informes son fáciles de hacer y difíciles
@@ -120,14 +104,14 @@ recorrido cargado, o el objetivo automático sin resolver) da números que
 parecen precisos y no lo son — y eso es peor que no tener
 informe.
 
-## 7. Panel del gerente de ruta
+## 6. Panel del gerente de ruta
 
 Distinto del de Despacho a propósito: **Despacho opera, el gerente
 mira**. Sin botones de administración ni chat operativo; con métricas,
 tendencias, cumplimiento, comparación entre unidades y descarga de
 informes. Rol nuevo (`manager`) con alcance a una ruta o a la empresa.
 
-## 8. Panel del creador (nuestro)
+## 7. Panel del creador (nuestro)
 
 El nivel que hoy vive fuera de la app (ver "Niveles de seguridad" en el
 README), hecho pantalla:
@@ -149,6 +133,10 @@ todo se abre con una contraseña más, el nivel de arriba deja de existir.
 
 ## Ítems ya cerrados
 
+- **Mensaje directo Despacho ↔ unidad.** Conversación privada por vehículo
+  (la ven el chofer y su cobrador), con canal aparte en la app del chofer,
+  historial que solo reciben las dos partes y chofer ↔ chofer bloqueado a
+  propósito. Ver README, sección Mensaje directo a una unidad.
 - **Ruta como puntos GPS.** Trazado real por ruta (`route_points`), progreso
   calculado en el servidor proyectando la posición sobre la polilínea, y un
   trazador en el panel para cargarlo tocando el mapa o importando un GPX.

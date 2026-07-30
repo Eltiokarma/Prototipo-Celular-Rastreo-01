@@ -233,7 +233,7 @@ function Login({ onSuccess, notice }) {
 // ═══════════════════════════════════════════════════════════════
 // CHAT (columna derecha)
 // ═══════════════════════════════════════════════════════════════
-function ChatColumn({ messages, onSend, routeId }) {
+function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) {
   const [draft, setDraft] = React.useState('');
   const scrollRef = React.useRef(null);
   React.useEffect(() => {
@@ -251,14 +251,31 @@ function ChatColumn({ messages, onSend, routeId }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{
         padding: '14px 16px', borderBottom: `1px solid ${HUD.divider}`,
-        fontFamily: black, fontSize: 16,
-      }}>GRUPO {routeId || ''}</div>
+        display: 'flex', alignItems: 'center', gap: 10,
+      }}>
+        {privadoCon ? (
+          <>
+            <button onClick={onCerrarPrivado} title="Volver al grupo de la ruta" style={{
+              background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
+              padding: '4px 9px', color: HUD.fg2, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+            }}>← Grupo</button>
+            <span style={{ fontFamily: black, fontSize: 16 }}>{privadoCon}</span>
+            <span style={{
+              fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: 1,
+              background: HUD.amber, color: HUD.oscuro ? '#000' : '#fff',
+              padding: '2px 6px', borderRadius: 4,
+            }}>SOLO ESA UNIDAD</span>
+          </>
+        ) : (
+          <span style={{ fontFamily: black, fontSize: 16 }}>GRUPO {routeId || ''}</span>
+        )}
+      </div>
 
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto', padding: 14,
         display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0,
       }}>
-        {messages.map((m, i) => {
+        {messages.filter(m => (m.para || null) === (privadoCon || null)).map((m, i) => {
           const own = m.role === 'dispatch-self';
           const sos = m.tone === 'sos';
           return (
@@ -301,7 +318,7 @@ function ChatColumn({ messages, onSend, routeId }) {
           value={draft}
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') send(); }}
-          placeholder="Mensaje como DESPACHO…"
+          placeholder={privadoCon ? `Mensaje solo para ${privadoCon}…` : 'Mensaje como DESPACHO…'}
           style={{
             flex: 1, minWidth: 0, height: 44, borderRadius: 22,
             background: HUD.campo, border: `1px solid ${HUD.campoLinea}`,
@@ -1342,6 +1359,10 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // Multi-ruta: la ruta que se está mirando y los datos que llegan de ella
   const [routes, setRoutes] = React.useState([]);
   const [trazado, setTrazado] = React.useState([]);
+  // Conversación privada abierta (vehicleId) o null = el grupo de la ruta
+  const [privadoCon, setPrivadoCon] = React.useState(null);
+  // Privados sin leer por unidad, para el punto en la lista
+  const [noLeidos, setNoLeidos] = React.useState({});
   const [routeInfo, setRouteInfo] = React.useState({
     routeId: session.routeId || null,
     routeName: session.routeName || null,
@@ -1404,6 +1425,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       from: m.role === 'dispatch' ? 'DESPACHO' : (m.driverName || m.unitId || 'Conductor'),
       role: own ? 'dispatch-self' : m.role,
       unit: m.role === 'dispatch' ? null : (m.vehicleId || null),
+      // Con qué unidad es la conversación privada; null = mensaje del grupo
+      para: m.toVehicleId || null,
       time: nowTime(m.timestamp),
       tone: 'normal',
     };
@@ -1436,6 +1459,14 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             targetGapMin: msg.targetGapMin || TARGET_GAP_DEFAULT,
           });
           fittedRef.current = false; // reencuadrar el mapa al cambiar de ruta
+          setRouteInfo(prev => {
+            // Cambió la ruta: la conversación privada abierta era de la otra
+            if (prev.routeId && prev.routeId !== msg.routeId) {
+              setPrivadoCon(null);
+              setNoLeidos({});
+            }
+            return prev;
+          });
         } else if (msg.type === 'routes') {
           setRoutes(msg.routes || []);
         } else if (msg.type === 'route_geometry') {
@@ -1444,6 +1475,15 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           setTrazado(msg.points || []);
         } else if (msg.type === 'chat_msg') {
           pushMsg(mapMsg(msg, 'chat'));
+          // Privado de una unidad que no estoy mirando: queda marcado
+          if (msg.toVehicleId && msg.role !== 'dispatch') {
+            setPrivadoCon(actual => {
+              if (actual !== msg.toVehicleId) {
+                setNoLeidos(n => ({ ...n, [msg.toVehicleId]: (n[msg.toVehicleId] || 0) + 1 }));
+              }
+              return actual;
+            });
+          }
         } else if (msg.type === 'voice_msg') {
           pushMsg(mapMsg(msg, 'voice'));
         } else if (msg.type === 'sos_alert') {
@@ -1527,8 +1567,17 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const sendChat = (text) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'chat', text, timestamp: Date.now() }));
+      // Con una conversación abierta el mensaje va solo a esa unidad
+      ws.send(JSON.stringify({
+        type: 'chat', text, to: privadoCon || undefined, timestamp: Date.now(),
+      }));
     }
+  };
+
+  const abrirPrivado = (vehicleId) => {
+    setPrivadoCon(vehicleId);
+    setNoLeidos(n => ({ ...n, [vehicleId]: 0 }));
+    if (isMobile) setView('chat');
   };
 
   // Cambiar de ruta: el servidor responde con el estado y el chat de la nueva
@@ -1691,6 +1740,27 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>{u.driverName}{u.label ? ` · ${u.label}` : ''}</div>
                 )}
+                {/* Conversación privada con esta unidad. El click no debe
+                    disparar también el foco del mapa de la fila. */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); abrirPrivado(u.unitId); }}
+                  title={`Escribirle solo a ${u.unitId}`}
+                  style={{
+                    marginTop: 7, background: privadoCon === u.unitId ? HUD.bright : HUD.boton,
+                    color: privadoCon === u.unitId ? '#fff' : HUD.fg2,
+                    border: `1px solid ${HUD.line}`, borderRadius: 8,
+                    padding: '4px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                    fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                  Mensaje directo
+                  {noLeidos[u.unitId] > 0 && (
+                    <span style={{
+                      background: HUD.amber, color: HUD.oscuro ? '#000' : '#fff',
+                      borderRadius: 9, minWidth: 18, padding: '0 5px',
+                      fontFamily: mono, fontSize: 11, fontWeight: 800, textAlign: 'center',
+                    }}>{noLeidos[u.unitId]}</span>
+                  )}
+                </button>
                 <div style={{ display: 'flex', gap: 14, marginTop: 4, fontFamily: mono, fontSize: 13, fontWeight: 700 }}>
                   <span style={{ color: HUD.dim3 }}>+1 <span style={{ color: gapColor(g.toAhead, routeInfo.targetGapMin) }}>{g.toAhead || '—'}</span></span>
                   <span style={{ color: HUD.dim3 }}>−1 <span style={{ color: gapColor(g.toBehind, routeInfo.targetGapMin) }}>{g.toBehind || '—'}</span></span>
@@ -1715,7 +1785,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             ? { flex: 1, display: view === 'chat' ? 'flex' : 'none', flexDirection: 'column' }
             : { borderLeft: `1px solid ${HUD.divider}` }),
         }}>
-          <ChatColumn messages={messages} onSend={sendChat} routeId={routeInfo.routeId} />
+          <ChatColumn messages={messages} onSend={sendChat} routeId={routeInfo.routeId}
+            privadoCon={privadoCon} onCerrarPrivado={() => setPrivadoCon(null)} />
         </div>
       </div>
 

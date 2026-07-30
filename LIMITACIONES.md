@@ -130,8 +130,12 @@ limitación se resuelva o aparezca una nueva.
   **login y "Salir a ruta"** siguen siendo oscuras a propósito (son las
   pantallas de marca, no de operación).
 - No hay exportación de reportes (CSV/PDF) de vueltas ni auditoría.
-- El panel de Despacho no puede iniciar una conversación privada con
-  una unidad: todo el chat es grupal.
+- El chat privado con una unidad **no tiene acuse de lectura real**: la
+  pestaña DESPACHO del chofer cuenta los mensajes que llegaron desde la
+  última vez que la abrió en ese celular. Si cambia de teléfono o borra los
+  datos, el contador arranca de cero.
+- Tampoco hay **notificación con la app cerrada** para un mensaje directo:
+  vale la misma limitación que para el SOS (ver fila 2).
 
 ## Acceso por web y dominio
 
