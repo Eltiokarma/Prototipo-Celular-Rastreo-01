@@ -40,7 +40,8 @@ limitación se resuelva o aparezca una nueva.
 ## B. Conectividad
 
 - **Sin señal no hay tiempo real:** la interfaz carga desde caché
-  (service worker), pero las brechas se congelan y el chat solo agrega
+  (service worker) en unos 3 segundos —lo que tarda en darse por vencido
+  el intento de red— pero las brechas se congelan y el chat solo agrega
   mensajes locales. **No hay cola de reenvío**: lo que se emite durante
   un corte de señal se pierde (no hay acuse ni reintento por mensaje).
 - **Reconexión:** automática cada 3 s. Al volver, el cliente recibe el

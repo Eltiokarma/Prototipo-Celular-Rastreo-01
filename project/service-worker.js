@@ -6,7 +6,7 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v17';       // app: HTML, JS propio, iconos
+const CACHE_NAME = 'coop-r14-v19';       // app: HTML, JS propio, iconos
 const TILE_CACHE = 'coop-r14-tiles-v1';  // tiles del mapa
 const LIB_CACHE  = 'coop-r14-libs-v1';   // React, Babel, Leaflet, fuentes
 
@@ -81,23 +81,41 @@ async function podarTiles(cache) {
 // buena y se guarda; si tarda o no hay señal, se sirve la guardada.
 async function redPrimero(request, cacheName) {
   const cache = await caches.open(cacheName);
+
+  // Se pide por URL en vez de reenviar la petición original: las de
+  // navegación (abrir la app) son un caso especial y reenviarlas tal cual
+  // no traía la copia fresca — se seguía viendo la versión vieja. Sin
+  // 'no-store' a propósito: así el navegador revalida con ETag y, cuando
+  // no cambió nada, la respuesta es un 304 de ~1 KB.
+  const pedido = new Request(request.url);
+
+  let respuesta;
   try {
-    const respuesta = await Promise.race([
-      fetch(request),
+    respuesta = await Promise.race([
+      fetch(pedido),
       new Promise((_, rechazar) => setTimeout(() => rechazar(new Error('timeout')), RED_TIMEOUT_MS)),
     ]);
-    if (respuesta && respuesta.ok) {
-      await cache.put(request, respuesta.clone());
-      return respuesta;
-    }
-    // Respuesta rara (500, etc.): mejor lo guardado que un error en pantalla
-    const guardado = await cache.match(request);
-    return guardado || respuesta;
   } catch {
+    // Sin red o demasiado lenta: la copia guardada
     const guardado = await cache.match(request);
     if (guardado) return guardado;
     throw new Error('sin red y sin copia guardada');
   }
+
+  if (respuesta && respuesta.ok) {
+    // Guardar en un try aparte: si falla (la Cache API rechaza algunos
+    // pedidos, como los de navegación) igual se sirve la copia fresca.
+    // Se guarda una petición simple por URL, que es la que después
+    // encuentra cache.match cuando no hay señal.
+    try {
+      await cache.put(pedido, respuesta.clone());
+    } catch {}
+    return respuesta;
+  }
+
+  // Respuesta rara (500, etc.): mejor lo guardado que un error en pantalla
+  const guardado = await cache.match(request);
+  return guardado || respuesta;
 }
 
 async function cachePrimero(request, cacheName, podar) {

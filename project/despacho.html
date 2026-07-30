@@ -1385,5 +1385,18 @@ function Root() {
 ReactDOM.createRoot(document.getElementById('root')).render(<Root />);
 
 </script>
+
+<!-- PWA: el panel registra su propio service worker. Antes solo lo hacía la
+     app del chofer, así que un encargado que instalara únicamente el panel en
+     su celular se quedaba sin caché offline. -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js')
+        .then(() => console.log('Service Worker registrado'))
+        .catch((err) => console.log('Service Worker falló:', err));
+    });
+  }
+</script>
 </body>
 </html>
