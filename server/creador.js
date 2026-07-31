@@ -324,6 +324,26 @@ function montarPanelDelCreador(app, deps) {
   });
 
   // ─── SALUD DEL SISTEMA ─────────────────────────────────────
+
+  // ¿La base está en un disco aparte del de la aplicación?
+  //
+  // Es LA pregunta de operación: en un servidor que redespliega —Railway,
+  // Fly, cualquier contenedor— el disco de la aplicación se rehace de cero
+  // en cada despliegue. Un archivo ahí adentro desaparece con todo lo que
+  // tenga: cuentas, historial, vueltas, turnos.
+  //
+  // Se compara el NÚMERO DE DISPOSITIVO de las dos carpetas, no el texto de
+  // la ruta. Un volumen montado es otro dispositivo, y eso es cierto se
+  // llame /data, /mnt/lo-que-sea o como fuere. Comparar contra "/data" sería
+  // adivinar el nombre que usa un proveedor en particular.
+  function enDiscoAparte(archivo) {
+    try {
+      return fs.statSync(path.dirname(archivo)).dev !== fs.statSync(__dirname).dev;
+    } catch {
+      return null;   // no se pudo averiguar: mejor decirlo que inventar
+    }
+  }
+
   app.get(BASE + '/sistema', requireCreador, (req, res) => {
     const mem = process.memoryUsage();
     // La base y su WAL: el WAL puede crecer más que el archivo principal y
@@ -340,11 +360,16 @@ function montarPanelDelCreador(app, deps) {
       node: process.version,
       memoriaMb: Math.round(mem.rss / 1048576),
       heapMb: Math.round(mem.heapUsed / 1048576),
-      base: base ? path.basename(base) : 'memoria',
+      // La RUTA COMPLETA, no solo el nombre del archivo. Antes decía
+      // "r14.db" y con eso era imposible distinguir /data/r14.db —a salvo en
+      // un volumen— de server/r14.db, que se borra en cada despliegue. Era
+      // justo la diferencia que hay que ver.
+      base: base || 'memoria',
       baseMb: base ? +((tamano(base) + tamano(base + '-wal')) / 1048576).toFixed(2) : 0,
-      // Sin volumen montado, un redeploy borra todo. Es el error de
-      // operación más caro que se puede cometer acá.
-      basePersistente: !!base,
+      // Tres estados, no dos: en memoria / en el disco de la aplicación /
+      // en un disco aparte. Solo el último sobrevive a un redespliegue.
+      baseEnMemoria: !base,
+      baseEnDiscoAparte: base ? enDiscoAparte(base) : false,
       empresas: db.prepare('SELECT COUNT(*) AS c FROM companies').get().c,
       empresasActivas: db.prepare('SELECT COUNT(*) AS c FROM companies WHERE activa = 1').get().c,
       rutas: db.prepare('SELECT COUNT(*) AS c FROM routes').get().c,

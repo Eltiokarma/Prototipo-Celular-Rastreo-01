@@ -7,6 +7,18 @@ recorrido de una variante— ya están hechos, así que cargar choferes,
 cooperativas o trazados nuevos ya no compromete nada (ver *Ítems ya cerrados*
 al final).
 
+## Puesta en producción — lo que queda pendiente hoy
+
+- [ ] **Cambiar `CREATOR_PASSWORD`.** La que está puesta se generó para la
+      primera prueba y **estuvo escrita en un chat en texto plano**. Es la
+      única clave que abre TODAS las cooperativas del servidor. Reemplazarla
+      por una de un gestor de contraseñas (24 caracteres) y aplicar: al
+      reiniciarse se cierran solas las sesiones de creador que hubiera.
+- [x] Volumen montado y `DB_FILE` apuntando ahí — comprobado con un
+      despliegue real: los datos sobrevivieron al cambio de contenedor.
+- [x] Segundo factor del panel del creador activo (`CREATOR_TOTP_SECRET`).
+- [ ] Cargar el recorrido real de la R-14 con el trazador.
+
 ## Orden recomendado
 
 | # | Qué | Por qué en ese lugar | Tamaño |

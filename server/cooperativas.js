@@ -140,8 +140,18 @@ function supervisor(db, { companyId, usuario, clave } = {}) {
 // ─── RUTA NUEVA EN UNA COOPERATIVA ───────────────────────────
 function altaRuta(db, { companyId, routeId, name, targetGapMin, durationMin } = {}) {
   const empresa = idLimpio(companyId);
+  if (!empresa) return { error: 'Falta la empresa' };
+  // Se distingue "no lo pusiste" de "lo pusiste mal": antes las dos daban
+  // "falta el código", y quien escribía un código con un espacio o un
+  // acento se quedaba mirando un mensaje que no tenía nada que ver.
   const ruta = idLimpio(routeId);
-  if (!empresa || !ruta) return { error: 'Falta la empresa o el código de la ruta' };
+  if (!ruta) {
+    return {
+      error: routeId
+        ? 'El código de la ruta solo admite letras, números, punto, guion y guion bajo (hasta 24)'
+        : 'Falta el código de la ruta (ej. R-15)',
+    };
+  }
   if (!db.prepare('SELECT companyId FROM companies WHERE companyId = ?').get(empresa)) {
     return { error: `No existe la empresa ${empresa}` };
   }

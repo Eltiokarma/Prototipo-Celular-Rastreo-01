@@ -548,7 +548,12 @@ function Sistema({ datos }) {
     <div>
       <div className="black" style={{ fontSize: 18, marginBottom: 14 }}>Sistema</div>
 
-      {!datos.basePersistente && (
+      {/* Dónde vive la base, que es el aviso más caro de todos: si está
+          equivocado, un despliegue borra las cuentas de todos los choferes
+          y el historial entero. Por eso son TRES estados y no dos — antes
+          decía "persistente" en verde con la base adentro del contenedor,
+          que es exactamente el caso que hay que denunciar. */}
+      {datos.baseEnMemoria && (
         <div style={{
           background: 'rgba(255,77,109,.1)', border: '1px solid var(--red)',
           borderRadius: 12, padding: '12px 14px', marginBottom: 14,
@@ -557,6 +562,31 @@ function Sistema({ datos }) {
           <strong>La base está en memoria.</strong> Todo lo que se cargue se
           pierde al reiniciar: cuentas, historial, vueltas y turnos. Hay que
           montar un volumen y apuntarle <code>DB_FILE</code>.
+        </div>
+      )}
+      {!datos.baseEnMemoria && datos.baseEnDiscoAparte === false && (
+        <div style={{
+          background: 'rgba(255,77,109,.1)', border: '1px solid var(--red)',
+          borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+          fontSize: 13, color: 'var(--red)', lineHeight: 1.5,
+        }}>
+          <strong>La base está en el mismo disco que la aplicación</strong>
+          {' '}(<code>{datos.base}</code>). En un servidor que redespliega
+          —Railway y cualquier contenedor— ese disco se rehace de cero en cada
+          despliegue: se borran las cuentas, el historial, las vueltas y los
+          turnos. Hay que montar un volumen y apuntarle <code>DB_FILE</code>.
+          {' '}<em>Si esto corre en tu computadora, es normal y no pasa nada.</em>
+        </div>
+      )}
+      {datos.baseEnDiscoAparte === null && (
+        <div style={{
+          background: 'rgba(245,197,66,.08)', border: '1px solid var(--amber)',
+          borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+          fontSize: 13, color: 'var(--amber)', lineHeight: 1.5,
+        }}>
+          No se pudo averiguar si la base está en un disco aparte
+          (<code>{datos.base}</code>). Conviene confirmarlo a mano antes de
+          cargar datos de verdad.
         </div>
       )}
       {!datos.segundoFactor && (
@@ -585,8 +615,10 @@ function Sistema({ datos }) {
         ))}
       </div>
       <div style={{ fontSize: 12, color: 'var(--dim2)', marginTop: 14, lineHeight: 1.5 }}>
-        La base cuenta el archivo y su WAL juntos: el WAL puede crecer más que
-        el archivo principal y es lo primero que llena un volumen chico.
+        La base vive en <code>{datos.base}</code>
+        {datos.baseEnDiscoAparte === true && ', en un disco aparte del de la aplicación: sobrevive a los redespliegues'}
+        . El tamaño cuenta el archivo y su WAL juntos: el WAL puede crecer más
+        que el archivo principal y es lo primero que llena un volumen chico.
       </div>
     </div>
   );
