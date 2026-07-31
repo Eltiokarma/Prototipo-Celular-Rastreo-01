@@ -34,9 +34,14 @@
     overflow: hidden;
   }
   #root { height: 100%; }
+  /* El banner de SOS ocupa el ancho entero: el anillo de sombra que servía
+     para un punto no se ve en una franja. Late en opacidad. */
   @keyframes sosPulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(255,45,85,.55); }
-    50%      { box-shadow: 0 0 0 14px rgba(255,45,85,0); }
+    0%, 100% { opacity: 1; }
+    50%      { opacity: .82; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [style*="sosPulse"] { animation: none !important; }
   }
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-thumb { background: #1c2836; border-radius: 4px; }
@@ -78,6 +83,19 @@ const TEMAS = {
     burbujaSos: '#FFE1E7',   burbujaSosInk: '#68001A',
     okFondo: '#E4F7EA', okClave: '#0B6B33',
     cargando: '#7FA8D4',
+    // Superficies de estado: fondo + borde + tinta que se lee encima. Son
+    // derivados del juego de arriba, no una paleta nueva; existen para que
+    // un aviso se distinga sin bajar el contraste del texto.
+    verdeFondo: '#E9F7EF', verdeBorde: '#BEE3CD', verdeTinta: '#0B6B33',
+    ambarFondo: '#FDF6E4', ambarBorde: '#E4C88A', ambarTinta: '#4A3200', ambarTinta2: '#6B4A00',
+    rojoFondo: '#FCEBEE',  rojoBorde: '#E6BFC6',  rojoTinta: '#5C0010',
+    azulFondo: '#E7F0FB',  azulBorde: '#C9DDF4',  azulTinta: '#0A2E52',
+    filaCritica: '#FDF3F5', // fila de unidad en rojo
+    filaActiva: '#F7FBFF',  // tarjeta de la ruta que se está mirando
+    celda: '#F4F8FC',       // fondo de las celdas de brecha
+    tinta: '#0B2239',       // botón principal del creador, segmentado activo
+    flotante: 'rgba(255,255,255,.94)', // tarjetas sobre el mapa
+    velo: 'rgba(11,34,57,.42)',        // overlay de modal
     tiles: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
     oscuro: false,
   },
@@ -96,6 +114,17 @@ const TEMAS = {
     burbujaSos: '#2b0812',   burbujaSosInk: '#FFD9E0',
     okFondo: '#08251a', okClave: '#7DF06A',
     cargando: '#1D598F',
+    // Mismos papeles que en día, resueltos para fondo oscuro
+    verdeFondo: '#08251a', verdeBorde: '#14512f', verdeTinta: '#7DF06A',
+    ambarFondo: '#221900', ambarBorde: '#4a3800', ambarTinta: '#FFD400', ambarTinta2: '#C9A83A',
+    rojoFondo: '#2b0812',  rojoBorde: '#5a1122',  rojoTinta: '#FFD9E0',
+    azulFondo: '#0e2a45',  azulBorde: '#1d4570',  azulTinta: '#D8ECFF',
+    filaCritica: '#1a0810',
+    filaActiva: '#0b1620',
+    celda: '#0a0f15',
+    tinta: '#EAF4FF',
+    flotante: 'rgba(13,17,22,.94)',
+    velo: 'rgba(0,0,0,.6)',
     tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
     oscuro: true,
   },
@@ -128,6 +157,15 @@ function parseMin(s) {
   return m + (sec || 0) / 60;
 }
 
+// Minutos con decimales → "2:00". El objetivo se guarda como número y se
+// lee al lado de las brechas, que vienen en m:ss: mostrarlo como "2 min"
+// obligaría a convertir de cabeza cada vez que se compara.
+function fmtMin(min) {
+  if (min === null || min === undefined || isNaN(min)) return '—';
+  const total = Math.round(min * 60);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 function gapColor(gapStr, target = TARGET_GAP_DEFAULT) {
   const v = parseMin(gapStr);
   if (v === null || isNaN(v)) return HUD.dim3;
@@ -156,6 +194,42 @@ function fmtWhen(ts) {
 
 const mono = 'JetBrains Mono, ui-monospace, monospace';
 const black = '"Archivo Black", system-ui, sans-serif';
+
+// ─── Piezas que se repiten en todo el panel.
+// Se calculan al llamarlas, no una sola vez: HUD se muta al cambiar de tema
+// y una constante congelaría los colores del tema con el que arrancó.
+const btnPrimario = (alto = 36) => ({
+  height: alto, padding: '0 14px', background: HUD.bright, color: '#fff',
+  border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700,
+  fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+});
+const btnSecundario = (alto = 36) => ({
+  height: alto, padding: '0 12px', background: HUD.surface, color: HUD.dim2,
+  border: `1px solid ${HUD.line}`, borderRadius: 9, fontSize: 13, fontWeight: 700,
+  fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+});
+// Botón de fila: el de las acciones dentro de una tabla o una tarjeta
+const btnChico = (tinta, borde) => ({
+  padding: '5px 9px', background: HUD.surface, color: tinta || HUD.fg2,
+  border: `1px solid ${borde || HUD.line}`, borderRadius: 7,
+  fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+  whiteSpace: 'nowrap',
+});
+// Etiqueta en mayúscula: encabezado de columna, label de campo, kicker
+const rotulo = (tam = 9, tinta) => ({
+  fontFamily: mono, fontSize: tam, fontWeight: 700,
+  letterSpacing: tam <= 9 ? 1.3 : 1.5, color: tinta || HUD.dim3,
+  textTransform: 'uppercase',
+});
+const tarjeta = (relleno = 14) => ({
+  border: `1px solid ${HUD.divider}`, borderRadius: 12, padding: relleno,
+  background: HUD.surface,
+});
+const campo = (alto = 40) => ({
+  height: alto, padding: '0 12px', background: HUD.campo, color: HUD.fg,
+  border: `1px solid ${HUD.campoLinea}`, borderRadius: 10,
+  fontSize: 14, fontFamily: 'inherit', outline: 'none', minWidth: 0,
+});
 
 // ═══════════════════════════════════════════════════════════════
 // LOGIN
@@ -271,87 +345,80 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
+      background: HUD.surface,
+    }}>
       <div style={{
         padding: '14px 16px', borderBottom: `1px solid ${HUD.divider}`,
         display: 'flex', alignItems: 'center', gap: 10,
       }}>
         {privadoCon ? (
           <>
-            <button onClick={onCerrarPrivado} title="Volver al grupo de la ruta" style={{
-              background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
-              padding: '4px 9px', color: HUD.fg2, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-            }}>← Grupo</button>
-            <span style={{ fontFamily: black, fontSize: 16 }}>{privadoCon}</span>
-            <span style={{
-              fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: 1,
-              background: HUD.amber, color: HUD.oscuro ? '#000' : '#fff',
-              padding: '2px 6px', borderRadius: 4,
-            }}>SOLO ESA UNIDAD</span>
+            <button onClick={onCerrarPrivado} title="Volver al grupo de la ruta"
+              style={btnChico(HUD.fg2)}>← Grupo</button>
+            <span style={{ fontFamily: black, fontSize: 14 }}>{privadoCon}</span>
+            <div style={{ flex: 1 }} />
+            <span style={{ ...rotulo(10, HUD.ambarTinta2), letterSpacing: 1.5 }}>Solo esa unidad</span>
           </>
         ) : (
-          <span style={{ fontFamily: black, fontSize: 16 }}>GRUPO {routeId || ''}</span>
+          <>
+            <span style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.5 }}>
+              Canal de ruta{routeId ? ` · ${routeId}` : ''}
+            </span>
+            <div style={{ flex: 1 }} />
+          </>
         )}
       </div>
 
       <div ref={scrollRef} style={{
-        flex: 1, overflowY: 'auto', padding: 14,
+        flex: 1, overflowY: 'auto', padding: '14px 16px',
         display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0,
       }}>
         {messages.filter(m => (m.para || null) === (privadoCon || null)).map((m, i) => {
           const own = m.role === 'dispatch-self';
           const sos = m.tone === 'sos';
           return (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: own ? 'flex-end' : 'flex-start' }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginBottom: 3 }}>
-                <span style={{
-                  fontSize: 13, fontWeight: 700,
-                  color: sos ? HUD.red : own ? HUD.bright : HUD.dim,
-                }}>{own ? 'DESPACHO (vos)' : m.from}</span>
+            <div key={i} style={{ display: 'flex', justifyContent: own ? 'flex-end' : 'flex-start' }}>
+              <div style={{
+                maxWidth: '82%', padding: '9px 11px', borderRadius: 12,
+                background: sos ? HUD.rojoFondo : own ? HUD.azulFondo : HUD.surface,
+                border: `1px solid ${sos ? HUD.rojoBorde : own ? HUD.azulBorde : HUD.divider}`,
+                color: sos ? HUD.burbujaSosInk : own ? HUD.azulTinta : HUD.fg,
+              }}>
                 {/* Quién habla y desde qué combi: con cobradores a bordo el
                     nombre ya no alcanza para saber de qué unidad viene */}
-                {!own && m.unit && (
-                  <span style={{
-                    fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim3,
-                    border: `1px solid ${HUD.line}`, borderRadius: 4, padding: '1px 5px',
-                  }}>{m.unit}</span>
-                )}
-                <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim3 }}>{m.time}</span>
-              </div>
-              <div style={{
-                maxWidth: '90%', padding: '9px 13px', fontSize: 15, lineHeight: 1.35,
-                borderRadius: own ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                background: sos ? HUD.burbujaSos : own ? HUD.burbujaPropia : HUD.burbuja,
-                borderLeft: sos ? `3px solid ${HUD.red}` : 'none',
-                color: sos ? HUD.burbujaSosInk : own ? HUD.burbujaPropiaInk : HUD.burbujaInk,
-              }}>
-                {m.voice
-                  ? (m.audio
-                      ? <audio controls src={m.audio} style={{ width: 220, height: 36 }} />
-                      : <span style={{ color: HUD.dim3 }}>🎙 nota de voz ({m.voice}s{m.expired ? ' · expirada' : ''})</span>)
-                  : m.text}
+                <div style={{
+                  ...rotulo(9, sos ? HUD.red : own ? HUD.bright : HUD.dim3),
+                  marginBottom: 4,
+                }}>
+                  {own ? 'Despacho' : m.from}
+                  {!own && m.unit && m.unit !== m.from ? ` · ${m.unit}` : ''} · {m.time}
+                </div>
+                <div style={{ fontSize: 14, lineHeight: 1.45 }}>
+                  {m.voice
+                    ? (m.audio
+                        ? <audio controls src={m.audio} style={{ width: 220, height: 36 }} />
+                        : <span style={{ color: HUD.dim3 }}>🎙 nota de voz ({m.voice}s{m.expired ? ' · expirada' : ''})</span>)
+                    : m.text}
+                </div>
               </div>
             </div>
           );
         })}
       </div>
 
-      <div style={{ padding: 12, borderTop: `1px solid ${HUD.divider}`, display: 'flex', gap: 8 }}>
+      <div style={{ padding: '12px 14px', borderTop: `1px solid ${HUD.divider}`, display: 'flex', gap: 8 }}>
         <input
           value={draft}
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') send(); }}
-          placeholder={privadoCon ? `Mensaje solo para ${privadoCon}…` : 'Mensaje como DESPACHO…'}
-          style={{
-            flex: 1, minWidth: 0, height: 44, borderRadius: 22,
-            background: HUD.campo, border: `1px solid ${HUD.campoLinea}`,
-            padding: '0 16px', fontSize: 15, color: HUD.fg, outline: 'none',
-            fontFamily: 'inherit',
-          }}
+          placeholder={privadoCon ? `Mensaje solo para ${privadoCon}…` : 'Escribí al canal de la ruta…'}
+          style={{ ...campo(40), flex: 1 }}
         />
         <button onClick={send} style={{
-          width: 44, height: 44, borderRadius: '50%', border: 'none',
-          background: HUD.bright, color: HUD.bg, fontSize: 18, cursor: 'pointer',
+          width: 44, height: 40, borderRadius: 10, border: 'none',
+          background: HUD.bright, color: '#fff', fontSize: 16, cursor: 'pointer',
         }}>➤</button>
       </div>
     </div>
@@ -466,6 +533,16 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   const archivoRef = React.useRef(null);
   const encuadradoRef = React.useRef(false);
   const tramoRef = React.useRef('ida');
+  // Bajo 900 px el panel se pone arriba del mapa en vez de al costado
+  const [angosto, setAngosto] = React.useState(window.innerWidth < 900);
+  React.useEffect(() => {
+    const onResize = () => {
+      setAngosto(window.innerWidth < 900);
+      if (mapRef.current) setTimeout(() => mapRef.current.invalidateSize(), 60);
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   React.useEffect(() => { tramoRef.current = tramo; }, [tramo]);
 
@@ -507,40 +584,43 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     if (!map || !capa || !tramos) return;
     capa.clearLayers();
 
-    // El tramo que NO se está editando, de fondo
+    // El tramo que NO se está editando, punteado y apagado de fondo: el
+    // contraste dice cuál es cuál sin leer nada.
     const otro = tramo === 'ida' ? 'vuelta' : 'ida';
     if (tramos[otro].length > 1) {
       L.polyline(tramos[otro], {
-        color: HUD.dim2, weight: 4, opacity: 0.45, dashArray: '7 7',
+        color: HUD.dim3, weight: 4, opacity: 0.55, dashArray: '6 6',
       }).addTo(capa);
     }
 
+    // Ámbar cuando lo que se dibuja no es el trazado que mide hoy: el mismo
+    // color que la franja de aviso de arriba.
+    const tinta = variante && !variante.activa ? HUD.amber : HUD.bright;
     const activos = tramos[tramo];
     if (activos.length > 1) {
-      L.polyline(activos, { color: HUD.bright, weight: 5, opacity: 0.9 }).addTo(capa);
+      L.polyline(activos, { color: tinta, weight: 5, opacity: 0.9 }).addTo(capa);
     }
 
     const arrastrables = activos.length <= TOPE_ARRASTRABLES;
     activos.forEach((p, i) => {
       const extremo = i === 0 || i === activos.length - 1;
       if (!arrastrables) {
-        L.circleMarker(p, { radius: 3, color: HUD.bright, fillOpacity: 1, stroke: false }).addTo(capa);
+        L.circleMarker(p, { radius: 4, color: tinta, weight: 2, fillColor: '#fff', fillOpacity: 1 }).addTo(capa);
         return;
       }
-      const etiqueta = i === 0 ? 'A' : i === activos.length - 1 ? 'B' : String(i + 1);
+      // A y B se quedan: son lo único que dice en qué sentido se maneja.
+      const etiqueta = i === 0 ? 'A' : i === activos.length - 1 ? 'B' : '';
       const marcador = L.marker(p, {
         draggable: true,
         icon: L.divIcon({
           className: '',
-          iconSize: [extremo ? 26 : 20, extremo ? 26 : 20],
-          iconAnchor: [extremo ? 13 : 10, extremo ? 13 : 10],
+          iconSize: [extremo ? 22 : 12, extremo ? 22 : 12],
+          iconAnchor: [extremo ? 11 : 6, extremo ? 11 : 6],
           html: `<div style="width:100%;height:100%;border-radius:50%;
-            background:${extremo ? HUD.green : '#fff'};
-            border:2px solid ${extremo ? '#fff' : HUD.bright};
-            color:${extremo ? '#fff' : HUD.bright};
-            box-shadow:0 1px 4px rgba(0,0,0,.4);
+            background:#fff; border:2px solid ${tinta}; color:${tinta};
+            box-sizing:border-box;
             display:flex;align-items:center;justify-content:center;
-            font:700 ${extremo ? 12 : 10}px/1 system-ui,sans-serif;">${etiqueta}</div>`,
+            font:700 11px/1 system-ui,sans-serif;">${etiqueta}</div>`,
         }),
       }).addTo(capa);
       marcador.on('dragend', (e) => {
@@ -560,7 +640,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
       map.fitBounds(L.latLngBounds(todos).pad(0.15));
       encuadradoRef.current = true;
     }
-  }, [tramos, tramo]);
+  }, [tramos, tramo, variante]);
 
   const importar = (texto) => {
     try {
@@ -594,17 +674,23 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     setGuardando(false);
   };
 
-  const kmDe = (ps) => (largoDe(ps || []) / 1000).toFixed(2);
-  const btn = (bg, color, extra = {}) => ({
-    border: 'none', borderRadius: 10, padding: '0 14px', height: 38,
-    fontSize: 13, fontWeight: 700, cursor: 'pointer', background: bg, color,
-    fontFamily: 'inherit', ...extra,
-  });
+  // La franja de aviso y los mensajes le cambian el alto al mapa; Leaflet
+  // necesita que le avisen o queda con los mosaicos cortados.
+  React.useEffect(() => {
+    if (mapRef.current) setTimeout(() => mapRef.current.invalidateSize(), 60);
+  }, [variante, error, aviso, angosto]);
+
+  const kmDe = (ps) => (largoDe(ps || []) / 1000).toFixed(1);
 
   // Guardar con la vuelta a medias sería un circuito roto
   const vueltaIncompleta = tramos && tramos.vuelta.length === 1;
   const idaIncompleta = tramos && tramos.ida.length === 1;
   const sinIda = tramos && !tramos.ida.length && tramos.vuelta.length > 0;
+  const trabado = guardando || !tramos || vueltaIncompleta || idaIncompleta || sinIda;
+  const midiendo = lista.find(v => v.activa) || null;
+  const desalineado = !!(variante && !variante.activa);
+
+  const importarArchivo = () => archivoRef.current?.click();
 
   return (
     <div style={{
@@ -613,129 +699,201 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     }}>
       {/* cabecera */}
       <div style={{
-        flexShrink: 0, padding: '12px 16px', borderBottom: `1px solid ${HUD.divider}`,
-        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+        height: 60, flexShrink: 0, padding: '0 18px', background: HUD.surface,
+        borderBottom: `1px solid ${HUD.divider}`,
+        display: 'flex', alignItems: 'center', gap: 12,
       }}>
-        <span style={{ fontFamily: black, fontSize: 18 }}>RECORRIDO {routeId}</span>
-        {/* Sobre cuál trazado se dibuja. Con uno solo no hay nada que elegir. */}
-        {lista.length > 1 && (
-          <select value={variantId || ''} onChange={e => setVariantId(Number(e.target.value))}
-            title="Sobre cuál de los trazados de esta ruta estás dibujando"
-            style={{
-              background: HUD.campo, color: HUD.fg, border: `1px solid ${HUD.line}`,
-              borderRadius: 8, padding: '6px 8px', fontSize: 13, fontWeight: 700,
-              fontFamily: 'inherit', cursor: 'pointer', maxWidth: 220,
-            }}>
-            {lista.map(v => (
-              <option key={v.variantId} value={v.variantId}>
-                {v.name}{v.activa ? ' · midiendo' : ''}
-              </option>
-            ))}
-          </select>
-        )}
-        <span style={{ fontSize: 13, color: HUD.dim, flex: '1 1 auto', minWidth: 0,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{routeName || ''}</span>
-        <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.fg2, whiteSpace: 'nowrap' }}>
-          {tramos
-            ? `ida ${tramos.ida.length} pts · ${kmDe(tramos.ida)} km` +
-              (tramos.vuelta.length ? ` · vuelta ${tramos.vuelta.length} pts · ${kmDe(tramos.vuelta)} km` : '')
-            : '…'}
-        </span>
-        <button onClick={onClose} style={btn('transparent', HUD.dim2)}>✕ Salir</button>
-      </div>
-
-      {/* qué tramo se está dibujando */}
-      <div style={{
-        flexShrink: 0, padding: '10px 16px 0', display: 'flex', gap: 8, flexWrap: 'wrap',
-      }}>
-        {[['ida', 'IDA'], ['vuelta', 'VUELTA']].map(([k, etiqueta]) => {
-          const activo = tramo === k;
-          const n = tramos ? tramos[k].length : 0;
-          return (
-            <button key={k} onClick={() => setTramo(k)} style={{
-              ...btn(activo ? HUD.bright : HUD.boton, activo ? '#fff' : HUD.fg2),
-              border: `1px solid ${activo ? HUD.bright : HUD.line}`,
-            }}>{etiqueta} · {n} pts</button>
-          );
-        })}
-      </div>
-
-      {/* instrucción */}
-      <div style={{
-        flexShrink: 0, padding: '9px 16px', margin: '10px 0 0', background: HUD.hueco,
-        fontSize: 13, color: HUD.dim, lineHeight: 1.45,
-      }}>
-        La combi hace un circuito: marcá primero la <strong>ida</strong> y después
-        la <strong>vuelta</strong>, cada una en el orden en que se maneja. En cada
-        tramo el primer punto es la salida (<span style={{ color: HUD.green, fontWeight: 700 }}>A</span>)
-        y el último el final (<span style={{ color: HUD.green, fontWeight: 700 }}>B</span>).
-        {puntos && puntos.length > TOPE_ARRASTRABLES
-          ? ' Con más de ' + TOPE_ARRASTRABLES + ' puntos no se pueden arrastrar (serían miles de marcadores): usá Deshacer o Borrar todo.'
-          : ' Arrastrá un punto para corregirlo, tocalo para borrarlo.'}
-        {' '}El tramo que no estás editando queda punteado de fondo.
-      </div>
-
-      {error && <div style={{ flexShrink: 0, padding: '8px 16px', background: HUD.burbujaSos,
-        color: HUD.burbujaSosInk, fontSize: 13, fontWeight: 700 }}>{error}</div>}
-      {aviso && <div style={{ flexShrink: 0, padding: '8px 16px', background: HUD.okFondo,
-        color: HUD.okClave, fontSize: 13, fontWeight: 700 }}>{aviso}</div>}
-
-      {/* Dibujar un trazado guardado es lo normal cuando se prepara un desvío
-          antes de que empiece la obra. Pero hay que decirlo: si no, se guarda
-          creyendo que se corrigió el recorrido de hoy y no cambió nada. */}
-      {variante && !variante.activa && (
-        <div style={{
-          flexShrink: 0, padding: '8px 16px', background: HUD.avisoFondo || 'rgba(245,197,66,.12)',
-          color: HUD.amber, fontSize: 13, fontWeight: 700,
-        }}>
-          Estás dibujando «{variante.name}», que <u>no</u> es el trazado con el que
-          se está midiendo. Guardar acá no le cambia el mapa a nadie hasta que se
-          active desde RUTAS.
-        </div>
-      )}
-
-      {/* mapa */}
-      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        <div ref={initMap} style={{ position: 'absolute', inset: 0, cursor: 'crosshair' }} />
-      </div>
-
-      {/* acciones */}
-      <div style={{
-        flexShrink: 0, padding: '12px 16px', borderTop: `1px solid ${HUD.divider}`,
-        display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
-      }}>
-        <button onClick={() => setPuntos(p => p.slice(0, -1))}
-          disabled={!puntos || !puntos.length}
-          style={btn(HUD.boton, HUD.fg2)}>↶ Deshacer</button>
-        <button onClick={() => { setPuntos([]); setAviso(null); }}
-          disabled={!puntos || !puntos.length}
-          style={btn(HUD.boton, HUD.red)}>Borrar {tramo}</button>
-        <button onClick={() => archivoRef.current?.click()}
-          title={`Un GPX o GeoJSON para la ${tramo}, por ejemplo de esa mitad grabada manejando`}
-          style={btn(HUD.boton, HUD.fg2)}>Importar GPX a la {tramo}</button>
-        <input ref={archivoRef} type="file" accept=".gpx,.geojson,.json,.xml,text/*"
-          style={{ display: 'none' }}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (!f) return;
-            const fr = new FileReader();
-            fr.onload = () => importar(String(fr.result));
-            fr.onerror = () => setError('No se pudo abrir el archivo');
-            fr.readAsText(f);
-            e.target.value = '';
-          }} />
+        <span style={{ fontFamily: black, fontSize: 17 }}>Trazador</span>
+        <span style={{
+          ...rotulo(10, HUD.dim2), letterSpacing: 1.5, minWidth: 0,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>{routeId}{routeName ? ` · ${routeName}` : ''}</span>
         <div style={{ flex: 1 }} />
         {(vueltaIncompleta || idaIncompleta || sinIda) && (
-          <span style={{ fontSize: 12, color: HUD.amber, fontWeight: 700 }}>
+          <span style={{ fontSize: 12, color: HUD.amber, fontWeight: 700, textAlign: 'right' }}>
             {sinIda ? 'Falta la ida: el circuito arranca por ahí'
               : `La ${idaIncompleta ? 'ida' : 'vuelta'} tiene un solo punto`}
           </span>
         )}
-        <button onClick={guardar}
-          disabled={guardando || !tramos || vueltaIncompleta || idaIncompleta || sinIda}
-          style={btn(HUD.bright, '#fff', { padding: '0 20px', height: 40, fontSize: 14 })}>
+        <button onClick={onClose} style={btnSecundario(36)}>Cancelar</button>
+        <button onClick={guardar} disabled={trabado}
+          style={{ ...btnPrimario(36), opacity: trabado ? .5 : 1, cursor: trabado ? 'not-allowed' : 'pointer' }}>
           {guardando ? 'Guardando…' : 'Guardar recorrido'}
         </button>
+      </div>
+
+      {/* Dibujar un trazado guardado es lo normal cuando se prepara un desvío
+          antes de que empiece la obra. Pero hay que decirlo, y decirlo acá:
+          si no, se guarda creyendo que se corrigió el recorrido de hoy y no
+          cambió nada. No es un toast, no se descarta y no se esconde. */}
+      {desalineado && (
+        <div style={{
+          flexShrink: 0, padding: '14px 20px', background: HUD.ambarFondo,
+          borderBottom: `2px solid ${HUD.amber}`,
+          display: 'flex', gap: 13, alignItems: 'flex-start',
+        }}>
+          <span style={{ fontFamily: black, fontSize: 15, color: HUD.amber, flexShrink: 0 }}>ATENCIÓN</span>
+          <span style={{ fontSize: 14, lineHeight: 1.55, color: HUD.ambarTinta }}>
+            Estás dibujando <strong>«{variante.name}»</strong>, que <strong>no es el
+            trazado con el que se está midiendo hoy</strong>
+            {midiendo ? <> (hoy mide «{midiendo.name}»)</> : null}. Guardar acá no
+            corrige el recorrido de las unidades que están en ruta: para eso hay que
+            cambiar la medición en Gestión ▸ Rutas.
+          </span>
+        </div>
+      )}
+
+      {error && (
+        <div style={{
+          flexShrink: 0, padding: '10px 20px', background: HUD.rojoFondo,
+          borderBottom: `1px solid ${HUD.rojoBorde}`,
+          color: HUD.rojoTinta, fontSize: 13, fontWeight: 700,
+        }}>{error}</div>
+      )}
+      {aviso && (
+        <div style={{
+          flexShrink: 0, padding: '10px 20px', background: HUD.verdeFondo,
+          borderBottom: `1px solid ${HUD.verdeBorde}`,
+          color: HUD.verdeTinta, fontSize: 13, fontWeight: 700,
+        }}>{aviso}</div>
+      )}
+
+      <div style={{
+        flex: 1, minHeight: 0, display: 'flex',
+        flexDirection: angosto ? 'column' : 'row',
+      }}>
+        {/* panel */}
+        <div style={{
+          flexShrink: 0, width: angosto ? 'auto' : 300, background: HUD.bg,
+          borderRight: angosto ? 'none' : `1px solid ${HUD.divider}`,
+          borderBottom: angosto ? `1px solid ${HUD.divider}` : 'none',
+          padding: 16, overflowY: 'auto',
+          display: 'flex', flexDirection: 'column', gap: 16,
+        }}>
+          {/* Sobre cuál trazado se dibuja. Con uno solo no hay nada que elegir. */}
+          <div>
+            <div style={{ ...rotulo(9), marginBottom: 8 }}>Trazado que estás dibujando</div>
+            {lista.length > 1 ? (
+              <span style={{ position: 'relative', display: 'block' }}>
+                <span style={{
+                  display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 12px',
+                  background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 10,
+                }}>
+                  <span style={{
+                    fontFamily: black, fontSize: 14, flex: 1, minWidth: 0,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{variante ? variante.name : '—'}</span>
+                  <span style={{ fontSize: 11, color: HUD.dim3 }}>▾</span>
+                </span>
+                <select value={variantId || ''} onChange={e => setVariantId(Number(e.target.value))}
+                  title="Sobre cuál de los trazados de esta ruta estás dibujando"
+                  style={{ position: 'absolute', inset: 0, width: '100%', opacity: 0, cursor: 'pointer' }}>
+                  {lista.map(v => (
+                    <option key={v.variantId} value={v.variantId}>
+                      {v.name}{v.activa ? ' · midiendo' : ''}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            ) : (
+              <div style={{
+                height: 40, padding: '0 12px', display: 'flex', alignItems: 'center',
+                background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 10,
+                fontFamily: black, fontSize: 14,
+              }}>{variante ? variante.name : (routeName || routeId)}</div>
+            )}
+            {desalineado && (
+              <div style={{ ...rotulo(10, HUD.amber), letterSpacing: 1, marginTop: 8 }}>
+                ◇ No es el que mide hoy
+              </div>
+            )}
+          </div>
+
+          <div style={{ height: 1, background: HUD.divider }} />
+
+          {/* Tramo que se está dibujando. El circuito son dos: la combi va y
+              vuelve, y no siempre por la misma calle. */}
+          <div>
+            <div style={{ ...rotulo(9), marginBottom: 8 }}>Tramo</div>
+            <div style={{ display: 'flex', background: HUD.hueco, borderRadius: 10, padding: 3 }}>
+              {[['ida', 'Ida'], ['vuelta', 'Vuelta']].map(([k, etiqueta]) => {
+                const activo = tramo === k;
+                return (
+                  <button key={k} onClick={() => setTramo(k)} style={{
+                    flex: 1, height: 34, borderRadius: 8, cursor: 'pointer',
+                    fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
+                    background: activo ? HUD.surface : 'transparent',
+                    border: `1px solid ${activo ? HUD.line : 'transparent'}`,
+                    color: activo ? HUD.fg : HUD.dim2,
+                  }}>{etiqueta}</button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+              <div style={rotulo(9)}>Puntos</div>
+              <div style={{ fontFamily: black, fontSize: 22, marginTop: 4 }}>
+                {puntos ? puntos.length : '—'}
+              </div>
+            </div>
+            <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+              <div style={rotulo(9)}>Largo</div>
+              <div style={{ fontFamily: black, fontSize: 22, marginTop: 4 }}>
+                {puntos ? kmDe(puntos) : '—'}
+                <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim2, marginLeft: 4 }}>KM</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button onClick={importarArchivo}
+              title={`Un GPX o GeoJSON para la ${tramo}, por ejemplo de esa mitad grabada manejando`}
+              style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2 }}>
+              Importar GPX o GeoJSON
+            </button>
+            <button onClick={() => setPuntos(p => p.slice(0, -1))}
+              disabled={!puntos || !puntos.length}
+              style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2, opacity: puntos && puntos.length ? 1 : .5 }}>
+              Deshacer último punto
+            </button>
+            <button onClick={() => { setPuntos([]); setAviso(null); }}
+              disabled={!puntos || !puntos.length}
+              style={{
+                ...btnSecundario(38), width: '100%', color: HUD.red,
+                borderColor: HUD.rojoBorde, opacity: puntos && puntos.length ? 1 : .5,
+              }}>
+              Borrar la {tramo}
+            </button>
+            <input ref={archivoRef} type="file" accept=".gpx,.geojson,.json,.xml,text/*"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                const fr = new FileReader();
+                fr.onload = () => importar(String(fr.result));
+                fr.onerror = () => setError('No se pudo abrir el archivo');
+                fr.readAsText(f);
+                e.target.value = '';
+              }} />
+          </div>
+
+          <div style={{ fontSize: 12, color: HUD.dim3, lineHeight: 1.55 }}>
+            Marcá el recorrido tocando el mapa en el orden en que se maneja: el
+            primer punto es la salida (<strong>A</strong>) y el último el final
+            (<strong>B</strong>).
+            {puntos && puntos.length > TOPE_ARRASTRABLES
+              ? ` Con más de ${TOPE_ARRASTRABLES} puntos no se pueden arrastrar (serían miles de marcadores): usá Deshacer.`
+              : ' Arrastrá un punto para corregirlo, tocalo para borrarlo.'}
+            {' '}El tramo que no estás editando queda punteado de fondo.
+          </div>
+        </div>
+
+        {/* mapa */}
+        <div style={{ flex: 1, minHeight: angosto ? 320 : 0, position: 'relative' }}>
+          <div ref={initMap} style={{ position: 'absolute', inset: 0, cursor: 'crosshair' }} />
+        </div>
       </div>
     </div>
   );
@@ -750,6 +908,117 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
 // VEHÍCULO. Dos personas pueden compartir el mismo vehículo; el que
 // reporta GPS es uno solo.
 // ═══════════════════════════════════════════════════════════════
+// ─── Piezas de Gestión ───────────────────────────────────────────
+// Cada sección abre diciendo para qué sirve. La bajada no es decoración:
+// es la diferencia entre que alguien toque un botón sabiendo qué hace y
+// que lo toque a ver qué pasa.
+function Seccion({ titulo, bajada, children }) {
+  return (
+    <div>
+      <div style={{ fontFamily: black, fontSize: 24, letterSpacing: -0.3 }}>{titulo}</div>
+      <div style={{
+        fontSize: 13, color: HUD.dim2, lineHeight: 1.5,
+        maxWidth: 640, margin: '8px 0 20px',
+      }}>{bajada}</div>
+      {children}
+    </div>
+  );
+}
+
+// Cabecera y filas comparten la misma rejilla, así las columnas quedan
+// alineadas sin una <table>. La última columna va a la derecha (siempre es
+// acciones o el número que se lee de un vistazo). En pantallas angostas la
+// tabla se desplaza en horizontal en vez de aplastar las columnas.
+function Tabla({ cols, cabeceras, ancho, children }) {
+  const rejilla = { display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center' };
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div style={{
+        border: `1px solid ${HUD.divider}`, borderRadius: 12, overflow: 'hidden',
+        minWidth: ancho || 0,
+      }}>
+        <div style={{
+          ...rejilla, padding: '10px 14px', background: HUD.bg,
+          borderBottom: `1px solid ${HUD.divider}`,
+        }}>
+          {cabeceras.map((c, i) => (
+            <div key={i} style={{
+              ...rotulo(9),
+              textAlign: i === cabeceras.length - 1 && cabeceras.length > 1 ? 'right' : 'left',
+            }}>{c}</div>
+          ))}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FilaTabla({ cols, children }) {
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center',
+      padding: '11px 14px', borderBottom: `1px solid ${HUD.hueco}`,
+    }}>{children}</div>
+  );
+}
+
+// Nota al pie de una sección: lo que hay que saber y no entra en la bajada
+function Pie({ children }) {
+  return (
+    <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>{children}</div>
+  );
+}
+
+function Vacio({ children }) {
+  return <div style={{ padding: '18px 14px', fontSize: 14, color: HUD.dim3 }}>{children}</div>;
+}
+
+// Punto de conexión
+function Punto({ on, title }) {
+  return <span title={title} style={{
+    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+    background: on ? HUD.green : HUD.apagado,
+  }} />;
+}
+
+// Confirmación que nombra sobre qué. Se usa en los dos únicos lugares donde
+// una acción de Despacho le cambia el día a gente que está manejando.
+function Confirmacion({ kicker, tono, titulo, cuerpo, aceptar, onAceptar, onCancelar }) {
+  const fondo = tono === 'red' ? HUD.rojoFondo : HUD.ambarFondo;
+  const borde = tono === 'red' ? HUD.rojoBorde : HUD.ambarBorde;
+  const tinta = tono === 'red' ? HUD.rojoTinta : HUD.ambarTinta;
+  const fuerte = tono === 'red' ? HUD.red : HUD.amber;
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 4000, background: HUD.velo,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+    }} onClick={onCancelar}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: 520, maxWidth: '100%', background: HUD.surface,
+        border: `1px solid ${HUD.line}`, borderRadius: 16, padding: 24,
+        boxShadow: '0 30px 60px -30px rgba(11,34,57,.55)',
+      }}>
+        <div style={{ ...rotulo(10, fuerte), letterSpacing: 1.6, marginBottom: 10 }}>{kicker}</div>
+        <div style={{ fontFamily: black, fontSize: 21, lineHeight: 1.25 }}>{titulo}</div>
+        <div style={{
+          background: fondo, border: `1px solid ${borde}`, borderLeft: `3px solid ${fuerte}`,
+          borderRadius: 11, padding: 13, margin: '16px 0 20px',
+          fontSize: 13, lineHeight: 1.6, color: tinta,
+        }}>{cuerpo}</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button onClick={onAceptar} style={{
+            ...btnPrimario(42), background: fuerte, borderRadius: 10,
+          }}>{aceptar}</button>
+          <button onClick={onCancelar} style={{ ...btnSecundario(42), borderRadius: 10 }}>
+            No cambiar nada
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   const [tab, setTab] = React.useState('users'); // users | vehicles | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
@@ -758,6 +1027,28 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   const [routeList, setRouteList] = React.useState(routes || []);
   const [vehicles, setVehicles] = React.useState(null);
   const [shifts, setShifts] = React.useState(null);
+  const [rangoTurnos, setRangoTurnos] = React.useState('hoy'); // hoy | ayer | semana
+  const [vueltas, setVueltas] = React.useState(null);
+  // Alta de persona: cerrada de entrada. Ocho formularios abiertos a la vez
+  // era lo que hacía que la pantalla se leyera como un tablero de controles.
+  const [altaAbierta, setAltaAbierta] = React.useState(false);
+  const [filtroRol, setFiltroRol] = React.useState('');
+  // Rango de los informes, en fechas y no en botones de "últimos N días":
+  // la cooperativa pide "del 1 al 15", no "los últimos 14 días".
+  const [rangoInf, setRangoInf] = React.useState(() => {
+    const iso = (t) => new Date(t).toISOString().slice(0, 10);
+    return { desde: iso(Date.now() - 29 * 86400e3), hasta: iso(Date.now()) };
+  });
+  // Cambio del trazado con el que se mide: { ruta, v, actual }
+  const [confirmVar, setConfirmVar] = React.useState(null);
+  // Bajo 900 px el riel no cabe al lado del contenido. No vuelve a ser una
+  // fila de ocho pestañas: se convierte en un desplegable.
+  const [angosto, setAngosto] = React.useState(window.innerWidth < 900);
+  React.useEffect(() => {
+    const onResize = () => setAngosto(window.innerWidth < 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [empresa, setEmpresa] = React.useState(null);
   const [empForm, setEmpForm] = React.useState({ name: '', ruc: '', contacto: '' });
   const [nuevoVeh, setNuevoVeh] = React.useState({ vehicleId: '', label: '' });
@@ -821,9 +1112,24 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     .then(d => { setVehicles(d.vehicles || []); })
     .catch(e => setError(e.message));
 
-  const loadShifts = () => api('/admin/shifts')
-    .then(d => { setShifts(d); })
-    .catch(e => setError(e.message));
+  // Los tres rangos se piden con el mismo `desde`. "Ayer" se recorta acá
+  // porque el endpoint no toma un `hasta`, y no vale la pena inventarle uno
+  // a la API para acotar una lista de 500 filas.
+  const inicioDeHoy = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const loadShifts = (rango = rangoTurnos) => {
+    const hoy = inicioDeHoy();
+    const desde = rango === 'hoy' ? hoy : rango === 'ayer' ? hoy - 86400e3 : hoy - 6 * 86400e3;
+    return api(`/admin/shifts?desde=${desde}`)
+      .then(d => setShifts({ ...d, rango }))
+      .catch(e => setError(e.message));
+  };
+
+  const loadVueltas = () => {
+    const ruta = esSupervisor && currentRoute ? `?routeId=${encodeURIComponent(currentRoute)}` : '';
+    return api('/admin/vueltas' + ruta)
+      .then(d => setVueltas(d))
+      .catch(e => setError(e.message));
+  };
 
   const loadEmpresa = () => api('/admin/company')
     .then(d => {
@@ -838,7 +1144,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   React.useEffect(() => { load(); loadRoutes(); loadVehicles(); }, []);
   React.useEffect(() => {
     if (tab === 'audit') loadAudit();
-    if (tab === 'metrics') loadMetrics();
+    if (tab === 'metrics') { loadMetrics(); loadVueltas(); }
     if (tab === 'routes') loadRoutes();
     if (tab === 'vehicles') loadVehicles();
     if (tab === 'shifts') loadShifts();
@@ -855,21 +1161,21 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   // Cambiar el trazado con el que se mide una ruta le cambia el mapa a todos
   // los que están manejando en ese momento y descarta las vueltas en curso.
   // Por eso se confirma, y el cartel dice qué se pierde.
-  const activarVariante = (ruta, variantId) => {
+  const pedirCambioDeTrazado = (ruta, variantId) => {
     const v = (ruta.variantes || []).find(x => x.variantId === variantId);
-    if (!v) return;
+    if (!v || v.activa) return;
     if (!v.puntos) {
       setError(`"${v.name}" todavía no tiene recorrido dibujado. Cargalo antes de activarla.`);
       return;
     }
-    const enRuta = ruta.enLinea;
-    const aviso = `¿La ruta ${ruta.routeId} pasa a medirse con "${v.name}"?\n\n` +
-      `El mapa cambia al instante para las unidades que estén en la calle` +
-      (enRuta ? ` (ahora hay ${enRuta}).` : '.') +
-      `\nLas vueltas que estén a medias se descartan: se venían midiendo con el trazado anterior.`;
-    if (!window.confirm(aviso)) return;
+    setConfirmVar({ ruta, v, actual: (ruta.variantes || []).find(x => x.activa) || null });
+  };
+
+  const confirmarCambioDeTrazado = () => {
+    const { ruta, v } = confirmVar;
+    setConfirmVar(null);
     run(async () => {
-      await api(`/admin/routes/${encodeURIComponent(ruta.routeId)}/variantes/${variantId}/activar`,
+      await api(`/admin/routes/${encodeURIComponent(ruta.routeId)}/variantes/${v.variantId}/activar`,
         { method: 'POST' });
       await loadRoutes();
     }, `${ruta.routeId} ahora mide con "${v.name}"`);
@@ -942,17 +1248,6 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     [u.unitId, u.name, u.alias, u.driverName, u.vehicleId, u.routeId]
       .filter(Boolean).join(' ').toLowerCase().includes(q);
 
-  const inputStyle = {
-    height: 40, borderRadius: 10, background: HUD.campo,
-    border: `1px solid ${HUD.campoLinea}`, padding: '0 12px',
-    fontSize: 14, color: HUD.fg, outline: 'none', fontFamily: 'inherit',
-    minWidth: 0, width: '100%', boxSizing: 'border-box',
-  };
-  const smallBtn = (bg, color) => ({
-    border: 'none', borderRadius: 8, padding: '6px 10px',
-    fontSize: 12, fontWeight: 700, cursor: 'pointer', background: bg, color,
-  });
-
   if (trazando) {
     return (
       <Trazador
@@ -966,836 +1261,1033 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     );
   }
 
+  // El riel en tres grupos. Nombra para qué es cada cosa antes de nombrar la
+  // cosa: "operación del día" y "ruta y medición" no se mezclan aunque las
+  // ocho secciones vivan en el mismo lugar.
+  const GRUPOS = [
+    ['Operación del día', [
+      ['users', 'Personas', users ? users.length : null],
+      ['vehicles', 'Vehículos', vehicles ? vehicles.length : null],
+      ['shifts', 'Turnos', { hoy: 'hoy', ayer: 'ayer', semana: '7 días' }[rangoTurnos]],
+    ]],
+    ['Ruta y medición', [
+      ['routes', 'Rutas', routeList.length || null],
+      ['metrics', 'Vueltas', vueltas ? vueltas.resumen.cerradas : null],
+      ['informes', 'Informes', null],
+    ]],
+    ['La cooperativa', [
+      ['empresa', 'Empresa', null],
+      ['audit', 'Actividad', '↺'],
+    ]],
+  ];
+  const TITULOS = {
+    users: ['Personas', 'Choferes, cobradores y encargados de la cooperativa. Acá se dan de alta, se corrigen los datos, se resetean claves y se dan de baja.'],
+    vehicles: ['Vehículos', 'Las combis físicas de la cooperativa y quién va arriba de cada una hoy.'],
+    routes: ['Rutas', 'Objetivo de brecha, recorrido cargado y con cuál de los trazados se está midiendo. Los trazados los crea el nivel de arriba; acá se elige.'],
+    shifts: ['Turnos', 'Entradas y salidas de la jornada, por unidad.'],
+    metrics: ['Vueltas', 'Cada vuelta cerrada con su duración y la brecha promedio que mantuvo.'],
+    informes: ['Informes', 'Descargas para la cooperativa: vueltas, brechas y turnos en un rango de fechas.'],
+    empresa: ['Empresa', 'Datos de la cooperativa que se muestran en el panel y en la app del chofer.'],
+    audit: ['Actividad', 'Todo lo que se hizo en el panel de esta cooperativa. Solo la de ustedes.'],
+  };
+
+  const fmtSeg = (s) => s == null ? '—'
+    : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+  const hhmm = (ts) => {
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const rielItem = (key, etiqueta, cuenta) => (
+    <button key={key} onClick={() => setTab(key)} style={{
+      display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+      padding: '9px 10px', borderRadius: 9, border: 'none', cursor: 'pointer',
+      textAlign: 'left', fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
+      background: tab === key ? HUD.surface : 'transparent',
+      color: tab === key ? HUD.fg : HUD.dim,
+    }}>
+      <span style={{
+        width: 3, height: 16, borderRadius: 2, flexShrink: 0,
+        background: tab === key ? HUD.bright : 'transparent',
+      }} />
+      <span style={{ flex: 1, minWidth: 0 }}>{etiqueta}</span>
+      {cuenta !== null && cuenta !== undefined && (
+        <span style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.dim3 }}>{cuenta}</span>
+      )}
+    </button>
+  );
+
+  const [tituloSec, bajadaSec] = TITULOS[tab] || ['', ''];
+
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 3000,
-      background: HUD.oscuro ? 'rgba(3,6,10,.75)' : 'rgba(11,34,57,.35)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: 760, maxWidth: '95vw', maxHeight: '88vh',
-        overflowY: 'auto', overflowX: 'hidden',
-        background: HUD.surface, border: `1px solid ${HUD.line}`,
-        borderRadius: 20, padding: 24,
+      position: 'fixed', inset: 0, zIndex: 3000, background: HUD.bg,
+      display: 'flex', flexDirection: 'column',
+    }}>
+      {/* header */}
+      <div style={{
+        height: 60, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12,
+        padding: '0 18px', background: HUD.surface,
+        borderBottom: `1px solid ${HUD.divider}`,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-          {[['users', 'PERSONAS'], ['vehicles', 'VEHÍCULOS'], ['routes', 'RUTAS'], ['shifts', 'TURNOS'], ['metrics', 'VUELTAS'], ['audit', 'ACTIVIDAD'], ['informes', 'INFORMES'], ['empresa', 'EMPRESA']].map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)} style={{
-              background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
-              fontFamily: black, fontSize: 17,
-              color: tab === key ? HUD.fg : HUD.dim3,
-              borderBottom: tab === key ? `3px solid ${HUD.bright}` : '3px solid transparent',
-            }}>{label}</button>
-          ))}
-          <div style={{ flex: 1 }} />
-          <button onClick={onClose} style={smallBtn('transparent', HUD.dim2)}>✕ Cerrar</button>
-        </div>
+        <span style={{ fontFamily: black, fontSize: 17 }}>Gestión</span>
+        <span style={{
+          ...rotulo(10, HUD.dim2), letterSpacing: 1.5, minWidth: 0,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {session.companyName || session.companyId || ''}{currentRoute ? ` · ${currentRoute}` : ''}
+        </span>
+        <div style={{ flex: 1 }} />
+        <button onClick={onClose} style={btnSecundario(36)}>✕ Volver al mapa</button>
+      </div>
 
-        {tab === 'vehicles' && (
-          <div>
-            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-            {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
-
-            {/* alta de vehículo: la combi física, sin credencial ni clave */}
-            <div style={{
-              display: 'flex', flexWrap: 'wrap', gap: 8,
-              padding: 14, background: HUD.hueco, borderRadius: 14,
-              border: `1px solid ${HUD.divider}`, marginBottom: 16,
-            }}>
-              {esSupervisor && routeList.length > 0 && (
-                <select value={form.routeId}
-                  onChange={e => setForm(f => ({ ...f, routeId: e.target.value }))}
-                  title="Ruta en la que trabaja el vehículo"
-                  style={{ ...inputStyle, width: 'auto', flex: '0 1 120px', cursor: 'pointer' }}>
-                  {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}</option>)}
-                </select>
-              )}
-              <input placeholder="Código (ej. M-21)" value={nuevoVeh.vehicleId}
-                onChange={e => setNuevoVeh(v => ({ ...v, vehicleId: e.target.value }))}
-                style={{ ...inputStyle, width: 'auto', flex: '1 1 130px' }} />
-              <input placeholder="Placa o descripción (opcional)" value={nuevoVeh.label}
-                onChange={e => setNuevoVeh(v => ({ ...v, label: e.target.value }))}
-                style={{ ...inputStyle, width: 'auto', flex: '1 1 180px' }} />
-              <button onClick={crearVehiculo} disabled={busy} style={{
-                ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13, height: 40,
-              }}>+ VEHÍCULO</button>
-            </div>
-
-            {!vehicles && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
-            {vehicles && vehicles.length === 0 && (
-              <div style={{ color: HUD.dim3, fontSize: 14 }}>
-                Todavía no hay vehículos. Se crean acá, o solos al dar de alta a un chofer.
-              </div>
-            )}
-            {vehicles && vehicles.map(v => {
-              const asignados = (users || []).filter(u => u.vehicleId === v.vehicleId);
-              return (
-                <div key={v.vehicleId} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '10px 4px', borderBottom: `1px solid ${HUD.divider}`,
-                }}>
-                  <span style={{
-                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                    background: v.enLinea ? HUD.green : HUD.apagado,
-                    boxShadow: v.enLinea ? `0 0 8px ${HUD.green}` : 'none',
-                  }} title={v.enLinea ? 'En ruta ahora' : 'Fuera de ruta'} />
-                  <span style={{ fontFamily: black, fontSize: 15, minWidth: 80 }}>{v.vehicleId}</span>
-                  <span style={{
-                    fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.sky,
-                    background: 'rgba(46,157,255,.12)', border: `1px solid ${HUD.line}`,
-                    padding: '2px 6px', borderRadius: 4, flexShrink: 0,
-                  }}>{v.routeId || '—'}</span>
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 13, color: HUD.dim, display: 'block',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {v.label || <span style={{ color: HUD.dim3 }}>sin placa</span>}
-                    </span>
-                    <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim3 }}>
-                      {asignados.length === 0 ? 'sin tripulación asignada'
-                        : asignados.map(u => `${u.alias || u.name}${u.role === 'collector' ? ' (cobrador)' : ''}`).join(' · ')}
-                    </span>
-                  </span>
-                  {v.tripulacion && v.tripulacion.length > 0 && (
-                    <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.green, whiteSpace: 'nowrap' }}>
-                      {v.tripulacion.length} arriba
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-
-            <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-              El vehículo es la combi física; las personas se dan de alta en
-              <strong> PERSONAS</strong> y se le asignan. Pueden ir dos arriba
-              (chofer y cobrador) pero <strong>solo el chofer reporta la
-              posición</strong>: así la unidad no salta entre dos celulares.
-            </div>
-          </div>
-        )}
-
-        {tab === 'routes' && (
-          <div>
-            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-            {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
-
-
-            {routeList.map(r => (
-              // La fila envuelve: con objetivo, recorrido y unidades no entra
-              // en una línea, y menos en un celular.
-              <div key={r.routeId} style={{
-                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                padding: '11px 4px', borderBottom: `1px solid ${HUD.divider}`,
-                background: r.routeId === currentRoute
-                  ? (HUD.oscuro ? 'rgba(46,157,255,.08)' : 'rgba(22,104,196,.07)') : 'transparent',
-              }}>
-                <span style={{ fontFamily: black, fontSize: 16, minWidth: 70 }}>{r.routeId}</span>
-                <span style={{ fontSize: 14, color: HUD.dim, flex: '1 1 130px', minWidth: 0,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
-                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2, whiteSpace: 'nowrap' }}>
-                  objetivo {r.objetivo ? r.objetivo.min : r.targetGapMin} min · recorrido {r.durationMin} min
-                </span>
-                {/* De dónde sale el objetivo: calculado, esperando datos, o
-                    fijado a mano. Que se entienda sin preguntar. */}
-                {r.objetivo && (
-                  <span title={
-                    r.objetivo.modo === 'auto'
-                      ? `Vuelta promedio de ${r.objetivo.dia || 'todos los días'} sobre ${r.objetivo.unidades} unidades en ruta (${r.objetivo.vueltas} vueltas)`
-                      : r.objetivo.modo === 'esperando'
-                        ? (r.objetivo.motivo === 'unidades'
-                            ? `No hay ninguna unidad en ruta: sin eso no se puede repartir la vuelta. Por ahora vale el manual de ${r.objetivo.manual} min`
-                            : `Faltan vueltas para calcularlo (${r.objetivo.vueltas} de 3): por ahora vale el manual de ${r.objetivo.manual} min`)
-                        : 'Fijado a mano'
-                  } style={{
-                    fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .5,
-                    padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap',
-                    background: r.objetivo.modo === 'auto' ? 'rgba(31,138,79,.14)'
-                      : r.objetivo.modo === 'esperando' ? 'rgba(166,115,0,.16)' : 'transparent',
-                    color: r.objetivo.modo === 'auto' ? HUD.green
-                      : r.objetivo.modo === 'esperando' ? HUD.amber : HUD.dim3,
-                    border: `1px solid ${HUD.line}`,
-                  }}>
-                    {r.objetivo.modo === 'auto'
-                      ? `AUTO · ${r.objetivo.vueltas} vueltas${r.objetivo.dia ? ' · ' + r.objetivo.dia : ''}`
-                      : r.objetivo.modo === 'esperando'
-                        ? (r.objetivo.motivo === 'unidades'
-                            ? 'AUTO · sin unidades en ruta'
-                            : `AUTO · faltan vueltas (${r.objetivo.vueltas}/3)`)
-                        : 'A MANO'}
-                  </span>
-                )}
-                <button
-                  onClick={() => cambiarObjetivo(r.routeId, { auto: !r.autoTarget })}
-                  title={r.autoTarget
-                    ? 'Volver al objetivo fijado a mano'
-                    : 'Calcular el objetivo solo: vuelta promedio ÷ unidades en ruta'}
-                  disabled={busy}
-                  style={{ ...smallBtn(r.autoTarget ? HUD.bright : HUD.boton,
-                    r.autoTarget ? '#fff' : HUD.fg2), whiteSpace: 'nowrap' }}>
-                  {r.autoTarget ? 'Automático' : 'Automático off'}
-                </button>
-                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
-                  color: r.enLinea > 0 ? HUD.green : HUD.dim3 }}>
-                  {r.unidades} unid · {r.enLinea} en línea
-                </span>
-                <button onClick={() => setTrazando(r)}
-                  title="Cargar o corregir el recorrido de esta ruta en el mapa"
-                  style={{ ...smallBtn(HUD.boton, r.puntos ? HUD.fg2 : HUD.amber), whiteSpace: 'nowrap' }}>
-                  {r.puntos
-                    ? `Recorrido · ${r.puntos} pts · ${(r.largoM / 1000).toFixed(1)} km`
-                    : 'Sin recorrido'}
-                </button>
-                {/* Con cuál de los trazados se está midiendo. Solo aparece si
-                    la ruta tiene más de uno: cuando hay uno solo, elegir no
-                    es una decisión y el selector sería ruido.
-                    Despacho ELIGE entre los cargados; crearlos y borrarlos es
-                    cartografía y se hace desde el nivel de arriba. */}
-                {r.variantes && r.variantes.length > 1 && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontFamily: mono, fontSize: 11, color: HUD.dim2, whiteSpace: 'nowrap' }}>
-                      MIDIENDO CON
-                    </span>
-                    <select
-                      value={(r.variantes.find(v => v.activa) || {}).variantId || ''}
-                      disabled={busy}
-                      onChange={e => activarVariante(r, Number(e.target.value))}
-                      title="Cambia el trazado con el que se miden progreso, brechas y desvíos de esta ruta"
-                      style={{
-                        background: HUD.campo, color: HUD.fg, border: `1px solid ${HUD.line}`,
-                        borderRadius: 8, padding: '5px 7px', fontSize: 12, fontWeight: 700,
-                        fontFamily: 'inherit', cursor: 'pointer', maxWidth: 190,
-                      }}>
-                      {r.variantes.map(v => (
-                        <option key={v.variantId} value={v.variantId}>
-                          {v.name}{v.puntos ? '' : ' (sin dibujar)'}
-                        </option>
-                      ))}
-                    </select>
-                  </span>
-                )}
+      <div style={{
+        flex: 1, minHeight: 0,
+        display: 'grid', gridTemplateColumns: angosto ? '1fr' : '232px 1fr',
+      }}>
+        {!angosto && (
+          <div style={{
+            background: HUD.bg, borderRight: `1px solid ${HUD.divider}`,
+            padding: '16px 12px', overflowY: 'auto',
+          }}>
+            {GRUPOS.map(([titulo, items]) => (
+              <div key={titulo} style={{ marginBottom: 14 }}>
+                <div style={{ ...rotulo(9), letterSpacing: 1.6, padding: '0 8px 8px' }}>{titulo}</div>
+                {items.map(([k, e, c]) => rielItem(k, e, c))}
               </div>
             ))}
-
-            <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-              <strong>El recorrido</strong> es el trazado real por las calles: con él
-              el progreso de cada unidad se mide proyectando su posición sobre la
-              línea, y las brechas dejan de ser una estimación entre dos puntos.
-              Mientras una ruta no lo tenga, sigue funcionando con la estimación
-              lineal de siempre.
-              {' '}Cada ruta calcula sus brechas por separado y tiene su propio chat.
-              El <strong>objetivo</strong> es la separación ideal entre unidades y el
-              <strong> recorrido</strong> cuánto tarda de punta a punta: con esos dos
-              números se convierte la distancia en minutos.
-              {' '}Con <strong>Automático</strong> el objetivo se calcula solo —
-              vuelta promedio ÷ unidades en ruta, usando el promedio del mismo
-              día de la semana— y se recalcula cuando entra o sale una unidad.
-              Hasta juntar 3 vueltas sigue valiendo el número cargado a mano, que
-              queda siempre como respaldo.
-              {' '}Las <strong>rutas nuevas</strong> no se dan de alta desde acá:
-              pedilas y quedan cargadas con su código y su nombre. Desde este
-              panel se administra todo lo demás — objetivo, recorrido, desvío,
-              gente y flota.
-            </div>
           </div>
         )}
 
-        {tab === 'informes' && (() => {
-          const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-          const iso = (d) => new Date(d).toISOString().slice(0, 10);
-          const rangos = [
-            ['Hoy', hoy.getTime(), Date.now()],
-            ['Últimos 7 días', hoy.getTime() - 6 * 86400e3, Date.now()],
-            ['Últimos 30 días', hoy.getTime() - 29 * 86400e3, Date.now()],
-          ];
-          const informes = [
-            ['vueltas', 'Vueltas por unidad', 'Cuántas vueltas hizo cada combi, cuánto tardó y a qué velocidad'],
-            ['horas', 'Horas por persona', 'Turnos: entrada, salida y horas de cada chofer y cobrador'],
-            ['sos', 'Emergencias', 'Cada SOS con quién lo disparó, desde qué unidad y dónde'],
-            ['actividad', 'Actividad de administración', 'Altas, bajas, reseteos de clave y cambios de configuración'],
-          ];
-          const bajar = (tipo, desde, hasta) => {
-            // El navegador no manda el token en una descarga normal, así que
-            // se pide con fetch y se guarda el archivo desde acá.
-            const ruta = esSupervisor && currentRoute ? `&routeId=${encodeURIComponent(currentRoute)}` : '';
-            fetch(`${HTTP_URL}/admin/informe/${tipo}.csv?desde=${desde}&hasta=${hasta}${ruta}`, {
-              headers: { Authorization: 'Bearer ' + session.token },
-            })
-              .then(r => r.ok ? r.blob() : Promise.reject(new Error('No se pudo generar el informe')))
-              .then(blob => {
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${(session.companyId || 'informe').toLowerCase()}-${tipo}-${iso(desde)}.csv`;
-                document.body.appendChild(a); a.click(); a.remove();
-                setTimeout(() => URL.revokeObjectURL(url), 5000);
-                setOkMsg(`Informe de ${tipo} descargado`);
-              })
-              .catch(e => setError(e.message));
-          };
-          return (
-            <div>
-              {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-              {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
-              {informes.map(([tipo, titulo, detalle]) => (
-                <div key={tipo} style={{
-                  padding: '12px 4px', borderBottom: `1px solid ${HUD.divider}`,
-                }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: HUD.fg }}>{titulo}</div>
-                  <div style={{ fontSize: 12, color: HUD.dim2, margin: '3px 0 8px', lineHeight: 1.45 }}>{detalle}</div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {rangos.map(([etiqueta, desde, hasta]) => (
-                      <button key={etiqueta} onClick={() => bajar(tipo, desde, hasta)}
-                        title={`Descargar ${titulo.toLowerCase()} · ${etiqueta.toLowerCase()}`}
-                        style={smallBtn(HUD.boton, HUD.fg2)}>{etiqueta}</button>
+        {/* contenido */}
+        <div style={{ overflowY: 'auto', padding: angosto ? '16px 14px 40px' : '24px 28px 40px' }}>
+          <div style={{ maxWidth: 940 }}>
+            {angosto && (
+              <select value={tab} onChange={e => setTab(e.target.value)}
+                style={{ ...campo(44), width: '100%', marginBottom: 18, fontWeight: 700, cursor: 'pointer' }}>
+                {GRUPOS.map(([titulo, items]) => (
+                  <optgroup key={titulo} label={titulo}>
+                    {items.map(([k, e2, c]) => (
+                      <option key={k} value={k}>{e2}{c !== null && c !== undefined ? ` (${c})` : ''}</option>
                     ))}
-                  </div>
-                </div>
-              ))}
-              <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-                Los informes bajan en <strong>CSV</strong>: se abren en Excel y se
-                pueden sumar y filtrar. Cada uno arranca diciendo el período y
-                <strong> con qué se midió</strong> — si la ruta no tiene recorrido
-                cargado, las vueltas son estimaciones y el archivo lo aclara, para
-                que nadie tome por exacto un número que no lo es. El período máximo
-                son 90 días.
-              </div>
-            </div>
-          );
-        })()}
-
-        {tab === 'empresa' && (
-          <div>
-            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-            {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
-            {!empresa && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
-            {empresa && (<div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-                <div style={{ fontFamily: black, fontSize: 22, color: HUD.fg }}>{empresa.empresa.name}</div>
-                <div style={{ fontFamily: mono, fontSize: 12, color: HUD.dim2 }}>{empresa.empresa.companyId}</div>
-                {!empresa.empresa.activa && (
-                  <div style={{ fontSize: 12, fontWeight: 700, color: HUD.red }}>SUSPENDIDA</div>
-                )}
-              </div>
-
-              {/* El tamaño de la cooperativa de un vistazo */}
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '14px 0 20px' }}>
-                {[
-                  ['Rutas', empresa.resumen.rutas],
-                  ['Vehículos', empresa.resumen.vehiculos],
-                  ['Personas', empresa.resumen.personas],
-                  ['Cuentas de despacho', empresa.resumen.despacho],
-                  ['En línea ahora', empresa.resumen.enLinea],
-                ].map(([etiqueta, valor]) => (
-                  <div key={etiqueta} style={{
-                    flex: '1 1 110px', background: HUD.campo, border: `1px solid ${HUD.line}`,
-                    borderRadius: 12, padding: '10px 12px',
-                  }}>
-                    <div style={{ fontFamily: black, fontSize: 24, color: HUD.fg }}>{valor}</div>
-                    <div style={{ fontSize: 11, color: HUD.dim2, textTransform: 'uppercase', letterSpacing: 0.5 }}>{etiqueta}</div>
-                  </div>
+                  </optgroup>
                 ))}
+              </select>
+            )}
+            {error && (
+              <div style={{
+                background: HUD.rojoFondo, border: `1px solid ${HUD.rojoBorde}`,
+                borderLeft: `3px solid ${HUD.red}`, borderRadius: 11,
+                padding: '11px 13px', marginBottom: 16,
+                fontSize: 13, fontWeight: 700, color: HUD.rojoTinta,
+              }}>{error}</div>
+            )}
+            {okMsg && (
+              <div style={{
+                background: HUD.verdeFondo, border: `1px solid ${HUD.verdeBorde}`,
+                borderRadius: 11, padding: '11px 13px', marginBottom: 16,
+                fontSize: 13, fontWeight: 700, color: HUD.verdeTinta,
+              }}>{okMsg}</div>
+            )}
+
+            <Seccion titulo={tituloSec} bajada={bajadaSec}>
+
+            {/* ─── PERSONAS ─────────────────────────────────────── */}
+            {tab === 'users' && (<div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                <input placeholder="Buscar por nombre, alias o unidad" value={filter}
+                  onChange={e => setFilter(e.target.value)}
+                  style={{ ...campo(40), flex: '1 1 260px' }} />
+                <span style={{ position: 'relative', display: 'inline-flex' }}>
+                  <span style={{
+                    display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 12px',
+                    background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 10,
+                    fontSize: 13, fontWeight: 700, color: HUD.fg2, whiteSpace: 'nowrap',
+                  }}>
+                    {{ '': 'Todos los roles', driver: 'Choferes', collector: 'Cobradores', dispatch: 'Despacho' }[filtroRol]}
+                    <span style={{ fontSize: 11, color: HUD.dim3 }}>▾</span>
+                  </span>
+                  <select value={filtroRol} onChange={e => setFiltroRol(e.target.value)}
+                    style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%' }}>
+                    <option value="">Todos los roles</option>
+                    <option value="driver">Choferes</option>
+                    <option value="collector">Cobradores</option>
+                    <option value="dispatch">Despacho</option>
+                  </select>
+                </span>
+                <button onClick={() => setAltaAbierta(a => !a)} style={btnPrimario(40)}>
+                  {altaAbierta ? '✕ Cerrar' : '+ Persona'}
+                </button>
               </div>
 
-              {empresa.puedeEditar ? (
-                <div>
-                  <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1, color: HUD.dim2, marginBottom: 8 }}>
-                    DATOS DE LA COOPERATIVA
+              {/* alta de PERSONA: nombre obligatorio, alias opcional, rol y vehículo */}
+              {altaAbierta && (
+                <div style={{
+                  background: HUD.bg, border: `1px solid ${HUD.divider}`,
+                  borderRadius: 12, padding: 14, marginBottom: 16,
+                }}>
+                  <div style={{ ...rotulo(9), marginBottom: 10 }}>Alta de persona</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    <span style={{ display: 'flex', flex: '0 0 auto', borderRadius: 10, overflow: 'hidden', border: `1px solid ${HUD.line}` }}>
+                      {[['driver', 'CHOFER'], ['collector', 'COBRADOR']].map(([k, l]) => (
+                        <button key={k} onClick={() => setForm(f => ({ ...f, personRole: k }))}
+                          title={k === 'driver'
+                            ? 'Maneja y su celular reporta la posición de la unidad'
+                            : 'Va arriba, ve brechas y chat, pero no reporta posición'}
+                          style={{
+                            border: 'none', padding: '0 14px', height: 40, cursor: 'pointer',
+                            fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1,
+                            background: form.personRole === k ? HUD.bright : HUD.surface,
+                            color: form.personRole === k ? '#fff' : HUD.dim2,
+                          }}>{l}</button>
+                      ))}
+                    </span>
+                    <input placeholder="Nombre y apellido *" value={form.name}
+                      onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                      title="Obligatorio: es el nombre que queda en los registros de la empresa"
+                      style={{ ...campo(40), flex: '2 1 180px' }} />
+                    <input placeholder="Alias (opcional)" value={form.alias}
+                      onChange={e => setForm(f => ({ ...f, alias: e.target.value }))}
+                      title="Cómo lo llaman en la ruta. Si lo pones, es lo que se ve en el chat"
+                      style={{ ...campo(40), flex: '1 1 130px' }} />
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <div style={{ fontSize: 11, color: HUD.dim2, marginBottom: 4 }}>Nombre</div>
-                      <input value={empForm.name} placeholder="Cooperativa de Transportes…"
-                        onChange={e => setEmpForm({ ...empForm, name: e.target.value })}
-                        style={inputStyle} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, color: HUD.dim2, marginBottom: 4 }}>RUC (opcional)</div>
-                      <input value={empForm.ruc} placeholder="20123456789"
-                        onChange={e => setEmpForm({ ...empForm, ruc: e.target.value })}
-                        style={inputStyle} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, color: HUD.dim2, marginBottom: 4 }}>Contacto (opcional)</div>
-                      <input value={empForm.contacto} placeholder="Nombre y teléfono"
-                        onChange={e => setEmpForm({ ...empForm, contacto: e.target.value })}
-                        style={inputStyle} />
-                    </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {esSupervisor && routeList.length > 0 && (
+                      <select value={form.routeId}
+                        onChange={e => setForm(f => ({ ...f, routeId: e.target.value, vehicleId: '' }))}
+                        title="Ruta en la que trabaja"
+                        style={{ ...campo(40), flex: '0 1 110px', cursor: 'pointer' }}>
+                        {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}</option>)}
+                      </select>
+                    )}
+                    <input placeholder="Usuario para entrar *" value={form.unitId}
+                      onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
+                      title="Con esto se identifica en la app (ej. M-21 para el chofer, M-21C para su cobrador)"
+                      style={{ ...campo(40), flex: '1 1 140px' }} />
+                    <select value={form.vehicleId}
+                      onChange={e => setForm(f => ({ ...f, vehicleId: e.target.value }))}
+                      title="Vehículo en el que va"
+                      style={{ ...campo(40), flex: '1 1 150px', cursor: 'pointer' }}>
+                      <option value="">
+                        {form.personRole === 'driver' ? 'Vehículo: crear con su código' : 'Vehículo… (obligatorio)'}
+                      </option>
+                      {(vehicles || [])
+                        .filter(v => !form.routeId || v.routeId === form.routeId)
+                        .map(v => (
+                          <option key={v.vehicleId} value={v.vehicleId}>
+                            {v.vehicleId}{v.label ? ` · ${v.label}` : ''}
+                          </option>
+                        ))}
+                    </select>
+                    <span style={{ display: 'flex', flex: '1 1 150px', gap: 4, minWidth: 0 }}>
+                      <input placeholder="Contraseña (o generar →)" value={form.password}
+                        onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                        style={{ ...campo(40), flex: 1 }} />
+                      <button title="Generar una clave fácil de dictar"
+                        onClick={() => setForm(f => ({ ...f, password: suggestPassword() }))}
+                        style={{ ...btnSecundario(40), width: 40, padding: 0 }}>⟳</button>
+                    </span>
+                    <button onClick={create} disabled={busy} style={btnPrimario(40)}>+ Alta</button>
                   </div>
-                  <button disabled={busy} onClick={() => run(async () => {
-                    await api('/admin/company', { method: 'POST', body: JSON.stringify(empForm) });
-                    await loadEmpresa();
-                  }, 'Datos de la cooperativa guardados')} style={{
-                    ...smallBtn(HUD.bright, '#fff'), padding: '10px 16px', fontSize: 14,
-                  }}>Guardar</button>
-                </div>
-              ) : (
-                <div style={{ fontSize: 13, color: HUD.dim2, lineHeight: 1.5 }}>
-                  {empresa.empresa.ruc && <div>RUC · {empresa.empresa.ruc}</div>}
-                  {empresa.empresa.contacto && <div>Contacto · {empresa.empresa.contacto}</div>}
-                  <div style={{ marginTop: 8 }}>
-                    Solo una cuenta supervisora puede corregir estos datos.
+                  <div style={{ fontSize: 12, color: HUD.dim3, marginTop: 10, lineHeight: 1.5 }}>
+                    {form.personRole === 'driver'
+                      ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no eliges vehículo, se crea uno con el mismo código del usuario.'
+                      : 'El cobrador necesita un vehículo ya creado. Ve brechas, mapa y chat, pero su GPS no se usa.'}
                   </div>
                 </div>
               )}
 
-              <div style={{ marginTop: 18, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-                Cada cooperativa es un mundo aparte: sus rutas, su gente, su flota y
-                sus informes. Ninguna ve nada de otra, ni desde el panel ni desde el
-                mapa. <strong>El código no se puede cambiar</strong> — de él cuelga
-                todo lo demás. Dar de alta una cooperativa nueva se hace desde el
-                servidor, no desde acá.
-              </div>
-            </div>)}
-          </div>
-        )}
+              {/* credenciales para dictar — se ven una sola vez */}
+              {credential && (
+                <div style={{
+                  background: HUD.verdeFondo, border: `1px solid ${HUD.verdeBorde}`,
+                  borderLeft: `3px solid ${HUD.green}`,
+                  borderRadius: 12, padding: 16, marginBottom: 16,
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: HUD.verdeTinta, marginBottom: 10 }}>
+                    {credential.isNew
+                      ? `✓ ${credential.role === 'collector' ? 'Cobrador' : 'Chofer'} dado de alta${
+                          credential.vehicleId ? ' en ' + credential.vehicleId : ''}${
+                          credential.routeId ? ' · ruta ' + credential.routeId : ''}`
+                      : '✓ Contraseña reseteada — su sesión fue cerrada'}
+                    {' '}· anotá o dictá estos datos ahora
+                  </div>
+                  {credential.isNew && credential.name && (
+                    <div style={{ fontSize: 14, color: HUD.fg2, marginBottom: 10 }}>
+                      {credential.name}{credential.alias ? ` — le dicen “${credential.alias}”` : ''}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div>
+                      <div style={rotulo(9)}>Usuario</div>
+                      <div style={{ fontFamily: black, fontSize: 22 }}>{credential.unitId}</div>
+                    </div>
+                    <div>
+                      <div style={rotulo(9)}>Contraseña</div>
+                      <div style={{ fontFamily: black, fontSize: 22, color: HUD.okClave, userSelect: 'all' }}>{credential.password}</div>
+                    </div>
+                    <div style={{ flex: 1 }} />
+                    <span style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => {
+                        const txt = `Unidad: ${credential.unitId}\nContraseña: ${credential.password}`;
+                        navigator.clipboard?.writeText(txt).then(() => setCopied(true)).catch(() => {});
+                      }} style={btnChico(HUD.verdeTinta, HUD.verdeBorde)}>{copied ? '✓ Copiado' : 'Copiar'}</button>
+                      <button onClick={() => setCredential(null)} style={btnChico(HUD.dim2)}>Ocultar</button>
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 10, lineHeight: 1.5 }}>
+                    Las contraseñas se guardan cifradas y no se pueden volver a ver: si un
+                    chofer la pierde, se le genera una nueva con <strong>Clave</strong>.
+                  </div>
+                </div>
+              )}
 
-        {tab === 'shifts' && (
-          <div>
-            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-            {!shifts && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
-            {shifts && !shifts.turnos.length && (
-              <div style={{ color: HUD.dim3, fontSize: 14 }}>
-                Todavía nadie salió a ruta hoy. El turno se abre solo cuando alguien
-                entra a su unidad.
+              {!users && <Vacio>Cargando…</Vacio>}
+              {users && (() => {
+                const q = filter.trim().toLowerCase();
+                const rolDe = (u) => u.role === 'dispatch' ? 'dispatch'
+                  : u.role === 'collector' ? 'collector' : 'driver';
+                const lista = users.filter(u =>
+                  (!q || coincide(u, q)) && (!filtroRol || rolDe(u) === filtroRol));
+                const cols = '150px 1fr 96px 90px 128px 200px';
+                return (
+                  <Tabla cols={cols} ancho={880}
+                    cabeceras={['Persona', 'Identidad', 'Rol', 'Unidad', 'Última conexión', 'Acciones']}>
+                    {lista.length === 0 && <Vacio>Nadie coincide con lo buscado.</Vacio>}
+                    {lista.map(u => (
+                      <React.Fragment key={u.unitId}>
+                        <FilaTabla cols={cols}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                            <Punto on={u.online} title={u.online ? 'Conectado' : 'Desconectado'} />
+                            <span style={{
+                              fontFamily: black, fontSize: 14, minWidth: 0,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}>{u.unitId}</span>
+                          </span>
+                          <span style={{
+                            fontSize: 13, color: HUD.fg2, minWidth: 0,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>
+                            {u.alias
+                              ? <>{u.name || u.driverName} <span style={{ color: HUD.dim3 }}>({u.alias})</span></>
+                              : (u.name || u.driverName || '—')}
+                          </span>
+                          <span style={rotulo(10, HUD.dim2)}>
+                            {u.role === 'dispatch' ? 'Despacho' : u.role === 'collector' ? 'Cobrador' : 'Chofer'}
+                          </span>
+                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>
+                            {u.vehicleId || '—'}
+                          </span>
+                          <span style={{ fontFamily: mono, fontSize: 11, color: u.lastLogin || u.online ? HUD.dim3 : HUD.amber }}>
+                            {u.online ? 'conectado' : u.lastLogin ? fmtWhen(u.lastLogin) : 'nunca entró'}
+                          </span>
+                          <span style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setResetPass(''); }}
+                              style={btnChico(HUD.fg2)}>Clave</button>
+                            {u.role !== 'dispatch' && (
+                              <button title="Corregir nombre o alias"
+                                onClick={() => {
+                                  setEditFor(u.unitId);
+                                  setEditForm({ name: u.name || u.driverName || '', alias: u.alias || '' });
+                                  setResetFor(null); setConfirmDel(null);
+                                }}
+                                style={btnChico(HUD.fg2)}>Editar</button>
+                            )}
+                            {u.role !== 'dispatch' && (
+                              confirmDel === u.unitId ? (
+                                <button onClick={() => remove(u.unitId)} disabled={busy}
+                                  style={{ ...btnChico('#fff', HUD.red), background: HUD.red }}>¿Confirmar?</button>
+                              ) : (
+                                <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); }}
+                                  style={btnChico(HUD.red, HUD.rojoBorde)}>Baja</button>
+                              )
+                            )}
+                          </span>
+                        </FilaTabla>
+                        {/* El formulario abre debajo de su fila en vez de
+                            exprimirse dentro de la columna de acciones */}
+                        {editFor === u.unitId && (
+                          <div style={{
+                            display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
+                            padding: '12px 14px', background: HUD.bg,
+                            borderBottom: `1px solid ${HUD.hueco}`,
+                          }}>
+                            <span style={rotulo(9)}>Corregir</span>
+                            <input autoFocus placeholder="Nombre y apellido *" value={editForm.name}
+                              onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                              onKeyDown={e => { if (e.key === 'Enter') editarIdentidad(u.unitId); }}
+                              style={{ ...campo(36), flex: '1 1 200px' }} />
+                            <input placeholder="Alias" value={editForm.alias}
+                              onChange={e => setEditForm(f => ({ ...f, alias: e.target.value }))}
+                              onKeyDown={e => { if (e.key === 'Enter') editarIdentidad(u.unitId); }}
+                              style={{ ...campo(36), flex: '1 1 140px' }} />
+                            <button onClick={() => editarIdentidad(u.unitId)} disabled={busy}
+                              style={btnPrimario(36)}>Guardar</button>
+                            <button onClick={() => setEditFor(null)} style={btnSecundario(36)}>Cancelar</button>
+                          </div>
+                        )}
+                        {resetFor === u.unitId && (
+                          <div style={{
+                            display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
+                            padding: '12px 14px', background: HUD.bg,
+                            borderBottom: `1px solid ${HUD.hueco}`,
+                          }}>
+                            <span style={rotulo(9)}>Nueva clave de {u.unitId}</span>
+                            <input autoFocus placeholder="Dejala vacía y se genera una" value={resetPass}
+                              onChange={e => setResetPass(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') resetPassword(u.unitId); }}
+                              style={{ ...campo(36), flex: '1 1 200px' }} />
+                            <button onClick={() => resetPassword(u.unitId)} disabled={busy}
+                              style={btnPrimario(36)}>Resetear</button>
+                            <button onClick={() => { setResetFor(null); setResetPass(''); }}
+                              style={btnSecundario(36)}>Cancelar</button>
+                          </div>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </Tabla>
+                );
+              })()}
+              <Pie>
+                Cada persona tiene <strong>su propia cuenta</strong>: el alta se hace
+                solo desde acá y el login de la app rechaza usuarios no registrados.
+                Resetear la clave o dar de baja cierra su sesión al instante, y no
+                toca a nadie más que vaya en el mismo vehículo.
+              </Pie>
+            </div>)}
+
+            {/* ─── VEHÍCULOS ────────────────────────────────────── */}
+            {tab === 'vehicles' && (<div>
+              <div style={{
+                background: HUD.bg, border: `1px solid ${HUD.divider}`,
+                borderRadius: 12, padding: 14, marginBottom: 16,
+                display: 'flex', flexWrap: 'wrap', gap: 8,
+              }}>
+                <div style={{ ...rotulo(9), width: '100%' }}>Alta de vehículo</div>
+                {esSupervisor && routeList.length > 0 && (
+                  <select value={form.routeId}
+                    onChange={e => setForm(f => ({ ...f, routeId: e.target.value }))}
+                    title="Ruta en la que trabaja el vehículo"
+                    style={{ ...campo(40), flex: '0 1 120px', cursor: 'pointer' }}>
+                    {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}</option>)}
+                  </select>
+                )}
+                <input placeholder="Código (ej. M-21)" value={nuevoVeh.vehicleId}
+                  onChange={e => setNuevoVeh(v => ({ ...v, vehicleId: e.target.value }))}
+                  style={{ ...campo(40), flex: '1 1 130px' }} />
+                <input placeholder="Placa o descripción (opcional)" value={nuevoVeh.label}
+                  onChange={e => setNuevoVeh(v => ({ ...v, label: e.target.value }))}
+                  style={{ ...campo(40), flex: '1 1 180px' }} />
+                <button onClick={crearVehiculo} disabled={busy} style={btnPrimario(40)}>+ Vehículo</button>
               </div>
-            )}
-            {shifts && shifts.turnos.length > 0 && (() => {
-              // Se redondea a minutos PRIMERO y después se parte en horas: al
-              // revés, 4 h 59 min 59 s salía como "4 h 60 min".
-              const horas = (sec) => {
-                const min = Math.round(sec / 60);
-                const h = Math.floor(min / 60);
-                return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
+
+              {!vehicles && <Vacio>Cargando…</Vacio>}
+              {vehicles && vehicles.length === 0 && (
+                <Vacio>Todavía no hay vehículos. Se crean acá, o solos al dar de alta a un chofer.</Vacio>
+              )}
+              {vehicles && vehicles.length > 0 && (() => {
+                const cols = '120px 84px 1fr 220px 96px';
+                return (
+                  <Tabla cols={cols} ancho={760}
+                    cabeceras={['Vehículo', 'Ruta', 'Placa', 'Tripulación', 'Estado']}>
+                    {vehicles.map(v => {
+                      const asignados = (users || []).filter(u => u.vehicleId === v.vehicleId);
+                      const arriba = (v.tripulacion || []).length;
+                      return (
+                        <FilaTabla key={v.vehicleId} cols={cols}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Punto on={v.enLinea} title={v.enLinea ? 'En ruta ahora' : 'Fuera de ruta'} />
+                            <span style={{ fontFamily: black, fontSize: 14 }}>{v.vehicleId}</span>
+                          </span>
+                          <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.bright }}>
+                            {v.routeId || '—'}
+                          </span>
+                          <span style={{
+                            fontSize: 13, color: v.label ? HUD.fg2 : HUD.dim3, minWidth: 0,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>{v.label || 'sin placa'}</span>
+                          <span style={{
+                            fontFamily: mono, fontSize: 11, color: HUD.dim2, minWidth: 0,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>
+                            {asignados.length === 0 ? 'sin asignar'
+                              : asignados.map(u => `${u.alias || u.name}${u.role === 'collector' ? ' (cobr.)' : ''}`).join(' · ')}
+                          </span>
+                          <span style={{
+                            ...rotulo(10, arriba ? HUD.green : v.enLinea ? HUD.amber : HUD.dim3),
+                            textAlign: 'right',
+                          }}>{arriba ? `${arriba} arriba` : v.enLinea ? 'en línea' : 'parada'}</span>
+                        </FilaTabla>
+                      );
+                    })}
+                  </Tabla>
+                );
+              })()}
+              <Pie>
+                El vehículo es la combi física; las personas se dan de alta en
+                <strong> Personas</strong> y se le asignan. Pueden ir dos arriba
+                (chofer y cobrador) pero <strong>solo el chofer reporta la
+                posición</strong>: así la unidad no salta entre dos celulares.
+              </Pie>
+            </div>)}
+
+            {/* ─── RUTAS ────────────────────────────────────────── */}
+            {tab === 'routes' && (<div>
+              {routeList.length === 0 && <Vacio>Cargando…</Vacio>}
+              {routeList.map(r => {
+                const activa = (r.variantes || []).find(v => v.activa);
+                const modo = r.objetivo ? r.objetivo.modo : null;
+                const chip = !r.objetivo ? null
+                  : modo === 'auto'
+                    ? [`AUTO · ${r.objetivo.vueltas} vueltas`, HUD.verdeFondo, HUD.verdeTinta]
+                    : modo === 'esperando'
+                      ? [r.objetivo.motivo === 'unidades'
+                          ? 'AUTO · sin unidades en ruta'
+                          : `AUTO · faltan vueltas (${r.objetivo.vueltas}/3)`, HUD.ambarFondo, HUD.ambarTinta2]
+                      : ['A MANO', HUD.hueco, HUD.dim2];
+                return (
+                  <div key={r.routeId} style={{
+                    border: `1px solid ${HUD.divider}`, borderRadius: 12, padding: 16, marginBottom: 14,
+                    background: r.routeId === currentRoute ? HUD.filaActiva : HUD.surface,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+                      <span style={{ fontFamily: black, fontSize: 19 }}>{r.routeId}</span>
+                      <span style={{ fontSize: 14, color: HUD.dim }}>{r.name}</span>
+                      <div style={{ flex: 1 }} />
+                      <span style={{
+                        fontFamily: mono, fontSize: 11, fontWeight: 700,
+                        color: r.enLinea > 0 ? HUD.green : HUD.dim3,
+                      }}>{r.unidades} UNID · {r.enLinea} EN LÍNEA</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                      <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+                        <div style={rotulo(9)}>Objetivo de brecha</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '6px 0 10px' }}>
+                          <span style={{ fontFamily: black, fontSize: 20 }}>
+                            {fmtMin(r.objetivo ? r.objetivo.min : r.targetGapMin)}
+                          </span>
+                          {chip && (
+                            <span title={
+                              modo === 'auto'
+                                ? `Vuelta promedio de ${r.objetivo.dia || 'todos los días'} sobre ${r.objetivo.unidades} unidades en ruta`
+                                : modo === 'esperando'
+                                  ? `Por ahora vale el manual de ${r.objetivo.manual} min`
+                                  : 'Fijado a mano'
+                            } style={{
+                              ...rotulo(10, chip[2]), letterSpacing: .8,
+                              background: chip[1], borderRadius: 5, padding: '3px 7px',
+                            }}>{chip[0]}</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => cambiarObjetivo(r.routeId, { auto: !r.autoTarget })}
+                          title={r.autoTarget
+                            ? 'Volver al objetivo fijado a mano'
+                            : 'Calcular el objetivo solo: vuelta promedio ÷ unidades en ruta'}
+                          disabled={busy} style={btnChico(HUD.fg2)}>
+                          {r.autoTarget ? 'Automático encendido' : 'Automático apagado'}
+                        </button>
+                      </div>
+
+                      <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+                        <div style={rotulo(9)}>Recorrido cargado</div>
+                        <div style={{
+                          fontFamily: black, fontSize: 20, margin: '6px 0 10px',
+                          color: r.puntos ? HUD.fg : HUD.amber,
+                        }}>
+                          {r.puntos ? `${r.puntos} pts · ${(r.largoM / 1000).toFixed(1)} km` : 'sin recorrido'}
+                        </div>
+                        <button onClick={() => setTrazando(r)}
+                          title="Cargar o corregir el recorrido de esta ruta en el mapa"
+                          style={btnChico(HUD.fg2)}>Abrir trazador</button>
+                      </div>
+
+                      {/* Despacho ELIGE entre los trazados cargados; crearlos y
+                          borrarlos es cartografía y se hace desde el nivel de
+                          arriba. Con uno solo, elegir no es una decisión. */}
+                      <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+                        <div style={rotulo(9)}>Se mide con</div>
+                        <div style={{
+                          fontFamily: black, fontSize: 20, margin: '6px 0 10px',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>{activa ? activa.name : '—'}</div>
+                        {r.variantes && r.variantes.length > 1 ? (
+                          <span style={{ position: 'relative', display: 'inline-flex' }}>
+                            <span style={btnChico(HUD.fg2)}>Cambiar trazado…</span>
+                            <select value={activa ? activa.variantId : ''} disabled={busy}
+                              onChange={e => pedirCambioDeTrazado(r, Number(e.target.value))}
+                              title="Cambia el trazado con el que se miden progreso, brechas y desvíos"
+                              style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%' }}>
+                              {r.variantes.map(v => (
+                                <option key={v.variantId} value={v.variantId}>
+                                  {v.name}{v.puntos ? '' : ' (sin dibujar)'}
+                                </option>
+                              ))}
+                            </select>
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 12, color: HUD.dim3 }}>Es el único cargado</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <Pie>
+                Despacho <strong>elige</strong> con cuál de los trazados cargados se
+                mide. Crearlos y borrarlos es cartografía y se hace desde el nivel de
+                arriba, igual que dar de alta una ruta nueva.
+                {' '}El <strong>objetivo</strong> es la separación ideal entre unidades
+                y el recorrido cuánto tarda de punta a punta: con esos dos números se
+                convierte la distancia en minutos. Con <strong>Automático</strong> el
+                objetivo se calcula solo — vuelta promedio ÷ unidades en ruta — y
+                hasta juntar 3 vueltas sigue valiendo el número cargado a mano.
+              </Pie>
+            </div>)}
+
+            {/* ─── TURNOS ───────────────────────────────────────── */}
+            {tab === 'shifts' && (<div>
+              <div style={{
+                display: 'inline-flex', background: HUD.hueco, borderRadius: 10,
+                padding: 3, marginBottom: 16,
+              }}>
+                {[['hoy', 'Hoy'], ['ayer', 'Ayer'], ['semana', 'Esta semana']].map(([k, l]) => (
+                  <button key={k} onClick={() => { setRangoTurnos(k); setShifts(null); loadShifts(k); }}
+                    style={{
+                      padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                      fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
+                      background: rangoTurnos === k ? HUD.tinta : 'transparent',
+                      color: rangoTurnos === k ? (HUD.oscuro ? HUD.bg : '#fff') : HUD.dim2,
+                    }}>{l}</button>
+                ))}
+              </div>
+
+              {!shifts && <Vacio>Cargando…</Vacio>}
+              {shifts && (() => {
+                // "Ayer" se recorta acá: el endpoint toma desde, no hasta.
+                const hoy = inicioDeHoy();
+                const turnos = rangoTurnos === 'ayer'
+                  ? shifts.turnos.filter(t => t.startedAt < hoy)
+                  : shifts.turnos;
+                if (!turnos.length) {
+                  return (
+                    <Vacio>
+                      {rangoTurnos === 'hoy'
+                        ? 'Todavía nadie salió a ruta hoy. El turno se abre solo cuando alguien entra a su unidad.'
+                        : 'No hay turnos en ese rango.'}
+                    </Vacio>
+                  );
+                }
+                const horas = (sec) => {
+                  // Se redondea a minutos PRIMERO y después se parte en horas:
+                  // al revés, 4 h 59 min 59 s salía como "4 h 60 min".
+                  const min = Math.round(sec / 60);
+                  const h = Math.floor(min / 60);
+                  return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
+                };
+                const cols = '110px 1fr 110px 110px 120px';
+                return (
+                  <Tabla cols={cols} ancho={700}
+                    cabeceras={['Unidad', 'Tripulación', 'Entrada', 'Salida', 'En ruta']}>
+                    {turnos.map(t => (
+                      <FilaTabla key={t.id} cols={cols}>
+                        <span style={{ fontFamily: black, fontSize: 14 }}>{t.vehicleId}</span>
+                        <span style={{
+                          fontSize: 13, color: HUD.fg2, minWidth: 0,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {t.alias || t.name || t.personId}
+                          {t.role === 'collector' && <span style={{ color: HUD.dim3 }}> · cobrador</span>}
+                        </span>
+                        <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2 }}>
+                          {hhmm(t.startedAt)}
+                        </span>
+                        <span style={{
+                          fontFamily: mono, fontSize: 12, fontWeight: 700,
+                          color: t.abierto ? HUD.green : HUD.dim2,
+                        }}>{t.abierto ? 'en ruta' : hhmm(t.endedAt)}</span>
+                        <span style={{ fontFamily: black, fontSize: 14, textAlign: 'right' }}>
+                          {horas(t.duracionSec)}
+                        </span>
+                      </FilaTabla>
+                    ))}
+                  </Tabla>
+                );
+              })()}
+              <Pie>
+                El turno se abre solo cuando alguien entra a su unidad y se cierra
+                cuando se va. Un corte de señal <strong>no</strong> parte el turno: si
+                vuelve dentro de los 15 minutos, se retoma el mismo. Si el servidor se
+                reinicia, los turnos que quedaron abiertos se cierran con la última
+                señal que se les vio.
+              </Pie>
+            </div>)}
+
+            {/* ─── VUELTAS ──────────────────────────────────────── */}
+            {tab === 'metrics' && (<div>
+              {!vueltas && <Vacio>Cargando…</Vacio>}
+              {vueltas && (() => {
+                const R = vueltas.resumen;
+                const obj = vueltas.objetivoSec;
+                const kpis = [
+                  ['Vueltas cerradas hoy', R.cerradas,
+                    `${R.unidades} unidad${R.unidades === 1 ? '' : 'es'}${vueltas.routeId ? ' · ' + vueltas.routeId : ''}`],
+                  ['Vuelta promedio', fmtSeg(R.duracionProm),
+                    R.duracionPromAyer ? `ayer ${fmtSeg(R.duracionPromAyer)}` : 'sin dato de ayer'],
+                  ['Brecha promedio', fmtSeg(R.brechaProm),
+                    obj ? `objetivo ${fmtSeg(obj)}` : 'mirando todas las rutas'],
+                  ['Vueltas en pelotón', R.enPeloton === null ? '—' : R.enPeloton,
+                    R.umbralPelotonSec ? `brecha bajo ${fmtSeg(R.umbralPelotonSec)}` : 'hace falta elegir una ruta'],
+                ];
+                const cols = '110px 130px 130px 1fr 120px';
+                return (
+                  <div>
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      gap: 12, marginBottom: 18,
+                    }}>
+                      {kpis.map(([et, val, nota]) => (
+                        <div key={et} style={{ ...tarjeta(14), background: HUD.bg }}>
+                          <div style={rotulo(9)}>{et}</div>
+                          <div style={{ fontFamily: black, fontSize: 26, margin: '6px 0 4px' }}>{val}</div>
+                          <div style={{ fontSize: 11, color: HUD.dim2 }}>{nota}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {R.sinBrecha > 0 && (
+                      <div style={{
+                        background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`,
+                        borderLeft: `3px solid ${HUD.amber}`, borderRadius: 11,
+                        padding: '11px 13px', marginBottom: 16,
+                        fontSize: 13, lineHeight: 1.55, color: HUD.ambarTinta,
+                      }}>
+                        {R.sinBrecha} de {R.cerradas} vueltas no tienen brecha guardada
+                        —{' '}son de antes de que existiera el dato, o se dieron con una
+                        sola unidad en ruta. No entran en el promedio: no cuentan como cero.
+                      </div>
+                    )}
+
+                    {vueltas.vueltas.length === 0 && (
+                      <Vacio>
+                        Todavía no se cerró ninguna vuelta hoy. Se registran solas cuando
+                        una unidad recorre la ruta de punta a punta.
+                      </Vacio>
+                    )}
+                    {vueltas.vueltas.length > 0 && (
+                      <Tabla cols={cols} ancho={760}
+                        cabeceras={['Unidad', 'Salió', 'Volvió', 'Brecha promedio', 'Vuelta']}>
+                        {vueltas.vueltas.map(l => {
+                          // La barra se lee contra el objetivo: llena = en el
+                          // objetivo, corta = pegada al de adelante.
+                          const color = l.brechaProm === null ? HUD.dim3
+                            : gapColor(fmtSeg(l.brechaProm), obj ? obj / 60 : TARGET_GAP_DEFAULT);
+                          const parte = l.brechaProm === null || !obj ? 0
+                            : Math.max(0.04, Math.min(1, l.brechaProm / obj));
+                          return (
+                            <FilaTabla key={l.id} cols={cols}>
+                              <span style={{ fontFamily: black, fontSize: 14 }}>{l.unitId}</span>
+                              <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2 }}>
+                                {hhmm(l.startedAt)}
+                              </span>
+                              <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2 }}>
+                                {hhmm(l.finishedAt)}
+                              </span>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                                <span style={{
+                                  flex: 1, minWidth: 40, height: 6, borderRadius: 3,
+                                  background: HUD.hueco, overflow: 'hidden',
+                                }}>
+                                  <span style={{
+                                    display: 'block', height: '100%', width: `${parte * 100}%`,
+                                    background: color, borderRadius: 3,
+                                  }} />
+                                </span>
+                                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color, flexShrink: 0 }}>
+                                  {l.brechaProm === null ? '—' : fmtSeg(l.brechaProm)}
+                                </span>
+                              </span>
+                              <span style={{ fontFamily: black, fontSize: 14, textAlign: 'right' }}>
+                                {fmtSeg(l.durationSec)}
+                              </span>
+                            </FilaTabla>
+                          );
+                        })}
+                      </Tabla>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* El acumulado por unidad sigue estando: es lo que se mira para
+                  comparar entre combis, no vuelta por vuelta. */}
+              {metrics && metrics.length > 0 && (() => {
+                const cols = '110px 80px 80px 1fr 110px 110px';
+                return (
+                  <div style={{ marginTop: 26 }}>
+                    <div style={{ ...rotulo(9), marginBottom: 10 }}>Acumulado por unidad</div>
+                    <Tabla cols={cols} ancho={700}
+                      cabeceras={['Unidad', 'Hoy', 'Total', 'Última', 'Promedio', 'Mejor']}>
+                      {metrics.map(m => (
+                        <FilaTabla key={m.unitId} cols={cols}>
+                          <span style={{ fontFamily: black, fontSize: 14 }}>{m.unitId}</span>
+                          <span style={{
+                            fontFamily: mono, fontSize: 13, fontWeight: 700,
+                            color: m.lapsToday > 0 ? HUD.green : HUD.dim3,
+                          }}>{m.lapsToday}</span>
+                          <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.dim }}>{m.lapsTotal}</span>
+                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>{fmtSeg(m.lastSec)}</span>
+                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>{fmtSeg(m.avgSec)}</span>
+                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.bright, textAlign: 'right' }}>{fmtSeg(m.bestSec)}</span>
+                        </FilaTabla>
+                      ))}
+                    </Tabla>
+                  </div>
+                );
+              })()}
+
+              <Pie>
+                La <strong>brecha promedio</strong> es la separación que la unidad
+                mantuvo contra la de adelante durante toda la vuelta. Empieza a
+                existir el día que se enciende: las vueltas viejas quedan sin el dato
+                y no se puede reconstruir. La base retiene las últimas 2000 vueltas.
+              </Pie>
+            </div>)}
+
+            {/* ─── INFORMES ─────────────────────────────────────── */}
+            {tab === 'informes' && (() => {
+              const informes = [
+                ['vueltas', 'Vueltas y brechas (CSV)', true],
+                ['horas', 'Turnos por persona (CSV)', false],
+                ['sos', 'Emergencias (CSV)', false],
+                ['actividad', 'Actividad de administración (CSV)', false],
+              ];
+              const aMs = (iso, fin) => {
+                const d = new Date(iso + (fin ? 'T23:59:59' : 'T00:00:00'));
+                return isNaN(d.getTime()) ? null : d.getTime();
               };
-              const hora = (ts) => {
-                const d = new Date(ts);
-                return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+              const desde = aMs(rangoInf.desde, false);
+              const hasta = aMs(rangoInf.hasta, true);
+              const dias = desde && hasta ? Math.max(1, Math.round((hasta - desde) / 86400e3)) : null;
+              const bajar = (tipo) => {
+                if (!desde || !hasta || hasta < desde) {
+                  setError('Revisá las fechas: la de fin tiene que ser posterior a la de inicio');
+                  return;
+                }
+                // El navegador no manda el token en una descarga normal, así que
+                // se pide con fetch y se guarda el archivo desde acá.
+                const ruta = esSupervisor && currentRoute ? `&routeId=${encodeURIComponent(currentRoute)}` : '';
+                fetch(`${HTTP_URL}/admin/informe/${tipo}.csv?desde=${desde}&hasta=${hasta}${ruta}`, {
+                  headers: { Authorization: 'Bearer ' + session.token },
+                })
+                  .then(r => r.ok ? r.blob() : Promise.reject(new Error('No se pudo generar el informe')))
+                  .then(blob => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${(session.companyId || 'informe').toLowerCase()}-${tipo}-${rangoInf.desde}.csv`;
+                    document.body.appendChild(a); a.click(); a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 5000);
+                    setError(null);
+                    setOkMsg(`Informe de ${tipo} descargado`);
+                  })
+                  .catch(e => setError(e.message));
               };
               return (
                 <div>
-                  {/* Lo que le interesa a la cooperativa: horas por persona */}
                   <div style={{
-                    fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1,
-                    color: HUD.dim3, textTransform: 'uppercase', marginBottom: 8,
-                  }}>Hoy · {shifts.personas.length} persona{shifts.personas.length === 1 ? '' : 's'}</div>
-                  {shifts.personas.map(p => (
-                    <div key={p.personId} style={{
-                      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                      padding: '9px 4px', borderBottom: `1px solid ${HUD.divider}`,
-                    }}>
-                      <span style={{ fontSize: 14, color: HUD.fg2, flex: '1 1 150px', minWidth: 0 }}>
-                        {p.alias ? <>{p.alias} <span style={{ color: HUD.dim3 }}>· {p.name}</span></> : (p.name || p.personId)}
-                      </span>
-                      <span style={{ fontFamily: mono, fontSize: 12, color: HUD.dim2, whiteSpace: 'nowrap' }}>
-                        {p.vehiculos.join(', ')}
-                      </span>
-                      <span style={{ fontFamily: black, fontSize: 15, color: HUD.fg, whiteSpace: 'nowrap' }}>
-                        {horas(p.totalSec)}
-                      </span>
+                    display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                    gap: 12, alignItems: 'start',
+                  }}>
+                    <div style={tarjeta(18)}>
+                      <div style={{ ...rotulo(9), marginBottom: 12 }}>Rango</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <input type="date" value={rangoInf.desde}
+                          onChange={e => setRangoInf(r => ({ ...r, desde: e.target.value }))}
+                          style={{ ...campo(40), fontFamily: mono, fontSize: 13, flex: '1 1 130px' }} />
+                        <input type="date" value={rangoInf.hasta}
+                          onChange={e => setRangoInf(r => ({ ...r, hasta: e.target.value }))}
+                          style={{ ...campo(40), fontFamily: mono, fontSize: 13, flex: '1 1 130px' }} />
+                      </div>
+                      <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 12 }}>
+                        {dias ? `${dias} día${dias === 1 ? '' : 's'}` : 'fechas incompletas'}
+                        {' · '}{(vehicles || []).length} unidades
+                        {' · '}{esSupervisor && currentRoute ? currentRoute : `${routeList.length} ruta${routeList.length === 1 ? '' : 's'}`}
+                      </div>
                     </div>
-                  ))}
 
-                  <div style={{
-                    fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1,
-                    color: HUD.dim3, textTransform: 'uppercase', margin: '18px 0 8px',
-                  }}>Detalle</div>
-                  {shifts.turnos.map(t => (
-                    <div key={t.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                      padding: '8px 4px', borderBottom: `1px solid ${HUD.divider}`, fontSize: 13,
-                    }}>
-                      <span style={{
-                        width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                        background: t.abierto ? HUD.green : HUD.apagado,
-                        boxShadow: t.abierto ? `0 0 8px ${HUD.green}` : 'none',
-                      }} title={t.abierto ? 'Todavía arriba' : 'Terminado'} />
-                      <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2, whiteSpace: 'nowrap' }}>
-                        {hora(t.startedAt)} → {t.abierto ? 'ahora' : hora(t.endedAt)}
-                      </span>
-                      <span style={{ color: HUD.fg2, flex: '1 1 140px', minWidth: 0,
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {t.alias || t.name || t.personId}
-                        {t.role === 'collector' && <span style={{ color: HUD.dim3 }}> · cobrador</span>}
-                      </span>
-                      <span style={{ fontFamily: black, fontSize: 13, color: HUD.fg, whiteSpace: 'nowrap' }}>{t.vehicleId}</span>
-                      <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim, whiteSpace: 'nowrap' }}>
-                        {horas(t.duracionSec)}
-                      </span>
+                    <div style={tarjeta(18)}>
+                      <div style={{ ...rotulo(9), marginBottom: 12 }}>Descargar</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+                        {informes.map(([tipo, etiqueta, principal]) => (
+                          <button key={tipo} onClick={() => bajar(tipo)}
+                            style={principal ? btnPrimario(40) : btnSecundario(40)}>{etiqueta}</button>
+                        ))}
+                      </div>
                     </div>
-                  ))}
+                  </div>
+                  <Pie>
+                    Los informes bajan en <strong>CSV</strong>: se abren en Excel y se
+                    pueden sumar y filtrar. Cada uno arranca diciendo el período y
+                    <strong> con qué se midió</strong> — si la ruta no tiene recorrido
+                    cargado, las vueltas son estimaciones y el archivo lo aclara, para
+                    que nadie tome por exacto un número que no lo es. El período máximo
+                    son 90 días.
+                  </Pie>
                 </div>
               );
             })()}
-            <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-              El turno se abre solo cuando alguien entra a su unidad y se cierra
-              cuando se va. Un corte de señal <strong>no</strong> parte el turno: si
-              vuelve dentro de los 15 minutos, se retoma el mismo. Si el servidor se
-              reinicia, los turnos que quedaron abiertos se cierran con la última
-              señal que se les vio.
-            </div>
-          </div>
-        )}
 
-        {tab === 'metrics' && (
-          <div>
-            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-            {!metrics && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
-            {metrics && metrics.length === 0 && (
-              <div style={{ color: HUD.dim3, fontSize: 14 }}>
-                Todavía no hay vueltas completadas. Se registran solas cuando una
-                unidad recorre la ruta de punta a punta.
-              </div>
-            )}
-            {metrics && metrics.length > 0 && (() => {
-              const fmtLap = (s) => s == null ? '—'
-                : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
-              const cell = { padding: '10px 8px', fontFamily: mono, fontSize: 13, fontWeight: 700 };
-              const head = { ...cell, color: HUD.dim3, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' };
-              return (
-                <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: `1px solid ${HUD.line}` }}>
-                      <th style={{ ...head, textAlign: 'left' }}>Unidad</th>
-                      <th style={head}>Hoy</th>
-                      <th style={head}>Total</th>
-                      <th style={head}>Última</th>
-                      <th style={head}>Promedio</th>
-                      <th style={head}>Mejor</th>
-                      <th style={head}>Vel. prom</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {metrics.map(m => (
-                      <tr key={m.unitId} style={{ borderBottom: `1px solid ${HUD.divider}`, textAlign: 'center' }}>
-                        <td style={{ ...cell, fontFamily: black, fontSize: 15, textAlign: 'left', color: HUD.fg }}>{m.unitId}</td>
-                        <td style={{ ...cell, color: m.lapsToday > 0 ? HUD.green : HUD.dim3, fontSize: 15 }}>{m.lapsToday}</td>
-                        <td style={{ ...cell, color: HUD.dim }}>{m.lapsTotal}</td>
-                        <td style={{ ...cell, color: HUD.fg2 }}>{fmtLap(m.lastSec)}</td>
-                        <td style={{ ...cell, color: HUD.fg2 }}>{fmtLap(m.avgSec)}</td>
-                        <td style={{ ...cell, color: HUD.sky }}>{fmtLap(m.bestSec)}</td>
-                        <td style={{ ...cell, color: HUD.dim }}>{m.avgSpeed} km/h</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </div>
-              );
-            })()}
-            <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-              Tiempos de vuelta en minutos:segundos. Una vuelta se cuenta cuando la
-              unidad llega cerca del final de la ruta y vuelve al inicio; la base
-              retiene las últimas 2000 vueltas.
-            </div>
-          </div>
-        )}
-
-        {tab === 'audit' && (
-          <div>
-            {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-            {!events && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
-            {events && events.length === 0 && <div style={{ color: HUD.dim3, fontSize: 14 }}>Sin actividad registrada.</div>}
-            {events && events.map((ev, i) => {
-              const ACTION = {
-                login: { label: 'inició sesión', color: HUD.dim },
-                login_bloqueado: { label: 'bloqueado por intentos fallidos', color: HUD.amber },
-                alta: { label: 'dio de alta a', color: HUD.green },
-                alta_vehiculo: { label: 'creó el vehículo', color: HUD.green },
-                alta_ruta: { label: 'creó la ruta', color: HUD.green },
-                editar_identidad: { label: 'corrigió los datos de', color: HUD.sky },
-                reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
-                baja: { label: 'dio de baja a', color: HUD.red },
-                sos: { label: 'disparó un SOS', color: HUD.red },
-              };
-              const a = ACTION[ev.action] || { label: ev.action, color: HUD.dim };
-              const d = new Date(ev.timestamp);
-              const when = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-              return (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'baseline', gap: 10,
-                  padding: '8px 4px', borderBottom: `1px solid ${HUD.divider}`,
-                  fontSize: 14,
+            {/* ─── EMPRESA ──────────────────────────────────────── */}
+            {tab === 'empresa' && (<div>
+              {!empresa && <Vacio>Cargando…</Vacio>}
+              {empresa && (<div>
+                <div style={{
+                  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                  gap: 12, marginBottom: 22,
                 }}>
-                  <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim3, flexShrink: 0 }}>{when}</span>
-                  <span style={{ fontFamily: black, fontSize: 14, color: HUD.fg, flexShrink: 0 }}>{ev.actor}</span>
-                  <span style={{ color: a.color }}>{a.label}</span>
-                  {ev.target && <span style={{ fontFamily: black, fontSize: 14, color: HUD.fg }}>{ev.target}</span>}
-                  {ev.detail && <span style={{ color: HUD.dim3, fontSize: 13 }}>· {ev.detail}</span>}
+                  {[
+                    ['Rutas', empresa.resumen.rutas],
+                    ['Vehículos', empresa.resumen.vehiculos],
+                    ['Personas', empresa.resumen.personas],
+                    ['Cuentas de despacho', empresa.resumen.despacho],
+                    ['En línea ahora', empresa.resumen.enLinea],
+                  ].map(([etiqueta, valor]) => (
+                    <div key={etiqueta} style={{ ...tarjeta(14), background: HUD.bg }}>
+                      <div style={{ fontFamily: black, fontSize: 22 }}>{valor}</div>
+                      <div style={{ ...rotulo(9), marginTop: 4 }}>{etiqueta}</div>
+                    </div>
+                  ))}
                 </div>
-              );
-            })}
-            <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-              Últimos 100 movimientos: logins, altas, resets de clave, bajas y SOS.
-              El registro guarda hasta 1000 eventos en la base.
-            </div>
-          </div>
-        )}
 
-        {tab === 'users' && (<div>
-        {/* alta de PERSONA: nombre obligatorio, alias opcional, rol y vehículo */}
-        <div style={{
-          padding: 14, background: HUD.hueco, borderRadius: 14,
-          border: `1px solid ${HUD.divider}`, marginBottom: 16,
-        }}>
-          {/* fila 1 — quién es */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-            <span style={{ display: 'flex', flex: '0 0 auto', borderRadius: 10, overflow: 'hidden', border: `1px solid #232b36` }}>
-              {[['driver', 'CHOFER'], ['collector', 'COBRADOR']].map(([k, l]) => (
-                <button key={k} onClick={() => setForm(f => ({ ...f, personRole: k }))}
-                  title={k === 'driver'
-                    ? 'Maneja y su celular reporta la posición de la unidad'
-                    : 'Va arriba, ve brechas y chat, pero no reporta posición'}
-                  style={{
-                    border: 'none', padding: '0 14px', height: 40, cursor: 'pointer',
-                    fontFamily: black, fontSize: 12, letterSpacing: .5,
-                    background: form.personRole === k ? HUD.bright : 'transparent',
-                    color: form.personRole === k ? '#fff' : HUD.dim2,
-                  }}>{l}</button>
-              ))}
-            </span>
-            <input placeholder="Nombre y apellido *" value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              title="Obligatorio: es el nombre que queda en los registros de la empresa"
-              style={{ ...inputStyle, width: 'auto', flex: '2 1 180px' }} />
-            <input placeholder="Alias (opcional)" value={form.alias}
-              onChange={e => setForm(f => ({ ...f, alias: e.target.value }))}
-              title="Cómo lo llaman en la ruta. Si lo pones, es lo que se ve en el chat"
-              style={{ ...inputStyle, width: 'auto', flex: '1 1 130px' }} />
-          </div>
-          {/* fila 2 — con qué entra y en qué anda */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {esSupervisor && routeList.length > 0 && (
-              <select value={form.routeId}
-                onChange={e => setForm(f => ({ ...f, routeId: e.target.value, vehicleId: '' }))}
-                title="Ruta en la que trabaja"
-                style={{ ...inputStyle, width: 'auto', flex: '0 1 110px', cursor: 'pointer' }}>
-                {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}</option>)}
-              </select>
-            )}
-            <input placeholder="Usuario para entrar *" value={form.unitId}
-              onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
-              title="Con esto se identifica en la app (ej. M-21 para el chofer, M-21C para su cobrador)"
-              style={{ ...inputStyle, width: 'auto', flex: '1 1 140px' }} />
-            <select value={form.vehicleId}
-              onChange={e => setForm(f => ({ ...f, vehicleId: e.target.value }))}
-              title="Vehículo en el que va"
-              style={{ ...inputStyle, width: 'auto', flex: '1 1 150px', cursor: 'pointer' }}>
-              <option value="">
-                {form.personRole === 'driver' ? 'Vehículo: crear con su código' : 'Vehículo… (obligatorio)'}
-              </option>
-              {(vehicles || [])
-                .filter(v => !form.routeId || v.routeId === form.routeId)
-                .map(v => (
-                  <option key={v.vehicleId} value={v.vehicleId}>
-                    {v.vehicleId}{v.label ? ` · ${v.label}` : ''}
-                  </option>
-                ))}
-            </select>
-            <span style={{ display: 'flex', flex: '1 1 150px', gap: 4, minWidth: 0 }}>
-              <input placeholder="Contraseña (o generar →)" value={form.password}
-                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                style={{ ...inputStyle, width: 'auto', flex: 1 }} />
-              <button title="Generar una clave fácil de dictar"
-                onClick={() => setForm(f => ({ ...f, password: suggestPassword() }))}
-                style={{ ...smallBtn(HUD.boton, HUD.fg2), height: 40, padding: '0 10px' }}>⟳</button>
-            </span>
-            <button onClick={create} disabled={busy} style={{
-              ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13, height: 40,
-            }}>+ ALTA</button>
-          </div>
-          <div style={{ fontSize: 11, color: HUD.dim3, marginTop: 9, lineHeight: 1.5 }}>
-            {form.personRole === 'driver'
-              ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no eliges vehículo, se crea uno con el mismo código del usuario.'
-              : 'El cobrador necesita un vehículo ya creado. Ve brechas, mapa y chat, pero su GPS no se usa.'}
+                {empresa.puedeEditar ? (
+                  <div style={{ maxWidth: 560, display: 'grid', gap: 14 }}>
+                    <div>
+                      <div style={{ ...rotulo(9), marginBottom: 6 }}>Nombre</div>
+                      <input value={empForm.name} placeholder="Cooperativa de Transportes…"
+                        onChange={e => setEmpForm({ ...empForm, name: e.target.value })}
+                        style={{ ...campo(44), width: '100%' }} />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                      <div>
+                        <div style={{ ...rotulo(9), marginBottom: 6 }}>RUC (opcional)</div>
+                        <input value={empForm.ruc} placeholder="20123456789"
+                          onChange={e => setEmpForm({ ...empForm, ruc: e.target.value })}
+                          style={{ ...campo(44), width: '100%', fontFamily: mono }} />
+                      </div>
+                      <div>
+                        <div style={{ ...rotulo(9), marginBottom: 6 }}>Contacto (opcional)</div>
+                        <input value={empForm.contacto} placeholder="Nombre y teléfono"
+                          onChange={e => setEmpForm({ ...empForm, contacto: e.target.value })}
+                          style={{ ...campo(44), width: '100%', fontFamily: mono }} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <button disabled={busy} onClick={() => run(async () => {
+                        await api('/admin/company', { method: 'POST', body: JSON.stringify(empForm) });
+                        await loadEmpresa();
+                      }, 'Datos de la cooperativa guardados')} style={btnPrimario(42)}>Guardar</button>
+                      <button onClick={() => setEmpForm({
+                        name: empresa.empresa.name || '', ruc: empresa.empresa.ruc || '',
+                        contacto: empresa.empresa.contacto || '',
+                      })} style={btnSecundario(42)}>Descartar</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: HUD.dim2, lineHeight: 1.6 }}>
+                    <div style={{ fontFamily: black, fontSize: 22, color: HUD.fg, marginBottom: 6 }}>
+                      {empresa.empresa.name}
+                    </div>
+                    {empresa.empresa.ruc && <div>RUC · {empresa.empresa.ruc}</div>}
+                    {empresa.empresa.contacto && <div>Contacto · {empresa.empresa.contacto}</div>}
+                    <div style={{ marginTop: 8 }}>Solo una cuenta supervisora puede corregir estos datos.</div>
+                  </div>
+                )}
+
+                <Pie>
+                  El código de la cooperativa es <strong>{empresa.empresa.companyId}</strong> y
+                  no se puede cambiar: de él cuelga todo lo demás.
+                  {' '}Cada cooperativa es un mundo aparte —sus rutas, su gente, su flota
+                  y sus informes—; ninguna ve nada de otra, ni desde el panel ni desde
+                  el mapa. Dar de alta una cooperativa nueva se hace desde el nivel de
+                  arriba, no desde acá.
+                </Pie>
+              </div>)}
+            </div>)}
+
+            {/* ─── ACTIVIDAD ────────────────────────────────────── */}
+            {tab === 'audit' && (<div>
+              {!events && <Vacio>Cargando…</Vacio>}
+              {events && events.length === 0 && <Vacio>Sin actividad registrada.</Vacio>}
+              {events && events.length > 0 && (() => {
+                const ACTION = {
+                  login: { label: 'inició sesión', color: HUD.dim },
+                  login_bloqueado: { label: 'bloqueado por intentos fallidos', color: HUD.amber },
+                  alta: { label: 'dio de alta a', color: HUD.green },
+                  alta_vehiculo: { label: 'creó el vehículo', color: HUD.green },
+                  alta_ruta: { label: 'creó la ruta', color: HUD.green },
+                  editar_identidad: { label: 'corrigió los datos de', color: HUD.bright },
+                  reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
+                  baja: { label: 'dio de baja a', color: HUD.red },
+                  sos: { label: 'disparó un SOS', color: HUD.red },
+                };
+                const cols = '120px 150px 1fr';
+                return (
+                  <Tabla cols={cols} ancho={620} cabeceras={['Cuándo', 'Quién', 'Qué']}>
+                    {events.map((ev, i) => {
+                      const a = ACTION[ev.action] || { label: ev.action, color: HUD.dim };
+                      const d = new Date(ev.timestamp);
+                      const when = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${hhmm(ev.timestamp)}`;
+                      return (
+                        <FilaTabla key={i} cols={cols}>
+                          <span style={{ fontFamily: mono, fontSize: 11, color: HUD.dim3 }}>{when}</span>
+                          <span style={{
+                            fontFamily: black, fontSize: 13, minWidth: 0,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>{ev.actor}</span>
+                          <span style={{ fontSize: 13, color: HUD.fg2, minWidth: 0 }}>
+                            <span style={{ color: a.color, fontWeight: 700 }}>{a.label}</span>
+                            {ev.target && <span style={{ fontFamily: black, fontSize: 13, color: HUD.fg }}> {ev.target}</span>}
+                            {ev.detail && <span style={{ color: HUD.dim3 }}> · {ev.detail}</span>}
+                          </span>
+                        </FilaTabla>
+                      );
+                    })}
+                  </Tabla>
+                );
+              })()}
+              <Pie>
+                Últimos 100 movimientos de <strong>esta</strong> cooperativa: logins,
+                altas, resets de clave, bajas y SOS. El registro guarda hasta 1000
+                eventos por cooperativa en la base.
+              </Pie>
+            </div>)}
+
+            </Seccion>
           </div>
         </div>
-
-        {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-        {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
-
-        {/* credenciales para dictar — se ven una sola vez */}
-        {credential && (
-          <div style={{
-            background: HUD.okFondo, border: `1px solid ${HUD.green}`,
-            borderRadius: 14, padding: 16, marginBottom: 16,
-          }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: HUD.green, marginBottom: 10 }}>
-              {credential.isNew
-                ? `✓ ${credential.role === 'collector' ? 'Cobrador' : 'Chofer'} dado de alta${
-                    credential.vehicleId ? ' en ' + credential.vehicleId : ''}${
-                    credential.routeId ? ' · ruta ' + credential.routeId : ''}`
-                : '✓ Contraseña reseteada — su sesión fue cerrada'}
-              {' '}· anotá o dictá estos datos ahora
-            </div>
-            {credential.isNew && credential.name && (
-              <div style={{ fontSize: 14, color: HUD.fg2, marginBottom: 10 }}>
-                {credential.name}{credential.alias ? ` — le dicen “${credential.alias}”` : ''}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div>
-                <div style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1, color: HUD.dim2 }}>USUARIO</div>
-                <div style={{ fontFamily: black, fontSize: 22, color: HUD.fg }}>{credential.unitId}</div>
-              </div>
-              <div>
-                <div style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1, color: HUD.dim2 }}>CONTRASEÑA</div>
-                <div style={{ fontFamily: black, fontSize: 22, color: HUD.okClave, userSelect: 'all' }}>{credential.password}</div>
-              </div>
-              <div style={{ flex: 1 }} />
-              <span style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => {
-                  const txt = `Unidad: ${credential.unitId}\nContraseña: ${credential.password}`;
-                  navigator.clipboard?.writeText(txt).then(() => setCopied(true)).catch(() => {});
-                }} style={smallBtn(HUD.green, HUD.bg)}>{copied ? '✓ Copiado' : 'Copiar'}</button>
-                <button onClick={() => setCredential(null)} style={smallBtn('transparent', HUD.dim2)}>Ocultar</button>
-              </span>
-            </div>
-            <div style={{ fontSize: 12, color: HUD.dim3, marginTop: 10, lineHeight: 1.5 }}>
-              Las contraseñas se guardan cifradas y no se pueden volver a ver: si un
-              chofer la pierde, se le genera una nueva con <strong>Reset clave</strong>.
-            </div>
-          </div>
-        )}
-
-        {/* buscador */}
-        {users && users.length > 6 && (
-          <input placeholder="Buscar por nombre, alias, usuario o vehículo…" value={filter}
-            onChange={e => setFilter(e.target.value)}
-            style={{ ...inputStyle, marginBottom: 10 }} />
-        )}
-
-        {/* lista */}
-        {!users && <div style={{ color: HUD.dim3, fontSize: 14 }}>Cargando…</div>}
-        {users && (() => {
-          const q = filter.trim().toLowerCase();
-          const shown = q ? users.filter(u => coincide(u, q)) : users;
-          const gente = users.filter(u => u.role !== 'dispatch');
-          const choferes = gente.filter(u => u.role !== 'collector').length;
-          const cobradores = gente.length - choferes;
-          return (
-            <div style={{
-              fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1,
-              color: HUD.dim3, textTransform: 'uppercase', marginBottom: 6,
-            }}>
-              {choferes} chofer{choferes === 1 ? '' : 'es'}
-              {cobradores > 0 ? ` · ${cobradores} cobrador${cobradores === 1 ? '' : 'es'}` : ''}
-              {' '}· {users.filter(u => u.online).length} en línea
-              {q ? ` · ${shown.length} coincidencia${shown.length === 1 ? '' : 's'}` : ''}
-            </div>
-          );
-        })()}
-        {users && users
-          .filter(u => {
-            const q = filter.trim().toLowerCase();
-            return !q || coincide(u, q);
-          })
-          .map(u => (
-          // La fila envuelve: en celular la identidad se queda arriba y los
-          // botones bajan a la línea siguiente, en vez de exprimir el nombre.
-          <div key={u.unitId} style={{
-            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-            padding: '10px 4px', borderBottom: `1px solid ${HUD.divider}`,
-          }}>
-            <span style={{
-              width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-              background: u.online ? HUD.green : HUD.apagado,
-              boxShadow: u.online ? `0 0 8px ${HUD.green}` : 'none',
-            }} title={u.online ? 'Conectado' : 'Desconectado'} />
-            {u.role === 'collector' && (
-              <span title="Cobrador: ve todo, no reporta posición" style={{
-                fontFamily: black, fontSize: 10, letterSpacing: .5, flexShrink: 0,
-                background: 'rgba(255,255,255,.07)', color: HUD.dim2,
-                padding: '2px 6px', borderRadius: 4,
-              }}>COBR</span>
-            )}
-            {u.role !== 'dispatch' && u.vehicleId && (
-              <span title="Vehículo asignado" style={{
-                fontFamily: black, fontSize: 13, minWidth: 66, flexShrink: 0,
-                color: u.role === 'collector' ? HUD.dim : HUD.fg,
-              }}>{u.vehicleId}</span>
-            )}
-            {u.role !== 'dispatch' && (
-              <span style={{
-                fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.sky,
-                background: 'rgba(46,157,255,.12)', border: `1px solid ${HUD.line}`,
-                padding: '2px 6px', borderRadius: 4, flexShrink: 0,
-              }}>{u.routeId || '—'}</span>
-            )}
-            <span style={{ flex: '1 1 150px', minWidth: 0 }}>
-              <span style={{ fontSize: 13, color: HUD.fg2, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {u.alias
-                  ? <>{u.alias} <span style={{ color: HUD.dim3 }}>· {u.name || u.driverName}</span></>
-                  : (u.name || u.driverName || u.unitId)}
-              </span>
-              <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: u.lastLogin ? HUD.dim3 : HUD.amber }}>
-                <span style={{ color: HUD.dim3 }}>{u.unitId} · </span>
-                {u.online ? 'conectado ahora'
-                  : u.lastLogin ? `última vez ${fmtWhen(u.lastLogin)}`
-                  : 'nunca entró'}
-              </span>
-            </span>
-            {u.role === 'dispatch' && (
-              <span style={{
-                fontFamily: black, fontSize: 10, background: HUD.bright, color: HUD.bg,
-                padding: '2px 6px', borderRadius: 4,
-              }}>DESPACHO</span>
-            )}
-            <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
-            {editFor === u.unitId ? (
-              <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <input autoFocus placeholder="Nombre y apellido *" value={editForm.name}
-                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') editarIdentidad(u.unitId); }}
-                  style={{ ...inputStyle, height: 32, width: 'auto', flex: '1 1 130px', fontSize: 13 }} />
-                <input placeholder="Alias" value={editForm.alias}
-                  onChange={e => setEditForm(f => ({ ...f, alias: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') editarIdentidad(u.unitId); }}
-                  style={{ ...inputStyle, height: 32, width: 'auto', flex: '1 1 100px', fontSize: 13 }} />
-                <button onClick={() => editarIdentidad(u.unitId)} disabled={busy} style={smallBtn(HUD.green, HUD.bg)}>OK</button>
-                <button onClick={() => setEditFor(null)} style={smallBtn('transparent', HUD.dim2)}>✕</button>
-              </span>
-            ) : u.role !== 'dispatch' && (
-              <button title="Corregir nombre o alias"
-                onClick={() => {
-                  setEditFor(u.unitId);
-                  setEditForm({ name: u.name || u.driverName || '', alias: u.alias || '' });
-                  setResetFor(null); setConfirmDel(null);
-                }}
-                style={smallBtn(HUD.boton, HUD.fg2)}>Nombre</button>
-            )}
-            {editFor === u.unitId ? null : resetFor === u.unitId ? (
-              <span style={{ display: 'flex', gap: 6 }}>
-                <input autoFocus placeholder="Nueva clave" value={resetPass}
-                  onChange={e => setResetPass(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') resetPassword(u.unitId); }}
-                  style={{ ...inputStyle, height: 32, width: 130, fontSize: 13 }} />
-                <button onClick={() => resetPassword(u.unitId)} disabled={busy} style={smallBtn(HUD.green, HUD.bg)}>OK</button>
-                <button onClick={() => { setResetFor(null); setResetPass(''); }} style={smallBtn('transparent', HUD.dim2)}>✕</button>
-              </span>
-            ) : (
-              <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); }}
-                style={smallBtn(HUD.boton, HUD.fg2)}>Reset clave</button>
-            )}
-            {u.role !== 'dispatch' && editFor !== u.unitId && (
-              confirmDel === u.unitId ? (
-                <button onClick={() => remove(u.unitId)} disabled={busy}
-                  style={smallBtn(HUD.red, '#fff')}>¿Confirmar baja?</button>
-              ) : (
-                <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); }}
-                  style={smallBtn('transparent', HUD.red)}>Baja</button>
-              )
-            )}
-            </span>
-          </div>
-        ))}
-
-        <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-          Cada persona tiene <strong>su propia cuenta</strong>: el alta se hace
-          solo desde acá y el login de la app rechaza usuarios no registrados.
-          Resetear la clave o dar de baja cierra su sesión al instante, y no
-          toca a nadie más que vaya en el mismo vehículo.
-        </div>
-        </div>)}
       </div>
+
+      {/* Cambiar el trazado con el que se mide le cambia el mapa a quien está
+          manejando ahora. Nombra la ruta y los dos trazados, siempre. */}
+      {confirmVar && (
+        <Confirmacion
+          kicker="Confirmar cambio de medición"
+          tono="amber"
+          titulo={`${confirmVar.ruta.routeId} va a medirse con «${confirmVar.v.name}»${
+            confirmVar.actual ? ` en lugar de «${confirmVar.actual.name}»` : ''}`}
+          cuerpo={<>
+            Les cambia el mapa {confirmVar.ruta.enLinea
+              ? <>a las <strong>{confirmVar.ruta.enLinea} unidades que están manejando ahora</strong></>
+              : <>a las unidades que salgan a ruta</>}
+            {' '}y <strong>descarta las vueltas en curso</strong> — se venían midiendo
+            con el trazado anterior. Las brechas se recalculan sobre el trazado nuevo.
+          </>}
+          aceptar={`Sí, medir con «${confirmVar.v.name}»`}
+          onAceptar={confirmarCambioDeTrazado}
+          onCancelar={() => setConfirmVar(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1847,12 +2339,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     const capa = L.layerGroup();
     let hay = false;
     if (trazado?.ida?.length > 1) {
-      L.polyline(trazado.ida, { color: HUD.bright, weight: 4, opacity: 0.5 }).addTo(capa);
+      L.polyline(trazado.ida, { color: HUD.bright, weight: 5, opacity: 0.55 }).addTo(capa);
       hay = true;
     }
     if (trazado?.vuelta?.length > 1) {
       L.polyline(trazado.vuelta, {
-        color: HUD.bright, weight: 4, opacity: 0.5, dashArray: '8 8',
+        color: HUD.bright, weight: 5, opacity: 0.55, dashArray: '8 8',
       }).addTo(capa);
       hay = true;
     }
@@ -2000,12 +2492,26 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     units.forEach(u => {
       if (!u.lat || !u.lng) return;
       const isSos = sos && sos.unitId === u.unitId;
-      const color = isSos ? HUD.red : HUD.bright;
-      const html = `<div style="position:relative;width:14px;height:14px;">
-        <div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid ${HUD.bg};box-shadow:0 0 12px ${color};"></div>
-        <div style="position:absolute;top:18px;left:50%;transform:translateX(-50%);font-family:${mono};font-size:12px;font-weight:700;color:${color};background:rgba(3,6,10,.85);padding:2px 7px;border-radius:6px;white-space:nowrap;">${escaparHtml(u.unitId)}</div>
+      // El pin lleva el mismo color que la fila: mirando el mapa se ve dónde
+      // está el pelotón sin cruzar con la lista.
+      const g = gaps[u.unitId] || {};
+      const cA = gapColor(g.toAhead, routeInfo.targetGapMin);
+      const cB = gapColor(g.toBehind, routeInfo.targetGapMin);
+      const color = isSos ? HUD.red
+        : [HUD.red, HUD.amber, HUD.green, HUD.dim3].find(c => c === cA || c === cB) || HUD.dim3;
+      // El desvío también se ve en el mapa, no solo en la lista: es donde
+      // Despacho está mirando cuando pasa. Anillo ámbar alrededor del punto.
+      const fuera = !!u.fueraDeRuta;
+      const halo = fuera
+        ? `box-shadow:0 0 0 3px ${HUD.bg},0 0 0 6px ${HUD.amber};`
+        : '';
+      // width:max-content porque el icono de Leaflet mide 0×0: sin eso la
+      // etiqueta se parte en dos líneas dentro de un contenedor sin ancho.
+      const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:${fuera ? 6 : 3}px;">
+        <div style="font-family:${black};font-size:11px;color:#fff;background:${color};padding:2px 6px;border-radius:5px;white-space:nowrap;">${escaparHtml(u.unitId)}${fuera ? ' ◇' : ''}</div>
+        <div style="width:10px;height:10px;border-radius:50%;background:#fff;border:3px solid ${color};box-sizing:content-box;${halo}"></div>
       </div>`;
-      const icon = L.divIcon({ html, className: '', iconSize: [14, 14], iconAnchor: [7, 7] });
+      const icon = L.divIcon({ html, className: '', iconSize: [0, 0], iconAnchor: [0, 0] });
       if (existing[u.unitId]) {
         existing[u.unitId].setLatLng([u.lat, u.lng]);
         existing[u.unitId].setIcon(icon);
@@ -2021,7 +2527,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       const bounds = L.latLngBounds(withGps.map(u => [u.lat, u.lng]));
       map.fitBounds(bounds.pad(0.4), { maxZoom: 15 });
     }
-  }, [units, sos]);
+  }, [units, sos, gaps, routeInfo.targetGapMin, modo]);
 
   const focusUnit = (u) => {
     if (u.lat && mapRef.current) mapRef.current.panTo([u.lat, u.lng], { animate: true });
@@ -2066,79 +2572,123 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* header */}
       <div style={{
-        height: 56, flexShrink: 0, display: 'flex', alignItems: 'center',
-        gap: isMobile ? 8 : 14,
-        padding: isMobile ? '0 10px' : '0 18px',
+        height: 60, flexShrink: 0, display: 'flex', alignItems: 'center',
+        gap: isMobile ? 6 : 14,
+        padding: isMobile ? '0 8px' : '0 18px',
         borderBottom: `1px solid ${HUD.divider}`, background: HUD.surface,
+        overflow: 'hidden',
       }}>
         {/* El nombre de la cooperativa, no una marca fija: el mismo panel lo
             usan empresas distintas y cada una tiene que ver la suya. */}
         {!isMobile && (
           <span style={{
-            fontFamily: black, fontSize: 18, maxWidth: 260,
+            fontFamily: black, fontSize: 17, maxWidth: 230,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }} title={session.companyName || ''}>
             {session.companyName || session.companyId || 'Despacho'}
           </span>
         )}
-        <span style={{
-          fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1,
-          color: HUD.bright, textTransform: 'uppercase',
-        }}>Despacho</span>
+        {/* En un celular el chip sobra: la pantalla ES el panel de Despacho,
+            y el ancho hace falta para lo que sí cambia. */}
+        {!isMobile && (
+          <>
+            <span style={{
+              ...rotulo(10, HUD.bright), letterSpacing: 1.5,
+              background: HUD.azulFondo, border: `1px solid ${HUD.azulBorde}`,
+              borderRadius: 6, padding: '4px 8px', flexShrink: 0,
+            }}>Despacho</span>
+            <span style={{ width: 1, height: 26, background: HUD.divider, flexShrink: 0 }} />
+          </>
+        )}
 
-        {/* Selector de ruta: el supervisor cambia; el de ruta la ve fija */}
+        {/* Selector de ruta: el supervisor cambia; el de ruta la ve fija.
+            El <select> nativo va encima, transparente: conserva el desplegable
+            del sistema (en celular es el único usable) y deja que debajo se
+            dibuje el código y el nombre con tipografías distintas. */}
         {esSupervisor && routes.length > 0 ? (
-          <select
-            value={routeInfo.routeId || ''}
-            onChange={e => cambiarRuta(e.target.value)}
-            title="Ruta que estás mirando"
-            style={{
-              background: HUD.campo, color: HUD.fg, border: `1px solid ${HUD.line}`,
-              borderRadius: 8, padding: '6px 8px', fontSize: 13, fontWeight: 700,
-              fontFamily: 'inherit', cursor: 'pointer', maxWidth: isMobile ? 120 : 220,
-            }}>
-            {routes.map(r => (
-              <option key={r.routeId} value={r.routeId}>
-                {r.routeId}{isMobile ? '' : ` · ${r.name}`}
-              </option>
-            ))}
-          </select>
+          <span style={{
+            position: 'relative', display: 'flex', alignItems: 'center', gap: 8,
+            height: 36, padding: '0 12px', background: HUD.surface,
+            border: `1px solid ${HUD.line}`, borderRadius: 9,
+            maxWidth: isMobile ? 'none' : 320, minWidth: 0, flexShrink: 0,
+          }}>
+            <span style={{ fontFamily: black, fontSize: 14, flexShrink: 0 }}>{routeInfo.routeId || '—'}</span>
+            {!isMobile && (
+              <span style={{
+                fontSize: 13, color: HUD.dim, minWidth: 0,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{routeInfo.routeName || ''}</span>
+            )}
+            <span style={{ fontSize: 11, color: HUD.dim3, flexShrink: 0 }}>▾</span>
+            <select
+              value={routeInfo.routeId || ''}
+              onChange={e => cambiarRuta(e.target.value)}
+              title="Ruta que estás mirando"
+              style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                opacity: 0, cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+              {routes.map(r => (
+                <option key={r.routeId} value={r.routeId}>{r.routeId} · {r.name}</option>
+              ))}
+            </select>
+          </span>
         ) : (
-          <span style={{ fontFamily: black, fontSize: 14, color: HUD.fg2, whiteSpace: 'nowrap' }}>
-            {routeInfo.routeId || ''}
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: 8, height: 36, padding: '0 12px',
+            background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 9,
+            maxWidth: isMobile ? 'none' : 320, minWidth: 0, flexShrink: 0,
+          }}>
+            <span style={{ fontFamily: black, fontSize: 14, flexShrink: 0 }}>{routeInfo.routeId || '—'}</span>
+            {!isMobile && (
+              <span style={{
+                fontSize: 13, color: HUD.dim, minWidth: 0,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{routeInfo.routeName || ''}</span>
+            )}
           </span>
         )}
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: isMobile ? 0 : 10, minWidth: 0 }}>
+
+        <span style={{
+          display: 'flex', alignItems: 'center', gap: 7, height: 36, padding: '0 11px',
+          borderRadius: 9, flexShrink: 0, minWidth: 0,
+          background: connected ? HUD.verdeFondo : HUD.ambarFondo,
+          border: `1px solid ${connected ? HUD.verdeBorde : HUD.ambarBorde}`,
+        }}>
           <span style={{
             width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
             background: connected ? HUD.green : HUD.amber,
-            boxShadow: connected ? `0 0 8px ${HUD.green}` : 'none',
           }} />
           <span style={{
-            fontFamily: mono, fontSize: 12, fontWeight: 700,
-            color: connected ? HUD.green : HUD.amber,
+            fontFamily: mono, fontSize: 11, fontWeight: 700,
+            color: connected ? HUD.verdeTinta : HUD.ambarTinta2,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {connected ? (isMobile ? `${units.length} EN RUTA` : `EN VIVO · ${units.length} EN RUTA`) : 'RECONECTANDO…'}
           </span>
         </span>
+
         <div style={{ flex: 1 }} />
-        <button onClick={() => setAdminOpen(true)} style={{
-          background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
-          padding: '6px 12px', color: HUD.fg2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
-          marginRight: 10, flexShrink: 0,
-        }}>Gestión</button>
+
+        {/* El objetivo de brecha es el número contra el que se lee toda la
+            pantalla. Antes solo estaba adentro de Gestión. */}
+        {!isMobile && (
+          <div style={{ textAlign: 'right', lineHeight: 1.1, flexShrink: 0 }}>
+            <div style={rotulo(9)}>Objetivo de brecha</div>
+            <div style={{ fontFamily: black, fontSize: 16, marginTop: 2 }}>
+              {fmtMin(routeInfo.targetGapMin)}
+              <span style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.dim2, marginLeft: 4 }}>MIN</span>
+            </div>
+          </div>
+        )}
+        <button onClick={() => setAdminOpen(true)} style={{ ...btnPrimario(36), flexShrink: 0 }}>Gestión</button>
         <button onClick={onAlternarModo}
           title={modo === 'day' ? 'Pasar a modo noche' : 'Pasar a modo día'}
           style={{
-            background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
-            padding: '6px 10px', color: HUD.fg2, fontSize: 14, cursor: 'pointer',
-            marginRight: 10, flexShrink: 0, lineHeight: 1,
+            ...btnSecundario(36), width: 36, padding: 0, color: HUD.dim,
+            fontSize: 15, lineHeight: 1, flexShrink: 0,
           }}>{modo === 'day' ? '☾' : '☀'}</button>
-        <button onClick={onLogout} style={{
-          background: 'transparent', border: `1px solid ${HUD.line}`, borderRadius: 8,
-          padding: '6px 12px', color: HUD.dim2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
-        }}>Salir</button>
+        <button onClick={onLogout} style={{ ...btnSecundario(36), flexShrink: 0 }}>Salir</button>
       </div>
 
       {adminOpen && (
@@ -2155,10 +2705,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       {sos && (
         <div style={{
           flexShrink: 0, background: HUD.red, color: '#fff',
-          padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 16,
+          padding: '13px 18px', display: 'flex', alignItems: 'center', gap: 16,
+          flexWrap: isMobile ? 'wrap' : 'nowrap',
           animation: 'sosPulse 1.2s ease-in-out infinite',
         }}>
-          <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 2 }}>SOS</span>
+          <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 3 }}>SOS</span>
           <span style={{ fontSize: 15, fontWeight: 700 }}>
             {(sos.driverName || sos.unitId || 'Unidad').toUpperCase()}
             {sos.vehicleId ? ` · ${sos.vehicleId.toUpperCase()}` : ''} pide ayuda · {nowTime(sos.timestamp)}
@@ -2167,14 +2718,15 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           </span>
           <div style={{ flex: 1 }} />
           {sos.lat && (
-            <button onClick={() => { mapRef.current?.panTo([sos.lat, sos.lng]); }} style={{
-              background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.5)',
-              borderRadius: 8, padding: '6px 12px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            <button onClick={() => { if (isMobile) setView('map'); mapRef.current?.panTo([sos.lat, sos.lng]); }} style={{
+              height: 34, padding: '0 12px', background: 'rgba(255,255,255,.16)',
+              border: '1px solid rgba(255,255,255,.55)', borderRadius: 8,
+              color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
             }}>Ver en mapa</button>
           )}
           <button onClick={() => setSos(null)} style={{
-            background: '#fff', border: 'none', borderRadius: 8,
-            padding: '6px 12px', color: HUD.red, fontSize: 13, fontWeight: 800, cursor: 'pointer',
+            height: 34, padding: '0 12px', background: '#fff', border: 'none', borderRadius: 8,
+            color: HUD.red, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
           }}>ATENDIDO</button>
         </div>
       )}
@@ -2182,18 +2734,19 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       {/* cuerpo: en PC tres columnas; en celular una vista a la vez */}
       <div style={isMobile
         ? { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }
-        : { flex: 1, display: 'grid', gridTemplateColumns: '280px 1fr 360px', minHeight: 0 }}>
+        : { flex: 1, display: 'grid', gridTemplateColumns: '312px 1fr 372px', minHeight: 0 }}>
         {/* unidades */}
         <div style={{
-          overflowY: 'auto', minHeight: 0,
+          overflowY: 'auto', minHeight: 0, background: HUD.surface,
           ...(isMobile
             ? { flex: 1, display: view === 'units' ? 'block' : 'none' }
             : { borderRight: `1px solid ${HUD.divider}` }),
         }}>
-          <div style={{
-            padding: '14px 16px', fontFamily: mono, fontSize: 12, fontWeight: 700,
-            letterSpacing: 1, color: HUD.dim2, textTransform: 'uppercase',
-          }}>{routeInfo.routeName || 'Unidades'} · {units.length} en ruta</div>
+          <div style={{ padding: '14px 16px 10px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6 }}>Unidades en ruta</span>
+            <div style={{ flex: 1 }} />
+            <span style={{ fontFamily: black, fontSize: 14 }}>{units.length}</span>
+          </div>
 
           {/* Desvíos: se agrupan acá en vez de gritar uno por uno. En una
               ciudad siempre hay alguno, así que lo importante es poder
@@ -2204,39 +2757,36 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             if (!fuera.length && !mudo) return null;
             return (
               <div style={{
-                margin: '0 12px 10px', padding: '10px 12px', borderRadius: 12,
-                background: mudo ? HUD.hueco : 'rgba(166,115,0,.12)',
-                border: `1px solid ${mudo ? HUD.line : HUD.amber}`,
+                margin: '0 12px 10px', padding: '11px 12px', borderRadius: 11,
+                background: mudo ? HUD.hueco : HUD.ambarFondo,
+                border: `1px solid ${mudo ? HUD.line : HUD.ambarBorde}`,
+                borderLeft: `3px solid ${mudo ? HUD.line : HUD.amber}`,
               }}>
                 <div style={{
-                  fontSize: 13, fontWeight: 700, color: mudo ? HUD.dim2 : HUD.amber,
-                  marginBottom: fuera.length ? 6 : 0,
+                  fontFamily: black, fontSize: 13, color: mudo ? HUD.dim2 : HUD.ambarTinta,
+                  marginBottom: fuera.length ? 6 : 9,
                 }}>
                   {mudo
                     ? `Desvíos silenciados hasta ${nowTime(mudo)}`
                     : `${fuera.length} unidad${fuera.length === 1 ? '' : 'es'} fuera del recorrido`}
                 </div>
                 {fuera.length > 0 && (
-                  <div style={{ fontFamily: mono, fontSize: 12, color: HUD.dim, marginBottom: 8 }}>
+                  <div style={{
+                    fontFamily: mono, fontSize: 11, fontWeight: 700,
+                    color: mudo ? HUD.dim2 : HUD.ambarTinta2, marginBottom: 9,
+                  }}>
                     {fuera.map(u => `${u.unitId} (${u.desvioM} m)`).join(' · ')}
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {mudo ? (
-                    <button onClick={() => silenciarDesvio(0)} style={{
-                      background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
-                      padding: '4px 10px', color: HUD.fg2, fontSize: 12, fontWeight: 700,
-                      cursor: 'pointer', fontFamily: 'inherit',
-                    }}>Volver a avisar</button>
+                    <button onClick={() => silenciarDesvio(0)}
+                      style={{ ...btnChico(HUD.fg2, HUD.line), fontSize: 11 }}>Volver a avisar</button>
                   ) : (
-                    [['1 h', 60], ['3 h', 180], ['el turno', 480]].map(([etiqueta, min]) => (
+                    [['Silenciar 1 h', 60], ['3 h', 180], ['el turno', 480]].map(([etiqueta, min]) => (
                       <button key={min} onClick={() => silenciarDesvio(min)}
                         title="Cuando el desvío ya se sabe: una obra, un desfile, un embotellamiento"
-                        style={{
-                          background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
-                          padding: '4px 10px', color: HUD.fg2, fontSize: 12, fontWeight: 700,
-                          cursor: 'pointer', fontFamily: 'inherit',
-                        }}>Silenciar {etiqueta}</button>
+                        style={{ ...btnChico(HUD.ambarTinta, HUD.ambarBorde), fontSize: 11 }}>{etiqueta}</button>
                     ))
                   )}
                 </div>
@@ -2251,41 +2801,64 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           {units.map(u => {
             const g = gaps[u.unitId] || {};
             const isSos = sos && sos.unitId === u.unitId;
+            const cAdelante = gapColor(g.toAhead, routeInfo.targetGapMin);
+            const cAtras = gapColor(g.toBehind, routeInfo.targetGapMin);
+            // El borde y el fondo de la fila los manda el peor de los dos
+            // lados: si de un lado va pegada, la fila tiene que gritar aunque
+            // del otro esté bien.
+            const orden = [HUD.red, HUD.amber, HUD.green, HUD.dim3];
+            const peor = isSos ? HUD.red
+              : orden.find(c => c === cAdelante || c === cAtras) || HUD.dim3;
             return (
               <div key={u.unitId} onClick={() => focusUnit(u)} style={{
-                padding: '12px 16px', cursor: 'pointer',
+                padding: '12px 16px 13px', cursor: 'pointer',
                 borderBottom: `1px solid ${HUD.divider}`,
-                background: isSos ? 'rgba(255,45,85,.12)' : 'transparent',
-                borderLeft: isSos ? `3px solid ${HUD.red}` : '3px solid transparent',
+                background: peor === HUD.red ? HUD.filaCritica : HUD.surface,
+                borderLeft: `3px solid ${peor}`,
               }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   <span style={{ fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg }}>{u.unitId}</span>
-                  <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2 }}>
-                    {u.speed || 0} km/h
+                  <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim2 }}>
+                    {u.speed || 0} KM/H
                   </span>
                   <div style={{ flex: 1 }} />
-                  {!u.lat && <span style={{ fontFamily: mono, fontSize: 11, color: HUD.amber }}>SIN GPS</span>}
+                  {u.tramo && (
+                    <span title="Tramo del circuito en el que va" style={{
+                      fontFamily: mono, fontSize: 10, fontWeight: 700,
+                      color: u.tramo === 'vuelta' ? HUD.dim2 : HUD.bright,
+                    }}>{u.tramo === 'vuelta' ? '↩ VUELTA' : '↪ IDA'}</span>
+                  )}
                 </div>
-                {u.fueraDeRuta && (
-                  <span title={`A ${u.desvioM} m del recorrido${u.fueraDesde ? ' desde ' + nowTime(u.fueraDesde) : ''}`}
-                    style={{
-                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .5,
-                      marginLeft: 8, padding: '2px 6px', borderRadius: 4,
-                      background: 'rgba(166,115,0,.18)', color: HUD.amber,
-                      border: `1px solid ${HUD.amber}`,
-                    }}>FUERA DE RUTA · {u.desvioM} m</span>
-                )}
-                {u.tramo && (
-                  <span title="Tramo del circuito en el que va" style={{
-                    fontFamily: mono, fontSize: 11, fontWeight: 700, marginLeft: 8,
-                    color: u.tramo === 'vuelta' ? HUD.dim2 : HUD.sky,
-                  }}>{u.tramo === 'vuelta' ? '↩ vuelta' : '↪ ida'}</span>
-                )}
                 {u.driverName && u.driverName !== u.unitId && (
                   <div style={{
                     fontSize: 12, color: HUD.dim2, marginTop: 2,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>{u.driverName}{u.label ? ` · ${u.label}` : ''}</div>
+                )}
+                {/* Las dos brechas son lo que más se mira de la fila: van en
+                    celda propia y en el tamaño de un dato, no como dos
+                    números pegados al pie. */}
+                <div style={{
+                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 9,
+                }}>
+                  {[['+1 ADELANTE', g.toAhead, cAdelante], ['−1 ATRÁS', g.toBehind, cAtras]].map(([et, val, color]) => (
+                    <div key={et} style={{ padding: '6px 8px', borderRadius: 8, background: HUD.celda }}>
+                      <div style={{ ...rotulo(9), letterSpacing: 1 }}>{et}</div>
+                      <div style={{ fontFamily: black, fontSize: 17, lineHeight: 1.2, color }}>{val || '—'}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* No se puede esconder ni resumir: es el aviso por el que
+                    Despacho levanta el teléfono. */}
+                {u.fueraDeRuta && (
+                  <div title={`A ${u.desvioM} m del recorrido${u.fueraDesde ? ' desde ' + nowTime(u.fueraDesde) : ''}`}
+                    style={{
+                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
+                      color: HUD.amber, marginTop: 8,
+                    }}>FUERA DE RUTA · {u.desvioM} M</div>
+                )}
+                {!u.lat && (
+                  <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.amber, marginTop: 8 }}>SIN GPS</div>
                 )}
                 {/* Conversación privada con esta unidad. El click no debe
                     disparar también el foco del mapa de la fila. */}
@@ -2293,11 +2866,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                   onClick={(e) => { e.stopPropagation(); abrirPrivado(u.unitId); }}
                   title={`Escribirle solo a ${u.unitId}`}
                   style={{
-                    marginTop: 7, background: privadoCon === u.unitId ? HUD.bright : HUD.boton,
-                    color: privadoCon === u.unitId ? '#fff' : HUD.fg2,
-                    border: `1px solid ${HUD.line}`, borderRadius: 8,
-                    padding: '4px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                    fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6,
+                    ...btnChico(privadoCon === u.unitId ? '#fff' : HUD.fg2, HUD.line),
+                    marginTop: 9, background: privadoCon === u.unitId ? HUD.bright : HUD.surface,
+                    borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
                   }}>
                   Mensaje directo
                   {noLeidos[u.unitId] > 0 && (
@@ -2308,10 +2879,6 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     }}>{noLeidos[u.unitId]}</span>
                   )}
                 </button>
-                <div style={{ display: 'flex', gap: 14, marginTop: 4, fontFamily: mono, fontSize: 13, fontWeight: 700 }}>
-                  <span style={{ color: HUD.dim3 }}>+1 <span style={{ color: gapColor(g.toAhead, routeInfo.targetGapMin) }}>{g.toAhead || '—'}</span></span>
-                  <span style={{ color: HUD.dim3 }}>−1 <span style={{ color: gapColor(g.toBehind, routeInfo.targetGapMin) }}>{g.toBehind || '—'}</span></span>
-                </div>
               </div>
             );
           })}
@@ -2323,6 +2890,22 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           ...(isMobile ? { flex: 1, display: view === 'map' ? 'block' : 'none' } : {}),
         }}>
           <div ref={initMap} style={{ position: 'absolute', inset: 0 }} />
+          {/* Los tres colores de la fila y del pin no se explican solos.
+              Con el objetivo en el header, esto termina de contar contra qué
+              se está leyendo cada número. */}
+          <div style={{
+            position: 'absolute', left: 14, bottom: 14, zIndex: 500,
+            padding: '11px 13px', borderRadius: 11,
+            background: HUD.flotante, border: `1px solid ${HUD.line}`,
+          }}>
+            <div style={{ ...rotulo(9), marginBottom: 7 }}>Brecha contra el objetivo</div>
+            {[[HUD.green, 'Hasta 15 % de desvío'], [HUD.amber, 'Hasta 30 %'], [HUD.red, 'Crítica · pelotón']].map(([c, t]) => (
+              <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: c, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: HUD.fg2 }}>{t}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* chat */}

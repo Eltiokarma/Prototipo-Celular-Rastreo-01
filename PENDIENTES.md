@@ -23,8 +23,7 @@ al final).
 
 | # | Qué | Por qué en ese lugar | Tamaño |
 | --- | --- | --- | --- |
-| 1 | **Rediseño de la interfaz** | Ya está el encargo (`PROMPT-DISENO.md`) y la propuesta de Design. Es el trabajo más grande que queda | 2–3 días |
-| 2 | **Panel del gerente de ruta** | Vive de los informes, que ya existen. Es el que más se beneficia de esperar: hoy estaríamos adivinando qué mira un gerente | 2 días |
+| 1 | **Panel del gerente de ruta** | Vive de los informes, que ya existen. Es el que más se beneficia de esperar: hoy estaríamos adivinando qué mira un gerente | 2 días |
 
 **Los cambios de esquema ya están hechos.** Eran los únicos que se encarecían
 con el uso —mover tablas con seis meses de datos adentro es una migración con
@@ -35,22 +34,7 @@ nadie lo use.** Lo de abajo se hace mejor después de una semana en la calle.
 
 ---
 
-## 1. Rediseño de la interfaz
-
-El encargo está en `PROMPT-DISENO.md` y Design entregó una propuesta de alta
-fidelidad: panel de Despacho, Gestión como espacio de trabajo con riel (en vez
-de ocho pestañas en un modal), trazador y panel del creador. La app del chofer
-quedó fuera de esa vuelta.
-
-**Lo que hay que cuidar al implementarlo** está en el propio encargo: los
-avisos de seguridad no se suavizan, las dos confirmaciones se quedan, y
-ninguna acción cambia de panel.
-
-**Lo que falta todavía de la propuesta**, porque el dato no existe: «último
-respaldo» y «errores en 24 h» en el panel del creador. No hay respaldos
-automáticos ni registro de errores; son features de operación, no de interfaz.
-
-## 2. Panel del gerente de ruta
+## 1. Panel del gerente de ruta
 
 Distinto del de Despacho a propósito: **Despacho opera, el gerente
 mira**. Sin botones de administración ni chat operativo; con métricas,
@@ -58,6 +42,22 @@ tendencias, cumplimiento, comparación entre unidades y descarga de
 informes. Rol nuevo (`manager`) con alcance a una ruta o a la empresa.
 
 ---
+
+## Lo que quedó afuera del rediseño, y por qué
+
+Tres cosas de la propuesta de Design no se implementaron. Ninguna es una
+omisión: cada una pedía un dato o un comportamiento que no existe.
+
+- **«Último respaldo» y «errores en 24 h»** en el panel del creador. No hay
+  respaldos automáticos ni registro de errores. Son features de operación, no
+  de interfaz, y una tarjeta que muestre un número inventado es peor que no
+  tenerla.
+- **«7 / 9 unidades»** en la cabecera de la lista de Despacho. El total de la
+  flota no viaja en el estado de tiempo real; traerlo es un endpoint nuevo.
+- **El segmentado «Dibujar | Mover | Borrar» y «Simplificar a 10 m»** del
+  trazador. La herramienta no tiene modos —se dibuja tocando, se corrige
+  arrastrando, se borra tocando el punto— y la simplificación pasa al
+  importar. Agregarlos habría sido cambiar comportamiento.
 
 ## Lo que ningún diseño resuelve
 
@@ -72,6 +72,13 @@ mejor que nosotros.
 
 ## Ítems ya cerrados
 
+- **Rediseño de la interfaz.** Panel de Despacho, Gestión como espacio de
+  trabajo con riel (en vez de ocho pestañas en un modal de 760 px), trazador y
+  panel del creador. Ningún cambio de comportamiento, de endpoints ni de
+  permisos: los cuatro avisos de seguridad quedaron sin suavizar, las dos
+  confirmaciones nombran sobre qué actúan, y ninguna acción cambió de panel.
+  La app del chofer quedó fuera de esta vuelta a propósito. Ver README,
+  secciones Panel de Despacho, El recorrido de la ruta y Panel del creador.
 - **Brecha promedio por vuelta.** Cada vuelta guarda la brecha que mantuvo,
   medida contra la unidad de adelante. Es lo que faltaba para saber no solo
   cuántas vueltas dio cada unidad sino si las dio bien. Empieza a existir el
