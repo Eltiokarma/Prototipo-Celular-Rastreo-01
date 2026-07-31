@@ -46,6 +46,8 @@ server/             Servidor de tiempo real (Node + Express + ws)
 
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
+PROMPT-DISENO.md    Encargo para rediseñar la interfaz: qué se puede tocar y,
+                    sobre todo, qué parece estético y no lo es
 PROMPT-REACT-NATIVE.md  Guía para una futura migración a React Native
 ```
 
