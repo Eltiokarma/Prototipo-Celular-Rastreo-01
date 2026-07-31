@@ -17,6 +17,7 @@ project/            La app (PWA servida como archivos estáticos)
   Prototipo.html      TODA la app del chofer: React + Babel inline (sin build)
                       (también la usa el cobrador, en modo acompañante)
   despacho.html       Panel web de Despacho (flota, chat, SOS) — desktop
+  gerencia.html       Panel del gerente de ruta: solo números, solo lectura
   realtime.js         Cliente WebSocket: GPS, estado, chat y SOS
   service-worker.js   Caché offline + caché de tiles del mapa
                       (bump CACHE_NAME en cada release; tiles y librerías
@@ -66,6 +67,7 @@ cd server && npm install && npm start
 # una sola URL para todo:
 #   http://localhost:3001/               → app del chofer
 #   http://localhost:3001/despacho.html  → panel de Despacho
+#   http://localhost:3001/gerencia.html  → panel del gerente de ruta
 #   http://localhost:3001/ping           → health check
 ```
 
@@ -110,7 +112,7 @@ audio — las más viejas quedan "expiradas" (burbuja sin reproducción).
 **Autenticación:** `POST /auth/login` con `{ user, password }` devuelve un
 token de sesión (30 días) que el WebSocket exige en el `identify` — sin
 token válido no hay estado, historial ni chat. Contraseñas con scrypt+salt
-en la tabla `users` (roles `driver`/`collector`/`dispatch`); 5 intentos fallidos
+en la tabla `users` (roles `driver`/`collector`/`dispatch`/`manager`); 5 intentos fallidos
 bloquean la unidad 5 minutos. **El alta de choferes la hace Despacho**
 (panel → Unidades): el login rechaza unidades no registradas. Solo se
 auto-registran DESPACHO (bootstrap del sistema) y, para demos sin
@@ -502,6 +504,48 @@ Tres detalles que explican los casos raros:
   gente; el creador puede resetear la cuenta de Despacho, que es la salida
   cuando una cooperativa se queda afuera de su propio panel. Queda registrado
   en la actividad de esa cooperativa.
+
+## Panel del gerente de ruta
+
+**Despacho opera el día; el gerente mira.** Son dos oficios distintos y por eso
+son dos pantallas y no dos pestañas de la misma: `gerencia.html` no tiene altas,
+ni bajas, ni chat, ni mapa operativo. Tiene los números de un período y los
+informes para llevarlos a una reunión.
+
+Entra con una cuenta de rol `manager`, con alcance **a una ruta o a toda la
+cooperativa** — el mismo borde de dos capas que ya usa Despacho.
+
+**Qué muestra**, y todo sale de datos que ya existen:
+
+| Bloque | De dónde sale |
+| --- | --- |
+| **Cumplimiento de la brecha** — la cifra que encabeza | Proporción de vueltas cuya brecha promedio quedó dentro del 15 % del objetivo de su ruta. La misma tolerancia que pinta de verde el panel de Despacho, para que los dos no digan cosas distintas del mismo día |
+| Vueltas, vuelta promedio, brecha promedio, horas, emergencias | `laps`, `shifts` y los SOS del período |
+| **Cómo viene** — cumplimiento por día y vueltas por día | Dos gráficos separados, nunca dos escalas en el mismo dibujo. Con su tabla equivalente a un clic |
+| **Unidad por unidad** | Vueltas, horas, vuelta promedio, brecha y cumplimiento. Las horas van al lado de las vueltas a propósito: veinte vueltas en cuatro horas y veinte en diez no son lo mismo |
+| **Horas por persona** | Turnos del período |
+| **Informes** | Los mismos cuatro CSV que baja Despacho, firmados por quien los pidió |
+
+**Las cuentas de gerencia las crea el nivel de arriba**, no Despacho — desde el
+panel del creador o con `empresa.js gerencia`. La razón no es jerárquica: buena
+parte de lo que el gerente mira es *qué tan bien se está corriendo la ruta*, o
+sea el trabajo de Despacho. Si Despacho pudiera crearle o borrarle la cuenta, esa
+medición no valdría nada. Despacho **ve** al gerente en su lista de personas —
+que esté a la vista es parte de que se sepa quién mira— pero no le puede tocar la
+clave, el nombre ni darlo de baja.
+
+**Lo que el gerente no puede hacer**, comprobado suite en mano: entrar a
+cualquier `/admin/*` (403, no 401), conectarse al tiempo real (el WebSocket lo
+rechaza diciendo por qué), ver otra cooperativa, ni —si tiene alcance de ruta—
+las otras rutas de la suya. Y al revés: un token de Despacho no abre
+`/gerencia/*`. **No hay un solo endpoint de gerencia que escriba.**
+
+**Solo tema día.** El resto del sistema tiene tema noche porque alguien maneja a
+las tres de la mañana; esto se lee en una oficina. Además los colores de estado
+del tema noche no pasan la separación para daltonismo (ver `LIMITACIONES.md`,
+sección *Accesibilidad*), y no valía la pena arrastrar eso a una pantalla nueva.
+Acá el cumplimiento **nunca depende del color**: lleva siempre su número y su
+palabra, y la desviación de la brecha una flecha ▾▴, que es forma.
 
 ## Panel del creador
 

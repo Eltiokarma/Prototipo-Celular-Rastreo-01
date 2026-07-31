@@ -649,7 +649,11 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     unitId TEXT PRIMARY KEY,
     driverName TEXT,
-    role TEXT NOT NULL DEFAULT 'driver',   -- 'driver' | 'dispatch'
+    -- 'driver'    maneja y su celular reporta la posición
+    -- 'collector' va arriba, ve todo, no reporta posición
+    -- 'dispatch'  opera el día: administra, chatea, atiende el SOS
+    -- 'manager'   mira los números y nada más (ver *Panel del gerente*)
+    role TEXT NOT NULL DEFAULT 'driver',
     passHash TEXT NOT NULL,                -- formato salt:hash (scrypt)
     createdAt INTEGER NOT NULL
   );
@@ -1349,8 +1353,11 @@ app.get('/admin/company', requireDispatch, (req, res) => {
     resumen: {
       rutas: rutas.length,
       vehiculos: db.prepare('SELECT COUNT(*) AS c FROM vehicles WHERE companyId = ?').get(req.empresa).c,
-      personas: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role <> 'dispatch'").get(req.empresa).c,
+      // Igual que en el nivel de arriba: personas es la gente de las combis;
+      // Despacho y gerencia se cuentan aparte porque son otra cosa.
+      personas: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role NOT IN ('dispatch', 'manager')").get(req.empresa).c,
       despacho: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role = 'dispatch'").get(req.empresa).c,
+      gerencia: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role = 'manager'").get(req.empresa).c,
       enLinea: Array.from(units.values()).filter(u => rutas.some(r => r.routeId === u.routeId)).length,
     },
     puedeEditar: !req.scope,
@@ -1739,11 +1746,15 @@ app.get('/admin/users', requireDispatch, (req, res) => {
   // Ojo con la excepción de las cuentas de despacho: antes era
   // `OR role = 'dispatch'` a secas, y así escrita mostraría los despachadores
   // de TODAS las cooperativas. Va dentro del filtro de empresa.
+  // Los gerentes se listan aunque Despacho no los pueda tocar: que la gente
+  // de la cooperativa que mira los números esté a la vista es parte de que se
+  // sepa quién mira. Esconderlos sería peor que mostrarlos sin botones.
   const users = db.prepare(`
     SELECT unitId, driverName, name, alias, role, routeId, vehicleId, createdAt, lastLogin FROM users
     WHERE companyId = @empresa
-      AND (@scope IS NULL OR routeId = @scope OR role = 'dispatch')
-    ORDER BY CASE role WHEN 'dispatch' THEN 0 ELSE 1 END, routeId, vehicleId, unitId
+      AND (@scope IS NULL OR routeId = @scope OR role IN ('dispatch', 'manager'))
+    ORDER BY CASE role WHEN 'dispatch' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END,
+             routeId, vehicleId, unitId
   `).all({ empresa: req.empresa, scope: req.scope });
   res.json({
     users: users.map(u => ({ ...u, online: online.has(u.unitId) })),
@@ -1822,6 +1833,14 @@ function cuentaEnAlcance(req, unitId) {
   if (!u || u.companyId !== req.empresa) return { error: 404, msg: 'Esa unidad no existe' };
   if (req.scope && u.routeId !== req.scope) {
     return { error: 403, msg: 'Esa unidad pertenece a otra ruta' };
+  }
+  // Despacho NO toca a un gerente. El panel del gerente mide, entre otras
+  // cosas, qué tan bien se está corriendo la ruta — o sea, el trabajo de
+  // Despacho. Si Despacho pudiera resetearle la clave o darlo de baja, esa
+  // medición no valdría nada. Las cuentas de gerente las maneja el nivel de
+  // arriba, igual que las de Despacho las maneja el creador.
+  if (u.role === 'manager') {
+    return { error: 403, msg: 'Las cuentas de gerencia se manejan desde el nivel de arriba' };
   }
   return { user: u };
 }
@@ -2085,19 +2104,22 @@ const INFORMES = {
   },
 };
 
-app.get('/admin/informe/:tipo.csv', requireDispatch, (req, res) => {
-  const tipo = String(req.params.tipo);
+// Un informe es el mismo archivo lo pida Despacho o lo pida el gerente: los
+// dos miran la misma cooperativa con el mismo borde de ruta, y lo único que
+// cambia es quién firma el "Generado por". Escrito dos veces, los dos lados
+// se habrían separado con el tiempo — y son justamente los que no pueden.
+function servirInforme(req, res, { tipo, empresa, scope, quien }) {
   const armar = INFORMES[tipo];
   if (!armar) return res.status(404).json({ error: 'Ese informe no existe' });
 
   const rango = rangoDe(req);
   const pedida = idLimpio(req.query?.routeId);
   // Pedir una ruta ajena no devuelve un informe vacío: devuelve que no existe
-  if (pedida && !rutaDeEmpresa(pedida, req.empresa)) {
+  if (pedida && !rutaDeEmpresa(pedida, empresa)) {
     return res.status(404).json({ error: 'Esa ruta no existe' });
   }
-  const rutaDelInforme = req.scope || pedida || null;
-  const informe = armar({ ...rango, empresa: req.empresa, ruta: rutaDelInforme });
+  const rutaDelInforme = scope || pedida || null;
+  const informe = armar({ ...rango, empresa, ruta: rutaDelInforme });
 
   // La primera línea dice con qué se midió: sin esto, alguien puede tomar por
   // exacto un número que es una estimación.
@@ -2110,22 +2132,31 @@ app.get('/admin/informe/:tipo.csv', requireDispatch, (req, res) => {
 
   // El informe sale con el nombre de SU cooperativa, no con el de la R-14:
   // es un papel que se lleva a una reunión y tiene que decir de quién es.
-  const empresa = companyOf(req.empresa);
+  const emp = companyOf(empresa);
   const lineas = [
-    csvLinea([empresa ? empresa.name : req.empresa, `Informe de ${informe.nombre}`]),
+    csvLinea([emp ? emp.name : empresa, `Informe de ${informe.nombre}`]),
     csvLinea(['Período', `${fechaHora(rango.desde)} a ${fechaHora(rango.hasta)}`]),
     csvLinea(['Medido sobre', base]),
-    csvLinea(['Generado', fechaHora(Date.now()), 'por', req.dispatchUser.unitId]),
+    csvLinea(['Generado', fechaHora(Date.now()), 'por', quien]),
     '',
     csvLinea(informe.cabecera),
     ...informe.filas.map(csvLinea),
   ];
 
-  const archivo = `${req.empresa.toLowerCase()}-${informe.nombre}-${new Date(rango.desde).toISOString().slice(0, 10)}.csv`;
+  const archivo = `${empresa.toLowerCase()}-${informe.nombre}-${new Date(rango.desde).toISOString().slice(0, 10)}.csv`;
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${archivo}"`);
   // BOM para que Excel abra bien las tildes
   res.send('\ufeff' + lineas.join('\r\n'));
+}
+
+app.get('/admin/informe/:tipo.csv', requireDispatch, (req, res) => {
+  servirInforme(req, res, {
+    tipo: String(req.params.tipo),
+    empresa: req.empresa,
+    scope: req.scope,
+    quien: req.dispatchUser.unitId,
+  });
 });
 
 // Turnos: quién anduvo en qué unidad y cuánto. Por defecto los de hoy.
@@ -2277,6 +2308,225 @@ app.get('/admin/metrics', requireDispatch, (req, res) => {
     ORDER BY lapsToday DESC, lapsTotal DESC
   `).all({ dayStart: dayStart.getTime(), empresa: req.empresa, filtro });
   res.json({ metrics: rows, routeId: filtro });
+});
+
+// ─── GERENCIA (solo lectura) ─────────────────────────────────
+// Despacho OPERA el día; el gerente MIRA. Son dos oficios distintos y por eso
+// son dos paneles distintos: acá no hay altas, ni bajas, ni chat, ni mapa
+// operativo. Solo números de un período, y los informes para llevarlos a una
+// reunión.
+//
+// Todo lo que sigue es GET. No hay un solo endpoint que escriba: es la
+// propiedad que hace que darle una cuenta a alguien de la cooperativa no
+// tenga consecuencias sobre la operación.
+
+function requireManager(req, res, next) {
+  const auth = String(req.headers.authorization || '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  const user = sessionUser(token);
+  // Misma distinción que en Despacho: 401 es "no hay sesión" y saca al
+  // usuario al login; 403 es "esta sesión no alcanza" y no lo echa.
+  if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  if (user.role !== 'manager') {
+    return res.status(403).json({ error: 'Requiere una cuenta de gerencia' });
+  }
+  if (!user.companyId || !companyOf(user.companyId)) {
+    return res.status(403).json({ error: 'Esta cuenta no está asignada a ninguna empresa' });
+  }
+  req.gerente = user;
+  req.empresa = user.companyId;
+  // Mismo borde de dos capas que Despacho: la empresa nunca se cruza, y
+  // adentro un gerente de ruta ve solo la suya.
+  req.scope = user.routeId || null;
+  next();
+}
+
+// Una vuelta "cumple" si su brecha quedó dentro del 15 % del objetivo — la
+// misma tolerancia que pinta de verde el panel de Despacho, para que los dos
+// paneles no digan cosas distintas del mismo día.
+//
+// OJO con lo que esto NO es: se mide contra el objetivo de HOY, no contra el
+// que regía cuando se cerró la vuelta. Ese número no se guarda con la vuelta,
+// y con objetivo automático puede haber cambiado. La pantalla lo dice.
+const TOLERANCIA_CUMPLE = 0.15;
+
+app.get('/gerencia/resumen', requireManager, (req, res) => {
+  const rango = rangoDe(req);
+  const pedida = idLimpio(req.query?.routeId);
+  if (pedida && !rutaDeEmpresa(pedida, req.empresa)) {
+    return res.status(404).json({ error: 'Esa ruta no existe' });
+  }
+  const ruta = req.scope || pedida || null;
+  const filtro = { ...rango, empresa: req.empresa, ruta };
+
+  // Las rutas que el gerente puede mirar, con su objetivo. El objetivo es por
+  // ruta: un gerente de empresa mira varias a la vez y cada vuelta se juzga
+  // contra el objetivo de SU ruta, no contra un promedio de objetivos.
+  const rutas = routesOfCompany(req.empresa)
+    .filter(r => !ruta || r.routeId === ruta)
+    .map(r => {
+      const o = objetivoDe(r.routeId);
+      return {
+        routeId: r.routeId, name: r.name,
+        objetivoSec: Math.round(o.min * 60), objetivoModo: o.modo,
+        durationMin: r.durationMin,
+      };
+    });
+  const objetivoDeRuta = new Map(rutas.map(r => [r.routeId, r.objetivoSec]));
+
+  const vueltas = db.prepare(`
+    SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm
+    FROM laps
+    WHERE finishedAt BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    ORDER BY finishedAt
+  `).all(filtro);
+
+  // Cumple / no cumple, vuelta por vuelta. `null` cuando no hay con qué
+  // juzgarla: sin brecha guardada, o sin objetivo para su ruta.
+  const juzgar = (l) => {
+    const obj = objetivoDeRuta.get(l.routeId);
+    if (l.brechaProm === null || !obj) return null;
+    return Math.abs(l.brechaProm - obj) / obj <= TOLERANCIA_CUMPLE;
+  };
+  const prom = (lista, campo) => lista.length
+    ? Math.round(lista.reduce((a, x) => a + x[campo], 0) / lista.length) : null;
+  const porcentaje = (juzgadas) => {
+    const con = juzgadas.filter(v => v !== null);
+    return con.length ? Math.round((con.filter(Boolean).length / con.length) * 100) : null;
+  };
+
+  const conBrecha = vueltas.filter(l => l.brechaProm !== null);
+
+  // Tendencia: un punto por día del rango que tenga vueltas. Sin rellenar los
+  // días vacíos con ceros — un feriado sin servicio no es un día de cero
+  // cumplimiento, es un día sin datos, y la diferencia importa.
+  const dias = new Map();
+  for (const l of vueltas) {
+    const d = new Date(l.finishedAt);
+    const clave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (!dias.has(clave)) dias.set(clave, []);
+    dias.get(clave).push(l);
+  }
+  const porDia = Array.from(dias.entries()).sort((a, b) => a[0] < b[0] ? -1 : 1)
+    .map(([dia, ls]) => ({
+      dia,
+      vueltas: ls.length,
+      unidades: new Set(ls.map(l => l.unitId)).size,
+      duracionProm: prom(ls, 'durationSec'),
+      brechaProm: prom(ls.filter(l => l.brechaProm !== null), 'brechaProm'),
+      cumplimiento: porcentaje(ls.map(juzgar)),
+    }));
+
+  // Horas por unidad, de los turnos. Van acá y no en una consulta aparte
+  // porque la comparación entre unidades no se lee sin ellas: veinte vueltas
+  // en cuatro horas y veinte en diez no son lo mismo.
+  const turnos = db.prepare(`
+    SELECT vehicleId, startedAt, endedAt, lastSeenAt FROM shifts
+    WHERE startedAt BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+  `).all(filtro);
+  const ahora = Date.now();
+  const horasDe = new Map();
+  for (const t of turnos) {
+    const sec = Math.max(0, Math.round(((t.endedAt || t.lastSeenAt || ahora) - t.startedAt) / 1000));
+    horasDe.set(t.vehicleId, (horasDe.get(t.vehicleId) || 0) + sec);
+  }
+
+  const unidades = new Map();
+  for (const l of vueltas) {
+    if (!unidades.has(l.unitId)) unidades.set(l.unitId, []);
+    unidades.get(l.unitId).push(l);
+  }
+  const porUnidad = Array.from(unidades.entries()).map(([unitId, ls]) => {
+    const conB = ls.filter(l => l.brechaProm !== null);
+    return {
+      unitId,
+      routeId: ls[0].routeId,
+      vueltas: ls.length,
+      duracionProm: prom(ls, 'durationSec'),
+      duracionMejor: Math.min(...ls.map(l => l.durationSec)),
+      velocidadProm: prom(ls, 'avgSpeed'),
+      brechaProm: prom(conB, 'brechaProm'),
+      cumplimiento: porcentaje(ls.map(juzgar)),
+      sinBrecha: ls.length - conB.length,
+      horasSec: horasDe.get(unitId) || 0,
+    };
+  }).sort((a, b) => b.vueltas - a.vueltas);
+
+  // Horas por persona: lo mismo que ve Despacho en TURNOS, agregado al rango
+  const personas = db.prepare(`
+    SELECT s.personId, s.role, s.vehicleId, s.startedAt, s.endedAt, s.lastSeenAt,
+           u.name, u.alias
+    FROM shifts s
+    LEFT JOIN users u ON u.unitId = s.personId
+    WHERE s.startedAt BETWEEN @desde AND @hasta
+      AND s.routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR s.routeId = @ruta)
+  `).all(filtro);
+  const porPersona = new Map();
+  for (const t of personas) {
+    if (!porPersona.has(t.personId)) {
+      porPersona.set(t.personId, {
+        personId: t.personId, name: t.name, alias: t.alias, role: t.role,
+        turnos: 0, horasSec: 0, unidades: new Set(),
+      });
+    }
+    const p = porPersona.get(t.personId);
+    p.turnos++;
+    p.horasSec += Math.max(0, Math.round(((t.endedAt || t.lastSeenAt || ahora) - t.startedAt) / 1000));
+    if (t.vehicleId) p.unidades.add(t.vehicleId);
+  }
+
+  // Emergencias del período. Se cuentan y se listan: en una reunión "hubo tres
+  // SOS" abre una conversación que "hubo SOS" no abre.
+  const sos = db.prepare(`
+    SELECT unitId, driverName, vehicleId, routeId, timestamp FROM messages
+    WHERE kind = 'sos' AND timestamp BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    ORDER BY timestamp DESC LIMIT 50
+  `).all(filtro);
+
+  const empresa = companyOf(req.empresa);
+  res.json({
+    empresa: { companyId: req.empresa, name: empresa ? empresa.name : req.empresa },
+    // El alcance se declara: un gerente de ruta tiene que saber que lo que ve
+    // es su ruta y no la cooperativa entera.
+    alcance: { routeId: ruta, fijo: !!req.scope },
+    rango: { ...rango, dias: Math.max(1, Math.round((rango.hasta - rango.desde) / 86400_000)) },
+    rutas,
+    totales: {
+      vueltas: vueltas.length,
+      unidades: unidades.size,
+      personas: porPersona.size,
+      duracionProm: prom(vueltas, 'durationSec'),
+      brechaProm: prom(conBrecha, 'brechaProm'),
+      cumplimiento: porcentaje(vueltas.map(juzgar)),
+      sinBrecha: vueltas.length - conBrecha.length,
+      horasSec: Array.from(horasDe.values()).reduce((a, x) => a + x, 0),
+      sos: sos.length,
+    },
+    porDia,
+    porUnidad,
+    porPersona: Array.from(porPersona.values())
+      .map(p => ({ ...p, unidades: Array.from(p.unidades) }))
+      .sort((a, b) => b.horasSec - a.horasSec),
+    sos,
+    toleranciaCumple: TOLERANCIA_CUMPLE,
+  });
+});
+
+// El mismo archivo que baja Despacho, firmado por quien lo pidió
+app.get('/gerencia/informe/:tipo.csv', requireManager, (req, res) => {
+  servirInforme(req, res, {
+    tipo: String(req.params.tipo),
+    empresa: req.empresa,
+    scope: req.scope,
+    quien: req.gerente.unitId,
+  });
 });
 
 // ─── RUTA DE SALUD ───────────────────────────────────────────
@@ -2449,6 +2699,18 @@ wss.on('connection', (ws) => {
       const user = sessionUser(msg.token);
       if (!user) {
         ws.send(JSON.stringify({ type: 'auth_error', error: 'Sesión inválida o expirada' }));
+        ws.close();
+        return;
+      }
+      // El gerente mira números, no la calle. No entra al tiempo real: no le
+      // hace falta para nada de lo que tiene su panel, y dejarlo entrar sería
+      // darle el chat operativo de la ruta, que es de los que trabajan en
+      // ella. Se le dice explícito en vez de dejarlo colgado esperando.
+      if (user.role === 'manager') {
+        ws.send(JSON.stringify({
+          type: 'auth_error',
+          error: 'Las cuentas de gerencia no entran al tiempo real. Entrá por gerencia.html.',
+        }));
         ws.close();
         return;
       }

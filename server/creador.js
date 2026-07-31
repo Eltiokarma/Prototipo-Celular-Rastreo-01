@@ -268,6 +268,23 @@ function montarPanelDelCreador(app, deps) {
     res.json(r);
   });
 
+  // Las cuentas de gerencia se dan de alta acá y no en el panel de Despacho:
+  // el gerente mira, entre otras cosas, cómo se está corriendo la ruta, y eso
+  // es el trabajo de Despacho. Nadie se elige a su propio auditor.
+  app.post(BASE + '/empresas/:companyId/gerencia', requireCreador, (req, res) => {
+    const r = coop.gerente(db, {
+      companyId: req.params.companyId,
+      usuario: req.body?.usuario,
+      clave: req.body?.clave,
+      routeId: req.body?.routeId,
+    });
+    if (r.error) return res.status(400).json({ error: r.error });
+    anotar(r.creado ? 'alta_gerente' : 'reset_gerente', r.usuario,
+      r.routeId ? `empresa ${r.companyId} · ruta ${r.routeId}` : `empresa ${r.companyId} · toda la cooperativa`,
+      r.companyId);
+    res.json(r);
+  });
+
   app.post(BASE + '/empresas/:companyId/rutas', requireCreador, (req, res) => {
     const r = coop.altaRuta(db, { ...req.body, companyId: req.params.companyId });
     if (r.error) return res.status(400).json({ error: r.error });

@@ -16,6 +16,7 @@
 //        --ruta R-15 --nombre-ruta "Plaza ↔ Salida Cusco" \
 //        --despacho DESPACHO-15 --clave unaclavelarga
 //   node server/empresa.js despacho COOP-15 DESPACHO-15 otraclavelarga
+//   node server/empresa.js gerencia COOP-15 GERENTE-15 otraclavelarga [--ruta R-15]
 //   node server/empresa.js desactivar COOP-15
 //   node server/empresa.js activar COOP-15
 //
@@ -98,6 +99,9 @@ function listar() {
     console.log(`  Despacho  ${e.despacho.length
       ? e.despacho.map(d => d.routeId ? `${d.unitId} (ruta ${d.routeId})` : `${d.unitId} (supervisor)`).join(', ')
       : '— ninguna cuenta'}`);
+    console.log(`  Gerencia  ${e.gerencia.length
+      ? e.gerencia.map(g => g.routeId ? `${g.unitId} (ruta ${g.routeId})` : `${g.unitId} (toda la cooperativa)`).join(', ')
+      : '— ninguna cuenta'}`);
   }
   console.log('');
 }
@@ -132,6 +136,20 @@ function despacho() {
     : `Clave restablecida para ${r.usuario} (supervisor de ${r.companyId}).`);
 }
 
+function gerencia() {
+  if (!sueltos[1] || !sueltos[2] || !sueltos[3]) {
+    salir('Uso: node server/empresa.js gerencia <empresa> <usuario> <clave> [--ruta CODIGO]');
+  }
+  const r = hacer(coop.gerente(db, {
+    companyId: sueltos[1], usuario: sueltos[2], clave: sueltos[3], routeId: ops.ruta,
+  }));
+  const alcance = r.routeId ? `ruta ${r.routeId}` : 'toda la cooperativa';
+  console.log(r.creado
+    ? `Gerente creado: ${r.usuario} en ${r.companyId} (${alcance}).`
+    : `Clave restablecida para ${r.usuario} (gerente de ${r.companyId}, ${alcance}).`);
+  console.log('  Entra por gerencia.html. No administra nada y no ve el tiempo real.');
+}
+
 function ruta() {
   if (!sueltos[1] || !sueltos[2]) {
     salir('Uso: node server/empresa.js ruta <empresa> <codigo> ["nombre"]');
@@ -159,6 +177,7 @@ Cooperativas — alta y administración desde el servidor
                             [--ruta CODIGO] [--nombre-ruta "texto"]
                             [--despacho USUARIO --clave CLAVE]
   despacho <empresa> <usuario> <clave>
+  gerencia <empresa> <usuario> <clave> [--ruta CODIGO]
   ruta <empresa> <codigo> ["nombre"] [--brecha min] [--duracion min]
   desactivar <empresa>
   activar <empresa>
@@ -171,6 +190,7 @@ switch (comando) {
   case 'listar': listar(); break;
   case 'alta': alta(); break;
   case 'despacho': despacho(); break;
+  case 'gerencia': gerencia(); break;
   case 'ruta': ruta(); break;
   case 'activar': estado(true); break;
   case 'desactivar': estado(false); break;

@@ -237,13 +237,53 @@ limitación se resuelva o aparezca una nueva.
 - El tema cubre las tres pantallas y el panel, pero las pantallas de
   **login y "Salir a ruta"** siguen siendo oscuras a propósito (son las
   pantallas de marca, no de operación).
-- No hay exportación de reportes (CSV/PDF) de vueltas ni auditoría.
 - El chat privado con una unidad **no tiene acuse de lectura real**: la
   pestaña DESPACHO del chofer cuenta los mensajes que llegaron desde la
   última vez que la abrió en ese celular. Si cambia de teléfono o borra los
   datos, el contador arranca de cero.
 - Tampoco hay **notificación con la app cerrada** para un mensaje directo:
   vale la misma limitación que para el SOS (ver fila 2).
+- **El cumplimiento del panel del gerente se mide contra el objetivo de hoy**,
+  no contra el que regía cuando se cerró cada vuelta: ese número no se guarda
+  con la vuelta. Con objetivo automático puede haber cambiado dentro del mismo
+  período, así que un cumplimiento de hace tres semanas está juzgado con la
+  vara de hoy. La pantalla lo dice en la propia tarjeta.
+- **El panel del gerente no informa desvíos de ruta.** El desvío se detecta y
+  se gestiona en vivo, pero **no se guarda**: no hay tabla de eventos de
+  desvío, así que no se puede decir cuántas veces se salió del recorrido una
+  unidad la semana pasada. Es un dato que habría que empezar a guardar; hasta
+  entonces no se muestra, en vez de mostrar un cero que no significa nada.
+- **Los días sin servicio no aparecen en la tendencia.** El eje del gráfico es
+  una banda por día *con vueltas*, no una línea de tiempo continua: un domingo
+  sin servicio no es un día de cero cumplimiento y no se dibuja como tal.
+
+## G. Accesibilidad
+
+- **Verde y ámbar son el mismo color para un daltónico rojo-verde.** No es una
+  sospecha: medido con el validador de paletas, el par verde `#1F8A4F` ↔ ámbar
+  `#A67300` queda en ΔE 5,4 bajo protanopia (el piso aceptable es 6–8, y eso
+  solo si hay una segunda señal). Con visión normal se separan bien (16,0), y
+  el rojo sí se distingue de los otros dos. Es el problema clásico del
+  semáforo y **no se arregla moviendo el color**: corriendo el ámbar hacia el
+  naranja se separa del verde pero se pega al rojo (probado con cuatro
+  candidatos, todos peores).
+  - **Dónde ya está resuelto:** el panel del gerente nunca usa el color solo —
+    cada cumplimiento lleva su número y su palabra (*cumple* / *al límite* /
+    *fuera*), y la desviación de la brecha lleva una flecha ▾▴, que es forma y
+    no color.
+  - **Dónde falta:** en el panel de Despacho, la fila de unidad muestra el
+    valor de la brecha en m:ss —o sea, el número está— pero *si esa brecha está
+    bien o se está yendo* lo dice solo el color. Un despachador daltónico ve el
+    número y no ve el juicio. Se arregla agregando la misma palabra que usa
+    gerencia; no se hizo en la vuelta del rediseño porque no se había medido.
+- **El tema noche es peor todavía** para esto: verde `#39FF14` ↔ ámbar
+  `#FFD400` quedan en ΔE 2,2 bajo deuteranopia, prácticamente idénticos, y dos
+  de sus colores se salen de la banda de luminosidad. Por eso el panel del
+  gerente se hizo **solo en día**: es una pantalla de informes que se lee en
+  una oficina, y no valía la pena arrastrarle esa paleta.
+- Los gráficos del panel del gerente tienen **su tabla equivalente** (botón
+  *Ver tabla*): ningún número está disponible únicamente a través de un color
+  o de un tooltip.
 
 ## Acceso por web y dominio
 
