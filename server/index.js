@@ -264,39 +264,125 @@ function rutaDeEmpresa(routeId, companyId) {
 //
 // Una ruta puede tener solo IDA: ahí el circuito es ese tramo y funciona
 // como antes.
+// ─── VARIANTES DEL RECORRIDO ─────────────────────────────────
+// Una ruta no siempre se maneja igual. Hay desvíos PROGRAMADOS —una obra que
+// dura tres meses, el mercado de los domingos que cierra dos cuadras— donde
+// el trazado real cambió y va a seguir cambiado un tiempo. Con un solo
+// recorrido por ruta, eso obligaba a redibujarlo y a perder el original.
+//
+// Por eso una ruta tiene VARIANTES: cada una con su ida y su vuelta. Una
+// está activa y es la que mide; las demás quedan guardadas para el día que
+// haga falta. Activar otra recalcula progreso y brechas al instante, porque
+// el cálculo vive en el servidor.
+//
+// Cuándo NO usar una variante: para un embotellamiento de dos horas no vale
+// la pena — para eso está silenciar el desvío, que ya existe. La variante es
+// para cuando el recorrido cambió de verdad.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS route_variants (
+    variantId INTEGER PRIMARY KEY AUTOINCREMENT,
+    routeId TEXT NOT NULL,
+    name TEXT NOT NULL,                -- "Recorrido normal", "Obra Circunvalación"
+    activa INTEGER NOT NULL DEFAULT 0, -- una sola por ruta
+    desde INTEGER,                     -- vigencia programada, opcional
+    hasta INTEGER,
+    createdAt INTEGER NOT NULL
+  )
+`);
+
+const VARIANTE_BASE = 'Recorrido normal';
+
+// Los puntos cuelgan de la VARIANTE, no de la ruta.
 const CREAR_ROUTE_POINTS = `
   CREATE TABLE IF NOT EXISTS route_points (
-    routeId TEXT NOT NULL,
+    variantId INTEGER NOT NULL,
     leg TEXT NOT NULL DEFAULT 'ida',   -- 'ida' | 'vuelta'
     seq INTEGER NOT NULL,              -- orden del punto DENTRO del tramo
     lat REAL NOT NULL,
     lng REAL NOT NULL,
-    PRIMARY KEY (routeId, leg, seq)
+    PRIMARY KEY (variantId, leg, seq)
   )
 `;
 db.exec(CREAR_ROUTE_POINTS);
 
-// La primera versión guardaba el recorrido de una sola pieza, con clave
-// (routeId, seq). Con dos tramos, ida y vuelta usan los mismos números de
-// orden y chocan, así que hay que rehacer la tabla — en SQLite es la única
-// forma de cambiar una clave primaria. Lo que había pasa a ser la ida.
+// routeId → variantId de las rutas cuyo recorrido se acaba de migrar. Vacío
+// en un arranque normal; se usa una sola vez, más abajo, para las vueltas.
+let variantesMigradas = new Map();
+
+// Historia de esta tabla, en tres versiones:
+//   v1  (routeId, seq)             — el recorrido de una sola pieza
+//   v2  (routeId, leg, seq)        — partido en ida y vuelta
+//   v3  (variantId, leg, seq)      — colgando de la variante
+// En SQLite cambiar una clave primaria significa rehacer la tabla, así que
+// se detecta la versión por la clave real y se migra lo que haya: en v1 todo
+// pasa a ser la ida, y en cualquier caso el recorrido que existía se
+// convierte en la variante activa de su ruta.
 {
   const info = db.prepare('PRAGMA table_info(route_points)').all();
   const clave = info.filter(c => c.pk > 0).sort((a, b) => a.pk - b.pk).map(c => c.name).join(',');
-  if (clave !== 'routeId,leg,seq') {
+  if (clave !== 'variantId,leg,seq') {
     const tieneLeg = info.some(c => c.name === 'leg');
-    db.exec('ALTER TABLE route_points RENAME TO route_points_v1');
+    db.exec('ALTER TABLE route_points RENAME TO route_points_viejo');
+
+    // Cada ruta que tenía recorrido estrena su variante base, ya activa
+    const conRecorrido = db.prepare('SELECT DISTINCT routeId FROM route_points_viejo').all();
+    const insVar = db.prepare('INSERT INTO route_variants (routeId, name, activa, createdAt) VALUES (?, ?, 1, ?)');
+    const deRuta = new Map();
+    for (const r of conRecorrido) {
+      deRuta.set(r.routeId, insVar.run(r.routeId, VARIANTE_BASE, Date.now()).lastInsertRowid);
+    }
+
     db.exec(CREAR_ROUTE_POINTS);
-    db.exec(`
-      INSERT INTO route_points (routeId, leg, seq, lat, lng)
-      SELECT routeId, ${tieneLeg ? 'leg' : "'ida'"}, seq, lat, lng FROM route_points_v1
-    `);
-    db.exec('DROP TABLE route_points_v1');
-    console.log('Recorridos migrados a tramos (ida/vuelta)');
+    const insPunto = db.prepare('INSERT INTO route_points (variantId, leg, seq, lat, lng) VALUES (?, ?, ?, ?, ?)');
+    const viejos = db.prepare(
+      `SELECT routeId, ${tieneLeg ? 'leg' : "'ida' AS leg"}, seq, lat, lng FROM route_points_viejo`
+    ).all();
+    db.transaction(() => {
+      for (const p of viejos) insPunto.run(deRuta.get(p.routeId), p.leg, p.seq, p.lat, p.lng);
+    })();
+
+    db.exec('DROP TABLE route_points_viejo');
+    // Se guarda para más abajo: las vueltas ya guardadas de estas rutas se
+    // midieron con este mismo trazado y hay que atarlas a su variante, pero
+    // la tabla `laps` todavía no existe en este punto del arranque.
+    variantesMigradas = deRuta;
+    if (viejos.length) {
+      console.log(`Recorridos migrados a variantes: ${deRuta.size} ruta(s), ${viejos.length} punto(s)`);
+    }
   }
 }
 
 const TRAMOS = ['ida', 'vuelta'];
+
+// La variante base de una ruta, creándola si todavía no tiene ninguna. Toda
+// ruta tiene al menos una: así el trazador siempre sabe sobre qué dibujar.
+function varianteBase(routeId) {
+  const v = db.prepare('SELECT * FROM route_variants WHERE routeId = ? ORDER BY variantId LIMIT 1').get(routeId);
+  if (v) return v;
+  const id = db.prepare('INSERT INTO route_variants (routeId, name, activa, createdAt) VALUES (?, ?, 1, ?)')
+    .run(routeId, VARIANTE_BASE, Date.now()).lastInsertRowid;
+  return db.prepare('SELECT * FROM route_variants WHERE variantId = ?').get(id);
+}
+
+// La variante que está midiendo ahora mismo. Si por lo que fuera ninguna
+// quedó activa, se activa la base: una ruta sin variante activa no mediría
+// nada, y eso se vería como "el recorrido se borró solo".
+function varianteActiva(routeId) {
+  const v = db.prepare('SELECT * FROM route_variants WHERE routeId = ? AND activa = 1 ORDER BY variantId LIMIT 1')
+    .get(routeId);
+  if (v) return v;
+  const base = varianteBase(routeId);
+  db.prepare('UPDATE route_variants SET activa = 1 WHERE variantId = ?').run(base.variantId);
+  return { ...base, activa: 1 };
+}
+
+function variantesDe(routeId) {
+  return db.prepare(`
+    SELECT v.*,
+      (SELECT COUNT(*) FROM route_points p WHERE p.variantId = v.variantId) AS puntos
+    FROM route_variants v WHERE v.routeId = ? ORDER BY v.variantId
+  `).all(routeId);
+}
 
 // Metros entre dos puntos GPS. A escala de una ruta urbana alcanza con
 // aplanar la Tierra: se corrige la longitud por el coseno de la latitud.
@@ -324,16 +410,27 @@ function armarTramo(puntos) {
   return { puntos, acumulado, largoM: acumulado[acumulado.length - 1] };
 }
 
-function cargarGeometria(routeId) {
-  const leer = (leg) => db.prepare(
-    'SELECT lat, lng FROM route_points WHERE routeId = ? AND leg = ? ORDER BY seq'
-  ).all(routeId, leg);
+// Los puntos que se leen son los de la variante ACTIVA: activar otra y
+// recargar acá es todo lo que hace falta para que cambie el trazado con el
+// que se miden progreso, brechas y desvíos de esa ruta.
+function puntosDeVariante(variantId, leg) {
+  return db.prepare(
+    'SELECT lat, lng FROM route_points WHERE variantId = ? AND leg = ? ORDER BY seq'
+  ).all(variantId, leg);
+}
 
-  const ida = armarTramo(leer('ida'));
-  const vuelta = armarTramo(leer('vuelta'));
+function cargarGeometria(routeId) {
+  const variante = varianteActiva(routeId);
+  const ida = armarTramo(puntosDeVariante(variante.variantId, 'ida'));
+  const vuelta = armarTramo(puntosDeVariante(variante.variantId, 'vuelta'));
   if (!ida) { geometrias.delete(routeId); return null; }
 
-  const geo = { ida, vuelta, largoTotalM: ida.largoM + (vuelta ? vuelta.largoM : 0) };
+  const geo = {
+    ida, vuelta,
+    largoTotalM: ida.largoM + (vuelta ? vuelta.largoM : 0),
+    variantId: variante.variantId,
+    varianteNombre: variante.name,
+  };
   geometrias.set(routeId, geo);
   return geo;
 }
@@ -939,6 +1036,28 @@ db.exec(`
   )
 `);
 
+// Con qué variante del recorrido se midió cada vuelta. Sin esto, el promedio
+// histórico mezclaría geometrías distintas: una variante más larga tarda más,
+// y promediarla con la corta da un objetivo que no le sirve a ninguna.
+addColumnIfMissing('laps', 'variantId', 'INTEGER');
+
+// Las vueltas que ya estaban guardadas cuando el recorrido pasó a colgar de
+// una variante se midieron con ESE trazado: es el mismo, solo que ahora tiene
+// un nombre. Se las ata a él, porque si no el objetivo automático de cada
+// ruta arrancaría de cero el día del deploy tirando historial verdadero.
+//
+// Solo las de rutas que TENÍAN recorrido: las de una ruta sin trazado se
+// midieron con la estimación del cliente y no son de ninguna variante.
+if (variantesMigradas.size) {
+  const marcar = db.prepare('UPDATE laps SET variantId = ? WHERE routeId = ? AND variantId IS NULL');
+  let n = 0;
+  db.transaction(() => {
+    for (const [routeId, variantId] of variantesMigradas) n += marcar.run(variantId, routeId).changes;
+  })();
+  if (n) console.log(`${n} vuelta(s) atadas al recorrido con el que se midieron`);
+  variantesMigradas = new Map();
+}
+
 // ¿El objetivo de brecha se calcula solo? Apagado por defecto: una ruta
 // recién cargada no tiene historial y el número manual es el que vale.
 addColumnIfMissing('routes', 'autoTarget', 'INTEGER NOT NULL DEFAULT 0');
@@ -975,8 +1094,11 @@ function trackLap(unitId, routeId, progress, speed) {
     const now = Date.now();
     const durationSec = Math.round((now - st.lapStart) / 1000);
     const avgSpeed = st.speedCount ? Math.round(st.speedSum / st.speedCount) : 0;
-    db.prepare('INSERT INTO laps (unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(unitId, routeId || null, st.lapStart, now, durationSec, avgSpeed);
+    // Con qué trazado se midió esta vuelta. La ruta sin geometría no tiene
+    // variante que valga: el progreso vino estimado por el cliente.
+    const geo = routeId ? geometriaDe(routeId) : null;
+    db.prepare('INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(unitId, routeId || null, geo ? geo.variantId : null, st.lapStart, now, durationSec, avgSpeed);
     db.prepare('DELETE FROM laps WHERE id NOT IN (SELECT id FROM laps ORDER BY id DESC LIMIT 2000)').run();
     console.log(`Vuelta completada: ${unitId} en ${Math.round(durationSec / 60)} min`);
     objetivoCache.delete(routeId);   // hay un dato nuevo: que se recalcule
@@ -1245,6 +1367,14 @@ app.get('/admin/routes', requireDispatch, (req, res) => {
         puntos: geo ? geo.ida.puntos.length + (geo.vuelta ? geo.vuelta.puntos.length : 0) : 0,
         tieneVuelta: !!(geo && geo.vuelta),
         largoM: geo ? Math.round(geo.largoTotalM) : 0,
+        // Con qué variante está midiendo y cuáles tiene guardadas. La lista
+        // va acá y no en un pedido aparte porque son dos o tres filas por
+        // ruta: pedirlas por separado sería un viaje de más por nada.
+        variante: varianteActiva(r.routeId).name,
+        variantes: variantesDe(r.routeId).map(v => ({
+          variantId: v.variantId, name: v.name, activa: !!v.activa,
+          puntos: v.puntos, desde: v.desde, hasta: v.hasta,
+        })),
       };
     });
   const empresa = companyOf(req.empresa);
@@ -1306,19 +1436,146 @@ app.post('/admin/routes/:routeId/target', requireDispatch, (req, res) => {
   res.json({ ok: true, auto: !!auto, targetGapMin: manual, vigente });
 });
 
+// ─── VARIANTES DEL RECORRIDO ─────────────────────────────────
+// Despacho ELIGE entre las variantes cargadas; quién las crea es otra cosa
+// (ver el panel del creador). Activar una es operación del día: se hace
+// cuando empieza la obra y se deshace cuando termina.
+
+// Todo lo que hay que rehacer cuando una ruta cambia de trazado.
+function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
+  geometrias.delete(routeId);
+  cargarGeometria(routeId);
+
+  // Las vueltas en curso se venían midiendo sobre el trazado anterior: su
+  // progreso quedó corrido y la que se cierre ahora sería una mezcla de dos
+  // geometrías. Se descartan y se arranca de nuevo — perder una vuelta es
+  // mejor que guardar una medida que no significa nada.
+  let descartadas = 0;
+  for (const [vehicleId, unidad] of units) {
+    if (unidad.routeId === routeId && lapState.delete(vehicleId)) descartadas++;
+  }
+
+  // El estado de desvío también: lo que estaba fuera con el trazado viejo
+  // puede estar adentro del nuevo, y al revés.
+  for (const [vehicleId, unidad] of units) {
+    if (unidad.routeId === routeId) desvios.delete(vehicleId);
+  }
+
+  // El objetivo automático se recalcula solo con las vueltas de ESTA
+  // variante, que al principio son cero: vuelve al valor manual hasta juntar
+  // historial nuevo. Es lo correcto — un trazado más largo tarda más.
+  objetivoCache.delete(routeId);
+
+  const msg = mensajeGeometria(routeId);
+  for (const [ws, mirando] of watching) {
+    if (mirando === routeId && ws.readyState === 1) { try { ws.send(msg); } catch {} }
+  }
+  scheduleStateBroadcast(routeId, true);
+
+  const detalle = `${anterior ? anterior.name + ' → ' : ''}${nueva.name}` +
+    (descartadas ? ` · ${descartadas} vuelta(s) en curso descartada(s)` : '') +
+    (motivo ? ` · ${motivo}` : '');
+  audit(quien, 'variante', routeId, detalle, routeId);
+  console.log(`Ruta ${routeId}: ahora mide con "${nueva.name}"`);
+  return descartadas;
+}
+
+function activarVariante(routeId, variantId, quien, motivo) {
+  const v = db.prepare('SELECT * FROM route_variants WHERE variantId = ? AND routeId = ?')
+    .get(variantId, routeId);
+  if (!v) return { error: 404, msg: 'Esa variante no existe' };
+  const anterior = varianteActiva(routeId);
+  if (anterior.variantId === v.variantId) return { ok: true, variante: v, sinCambios: true };
+
+  db.transaction(() => {
+    db.prepare('UPDATE route_variants SET activa = 0 WHERE routeId = ?').run(routeId);
+    db.prepare('UPDATE route_variants SET activa = 1 WHERE variantId = ?').run(v.variantId);
+  })();
+
+  const descartadas = aplicarCambioDeVariante(routeId, v, anterior, quien, motivo);
+  return { ok: true, variante: v, descartadas };
+}
+
+// La vigencia programada: una variante por obra tiene fecha de fin, y
+// acordarse de desactivarla el día justo no es un plan. Se revisa cada
+// minuto — no hace falta más fino, esto se mide en días.
+//
+// La regla es simple y se resuelve sola: si hay una variante vigente por
+// fecha, esa manda; si la vigente se venció, vuelve la base. Nunca se apaga
+// una ruta: si nada aplica, queda la variante base.
+function revisarVigencias() {
+  const ahora = Date.now();
+  for (const ruta of allRoutes()) {
+    const variantes = variantesDe(ruta.routeId);
+    if (variantes.length < 2) continue;
+    const activa = variantes.find(v => v.activa);
+
+    // La programada que corresponde a hoy. Si hay varias solapadas gana la
+    // más nueva: es la que se cargó sabiendo de las anteriores.
+    const vigente = variantes
+      .filter(v => (v.desde || v.hasta) &&
+                   (!v.desde || v.desde <= ahora) &&
+                   (!v.hasta || v.hasta > ahora))
+      .sort((a, b) => b.variantId - a.variantId)[0];
+
+    const destino = vigente || variantes.find(v => !v.desde && !v.hasta) || variantes[0];
+    if (destino && activa && destino.variantId !== activa.variantId) {
+      activarVariante(ruta.routeId, destino.variantId, 'sistema',
+        vigente ? 'por vigencia programada' : 'venció la vigencia');
+    }
+  }
+}
+setInterval(revisarVigencias, 60_000);
+// La primera revisión NO va acá sino al final, cuando el servidor ya
+// escucha: activar una variante toca cachés y clientes que se definen más
+// abajo en este archivo, y llamarla mientras el módulo todavía se está
+// evaluando tumbaba el arranque.
+
+app.get('/admin/routes/:routeId/variantes', requireDispatch, (req, res) => {
+  const routeId = String(req.params.routeId);
+  const veto = vetoDeRuta(req, routeId);
+  if (veto) return res.status(veto.error).json({ error: veto.msg });
+  varianteActiva(routeId);   // se asegura de que haya una, y de que esté activa
+  res.json({ routeId, variantes: variantesDe(routeId) });
+});
+
+// Elegir con cuál se mide. Es lo único que Despacho decide sobre variantes:
+// crearlas y dibujarlas es cartografía, no operación del día.
+app.post('/admin/routes/:routeId/variantes/:variantId/activar', requireDispatch, (req, res) => {
+  const routeId = String(req.params.routeId);
+  const veto = vetoDeRuta(req, routeId);
+  if (veto) return res.status(veto.error).json({ error: veto.msg });
+  const r = activarVariante(routeId, Number(req.params.variantId), req.dispatchUser.unitId);
+  if (r.error) return res.status(r.error).json({ error: r.msg });
+  res.json({ ok: true, variante: r.variante, descartadas: r.descartadas || 0 });
+});
+
 // ─── RECORRIDO DE LA RUTA (puntos GPS) ───────────────────────
+// Los puntos son de UNA variante. Sin `?variantId=` se trabaja sobre la
+// activa, que es lo que hacía antes de que existieran las variantes.
+function varianteObjetivo(req, routeId) {
+  const pedida = Number(req.query?.variantId ?? req.body?.variantId);
+  if (!Number.isFinite(pedida)) return varianteActiva(routeId);
+  return db.prepare('SELECT * FROM route_variants WHERE variantId = ? AND routeId = ?')
+    .get(pedida, routeId) || null;
+}
+
 app.get('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
   const routeId = String(req.params.routeId);
   const veto = vetoDeRuta(req, routeId);
   if (veto) return res.status(veto.error).json({ error: veto.msg });
-  const leer = (leg) => db.prepare(
-    'SELECT lat, lng FROM route_points WHERE routeId = ? AND leg = ? ORDER BY seq'
-  ).all(routeId, leg);
-  const geo = geometriaDe(routeId);
+  const variante = varianteObjetivo(req, routeId);
+  if (!variante) return res.status(404).json({ error: 'Esa variante no existe' });
+
+  const ida = puntosDeVariante(variante.variantId, 'ida');
+  const vuelta = puntosDeVariante(variante.variantId, 'vuelta');
+  // El largo se calcula sobre lo pedido, que puede no ser la variante activa
+  const tIda = armarTramo(ida), tVuelta = armarTramo(vuelta);
   res.json({
     routeId,
-    tramos: { ida: leer('ida'), vuelta: leer('vuelta') },
-    largoM: geo ? Math.round(geo.largoTotalM) : 0,
+    variante: { variantId: variante.variantId, name: variante.name, activa: !!variante.activa },
+    tramos: { ida, vuelta },
+    largoM: tIda ? Math.round(tIda.largoM + (tVuelta ? tVuelta.largoM : 0)) : 0,
   });
 });
 
@@ -1329,6 +1586,8 @@ app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
   const routeId = String(req.params.routeId);
   const veto = vetoDeRuta(req, routeId);
   if (veto) return res.status(veto.error).json({ error: veto.msg });
+  const variante = varianteObjetivo(req, routeId);
+  if (!variante) return res.status(404).json({ error: 'Esa variante no existe' });
 
   // Llegan los dos tramos. Se acepta también una lista suelta, que se toma
   // como la ida (así no se rompe nada que mande el formato viejo).
@@ -1365,33 +1624,44 @@ app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
   }
 
   const guardar = db.transaction(() => {
-    db.prepare('DELETE FROM route_points WHERE routeId = ?').run(routeId);
-    const ins = db.prepare('INSERT INTO route_points (routeId, leg, seq, lat, lng) VALUES (?, ?, ?, ?, ?)');
-    for (const leg of TRAMOS) limpios[leg].forEach((p, i) => ins.run(routeId, leg, i, p.lat, p.lng));
+    db.prepare('DELETE FROM route_points WHERE variantId = ?').run(variante.variantId);
+    const ins = db.prepare('INSERT INTO route_points (variantId, leg, seq, lat, lng) VALUES (?, ?, ?, ?, ?)');
+    for (const leg of TRAMOS) limpios[leg].forEach((p, i) => ins.run(variante.variantId, leg, i, p.lat, p.lng));
   });
   guardar();
 
-  const geo = cargarGeometria(routeId);
-  const largoKm = geo ? (geo.largoTotalM / 1000).toFixed(2) : '0';
-  const detalle = geo
-    ? `ida ${limpios.ida.length} pts${limpios.vuelta.length ? ` · vuelta ${limpios.vuelta.length} pts` : ''} · ${largoKm} km`
-    : 'recorrido borrado';
-  audit(req.dispatchUser.unitId, 'recorrido', routeId, detalle, routeId);
-  console.log(`Recorrido de ${routeId}: ${detalle}`);
+  // Solo se recarga y se avisa si se tocó la variante con la que se está
+  // midiendo. Dibujar una variante guardada no tiene por qué mover el mapa
+  // de nadie ni recalcular ninguna brecha — ese es medio el punto.
+  const esLaActiva = !!variante.activa;
+  const tIda = armarTramo(limpios.ida), tVuelta = armarTramo(limpios.vuelta);
+  const largoM = tIda ? Math.round(tIda.largoM + (tVuelta ? tVuelta.largoM : 0)) : 0;
 
-  // Los mapas de esa ruta reciben el trazado nuevo, y las brechas se
-  // recalculan con él al instante
-  const geoMsg = mensajeGeometria(routeId);
-  for (const [ws, mirando] of watching) {
-    if (mirando === routeId && ws.readyState === 1) {
-      try { ws.send(geoMsg); } catch {}
+  if (esLaActiva) cargarGeometria(routeId);
+
+  const detalle = `${variante.name}: ` + (tIda
+    ? `ida ${limpios.ida.length} pts${limpios.vuelta.length ? ` · vuelta ${limpios.vuelta.length} pts` : ''} · ${(largoM / 1000).toFixed(2)} km`
+    : 'recorrido borrado');
+  audit(req.dispatchUser.unitId, 'recorrido', routeId, detalle, routeId);
+  console.log(`Recorrido de ${routeId} — ${detalle}`);
+
+  if (esLaActiva) {
+    // Los mapas de esa ruta reciben el trazado nuevo, y las brechas se
+    // recalculan con él al instante
+    const geoMsg = mensajeGeometria(routeId);
+    for (const [ws, mirando] of watching) {
+      if (mirando === routeId && ws.readyState === 1) {
+        try { ws.send(geoMsg); } catch {}
+      }
     }
+    scheduleStateBroadcast(routeId, true);
   }
-  scheduleStateBroadcast(routeId, true);
+
   res.json({
     ok: true,
+    variante: { variantId: variante.variantId, name: variante.name, activa: esLaActiva },
     puntos: { ida: limpios.ida.length, vuelta: limpios.vuelta.length },
-    largoM: geo ? Math.round(geo.largoTotalM) : 0,
+    largoM,
   });
 });
 
@@ -1947,6 +2217,9 @@ montarPanelDelCreador(app, {
   audit,
   origenDe,
   dbFile: db.memory ? null : db.name,
+  routeOf,
+  // Renombrar una variante cambia lo que viaja en el mensaje de geometría
+  recargarGeometria: (routeId) => { geometrias.delete(routeId); cargarGeometria(routeId); },
   estadoVivo: () => ({ unidades: units.size, conexiones: clients.size }),
 });
 
@@ -2464,6 +2737,10 @@ function mensajeGeometria(routeId) {
     routeId,
     tramos: { ida: dibujar(geo && geo.ida), vuelta: dibujar(geo && geo.vuelta) },
     largoM: geo ? Math.round(geo.largoTotalM) : 0,
+    // Con qué trazado se está midiendo. Cuando hay un desvío programado, el
+    // chofer tiene que poder ver que la línea del mapa cambió a propósito y
+    // no pensar que el sistema se equivocó.
+    variante: geo ? geo.varianteNombre : null,
   });
 }
 
@@ -2502,12 +2779,21 @@ const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', '
 // semana (el tráfico de un domingo no es el de un lunes); si ese día todavía
 // no juntó vueltas suficientes, se cae al promedio general.
 function promedioVuelta(routeId, diaSemana) {
+  // Solo las vueltas medidas con el trazado que está midiendo AHORA. Si la
+  // ruta cambió de variante, las de la anterior no sirven: una variante más
+  // larga tarda más, y mezclarlas da un objetivo que no le sirve a ninguna.
+  // Cuando la ruta no tiene geometría, se usan las vueltas sin variante, que
+  // son las que se midieron con la estimación del cliente — también entre sí.
+  const geo = geometriaDe(routeId);
+  const variante = geo ? geo.variantId : null;
+  const mismaVariante = variante === null ? 'variantId IS NULL' : 'variantId = @variante';
+
   const delDia = db.prepare(`
     SELECT durationSec FROM laps
-    WHERE routeId = @routeId
+    WHERE routeId = @routeId AND ${mismaVariante}
       AND CAST(strftime('%w', finishedAt / 1000, 'unixepoch', 'localtime') AS INTEGER) = @dia
     ORDER BY id DESC LIMIT ${VUELTAS_MUESTRA}
-  `).all({ routeId, dia: diaSemana });
+  `).all({ routeId, dia: diaSemana, variante });
 
   if (delDia.length >= MIN_VUELTAS) {
     return { sec: delDia.reduce((a, l) => a + l.durationSec, 0) / delDia.length,
@@ -2515,9 +2801,9 @@ function promedioVuelta(routeId, diaSemana) {
   }
 
   const todas = db.prepare(`
-    SELECT durationSec FROM laps WHERE routeId = @routeId
+    SELECT durationSec FROM laps WHERE routeId = @routeId AND ${mismaVariante}
     ORDER BY id DESC LIMIT ${VUELTAS_MUESTRA}
-  `).all({ routeId });
+  `).all({ routeId, variante });
 
   if (todas.length >= MIN_VUELTAS) {
     return { sec: todas.reduce((a, l) => a + l.durationSec, 0) / todas.length,
@@ -2736,4 +3022,7 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Servidor COOP-R14 corriendo en puerto ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/ping`);
+  // Si el servidor estuvo apagado el día que empezaba o vencía una obra, la
+  // vigencia programada se aplica al encenderlo y no un minuto después.
+  revisarVigencias();
 });

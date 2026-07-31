@@ -178,4 +178,111 @@ function estado(db, { companyId, activa } = {}) {
   return { ok: true, companyId: empresa, name: e.name, activa: !!activa, sesiones };
 }
 
-module.exports = { listar, alta, supervisor, altaRuta, estado, CLAVE_MINIMA };
+// ─── VARIANTES DEL RECORRIDO ─────────────────────────────────
+// Crear y borrar variantes es cartografía: decidir que esta ruta puede
+// manejarse de dos maneras. Por eso vive en el nivel de arriba y no en el
+// panel de Despacho, que solo ELIGE entre las que existen.
+
+function variantes(db, routeId) {
+  return db.prepare(`
+    SELECT v.*,
+      (SELECT COUNT(*) FROM route_points p WHERE p.variantId = v.variantId) AS puntos
+    FROM route_variants v WHERE v.routeId = ? ORDER BY v.variantId
+  `).all(routeId).map(v => ({ ...v, activa: !!v.activa }));
+}
+
+// Una fecha opcional que llega del formulario. Se acepta vacío (sin
+// vigencia), un timestamp o un 'YYYY-MM-DD'.
+function fechaOpcional(valor) {
+  if (valor === undefined || valor === null || valor === '') return { ok: true, ts: null };
+  if (typeof valor === 'number' && Number.isFinite(valor)) return { ok: true, ts: valor };
+  const t = Date.parse(String(valor));
+  if (Number.isNaN(t)) return { ok: false };
+  return { ok: true, ts: t };
+}
+
+function altaVariante(db, { routeId, name, desde, hasta, copiarDe } = {}) {
+  const ruta = idLimpio(routeId);
+  if (!ruta) return { error: 'Falta la ruta' };
+  if (!db.prepare('SELECT routeId FROM routes WHERE routeId = ?').get(ruta)) {
+    return { error: `No existe la ruta ${ruta}` };
+  }
+  const nombre = String(name || '').trim().slice(0, 60);
+  if (!nombre) return { error: 'La variante necesita un nombre (para qué es: "Obra Circunvalación")' };
+
+  const d = fechaOpcional(desde), h = fechaOpcional(hasta);
+  if (!d.ok || !h.ok) return { error: 'Las fechas de vigencia no se entienden' };
+  if (d.ts && h.ts && h.ts <= d.ts) return { error: 'La vigencia termina antes de empezar' };
+
+  // Copiar de otra es lo normal: un desvío suele ser el recorrido de siempre
+  // con dos cuadras distintas, no un trazado nuevo desde cero.
+  let origen = null;
+  if (copiarDe !== undefined && copiarDe !== null && copiarDe !== '') {
+    origen = db.prepare('SELECT * FROM route_variants WHERE variantId = ? AND routeId = ?')
+      .get(Number(copiarDe), ruta);
+    if (!origen) return { error: 'La variante que se quiere copiar no es de esta ruta' };
+  }
+
+  let variantId;
+  db.transaction(() => {
+    variantId = db.prepare(
+      'INSERT INTO route_variants (routeId, name, activa, desde, hasta, createdAt) VALUES (?, ?, 0, ?, ?, ?)'
+    ).run(ruta, nombre, d.ts, h.ts, Date.now()).lastInsertRowid;
+
+    if (origen) {
+      db.prepare(`
+        INSERT INTO route_points (variantId, leg, seq, lat, lng)
+        SELECT ?, leg, seq, lat, lng FROM route_points WHERE variantId = ?
+      `).run(variantId, origen.variantId);
+    }
+  })();
+
+  return {
+    ok: true, routeId: ruta, variantId, name: nombre,
+    desde: d.ts, hasta: h.ts, copiadaDe: origen ? origen.name : null,
+  };
+}
+
+function editarVariante(db, { variantId, name, desde, hasta } = {}) {
+  const v = db.prepare('SELECT * FROM route_variants WHERE variantId = ?').get(Number(variantId));
+  if (!v) return { error: 'Esa variante no existe' };
+  const nombre = String(name || '').trim().slice(0, 60) || v.name;
+  const d = fechaOpcional(desde), h = fechaOpcional(hasta);
+  if (!d.ok || !h.ok) return { error: 'Las fechas de vigencia no se entienden' };
+  if (d.ts && h.ts && h.ts <= d.ts) return { error: 'La vigencia termina antes de empezar' };
+  db.prepare('UPDATE route_variants SET name = ?, desde = ?, hasta = ? WHERE variantId = ?')
+    .run(nombre, d.ts, h.ts, v.variantId);
+  return { ok: true, routeId: v.routeId, variantId: v.variantId, name: nombre, desde: d.ts, hasta: h.ts };
+}
+
+function bajaVariante(db, { variantId } = {}) {
+  const v = db.prepare('SELECT * FROM route_variants WHERE variantId = ?').get(Number(variantId));
+  if (!v) return { error: 'Esa variante no existe' };
+  // Dos negativas, y las dos son para no dejar una ruta sin con qué medir:
+  // borrar la que está midiendo, o borrar la última que queda.
+  if (v.activa) {
+    return { error: 'Esa es la variante con la que se está midiendo. Activá otra y después borrala.' };
+  }
+  // En la práctica no se llega acá: la única variante de una ruta siempre
+  // está activa, así que la corta el chequeo de arriba. Queda igual como red
+  // por si alguna vez se rompe esa invariante — una ruta sin variantes no
+  // mediría nada y se vería como un recorrido que desapareció solo.
+  const cuantas = db.prepare('SELECT COUNT(*) AS c FROM route_variants WHERE routeId = ?').get(v.routeId).c;
+  if (cuantas <= 1) return { error: 'Es la única variante de la ruta: no se puede borrar' };
+
+  db.transaction(() => {
+    db.prepare('DELETE FROM route_points WHERE variantId = ?').run(v.variantId);
+    db.prepare('DELETE FROM route_variants WHERE variantId = ?').run(v.variantId);
+    // Las vueltas que se midieron con ella quedan, pero apuntando a una
+    // variante que ya no está. Se las marca como "sin variante" para que no
+    // ensucien el promedio de ninguna otra.
+    db.prepare('UPDATE laps SET variantId = NULL WHERE variantId = ?').run(v.variantId);
+  })();
+  return { ok: true, routeId: v.routeId, name: v.name };
+}
+
+module.exports = {
+  listar, alta, supervisor, altaRuta, estado,
+  variantes, altaVariante, editarVariante, bajaVariante,
+  CLAVE_MINIMA,
+};

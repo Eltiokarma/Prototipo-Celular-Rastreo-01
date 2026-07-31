@@ -124,6 +124,25 @@ limitación se resuelva o aparezca una nueva.
 - El GPS urbano tiene error típico de 5–30 m, y algunos equipos no
   reportan velocidad (se muestra 0).
 
+### Variantes del recorrido
+
+- **Cambiar de variante descarta las vueltas en curso.** Es a propósito —una
+  vuelta medida con dos trazados no significa nada— pero significa que
+  cambiar a media mañana le cuesta una vuelta a cada unidad que esté en la
+  calle. Conviene hacerlo con el terminal lleno o entre turnos.
+- **El objetivo automático arranca de cero con cada variante nueva.** Vuelve
+  al valor manual hasta juntar 3 vueltas del trazado nuevo. Es correcto (un
+  trazado más largo tarda más) pero hay que saberlo: las primeras horas de
+  una obra el objetivo es el que esté cargado a mano.
+- **La vigencia programada se revisa una vez por minuto.** Una variante que
+  arranca a las 06:00 puede empezar a medir a las 06:00:59. Para desvíos que
+  duran días es irrelevante; no sirve para algo que tenga que cambiar al
+  segundo.
+- **Las vueltas de una ruta sin recorrido cargado no cuentan para ninguna
+  variante.** Se midieron con la estimación lineal del cliente, no con un
+  trazado. Las de rutas que sí tenían recorrido quedaron atadas a su variante
+  en la migración, así que el historial no se perdió.
+
 ## E. Seguridad
 
 - **Cuenta DESPACHO única y compartida** entre encargados: la

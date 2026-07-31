@@ -445,7 +445,15 @@ function leerRecorrido(texto) {
 // marcadores hacen inusable el mapa): se ve la línea y se puede deshacer.
 const TOPE_ARRASTRABLES = 200;
 
-function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
+function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
+  // Sobre cuál de los trazados se está dibujando. Arranca en el que está
+  // midiendo, que es el caso normal; dibujar uno guardado no le mueve el
+  // mapa a nadie hasta que Despacho lo active.
+  const lista = variantes && variantes.length ? variantes : [];
+  const [variantId, setVariantId] = React.useState(
+    () => (lista.find(v => v.activa) || lista[0] || {}).variantId || null);
+  const variante = lista.find(v => v.variantId === variantId) || null;
+
   // Los dos tramos del circuito. Se dibuja el activo; el otro queda de fondo
   // para poder calzarlos (la vuelta suele ir pegada a la ida).
   const [tramos, setTramos] = React.useState(null);   // null = cargando
@@ -465,15 +473,18 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
   const setPuntos = (fn) => setTramos(t => ({ ...t, [tramoRef.current]:
     typeof fn === 'function' ? fn(t[tramoRef.current]) : fn }));
 
-  // El recorrido que ya tenía la ruta
+  // El recorrido que ya tenía esa variante. Se recarga al cambiar de una a
+  // otra: cada una tiene su propio dibujo.
   React.useEffect(() => {
-    api(`/admin/routes/${encodeURIComponent(routeId)}/points`)
+    setTramos(null);
+    const q = variantId ? `?variantId=${variantId}` : '';
+    api(`/admin/routes/${encodeURIComponent(routeId)}/points${q}`)
       .then(d => setTramos({
         ida: (d.tramos?.ida || []).map(p => [p.lat, p.lng]),
         vuelta: (d.tramos?.vuelta || []).map(p => [p.lat, p.lng]),
       }))
       .catch(e => { setError(e.message); setTramos({ ida: [], vuelta: [] }); });
-  }, [routeId]);
+  }, [routeId, variantId]);
 
   const initMap = React.useCallback((node) => {
     if (!node || mapRef.current) return;
@@ -572,7 +583,10 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
       const aPuntos = (ps) => ps.map(p => ({ lat: p[0], lng: p[1] }));
       const r = await api(`/admin/routes/${encodeURIComponent(routeId)}/points`, {
         method: 'PUT',
-        body: JSON.stringify({ tramos: { ida: aPuntos(tramos.ida), vuelta: aPuntos(tramos.vuelta) } }),
+        body: JSON.stringify({
+          variantId: variantId || undefined,
+          tramos: { ida: aPuntos(tramos.ida), vuelta: aPuntos(tramos.vuelta) },
+        }),
       });
       onGuardado && onGuardado(r);
       onClose();
@@ -603,6 +617,22 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
         display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
       }}>
         <span style={{ fontFamily: black, fontSize: 18 }}>RECORRIDO {routeId}</span>
+        {/* Sobre cuál trazado se dibuja. Con uno solo no hay nada que elegir. */}
+        {lista.length > 1 && (
+          <select value={variantId || ''} onChange={e => setVariantId(Number(e.target.value))}
+            title="Sobre cuál de los trazados de esta ruta estás dibujando"
+            style={{
+              background: HUD.campo, color: HUD.fg, border: `1px solid ${HUD.line}`,
+              borderRadius: 8, padding: '6px 8px', fontSize: 13, fontWeight: 700,
+              fontFamily: 'inherit', cursor: 'pointer', maxWidth: 220,
+            }}>
+            {lista.map(v => (
+              <option key={v.variantId} value={v.variantId}>
+                {v.name}{v.activa ? ' · midiendo' : ''}
+              </option>
+            ))}
+          </select>
+        )}
         <span style={{ fontSize: 13, color: HUD.dim, flex: '1 1 auto', minWidth: 0,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{routeName || ''}</span>
         <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.fg2, whiteSpace: 'nowrap' }}>
@@ -649,6 +679,20 @@ function Trazador({ routeId, routeName, api, onClose, onGuardado }) {
         color: HUD.burbujaSosInk, fontSize: 13, fontWeight: 700 }}>{error}</div>}
       {aviso && <div style={{ flexShrink: 0, padding: '8px 16px', background: HUD.okFondo,
         color: HUD.okClave, fontSize: 13, fontWeight: 700 }}>{aviso}</div>}
+
+      {/* Dibujar un trazado guardado es lo normal cuando se prepara un desvío
+          antes de que empiece la obra. Pero hay que decirlo: si no, se guarda
+          creyendo que se corrigió el recorrido de hoy y no cambió nada. */}
+      {variante && !variante.activa && (
+        <div style={{
+          flexShrink: 0, padding: '8px 16px', background: HUD.avisoFondo || 'rgba(245,197,66,.12)',
+          color: HUD.amber, fontSize: 13, fontWeight: 700,
+        }}>
+          Estás dibujando «{variante.name}», que <u>no</u> es el trazado con el que
+          se está midiendo. Guardar acá no le cambia el mapa a nadie hasta que se
+          active desde RUTAS.
+        </div>
+      )}
 
       {/* mapa */}
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
@@ -815,6 +859,29 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     await loadRoutes();
   }, 'Ruta creada');
 
+  // Cambiar el trazado con el que se mide una ruta le cambia el mapa a todos
+  // los que están manejando en ese momento y descarta las vueltas en curso.
+  // Por eso se confirma, y el cartel dice qué se pierde.
+  const activarVariante = (ruta, variantId) => {
+    const v = (ruta.variantes || []).find(x => x.variantId === variantId);
+    if (!v) return;
+    if (!v.puntos) {
+      setError(`"${v.name}" todavía no tiene recorrido dibujado. Cargalo antes de activarla.`);
+      return;
+    }
+    const enRuta = ruta.enLinea;
+    const aviso = `¿La ruta ${ruta.routeId} pasa a medirse con "${v.name}"?\n\n` +
+      `El mapa cambia al instante para las unidades que estén en la calle` +
+      (enRuta ? ` (ahora hay ${enRuta}).` : '.') +
+      `\nLas vueltas que estén a medias se descartan: se venían midiendo con el trazado anterior.`;
+    if (!window.confirm(aviso)) return;
+    run(async () => {
+      await api(`/admin/routes/${encodeURIComponent(ruta.routeId)}/variantes/${variantId}/activar`,
+        { method: 'POST' });
+      await loadRoutes();
+    }, `${ruta.routeId} ahora mide con "${v.name}"`);
+  };
+
   const cambiarObjetivo = (routeId, cambio) => run(async () => {
     await api(`/admin/routes/${encodeURIComponent(routeId)}/target`, {
       method: 'POST', body: JSON.stringify(cambio),
@@ -898,6 +965,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
       <Trazador
         routeId={trazando.routeId}
         routeName={trazando.name}
+        variantes={trazando.variantes}
         api={api}
         onClose={() => setTrazando(null)}
         onGuardado={() => loadRoutes()}
@@ -1108,6 +1176,34 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     ? `Recorrido · ${r.puntos} pts · ${(r.largoM / 1000).toFixed(1)} km`
                     : 'Sin recorrido'}
                 </button>
+                {/* Con cuál de los trazados se está midiendo. Solo aparece si
+                    la ruta tiene más de uno: cuando hay uno solo, elegir no
+                    es una decisión y el selector sería ruido.
+                    Despacho ELIGE entre los cargados; crearlos y borrarlos es
+                    cartografía y se hace desde el nivel de arriba. */}
+                {r.variantes && r.variantes.length > 1 && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontFamily: mono, fontSize: 11, color: HUD.dim2, whiteSpace: 'nowrap' }}>
+                      MIDIENDO CON
+                    </span>
+                    <select
+                      value={(r.variantes.find(v => v.activa) || {}).variantId || ''}
+                      disabled={busy}
+                      onChange={e => activarVariante(r, Number(e.target.value))}
+                      title="Cambia el trazado con el que se miden progreso, brechas y desvíos de esta ruta"
+                      style={{
+                        background: HUD.campo, color: HUD.fg, border: `1px solid ${HUD.line}`,
+                        borderRadius: 8, padding: '5px 7px', fontSize: 12, fontWeight: 700,
+                        fontFamily: 'inherit', cursor: 'pointer', maxWidth: 190,
+                      }}>
+                      {r.variantes.map(v => (
+                        <option key={v.variantId} value={v.variantId}>
+                          {v.name}{v.puntos ? '' : ' (sin dibujar)'}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                )}
               </div>
             ))}
 
