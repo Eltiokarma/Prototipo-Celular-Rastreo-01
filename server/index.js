@@ -1041,6 +1041,20 @@ db.exec(`
 // y promediarla con la corta da un objetivo que no le sirve a ninguna.
 addColumnIfMissing('laps', 'variantId', 'INTEGER');
 
+// La brecha promedio que mantuvo la unidad DURANTE esa vuelta, en segundos.
+//
+// Es el único número que la cooperativa querría y que hasta ahora no se
+// guardaba: cuántas vueltas hizo cada uno ya se sabía, pero no si las hizo
+// bien. Y no se puede reconstruir mirando hacia atrás —la brecha se calcula
+// en vivo, contra dónde están las otras unidades en ese instante, y esas
+// posiciones no se guardan (serían millones de filas)—, así que empieza a
+// existir el día que se enciende y nunca antes.
+//
+// Se mide contra la unidad de ADELANTE, que es la que el chofer regula: uno
+// controla cuánto se despega del de adelante, no cuánto se le pega el de
+// atrás. Queda NULL cuando no hubo con quién compararse.
+addColumnIfMissing('laps', 'brechaProm', 'INTEGER');
+
 // Las vueltas que ya estaban guardadas cuando el recorrido pasó a colgar de
 // una variante se midieron con ESE trazado: es el mismo, solo que ahora tiene
 // un nombre. Se las ata a él, porque si no el objetivo automático de cada
@@ -1068,13 +1082,15 @@ if (db.prepare('SELECT COUNT(*) AS c FROM laps WHERE routeId IS NULL').get().c >
 }
 
 const lapState = new Map();
-// lapState = { vehicleId → { lapStart, speedSum, speedCount, samples, lastProgress } }
+// lapState = { vehicleId → { lapStart, speedSum, speedCount, samples,
+//                          lastProgress, brechaSum, brechaCount } }
 
 function trackLap(unitId, routeId, progress, speed) {
   let st = lapState.get(unitId);
   if (!st) {
     lapState.set(unitId, {
       lapStart: Date.now(), speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
+      brechaSum: 0, brechaCount: 0,
     });
     return;
   }
@@ -1097,13 +1113,18 @@ function trackLap(unitId, routeId, progress, speed) {
     // Con qué trazado se midió esta vuelta. La ruta sin geometría no tiene
     // variante que valga: el progreso vino estimado por el cliente.
     const geo = routeId ? geometriaDe(routeId) : null;
-    db.prepare('INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(unitId, routeId || null, geo ? geo.variantId : null, st.lapStart, now, durationSec, avgSpeed);
+    // Brecha promedio de la vuelta. Queda NULL si no hubo con quién
+    // compararse —una unidad sola en la ruta, o la que iba primera todo el
+    // tiempo— y así no cuenta ni a favor ni en contra de nadie.
+    const brechaProm = st.brechaCount ? Math.round(st.brechaSum / st.brechaCount) : null;
+    db.prepare('INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(unitId, routeId || null, geo ? geo.variantId : null, st.lapStart, now, durationSec, avgSpeed, brechaProm);
     db.prepare('DELETE FROM laps WHERE id NOT IN (SELECT id FROM laps ORDER BY id DESC LIMIT 2000)').run();
     console.log(`Vuelta completada: ${unitId} en ${Math.round(durationSec / 60)} min`);
     objetivoCache.delete(routeId);   // hay un dato nuevo: que se recalcule
     lapState.set(unitId, {
       lapStart: now, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
+      brechaSum: 0, brechaCount: 0,
     });
     return;
   }
@@ -1975,7 +1996,7 @@ const INFORMES = {
   // Vueltas por unidad: cuántas, cuánto tardaron, a qué velocidad
   vueltas: (filtro) => {
     const filas = db.prepare(`
-      SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed
+      SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm
       FROM laps
       WHERE finishedAt BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -1984,10 +2005,14 @@ const INFORMES = {
     `).all(filtro);
     return {
       nombre: 'vueltas',
-      cabecera: ['Unidad', 'Ruta', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos', 'Velocidad media (km/h)'],
+      cabecera: ['Unidad', 'Ruta', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos',
+        'Velocidad media (km/h)', 'Brecha promedio (m:ss)'],
       filas: filas.map(l => [
         l.unitId, l.routeId, fechaHora(l.startedAt), fechaHora(l.finishedAt),
         duracionHm(l.durationSec), Math.round(l.durationSec / 60), l.avgSpeed,
+        // Vacío en las vueltas anteriores a que esto existiera, y en las que
+        // no tuvieron con quién compararse. Vacío es más honesto que un cero.
+        l.brechaProm === null ? '' : formatMinutes(l.brechaProm / 60),
       ]),
     };
   },
@@ -2152,6 +2177,76 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
     personas: Object.values(porPersona)
       .map(p => ({ ...p, vehiculos: Array.from(p.vehiculos) }))
       .sort((a, b) => b.totalSec - a.totalSec),
+  });
+});
+
+// Las vueltas cerradas, una por una, con la brecha que mantuvo cada una.
+// Es lo que mide si la rueda funciona: cuántas vueltas dio cada unidad ya se
+// sabía, pero no si las dio bien.
+app.get('/admin/vueltas', requireDispatch, (req, res) => {
+  const pedida = idLimpio(req.query?.routeId);
+  if (pedida && !rutaDeEmpresa(pedida, req.empresa)) {
+    return res.status(404).json({ error: 'Esa ruta no existe' });
+  }
+  const ruta = req.scope || pedida || null;
+  const desde = Number(req.query?.desde);
+  const inicio = Number.isFinite(desde) ? desde : (() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
+  })();
+
+  const filas = db.prepare(`
+    SELECT id, unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm
+    FROM laps
+    WHERE finishedAt >= @inicio
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    ORDER BY finishedAt DESC LIMIT 300
+  `).all({ inicio, empresa: req.empresa, ruta });
+
+  // Los promedios se sacan solo de las vueltas que TIENEN el dato: mezclar
+  // las viejas (sin brecha guardada) como si fueran cero daría un número
+  // bonito y falso.
+  const conBrecha = filas.filter(l => l.brechaProm !== null);
+  const promedio = (lista, campo) => lista.length
+    ? Math.round(lista.reduce((a, l) => a + l[campo], 0) / lista.length)
+    : null;
+
+  // La vuelta de ayer, para poder comparar contra hoy
+  const finAyer = inicio;
+  const inicioAyer = inicio - 86400_000;
+  const ayer = db.prepare(`
+    SELECT durationSec FROM laps
+    WHERE finishedAt >= @inicioAyer AND finishedAt < @finAyer
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+  `).all({ inicioAyer, finAyer, empresa: req.empresa, ruta });
+
+  const objetivo = ruta ? objetivoDe(ruta) : null;
+  // "Pelotón" es lo que el sistema existe para evitar: dos unidades pegadas.
+  // Se cuenta contra la MITAD del objetivo, no contra un minuto fijo: en una
+  // ruta con objetivo de 8 minutos, 1 minuto de brecha es un pelotón; en una
+  // de 2 minutos, no.
+  const umbralPeloton = objetivo ? (objetivo.min * 60) / 2 : null;
+
+  res.json({
+    desde: inicio,
+    routeId: ruta,
+    objetivoSec: objetivo ? Math.round(objetivo.min * 60) : null,
+    vueltas: filas,
+    resumen: {
+      cerradas: filas.length,
+      unidades: new Set(filas.map(l => l.unitId)).size,
+      duracionProm: promedio(filas, 'durationSec'),
+      duracionPromAyer: promedio(ayer, 'durationSec'),
+      brechaProm: promedio(conBrecha, 'brechaProm'),
+      // Cuántas de las que tienen dato se hicieron pegadas a la de adelante
+      enPeloton: umbralPeloton === null ? null
+        : conBrecha.filter(l => l.brechaProm < umbralPeloton).length,
+      umbralPelotonSec: umbralPeloton === null ? null : Math.round(umbralPeloton),
+      // Cuántas todavía no tienen el dato: si son muchas, los promedios de
+      // arriba se calcularon sobre pocas y hay que decirlo.
+      sinBrecha: filas.length - conBrecha.length,
+    },
   });
 });
 
@@ -2855,7 +2950,20 @@ function objetivoDe(routeId) {
 // El estado es SIEMPRE de una ruta: las unidades de otras rutas no
 // aparecen ni entran en el cálculo de brechas. Sin esto, un chofer vería
 // "su" brecha contra una combi de otro recorrido.
-function buildState(routeId) {
+// Suma una muestra de brecha a la vuelta que la unidad está haciendo ahora.
+// Si no hay vuelta abierta (recién conectada) no hay dónde acumular, y se
+// descarta: la vuelta a medias no se guarda igual.
+function anotarBrecha(vehicleId, minutosAdelante) {
+  const st = lapState.get(vehicleId);
+  if (!st) return;
+  st.brechaSum += minutosAdelante * 60;
+  st.brechaCount++;
+}
+
+// `acumular` distingue la emisión con cadencia —que es la que representa el
+// paso del tiempo— de las que se arman para contestarle a alguien que se
+// acaba de conectar.
+function buildState(routeId, acumular) {
   const ruta = routeOf(routeId);
   const all = Array.from(units.values())
     .filter(u => u.routeId === routeId && u.lat !== null) // solo su ruta, con GPS
@@ -2879,7 +2987,7 @@ function buildState(routeId) {
       manual: ruta ? ruta.targetGapMin : 2,
     },
     units: all,
-    gaps: calculateGaps(all, ruta ? ruta.durationMin : 50),
+    gaps: calculateGaps(all, ruta ? ruta.durationMin : 50, acumular ? anotarBrecha : null),
     totalOnRoute: all.length,
     timestamp: Date.now(),
   };
@@ -2890,7 +2998,11 @@ function buildState(routeId) {
 // unidades. La fórmula es una aproximación: diferencia de progreso por la
 // duración del recorrido, que cada ruta define por su cuenta.
 
-function calculateGaps(sortedUnits, durationMin) {
+// `anotar` es opcional y recibe (vehicleId, minutosHastaElDeAdelante). Sirve
+// para ir juntando la brecha promedio de la vuelta en curso. Se pasa SOLO en
+// la emisión de estado con cadencia, no cada vez que alguien se conecta: si
+// no, una ruta con veinte choferes reconectando ensuciaría el promedio.
+function calculateGaps(sortedUnits, durationMin, anotar) {
   const gaps = {};
   for (let i = 0; i < sortedUnits.length; i++) {
     const current = sortedUnits[i];
@@ -2900,6 +3012,11 @@ function calculateGaps(sortedUnits, durationMin) {
     const gapToAhead = ahead
       ? (ahead.routeProgress - current.routeProgress) * durationMin
       : null;
+
+    // El número crudo se queda en el servidor. Mandarlo en el estado sería
+    // ~18 bytes por unidad cada 3 segundos: con 20 unidades, varios MB de
+    // datos móviles por turno y por celular para algo que el cliente no usa.
+    if (anotar && gapToAhead !== null) anotar(current.unitId, gapToAhead);
 
     const gapToBehind = behind
       ? (current.routeProgress - behind.routeProgress) * durationMin
@@ -2980,7 +3097,8 @@ function flushState(routeId) {
   clearTimeout(stateTimers.get(routeId));
   stateTimers.delete(routeId);
   lastStateAt.set(routeId, Date.now());
-  broadcastToRoute(routeId, { type: 'state', ...buildState(routeId) });
+  // Con `true`: esta pasada es la que cuenta para la brecha promedio
+  broadcastToRoute(routeId, { type: 'state', ...buildState(routeId, true) });
 }
 
 // Agenda el envío del estado de UNA ruta respetando la cadencia. Con

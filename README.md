@@ -283,6 +283,32 @@ cambiar de ruta o cuando se edita), nunca dentro del estado, que sale cada
 3 s: mandar ahí una ruta de 300 puntos serían ~7 KB por emisión y tiraría por
 la borda el ahorro de datos de `ESCALABILIDAD.md`.
 
+## Brecha promedio por vuelta
+
+Hasta acá se sabía **cuántas** vueltas hizo cada unidad, pero no **si las hizo
+bien**. Ahora cada vuelta guarda la brecha promedio que mantuvo: es el número
+que mide si la rueda funciona.
+
+- Se mide contra la unidad de **adelante**, que es la que el chofer regula:
+  uno controla cuánto se despega del de adelante, no cuánto se le pega el de
+  atrás.
+- Se toma una muestra en cada emisión de estado (cada 3 s) y se promedia al
+  cerrar la vuelta. El número crudo **no viaja al celular**: mandarlo serían
+  varios MB por turno y por unidad para un dato que el cliente no usa.
+- Queda en `laps.brechaProm`, en segundos, y **NULL cuando no hubo con quién
+  compararse** — una unidad sola en la ruta no cuenta ni a favor ni en contra.
+- `GET /admin/vueltas` devuelve las vueltas cerradas con su brecha y el
+  resumen del día: cuántas, duración promedio (con la de ayer al lado), brecha
+  promedio y cuántas se hicieron **en pelotón**. Pelotón se cuenta contra la
+  **mitad del objetivo de la ruta**, no contra un minuto fijo: en una ruta con
+  objetivo de 8 minutos, 1 minuto de brecha es un pelotón; en una de 2, no.
+- El informe de vueltas gana la columna, vacía en las que no tienen dato.
+
+**Empieza el día que se enciende.** No se puede reconstruir hacia atrás: la
+brecha se calcula contra dónde están las otras unidades en ese instante, y
+esas posiciones no se guardan. Ver `LIMITACIONES.md` para el resto de los
+bordes.
+
 ## Rutas alternas (variantes del recorrido)
 
 Una ruta no siempre se maneja igual. Hay desvíos **programados** —una obra

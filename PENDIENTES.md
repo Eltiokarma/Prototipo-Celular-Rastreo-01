@@ -23,7 +23,7 @@ al final).
 
 | # | Qué | Por qué en ese lugar | Tamaño |
 | --- | --- | --- | --- |
-| 1 | **Cumplimiento de brecha** | El único número que la cooperativa querría y todavía no existe: cuánto tiempo estuvo cada unidad en verde, ámbar y rojo. Hace falta guardarlo, no se puede reconstruir | 1 día |
+| 1 | **Rediseño de la interfaz** | Ya está el encargo (`PROMPT-DISENO.md`) y la propuesta de Design. Es el trabajo más grande que queda | 2–3 días |
 | 2 | **Panel del gerente de ruta** | Vive de los informes, que ya existen. Es el que más se beneficia de esperar: hoy estaríamos adivinando qué mira un gerente | 2 días |
 
 **Los cambios de esquema ya están hechos.** Eran los únicos que se encarecían
@@ -35,29 +35,20 @@ nadie lo use.** Lo de abajo se hace mejor después de una semana en la calle.
 
 ---
 
-## 1. Cumplimiento de brecha
+## 1. Rediseño de la interfaz
 
-**Lo que falta para cerrar los informes.** Hoy se puede sacar cuántas vueltas
-hizo cada unidad y cuántas horas trabajó cada persona, pero no *qué tan bien
-mantuvo la brecha*, que es lo que mide si la rueda funciona.
+El encargo está en `PROMPT-DISENO.md` y Design entregó una propuesta de alta
+fidelidad: panel de Despacho, Gestión como espacio de trabajo con riel (en vez
+de ocho pestañas en un modal), trazador y panel del creador. La app del chofer
+quedó fuera de esa vuelta.
 
-**Por qué no está:** la brecha se calcula en vivo y no se guarda. Reconstruir
-el pasado es imposible — habría que rehacer el cálculo posición por posición,
-y las posiciones tampoco se guardan (a propósito: serían millones de filas).
+**Lo que hay que cuidar al implementarlo** está en el propio encargo: los
+avisos de seguridad no se suavizan, las dos confirmaciones se quedan, y
+ninguna acción cambia de panel.
 
-**Propuesta:** acumular en memoria, por unidad y por día, cuántos segundos
-estuvo en verde, en ámbar y en rojo, y volcarlo a una tabla cada tanto (y al
-apagarse). Son tres contadores por unidad: nada de peso.
-
-**Lo que hay que resolver:**
-
-- **Qué cuenta como "en ruta":** una unidad detenida en el terminal no debería
-  sumar rojo. Probablemente haya que contar solo mientras se mueve.
-- **Con qué objetivo se compara:** si el objetivo automático cambió durante el
-  día, el porcentaje del día mezcla dos varas. Conviene guardar también contra
-  qué objetivo se midió.
-- **Que el número no sea injusto:** una unidad sola en la ruta no tiene con
-  quién compararse. Esos tramos no deberían contar ni a favor ni en contra.
+**Lo que falta todavía de la propuesta**, porque el dato no existe: «último
+respaldo» y «errores en 24 h» en el panel del creador. No hay respaldos
+automáticos ni registro de errores; son features de operación, no de interfaz.
 
 ## 2. Panel del gerente de ruta
 
@@ -81,6 +72,11 @@ mejor que nosotros.
 
 ## Ítems ya cerrados
 
+- **Brecha promedio por vuelta.** Cada vuelta guarda la brecha que mantuvo,
+  medida contra la unidad de adelante. Es lo que faltaba para saber no solo
+  cuántas vueltas dio cada unidad sino si las dio bien. Empieza a existir el
+  día que se enciende — no se puede reconstruir. Ver README, sección Brecha
+  promedio por vuelta.
 - **Rutas alternas.** Variantes del recorrido por ruta, con ida y vuelta cada
   una: se crean desde el panel del creador, Despacho elige con cuál se mide y
   la dibuja con su trazador. Al cambiar, las vueltas en curso se descartan
