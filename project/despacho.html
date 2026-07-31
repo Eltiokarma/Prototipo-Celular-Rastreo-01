@@ -760,7 +760,6 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   const [shifts, setShifts] = React.useState(null);
   const [empresa, setEmpresa] = React.useState(null);
   const [empForm, setEmpForm] = React.useState({ name: '', ruc: '', contacto: '' });
-  const [nuevaRuta, setNuevaRuta] = React.useState({ routeId: '', name: '', targetGapMin: '2', durationMin: '50' });
   const [nuevoVeh, setNuevoVeh] = React.useState({ vehicleId: '', label: '' });
   // Ruta cuyo recorrido se está trazando (null = trazador cerrado)
   const [trazando, setTrazando] = React.useState(null);
@@ -852,12 +851,6 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     catch (e) { setError(e.message); }
     setBusy(false);
   };
-
-  const crearRuta = () => run(async () => {
-    await api('/admin/routes', { method: 'POST', body: JSON.stringify(nuevaRuta) });
-    setNuevaRuta({ routeId: '', name: '', targetGapMin: '2', durationMin: '50' });
-    await loadRoutes();
-  }, 'Ruta creada');
 
   // Cambiar el trazado con el que se mide una ruta le cambia el mapa a todos
   // los que están manejando en ese momento y descarta las vueltas en curso.
@@ -1085,31 +1078,6 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
             {error && <div style={{ color: HUD.red, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
             {okMsg && <div style={{ color: HUD.green, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{okMsg}</div>}
 
-            {esSupervisor && (
-              <div style={{
-                display: 'flex', flexWrap: 'wrap', gap: 8,
-                padding: 14, background: HUD.hueco, borderRadius: 14,
-                border: `1px solid ${HUD.divider}`, marginBottom: 16,
-              }}>
-                <input placeholder="Código (ej. R-20)" value={nuevaRuta.routeId}
-                  onChange={e => setNuevaRuta(r => ({ ...r, routeId: e.target.value }))}
-                  style={{ ...inputStyle, width: 'auto', flex: '1 1 110px' }} />
-                <input placeholder="Nombre del recorrido" value={nuevaRuta.name}
-                  onChange={e => setNuevaRuta(r => ({ ...r, name: e.target.value }))}
-                  style={{ ...inputStyle, width: 'auto', flex: '1 1 160px' }} />
-                <input placeholder="Objetivo min" value={nuevaRuta.targetGapMin} inputMode="decimal"
-                  onChange={e => setNuevaRuta(r => ({ ...r, targetGapMin: e.target.value }))}
-                  title="Brecha objetivo entre unidades, en minutos"
-                  style={{ ...inputStyle, width: 'auto', flex: '0 1 100px' }} />
-                <input placeholder="Recorrido min" value={nuevaRuta.durationMin} inputMode="numeric"
-                  onChange={e => setNuevaRuta(r => ({ ...r, durationMin: e.target.value }))}
-                  title="Cuánto dura la ruta de punta a punta, en minutos"
-                  style={{ ...inputStyle, width: 'auto', flex: '0 1 110px' }} />
-                <button onClick={crearRuta} disabled={busy} style={{
-                  ...smallBtn(HUD.bright, '#fff'), padding: '0 16px', fontSize: 13, height: 40,
-                }}>+ RUTA</button>
-              </div>
-            )}
 
             {routeList.map(r => (
               // La fila envuelve: con objetivo, recorrido y unidades no entra
@@ -1222,7 +1190,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               día de la semana— y se recalcula cuando entra o sale una unidad.
               Hasta juntar 3 vueltas sigue valiendo el número cargado a mano, que
               queda siempre como respaldo.
-              {!esSupervisor && ' Solo una cuenta supervisora puede crear rutas.'}
+              {' '}Las <strong>rutas nuevas</strong> no se dan de alta desde acá:
+              pedilas y quedan cargadas con su código y su nombre. Desde este
+              panel se administra todo lo demás — objetivo, recorrido, desvío,
+              gente y flota.
             </div>
           </div>
         )}

@@ -424,6 +424,45 @@ su tamaño (rutas, flota, personas, cuentas de despacho, unidades en línea),
 y el supervisor puede corregir nombre, RUC y contacto. El código no se
 toca: de él cuelga todo lo demás.
 
+## Quién puede qué (la línea entre los dos paneles)
+
+Hay dos paneles y **no se pisan**. La regla que ordena todo: **la estructura
+la define el nivel de arriba, la operación del día es de la cooperativa.**
+
+| | Despacho | Creador |
+| --- | :---: | :---: |
+| Personas: alta, baja, claves, identidad | ✅ | — |
+| Vehículos | ✅ | — |
+| Objetivo de brecha (manual o automático) | ✅ | — |
+| Umbral de desvío y silenciarlo | ✅ | — |
+| Dibujar el recorrido (trazador) | ✅ | — |
+| **Elegir** con qué trazado se mide | ✅ | — |
+| Turnos, vueltas, informes | ✅ | — |
+| Datos de su cooperativa (nombre, RUC, contacto) | ✅ | — |
+| Actividad **de su cooperativa** | ✅ | — |
+| | | |
+| **Crear** una cooperativa | — | ✅ |
+| **Crear** una ruta | — | ✅ |
+| **Crear y borrar** trazados de una ruta | — | ✅ |
+| Suspender una cooperativa | — | ✅ |
+| Crear o restablecer una cuenta de Despacho | — | ✅ |
+| Salud del servidor y de la base | — | ✅ |
+| Actividad de **todas** las cooperativas | — | ✅ |
+
+Tres detalles que explican los casos raros:
+
+- **Crear rutas era de Despacho y se movió arriba.** Quedaba incoherente que
+  no pudiera crear una *variante* de un recorrido —eso es cartografía— pero
+  sí una ruta entera, que es un acto más grande. Además la ruta es la unidad
+  por la que se cuenta y se factura una cooperativa.
+- **Dibujar sí es de Despacho**, aunque los trazados los creemos nosotros. El
+  mapa vive en su panel y el trabajo de marcar calles se puede delegar; lo
+  que no pueden es decidir qué trazados existen.
+- **Restablecer claves está en los dos, y está bien.** Despacho resetea a su
+  gente; el creador puede resetear la cuenta de Despacho, que es la salida
+  cuando una cooperativa se queda afuera de su propio panel. Queda registrado
+  en la actividad de esa cooperativa.
+
 ## Panel del creador
 
 El nivel que está por encima de todas las cooperativas, hecho pantalla. Es

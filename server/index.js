@@ -1385,27 +1385,22 @@ app.get('/admin/routes', requireDispatch, (req, res) => {
   });
 });
 
-app.post('/admin/routes', requireSupervisor, (req, res) => {
-  const routeId = idLimpio(req.body?.routeId);
-  if (req.body?.routeId && !routeId) {
-    return res.status(400).json({ error: 'El código de la ruta solo admite letras, números, punto, guion y guion bajo' });
-  }
-  const name = String(req.body?.name || '').trim().slice(0, 60) || routeId;
-  const targetGapMin = Number(req.body?.targetGapMin);
-  const durationMin = Number(req.body?.durationMin);
-  if (!routeId) return res.status(400).json({ error: 'Falta el código de la ruta (ej. R-15)' });
-  // El código de ruta es único en TODO el servidor, no por empresa: si dos
-  // cooperativas tuvieran una "R-14", cualquier consulta por routeId sería
-  // ambigua. El mensaje no dice de quién es la que ya existe.
-  if (routeOf(routeId)) return res.status(409).json({ error: 'Ese código de ruta ya está tomado' });
-  const gap = Number.isFinite(targetGapMin) && targetGapMin > 0 ? targetGapMin : 2;
-  const dur = Number.isFinite(durationMin) && durationMin > 0 ? Math.round(durationMin) : 50;
-  db.prepare('INSERT INTO routes (routeId, name, targetGapMin, durationMin, companyId, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(routeId, name, gap, dur, req.empresa, Date.now());
-  audit(req.dispatchUser.unitId, 'alta_ruta', routeId, `${name} · objetivo ${gap} min · ${dur} min de recorrido`, routeId);
-  console.log(`Ruta creada: ${routeId} (${name})`);
-  res.json({ ok: true, routeId });
-});
+// CREAR UNA RUTA NO ESTÁ ACÁ, y es a propósito.
+//
+// Antes Despacho podía crear rutas — quedó de cuando este era el único panel
+// que existía. Con el nivel de arriba ya hecho quedaba incoherente: Despacho
+// no puede crear una VARIANTE de un recorrido (eso es cartografía, la
+// dibujamos nosotros) pero podía crear una ruta entera, que es un acto
+// bastante más grande. Además la ruta es la unidad por la que se cuenta y se
+// factura una cooperativa.
+//
+// Así que la línea quedó donde tiene sentido: **la estructura la definimos
+// nosotros, la operación del día es de ellos.** Despacho administra a su
+// gente, su flota, los objetivos, los turnos, los desvíos, los informes y
+// elige con qué trazado se mide. Lo que no hace es inventarse rutas.
+//
+// El alta vive en el panel del creador (`creador.js`) y en la consola
+// (`empresa.js`), las dos sobre la misma función: `cooperativas.altaRuta`.
 
 // Objetivo de brecha: prenderlo/apagarlo y fijar el valor manual, que es a
 // la vez el respaldo del automático (arranque en frío, o pocas vueltas).
