@@ -19,27 +19,25 @@ al final).
 - [x] Segundo factor del panel del creador activo (`CREATOR_TOTP_SECRET`).
 - [ ] Cargar el recorrido real de la R-14 con el trazador.
 
-## Orden recomendado
+## Lo que queda por construir
 
-| # | Qué | Por qué en ese lugar | Tamaño |
-| --- | --- | --- | --- |
-| 1 | **Panel del gerente de ruta** | Vive de los informes, que ya existen. Es el que más se beneficia de esperar: hoy estaríamos adivinando qué mira un gerente | 2 días |
+**Nada, hasta que alguien lo use.** Los tres cambios de esquema invasivos están
+hechos, el rediseño está hecho y el panel del gerente está hecho. Lo que sigue
+en esta lista ya no sale de mirar el código: sale de la calle.
 
-**Los cambios de esquema ya están hechos.** Eran los únicos que se encarecían
-con el uso —mover tablas con seis meses de datos adentro es una migración con
-riesgo—, y lo que queda se suma encima y cuesta lo mismo antes que después.
+Hay dos cosas que **sí** aparecieron con el panel del gerente y valen la pena
+cuando haya datos reales:
 
-Dicho de otro modo: **el diseño ya llegó hasta donde puede llegar sin que
-nadie lo use.** Lo de abajo se hace mejor después de una semana en la calle.
+| Qué | Por qué | Tamaño |
+| --- | --- | --- |
+| **Guardar el objetivo con cada vuelta** | Hoy el cumplimiento se mide contra el objetivo de HOY, no contra el que regía cuando se cerró la vuelta. Con objetivo automático eso puede haber cambiado dentro del mismo período. Una columna en `laps`, y empieza a valer el día que se enciende | 2 horas |
+| **Guardar los desvíos de ruta** | Se detectan y se gestionan en vivo, pero no se guardan: no se puede decir cuántas veces se salió una unidad la semana pasada. Es lo que le falta al panel del gerente para cerrar el cuadro | medio día |
 
----
+Y una que apareció midiendo, no usando:
 
-## 1. Panel del gerente de ruta
-
-Distinto del de Despacho a propósito: **Despacho opera, el gerente
-mira**. Sin botones de administración ni chat operativo; con métricas,
-tendencias, cumplimiento, comparación entre unidades y descarga de
-informes. Rol nuevo (`manager`) con alcance a una ruta o a la empresa.
+| Qué | Por qué | Tamaño |
+| --- | --- | --- |
+| **La palabra al lado del color en Despacho** | Verde y ámbar son el mismo color para un daltónico rojo-verde (medido: ΔE 5,4). En gerencia ya está resuelto —número y palabra siempre—; en la fila de unidad de Despacho el juicio «va bien / se está yendo» todavía depende solo del color. Ver `LIMITACIONES.md`, sección *Accesibilidad* | 1 hora |
 
 ---
 
@@ -72,6 +70,14 @@ mejor que nosotros.
 
 ## Ítems ya cerrados
 
+- **Panel del gerente de ruta.** Despacho opera el día, el gerente mira:
+  pantalla aparte, rol `manager` con alcance a una ruta o a toda la
+  cooperativa, y **ni un solo endpoint que escriba**. Cumplimiento de la
+  brecha como cifra que encabeza, tendencia por día, comparación unidad por
+  unidad con las horas al lado de las vueltas, horas por persona e informes.
+  Las cuentas las crea el nivel de arriba y no Despacho: buena parte de lo que
+  el gerente mira es el trabajo de Despacho. Ver README, sección Panel del
+  gerente de ruta.
 - **Rediseño de la interfaz.** Panel de Despacho, Gestión como espacio de
   trabajo con riel (en vez de ocho pestañas en un modal de 760 px), trazador y
   panel del creador. Ningún cambio de comportamiento, de endpoints ni de

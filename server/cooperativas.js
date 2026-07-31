@@ -29,9 +29,14 @@ function listar(db) {
     rutas: db.prepare('SELECT routeId, name FROM routes WHERE companyId = ? ORDER BY routeId')
       .all(e.companyId),
     vehiculos: db.prepare('SELECT COUNT(*) AS c FROM vehicles WHERE companyId = ?').get(e.companyId).c,
-    personas: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role <> 'dispatch'")
+    // `personas` es la gente que va arriba de las combis. Las cuentas de
+    // Despacho y las de gerencia se cuentan aparte: son otra cosa, y sumarlas
+    // acá hacía que "34 personas" no coincidiera con nadie.
+    personas: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role NOT IN ('dispatch', 'manager')")
       .get(e.companyId).c,
     despacho: db.prepare("SELECT unitId, routeId, lastLogin FROM users WHERE companyId = ? AND role = 'dispatch' ORDER BY unitId")
+      .all(e.companyId),
+    gerencia: db.prepare("SELECT unitId, routeId, lastLogin FROM users WHERE companyId = ? AND role = 'manager' ORDER BY unitId")
       .all(e.companyId),
   }));
 }
@@ -135,6 +140,62 @@ function supervisor(db, { companyId, usuario, clave } = {}) {
               VALUES (?, ?, ?, 'dispatch', NULL, ?, ?, ?)`)
     .run(unitId, 'Despacho', 'Despacho', empresa, hash, Date.now());
   return { ok: true, companyId: empresa, usuario: unitId, creado: true };
+}
+
+// ─── CUENTA DE GERENCIA ──────────────────────────────────────
+// El gerente MIRA: métricas, tendencias, cumplimiento y descarga de
+// informes. No administra nada y no entra al tiempo real.
+//
+// La crea el nivel de arriba y no Despacho, por la misma razón por la que
+// nadie se audita a sí mismo: buena parte de lo que el gerente mira es qué
+// tan bien se está corriendo la ruta, o sea el trabajo de Despacho.
+//
+// `routeId` opcional: con ruta, el gerente ve solo esa; sin ruta, ve toda la
+// cooperativa. Es el mismo borde que ya usa Despacho.
+function gerente(db, { companyId, usuario, clave, routeId } = {}) {
+  const empresa = idLimpio(companyId);
+  const unitId = idLimpio(usuario);
+  if (!empresa || !unitId) return { error: 'Falta la empresa o el usuario' };
+  if (!clave || String(clave).length < CLAVE_MINIMA) {
+    return { error: `La clave necesita al menos ${CLAVE_MINIMA} caracteres` };
+  }
+  if (!db.prepare('SELECT companyId FROM companies WHERE companyId = ?').get(empresa)) {
+    return { error: `No existe la empresa ${empresa}` };
+  }
+
+  // El alcance por ruta tiene que ser una ruta DE ESA cooperativa: si no,
+  // sería una forma de que un gerente terminara mirando la de al lado.
+  let alcance = null;
+  if (routeId) {
+    alcance = idLimpio(routeId);
+    if (!alcance) return { error: 'El código de la ruta no es válido' };
+    const r = db.prepare('SELECT routeId FROM routes WHERE routeId = ? AND companyId = ?')
+      .get(alcance, empresa);
+    if (!r) return { error: `La ruta ${alcance} no es de ${empresa}` };
+  }
+
+  const existente = db.prepare('SELECT unitId, companyId, role FROM users WHERE unitId = ?').get(unitId);
+  if (existente && existente.companyId !== empresa) {
+    return { error: `El usuario ${unitId} ya existe y pertenece a ${existente.companyId}` };
+  }
+  // Convertir un chofer en gerente le dejaría el vehículo y los turnos
+  // colgando de una cuenta que ya no va a ruta. Que se dé de baja primero.
+  if (existente && existente.role !== 'manager') {
+    return { error: `El usuario ${unitId} ya existe con rol ${existente.role}. Dalo de baja antes.` };
+  }
+
+  const hash = hashPassword(String(clave));
+  if (existente) {
+    db.prepare("UPDATE users SET passHash = ?, role = 'manager', routeId = ? WHERE unitId = ?")
+      .run(hash, alcance, unitId);
+    db.prepare('DELETE FROM sessions WHERE unitId = ?').run(unitId);
+    return { ok: true, companyId: empresa, usuario: unitId, routeId: alcance, creado: false };
+  }
+
+  db.prepare(`INSERT INTO users (unitId, driverName, name, role, routeId, companyId, passHash, createdAt)
+              VALUES (?, ?, ?, 'manager', ?, ?, ?, ?)`)
+    .run(unitId, 'Gerencia', 'Gerencia', alcance, empresa, hash, Date.now());
+  return { ok: true, companyId: empresa, usuario: unitId, routeId: alcance, creado: true };
 }
 
 // ─── RUTA NUEVA EN UNA COOPERATIVA ───────────────────────────
@@ -292,7 +353,7 @@ function bajaVariante(db, { variantId } = {}) {
 }
 
 module.exports = {
-  listar, alta, supervisor, altaRuta, estado,
+  listar, alta, supervisor, gerente, altaRuta, estado,
   variantes, altaVariante, editarVariante, bajaVariante,
   CLAVE_MINIMA,
 };

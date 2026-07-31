@@ -283,6 +283,7 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
     ruta: '', nombreRuta: '', despacho: '', clave: '',
   });
   const [sub, setSub] = React.useState({ usuario: '', clave: '' });
+  const [ger, setGer] = React.useState({ usuario: '', clave: '', routeId: '' });
   const [rutaNueva, setRutaNueva] = React.useState({ routeId: '', name: '' });
   const [confirmar, setConfirmar] = React.useState(null);
   const [ocupado, setOcupado] = React.useState(false);
@@ -433,7 +434,7 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
 
           {abierta === e.companyId && (
             <div style={{ marginTop: 14, borderTop: '1px solid var(--divider)', paddingTop: 14 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 18 }}>
                 <div>
                   <div className="mono" style={{
                     fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
@@ -492,6 +493,52 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
                   <div style={{ fontSize: 11, color: 'var(--dim2)', marginTop: 6, lineHeight: 1.45 }}>
                     El recorrido se dibuja después, desde el panel de Despacho
                     de esa cooperativa.
+                  </div>
+                </div>
+
+                {/* La cuenta de gerencia se da acá y no en el panel de
+                    Despacho: el gerente mira, entre otras cosas, cómo se está
+                    corriendo la ruta — o sea el trabajo de Despacho. Nadie se
+                    elige a su propio auditor. */}
+                <div>
+                  <div className="mono" style={{
+                    fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
+                    textTransform: 'uppercase', marginBottom: 8,
+                  }}>Cuenta de gerencia</div>
+                  <div className="campo">
+                    <label>Usuario</label>
+                    <input value={ger.usuario} placeholder="GERENTE-15"
+                      onChange={ev => setGer({ ...ger, usuario: ev.target.value })} />
+                  </div>
+                  <div className="campo">
+                    <label>Clave nueva</label>
+                    <input value={ger.clave} onChange={ev => setGer({ ...ger, clave: ev.target.value })} />
+                  </div>
+                  <div className="campo">
+                    <label>Alcance</label>
+                    <select value={ger.routeId} onChange={ev => setGer({ ...ger, routeId: ev.target.value })}>
+                      <option value="">Toda la cooperativa</option>
+                      {e.rutas.map(r => (
+                        <option key={r.routeId} value={r.routeId}>Solo la ruta {r.routeId}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button disabled={ocupado} onClick={() => correr(async () => {
+                    await api(`/empresas/${e.companyId}/gerencia`, {
+                      method: 'POST', body: JSON.stringify(ger),
+                    });
+                    setGer({ usuario: '', clave: '', routeId: '' });
+                  }, 'Cuenta de gerencia lista')} style={{
+                    padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
+                    color: 'var(--fg2)', border: '1px solid var(--line)',
+                  }}>Crear o restablecer</button>
+                  <div style={{ fontSize: 11, color: 'var(--dim2)', marginTop: 6, lineHeight: 1.45 }}>
+                    Entra por <code>gerencia.html</code> y solo mira números: no
+                    administra nada, no ve el mapa en vivo y Despacho no le puede
+                    tocar la cuenta.
+                    {e.gerencia && e.gerencia.length > 0 && (
+                      <> Hoy: {e.gerencia.map(g => g.routeId ? `${g.unitId} (${g.routeId})` : `${g.unitId} (toda)`).join(', ')}.</>
+                    )}
                   </div>
                 </div>
               </div>

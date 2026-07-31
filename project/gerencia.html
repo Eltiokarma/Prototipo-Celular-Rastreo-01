@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Gerencia — Control de flota</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#F7FAFD">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+
+<script src="config.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root { --bg: #F7FAFD; --fg: #0B2239; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg); color: var(--fg);
+    font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #C3D4E4; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="react">
+// ═══════════════════════════════════════════════════════════════
+// PANEL DEL GERENTE DE RUTA
+//
+// Despacho OPERA el día; el gerente MIRA. Por eso son dos pantallas y no
+// dos pestañas de la misma: acá no hay altas, ni bajas, ni chat, ni mapa
+// operativo. Números de un período, y los informes para llevarlos a una
+// reunión.
+//
+// Solo tema día. El tema noche del resto del sistema existe para alguien
+// que maneja a las tres de la mañana con el celular en el parabrisas; esto
+// es una pantalla de informes que se lee en una oficina. Además sus colores
+// de estado no pasan la separación para daltonismo, y no vale la pena
+// arrastrar eso a una pantalla nueva (ver LIMITACIONES).
+// ═══════════════════════════════════════════════════════════════
+
+const SERVER_URL = window.REALTIME_SERVER_URL ||
+  'wss://prototipo-celular-rastreo-01-production.up.railway.app';
+const HTTP_URL = SERVER_URL.replace(/^ws/, 'http');
+
+// Los mismos tokens del panel de Despacho, juego de día.
+const HUD = {
+  bg: '#F7FAFD', surface: '#FFFFFF', line: '#C3D4E4', divider: '#E1E9F2',
+  hueco: '#EDF2F8', campo: '#FFFFFF',
+  fg: '#0B2239', fg2: '#2A4864', dim: '#41627F', dim2: '#547693', dim3: '#7591AB',
+  bright: '#1668C4',
+  green: '#1F8A4F', amber: '#A67300', red: '#C2001D',
+  verdeFondo: '#E9F7EF', verdeBorde: '#BEE3CD', verdeTinta: '#0B6B33',
+  ambarFondo: '#FDF6E4', ambarBorde: '#E4C88A', ambarTinta: '#4A3200',
+  rojoFondo: '#FCEBEE',  rojoBorde: '#E6BFC6',  rojoTinta: '#5C0010',
+  azulFondo: '#E7F0FB',  azulBorde: '#C9DDF4',  azulTinta: '#0A2E52',
+};
+
+const mono = 'JetBrains Mono, ui-monospace, monospace';
+const black = '"Archivo Black", system-ui, sans-serif';
+
+const btnPrimario = (alto = 36) => ({
+  height: alto, padding: '0 14px', background: HUD.bright, color: '#fff',
+  border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700,
+  fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+});
+const btnSecundario = (alto = 36) => ({
+  height: alto, padding: '0 12px', background: HUD.surface, color: HUD.dim2,
+  border: `1px solid ${HUD.line}`, borderRadius: 9, fontSize: 13, fontWeight: 700,
+  fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+});
+const rotulo = (tam = 9, tinta) => ({
+  fontFamily: mono, fontSize: tam, fontWeight: 700,
+  letterSpacing: tam <= 9 ? 1.3 : 1.5, color: tinta || HUD.dim3,
+  textTransform: 'uppercase',
+});
+const tarjeta = (relleno = 14) => ({
+  border: `1px solid ${HUD.divider}`, borderRadius: 12, padding: relleno,
+  background: HUD.surface,
+});
+const campo = (alto = 40) => ({
+  height: alto, padding: '0 12px', background: HUD.campo, color: HUD.fg,
+  border: `1px solid ${HUD.line}`, borderRadius: 10,
+  fontSize: 14, fontFamily: 'inherit', outline: 'none', minWidth: 0,
+});
+
+// ─── FORMATOS ──────────────────────────────────────────────────
+function fmtSeg(s) {
+  if (s === null || s === undefined) return '—';
+  return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+}
+// Los minutos importan en un turno y son ruido en un acumulado de tres
+// semanas: pasadas las 24 h se redondea a horas enteras.
+function fmtHoras(sec) {
+  if (!sec) return '0 h';
+  const min = Math.round(sec / 60);
+  const h = Math.floor(min / 60);
+  if (h >= 24) return `${h} h`;
+  return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
+}
+function fmtDia(iso) {
+  const [a, m, d] = iso.split('-');
+  return `${d}/${m}`;
+}
+const isoDe = (ts) => new Date(ts).toISOString().slice(0, 10);
+
+// El estado de un cumplimiento. Devuelve SIEMPRE una palabra además del
+// color: verde y ámbar son el mismo color para un daltónico protán o deután
+// (medido, no supuesto), así que el color nunca puede ser la única señal.
+function estadoCumple(pct) {
+  if (pct === null || pct === undefined) return { palabra: 'sin dato', color: HUD.dim3, fondo: HUD.hueco, borde: HUD.line };
+  if (pct >= 80) return { palabra: 'cumple', color: HUD.green, fondo: HUD.verdeFondo, borde: HUD.verdeBorde };
+  if (pct >= 50) return { palabra: 'al límite', color: HUD.amber, fondo: HUD.ambarFondo, borde: HUD.ambarBorde };
+  return { palabra: 'fuera', color: HUD.red, fondo: HUD.rojoFondo, borde: HUD.rojoBorde };
+}
+
+// ─── ANCHO REAL DEL CONTENEDOR ─────────────────────────────────
+// Los gráficos se dibujan en píxeles de verdad y no en un viewBox estirado:
+// escalar un SVG deforma el grosor de las líneas y el tamaño del texto.
+function useAncho() {
+  const ref = React.useRef(null);
+  const [ancho, setAncho] = React.useState(0);
+  React.useEffect(() => {
+    if (!ref.current) return;
+    const medir = () => setAncho(ref.current ? ref.current.clientWidth : 0);
+    medir();
+    const obs = new ResizeObserver(medir);
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, []);
+  return [ref, ancho];
+}
+
+// Rectángulo con las dos esquinas de arriba redondeadas y la base cuadrada:
+// la barra nace de la línea de base, no flota.
+function barraPath(x, y, ancho, alto, radio) {
+  const r = Math.min(radio, ancho / 2, Math.max(0, alto));
+  if (alto <= 0) return '';
+  return `M${x},${y + alto} L${x},${y + r} Q${x},${y} ${x + r},${y} ` +
+         `L${x + ancho - r},${y} Q${x + ancho},${y} ${x + ancho},${y + r} ` +
+         `L${x + ancho},${y + alto} Z`;
+}
+
+// ─── GRÁFICO ───────────────────────────────────────────────────
+// Una serie por gráfico: no hay leyenda porque no hay nada que distinguir,
+// el título ya dice qué se está mirando. Y NUNCA dos escalas en el mismo
+// dibujo: vueltas y cumplimiento son medidas distintas y van en dos
+// gráficos, no en dos ejes del mismo.
+const EJE_ALTO = 26;    // banda de las fechas, contada dentro del alto
+const PLOT_ALTO = 150;
+
+function Grafico({ titulo, subtitulo, datos, valor, maximo, formato, tipo }) {
+  const [ref, ancho] = useAncho();
+  const [encima, setEncima] = React.useState(null);
+
+  const IZQ = 46, DER = 14, ARRIBA = 12;
+  const w = Math.max(0, ancho - IZQ - DER);
+  const banda = datos.length ? w / datos.length : 0;
+  const tope = maximo !== undefined ? maximo
+    : Math.max(1, ...datos.map(d => valor(d) || 0));
+  const y = (v) => ARRIBA + PLOT_ALTO - (Math.max(0, v) / tope) * PLOT_ALTO;
+  const xCentro = (i) => IZQ + banda * (i + 0.5);
+
+  // Cuatro marcas redondas, no una por dato
+  const marcas = [0, 0.25, 0.5, 0.75, 1].map(f => Math.round(tope * f));
+
+  const conDato = datos.filter(d => valor(d) !== null && valor(d) !== undefined);
+  const ultimo = conDato.length ? conDato[conDato.length - 1] : null;
+
+  return (
+    <div style={tarjeta(16)}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: HUD.fg }}>{titulo}</div>
+      <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 3, marginBottom: 10 }}>{subtitulo}</div>
+      <div ref={ref} style={{ position: 'relative', width: '100%' }}>
+        {datos.length === 0 && (
+          <div style={{ height: PLOT_ALTO + EJE_ALTO, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', fontSize: 13, color: HUD.dim3 }}>
+            No hay vueltas cerradas en este período.
+          </div>
+        )}
+        {datos.length > 0 && ancho > 0 && (
+          <svg width={ancho} height={ARRIBA + PLOT_ALTO + EJE_ALTO} style={{ display: 'block' }}>
+            {/* rejilla: línea fina, sólida, un paso apagada del fondo */}
+            {marcas.map((m, i) => (
+              <g key={i}>
+                <line x1={IZQ} x2={IZQ + w} y1={y(m)} y2={y(m)} stroke={HUD.divider} strokeWidth="1" />
+                <text x={IZQ - 8} y={y(m) + 4} textAnchor="end"
+                  style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, fill: HUD.dim3,
+                    fontVariantNumeric: 'tabular-nums' }}>{formato(m)}</text>
+              </g>
+            ))}
+
+            {tipo === 'barras' && datos.map((d, i) => {
+              const v = valor(d) || 0;
+              // Tope de 24 px y 2 px de aire: el hueco separa, no un borde
+              const bw = Math.max(2, Math.min(24, banda - 2));
+              const alto = ARRIBA + PLOT_ALTO - y(v);
+              return (
+                <path key={i} d={barraPath(xCentro(i) - bw / 2, y(v), bw, alto, 4)}
+                  fill={HUD.bright} opacity={encima === null || encima === i ? 1 : 0.45} />
+              );
+            })}
+
+            {tipo === 'linea' && (() => {
+              const puntos = datos.map((d, i) => valor(d) === null ? null : [xCentro(i), y(valor(d))])
+                .filter(Boolean);
+              if (!puntos.length) return null;
+              return (
+                <g>
+                  <polyline points={puntos.map(p => p.join(',')).join(' ')}
+                    fill="none" stroke={HUD.bright} strokeWidth="2"
+                    strokeLinejoin="round" strokeLinecap="round" />
+                  {/* Anillo del color de la superficie: el punto sigue
+                      legible donde se cruza con la línea */}
+                  {puntos.length > 1 && (
+                    <circle cx={puntos[puntos.length - 1][0]} cy={puntos[puntos.length - 1][1]}
+                      r="5" fill={HUD.bright} stroke={HUD.surface} strokeWidth="2" />
+                  )}
+                </g>
+              );
+            })()}
+
+            {/* Etiqueta directa SOLO en el último punto. Un número en cada
+                punto es ruido y no se lee. */}
+            {ultimo && (
+              <text
+                x={IZQ + w} y={ARRIBA - 1} textAnchor="end"
+                style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, fill: HUD.fg2 }}>
+                {formato(valor(ultimo))} el {fmtDia(ultimo.dia)}
+              </text>
+            )}
+
+            {/* fechas: la primera, la última y alguna del medio */}
+            {datos.map((d, i) => {
+              const cada = Math.max(1, Math.ceil(datos.length / 6));
+              if (i % cada !== 0 && i !== datos.length - 1) return null;
+              return (
+                <text key={i} x={xCentro(i)} y={ARRIBA + PLOT_ALTO + 17} textAnchor="middle"
+                  style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, fill: HUD.dim3 }}>
+                  {fmtDia(d.dia)}
+                </text>
+              );
+            })}
+
+            {/* Zona sensible por día, de alto completo: el blanco de al lado
+                también sirve para apuntar, no hay que acertarle al punto. */}
+            {datos.map((d, i) => (
+              <rect key={i} x={IZQ + banda * i} y={ARRIBA} width={banda} height={PLOT_ALTO}
+                fill="transparent"
+                onMouseEnter={() => setEncima(i)} onMouseLeave={() => setEncima(null)} />
+            ))}
+          </svg>
+        )}
+
+        {encima !== null && datos[encima] && (
+          <div style={{
+            position: 'absolute', top: 0, left: Math.min(Math.max(0, xCentro(encima) - 70), Math.max(0, ancho - 150)),
+            width: 150, pointerEvents: 'none',
+            background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 9,
+            padding: '8px 10px', boxShadow: '0 8px 20px -12px rgba(11,34,57,.5)',
+          }}>
+            <div style={rotulo(9)}>{fmtDia(datos[encima].dia)}</div>
+            <div style={{ fontFamily: black, fontSize: 17, marginTop: 3 }}>
+              {formato(valor(datos[encima]))}
+            </div>
+            <div style={{ fontSize: 11, color: HUD.dim2, marginTop: 2 }}>
+              {datos[encima].vueltas} vuelta{datos[encima].vueltas === 1 ? '' : 's'} ·
+              {' '}{datos[encima].unidades} unidad{datos[encima].unidades === 1 ? '' : 'es'}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── PIEZAS ────────────────────────────────────────────────────
+function Ficha({ etiqueta, valor, nota }) {
+  return (
+    <div style={{ ...tarjeta(14), background: HUD.bg }}>
+      <div style={rotulo(9)}>{etiqueta}</div>
+      {/* Cifras proporcionales, no tabulares: en un número grande, dígitos
+          todos del mismo ancho se ven flojos. */}
+      <div style={{ fontFamily: black, fontSize: 24, margin: '6px 0 4px' }}>{valor}</div>
+      {nota && <div style={{ fontSize: 11, color: HUD.dim2 }}>{nota}</div>}
+    </div>
+  );
+}
+
+function Tabla({ cols, cabeceras, ancho, children }) {
+  const rejilla = { display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center' };
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div style={{ border: `1px solid ${HUD.divider}`, borderRadius: 12, overflow: 'hidden', minWidth: ancho || 0 }}>
+        <div style={{ ...rejilla, padding: '10px 14px', background: HUD.bg, borderBottom: `1px solid ${HUD.divider}` }}>
+          {cabeceras.map((c, i) => (
+            <div key={i} style={{ ...rotulo(9), textAlign: i === cabeceras.length - 1 && cabeceras.length > 1 ? 'right' : 'left' }}>{c}</div>
+          ))}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function Fila({ cols, children }) {
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center',
+      padding: '11px 14px', borderBottom: `1px solid ${HUD.hueco}`,
+    }}>{children}</div>
+  );
+}
+
+// El cumplimiento, con su número y su palabra. El relleno lleva la severidad
+// y la pista es un paso más claro del mismo tono, así el estado se lee a lo
+// largo de toda la barra — y si el color no se distingue, están el número y
+// la palabra, que no dependen de la vista de nadie.
+function Cumplimiento({ pct }) {
+  const e = estadoCumple(pct);
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+      <span style={{ flex: 1, minWidth: 34, height: 6, borderRadius: 3, background: e.fondo, overflow: 'hidden' }}>
+        <span style={{ display: 'block', height: '100%', width: `${pct === null ? 0 : pct}%`,
+          background: e.color, borderRadius: 3 }} />
+      </span>
+      <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: e.color,
+        flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+        {pct === null ? '—' : `${pct} %`}
+      </span>
+      <span style={{ fontSize: 11, color: HUD.dim2, flexShrink: 0, minWidth: 54 }}>{e.palabra}</span>
+    </span>
+  );
+}
+
+// ─── LOGIN ─────────────────────────────────────────────────────
+function Puerta({ onEntrar, aviso }) {
+  const [user, setUser] = React.useState('');
+  const [pass, setPass] = React.useState('');
+  const [error, setError] = React.useState(null);
+  const [yendo, setYendo] = React.useState(false);
+
+  const entrar = async () => {
+    if (!user.trim() || !pass) { setError('Completá usuario y contraseña'); return; }
+    setYendo(true); setError(null);
+    try {
+      const res = await fetch(HTTP_URL + '/auth/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: user.trim(), password: pass }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Error de autenticación');
+      if (data.role !== 'manager') throw new Error('Esta cuenta no es de gerencia');
+      try { sessionStorage.setItem('r14_gerencia', JSON.stringify(data)); } catch {}
+      onEntrar(data);
+    } catch (e) {
+      setYendo(false);
+      setError(e.message === 'Failed to fetch' ? 'No se pudo conectar con el servidor' : e.message);
+    }
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ width: 360, ...tarjeta(28), borderRadius: 18 }}
+        onKeyDown={e => { if (e.key === 'Enter' && !yendo) entrar(); }}>
+        <div style={{ fontFamily: black, fontSize: 24 }}>Gerencia</div>
+        <div style={{ ...rotulo(9), marginBottom: 22 }}>Los números de la ruta</div>
+
+        <div style={{ ...rotulo(9), marginBottom: 6 }}>Usuario</div>
+        <input value={user} autoFocus onChange={e => setUser(e.target.value)}
+          style={{ ...campo(44), width: '100%', marginBottom: 14 }} />
+        <div style={{ ...rotulo(9), marginBottom: 6 }}>Contraseña</div>
+        <input type="password" value={pass} onChange={e => setPass(e.target.value)}
+          style={{ ...campo(44), width: '100%', marginBottom: 18 }} />
+
+        {(error || aviso) && (
+          <div style={{
+            background: HUD.rojoFondo, border: `1px solid ${HUD.rojoBorde}`,
+            borderLeft: `3px solid ${HUD.red}`, borderRadius: 10, padding: '10px 12px',
+            marginBottom: 16, fontSize: 13, fontWeight: 700, color: HUD.rojoTinta,
+          }}>{error || aviso}</div>
+        )}
+
+        <button disabled={yendo} onClick={entrar}
+          style={{ ...btnPrimario(46), width: '100%', fontSize: 15 }}>
+          {yendo ? 'Verificando…' : 'Entrar'}
+        </button>
+
+        <div style={{ marginTop: 18, fontSize: 12, color: HUD.dim3, lineHeight: 1.55 }}>
+          Esta pantalla solo muestra números: no administra gente ni unidades, y
+          no ve el mapa en vivo. Para operar el día está el panel de Despacho.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PANEL ─────────────────────────────────────────────────────
+function Panel({ sesion, onSalir }) {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const [rango, setRango] = React.useState(() => ({
+    desde: isoDe(hoy.getTime() - 29 * 86400e3), hasta: isoDe(Date.now()),
+  }));
+  const [ruta, setRuta] = React.useState('');
+  const [datos, setDatos] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [cargando, setCargando] = React.useState(true);
+  const [verTabla, setVerTabla] = React.useState(false);
+
+  const aMs = (iso, fin) => {
+    const d = new Date(iso + (fin ? 'T23:59:59' : 'T00:00:00'));
+    return isNaN(d.getTime()) ? null : d.getTime();
+  };
+
+  const cargar = React.useCallback(async () => {
+    const desde = aMs(rango.desde, false), hasta = aMs(rango.hasta, true);
+    if (!desde || !hasta) { setError('Revisá las fechas'); return; }
+    setCargando(true);
+    try {
+      const q = `?desde=${desde}&hasta=${hasta}${ruta ? `&routeId=${encodeURIComponent(ruta)}` : ''}`;
+      const res = await fetch(HTTP_URL + '/gerencia/resumen' + q, {
+        headers: { Authorization: 'Bearer ' + sesion.token },
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 401) { onSalir('Tu sesión expiró. Ingresá de nuevo.'); return; }
+      if (!res.ok) throw new Error(d.error || 'Error del servidor');
+      setDatos(d);
+      setError(null);
+    } catch (e) {
+      setError(e.message === 'Failed to fetch' ? 'No se pudo conectar con el servidor' : e.message);
+    }
+    setCargando(false);
+  }, [rango, ruta, sesion.token]);
+
+  React.useEffect(() => { cargar(); }, [cargar]);
+
+  const bajar = (tipo) => {
+    const desde = aMs(rango.desde, false), hasta = aMs(rango.hasta, true);
+    const q = `?desde=${desde}&hasta=${hasta}${ruta ? `&routeId=${encodeURIComponent(ruta)}` : ''}`;
+    fetch(`${HTTP_URL}/gerencia/informe/${tipo}.csv${q}`, {
+      headers: { Authorization: 'Bearer ' + sesion.token },
+    })
+      .then(r => r.ok ? r.blob() : Promise.reject(new Error('No se pudo generar el informe')))
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${(sesion.companyId || 'informe').toLowerCase()}-${tipo}-${rango.desde}.csv`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      })
+      .catch(e => setError(e.message));
+  };
+
+  const T = datos ? datos.totales : null;
+  const estado = estadoCumple(T ? T.cumplimiento : null);
+
+  return (
+    <div>
+      {/* header */}
+      <div style={{ background: HUD.surface, borderBottom: `1px solid ${HUD.divider}` }}>
+        <div style={{
+          maxWidth: 1120, margin: '0 auto', height: 60, padding: '0 18px',
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <span style={{
+            fontFamily: black, fontSize: 17, maxWidth: 240,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>{sesion.companyName || sesion.companyId || 'Gerencia'}</span>
+          <span style={{
+            ...rotulo(10, HUD.bright), letterSpacing: 1.5, flexShrink: 0,
+            background: HUD.azulFondo, border: `1px solid ${HUD.azulBorde}`,
+            borderRadius: 6, padding: '4px 8px',
+          }}>Gerencia</span>
+          <div style={{ flex: 1 }} />
+          <button onClick={() => onSalir()} style={btnSecundario(36)}>Salir</button>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '22px 18px 60px' }}>
+        {/* Una sola fila de filtros, arriba de todo lo que alcanza. No hay
+            filtros adentro de las tarjetas: todo se lee del mismo período. */}
+        <div style={{
+          display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 20,
+        }}>
+          <span style={rotulo(9)}>Período</span>
+          <input type="date" value={rango.desde}
+            onChange={e => setRango(r => ({ ...r, desde: e.target.value }))}
+            style={{ ...campo(38), fontFamily: mono, fontSize: 13 }} />
+          <input type="date" value={rango.hasta}
+            onChange={e => setRango(r => ({ ...r, hasta: e.target.value }))}
+            style={{ ...campo(38), fontFamily: mono, fontSize: 13 }} />
+          {datos && !datos.alcance.fijo && datos.rutas.length > 1 && (
+            <select value={ruta} onChange={e => setRuta(e.target.value)}
+              style={{ ...campo(38), fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+              <option value="">Todas las rutas</option>
+              {datos.rutas.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId} · {r.name}</option>)}
+            </select>
+          )}
+          {datos && datos.alcance.fijo && (
+            <span style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.2 }}>
+              Ruta {datos.alcance.routeId}
+            </span>
+          )}
+          {cargando && <span style={{ fontSize: 12, color: HUD.dim3 }}>Cargando…</span>}
+        </div>
+
+        {error && (
+          <div style={{
+            background: HUD.rojoFondo, border: `1px solid ${HUD.rojoBorde}`,
+            borderLeft: `3px solid ${HUD.red}`, borderRadius: 11, padding: '11px 13px',
+            marginBottom: 18, fontSize: 13, fontWeight: 700, color: HUD.rojoTinta,
+          }}>{error}</div>
+        )}
+
+        {/* Mientras se recarga se sostiene el dibujo anterior en gris en vez
+            de parpadear un esqueleto: el layout no salta. */}
+        <div style={{ opacity: cargando && datos ? 0.55 : 1, transition: 'opacity .15s' }}>
+        {datos && (<>
+          {/* La cifra que encabeza todo, una sola por pantalla */}
+          <div style={{ ...tarjeta(20), marginBottom: 14, display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div>
+              <div style={rotulo(9)}>Cumplimiento de la brecha</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 4 }}>
+                <span style={{ fontFamily: black, fontSize: 52, lineHeight: 1, color: estado.color }}>
+                  {T.cumplimiento === null ? '—' : `${T.cumplimiento} %`}
+                </span>
+                <span style={{
+                  fontSize: 13, fontWeight: 700, color: estado.color,
+                  background: estado.fondo, border: `1px solid ${estado.borde}`,
+                  borderRadius: 7, padding: '4px 9px',
+                }}>{estado.palabra}</span>
+              </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 240, fontSize: 13, color: HUD.dim2, lineHeight: 1.6 }}>
+              De las {T.vueltas} vuelta{T.vueltas === 1 ? '' : 's'} cerradas en el período,
+              qué proporción mantuvo la brecha dentro del {Math.round(datos.toleranciaCumple * 100)} %
+              del objetivo de su ruta.
+              {T.sinBrecha > 0 && (
+                <> {T.sinBrecha} no entran en la cuenta porque no tienen brecha guardada.</>
+              )}
+              <br />
+              <span style={{ color: HUD.dim3 }}>
+                Se mide contra el objetivo de hoy, no contra el que regía cuando se
+                cerró cada vuelta: ese número no se guarda con la vuelta.
+              </span>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: 12, marginBottom: 22,
+          }}>
+            <Ficha etiqueta="Vueltas cerradas" valor={T.vueltas}
+              nota={`${T.unidades} unidad${T.unidades === 1 ? '' : 'es'} · ${datos.rango.dias} días`} />
+            <Ficha etiqueta="Vuelta promedio" valor={fmtSeg(T.duracionProm)} nota="minutos:segundos" />
+            <Ficha etiqueta="Brecha promedio" valor={fmtSeg(T.brechaProm)}
+              nota={datos.rutas.length === 1 ? `objetivo ${fmtSeg(datos.rutas[0].objetivoSec)}` : 'objetivo por ruta'} />
+            <Ficha etiqueta="Horas en ruta" valor={fmtHoras(T.horasSec)}
+              nota={`${T.personas} persona${T.personas === 1 ? '' : 's'}`} />
+            <Ficha etiqueta="Emergencias" valor={T.sos} nota="SOS del período" />
+          </div>
+
+          {/* ─── TENDENCIA ─────────────────────────────────── */}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 10 }}>
+            <div style={{ fontFamily: black, fontSize: 20 }}>Cómo viene</div>
+            <div style={{ flex: 1 }} />
+            {/* Todo gráfico tiene su tabla: el color nunca es la única forma
+                de llegar a un número. */}
+            <button onClick={() => setVerTabla(v => !v)} style={btnSecundario(32)}>
+              {verTabla ? 'Ver gráficos' : 'Ver tabla'}
+            </button>
+          </div>
+
+          {!verTabla && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginBottom: 22 }}>
+              <Grafico
+                tipo="linea"
+                titulo="Cumplimiento por día"
+                subtitulo="Proporción de vueltas dentro del objetivo. Los días sin servicio no aparecen"
+                datos={datos.porDia}
+                valor={d => d.cumplimiento}
+                maximo={100}
+                formato={v => v === null ? '—' : `${v} %`}
+              />
+              <Grafico
+                tipo="barras"
+                titulo="Vueltas por día"
+                subtitulo="Cuántas vueltas se cerraron cada día"
+                datos={datos.porDia}
+                valor={d => d.vueltas}
+                formato={v => String(v)}
+              />
+            </div>
+          )}
+
+          {verTabla && (
+            <div style={{ marginBottom: 22 }}>
+              <Tabla cols="90px 90px 90px 110px 1fr" ancho={520}
+                cabeceras={['Día', 'Vueltas', 'Unidades', 'Vuelta prom.', 'Cumplimiento']}>
+                {datos.porDia.length === 0 && (
+                  <div style={{ padding: '18px 14px', fontSize: 14, color: HUD.dim3 }}>
+                    No hay vueltas cerradas en este período.
+                  </div>
+                )}
+                {datos.porDia.map(d => (
+                  <Fila key={d.dia} cols="90px 90px 90px 110px 1fr">
+                    <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>{fmtDia(d.dia)}</span>
+                    <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2, fontVariantNumeric: 'tabular-nums' }}>{d.vueltas}</span>
+                    <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2, fontVariantNumeric: 'tabular-nums' }}>{d.unidades}</span>
+                    <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>{fmtSeg(d.duracionProm)}</span>
+                    <Cumplimiento pct={d.cumplimiento} />
+                  </Fila>
+                ))}
+              </Tabla>
+            </div>
+          )}
+
+          {/* ─── UNIDADES ──────────────────────────────────── */}
+          <div style={{ fontFamily: black, fontSize: 20, marginBottom: 4 }}>Unidad por unidad</div>
+          <div style={{ fontSize: 13, color: HUD.dim2, lineHeight: 1.5, maxWidth: 640, marginBottom: 12 }}>
+            Veinte vueltas en cuatro horas y veinte en diez no son lo mismo: por eso
+            las horas van al lado de las vueltas. En la brecha, <strong>▾</strong> es
+            que viene pegada a la de adelante y <strong>▴</strong> que viene rezagada
+            — las dos incumplen, pero se arreglan al revés.
+          </div>
+          <div style={{ marginBottom: 22 }}>
+            <Tabla cols="100px 80px 90px 90px 110px 1fr" ancho={740}
+              cabeceras={['Unidad', 'Vueltas', 'Horas', 'Vuelta prom.', 'Brecha', 'Cumplimiento']}>
+              {datos.porUnidad.length === 0 && (
+                <div style={{ padding: '18px 14px', fontSize: 14, color: HUD.dim3 }}>
+                  Todavía no hay vueltas cerradas en este período.
+                </div>
+              )}
+              {datos.porUnidad.map(u => {
+                // Contra el objetivo de SU ruta, no contra un promedio: en una
+                // cooperativa con varias rutas cada una tiene el suyo.
+                const obj = (datos.rutas.find(r => r.routeId === u.routeId) || {}).objetivoSec;
+                const desvio = obj && u.brechaProm !== null ? (u.brechaProm - obj) / obj : null;
+                // La flecha es forma, no color: se lee igual sin distinguir tonos
+                const flecha = desvio === null || Math.abs(desvio) <= datos.toleranciaCumple
+                  ? null : (desvio < 0 ? '▾' : '▴');
+                return (
+                  <Fila key={u.unitId} cols="100px 80px 90px 90px 110px 1fr">
+                    <span style={{ fontFamily: black, fontSize: 14 }}>{u.unitId}</span>
+                    <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.fg2, fontVariantNumeric: 'tabular-nums' }}>{u.vueltas}</span>
+                    <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2 }}>{fmtHoras(u.horasSec)}</span>
+                    <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>{fmtSeg(u.duracionProm)}</span>
+                    <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}
+                      title={flecha === '▾' ? 'Viene pegada a la de adelante'
+                        : flecha === '▴' ? 'Viene rezagada' : 'Dentro del objetivo'}>
+                      {fmtSeg(u.brechaProm)}
+                      {flecha && <span style={{ color: HUD.dim2, marginLeft: 5 }}>{flecha}</span>}
+                    </span>
+                    <Cumplimiento pct={u.cumplimiento} />
+                  </Fila>
+                );
+              })}
+            </Tabla>
+          </div>
+
+          {/* ─── PERSONAS ──────────────────────────────────── */}
+          <div style={{ fontFamily: black, fontSize: 20, marginBottom: 12 }}>Horas por persona</div>
+          <div style={{ marginBottom: 22 }}>
+            <Tabla cols="1fr 110px 100px 120px" ancho={520}
+              cabeceras={['Persona', 'Rol', 'Turnos', 'Horas']}>
+              {datos.porPersona.length === 0 && (
+                <div style={{ padding: '18px 14px', fontSize: 14, color: HUD.dim3 }}>
+                  Nadie abrió turno en este período.
+                </div>
+              )}
+              {datos.porPersona.map(p => (
+                <Fila key={p.personId} cols="1fr 110px 100px 120px">
+                  <span style={{ fontSize: 13, color: HUD.fg2, minWidth: 0,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.name || p.personId}
+                    {p.alias && <span style={{ color: HUD.dim3 }}> ({p.alias})</span>}
+                    {p.unidades.length > 0 && (
+                      <span style={{ fontFamily: mono, fontSize: 11, color: HUD.dim3 }}> · {p.unidades.join(', ')}</span>
+                    )}
+                  </span>
+                  <span style={rotulo(10, HUD.dim2)}>{p.role === 'collector' ? 'Cobrador' : 'Chofer'}</span>
+                  <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2, fontVariantNumeric: 'tabular-nums' }}>{p.turnos}</span>
+                  <span style={{ fontFamily: black, fontSize: 14, textAlign: 'right' }}>{fmtHoras(p.horasSec)}</span>
+                </Fila>
+              ))}
+            </Tabla>
+          </div>
+
+          {/* ─── INFORMES ──────────────────────────────────── */}
+          <div style={{ fontFamily: black, fontSize: 20, marginBottom: 4 }}>Informes</div>
+          <div style={{ fontSize: 13, color: HUD.dim2, lineHeight: 1.5, maxWidth: 640, marginBottom: 12 }}>
+            Los mismos archivos que baja Despacho, del período que está arriba. Cada
+            uno arranca diciendo con qué se midió.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {[['vueltas', 'Vueltas y brechas (CSV)', true],
+              ['horas', 'Turnos por persona (CSV)', false],
+              ['sos', 'Emergencias (CSV)', false],
+              ['actividad', 'Actividad de administración (CSV)', false]].map(([tipo, etiqueta, principal]) => (
+              <button key={tipo} onClick={() => bajar(tipo)}
+                style={principal ? btnPrimario(40) : btnSecundario(40)}>{etiqueta}</button>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 26, fontSize: 12, color: HUD.dim3, lineHeight: 1.6, maxWidth: 720 }}>
+            Esta pantalla es <strong>solo de lectura</strong>: no da de alta ni de baja
+            a nadie, no toca la configuración de la ruta y no ve el mapa en vivo. Para
+            eso está el panel de Despacho, que es de quien opera el día.
+            {' '}Las vueltas sin brecha guardada no cuentan como cero: quedan afuera del
+            promedio y se informan aparte.
+          </div>
+        </>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── RAÍZ ──────────────────────────────────────────────────────
+function App() {
+  // sessionStorage y no localStorage: es una pantalla de escritorio que se
+  // abre para mirar un rato, no una app que vive instalada en un celular.
+  const [sesion, setSesion] = React.useState(() => {
+    try {
+      const s = JSON.parse(sessionStorage.getItem('r14_gerencia') || 'null');
+      return s?.token && s?.role === 'manager' ? s : null;
+    } catch { return null; }
+  });
+  const [aviso, setAviso] = React.useState(null);
+
+  const salir = (motivo) => {
+    try { sessionStorage.removeItem('r14_gerencia'); } catch {}
+    setSesion(null);
+    setAviso(motivo || null);
+  };
+
+  return sesion
+    ? <Panel sesion={sesion} onSalir={salir} />
+    : <Puerta aviso={aviso} onEntrar={(s) => { setSesion(s); setAviso(null); }} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
