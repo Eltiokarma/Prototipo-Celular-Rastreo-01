@@ -533,6 +533,16 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   const archivoRef = React.useRef(null);
   const encuadradoRef = React.useRef(false);
   const tramoRef = React.useRef('ida');
+  // Bajo 900 px el panel se pone arriba del mapa en vez de al costado
+  const [angosto, setAngosto] = React.useState(window.innerWidth < 900);
+  React.useEffect(() => {
+    const onResize = () => {
+      setAngosto(window.innerWidth < 900);
+      if (mapRef.current) setTimeout(() => mapRef.current.invalidateSize(), 60);
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   React.useEffect(() => { tramoRef.current = tramo; }, [tramo]);
 
@@ -574,40 +584,43 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     if (!map || !capa || !tramos) return;
     capa.clearLayers();
 
-    // El tramo que NO se está editando, de fondo
+    // El tramo que NO se está editando, punteado y apagado de fondo: el
+    // contraste dice cuál es cuál sin leer nada.
     const otro = tramo === 'ida' ? 'vuelta' : 'ida';
     if (tramos[otro].length > 1) {
       L.polyline(tramos[otro], {
-        color: HUD.dim2, weight: 4, opacity: 0.45, dashArray: '7 7',
+        color: HUD.dim3, weight: 4, opacity: 0.55, dashArray: '6 6',
       }).addTo(capa);
     }
 
+    // Ámbar cuando lo que se dibuja no es el trazado que mide hoy: el mismo
+    // color que la franja de aviso de arriba.
+    const tinta = variante && !variante.activa ? HUD.amber : HUD.bright;
     const activos = tramos[tramo];
     if (activos.length > 1) {
-      L.polyline(activos, { color: HUD.bright, weight: 5, opacity: 0.9 }).addTo(capa);
+      L.polyline(activos, { color: tinta, weight: 5, opacity: 0.9 }).addTo(capa);
     }
 
     const arrastrables = activos.length <= TOPE_ARRASTRABLES;
     activos.forEach((p, i) => {
       const extremo = i === 0 || i === activos.length - 1;
       if (!arrastrables) {
-        L.circleMarker(p, { radius: 3, color: HUD.bright, fillOpacity: 1, stroke: false }).addTo(capa);
+        L.circleMarker(p, { radius: 4, color: tinta, weight: 2, fillColor: '#fff', fillOpacity: 1 }).addTo(capa);
         return;
       }
-      const etiqueta = i === 0 ? 'A' : i === activos.length - 1 ? 'B' : String(i + 1);
+      // A y B se quedan: son lo único que dice en qué sentido se maneja.
+      const etiqueta = i === 0 ? 'A' : i === activos.length - 1 ? 'B' : '';
       const marcador = L.marker(p, {
         draggable: true,
         icon: L.divIcon({
           className: '',
-          iconSize: [extremo ? 26 : 20, extremo ? 26 : 20],
-          iconAnchor: [extremo ? 13 : 10, extremo ? 13 : 10],
+          iconSize: [extremo ? 22 : 12, extremo ? 22 : 12],
+          iconAnchor: [extremo ? 11 : 6, extremo ? 11 : 6],
           html: `<div style="width:100%;height:100%;border-radius:50%;
-            background:${extremo ? HUD.green : '#fff'};
-            border:2px solid ${extremo ? '#fff' : HUD.bright};
-            color:${extremo ? '#fff' : HUD.bright};
-            box-shadow:0 1px 4px rgba(0,0,0,.4);
+            background:#fff; border:2px solid ${tinta}; color:${tinta};
+            box-sizing:border-box;
             display:flex;align-items:center;justify-content:center;
-            font:700 ${extremo ? 12 : 10}px/1 system-ui,sans-serif;">${etiqueta}</div>`,
+            font:700 11px/1 system-ui,sans-serif;">${etiqueta}</div>`,
         }),
       }).addTo(capa);
       marcador.on('dragend', (e) => {
@@ -627,7 +640,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
       map.fitBounds(L.latLngBounds(todos).pad(0.15));
       encuadradoRef.current = true;
     }
-  }, [tramos, tramo]);
+  }, [tramos, tramo, variante]);
 
   const importar = (texto) => {
     try {
@@ -661,17 +674,23 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     setGuardando(false);
   };
 
-  const kmDe = (ps) => (largoDe(ps || []) / 1000).toFixed(2);
-  const btn = (bg, color, extra = {}) => ({
-    border: 'none', borderRadius: 10, padding: '0 14px', height: 38,
-    fontSize: 13, fontWeight: 700, cursor: 'pointer', background: bg, color,
-    fontFamily: 'inherit', ...extra,
-  });
+  // La franja de aviso y los mensajes le cambian el alto al mapa; Leaflet
+  // necesita que le avisen o queda con los mosaicos cortados.
+  React.useEffect(() => {
+    if (mapRef.current) setTimeout(() => mapRef.current.invalidateSize(), 60);
+  }, [variante, error, aviso, angosto]);
+
+  const kmDe = (ps) => (largoDe(ps || []) / 1000).toFixed(1);
 
   // Guardar con la vuelta a medias sería un circuito roto
   const vueltaIncompleta = tramos && tramos.vuelta.length === 1;
   const idaIncompleta = tramos && tramos.ida.length === 1;
   const sinIda = tramos && !tramos.ida.length && tramos.vuelta.length > 0;
+  const trabado = guardando || !tramos || vueltaIncompleta || idaIncompleta || sinIda;
+  const midiendo = lista.find(v => v.activa) || null;
+  const desalineado = !!(variante && !variante.activa);
+
+  const importarArchivo = () => archivoRef.current?.click();
 
   return (
     <div style={{
@@ -680,129 +699,201 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     }}>
       {/* cabecera */}
       <div style={{
-        flexShrink: 0, padding: '12px 16px', borderBottom: `1px solid ${HUD.divider}`,
-        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+        height: 60, flexShrink: 0, padding: '0 18px', background: HUD.surface,
+        borderBottom: `1px solid ${HUD.divider}`,
+        display: 'flex', alignItems: 'center', gap: 12,
       }}>
-        <span style={{ fontFamily: black, fontSize: 18 }}>RECORRIDO {routeId}</span>
-        {/* Sobre cuál trazado se dibuja. Con uno solo no hay nada que elegir. */}
-        {lista.length > 1 && (
-          <select value={variantId || ''} onChange={e => setVariantId(Number(e.target.value))}
-            title="Sobre cuál de los trazados de esta ruta estás dibujando"
-            style={{
-              background: HUD.campo, color: HUD.fg, border: `1px solid ${HUD.line}`,
-              borderRadius: 8, padding: '6px 8px', fontSize: 13, fontWeight: 700,
-              fontFamily: 'inherit', cursor: 'pointer', maxWidth: 220,
-            }}>
-            {lista.map(v => (
-              <option key={v.variantId} value={v.variantId}>
-                {v.name}{v.activa ? ' · midiendo' : ''}
-              </option>
-            ))}
-          </select>
-        )}
-        <span style={{ fontSize: 13, color: HUD.dim, flex: '1 1 auto', minWidth: 0,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{routeName || ''}</span>
-        <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.fg2, whiteSpace: 'nowrap' }}>
-          {tramos
-            ? `ida ${tramos.ida.length} pts · ${kmDe(tramos.ida)} km` +
-              (tramos.vuelta.length ? ` · vuelta ${tramos.vuelta.length} pts · ${kmDe(tramos.vuelta)} km` : '')
-            : '…'}
-        </span>
-        <button onClick={onClose} style={btn('transparent', HUD.dim2)}>✕ Salir</button>
-      </div>
-
-      {/* qué tramo se está dibujando */}
-      <div style={{
-        flexShrink: 0, padding: '10px 16px 0', display: 'flex', gap: 8, flexWrap: 'wrap',
-      }}>
-        {[['ida', 'IDA'], ['vuelta', 'VUELTA']].map(([k, etiqueta]) => {
-          const activo = tramo === k;
-          const n = tramos ? tramos[k].length : 0;
-          return (
-            <button key={k} onClick={() => setTramo(k)} style={{
-              ...btn(activo ? HUD.bright : HUD.boton, activo ? '#fff' : HUD.fg2),
-              border: `1px solid ${activo ? HUD.bright : HUD.line}`,
-            }}>{etiqueta} · {n} pts</button>
-          );
-        })}
-      </div>
-
-      {/* instrucción */}
-      <div style={{
-        flexShrink: 0, padding: '9px 16px', margin: '10px 0 0', background: HUD.hueco,
-        fontSize: 13, color: HUD.dim, lineHeight: 1.45,
-      }}>
-        La combi hace un circuito: marcá primero la <strong>ida</strong> y después
-        la <strong>vuelta</strong>, cada una en el orden en que se maneja. En cada
-        tramo el primer punto es la salida (<span style={{ color: HUD.green, fontWeight: 700 }}>A</span>)
-        y el último el final (<span style={{ color: HUD.green, fontWeight: 700 }}>B</span>).
-        {puntos && puntos.length > TOPE_ARRASTRABLES
-          ? ' Con más de ' + TOPE_ARRASTRABLES + ' puntos no se pueden arrastrar (serían miles de marcadores): usá Deshacer o Borrar todo.'
-          : ' Arrastrá un punto para corregirlo, tocalo para borrarlo.'}
-        {' '}El tramo que no estás editando queda punteado de fondo.
-      </div>
-
-      {error && <div style={{ flexShrink: 0, padding: '8px 16px', background: HUD.burbujaSos,
-        color: HUD.burbujaSosInk, fontSize: 13, fontWeight: 700 }}>{error}</div>}
-      {aviso && <div style={{ flexShrink: 0, padding: '8px 16px', background: HUD.okFondo,
-        color: HUD.okClave, fontSize: 13, fontWeight: 700 }}>{aviso}</div>}
-
-      {/* Dibujar un trazado guardado es lo normal cuando se prepara un desvío
-          antes de que empiece la obra. Pero hay que decirlo: si no, se guarda
-          creyendo que se corrigió el recorrido de hoy y no cambió nada. */}
-      {variante && !variante.activa && (
-        <div style={{
-          flexShrink: 0, padding: '8px 16px', background: HUD.avisoFondo || 'rgba(245,197,66,.12)',
-          color: HUD.amber, fontSize: 13, fontWeight: 700,
-        }}>
-          Estás dibujando «{variante.name}», que <u>no</u> es el trazado con el que
-          se está midiendo. Guardar acá no le cambia el mapa a nadie hasta que se
-          active desde RUTAS.
-        </div>
-      )}
-
-      {/* mapa */}
-      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        <div ref={initMap} style={{ position: 'absolute', inset: 0, cursor: 'crosshair' }} />
-      </div>
-
-      {/* acciones */}
-      <div style={{
-        flexShrink: 0, padding: '12px 16px', borderTop: `1px solid ${HUD.divider}`,
-        display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
-      }}>
-        <button onClick={() => setPuntos(p => p.slice(0, -1))}
-          disabled={!puntos || !puntos.length}
-          style={btn(HUD.boton, HUD.fg2)}>↶ Deshacer</button>
-        <button onClick={() => { setPuntos([]); setAviso(null); }}
-          disabled={!puntos || !puntos.length}
-          style={btn(HUD.boton, HUD.red)}>Borrar {tramo}</button>
-        <button onClick={() => archivoRef.current?.click()}
-          title={`Un GPX o GeoJSON para la ${tramo}, por ejemplo de esa mitad grabada manejando`}
-          style={btn(HUD.boton, HUD.fg2)}>Importar GPX a la {tramo}</button>
-        <input ref={archivoRef} type="file" accept=".gpx,.geojson,.json,.xml,text/*"
-          style={{ display: 'none' }}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (!f) return;
-            const fr = new FileReader();
-            fr.onload = () => importar(String(fr.result));
-            fr.onerror = () => setError('No se pudo abrir el archivo');
-            fr.readAsText(f);
-            e.target.value = '';
-          }} />
+        <span style={{ fontFamily: black, fontSize: 17 }}>Trazador</span>
+        <span style={{
+          ...rotulo(10, HUD.dim2), letterSpacing: 1.5, minWidth: 0,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>{routeId}{routeName ? ` · ${routeName}` : ''}</span>
         <div style={{ flex: 1 }} />
         {(vueltaIncompleta || idaIncompleta || sinIda) && (
-          <span style={{ fontSize: 12, color: HUD.amber, fontWeight: 700 }}>
+          <span style={{ fontSize: 12, color: HUD.amber, fontWeight: 700, textAlign: 'right' }}>
             {sinIda ? 'Falta la ida: el circuito arranca por ahí'
               : `La ${idaIncompleta ? 'ida' : 'vuelta'} tiene un solo punto`}
           </span>
         )}
-        <button onClick={guardar}
-          disabled={guardando || !tramos || vueltaIncompleta || idaIncompleta || sinIda}
-          style={btn(HUD.bright, '#fff', { padding: '0 20px', height: 40, fontSize: 14 })}>
+        <button onClick={onClose} style={btnSecundario(36)}>Cancelar</button>
+        <button onClick={guardar} disabled={trabado}
+          style={{ ...btnPrimario(36), opacity: trabado ? .5 : 1, cursor: trabado ? 'not-allowed' : 'pointer' }}>
           {guardando ? 'Guardando…' : 'Guardar recorrido'}
         </button>
+      </div>
+
+      {/* Dibujar un trazado guardado es lo normal cuando se prepara un desvío
+          antes de que empiece la obra. Pero hay que decirlo, y decirlo acá:
+          si no, se guarda creyendo que se corrigió el recorrido de hoy y no
+          cambió nada. No es un toast, no se descarta y no se esconde. */}
+      {desalineado && (
+        <div style={{
+          flexShrink: 0, padding: '14px 20px', background: HUD.ambarFondo,
+          borderBottom: `2px solid ${HUD.amber}`,
+          display: 'flex', gap: 13, alignItems: 'flex-start',
+        }}>
+          <span style={{ fontFamily: black, fontSize: 15, color: HUD.amber, flexShrink: 0 }}>ATENCIÓN</span>
+          <span style={{ fontSize: 14, lineHeight: 1.55, color: HUD.ambarTinta }}>
+            Estás dibujando <strong>«{variante.name}»</strong>, que <strong>no es el
+            trazado con el que se está midiendo hoy</strong>
+            {midiendo ? <> (hoy mide «{midiendo.name}»)</> : null}. Guardar acá no
+            corrige el recorrido de las unidades que están en ruta: para eso hay que
+            cambiar la medición en Gestión ▸ Rutas.
+          </span>
+        </div>
+      )}
+
+      {error && (
+        <div style={{
+          flexShrink: 0, padding: '10px 20px', background: HUD.rojoFondo,
+          borderBottom: `1px solid ${HUD.rojoBorde}`,
+          color: HUD.rojoTinta, fontSize: 13, fontWeight: 700,
+        }}>{error}</div>
+      )}
+      {aviso && (
+        <div style={{
+          flexShrink: 0, padding: '10px 20px', background: HUD.verdeFondo,
+          borderBottom: `1px solid ${HUD.verdeBorde}`,
+          color: HUD.verdeTinta, fontSize: 13, fontWeight: 700,
+        }}>{aviso}</div>
+      )}
+
+      <div style={{
+        flex: 1, minHeight: 0, display: 'flex',
+        flexDirection: angosto ? 'column' : 'row',
+      }}>
+        {/* panel */}
+        <div style={{
+          flexShrink: 0, width: angosto ? 'auto' : 300, background: HUD.bg,
+          borderRight: angosto ? 'none' : `1px solid ${HUD.divider}`,
+          borderBottom: angosto ? `1px solid ${HUD.divider}` : 'none',
+          padding: 16, overflowY: 'auto',
+          display: 'flex', flexDirection: 'column', gap: 16,
+        }}>
+          {/* Sobre cuál trazado se dibuja. Con uno solo no hay nada que elegir. */}
+          <div>
+            <div style={{ ...rotulo(9), marginBottom: 8 }}>Trazado que estás dibujando</div>
+            {lista.length > 1 ? (
+              <span style={{ position: 'relative', display: 'block' }}>
+                <span style={{
+                  display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 12px',
+                  background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 10,
+                }}>
+                  <span style={{
+                    fontFamily: black, fontSize: 14, flex: 1, minWidth: 0,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{variante ? variante.name : '—'}</span>
+                  <span style={{ fontSize: 11, color: HUD.dim3 }}>▾</span>
+                </span>
+                <select value={variantId || ''} onChange={e => setVariantId(Number(e.target.value))}
+                  title="Sobre cuál de los trazados de esta ruta estás dibujando"
+                  style={{ position: 'absolute', inset: 0, width: '100%', opacity: 0, cursor: 'pointer' }}>
+                  {lista.map(v => (
+                    <option key={v.variantId} value={v.variantId}>
+                      {v.name}{v.activa ? ' · midiendo' : ''}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            ) : (
+              <div style={{
+                height: 40, padding: '0 12px', display: 'flex', alignItems: 'center',
+                background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 10,
+                fontFamily: black, fontSize: 14,
+              }}>{variante ? variante.name : (routeName || routeId)}</div>
+            )}
+            {desalineado && (
+              <div style={{ ...rotulo(10, HUD.amber), letterSpacing: 1, marginTop: 8 }}>
+                ◇ No es el que mide hoy
+              </div>
+            )}
+          </div>
+
+          <div style={{ height: 1, background: HUD.divider }} />
+
+          {/* Tramo que se está dibujando. El circuito son dos: la combi va y
+              vuelve, y no siempre por la misma calle. */}
+          <div>
+            <div style={{ ...rotulo(9), marginBottom: 8 }}>Tramo</div>
+            <div style={{ display: 'flex', background: HUD.hueco, borderRadius: 10, padding: 3 }}>
+              {[['ida', 'Ida'], ['vuelta', 'Vuelta']].map(([k, etiqueta]) => {
+                const activo = tramo === k;
+                return (
+                  <button key={k} onClick={() => setTramo(k)} style={{
+                    flex: 1, height: 34, borderRadius: 8, cursor: 'pointer',
+                    fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
+                    background: activo ? HUD.surface : 'transparent',
+                    border: `1px solid ${activo ? HUD.line : 'transparent'}`,
+                    color: activo ? HUD.fg : HUD.dim2,
+                  }}>{etiqueta}</button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+              <div style={rotulo(9)}>Puntos</div>
+              <div style={{ fontFamily: black, fontSize: 22, marginTop: 4 }}>
+                {puntos ? puntos.length : '—'}
+              </div>
+            </div>
+            <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+              <div style={rotulo(9)}>Largo</div>
+              <div style={{ fontFamily: black, fontSize: 22, marginTop: 4 }}>
+                {puntos ? kmDe(puntos) : '—'}
+                <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim2, marginLeft: 4 }}>KM</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button onClick={importarArchivo}
+              title={`Un GPX o GeoJSON para la ${tramo}, por ejemplo de esa mitad grabada manejando`}
+              style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2 }}>
+              Importar GPX o GeoJSON
+            </button>
+            <button onClick={() => setPuntos(p => p.slice(0, -1))}
+              disabled={!puntos || !puntos.length}
+              style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2, opacity: puntos && puntos.length ? 1 : .5 }}>
+              Deshacer último punto
+            </button>
+            <button onClick={() => { setPuntos([]); setAviso(null); }}
+              disabled={!puntos || !puntos.length}
+              style={{
+                ...btnSecundario(38), width: '100%', color: HUD.red,
+                borderColor: HUD.rojoBorde, opacity: puntos && puntos.length ? 1 : .5,
+              }}>
+              Borrar la {tramo}
+            </button>
+            <input ref={archivoRef} type="file" accept=".gpx,.geojson,.json,.xml,text/*"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                const fr = new FileReader();
+                fr.onload = () => importar(String(fr.result));
+                fr.onerror = () => setError('No se pudo abrir el archivo');
+                fr.readAsText(f);
+                e.target.value = '';
+              }} />
+          </div>
+
+          <div style={{ fontSize: 12, color: HUD.dim3, lineHeight: 1.55 }}>
+            Marcá el recorrido tocando el mapa en el orden en que se maneja: el
+            primer punto es la salida (<strong>A</strong>) y el último el final
+            (<strong>B</strong>).
+            {puntos && puntos.length > TOPE_ARRASTRABLES
+              ? ` Con más de ${TOPE_ARRASTRABLES} puntos no se pueden arrastrar (serían miles de marcadores): usá Deshacer.`
+              : ' Arrastrá un punto para corregirlo, tocalo para borrarlo.'}
+            {' '}El tramo que no estás editando queda punteado de fondo.
+          </div>
+        </div>
+
+        {/* mapa */}
+        <div style={{ flex: 1, minHeight: angosto ? 320 : 0, position: 'relative' }}>
+          <div ref={initMap} style={{ position: 'absolute', inset: 0, cursor: 'crosshair' }} />
+        </div>
       </div>
     </div>
   );
