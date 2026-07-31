@@ -124,6 +124,27 @@ limitación se resuelva o aparezca una nueva.
 - El GPS urbano tiene error típico de 5–30 m, y algunos equipos no
   reportan velocidad (se muestra 0).
 
+### Brecha promedio por vuelta
+
+- **Empieza el día que se enciende.** No se puede reconstruir hacia atrás: la
+  brecha se calcula en vivo contra dónde están las otras unidades en ese
+  instante, y esas posiciones no se guardan. Las vueltas anteriores quedan
+  **sin dato**, y salen vacías en la pantalla y en el informe — vacío es más
+  honesto que un cero.
+- **Se mide contra la unidad de adelante**, que es la que el chofer regula.
+  Una unidad sola en la ruta, o la que va primera todo el tiempo, no tiene
+  contra qué compararse y su vuelta queda sin dato: así no cuenta ni a favor
+  ni en contra de nadie.
+- **Una muestra por vuelta sale distorsionada.** Al cruzar el inicio del
+  circuito, la unidad que acaba de dar la vuelta queda comparada contra las
+  que todavía no la dieron, y esa muestra sale grande. En una vuelta real son
+  cientos de muestras, así que mueve el promedio menos de un 0,1 %. Se
+  documenta en vez de filtrarla porque cualquier filtro por tamaño también
+  descartaría brechas legítimas cuando hay pocas unidades en la ruta.
+- **Cuenta también los minutos detenido** en el terminal o en un
+  embotellamiento. Es la brecha que existió, no la que la unidad podía
+  controlar.
+
 ### Variantes del recorrido
 
 - **Cambiar de variante descarta las vueltas en curso.** Es a propósito —una
