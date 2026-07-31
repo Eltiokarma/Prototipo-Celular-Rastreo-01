@@ -2499,11 +2499,17 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       const cB = gapColor(g.toBehind, routeInfo.targetGapMin);
       const color = isSos ? HUD.red
         : [HUD.red, HUD.amber, HUD.green, HUD.dim3].find(c => c === cA || c === cB) || HUD.dim3;
+      // El desvío también se ve en el mapa, no solo en la lista: es donde
+      // Despacho está mirando cuando pasa. Anillo ámbar alrededor del punto.
+      const fuera = !!u.fueraDeRuta;
+      const halo = fuera
+        ? `box-shadow:0 0 0 3px ${HUD.bg},0 0 0 6px ${HUD.amber};`
+        : '';
       // width:max-content porque el icono de Leaflet mide 0×0: sin eso la
       // etiqueta se parte en dos líneas dentro de un contenedor sin ancho.
-      const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:3px;">
-        <div style="font-family:${black};font-size:11px;color:#fff;background:${color};padding:2px 6px;border-radius:5px;white-space:nowrap;">${escaparHtml(u.unitId)}</div>
-        <div style="width:10px;height:10px;border-radius:50%;background:#fff;border:3px solid ${color};box-sizing:content-box;"></div>
+      const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:${fuera ? 6 : 3}px;">
+        <div style="font-family:${black};font-size:11px;color:#fff;background:${color};padding:2px 6px;border-radius:5px;white-space:nowrap;">${escaparHtml(u.unitId)}${fuera ? ' ◇' : ''}</div>
+        <div style="width:10px;height:10px;border-radius:50%;background:#fff;border:3px solid ${color};box-sizing:content-box;${halo}"></div>
       </div>`;
       const icon = L.divIcon({ html, className: '', iconSize: [0, 0], iconAnchor: [0, 0] });
       if (existing[u.unitId]) {

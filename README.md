@@ -167,22 +167,31 @@ el usuario reservado `DESPACHO` siempre recibe rol `dispatch` y **no**
 aparece como unidad en ruta. En producción fijar su clave con la variable
 de entorno `DISPATCH_PASSWORD` (crea/actualiza la cuenta al arrancar).
 
-**Administración (botón Gestión):** pestañas **PERSONAS** (alta con
-nombre obligatorio, alias opcional, rol chofer/cobrador y vehículo
-asignado; corrección de nombre/alias, reset de contraseña y bajas),
-**VEHÍCULOS** (alta de combis con su placa y quién va en cada una),
-**RUTAS**, **VUELTAS** y **ACTIVIDAD** — contra los endpoints `/admin/*`
-del servidor (protegidos por rol `dispatch` vía `Authorization: Bearer`).
-Al dar de alta un chofer sin elegir vehículo se le crea uno con su mismo
-código; un cobrador **necesita** un vehículo ya existente. Resetear la
-clave o dar de baja revoca las sesiones de esa unidad y la desconecta al
-instante — el celular vuelve al login con el motivo. La pestaña
-**Actividad** muestra la auditoría: quién inició sesión, quién dio de
-alta/baja o reseteó claves, bloqueos por intentos fallidos y SOS.
-La pestaña **Vueltas** muestra el historial por unidad (vueltas de hoy,
-última, promedio, mejor y velocidad): el servidor detecta cada vuelta
-solo — cuando el `routeProgress` llega cerca del final y vuelve al
-inicio — y la guarda en la tabla `laps` (últimas 2000).
+**Administración (botón Gestión):** un espacio de trabajo aparte, con un
+riel a la izquierda que agrupa las ocho secciones por para qué sirven —
+*operación del día* (Personas, Vehículos, Turnos), *ruta y medición*
+(Rutas, Vueltas, Informes) y *la cooperativa* (Empresa, Actividad). Cada
+sección abre diciendo qué se hace ahí. Bajo 900 px el riel se convierte en
+un desplegable. Todo contra los endpoints `/admin/*` del servidor
+(protegidos por rol `dispatch` vía `Authorization: Bearer`).
+
+- **Personas** — alta con nombre obligatorio, alias opcional, rol
+  chofer/cobrador y vehículo asignado; corrección de nombre/alias, reset de
+  contraseña y bajas. Al dar de alta un chofer sin elegir vehículo se le
+  crea uno con su mismo código; un cobrador **necesita** un vehículo ya
+  existente. Resetear la clave o dar de baja revoca las sesiones de esa
+  unidad y la desconecta al instante — el celular vuelve al login con el
+  motivo.
+- **Vehículos** — alta de combis con su placa y quién va arriba de cada una.
+- **Rutas** — una tarjeta por ruta con el objetivo de brecha, el recorrido
+  cargado y con cuál de los trazados se está midiendo.
+- **Turnos** — entradas y salidas de la jornada, con hoy / ayer / esta semana.
+- **Vueltas** — cada vuelta cerrada con su duración y su brecha promedio, más
+  el acumulado por unidad. El servidor detecta cada vuelta solo —cuando el
+  `routeProgress` llega cerca del final y vuelve al inicio— y la guarda en la
+  tabla `laps` (últimas 2000).
+- **Actividad** — la auditoría: quién inició sesión, quién dio de alta/baja o
+  reseteó claves, bloqueos por intentos fallidos y SOS.
 
 ## Identidad: la persona no es la combi
 
@@ -261,15 +270,18 @@ recorrido tiene efecto al instante, sin actualizar la app de nadie. De paso
 el servidor sabe **a cuántos metros del trazado** va cada unidad (`desvioM`),
 que es la base para detectar que una combi se salió de la ruta.
 
-**Cómo se carga** — panel → Gestión → RUTAS → botón *Recorrido*:
+**Cómo se carga** — panel → Gestión → Rutas → botón *Abrir trazador*:
 
-- **Tocando el mapa**, un tramo a la vez: se elige IDA o VUELTA arriba y se
-  marca en el orden en que se maneja; el primer punto de cada tramo es la
-  salida (**A**) y el último el final (**B**). El tramo que no se está
-  editando queda punteado de fondo, para poder calzarlos. Se arrastra un
-  punto para corregirlo y se lo toca para borrarlo; hay *Deshacer* y *Borrar*,
-  y arriba se ven los puntos y los km de cada tramo. Funciona igual con el
-  mouse en PC que con el dedo en un celular.
+- **Tocando el mapa**, un tramo a la vez: se elige *Ida* o *Vuelta* en el
+  panel de la izquierda y se marca en el orden en que se maneja; el primer
+  punto de cada tramo es la salida (**A**) y el último el final (**B**). El
+  tramo que no se está editando queda punteado de fondo, para poder
+  calzarlos. Se arrastra un punto para corregirlo y se lo toca para borrarlo;
+  hay *Deshacer último punto* y *Borrar la ida/vuelta*, y al lado los puntos y
+  los km del tramo. Funciona igual con el mouse en PC que con el dedo en un
+  celular. Si el trazado que se está dibujando **no es el que mide hoy**, una
+  franja ámbar fija bajo el título lo dice, nombra los dos y explica dónde se
+  cambia la medición — no se puede descartar.
 - **Importando un GPX o GeoJSON** al tramo activo, por ejemplo de esa mitad
   grabada manejando. Se simplifica con Douglas-Peucker (tolerancia 10 m): un
   GPX de 600 puntos queda en unas decenas **sin cambiar la forma**. Tope:
@@ -370,10 +382,10 @@ repartidas, la separación natural entre una y otra es 60/12 = 5 minutos. El
 sistema ya tiene los dos datos (historial de vueltas en `laps` y unidades en
 ruta), así que puede calcular el objetivo en vez de que se cargue a mano.
 
-Se prende por ruta desde el panel (Gestión → RUTAS → **Automático**). Usa el
+Se prende por ruta desde el panel (Gestión → Rutas → **Automático**). Usa el
 promedio de vuelta del **mismo día de la semana** —el tráfico de un domingo no
 es el de un lunes— y si ese día todavía no juntó vueltas, cae al promedio
-general. El chip de la fila dice siempre de dónde sale el número: `AUTO · 12
+general. El chip de la tarjeta dice siempre de dónde sale el número: `AUTO · 12
 vueltas · lunes`, `AUTO · faltan vueltas (2/3)`, `AUTO · sin unidades en ruta`
 o `A MANO`.
 
@@ -499,6 +511,16 @@ Despacho, se les agregan rutas y se las suspende; además muestra la salud
 del servidor y la actividad de todas juntas — el único lugar del sistema
 donde se ven así.
 
+**Es sobrio a propósito, no oscuro.** Usa los mismos tokens claros que el
+panel de Despacho; lo que lo hace herramienta interna es que no tiene marca,
+ni gradientes, ni "recordarme", y que la cabecera dice en la cara que la
+sesión muere al cerrar la pestaña. En *Sistema*, los avisos —dónde vive la
+base, si falta el segundo factor— van **arriba** de las tarjetas de salud:
+son lo único de esa pantalla que pide hacer algo hoy, y un número más entre
+doce no lo es. Suspender una cooperativa abre una confirmación que nombra
+cuál y cuenta la consecuencia en gente concreta: cuántas cuentas de Despacho
+y cuántos choferes y cobradores pierden el acceso en el acto.
+
 **Está apagado.** Se enciende con variables de entorno, y sin ellas las
 rutas ni siquiera se registran:
 
@@ -618,8 +640,8 @@ marca nada** — no hay con qué comparar.
 
 Quién manejó qué unidad y cuánto tiempo. Se registra **solo lo que el sistema
 ya ve solo**: el turno se abre cuando alguien entra a su unidad y se cierra
-cuando se va. Panel → Gestión → **TURNOS**: horas por persona arriba, y el
-detalle de cada turno abajo con hora de entrada, de salida y unidad.
+cuando se va. Panel → Gestión → **Turnos**, con hoy, ayer o esta semana: por unidad,
+quién iba arriba, hora de entrada, de salida y cuánto llevó en ruta.
 
 Dos cosas que lo hacen utilizable en la calle y no solo en la demo:
 
@@ -640,8 +662,8 @@ informe de horas trabajadas.
 
 ## Informes
 
-Panel → Gestión → **INFORMES**. Cuatro informes, cada uno con período de hoy,
-7 o 30 días:
+Panel → Gestión → **Informes**. Se elige un rango de fechas y se bajan los
+cuatro informes de ese período:
 
 | Informe | Qué trae |
 | --- | --- |

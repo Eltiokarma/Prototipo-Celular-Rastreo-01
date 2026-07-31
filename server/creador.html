@@ -16,11 +16,19 @@
 
 <style>
   *, *::before, *::after { box-sizing: border-box; }
+  /* Mismos tokens que el panel de Despacho: el creador es sobrio, no
+     oscuro. Lo que lo hace herramienta interna es no tener marca, no tener
+     gradientes y no ofrecer "recordarme", no el fondo negro. */
   :root {
-    --bg: #0a0d12; --surface: #121820; --line: #222b36; --divider: #1b232d;
-    --fg: #E9F1FA; --fg2: #C3D2E0; --dim: #8296A9; --dim2: #64788C;
-    --campo: #0d131a; --bright: #4AA3F0; --green: #3DD685; --amber: #F5C542;
-    --red: #FF4D6D;
+    --bg: #F7FAFD; --surface: #FFFFFF; --line: #C3D4E4; --divider: #E1E9F2;
+    --fg: #0B2239; --fg2: #2A4864; --dim: #41627F; --dim2: #547693; --dim3: #7591AB;
+    --hueco: #EDF2F8; --campo: #FFFFFF;
+    --bright: #1668C4; --green: #1F8A4F; --amber: #A67300; --red: #C2001D;
+    /* Superficies de estado */
+    --verdeFondo: #E9F7EF; --verdeBorde: #BEE3CD; --verdeTinta: #0B6B33;
+    --ambarFondo: #FDF6E4; --ambarBorde: #E4C88A; --ambarTinta: #4A3200;
+    --rojoFondo: #FCEBEE;  --rojoBorde: #E6BFC6;  --rojoTinta: #5C0010;
+    --velo: rgba(11,34,57,.42);
   }
   html, body {
     margin: 0; padding: 0; min-height: 100%;
@@ -36,13 +44,17 @@
     border: 1px solid var(--line); border-radius: 10px; outline: none;
   }
   input:focus, select:focus { border-color: var(--bright); }
-  label { display: block; font-size: 11px; color: var(--dim); margin-bottom: 4px; }
+  label { display: block; font-family: "JetBrains Mono", ui-monospace, monospace;
+          font-size: 9px; font-weight: 700; letter-spacing: 1.3px;
+          text-transform: uppercase; color: var(--dim3); margin-bottom: 6px; }
   .campo { margin-bottom: 10px; }
-  button { cursor: pointer; border: none; border-radius: 10px; font-weight: 700; }
+  button { cursor: pointer; border: none; border-radius: 9px; font-weight: 700; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; font-size: 11px; color: var(--dim2); font-weight: 700;
-       text-transform: uppercase; letter-spacing: .5px; padding: 6px 8px; }
-  td { padding: 8px; border-top: 1px solid var(--divider); vertical-align: top; }
+  th { text-align: left; font-family: "JetBrains Mono", ui-monospace, monospace;
+       font-size: 9px; color: var(--dim3); font-weight: 700;
+       text-transform: uppercase; letter-spacing: 1.3px; padding: 10px 8px; }
+  td { padding: 11px 8px; border-top: 1px solid var(--hueco); vertical-align: top; }
+  code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .92em; }
 </style>
 
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
@@ -116,9 +128,9 @@ function Puerta({ onEntrar }) {
       }} onKeyDown={e => { if (e.key === 'Enter' && !yendo) entrar(); }}>
         <div className="black" style={{ fontSize: 22 }}>Creador</div>
         <div className="mono" style={{
-          fontSize: 11, letterSpacing: 1, color: 'var(--dim)',
+          fontSize: 9, fontWeight: 700, letterSpacing: 1.3, color: 'var(--dim3)',
           textTransform: 'uppercase', marginBottom: 22,
-        }}>Nivel de arriba</div>
+        }}>Herramienta interna · la sesión muere al cerrar la pestaña</div>
 
         <div className="campo">
           <label>Clave</label>
@@ -135,15 +147,16 @@ function Puerta({ onEntrar }) {
 
         {error && (
           <div style={{
-            background: 'rgba(255,77,109,.1)', border: '1px solid var(--red)',
+            background: 'var(--rojoFondo)', border: '1px solid var(--rojoBorde)',
+            borderLeft: '3px solid var(--red)',
             borderRadius: 10, padding: '9px 11px', margin: '12px 0',
-            fontSize: 13, fontWeight: 600, color: 'var(--red)',
+            fontSize: 13, fontWeight: 700, color: 'var(--rojoTinta)',
           }}>{error}</div>
         )}
 
         <button disabled={yendo} onClick={entrar} style={{
           width: '100%', padding: '13px', fontSize: 15, marginTop: 8,
-          background: yendo ? 'var(--line)' : 'var(--bright)', color: '#fff',
+          background: yendo ? 'var(--dim3)' : 'var(--bright)', color: '#fff',
         }}>{yendo ? 'Verificando…' : 'Entrar'}</button>
       </div>
     </div>
@@ -281,6 +294,8 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
     setOcupado(false);
   };
 
+  const suspendidas = empresas.filter(e => !e.activa).length;
+
   const crear = () => correr(async () => {
     await api('/empresas', { method: 'POST', body: JSON.stringify(form) });
     setForm({ companyId: '', name: '', ruc: '', contacto: '', ruta: '', nombreRuta: '', despacho: '', clave: '' });
@@ -290,11 +305,21 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-        <div className="black" style={{ fontSize: 18 }}>Cooperativas</div>
+        <div className="mono" style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: 1.3, color: 'var(--dim3)',
+          textTransform: 'uppercase',
+        }}>
+          {empresas.length} cooperativa{empresas.length === 1 ? '' : 's'}
+          {suspendidas ? ` · ${suspendidas} suspendida${suspendidas === 1 ? '' : 's'}` : ''}
+        </div>
         <div style={{ flex: 1 }} />
+        {/* Tinta y no el azul de producto: la acción principal del creador
+            no compite con la de Despacho, que es otra pantalla y otro rol. */}
         <button onClick={() => setNueva(nueva ? null : true)} style={{
-          padding: '8px 14px', fontSize: 13,
-          background: nueva ? 'var(--line)' : 'var(--bright)', color: '#fff',
+          height: 38, padding: '0 14px', fontSize: 13,
+          background: nueva ? 'var(--surface)' : 'var(--fg)',
+          border: nueva ? '1px solid var(--line)' : 'none',
+          color: nueva ? 'var(--dim2)' : '#fff',
         }}>{nueva ? 'Cancelar' : '+ Nueva cooperativa'}</button>
       </div>
 
@@ -359,24 +384,43 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
         // tarjeta: con varias una debajo de otra y botones que suspenden,
         // saber cuál es cuál sin leer el texto vale la pena.
         <div key={e.companyId} data-empresa={e.companyId} style={{
-          background: 'var(--surface)', border: '1px solid var(--line)',
-          borderRadius: 14, padding: 14, marginBottom: 10,
-          opacity: e.activa ? 1 : .6,
+          background: e.activa ? 'var(--surface)' : 'var(--bg)',
+          border: '1px solid var(--divider)',
+          borderRadius: 12, padding: 14, marginBottom: 10,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div className="black" style={{ fontSize: 16 }}>{e.name}</div>
-            <div className="mono" style={{ fontSize: 12, color: 'var(--dim)' }}>{e.companyId}</div>
-            {!e.activa && (
-              <div className="mono" style={{ fontSize: 11, fontWeight: 800, color: 'var(--red)' }}>SUSPENDIDA</div>
-            )}
+            <div className="black" style={{
+              fontSize: 16, color: e.activa ? 'var(--fg)' : 'var(--dim2)',
+            }}>{e.name}</div>
+            <div className="mono" style={{ fontSize: 11, color: 'var(--dim3)' }}>{e.companyId}</div>
+            <div className="mono" style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: 1, padding: '3px 7px', borderRadius: 5,
+              background: e.activa ? 'var(--verdeFondo)' : 'var(--rojoFondo)',
+              color: e.activa ? 'var(--verdeTinta)' : 'var(--red)',
+            }}>{e.activa ? 'ACTIVA' : 'SUSPENDIDA'}</div>
             <div style={{ flex: 1 }} />
             <button onClick={() => setAbierta(abierta === e.companyId ? null : e.companyId)} style={{
-              padding: '6px 12px', fontSize: 12, background: 'var(--campo)', color: 'var(--fg2)',
-              border: '1px solid var(--line)',
+              height: 32, padding: '0 12px', fontSize: 12, background: 'var(--surface)',
+              color: 'var(--fg2)', border: '1px solid var(--line)',
             }}>{abierta === e.companyId ? 'Cerrar' : 'Administrar'}</button>
+            {e.activa ? (
+              <button disabled={ocupado} onClick={() => setConfirmar(e.companyId)} style={{
+                height: 32, padding: '0 12px', fontSize: 12, background: 'var(--surface)',
+                color: 'var(--red)', border: '1px solid var(--rojoBorde)',
+              }}>Suspender</button>
+            ) : (
+              <button disabled={ocupado} onClick={() => correr(
+                () => api(`/empresas/${e.companyId}/estado`, {
+                  method: 'POST', body: JSON.stringify({ activa: true }),
+                }), 'Cooperativa habilitada',
+              )} style={{
+                height: 32, padding: '0 12px', fontSize: 12, background: 'var(--surface)',
+                color: 'var(--verdeTinta)', border: '1px solid var(--verdeBorde)',
+              }}>Habilitar</button>
+            )}
           </div>
 
-          <div style={{ fontSize: 13, color: 'var(--dim)', marginTop: 6 }}>
+          <div style={{ fontSize: 13, color: 'var(--dim)', marginTop: 8 }}>
             {e.rutas.length
               ? e.rutas.map(r => r.routeId).join(' · ')
               : <span style={{ color: 'var(--amber)' }}>Sin rutas — nadie puede conectarse</span>}
@@ -452,13 +496,6 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
                 </div>
               </div>
 
-              {/* Suspender saca de circulación a una cooperativa entera en el
-                  acto: los choferes que están manejando pierden la pantalla y
-                  Despacho se queda sin mapa. A un solo clic, y con las
-                  tarjetas una debajo de otra, es demasiado fácil apretar la
-                  equivocada — así que hay que confirmar y el cartel dice el
-                  nombre de cuál. Habilitar no necesita confirmación: no rompe
-                  nada. */}
               {/* Los trazados de cada ruta. Crear una variante es decidir que
                   esa ruta puede manejarse de dos maneras: eso es cartografía
                   y se decide acá. Despacho después ELIGE con cuál se mide y
@@ -479,50 +516,69 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
                 ))}
               </div>
 
-              <div style={{ marginTop: 16, borderTop: '1px solid var(--divider)', paddingTop: 14 }}>
-                {e.activa && confirmar !== e.companyId && (
-                  <button disabled={ocupado} onClick={() => setConfirmar(e.companyId)} style={{
-                    padding: '8px 14px', fontSize: 13, background: 'rgba(255,77,109,.12)',
-                    color: 'var(--red)', border: '1px solid var(--red)',
-                  }}>Suspender</button>
-                )}
-                {e.activa && confirmar === e.companyId && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, color: 'var(--red)', fontWeight: 700 }}>
-                      ¿Suspender {e.name}?
-                    </span>
-                    <button disabled={ocupado} onClick={() => { setConfirmar(null); correr(
-                      () => api(`/empresas/${e.companyId}/estado`, {
-                        method: 'POST', body: JSON.stringify({ activa: false }),
-                      }), 'Cooperativa suspendida');
-                    }} style={{
-                      padding: '8px 14px', fontSize: 13, background: 'var(--red)', color: '#fff',
-                    }}>Sí, suspender</button>
-                    <button onClick={() => setConfirmar(null)} style={{
-                      padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
-                      color: 'var(--dim)', border: '1px solid var(--line)',
-                    }}>No</button>
-                  </span>
-                )}
-                {!e.activa && (
-                  <button disabled={ocupado} onClick={() => correr(
-                    () => api(`/empresas/${e.companyId}/estado`, {
-                      method: 'POST', body: JSON.stringify({ activa: true }),
-                    }), 'Cooperativa habilitada',
-                  )} style={{
-                    padding: '8px 14px', fontSize: 13, background: 'rgba(61,214,133,.12)',
-                    color: 'var(--green)', border: '1px solid var(--green)',
-                  }}>Habilitar</button>
-                )}
-                <span style={{ fontSize: 12, color: 'var(--dim2)', marginLeft: 12 }}>
-                  Suspender corta el acceso de toda su gente y cierra las
-                  sesiones abiertas en el momento.
-                </span>
-              </div>
             </div>
           )}
         </div>
       ))}
+
+      {/* Suspender saca de circulación a una cooperativa entera en el acto:
+          los choferes que están manejando pierden la pantalla y Despacho se
+          queda sin mapa. Con las tarjetas una debajo de otra es demasiado
+          fácil apretar la equivocada, así que se confirma, el cartel dice el
+          nombre de cuál, y la consecuencia va contada en gente concreta.
+          Habilitar no confirma: no rompe nada. */}
+      {confirmar && (() => {
+        const e = empresas.find(x => x.companyId === confirmar);
+        if (!e) return null;
+        // `personas` no cuenta las cuentas de Despacho: el total es la suma
+        // de las dos. Restar una de la otra daba números que no cerraban.
+        const total = e.personas + e.despacho.length;
+        return (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 4000, background: 'var(--velo)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+          }} onClick={() => setConfirmar(null)}>
+            <div onClick={ev => ev.stopPropagation()} style={{
+              width: 500, maxWidth: '100%', background: 'var(--surface)',
+              border: '1px solid var(--line)', borderRadius: 16, padding: 24,
+              boxShadow: '0 30px 60px -30px rgba(11,34,57,.55)',
+            }}>
+              <div className="mono" style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: 1.6,
+                color: 'var(--red)', textTransform: 'uppercase', marginBottom: 10,
+              }}>Confirmar suspensión</div>
+              <div className="black" style={{ fontSize: 21, lineHeight: 1.25 }}>
+                Suspender «{e.name}»
+              </div>
+              <div style={{
+                background: 'var(--rojoFondo)', border: '1px solid var(--rojoBorde)',
+                borderLeft: '3px solid var(--red)', borderRadius: 11, padding: 13,
+                margin: '16px 0 20px', fontSize: 13, lineHeight: 1.6, color: 'var(--rojoTinta)',
+              }}>
+                Corta el acceso <strong>en el acto</strong> a {total === 1 ? 'la única persona' : `las ${total} personas`}
+                {' '}de la cooperativa: {e.despacho.length} cuenta{e.despacho.length === 1 ? '' : 's'} de
+                Despacho y {e.personas} chofer{e.personas === 1 ? '' : 'es'} y cobradores.
+                Las unidades en ruta pierden la conexión y las sesiones abiertas se
+                cierran en el momento.
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button disabled={ocupado} onClick={() => { setConfirmar(null); correr(
+                  () => api(`/empresas/${e.companyId}/estado`, {
+                    method: 'POST', body: JSON.stringify({ activa: false }),
+                  }), 'Cooperativa suspendida');
+                }} style={{
+                  height: 42, padding: '0 16px', fontSize: 13,
+                  background: 'var(--red)', color: '#fff', borderRadius: 10,
+                }}>Sí, suspender «{e.name}»</button>
+                <button onClick={() => setConfirmar(null)} style={{
+                  height: 42, padding: '0 16px', fontSize: 13, background: 'var(--surface)',
+                  color: 'var(--dim2)', border: '1px solid var(--line)', borderRadius: 10,
+                }}>No</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -544,77 +600,84 @@ function Sistema({ datos }) {
     ['Node', datos.node],
     ['Sesiones de creador', datos.sesionesCreador],
   ];
+  // Los avisos van ARRIBA de las tarjetas de salud, no debajo: son lo único
+  // de esta pantalla que pide hacer algo hoy. Un número más entre doce no lo
+  // es. Cada uno nombra el riesgo en su título, para que se lea en un barrido.
+  const Aviso = ({ tono, titulo, children }) => (
+    <div style={{
+      background: tono === 'red' ? 'var(--rojoFondo)' : 'var(--ambarFondo)',
+      border: `1px solid ${tono === 'red' ? 'var(--rojoBorde)' : 'var(--ambarBorde)'}`,
+      borderLeft: `3px solid ${tono === 'red' ? 'var(--red)' : 'var(--amber)'}`,
+      borderRadius: 12, padding: '15px 16px',
+      display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap',
+    }}>
+      <span className="black" style={{
+        fontSize: 14, flexShrink: 0,
+        color: tono === 'red' ? 'var(--red)' : 'var(--amber)',
+      }}>{titulo}</span>
+      <span style={{
+        flex: '1 1 300px', fontSize: 13, lineHeight: 1.6,
+        color: tono === 'red' ? 'var(--rojoTinta)' : 'var(--ambarTinta)',
+      }}>{children}</span>
+    </div>
+  );
+
   return (
     <div>
-      <div className="black" style={{ fontSize: 18, marginBottom: 14 }}>Sistema</div>
-
-      {/* Dónde vive la base, que es el aviso más caro de todos: si está
+      {/* Dónde vive la base es el aviso más caro de todos: si está
           equivocado, un despliegue borra las cuentas de todos los choferes
           y el historial entero. Por eso son TRES estados y no dos — antes
           decía "persistente" en verde con la base adentro del contenedor,
           que es exactamente el caso que hay que denunciar. */}
-      {datos.baseEnMemoria && (
-        <div style={{
-          background: 'rgba(255,77,109,.1)', border: '1px solid var(--red)',
-          borderRadius: 12, padding: '12px 14px', marginBottom: 14,
-          fontSize: 13, color: 'var(--red)', lineHeight: 1.5,
-        }}>
-          <strong>La base está en memoria.</strong> Todo lo que se cargue se
-          pierde al reiniciar: cuentas, historial, vueltas y turnos. Hay que
-          montar un volumen y apuntarle <code>DB_FILE</code>.
-        </div>
-      )}
-      {!datos.baseEnMemoria && datos.baseEnDiscoAparte === false && (
-        <div style={{
-          background: 'rgba(255,77,109,.1)', border: '1px solid var(--red)',
-          borderRadius: 12, padding: '12px 14px', marginBottom: 14,
-          fontSize: 13, color: 'var(--red)', lineHeight: 1.5,
-        }}>
-          <strong>La base está en el mismo disco que la aplicación</strong>
-          {' '}(<code>{datos.base}</code>). En un servidor que redespliega
-          —Railway y cualquier contenedor— ese disco se rehace de cero en cada
-          despliegue: se borran las cuentas, el historial, las vueltas y los
-          turnos. Hay que montar un volumen y apuntarle <code>DB_FILE</code>.
-          {' '}<em>Si esto corre en tu computadora, es normal y no pasa nada.</em>
-        </div>
-      )}
-      {datos.baseEnDiscoAparte === null && (
-        <div style={{
-          background: 'rgba(245,197,66,.08)', border: '1px solid var(--amber)',
-          borderRadius: 12, padding: '12px 14px', marginBottom: 14,
-          fontSize: 13, color: 'var(--amber)', lineHeight: 1.5,
-        }}>
-          No se pudo averiguar si la base está en un disco aparte
-          (<code>{datos.base}</code>). Conviene confirmarlo a mano antes de
-          cargar datos de verdad.
-        </div>
-      )}
-      {!datos.segundoFactor && (
-        <div style={{
-          background: 'rgba(245,197,66,.08)', border: '1px solid var(--amber)',
-          borderRadius: 12, padding: '12px 14px', marginBottom: 14,
-          fontSize: 13, color: 'var(--amber)', lineHeight: 1.5,
-        }}>
-          Este panel entra <strong>solo con clave</strong>. Es el nivel que
-          puede crear cooperativas: conviene sumarle el segundo factor con
-          <code> CREATOR_TOTP_SECRET</code>.
-        </div>
-      )}
+      <div style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
+        {datos.baseEnMemoria && (
+          <Aviso tono="red" titulo="RIESGO DE PÉRDIDA">
+            La base está <strong>en memoria</strong>. Todo lo que se cargue se
+            pierde al reiniciar: cuentas, historial, vueltas y turnos. Hay que
+            montar un volumen y apuntarle <code>DB_FILE</code>.
+          </Aviso>
+        )}
+        {!datos.baseEnMemoria && datos.baseEnDiscoAparte === false && (
+          <Aviso tono="red" titulo="RIESGO DE PÉRDIDA">
+            La base está en el <strong>mismo disco que la aplicación</strong>
+            {' '}(<code>{datos.base}</code>). En un servidor que redespliega
+            —Railway y cualquier contenedor— ese disco se rehace de cero en cada
+            despliegue: se borran las cuentas, el historial, las vueltas y los
+            turnos. Hay que montar un volumen y apuntarle <code>DB_FILE</code>.
+            {' '}<em>Si esto corre en tu computadora, es normal y no pasa nada.</em>
+          </Aviso>
+        )}
+        {datos.baseEnDiscoAparte === null && (
+          <Aviso tono="amber" titulo="SIN CONFIRMAR">
+            No se pudo averiguar si la base está en un disco aparte
+            (<code>{datos.base}</code>). Conviene confirmarlo a mano antes de
+            cargar datos de verdad.
+          </Aviso>
+        )}
+        {!datos.segundoFactor && (
+          <Aviso tono="amber" titulo="UN SOLO FACTOR">
+            Este panel entra <strong>solo con clave</strong>. Es el nivel que
+            puede crear y suspender cooperativas: falta el segundo factor
+            (<code>CREATOR_TOTP_SECRET</code>).
+          </Aviso>
+        )}
+      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
         {tarjetas.map(([etiqueta, valor]) => (
           <div key={etiqueta} style={{
-            background: 'var(--surface)', border: '1px solid var(--line)',
-            borderRadius: 12, padding: '10px 12px',
+            background: 'var(--surface)', border: '1px solid var(--divider)',
+            borderRadius: 12, padding: '13px 14px',
           }}>
             <div className="black" style={{ fontSize: 20 }}>{valor}</div>
-            <div style={{ fontSize: 11, color: 'var(--dim2)', textTransform: 'uppercase', letterSpacing: .5 }}>
-              {etiqueta}
-            </div>
+            <div className="mono" style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: 1.3, color: 'var(--dim3)',
+              textTransform: 'uppercase', marginTop: 5,
+            }}>{etiqueta}</div>
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 12, color: 'var(--dim2)', marginTop: 14, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 12, color: 'var(--dim2)', marginTop: 16, lineHeight: 1.55 }}>
         La base vive en <code>{datos.base}</code>
         {datos.baseEnDiscoAparte === true && ', en un disco aparte del de la aplicación: sobrevive a los redespliegues'}
         . El tamaño cuenta el archivo y su WAL juntos: el WAL puede crecer más
@@ -629,14 +692,16 @@ function Actividad({ eventos }) {
   if (!eventos) return <div style={{ color: 'var(--dim)' }}>Cargando…</div>;
   return (
     <div>
-      <div className="black" style={{ fontSize: 18, marginBottom: 6 }}>Actividad</div>
-      <div style={{ fontSize: 12, color: 'var(--dim2)', marginBottom: 12, lineHeight: 1.5 }}>
+      <div style={{
+        fontSize: 13, color: 'var(--dim2)', marginBottom: 16,
+        lineHeight: 1.5, maxWidth: 640,
+      }}>
         Todas las cooperativas juntas — es el único lugar del sistema donde se
         ven así. Las acciones del creador figuran como <code>CREADOR</code>.
       </div>
       <div style={{
-        background: 'var(--surface)', border: '1px solid var(--line)',
-        borderRadius: 14, padding: '4px 10px 10px',
+        background: 'var(--surface)', border: '1px solid var(--divider)',
+        borderRadius: 12, padding: '0 14px 6px', overflowX: 'auto',
       }}>
         <table>
           <thead>
@@ -711,34 +776,62 @@ function Panel({ token, onSalir }) {
   };
 
   return (
-    <div style={{ maxWidth: 1080, margin: '0 auto', padding: '18px 18px 60px' }}>
+    <div>
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
-        paddingBottom: 14, borderBottom: '1px solid var(--divider)', marginBottom: 18,
+        height: 58, background: 'var(--surface)',
+        borderBottom: '1px solid var(--divider)',
       }}>
-        <div className="black" style={{ fontSize: 20 }}>Creador</div>
-        {[['empresas', 'COOPERATIVAS'], ['sistema', 'SISTEMA'], ['actividad', 'ACTIVIDAD']].map(([k, etiqueta]) => (
-          <button key={k} onClick={() => setPestana(k)} style={{
-            background: 'transparent', padding: 0, fontSize: 13, letterSpacing: .5,
-            color: pestana === k ? 'var(--fg)' : 'var(--dim2)',
-            borderBottom: pestana === k ? '2px solid var(--bright)' : '2px solid transparent',
-          }} className="mono">{etiqueta}</button>
-        ))}
-        <div style={{ flex: 1 }} />
-        <button onClick={salir} style={{
-          padding: '7px 13px', fontSize: 12, background: 'var(--campo)',
-          color: 'var(--dim)', border: '1px solid var(--line)',
-        }}>Salir</button>
+        <div style={{
+          maxWidth: 1120, margin: '0 auto', height: '100%', padding: '0 18px',
+          display: 'flex', alignItems: 'center', gap: 16,
+        }}>
+          <div className="black" style={{ fontSize: 16 }}>Creador</div>
+          {/* Que lo diga la pantalla, no el manual: esta sesión no se guarda
+              en ningún lado y cerrar la pestaña la cierra. */}
+          <div className="mono" style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: 1.3, color: 'var(--dim3)',
+            textTransform: 'uppercase', minWidth: 0,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>Herramienta interna · la sesión muere al cerrar la pestaña</div>
+          <div style={{ flex: 1 }} />
+          {[['empresas', 'COOPERATIVAS'], ['sistema', 'SISTEMA'], ['actividad', 'ACTIVIDAD']].map(([k, etiqueta]) => (
+            <button key={k} onClick={() => setPestana(k)} style={{
+              background: 'transparent', padding: '0 0 4px', fontSize: 11, letterSpacing: 1,
+              borderRadius: 0, flexShrink: 0,
+              color: pestana === k ? 'var(--fg)' : 'var(--dim2)',
+              borderBottom: pestana === k ? '2px solid var(--bright)' : '2px solid transparent',
+            }} className="mono">{etiqueta}</button>
+          ))}
+          <button onClick={salir} style={{
+            height: 32, padding: '0 12px', fontSize: 12, background: 'var(--surface)',
+            color: 'var(--dim2)', border: '1px solid var(--line)', flexShrink: 0,
+          }}>Salir</button>
+        </div>
       </div>
 
-      {aviso && <div style={{ color: 'var(--green)', fontSize: 13, fontWeight: 700, marginBottom: 12 }}>{aviso}</div>}
-      {error && <div style={{ color: 'var(--red)', fontSize: 13, fontWeight: 700, marginBottom: 12 }}>{error}</div>}
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '22px 18px 60px' }}>
+      {aviso && (
+        <div style={{
+          background: 'var(--verdeFondo)', border: '1px solid var(--verdeBorde)',
+          borderRadius: 11, padding: '11px 13px', marginBottom: 14,
+          fontSize: 13, fontWeight: 700, color: 'var(--verdeTinta)',
+        }}>{aviso}</div>
+      )}
+      {error && (
+        <div style={{
+          background: 'var(--rojoFondo)', border: '1px solid var(--rojoBorde)',
+          borderLeft: '3px solid var(--red)',
+          borderRadius: 11, padding: '11px 13px', marginBottom: 14,
+          fontSize: 13, fontWeight: 700, color: 'var(--rojoTinta)',
+        }}>{error}</div>
+      )}
 
       {pestana === 'empresas' && (
         <Empresas api={api} empresas={empresas} recargar={cargarEmpresas} aviso={avisar} fallo={fallar} />
       )}
       {pestana === 'sistema' && <Sistema datos={sistema} />}
       {pestana === 'actividad' && <Actividad eventos={eventos} />}
+      </div>
     </div>
   );
 }

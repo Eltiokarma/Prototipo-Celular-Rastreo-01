@@ -1,5 +1,12 @@
 # Prompt para el rediseño de la interfaz
 
+> **Ya se usó y ya se implementó.** Design entregó una propuesta contra este
+> encargo y está construida: panel de Despacho, Gestión como espacio de
+> trabajo con riel, trazador y panel del creador. Lo que quedó afuera y por
+> qué está en `PENDIENTES.md`. El archivo se conserva porque su segunda
+> mitad —qué parece estético y no lo es— sigue valiendo para el próximo
+> rediseño, incluido el de la app del chofer, que quedó fuera de esta vuelta.
+
 Este archivo es el encargo que se le pasa a quien vaya a rediseñar las
 pantallas. Está escrito para pegarse tal cual.
 
