@@ -34,9 +34,14 @@
     overflow: hidden;
   }
   #root { height: 100%; }
+  /* El banner de SOS ocupa el ancho entero: el anillo de sombra que servía
+     para un punto no se ve en una franja. Late en opacidad. */
   @keyframes sosPulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(255,45,85,.55); }
-    50%      { box-shadow: 0 0 0 14px rgba(255,45,85,0); }
+    0%, 100% { opacity: 1; }
+    50%      { opacity: .82; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [style*="sosPulse"] { animation: none !important; }
   }
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-thumb { background: #1c2836; border-radius: 4px; }
@@ -78,6 +83,19 @@ const TEMAS = {
     burbujaSos: '#FFE1E7',   burbujaSosInk: '#68001A',
     okFondo: '#E4F7EA', okClave: '#0B6B33',
     cargando: '#7FA8D4',
+    // Superficies de estado: fondo + borde + tinta que se lee encima. Son
+    // derivados del juego de arriba, no una paleta nueva; existen para que
+    // un aviso se distinga sin bajar el contraste del texto.
+    verdeFondo: '#E9F7EF', verdeBorde: '#BEE3CD', verdeTinta: '#0B6B33',
+    ambarFondo: '#FDF6E4', ambarBorde: '#E4C88A', ambarTinta: '#4A3200', ambarTinta2: '#6B4A00',
+    rojoFondo: '#FCEBEE',  rojoBorde: '#E6BFC6',  rojoTinta: '#5C0010',
+    azulFondo: '#E7F0FB',  azulBorde: '#C9DDF4',  azulTinta: '#0A2E52',
+    filaCritica: '#FDF3F5', // fila de unidad en rojo
+    filaActiva: '#F7FBFF',  // tarjeta de la ruta que se está mirando
+    celda: '#F4F8FC',       // fondo de las celdas de brecha
+    tinta: '#0B2239',       // botón principal del creador, segmentado activo
+    flotante: 'rgba(255,255,255,.94)', // tarjetas sobre el mapa
+    velo: 'rgba(11,34,57,.42)',        // overlay de modal
     tiles: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
     oscuro: false,
   },
@@ -96,6 +114,17 @@ const TEMAS = {
     burbujaSos: '#2b0812',   burbujaSosInk: '#FFD9E0',
     okFondo: '#08251a', okClave: '#7DF06A',
     cargando: '#1D598F',
+    // Mismos papeles que en día, resueltos para fondo oscuro
+    verdeFondo: '#08251a', verdeBorde: '#14512f', verdeTinta: '#7DF06A',
+    ambarFondo: '#221900', ambarBorde: '#4a3800', ambarTinta: '#FFD400', ambarTinta2: '#C9A83A',
+    rojoFondo: '#2b0812',  rojoBorde: '#5a1122',  rojoTinta: '#FFD9E0',
+    azulFondo: '#0e2a45',  azulBorde: '#1d4570',  azulTinta: '#D8ECFF',
+    filaCritica: '#1a0810',
+    filaActiva: '#0b1620',
+    celda: '#0a0f15',
+    tinta: '#EAF4FF',
+    flotante: 'rgba(13,17,22,.94)',
+    velo: 'rgba(0,0,0,.6)',
     tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
     oscuro: true,
   },
@@ -128,6 +157,15 @@ function parseMin(s) {
   return m + (sec || 0) / 60;
 }
 
+// Minutos con decimales → "2:00". El objetivo se guarda como número y se
+// lee al lado de las brechas, que vienen en m:ss: mostrarlo como "2 min"
+// obligaría a convertir de cabeza cada vez que se compara.
+function fmtMin(min) {
+  if (min === null || min === undefined || isNaN(min)) return '—';
+  const total = Math.round(min * 60);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 function gapColor(gapStr, target = TARGET_GAP_DEFAULT) {
   const v = parseMin(gapStr);
   if (v === null || isNaN(v)) return HUD.dim3;
@@ -156,6 +194,42 @@ function fmtWhen(ts) {
 
 const mono = 'JetBrains Mono, ui-monospace, monospace';
 const black = '"Archivo Black", system-ui, sans-serif';
+
+// ─── Piezas que se repiten en todo el panel.
+// Se calculan al llamarlas, no una sola vez: HUD se muta al cambiar de tema
+// y una constante congelaría los colores del tema con el que arrancó.
+const btnPrimario = (alto = 36) => ({
+  height: alto, padding: '0 14px', background: HUD.bright, color: '#fff',
+  border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700,
+  fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+});
+const btnSecundario = (alto = 36) => ({
+  height: alto, padding: '0 12px', background: HUD.surface, color: HUD.dim2,
+  border: `1px solid ${HUD.line}`, borderRadius: 9, fontSize: 13, fontWeight: 700,
+  fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+});
+// Botón de fila: el de las acciones dentro de una tabla o una tarjeta
+const btnChico = (tinta, borde) => ({
+  padding: '5px 9px', background: HUD.surface, color: tinta || HUD.fg2,
+  border: `1px solid ${borde || HUD.line}`, borderRadius: 7,
+  fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+  whiteSpace: 'nowrap',
+});
+// Etiqueta en mayúscula: encabezado de columna, label de campo, kicker
+const rotulo = (tam = 9, tinta) => ({
+  fontFamily: mono, fontSize: tam, fontWeight: 700,
+  letterSpacing: tam <= 9 ? 1.3 : 1.5, color: tinta || HUD.dim3,
+  textTransform: 'uppercase',
+});
+const tarjeta = (relleno = 14) => ({
+  border: `1px solid ${HUD.divider}`, borderRadius: 12, padding: relleno,
+  background: HUD.surface,
+});
+const campo = (alto = 40) => ({
+  height: alto, padding: '0 12px', background: HUD.campo, color: HUD.fg,
+  border: `1px solid ${HUD.campoLinea}`, borderRadius: 10,
+  fontSize: 14, fontFamily: 'inherit', outline: 'none', minWidth: 0,
+});
 
 // ═══════════════════════════════════════════════════════════════
 // LOGIN
@@ -271,87 +345,80 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
+      background: HUD.surface,
+    }}>
       <div style={{
         padding: '14px 16px', borderBottom: `1px solid ${HUD.divider}`,
         display: 'flex', alignItems: 'center', gap: 10,
       }}>
         {privadoCon ? (
           <>
-            <button onClick={onCerrarPrivado} title="Volver al grupo de la ruta" style={{
-              background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
-              padding: '4px 9px', color: HUD.fg2, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-            }}>← Grupo</button>
-            <span style={{ fontFamily: black, fontSize: 16 }}>{privadoCon}</span>
-            <span style={{
-              fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: 1,
-              background: HUD.amber, color: HUD.oscuro ? '#000' : '#fff',
-              padding: '2px 6px', borderRadius: 4,
-            }}>SOLO ESA UNIDAD</span>
+            <button onClick={onCerrarPrivado} title="Volver al grupo de la ruta"
+              style={btnChico(HUD.fg2)}>← Grupo</button>
+            <span style={{ fontFamily: black, fontSize: 14 }}>{privadoCon}</span>
+            <div style={{ flex: 1 }} />
+            <span style={{ ...rotulo(10, HUD.ambarTinta2), letterSpacing: 1.5 }}>Solo esa unidad</span>
           </>
         ) : (
-          <span style={{ fontFamily: black, fontSize: 16 }}>GRUPO {routeId || ''}</span>
+          <>
+            <span style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.5 }}>
+              Canal de ruta{routeId ? ` · ${routeId}` : ''}
+            </span>
+            <div style={{ flex: 1 }} />
+          </>
         )}
       </div>
 
       <div ref={scrollRef} style={{
-        flex: 1, overflowY: 'auto', padding: 14,
+        flex: 1, overflowY: 'auto', padding: '14px 16px',
         display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0,
       }}>
         {messages.filter(m => (m.para || null) === (privadoCon || null)).map((m, i) => {
           const own = m.role === 'dispatch-self';
           const sos = m.tone === 'sos';
           return (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: own ? 'flex-end' : 'flex-start' }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginBottom: 3 }}>
-                <span style={{
-                  fontSize: 13, fontWeight: 700,
-                  color: sos ? HUD.red : own ? HUD.bright : HUD.dim,
-                }}>{own ? 'DESPACHO (vos)' : m.from}</span>
+            <div key={i} style={{ display: 'flex', justifyContent: own ? 'flex-end' : 'flex-start' }}>
+              <div style={{
+                maxWidth: '82%', padding: '9px 11px', borderRadius: 12,
+                background: sos ? HUD.rojoFondo : own ? HUD.azulFondo : HUD.surface,
+                border: `1px solid ${sos ? HUD.rojoBorde : own ? HUD.azulBorde : HUD.divider}`,
+                color: sos ? HUD.burbujaSosInk : own ? HUD.azulTinta : HUD.fg,
+              }}>
                 {/* Quién habla y desde qué combi: con cobradores a bordo el
                     nombre ya no alcanza para saber de qué unidad viene */}
-                {!own && m.unit && (
-                  <span style={{
-                    fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim3,
-                    border: `1px solid ${HUD.line}`, borderRadius: 4, padding: '1px 5px',
-                  }}>{m.unit}</span>
-                )}
-                <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim3 }}>{m.time}</span>
-              </div>
-              <div style={{
-                maxWidth: '90%', padding: '9px 13px', fontSize: 15, lineHeight: 1.35,
-                borderRadius: own ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                background: sos ? HUD.burbujaSos : own ? HUD.burbujaPropia : HUD.burbuja,
-                borderLeft: sos ? `3px solid ${HUD.red}` : 'none',
-                color: sos ? HUD.burbujaSosInk : own ? HUD.burbujaPropiaInk : HUD.burbujaInk,
-              }}>
-                {m.voice
-                  ? (m.audio
-                      ? <audio controls src={m.audio} style={{ width: 220, height: 36 }} />
-                      : <span style={{ color: HUD.dim3 }}>🎙 nota de voz ({m.voice}s{m.expired ? ' · expirada' : ''})</span>)
-                  : m.text}
+                <div style={{
+                  ...rotulo(9, sos ? HUD.red : own ? HUD.bright : HUD.dim3),
+                  marginBottom: 4,
+                }}>
+                  {own ? 'Despacho' : m.from}
+                  {!own && m.unit && m.unit !== m.from ? ` · ${m.unit}` : ''} · {m.time}
+                </div>
+                <div style={{ fontSize: 14, lineHeight: 1.45 }}>
+                  {m.voice
+                    ? (m.audio
+                        ? <audio controls src={m.audio} style={{ width: 220, height: 36 }} />
+                        : <span style={{ color: HUD.dim3 }}>🎙 nota de voz ({m.voice}s{m.expired ? ' · expirada' : ''})</span>)
+                    : m.text}
+                </div>
               </div>
             </div>
           );
         })}
       </div>
 
-      <div style={{ padding: 12, borderTop: `1px solid ${HUD.divider}`, display: 'flex', gap: 8 }}>
+      <div style={{ padding: '12px 14px', borderTop: `1px solid ${HUD.divider}`, display: 'flex', gap: 8 }}>
         <input
           value={draft}
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') send(); }}
-          placeholder={privadoCon ? `Mensaje solo para ${privadoCon}…` : 'Mensaje como DESPACHO…'}
-          style={{
-            flex: 1, minWidth: 0, height: 44, borderRadius: 22,
-            background: HUD.campo, border: `1px solid ${HUD.campoLinea}`,
-            padding: '0 16px', fontSize: 15, color: HUD.fg, outline: 'none',
-            fontFamily: 'inherit',
-          }}
+          placeholder={privadoCon ? `Mensaje solo para ${privadoCon}…` : 'Escribí al canal de la ruta…'}
+          style={{ ...campo(40), flex: 1 }}
         />
         <button onClick={send} style={{
-          width: 44, height: 44, borderRadius: '50%', border: 'none',
-          background: HUD.bright, color: HUD.bg, fontSize: 18, cursor: 'pointer',
+          width: 44, height: 40, borderRadius: 10, border: 'none',
+          background: HUD.bright, color: '#fff', fontSize: 16, cursor: 'pointer',
         }}>➤</button>
       </div>
     </div>
@@ -1847,12 +1914,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     const capa = L.layerGroup();
     let hay = false;
     if (trazado?.ida?.length > 1) {
-      L.polyline(trazado.ida, { color: HUD.bright, weight: 4, opacity: 0.5 }).addTo(capa);
+      L.polyline(trazado.ida, { color: HUD.bright, weight: 5, opacity: 0.55 }).addTo(capa);
       hay = true;
     }
     if (trazado?.vuelta?.length > 1) {
       L.polyline(trazado.vuelta, {
-        color: HUD.bright, weight: 4, opacity: 0.5, dashArray: '8 8',
+        color: HUD.bright, weight: 5, opacity: 0.55, dashArray: '8 8',
       }).addTo(capa);
       hay = true;
     }
@@ -2000,12 +2067,20 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     units.forEach(u => {
       if (!u.lat || !u.lng) return;
       const isSos = sos && sos.unitId === u.unitId;
-      const color = isSos ? HUD.red : HUD.bright;
-      const html = `<div style="position:relative;width:14px;height:14px;">
-        <div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid ${HUD.bg};box-shadow:0 0 12px ${color};"></div>
-        <div style="position:absolute;top:18px;left:50%;transform:translateX(-50%);font-family:${mono};font-size:12px;font-weight:700;color:${color};background:rgba(3,6,10,.85);padding:2px 7px;border-radius:6px;white-space:nowrap;">${escaparHtml(u.unitId)}</div>
+      // El pin lleva el mismo color que la fila: mirando el mapa se ve dónde
+      // está el pelotón sin cruzar con la lista.
+      const g = gaps[u.unitId] || {};
+      const cA = gapColor(g.toAhead, routeInfo.targetGapMin);
+      const cB = gapColor(g.toBehind, routeInfo.targetGapMin);
+      const color = isSos ? HUD.red
+        : [HUD.red, HUD.amber, HUD.green, HUD.dim3].find(c => c === cA || c === cB) || HUD.dim3;
+      // width:max-content porque el icono de Leaflet mide 0×0: sin eso la
+      // etiqueta se parte en dos líneas dentro de un contenedor sin ancho.
+      const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:3px;">
+        <div style="font-family:${black};font-size:11px;color:#fff;background:${color};padding:2px 6px;border-radius:5px;white-space:nowrap;">${escaparHtml(u.unitId)}</div>
+        <div style="width:10px;height:10px;border-radius:50%;background:#fff;border:3px solid ${color};box-sizing:content-box;"></div>
       </div>`;
-      const icon = L.divIcon({ html, className: '', iconSize: [14, 14], iconAnchor: [7, 7] });
+      const icon = L.divIcon({ html, className: '', iconSize: [0, 0], iconAnchor: [0, 0] });
       if (existing[u.unitId]) {
         existing[u.unitId].setLatLng([u.lat, u.lng]);
         existing[u.unitId].setIcon(icon);
@@ -2021,7 +2096,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       const bounds = L.latLngBounds(withGps.map(u => [u.lat, u.lng]));
       map.fitBounds(bounds.pad(0.4), { maxZoom: 15 });
     }
-  }, [units, sos]);
+  }, [units, sos, gaps, routeInfo.targetGapMin, modo]);
 
   const focusUnit = (u) => {
     if (u.lat && mapRef.current) mapRef.current.panTo([u.lat, u.lng], { animate: true });
@@ -2066,7 +2141,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* header */}
       <div style={{
-        height: 56, flexShrink: 0, display: 'flex', alignItems: 'center',
+        height: 60, flexShrink: 0, display: 'flex', alignItems: 'center',
         gap: isMobile ? 8 : 14,
         padding: isMobile ? '0 10px' : '0 18px',
         borderBottom: `1px solid ${HUD.divider}`, background: HUD.surface,
@@ -2075,70 +2150,108 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             usan empresas distintas y cada una tiene que ver la suya. */}
         {!isMobile && (
           <span style={{
-            fontFamily: black, fontSize: 18, maxWidth: 260,
+            fontFamily: black, fontSize: 17, maxWidth: 230,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }} title={session.companyName || ''}>
             {session.companyName || session.companyId || 'Despacho'}
           </span>
         )}
         <span style={{
-          fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1,
-          color: HUD.bright, textTransform: 'uppercase',
+          ...rotulo(10, HUD.bright), letterSpacing: 1.5,
+          background: HUD.azulFondo, border: `1px solid ${HUD.azulBorde}`,
+          borderRadius: 6, padding: '4px 8px', flexShrink: 0,
         }}>Despacho</span>
 
-        {/* Selector de ruta: el supervisor cambia; el de ruta la ve fija */}
+        {!isMobile && <span style={{ width: 1, height: 26, background: HUD.divider, flexShrink: 0 }} />}
+
+        {/* Selector de ruta: el supervisor cambia; el de ruta la ve fija.
+            El <select> nativo va encima, transparente: conserva el desplegable
+            del sistema (en celular es el único usable) y deja que debajo se
+            dibuje el código y el nombre con tipografías distintas. */}
         {esSupervisor && routes.length > 0 ? (
-          <select
-            value={routeInfo.routeId || ''}
-            onChange={e => cambiarRuta(e.target.value)}
-            title="Ruta que estás mirando"
-            style={{
-              background: HUD.campo, color: HUD.fg, border: `1px solid ${HUD.line}`,
-              borderRadius: 8, padding: '6px 8px', fontSize: 13, fontWeight: 700,
-              fontFamily: 'inherit', cursor: 'pointer', maxWidth: isMobile ? 120 : 220,
-            }}>
-            {routes.map(r => (
-              <option key={r.routeId} value={r.routeId}>
-                {r.routeId}{isMobile ? '' : ` · ${r.name}`}
-              </option>
-            ))}
-          </select>
+          <span style={{
+            position: 'relative', display: 'flex', alignItems: 'center', gap: 8,
+            height: 36, padding: '0 12px', background: HUD.surface,
+            border: `1px solid ${HUD.line}`, borderRadius: 9,
+            maxWidth: isMobile ? 150 : 320, minWidth: 0, flexShrink: 1,
+          }}>
+            <span style={{ fontFamily: black, fontSize: 14, flexShrink: 0 }}>{routeInfo.routeId || '—'}</span>
+            {!isMobile && (
+              <span style={{
+                fontSize: 13, color: HUD.dim, minWidth: 0,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{routeInfo.routeName || ''}</span>
+            )}
+            <span style={{ fontSize: 11, color: HUD.dim3, flexShrink: 0 }}>▾</span>
+            <select
+              value={routeInfo.routeId || ''}
+              onChange={e => cambiarRuta(e.target.value)}
+              title="Ruta que estás mirando"
+              style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                opacity: 0, cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+              {routes.map(r => (
+                <option key={r.routeId} value={r.routeId}>{r.routeId} · {r.name}</option>
+              ))}
+            </select>
+          </span>
         ) : (
-          <span style={{ fontFamily: black, fontSize: 14, color: HUD.fg2, whiteSpace: 'nowrap' }}>
-            {routeInfo.routeId || ''}
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: 8, height: 36, padding: '0 12px',
+            background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 9,
+            maxWidth: isMobile ? 150 : 320, minWidth: 0,
+          }}>
+            <span style={{ fontFamily: black, fontSize: 14, flexShrink: 0 }}>{routeInfo.routeId || '—'}</span>
+            {!isMobile && (
+              <span style={{
+                fontSize: 13, color: HUD.dim, minWidth: 0,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{routeInfo.routeName || ''}</span>
+            )}
           </span>
         )}
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: isMobile ? 0 : 10, minWidth: 0 }}>
+
+        <span style={{
+          display: 'flex', alignItems: 'center', gap: 7, height: 36, padding: '0 11px',
+          borderRadius: 9, flexShrink: 0, minWidth: 0,
+          background: connected ? HUD.verdeFondo : HUD.ambarFondo,
+          border: `1px solid ${connected ? HUD.verdeBorde : HUD.ambarBorde}`,
+        }}>
           <span style={{
             width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
             background: connected ? HUD.green : HUD.amber,
-            boxShadow: connected ? `0 0 8px ${HUD.green}` : 'none',
           }} />
           <span style={{
-            fontFamily: mono, fontSize: 12, fontWeight: 700,
-            color: connected ? HUD.green : HUD.amber,
+            fontFamily: mono, fontSize: 11, fontWeight: 700,
+            color: connected ? HUD.verdeTinta : HUD.ambarTinta2,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {connected ? (isMobile ? `${units.length} EN RUTA` : `EN VIVO · ${units.length} EN RUTA`) : 'RECONECTANDO…'}
           </span>
         </span>
+
         <div style={{ flex: 1 }} />
-        <button onClick={() => setAdminOpen(true)} style={{
-          background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
-          padding: '6px 12px', color: HUD.fg2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
-          marginRight: 10, flexShrink: 0,
-        }}>Gestión</button>
+
+        {/* El objetivo de brecha es el número contra el que se lee toda la
+            pantalla. Antes solo estaba adentro de Gestión. */}
+        {!isMobile && (
+          <div style={{ textAlign: 'right', lineHeight: 1.1, flexShrink: 0 }}>
+            <div style={rotulo(9)}>Objetivo de brecha</div>
+            <div style={{ fontFamily: black, fontSize: 16, marginTop: 2 }}>
+              {fmtMin(routeInfo.targetGapMin)}
+              <span style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.dim2, marginLeft: 4 }}>MIN</span>
+            </div>
+          </div>
+        )}
+        <button onClick={() => setAdminOpen(true)} style={{ ...btnPrimario(36), flexShrink: 0 }}>Gestión</button>
         <button onClick={onAlternarModo}
           title={modo === 'day' ? 'Pasar a modo noche' : 'Pasar a modo día'}
           style={{
-            background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
-            padding: '6px 10px', color: HUD.fg2, fontSize: 14, cursor: 'pointer',
-            marginRight: 10, flexShrink: 0, lineHeight: 1,
+            ...btnSecundario(36), width: 36, padding: 0, color: HUD.dim,
+            fontSize: 15, lineHeight: 1, flexShrink: 0,
           }}>{modo === 'day' ? '☾' : '☀'}</button>
-        <button onClick={onLogout} style={{
-          background: 'transparent', border: `1px solid ${HUD.line}`, borderRadius: 8,
-          padding: '6px 12px', color: HUD.dim2, fontSize: 13, fontWeight: 700, cursor: 'pointer',
-        }}>Salir</button>
+        <button onClick={onLogout} style={{ ...btnSecundario(36), flexShrink: 0 }}>Salir</button>
       </div>
 
       {adminOpen && (
@@ -2155,10 +2268,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       {sos && (
         <div style={{
           flexShrink: 0, background: HUD.red, color: '#fff',
-          padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 16,
+          padding: '13px 18px', display: 'flex', alignItems: 'center', gap: 16,
+          flexWrap: isMobile ? 'wrap' : 'nowrap',
           animation: 'sosPulse 1.2s ease-in-out infinite',
         }}>
-          <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 2 }}>SOS</span>
+          <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 3 }}>SOS</span>
           <span style={{ fontSize: 15, fontWeight: 700 }}>
             {(sos.driverName || sos.unitId || 'Unidad').toUpperCase()}
             {sos.vehicleId ? ` · ${sos.vehicleId.toUpperCase()}` : ''} pide ayuda · {nowTime(sos.timestamp)}
@@ -2167,14 +2281,15 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           </span>
           <div style={{ flex: 1 }} />
           {sos.lat && (
-            <button onClick={() => { mapRef.current?.panTo([sos.lat, sos.lng]); }} style={{
-              background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.5)',
-              borderRadius: 8, padding: '6px 12px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            <button onClick={() => { if (isMobile) setView('map'); mapRef.current?.panTo([sos.lat, sos.lng]); }} style={{
+              height: 34, padding: '0 12px', background: 'rgba(255,255,255,.16)',
+              border: '1px solid rgba(255,255,255,.55)', borderRadius: 8,
+              color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
             }}>Ver en mapa</button>
           )}
           <button onClick={() => setSos(null)} style={{
-            background: '#fff', border: 'none', borderRadius: 8,
-            padding: '6px 12px', color: HUD.red, fontSize: 13, fontWeight: 800, cursor: 'pointer',
+            height: 34, padding: '0 12px', background: '#fff', border: 'none', borderRadius: 8,
+            color: HUD.red, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
           }}>ATENDIDO</button>
         </div>
       )}
@@ -2182,18 +2297,19 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       {/* cuerpo: en PC tres columnas; en celular una vista a la vez */}
       <div style={isMobile
         ? { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }
-        : { flex: 1, display: 'grid', gridTemplateColumns: '280px 1fr 360px', minHeight: 0 }}>
+        : { flex: 1, display: 'grid', gridTemplateColumns: '312px 1fr 372px', minHeight: 0 }}>
         {/* unidades */}
         <div style={{
-          overflowY: 'auto', minHeight: 0,
+          overflowY: 'auto', minHeight: 0, background: HUD.surface,
           ...(isMobile
             ? { flex: 1, display: view === 'units' ? 'block' : 'none' }
             : { borderRight: `1px solid ${HUD.divider}` }),
         }}>
-          <div style={{
-            padding: '14px 16px', fontFamily: mono, fontSize: 12, fontWeight: 700,
-            letterSpacing: 1, color: HUD.dim2, textTransform: 'uppercase',
-          }}>{routeInfo.routeName || 'Unidades'} · {units.length} en ruta</div>
+          <div style={{ padding: '14px 16px 10px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6 }}>Unidades en ruta</span>
+            <div style={{ flex: 1 }} />
+            <span style={{ fontFamily: black, fontSize: 14 }}>{units.length}</span>
+          </div>
 
           {/* Desvíos: se agrupan acá en vez de gritar uno por uno. En una
               ciudad siempre hay alguno, así que lo importante es poder
@@ -2204,39 +2320,36 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             if (!fuera.length && !mudo) return null;
             return (
               <div style={{
-                margin: '0 12px 10px', padding: '10px 12px', borderRadius: 12,
-                background: mudo ? HUD.hueco : 'rgba(166,115,0,.12)',
-                border: `1px solid ${mudo ? HUD.line : HUD.amber}`,
+                margin: '0 12px 10px', padding: '11px 12px', borderRadius: 11,
+                background: mudo ? HUD.hueco : HUD.ambarFondo,
+                border: `1px solid ${mudo ? HUD.line : HUD.ambarBorde}`,
+                borderLeft: `3px solid ${mudo ? HUD.line : HUD.amber}`,
               }}>
                 <div style={{
-                  fontSize: 13, fontWeight: 700, color: mudo ? HUD.dim2 : HUD.amber,
-                  marginBottom: fuera.length ? 6 : 0,
+                  fontFamily: black, fontSize: 13, color: mudo ? HUD.dim2 : HUD.ambarTinta,
+                  marginBottom: fuera.length ? 6 : 9,
                 }}>
                   {mudo
                     ? `Desvíos silenciados hasta ${nowTime(mudo)}`
                     : `${fuera.length} unidad${fuera.length === 1 ? '' : 'es'} fuera del recorrido`}
                 </div>
                 {fuera.length > 0 && (
-                  <div style={{ fontFamily: mono, fontSize: 12, color: HUD.dim, marginBottom: 8 }}>
+                  <div style={{
+                    fontFamily: mono, fontSize: 11, fontWeight: 700,
+                    color: mudo ? HUD.dim2 : HUD.ambarTinta2, marginBottom: 9,
+                  }}>
                     {fuera.map(u => `${u.unitId} (${u.desvioM} m)`).join(' · ')}
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {mudo ? (
-                    <button onClick={() => silenciarDesvio(0)} style={{
-                      background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
-                      padding: '4px 10px', color: HUD.fg2, fontSize: 12, fontWeight: 700,
-                      cursor: 'pointer', fontFamily: 'inherit',
-                    }}>Volver a avisar</button>
+                    <button onClick={() => silenciarDesvio(0)}
+                      style={{ ...btnChico(HUD.fg2, HUD.line), fontSize: 11 }}>Volver a avisar</button>
                   ) : (
-                    [['1 h', 60], ['3 h', 180], ['el turno', 480]].map(([etiqueta, min]) => (
+                    [['Silenciar 1 h', 60], ['3 h', 180], ['el turno', 480]].map(([etiqueta, min]) => (
                       <button key={min} onClick={() => silenciarDesvio(min)}
                         title="Cuando el desvío ya se sabe: una obra, un desfile, un embotellamiento"
-                        style={{
-                          background: HUD.boton, border: `1px solid ${HUD.line}`, borderRadius: 8,
-                          padding: '4px 10px', color: HUD.fg2, fontSize: 12, fontWeight: 700,
-                          cursor: 'pointer', fontFamily: 'inherit',
-                        }}>Silenciar {etiqueta}</button>
+                        style={{ ...btnChico(HUD.ambarTinta, HUD.ambarBorde), fontSize: 11 }}>{etiqueta}</button>
                     ))
                   )}
                 </div>
@@ -2251,41 +2364,64 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           {units.map(u => {
             const g = gaps[u.unitId] || {};
             const isSos = sos && sos.unitId === u.unitId;
+            const cAdelante = gapColor(g.toAhead, routeInfo.targetGapMin);
+            const cAtras = gapColor(g.toBehind, routeInfo.targetGapMin);
+            // El borde y el fondo de la fila los manda el peor de los dos
+            // lados: si de un lado va pegada, la fila tiene que gritar aunque
+            // del otro esté bien.
+            const orden = [HUD.red, HUD.amber, HUD.green, HUD.dim3];
+            const peor = isSos ? HUD.red
+              : orden.find(c => c === cAdelante || c === cAtras) || HUD.dim3;
             return (
               <div key={u.unitId} onClick={() => focusUnit(u)} style={{
-                padding: '12px 16px', cursor: 'pointer',
+                padding: '12px 16px 13px', cursor: 'pointer',
                 borderBottom: `1px solid ${HUD.divider}`,
-                background: isSos ? 'rgba(255,45,85,.12)' : 'transparent',
-                borderLeft: isSos ? `3px solid ${HUD.red}` : '3px solid transparent',
+                background: peor === HUD.red ? HUD.filaCritica : HUD.surface,
+                borderLeft: `3px solid ${peor}`,
               }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   <span style={{ fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg }}>{u.unitId}</span>
-                  <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2 }}>
-                    {u.speed || 0} km/h
+                  <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim2 }}>
+                    {u.speed || 0} KM/H
                   </span>
                   <div style={{ flex: 1 }} />
-                  {!u.lat && <span style={{ fontFamily: mono, fontSize: 11, color: HUD.amber }}>SIN GPS</span>}
+                  {u.tramo && (
+                    <span title="Tramo del circuito en el que va" style={{
+                      fontFamily: mono, fontSize: 10, fontWeight: 700,
+                      color: u.tramo === 'vuelta' ? HUD.dim2 : HUD.bright,
+                    }}>{u.tramo === 'vuelta' ? '↩ VUELTA' : '↪ IDA'}</span>
+                  )}
                 </div>
-                {u.fueraDeRuta && (
-                  <span title={`A ${u.desvioM} m del recorrido${u.fueraDesde ? ' desde ' + nowTime(u.fueraDesde) : ''}`}
-                    style={{
-                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .5,
-                      marginLeft: 8, padding: '2px 6px', borderRadius: 4,
-                      background: 'rgba(166,115,0,.18)', color: HUD.amber,
-                      border: `1px solid ${HUD.amber}`,
-                    }}>FUERA DE RUTA · {u.desvioM} m</span>
-                )}
-                {u.tramo && (
-                  <span title="Tramo del circuito en el que va" style={{
-                    fontFamily: mono, fontSize: 11, fontWeight: 700, marginLeft: 8,
-                    color: u.tramo === 'vuelta' ? HUD.dim2 : HUD.sky,
-                  }}>{u.tramo === 'vuelta' ? '↩ vuelta' : '↪ ida'}</span>
-                )}
                 {u.driverName && u.driverName !== u.unitId && (
                   <div style={{
                     fontSize: 12, color: HUD.dim2, marginTop: 2,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>{u.driverName}{u.label ? ` · ${u.label}` : ''}</div>
+                )}
+                {/* Las dos brechas son lo que más se mira de la fila: van en
+                    celda propia y en el tamaño de un dato, no como dos
+                    números pegados al pie. */}
+                <div style={{
+                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 9,
+                }}>
+                  {[['+1 ADELANTE', g.toAhead, cAdelante], ['−1 ATRÁS', g.toBehind, cAtras]].map(([et, val, color]) => (
+                    <div key={et} style={{ padding: '6px 8px', borderRadius: 8, background: HUD.celda }}>
+                      <div style={{ ...rotulo(9), letterSpacing: 1 }}>{et}</div>
+                      <div style={{ fontFamily: black, fontSize: 17, lineHeight: 1.2, color }}>{val || '—'}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* No se puede esconder ni resumir: es el aviso por el que
+                    Despacho levanta el teléfono. */}
+                {u.fueraDeRuta && (
+                  <div title={`A ${u.desvioM} m del recorrido${u.fueraDesde ? ' desde ' + nowTime(u.fueraDesde) : ''}`}
+                    style={{
+                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
+                      color: HUD.amber, marginTop: 8,
+                    }}>FUERA DE RUTA · {u.desvioM} M</div>
+                )}
+                {!u.lat && (
+                  <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.amber, marginTop: 8 }}>SIN GPS</div>
                 )}
                 {/* Conversación privada con esta unidad. El click no debe
                     disparar también el foco del mapa de la fila. */}
@@ -2293,11 +2429,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                   onClick={(e) => { e.stopPropagation(); abrirPrivado(u.unitId); }}
                   title={`Escribirle solo a ${u.unitId}`}
                   style={{
-                    marginTop: 7, background: privadoCon === u.unitId ? HUD.bright : HUD.boton,
-                    color: privadoCon === u.unitId ? '#fff' : HUD.fg2,
-                    border: `1px solid ${HUD.line}`, borderRadius: 8,
-                    padding: '4px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                    fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6,
+                    ...btnChico(privadoCon === u.unitId ? '#fff' : HUD.fg2, HUD.line),
+                    marginTop: 9, background: privadoCon === u.unitId ? HUD.bright : HUD.surface,
+                    borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
                   }}>
                   Mensaje directo
                   {noLeidos[u.unitId] > 0 && (
@@ -2308,10 +2442,6 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     }}>{noLeidos[u.unitId]}</span>
                   )}
                 </button>
-                <div style={{ display: 'flex', gap: 14, marginTop: 4, fontFamily: mono, fontSize: 13, fontWeight: 700 }}>
-                  <span style={{ color: HUD.dim3 }}>+1 <span style={{ color: gapColor(g.toAhead, routeInfo.targetGapMin) }}>{g.toAhead || '—'}</span></span>
-                  <span style={{ color: HUD.dim3 }}>−1 <span style={{ color: gapColor(g.toBehind, routeInfo.targetGapMin) }}>{g.toBehind || '—'}</span></span>
-                </div>
               </div>
             );
           })}
@@ -2323,6 +2453,22 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           ...(isMobile ? { flex: 1, display: view === 'map' ? 'block' : 'none' } : {}),
         }}>
           <div ref={initMap} style={{ position: 'absolute', inset: 0 }} />
+          {/* Los tres colores de la fila y del pin no se explican solos.
+              Con el objetivo en el header, esto termina de contar contra qué
+              se está leyendo cada número. */}
+          <div style={{
+            position: 'absolute', left: 14, bottom: 14, zIndex: 500,
+            padding: '11px 13px', borderRadius: 11,
+            background: HUD.flotante, border: `1px solid ${HUD.line}`,
+          }}>
+            <div style={{ ...rotulo(9), marginBottom: 7 }}>Brecha contra el objetivo</div>
+            {[[HUD.green, 'Hasta 15 % de desvío'], [HUD.amber, 'Hasta 30 %'], [HUD.red, 'Crítica · pelotón']].map(([c, t]) => (
+              <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: c, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: HUD.fg2 }}>{t}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* chat */}
