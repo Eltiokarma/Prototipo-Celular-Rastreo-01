@@ -138,7 +138,7 @@ function montarPanelDelCreador(app, deps) {
     }
   }
 
-  const { db, audit, origenDe, dbFile } = deps;
+  const { db, audit, origenDe, dbFile, routeOf } = deps;
   const arrancadoEn = Date.now();
 
   // Sesiones EN MEMORIA a propósito: un reinicio las cierra todas, y no queda
@@ -272,6 +272,54 @@ function montarPanelDelCreador(app, deps) {
     const r = coop.altaRuta(db, { ...req.body, companyId: req.params.companyId });
     if (r.error) return res.status(400).json({ error: r.error });
     anotar('alta_ruta', r.routeId, `empresa ${r.companyId}`, r.companyId);
+    res.json(r);
+  });
+
+  // ─── VARIANTES DEL RECORRIDO ───────────────────────────────
+  // Decidir que una ruta puede manejarse de dos maneras es cartografía, no
+  // operación del día: por eso se crean acá y no en el panel de Despacho.
+  // Despacho ELIGE entre las que existan, y las dibuja con su trazador.
+
+  // La ruta tiene que ser de la empresa de la URL: sin este chequeo, un
+  // identificador de ruta ajeno colgado de la empresa correcta pasaría.
+  function rutaDe(companyId, routeId) {
+    return db.prepare('SELECT * FROM routes WHERE routeId = ? AND companyId = ?')
+      .get(String(routeId), String(companyId)) || null;
+  }
+
+  app.get(BASE + '/empresas/:companyId/rutas/:routeId/variantes', requireCreador, (req, res) => {
+    const ruta = rutaDe(req.params.companyId, req.params.routeId);
+    if (!ruta) return res.status(404).json({ error: 'Esa ruta no existe' });
+    res.json({ routeId: ruta.routeId, variantes: coop.variantes(db, ruta.routeId) });
+  });
+
+  app.post(BASE + '/empresas/:companyId/rutas/:routeId/variantes', requireCreador, (req, res) => {
+    const ruta = rutaDe(req.params.companyId, req.params.routeId);
+    if (!ruta) return res.status(404).json({ error: 'Esa ruta no existe' });
+    const r = coop.altaVariante(db, { ...req.body, routeId: ruta.routeId });
+    if (r.error) return res.status(400).json({ error: r.error });
+    anotar('alta_variante', ruta.routeId,
+      `${r.name}${r.copiadaDe ? ` (copiada de ${r.copiadaDe})` : ''}`, ruta.companyId);
+    res.json(r);
+  });
+
+  app.post(BASE + '/variantes/:variantId', requireCreador, (req, res) => {
+    const r = coop.editarVariante(db, { ...req.body, variantId: req.params.variantId });
+    if (r.error) return res.status(400).json({ error: r.error });
+    const ruta = routeOf(r.routeId);
+    if (!ruta) return res.status(404).json({ error: 'Esa ruta no existe' });
+    // El nombre de la variante viaja en el mensaje de geometría, así que si
+    // se renombró la que está midiendo hay que rearmar la caché.
+    if (deps.recargarGeometria) deps.recargarGeometria(r.routeId);
+    anotar('editar_variante', r.routeId, r.name, ruta.companyId);
+    res.json(r);
+  });
+
+  app.delete(BASE + '/variantes/:variantId', requireCreador, (req, res) => {
+    const r = coop.bajaVariante(db, { variantId: req.params.variantId });
+    if (r.error) return res.status(400).json({ error: r.error });
+    const ruta = routeOf(r.routeId);
+    anotar('baja_variante', r.routeId, r.name, ruta ? ruta.companyId : null);
     res.json(r);
   });
 

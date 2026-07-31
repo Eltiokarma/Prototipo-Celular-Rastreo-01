@@ -281,6 +281,60 @@ cambiar de ruta o cuando se edita), nunca dentro del estado, que sale cada
 3 s: mandar ahí una ruta de 300 puntos serían ~7 KB por emisión y tiraría por
 la borda el ahorro de datos de `ESCALABILIDAD.md`.
 
+## Rutas alternas (variantes del recorrido)
+
+Una ruta no siempre se maneja igual. Hay desvíos **programados** —una obra
+que dura tres meses, un feriado con desfile, el mercado de los domingos que
+cierra dos cuadras— donde el trazado real cambió y va a seguir cambiado un
+tiempo. Con un solo recorrido por ruta eso obligaba a redibujarlo y perder el
+original, o a que todas las unidades figuraran fuera de ruta.
+
+Por eso una ruta tiene **variantes**: cada una con su ida y su vuelta. Una
+está activa y es la que mide; las demás quedan guardadas para el día que
+haga falta.
+
+- Tabla `route_variants` (`routeId`, `name`, `activa`, `desde`, `hasta`) y
+  `route_points` colgando de la **variante**, no de la ruta. Las bases
+  existentes migran solas: el recorrido que había pasa a ser la variante
+  activa, llamada *Recorrido normal*. Toda ruta tiene al menos una.
+- **Activar otra recalcula todo al instante**: progreso, brechas y desvíos
+  se miden con el trazado nuevo sin tocar la app de nadie, porque el cálculo
+  vive en el servidor. Las unidades en la calle reciben la línea nueva y el
+  nombre de la variante, para que el chofer vea que el mapa cambió a
+  propósito y no piense que el sistema se equivocó.
+
+**Quién hace qué**, que es la parte que importa:
+
+| | |
+| --- | --- |
+| **Nosotros** (panel del creador) | Creamos y borramos variantes. Decidir que una ruta puede manejarse de dos maneras es cartografía, no operación del día |
+| **Despacho** | **Elige** con cuál se mide, y la dibuja con el trazador, que es donde está el mapa. No puede inventar una variante: solo llenar y elegir entre las que existen |
+
+Cuatro cosas que hubo que resolver, y cómo:
+
+- **Las vueltas en curso.** Al cambiar de variante, las que venían a medias
+  se midieron con el trazado anterior y su progreso quedó corrido: se
+  **descartan** y se arranca de nuevo. Perder una vuelta es mejor que guardar
+  una medida hecha con dos geometrías. Queda dicho en la auditoría y el panel
+  lo avisa antes de cambiar.
+- **El promedio histórico.** Cada vuelta guarda con qué variante se midió
+  (`laps.variantId`), y el objetivo automático **solo promedia las de la
+  variante activa**. Al activar una nueva vuelve al valor manual hasta juntar
+  historial propio — correcto: un trazado más largo tarda más. Al volver a la
+  de siempre, su historial vuelve a valer.
+- **La vigencia.** Una variante por obra puede tener fecha de inicio y de
+  fin: se activa y se desactiva sola el día que corresponde, y también al
+  arrancar el servidor (si estuvo apagado el día del cambio). Cuando la
+  vigente se vence, vuelve la que no tiene fechas.
+- **Dibujar sin romper nada.** Editar una variante guardada **no** le mueve
+  el mapa a nadie ni recalcula ninguna brecha, que es medio el punto: se
+  prepara el desvío antes de que empiece la obra. El trazador lo avisa en
+  amarillo mientras se está dibujando una que no es la activa.
+
+**Cuándo NO usar una variante:** para un embotellamiento de dos horas no vale
+la pena — para eso está silenciar el desvío, que ya existe. La variante es
+para cuando el recorrido cambió de verdad.
+
 ## Objetivo de brecha automático
 
 **La matemática de la rueda:** si la vuelta dura 60 minutos y hay 12 unidades
@@ -380,6 +434,11 @@ donde se ven así.
 
 **Está apagado.** Se enciende con variables de entorno, y sin ellas las
 rutas ni siquiera se registran:
+
+Desde acá también se manejan los **trazados de cada ruta**: crear una
+variante, copiarla de otra (un desvío suele ser el recorrido de siempre con
+dos cuadras distintas), programarle vigencia y borrarla. Ver *Rutas
+alternas*.
 
 | Variable | Qué hace |
 | --- | --- |
