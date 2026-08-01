@@ -20,9 +20,12 @@ import { construirHud, textoNotificacion } from './hud';
 import { crearCola } from './cola';
 import * as gps from './gps/servicio';
 
-// En el APK va fija por `eas.json`; en desarrollo se apunta a la máquina de
-// uno. El celular no resuelve "localhost": tiene que ser la IP de la red.
-const SERVIDOR = process.env.EXPO_PUBLIC_SERVIDOR || 'http://192.168.1.100:3001';
+// Por defecto, el servidor que ya está en la nube: así la primera prueba en
+// un teléfono no depende de la red de casa. Para pegarle a un servidor local
+// hay que poner la IP de la máquina en la wifi — el celular NO resuelve
+// "localhost", que para él es él mismo.
+const SERVIDOR = process.env.EXPO_PUBLIC_SERVIDOR
+  || 'https://prototipo-celular-rastreo-01-production.up.railway.app';
 
 const C = {
   fondo: '#0A1A2E', panel: '#16304A', linea: '#234969',
