@@ -4,3 +4,12 @@ server/r14.db-wal
 server/r14.db-shm
 server/chat-history.json
 server/chat-history.json.imported
+
+# Pruebas: dependencias, bases de fixture, capturas y caché de CDN.
+# Todo se regenera corriéndolas.
+pruebas/node_modules/
+pruebas/*.db
+pruebas/*.db-wal
+pruebas/*.db-shm
+pruebas/shots/
+pruebas/cdn/

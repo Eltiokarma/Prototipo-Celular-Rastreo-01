@@ -45,6 +45,8 @@ server/             Servidor de tiempo real (Node + Express + ws)
   creador.html        Su pantalla. NO vive en project/ a propósito: ahí se
                       serviría como estático aunque el panel esté apagado
 
+pruebas/            Doce suites de regresión contra el servidor de verdad.
+                    `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
 PROMPT-DISENO.md    Encargo para rediseñar la interfaz: qué se puede tocar y,
@@ -83,6 +85,19 @@ deploy no incluye `project/` y queda solo la API.
 También se puede servir `project/` desde cualquier hosting estático:
 `config.js` dará 404 (inofensivo) y la app usará el servidor por defecto
 de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
+
+**Pruebas:**
+
+```bash
+cd pruebas && npm install    # solo la primera vez
+cd .. && npm test            # las doce suites, ~4 minutos
+```
+
+Corren contra el servidor de verdad —levantan el proceso, abren WebSockets,
+mandan GPS y leen la base—, sin mocks: casi todo lo que se rompió en este
+proyecto se rompió en la juntura entre esas tres cosas. Ver `pruebas/README.md`
+para correr una sola, para el verificador de sintaxis de las pantallas (los
+paneles no tienen paso de compilación) y para lo que las pruebas **no** cubren.
 
 Limitaciones conocidas del sistema: ver **LIMITACIONES.md**.
 Plan de crecimiento a 20+ rutas con números: ver **ESCALABILIDAD.md**.
