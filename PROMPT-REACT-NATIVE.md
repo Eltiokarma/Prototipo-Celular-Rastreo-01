@@ -1,68 +1,100 @@
 # Prompt para nueva sesión — React Native
 
-Copia y pega esto completo en un chat nuevo con Claude Code.
+Copia y pega esto completo en un chat nuevo con Claude Code, **con el repo
+abierto**. El detalle del protocolo está en `PROTOCOLO.md`, verificado contra
+el servidor real: no hay que adivinarlo ni releer `server/index.js`.
 
 ---
 
 ## El prompt
 
-Hola. Estoy construyendo una app de rastreo en tiempo real para la Cooperativa de Transportes R-14 de Juliaca, Perú (ciudad a 3800 metros de altitud). La app la usan los choferes de combis para ver las brechas de tiempo entre unidades y verse en el mapa.
+Hola. Estoy construyendo una app de rastreo en tiempo real para cooperativas
+de combis en Juliaca, Perú (3800 m de altitud). La usan los choferes para ver
+la brecha de tiempo con la unidad de adelante y la de atrás, y no amontonarse.
 
-**Lo que ya está construido y funcionando:**
+**Qué existe y funciona hoy** (todo probado, `npm test` corre doce suites
+contra el servidor de verdad):
 
-1. **Servidor WebSocket en Railway** (Node.js + Express + ws)
-   - URL: `wss://prototipo-celular-rastreo-01-production.up.railway.app`
-   - Health check: `https://prototipo-celular-rastreo-01-production.up.railway.app/ping`
-   - Recibe posiciones GPS de cada chofer cada 3 segundos
-   - Calcula brechas (gaps) entre unidades usando `routeProgress` (0-1)
-   - Hace broadcast del estado completo a todos los clientes conectados
-   - Limpia unidades inactivas (+30s sin GPS)
+- **Servidor** Node + Express + `ws` + SQLite (`server/index.js`). Calcula el
+  progreso sobre el trazado real, las brechas, las vueltas, los turnos y los
+  desvíos. **No lo voy a cambiar para esto.**
+- **Panel de Despacho** (`project/despacho.html`) — opera el día.
+- **Panel de gerencia** (`project/gerencia.html`) — solo lectura, informes.
+- **Panel del creador** (`server/creador.html`) — alta de cooperativas.
+- **App del chofer** (`project/Prototipo.html`) — es la que quiero reemplazar.
 
-2. **Frontend PWA** (React + Babel standalone, sin build step)
-   - Desplegado en Vercel: `https://prototipo-celular-rastreo-01.vercel.app`
-   - GitHub: `https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01`
-   - Carpeta del frontend: `/project/Prototipo.html` + `realtime.js`
-   - Carpeta del servidor: `/server/index.js`
+Lo que ya funciona de verdad en la app del chofer, y que la versión nativa
+tiene que mantener: login contra el servidor, brechas en vivo, mapa con las
+otras unidades, chat de ruta, **mensaje privado con Despacho**, SOS real
+(llega a Despacho y a los supervisores), notas de voz, modo acompañante y
+modo demo sin servidor.
 
-3. **Lo que funciona:**
-   - Login (nombre de usuario = ID único en el servidor)
-   - Pantalla principal con tiempos +1 adelante / -1 atrás
-   - Semáforo verde/amarillo/rojo según brecha objetivo
-   - GPS real del celular via `navigator.geolocation`
-   - WebSocket conectado al servidor (muestra "EN VIVO" cuando conecta)
-   - Mapa Leaflet con punto blanco "TÚ" que sigue el GPS real
-   - Puntos azules de otros choferes conectados en tiempo real
-   - Chip "N en ruta" que muestra cuántos están conectados
-   - SOS deslizable (visual, sin alerta real todavía)
-   - Chat (mensajes hardcodeados, no funcional todavía)
+**El problema que motiva todo esto:**
 
-**El problema con la PWA actual:**
-Cuando el chofer apaga la pantalla del celular, el navegador pausa el GPS. La posición deja de actualizarse en el servidor. Para un colectivo en movimiento esto es un problema crítico.
+Los navegadores cortan la geolocalización cuando se apaga la pantalla o la app
+pasa a segundo plano. A los 30 segundos sin GPS el servidor saca la unidad del
+mapa. Está medido y es peor de lo que parece: **el de atrás pasa a medirse
+contra la unidad que sigue, ve el doble de brecha, y la pantalla le dice
+"apurá" hacia una combi que tiene justo adelante y que no ve.** El sistema
+provoca el pelotón que existe para evitar. Además le borra la vuelta en curso,
+así que el historial nace con agujeros.
 
-**Lo que quiero construir ahora:**
-Una app React Native con Expo que reemplace el frontend web. El servidor NO cambia.
+**Lo que quiero construir:**
 
-**Requisitos de la app:**
-- Login con nombre de usuario (el nombre es el ID en el servidor)
-- Pantalla principal: tiempos de brecha adelante/atrás, semáforo, SOS deslizable
-- Mapa con `react-native-maps`: punto blanco (yo) + puntos azules (otros choferes)
-- GPS en segundo plano con `expo-location` + `expo-task-manager` (funciona con pantalla apagada)
-- WebSocket al servidor existente (mismo protocolo, misma lógica)
-- Swipe entre pantallas: Chat ← Ruta → Mapa
-- Distribuible como APK sin Play Store (EAS Build)
+Una app React Native con Expo que reemplace **solo la pantalla del chofer**.
+Los tres paneles siguen siendo web. El servidor no cambia.
 
-**Paleta de colores:**
-- Azul marca: `#2580CF`
-- Azul brillante: `#2E9DFF`
-- Fondo oscuro: `#0A1A2E`
-- Panel: `#16304A`
-- Verde: `#3DD685`
-- Amarillo: `#F5C542`
-- Rojo: `#FF4D6D`
-- Blanco: `#F5F9FF`
+Requisitos:
 
-**Mi nivel:**
-Estoy aprendiendo programación. Llevo unas semanas trabajando en esto. Entiendo React básico (componentes, useState, useEffect, props). No tengo experiencia con React Native todavía. Necesito que me expliques cada decisión importante como a un universitario de primer semestre — el "por qué" de cada cosa, no solo el código.
+- **GPS en segundo plano** con `expo-location` + `expo-task-manager`, con
+  *foreground service* y su notificación permanente (Android la exige).
+- **La notificación tiene que mostrar la brecha en vivo** — "+1 M-08 · 2:24" —
+  porque va a existir igual y así el chofer la ve sin desbloquear.
+- **Cadencia adaptativa**: 3 s con la pantalla encendida, 10 s con la pantalla
+  apagada. A 30 km/h son ~83 m de deriva, ~8 % contra un objetivo de 2 min:
+  aceptable, y baja mucho el consumo.
+- Pantallas: brecha adelante/atrás con semáforo, mapa con las otras unidades,
+  chat con los dos canales (grupo y privado con Despacho), SOS deslizable.
+- Distribuible como APK sin tienda (EAS Build). Play viene después.
 
-**Por dónde empezar:**
-Arrancá leyendo el servidor en GitHub para entender el protocolo WebSocket, y después planifiquemos la estructura del proyecto Expo antes de escribir una sola línea de código.
+**Lo primero que tenés que leer: `PROTOCOLO.md`.** Está verificado contra una
+corrida real. Tres cosas de ahí que si se ignoran cuestan una semana:
+
+1. **`gps_role`** decide si esta conexión reporta GPS. Solo una por vehículo, y
+   cambia solo cuando entra otro chofer. El servicio de fondo tiene que
+   respetarlo como estado vivo, no leerlo una vez.
+2. **`toAhead` / `toBehind` son `"MM:SS"` o `null`.** `null` es "no hay nadie
+   de ese lado". Taparlo con un `||` fue un bug real de la app web que le
+   mostraba al chofer unidades inventadas.
+3. **`unitId` es la persona, `vehicleId` es el fierro.** `gaps` va por
+   vehículo, el chat por persona.
+
+**Diseño visual:** el chrome (login, inicio de turno) usa la paleta oscura de
+abajo. La pantalla de ruta tiene **tres temas** —día (por defecto), sol
+extremo y noche— definidos en `TEMAS` dentro de `project/Prototipo.html`.
+Está pensada para leerse en un segundo bajo sol directo: por eso el dígito
+gigante y el color de estado tiñendo el fondo.
+
+- Azul marca `#2580CF` · brillante `#2E9DFF` · fondo `#0A1A2E` · panel `#16304A`
+- Verde `#3DD685` · amarillo `#F5C542` · rojo `#FF4D6D` · blanco `#F5F9FF`
+
+**Mi nivel:** estoy aprendiendo a programar. Entiendo React básico
+(componentes, `useState`, `useEffect`, props). **No tengo experiencia con
+React Native.** Explicame el porqué de cada decisión importante, no solo el
+código.
+
+**Cómo quiero trabajar:** este repo tiene una cultura de pruebas sin mocks
+—todo corre contra el servidor real— y de comentarios que explican el porqué,
+no el qué. Mantenela. Antes de escribir código, planifiquemos la estructura
+del proyecto Expo.
+
+---
+
+## Lo que este prompt reemplaza
+
+La versión anterior estaba desactualizada y habría hecho perder tiempo: decía
+que el chat era hardcodeado y el SOS solo visual (las dos cosas funcionan hace
+rato), apuntaba a un deploy en Vercel que ya no se usa, y no sabía nada de lo
+que se construyó después — identidad persona/vehículo, varias cooperativas,
+rutas alternas, panel de gerencia, mensaje privado, turnos ni el trazado real
+de la ruta.
