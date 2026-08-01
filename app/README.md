@@ -123,6 +123,20 @@ Corren con el resto: `npm test` desde la raíz.
   unidad se teletransporte. Por ahora al reconectar se manda solo la más
   fresca. Ver el comentario grande de `cola.js`.
 
+## Si Metro dice "Cannot find module ..."
+
+Casi siempre es una librería que usa la configuración pero nadie declaró en
+`package.json`. `babel-preset-expo` fue una: lo usa `babel.config.js`, en un
+proyecto hecho con `create-expo-app` viene solo, y al escribir este a mano se
+pasó por alto. El bundle falla en el primer intento, con la app ya instalada.
+
+La forma correcta de agregarlo es siempre la misma, porque elige la versión
+que corresponde al SDK:
+
+```bash
+npx expo install <lo-que-falte>
+```
+
 ## Si EAS te pide instalar algo
 
 Al primer `eas build` puede ofrecerte instalar `expo-dev-client` o crear el
