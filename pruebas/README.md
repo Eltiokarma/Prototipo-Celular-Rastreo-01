@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Doce suites que corren contra el servidor de verdad: levantan un proceso,
+Trece suites que corren contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -28,7 +28,7 @@ falló, así que sirve en CI tal cual.
 ## Correr una sola
 
 Ocho suites **esperan un servidor ya levantado en 3001** con la base a la que
-ellas van a mirar. Las otras cuatro levantan la suya.
+ellas van a mirar. Las otras cinco levantan la suya.
 
 ```bash
 # las que necesitan servidor: tramos objetivo informes desvio turnos privado seguridad empresas
@@ -36,7 +36,7 @@ DB=/tmp/una.db
 PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
-# las que se arman solas: variantes brecha creador gerencia
+# las que se arman solas: variantes brecha creador gerencia cliente
 node gerencia.js
 ```
 
@@ -68,6 +68,7 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `brecha` | Que la brecha promedio por vuelta se guarde, sea creíble, y quede vacía cuando no hay con qué compararse |
 | `creador` | Las cuatro barreras del nivel de arriba, incluido que sin `CREATOR_PASSWORD` responda 404 y no 403 |
 | `gerencia` | Que el gerente vea lo suyo y **no toque nada**: 403 en todo `/admin/*`, rechazo en el WebSocket, y que Despacho no le pueda tocar la cuenta |
+| `cliente` | El cliente del protocolo que va a usar la app nativa (`app/protocolo/`): el rol de GPS cuando hay relevo, las brechas que respetan el null, el freno de cadencia y el privado que no se filtra |
 
 ## Sintaxis de las pantallas
 

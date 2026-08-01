@@ -45,13 +45,26 @@ server/             Servidor de tiempo real (Node + Express + ws)
   creador.html        Su pantalla. NO vive en project/ a propósito: ahí se
                       serviría como estático aunque el panel esté apagado
 
-pruebas/            Doce suites de regresión contra el servidor de verdad.
+app/                La app nativa (en construcción). El servidor no cambia
+  protocolo/cliente.js  Cliente del protocolo en JS puro: sin React Native ni
+                      navegador adentro, así corre igual en Node —donde lo
+                      prueba pruebas/cliente.js contra el servidor real— y
+                      dentro de la app. Resuelve una sola vez las cuatro
+                      cosas que cada pantalla resolvería mal por su cuenta:
+                      el rol de GPS, el null de las brechas, el freno de
+                      cadencia y la reconexión con espera creciente
+
+pruebas/            Trece suites de regresión contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
+PROTOCOLO.md        Lo que un cliente tiene que hablar para funcionar contra
+                    el servidor, verificado contra una corrida real. Es de
+                    donde parte la app nativa
 PROMPT-DISENO.md    Encargo para rediseñar la interfaz: qué se puede tocar y,
                     sobre todo, qué parece estético y no lo es
-PROMPT-REACT-NATIVE.md  Guía para una futura migración a React Native
+PROMPT-REACT-NATIVE.md  Encargo para la app nativa: por qué, qué mantener y
+                    qué leer primero
 ```
 
 **Importante:** no hay archivos `.jsx` sueltos ni paso de build — todos los

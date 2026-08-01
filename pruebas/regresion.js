@@ -5,7 +5,7 @@
 // re-entrantes entre sí: cada una asume una base recién creada (turnos cuenta
 // los turnos que hay, objetivo cuenta las vueltas). Por eso cada suite se
 // corre contra su propio servidor y su propio archivo, y no todas contra uno
-// compartido. Las otras tres levantan el suyo solas.
+// compartido. Las de PROPIAS levantan el suyo solas.
 const RAIZ = require('path').join(__dirname, '..');
 const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
@@ -13,7 +13,7 @@ const S = __dirname;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const COMPARTIDAS = ['tramos', 'objetivo', 'informes', 'desvio', 'turnos', 'privado', 'seguridad', 'empresas'];
-const PROPIAS = ['variantes', 'brecha', 'creador', 'gerencia'];
+const PROPIAS = ['variantes', 'brecha', 'creador', 'gerencia', 'cliente'];
 
 const correr = (suite, env) => new Promise((resolve) => {
   let salida = '';
