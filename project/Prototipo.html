@@ -315,9 +315,12 @@ function fmtGap(v) {
   return String(v || '').replace(/^0(\d)/, '$1');
 }
 
-// "+1 · M-08", o "sin nadie" si de ese lado no hay unidad. Sin esto el lado
-// vacío quedaba como "−1 · " con la unidad en blanco.
+// "+1 · M-08" cuando se sabe la brecha; "M-08 · sin señal" cuando esa unidad
+// existe pero dejó de reportar; "sin nadie" cuando de ese lado no hay nadie.
+// Las tres frases son distintas a propósito: para el chofer, ser el primero
+// de la fila y tener adelante una combi que no ve son situaciones opuestas.
 function rotuloLado(lado) {
+  if (lado.sinSenal) return `${lado.unit} · sin señal`;
   return lado.vacio ? 'sin nadie' : `${lado.sign} · ${lado.unit}`;
 }
 
@@ -338,13 +341,21 @@ function fmtTarget(min) {
 // fila le aparecía un "ATRÁS −1 · M-21 1:40" que no existía, con el mismo
 // tamaño y el mismo color que el dato de verdad. Un lado sin nadie ahora se
 // dibuja vacío, que es lo que es.
+// Un lado tiene TRES estados, no dos, y el tercero es el que importa acá:
+// hay una unidad de ese lado que dejó de reportar. Su última posición es de
+// hace minutos y medirse contra ella sería inventar, pero tampoco es "no hay
+// nadie": el chofer tiene una combi adelante que no ve en el mapa, y eso es
+// justo lo que necesita saber.
 function buildHudModel(tweaks, gapMeta) {
   const target = tweaks.targetGap;
   const vivo = !!gapMeta?.vivo;
-  const mk = (value, label, sign, unit) => {
+  const mk = (value, label, sign, unit, sinSenal) => {
     if (!value) {
+      const hayAlguien = !!(unit && sinSenal);
       return {
-        value: null, label, sign, unit: null, vacio: true,
+        value: null, label, sign,
+        unit: hayAlguien ? unit : null,
+        vacio: true, sinSenal: hayAlguien,
         status: 'none',
         color: HUD_STATUS.none.c,
         ink: HUD_STATUS.none.ink,
@@ -353,7 +364,7 @@ function buildHudModel(tweaks, gapMeta) {
     }
     const status = sideStatus(value, target);
     return {
-      value, label, sign, unit,
+      value, label, sign, unit, sinSenal: false,
       status,
       color: HUD_STATUS[status].c,
       ink: HUD_STATUS[status].ink,
@@ -362,13 +373,20 @@ function buildHudModel(tweaks, gapMeta) {
   };
   const frontVal = vivo ? gapMeta.toAhead  : tweaks.frontTime;
   const backVal  = vivo ? gapMeta.toBehind : tweaks.backTime;
-  const front = mk(frontVal, 'ADELANTE', '+1', vivo ? gapMeta.aheadUnit  : 'M-08');
-  const back  = mk(backVal,  'ATRÁS',    '−1', vivo ? gapMeta.behindUnit : 'M-21');
+  const front = mk(frontVal, 'ADELANTE', '+1', vivo ? gapMeta.aheadUnit  : 'M-08',
+                   vivo && gapMeta.aheadSinSenal);
+  const back  = mk(backVal,  'ATRÁS',    '−1', vivo ? gapMeta.behindUnit : 'M-21',
+                   vivo && gapMeta.behindSinSenal);
 
   // El héroe es el lado con más desvío, pero un lado vacío nunca puede serlo:
   // el dígito grande es para lo que el chofer tiene que corregir.
   const desvio = v => (v ? Math.abs(parseMin(v) - target) : -1);
-  const heroIsBack = back.vacio ? false
+  const heroIsBack =
+    // Entre dos lados sin número manda el que tiene a alguien sin señal: es
+    // lo único que hay para decirle al chofer. Si no, el aviso quedaría en
+    // el renglón chico de abajo y el dígito grande no diría nada.
+    (back.vacio && front.vacio) ? (back.sinSenal && !front.sinSenal)
+    : back.vacio ? false
     : front.vacio ? true
     : desvio(backVal) >= desvio(frontVal);
   return {
@@ -1759,13 +1777,19 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   const heroIsBack = hero === hud.back;
   const dev = parseMin(hero.value) - target;
   const speedUp = heroIsBack ? dev < 0 : dev > 0;
-  // Con el lado héroe vacío no hay contra qué medirse: es el único en ruta.
-  // Decirle "mantené el ritmo" ahí sería inventar una referencia.
-  const instruction = hero.vacio
-    ? 'Sos la única unidad en ruta.'
-    : hero.status === 'green'
-      ? `Mantené el ritmo. Objetivo ${fmtTarget(target)}.`
-      : `${speedUp ? 'Apurá' : 'Aflojá'} un poco. Objetivo ${fmtTarget(target)}.`;
+  // Sin contra qué medirse no se da una instrucción, pero el motivo cambia
+  // todo lo que hay que decir. Con una unidad sin señal, callarse o decir
+  // "sos la única" sería peor que no mostrar nada: hay una combi adelante
+  // que el chofer no ve en el mapa, y manejar como si no estuviera es
+  // exactamente lo que hay que evitar.
+  const sinSenalCerca = hud.front.sinSenal || hud.back.sinSenal;
+  const instruction = hero.sinSenal
+    ? `${hero.unit} se quedó sin señal. Andá con cuidado: sigue en ruta.`
+    : hero.vacio
+      ? (sinSenalCerca ? 'Sin brecha para medir por ahora.' : 'Sos la única unidad en ruta.')
+      : hero.status === 'green'
+        ? `Mantené el ritmo. Objetivo ${fmtTarget(target)}.`
+        : `${speedUp ? 'Apurá' : 'Aflojá'} un poco. Objetivo ${fmtTarget(target)}.`;
 
   return (
     <div style={{
@@ -2428,6 +2452,11 @@ function Root() {
         toBehind: myGaps?.toBehind || null,
         aheadUnit: myGaps?.aheadUnit || null,
         behindUnit: myGaps?.behindUnit || null,
+        // Hay alguien de ese lado pero dejó de reportar. Es distinto de que
+        // no haya nadie, y el chofer tiene que poder distinguirlo: uno
+        // significa "sos el primero", el otro "andá con cuidado".
+        aheadSinSenal: !!myGaps?.aheadSinSenal,
+        behindSinSenal: !!myGaps?.behindSinSenal,
       });
       // Todas las combis en ruta menos la mía (ya vienen solo de mi ruta)
       const others = (state.units || []).filter(u => u.unitId !== myVehicleId && u.lat);

@@ -35,7 +35,10 @@ const anillo = (t) => {
 let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', STATE_INTERVAL_MS: '400' },
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
+      STATE_INTERVAL_MS: '400',
+      // Cortos, para poder ver el "sin señal" sin esperar los 30 s de producción
+      SIN_SENAL_MS: '3000', OLVIDAR_MS: '120000' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   servidor.stderr.on('data', d => process.stderr.write('[srv] ' + d));
@@ -151,6 +154,18 @@ const pedir = (ruta, opts = {}) =>
     if (re.test(enRuta)) fallos.push('la pantalla en ruta muestra ' + qué);
   }
   if (!/sin nadie/i.test(enRuta)) fallos.push('el lado sin unidad no se marca como vacío');
+
+  // Al de adelante se le apaga la pantalla. La combi sigue en la calle: la
+  // pantalla tiene que decirlo, y sobre todo NO puede pasar a medirse contra
+  // otro ni mandar a apurar.
+  ws8.close();
+  await p.waitForTimeout(9000);
+  await p.screenshot({ path: SALIDA + '/c3-sin-senal.png' });
+  const perdida = await p.evaluate(() => document.body.innerText);
+  if (!/sin señal/i.test(perdida)) fallos.push('no avisa que la unidad de adelante perdió la señal');
+  if (!/M-08/.test(perdida)) fallos.push('deja de nombrar a la unidad que se quedó sin señal');
+  if (/Apurá|Aflojá/.test(perdida)) fallos.push('sigue dando instrucción de ritmo contra una posición vieja');
+  if (/única unidad en ruta/i.test(perdida)) fallos.push('dice que está sola teniendo una unidad adelante');
 
   console.log('capturas en', SALIDA);
   console.log('errores de la página:', errores.length ? errores : 'ninguno');

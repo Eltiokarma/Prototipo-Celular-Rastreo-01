@@ -34,7 +34,10 @@ let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: String(P), DB_FILE: DB,
-           DISPATCH_PASSWORD: 'despacho99', STATE_INTERVAL_MS: '600' },
+           DISPATCH_PASSWORD: 'despacho99', STATE_INTERVAL_MS: '600',
+           // Plazos cortos: probar el "sin señal" con los 30 s de producción
+           // haría una suite de un minuto para una sola comprobación.
+           SIN_SENAL_MS: '2000', OLVIDAR_MS: '60000' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   servidor.stderr.on('data', d => process.stderr.write('[srv] ' + d));
@@ -144,11 +147,29 @@ async function hasta(cond, ms = 6000) {
   ok('y la de adelante tampoco inventa a quién tiene delante',
      c08.miBrecha().adelante === null, c08.miBrecha().adelante);
 
+  ok('la de adelante viene sin marca de sin señal', b.adelante?.sinSenal === false, b.adelante);
+
   ok('otrasUnidades no me incluye a mí',
      relevo.otrasUnidades().every(u => u.unitId !== 'M-12') &&
      relevo.otrasUnidades().some(u => u.unitId === 'M-08'),
      relevo.otrasUnidades().map(u => u.unitId));
   ok('miUnidad sí soy yo', relevo.miUnidad()?.unitId === 'M-12');
+
+  console.log('\nCUANDO EL DE ADELANTE SE QUEDA SIN SEÑAL');
+  // M-08 deja de reportar; el relevo (M-12) sigue quieto donde estaba. Los
+  // tres estados de un lado tienen que quedar distinguibles: hay alguien y
+  // sé a cuánto / hay alguien y no sé / no hay nadie.
+  const sostener = setInterval(() => relevo.mandarGps({ lat: posB.lat, lng: posB.lng, speed: 21 }), 1500);
+  ok('el lado pasa a sin señal, no a vacío',
+     await hasta(() => relevo.miBrecha().adelante?.sinSenal === true, 9000),
+     relevo.miBrecha().adelante);
+  const sinSenal = relevo.miBrecha().adelante;
+  ok('y conserva a quién tiene adelante', sinSenal?.unidad === 'M-08', sinSenal);
+  ok('pero sin tiempo, que es lo que no se sabe', sinSenal?.tiempo === null, sinSenal);
+  ok('"sin señal" y "no hay nadie" NO se confunden',
+     relevo.miBrecha().atras === null && sinSenal !== null,
+     { adelante: sinSenal, atras: relevo.miBrecha().atras });
+  clearInterval(sostener);
 
   console.log('\nEL FRENO DE CADENCIA');
   // El servidor descarta en silencio pasado el cupo: el cliente cree que

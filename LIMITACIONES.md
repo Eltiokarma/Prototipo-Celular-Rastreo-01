@@ -8,7 +8,7 @@ limitación se resuelva o aparezca una nueva.
 
 | # | Limitación | Impacto | Salida |
 |---|---|---|---|
-| 1 | El GPS se corta con la pantalla apagada | La unidad desaparece del mapa a los ~30 s de bloquear el celular o cambiar de app | App nativa (React Native) |
+| 1 | El GPS se corta con la pantalla apagada | **Mitigado, no resuelto.** El navegador sigue cortando el GPS, pero la unidad ya no se borra: a los 30 s queda **sin señal** —en el mapa con su última posición, y nadie se mide contra ella— y recién a los 3 min se olvida. Antes desaparecía y la de atrás recibía "apurá" hacia una combi que tenía justo adelante | App nativa (React Native), para que el GPS no se corte |
 | 2 | Sin notificaciones con la app cerrada | Un SOS o mensaje no suena si el chofer/encargado no tiene la app abierta | Web Push (Android) o app nativa |
 | 3 | Sin volumen en Railway, un redeploy borra la base | Se pierden usuarios, historial de chat y vueltas | Montar volumen + `DB_FILE=/data/r14.db` (documentado en README) |
 | 4 | Brechas y vueltas son aproximadas | **Resuelto para las rutas con recorrido cargado**: el progreso se calcula proyectando la posición sobre el trazado real. Una ruta sin recorrido sigue con la estimación lineal | Ver README, sección El recorrido de la ruta |
@@ -23,8 +23,17 @@ limitación se resuelva o aparezca una nueva.
 - **GPS en segundo plano:** los navegadores cortan la geolocalización al
   apagar la pantalla o pasar la app atrás. El diseño actual asume el
   celular **en soporte con pantalla prendida** (es el uso previsto del
-  HUD); fuera de ese uso, la unidad se cae del mapa. La solución de
-  fondo es la app nativa (`PROMPT-REACT-NATIVE.md`).
+  HUD). La solución de fondo es la app nativa
+  (`PROMPT-REACT-NATIVE.md`), y no es un lujo: **con la pantalla apagada
+  el consumo es mucho MENOR** —desaparecen la pantalla al máximo brillo y
+  el redibujado del mapa, que son los dos grandes—, así que no hay ningún
+  argumento de batería para no correr en segundo plano. Lo único que lo
+  impide es el navegador.
+
+  Mientras tanto, lo que se sabe de la unidad callada ya no se inventa:
+  queda marcada **sin señal** con su última posición y nadie se mide
+  contra ella (ver `PROTOCOLO.md`, sección 5). Eso evita la falla
+  peligrosa, pero no devuelve la posición: la combi sigue sin verse.
 - **Notificaciones:** no hay push con la app cerrada. En Android es
   técnicamente posible con Web Push (pendiente); en iPhone es mucho más
   restringido.

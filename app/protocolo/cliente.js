@@ -183,17 +183,32 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   }
 
   // ─── Mi brecha ─────────────────────────────────────────────
-  // Devuelve los dos lados, y **null es null**: si no hay nadie adelante o
-  // atrás, este método no inventa un tiempo. Taparlo con un valor por defecto
-  // fue un bug real de la app web — al primero de la fila le mostraba una
-  // unidad que no existía, con el mismo tamaño y color que el dato de verdad.
+  // Devuelve los dos lados. Hay TRES estados por lado, no dos, y confundir
+  // los dos últimos es lo que hace que una pantalla mienta:
+  //
+  //   null                          no hay nadie de ese lado
+  //   { tiempo, unidad }            hay alguien y sabemos a cuánto
+  //   { tiempo: null, unidad, sinSenal: true }
+  //                                 hay alguien y NO sabemos a cuánto
+  //
+  // El tercero es una unidad que dejó de reportar. Su última posición es de
+  // hace minutos: medirse contra ella sería inventar. Pero tampoco se la
+  // saca de la fila, porque entonces este lado pasaría a medirse contra la
+  // que sigue —el doble de lejos— y la pantalla diría "apurá" hacia una
+  // combi que el chofer tiene justo adelante. Está medido; ver PROTOCOLO.md.
+  function lado(tiempo, unidad, sinSenal) {
+    if (!unidad) return null;                       // no hay nadie
+    if (sinSenal || !tiempo) return { tiempo: null, unidad, sinSenal: true };
+    return { tiempo, unidad, sinSenal: false };
+  }
+
   function miBrecha() {
     const vehiculo = sesion?.vehicleId || sesion?.unitId;
     const g = estado?.gaps?.[vehiculo];
     if (!g) return { adelante: null, atras: null, objetivoMin: estado?.targetGapMin ?? null };
     return {
-      adelante: g.toAhead ? { tiempo: g.toAhead, unidad: g.aheadUnit } : null,
-      atras:    g.toBehind ? { tiempo: g.toBehind, unidad: g.behindUnit } : null,
+      adelante: lado(g.toAhead, g.aheadUnit, g.aheadSinSenal),
+      atras:    lado(g.toBehind, g.behindUnit, g.behindSinSenal),
       objetivoMin: estado?.targetGapMin ?? null,
     };
   }

@@ -2505,11 +2505,17 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       const halo = fuera
         ? `box-shadow:0 0 0 3px ${HUD.bg},0 0 0 6px ${HUD.amber};`
         : '';
+      // La que perdió señal se dibuja apagada y hueca: el punto está donde
+      // estuvo, no donde está. Un pin lleno del color de su brecha diría que
+      // esa posición es de ahora, y es de hace minutos.
+      const callada = !!u.sinSenal;
+      const colorPin = callada ? HUD.dim3 : color;
+      const relleno = callada ? HUD.bg : '#fff';
       // width:max-content porque el icono de Leaflet mide 0×0: sin eso la
       // etiqueta se parte en dos líneas dentro de un contenedor sin ancho.
-      const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:${fuera ? 6 : 3}px;">
-        <div style="font-family:${black};font-size:11px;color:#fff;background:${color};padding:2px 6px;border-radius:5px;white-space:nowrap;">${escaparHtml(u.unitId)}${fuera ? ' ◇' : ''}</div>
-        <div style="width:10px;height:10px;border-radius:50%;background:#fff;border:3px solid ${color};box-sizing:content-box;${halo}"></div>
+      const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:${fuera ? 6 : 3}px;${callada ? 'opacity:.65;' : ''}">
+        <div style="font-family:${black};font-size:11px;color:#fff;background:${colorPin};padding:2px 6px;border-radius:5px;white-space:nowrap;">${escaparHtml(u.unitId)}${fuera ? ' ◇' : ''}${callada ? ' ⌁' : ''}</div>
+        <div style="width:10px;height:10px;border-radius:50%;background:${relleno};border:3px solid ${colorPin};box-sizing:content-box;${halo}"></div>
       </div>`;
       const icon = L.divIcon({ html, className: '', iconSize: [0, 0], iconAnchor: [0, 0] });
       if (existing[u.unitId]) {
@@ -2856,6 +2862,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                       fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
                       color: HUD.amber, marginTop: 8,
                     }}>FUERA DE RUTA · {u.desvioM} M</div>
+                )}
+                {/* Dejó de reportar. La posición que se ve en el mapa es la
+                    última conocida, así que se dice desde cuándo: sin eso,
+                    Despacho manda a alguien a un lugar donde la combi estuvo
+                    hace tres minutos. Las brechas de arriba ya salen en "—"
+                    porque el servidor no las calcula contra una unidad así. */}
+                {u.sinSenal && (
+                  <div title={`Última posición recibida a las ${nowTime(u.sinSenalDesde || u.timestamp)}`}
+                    style={{
+                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
+                      color: HUD.amber, marginTop: 8,
+                    }}>SIN SEÑAL DESDE {nowTime(u.sinSenalDesde || u.timestamp)}</div>
                 )}
                 {!u.lat && (
                   <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.amber, marginTop: 8 }}>SIN GPS</div>
