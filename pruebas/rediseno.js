@@ -33,7 +33,9 @@ let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
-      STATE_INTERVAL_MS: '400' },
+      STATE_INTERVAL_MS: '400',
+      // Corto, para poder ver una unidad sin señal sin esperar los 30 s
+      SIN_SENAL_MS: '3000', OLVIDAR_MS: '600000' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   servidor.stderr.on('data', d => process.stderr.write('[srv] ' + d));
@@ -167,6 +169,27 @@ const pedir = (ruta, opts = {}) =>
     }
     await p.screenshot({ path: `${SALIDA}/${etiqueta}.png` });
   }
+
+  // A M-05 se le apaga la pantalla: tiene que quedar en gris y con la hora
+  // de su última posición, y sus brechas en "—". Las otras SIGUEN
+  // reportando durante la espera; si no, se quedan calladas todas y la
+  // captura no muestra la diferencia, que es lo único que se quiere ver.
+  const apagada = conectados.find(c => c.u === 'M-05');
+  apagada.ws.close();
+  for (let ronda = 0; ronda < 9; ronda++) {
+    for (const c of conectados) {
+      if (c === apagada) continue;
+      const q = anillo(c.t + (12 + ronda) * 0.0004);
+      const d = c.fuera ? { lat: q.lat + g * 420, lng: q.lng } : q;
+      c.ws.send(JSON.stringify({ type: 'gps', ...d, speed: 18 }));
+    }
+    await sleep(1000);
+  }
+  await p.screenshot({ path: SALIDA + '/02-sin-senal.png' });
+  const txt = await p.evaluate(() => document.body.innerText);
+  const calladas = (txt.match(/SIN SEÑAL/gi) || []).length;
+  if (calladas === 0) errores.push('Despacho no marca la unidad que perdió señal');
+  if (calladas > 1) errores.push(`Despacho marca ${calladas} unidades sin señal y solo una lo está`);
 
   const cel = await abrir(412, 900);
   await cel.screenshot({ path: SALIDA + '/99-celular.png' });

@@ -121,14 +121,31 @@ vivo, no como algo que se lee una vez al entrar.
 Lo que hay que tener claro:
 
 - **`gaps` se indexa por `vehicleId`**, no por persona.
-- **`toAhead` y `toBehind` son `"MM:SS"` o `null`.** `null` significa *no hay
-  nadie de ese lado* — el primero de la fila no tiene a quién adelante y el
-  último no tiene a quién atrás. **No es un cero ni un valor por defecto.**
-  Taparlo con un `||` fue exactamente el bug que la app web tuvo hasta hoy: le
+- **Cada lado tiene TRES estados, no dos**, y confundir los dos últimos hace
+  que la pantalla mienta:
+
+  | `aheadUnit` | `toAhead` | `aheadSinSenal` | Qué significa |
+  |---|---|---|---|
+  | `null` | `null` | `false` | no hay nadie adelante |
+  | `"M-08"` | `"02:24"` | `false` | hay alguien y se sabe a cuánto |
+  | `"M-08"` | `null` | `true` | **hay alguien y no se sabe a cuánto** |
+
+  El tercero es una unidad que dejó de reportar. Su última posición es de hace
+  minutos, así que medirse contra ella sería inventar; pero tampoco se la saca
+  de la fila, porque entonces este lado se mediría contra la que sigue —el
+  doble de lejos— y la pantalla diría *"apurá"* hacia una combi que el chofer
+  tiene justo adelante. Está medido; ver la sección 5.
+
+  **Taparlo con un `||` fue el bug que la app web tuvo hasta hace poco**: le
   mostraba al chofer una unidad inventada con el mismo tamaño y color que el
-  dato real. Si el lado viene `null`, la pantalla no muestra un tiempo.
+  dato real. Si el tiempo viene `null`, la pantalla no muestra un tiempo.
 - **`units` trae solo las de esa ruta y con GPS**, ordenadas por
-  `routeProgress` descendente (la de más avance primero).
+  `routeProgress` descendente (la de más avance primero). Una unidad con
+  `sinSenal: true` sigue en la lista con su **última posición conocida** y
+  `sinSenalDesde` diciendo de cuándo es. Dibujarla como una posición actual
+  manda a Despacho a donde la combi estuvo hace tres minutos.
+- `sinSenal` en la raíz del estado cuenta cuántas están calladas.
+  `totalOnRoute` **las sigue contando**: la combi está en la calle igual.
 - **`routeProgress` lo calcula el servidor**, proyectando la posición sobre el
   trazado. El cliente no lo calcula ni lo necesita.
 - `tramo` es `"ida"` o `"vuelta"`; `progresoTramo` va de 0 a 1 dentro del tramo.
@@ -197,15 +214,30 @@ puede quemar.
 - La app web reconecta **cada 3 s** (`project/realtime.js`) y al volver a
   identificarse recibe estado e historial de nuevo. Lo emitido durante el corte
   **se pierde**: no hay cola de reenvío ni acuse por mensaje.
-- **A los 30 s sin `gps`, el servidor saca la unidad** (`unit_left`), le borra
-  la vuelta en curso y recalcula las brechas de los demás **como si no
-  existiera**. Esto tiene una consecuencia grave y medida: el de atrás pasa a
-  medirse contra el que sigue, ve una brecha del doble, y la pantalla le dice
-  *"apurá"* hacia una combi que está justo adelante y que él no ve.
-  Es el motivo de fondo de la app nativa. Ver `LIMITACIONES.md`.
-- Los **turnos** sí toleran cortes: 15 minutos (`RECONEXION_MS`) antes de
-  cerrarse. La asimetría entre 30 s para la posición y 15 min para el turno es
-  deliberada en el turno y accidental en la posición.
+Una unidad que deja de reportar pasa por **dos etapas**, no una:
+
+| Cuándo | Qué pasa |
+|---|---|
+| **30 s** (`SIN_SENAL_MS`) | queda `sinSenal: true`. Sigue en la fila y en el mapa con su última posición. Las brechas contra ella pasan a `null` con `aheadSinSenal`/`behindSinSenal` en `true` |
+| **3 min** (`OLVIDAR_MS`) | se borra de verdad: llega `unit_left` y se descarta su vuelta en curso |
+
+Vale para las dos formas de desaparecer —dejar de mandar `gps` con el socket
+abierto, y que el socket se caiga—, porque son el mismo hecho: dejamos de
+saber dónde está. Con la pantalla apagada lo normal es lo segundo.
+
+Antes se borraba a los 30 s de una sola vez, y eso producía algo peor que un
+fantasma en el mapa: el de atrás pasaba a medirse contra el que sigue, veía
+una brecha del doble y la pantalla le decía *"apurá"* hacia una combi que
+tenía justo adelante y que ya no veía. Sin haberse movido un metro. Está
+medido y cubierto por la suite `senal`.
+
+Esto **no arregla** el problema de fondo —el navegador sigue cortando el GPS
+con la pantalla apagada, y por eso viene la app nativa— pero convierte una
+falla peligrosa y muda en una visible y honesta.
+
+- Los **turnos** toleran cortes de 15 minutos (`RECONEXION_MS`) antes de
+  cerrarse: más que la posición, porque perder la señal un rato no significa
+  que la persona se haya bajado.
 
 ## 6. Cómo se verificó
 

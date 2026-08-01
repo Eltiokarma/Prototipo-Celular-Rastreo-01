@@ -2879,6 +2879,11 @@ wss.on('connection', (ws) => {
         // dentro del estado que ya se emite: no hace falta mensaje aparte.
         fueraDeRuta: !!(desvio && desvio.fuera),
         fueraDesde: desvio && desvio.fuera ? desvio.desde : null,
+        // Volvió la señal. Se limpia explícitamente porque el spread de
+        // arriba arrastra el `sinSenal` de la vuelta anterior, y una unidad
+        // que reapareció seguiría dibujada en gris para siempre.
+        sinSenal: false,
+        sinSenalDesde: null,
         timestamp: Date.now(),
       });
 
@@ -3050,10 +3055,24 @@ wss.on('connection', (ws) => {
       }
     }
 
-    // El vehículo sale del mapa solo cuando se va la ÚLTIMA persona
+    // Cuando se va la ÚLTIMA persona del vehículo, la unidad NO se borra: se
+    // marca sin señal, igual que si hubiera dejado de mandar GPS con el
+    // socket abierto. Los dos casos son el mismo hecho —dejamos de saber
+    // dónde está— y este es además el más común de los dos: con la pantalla
+    // apagada el celular duerme la radio y la conexión se cae, no se queda
+    // abierta y muda.
+    //
+    // Borrar acá era lo que dejaba sin efecto todo el mecanismo: la de atrás
+    // pasaba a medirse contra la que sigue y recibía "apurá" hacia una combi
+    // que tenía justo adelante.
+    //
+    // El precio es que un chofer que termina el turno queda tres minutos en
+    // gris. Es el precio correcto: desde el servidor, terminar el turno y
+    // entrar a un túnel son indistinguibles, y equivocarse hacia "no sé
+    // dónde está" es mucho más barato que equivocarse hacia "no existe".
     if (otrosDelVehiculo.length === 0 && units.has(vehicleId)) {
-      units.delete(vehicleId);
-      broadcastToRoute(routeId, { type: 'unit_left', unitId: vehicleId });
+      const u = units.get(vehicleId);
+      if (!u.sinSenal) units.set(vehicleId, { ...u, sinSenal: true, sinSenalDesde: u.timestamp });
       scheduleStateBroadcast(routeId, true);
     }
   });
@@ -3175,8 +3194,15 @@ function objetivoDe(routeId) {
   const previo = objetivoCache.get(routeId);
   if (previo && Date.now() - previo.calculadoEn < RECALCULO_MS) return previo;
 
+  // Las que perdieron señal NO cuentan acá, aunque sigan dibujadas en el
+  // mapa. El objetivo es la vuelta dividida por las unidades: contar una de
+  // más lo ACHICA, y un objetivo más chico le dice a todos que se peguen más
+  // — justo la dirección peligrosa. Si además esa unidad terminó el turno y
+  // se fue a su casa, estaríamos apretando a los que quedan por un fantasma.
+  // Sin contarla el objetivo queda algo más grande de lo ideal mientras dura
+  // el corte, que es el error barato. Vuelve a contar apenas reaparece.
   const unidades = Array.from(units.values())
-    .filter(u => u.routeId === routeId && u.lat !== null).length;
+    .filter(u => u.routeId === routeId && u.lat !== null && !u.sinSenal).length;
   const diaSemana = new Date().getDay();
   const prom = promedioVuelta(routeId, diaSemana);
 
@@ -3250,7 +3276,12 @@ function buildState(routeId, acumular) {
     },
     units: all,
     gaps: calculateGaps(all, ruta ? ruta.durationMin : 50, acumular ? anotarBrecha : null),
+    // `totalOnRoute` sigue contando a las que perdieron señal: la combi está
+    // en la calle igual, y sacarla de la cuenta haría parpadear el "N en
+    // ruta" cada vez que alguien entra a un túnel. Cuántas están calladas va
+    // aparte, para que el panel lo pueda decir sin adivinar.
     totalOnRoute: all.length,
+    sinSenal: all.filter(u => u.sinSenal).length,
     timestamp: Date.now(),
   };
 }
@@ -3271,7 +3302,16 @@ function calculateGaps(sortedUnits, durationMin, anotar) {
     const ahead = sortedUnits[i - 1]; // la que va adelante (más progreso)
     const behind = sortedUnits[i + 1]; // la que viene atrás (menos progreso)
 
-    const gapToAhead = ahead
+    // Una unidad sin señal SIGUE OCUPANDO SU LUGAR en la fila, pero su
+    // posición es vieja y no se puede medir contra ella. Las dos cosas
+    // importan y por eso no alcanza con sacarla del arreglo:
+    //   - si se la saca, el de atrás se mide contra la que sigue, ve el
+    //     doble de brecha y recibe "apurá" hacia una combi que no ve;
+    //   - si se la mide igual, el número es de hace minutos y miente.
+    // Queda `aheadUnit` con nombre y `toAhead` en null: hay alguien
+    // adelante, no sabemos a cuánto. Es un estado distinto de "no hay nadie",
+    // donde las dos cosas van en null.
+    const gapToAhead = ahead && !ahead.sinSenal
       ? (ahead.routeProgress - current.routeProgress) * durationMin
       : null;
 
@@ -3280,7 +3320,7 @@ function calculateGaps(sortedUnits, durationMin, anotar) {
     // datos móviles por turno y por celular para algo que el cliente no usa.
     if (anotar && gapToAhead !== null) anotar(current.unitId, gapToAhead);
 
-    const gapToBehind = behind
+    const gapToBehind = behind && !behind.sinSenal
       ? (current.routeProgress - behind.routeProgress) * durationMin
       : null;
 
@@ -3289,6 +3329,11 @@ function calculateGaps(sortedUnits, durationMin, anotar) {
       toBehind: gapToBehind !== null ? formatMinutes(gapToBehind) : null,
       aheadUnit: ahead?.unitId || null,
       behindUnit: behind?.unitId || null,
+      // Por qué el tiempo viene vacío teniendo a alguien al lado. Sin esto,
+      // la pantalla no puede distinguir "no hay nadie" de "hay alguien y no
+      // sabemos dónde", que para el chofer son cosas muy distintas.
+      aheadSinSenal: !!(ahead && ahead.sinSenal),
+      behindSinSenal: !!(behind && behind.sinSenal),
     };
   }
   return gaps;
@@ -3296,8 +3341,14 @@ function calculateGaps(sortedUnits, durationMin, anotar) {
 
 // Convierte 2.25 minutos → "02:15"
 function formatMinutes(mins) {
-  const m = Math.floor(mins);
-  const s = Math.round((mins - m) * 60);
+  // Se redondea a segundos ANTES de partir en minutos y segundos. Al revés
+  // —que es como estaba— 2,999 min daba m=2 y s=redondeo(59,94)=60, o sea
+  // "02:60": una hora que no existe, en el dígito gigante del chofer. Pasa
+  // en el 0,8 % de los valores, que con la brecha actualizándose cada 3 s
+  // son varias veces por turno.
+  const total = Math.round(mins * 60);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
@@ -3373,18 +3424,48 @@ function scheduleStateBroadcast(routeId, immediate = false) {
   stateTimers.set(routeId, setTimeout(() => flushState(routeId), espera));
 }
 
-// ─── LIMPIAR UNIDADES INACTIVAS ──────────────────────────────
-// Si una unidad no manda GPS en más de 30 segundos, la sacamos.
-// Evita que fantasmas queden en el mapa después de que alguien cierra la app.
+// ─── UNIDADES QUE DEJAN DE REPORTAR ──────────────────────────
+// Antes esto era una sola cosa: a los 30 segundos sin GPS, borrar. Se midió
+// lo que provocaba y era peor que un fantasma en el mapa. Con la unidad
+// borrada, la de atrás pasa a medirse contra la que sigue —el doble de
+// lejos—, ve una brecha enorme y la pantalla le dice "apurá" hacia una combi
+// que tiene justo adelante y que ya no ve. El sistema producía el pelotón
+// que existe para evitar.
+//
+// Ahora son dos etapas:
+//
+//   30 s → SIN SEÑAL. Sigue en la fila, con su última posición conocida y
+//          marcada como vieja. Nadie recibe una instrucción calculada contra
+//          ella, pero tampoco desaparece de la cuenta: el de atrás sigue
+//          sabiendo que hay alguien adelante.
+//    3 min → OLVIDADA. Recién acá se borra y se descarta la vuelta en curso.
+//
+// Los dos plazos se pueden mover sin tocar código, porque el número bueno
+// sale de la calle: tres minutos aguanta una llamada o un semáforo largo, y
+// es poco como para no mostrar una posición ya falsa.
+const SIN_SENAL_MS = Number(process.env.SIN_SENAL_MS || 30_000);
+const OLVIDAR_MS   = Number(process.env.OLVIDAR_MS   || 180_000);
+
 setInterval(() => {
-  const cutoff = Date.now() - 30_000;
+  const ahora = Date.now();
   const rutasAfectadas = new Set();
   for (const [unitId, unit] of units) {
-    if (unit.timestamp < cutoff) {
+    const callada = ahora - unit.timestamp;
+
+    if (callada > OLVIDAR_MS) {
       units.delete(unitId);
       lapState.delete(unitId); // la vuelta a medias no cuenta
-      console.log(`Unidad eliminada por inactividad: ${unitId}`);
+      console.log(`Unidad olvidada tras ${Math.round(callada / 1000)} s sin señal: ${unitId}`);
       broadcastToRoute(unit.routeId, { type: 'unit_left', unitId });
+      rutasAfectadas.add(unit.routeId);
+      continue;
+    }
+
+    // Entra en "sin señal". Se marca una sola vez: sin este chequeo se
+    // reemitiría el estado cada diez segundos durante los tres minutos.
+    if (callada > SIN_SENAL_MS && !unit.sinSenal) {
+      units.set(unitId, { ...unit, sinSenal: true, sinSenalDesde: unit.timestamp });
+      console.log(`Unidad sin señal: ${unitId}`);
       rutasAfectadas.add(unit.routeId);
     }
   }

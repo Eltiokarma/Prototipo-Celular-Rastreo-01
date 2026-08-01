@@ -54,7 +54,7 @@ app/                La app nativa (en construcción). El servidor no cambia
                       el rol de GPS, el null de las brechas, el freno de
                       cadencia y la reconexión con espera creciente
 
-pruebas/            Trece suites de regresión contra el servidor de verdad.
+pruebas/            Catorce suites de regresión contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -129,6 +129,8 @@ Lo que falta construir, ordenado: ver **PENDIENTES.md**.
 | `CREATOR_TOTP_SECRET` | Segundo factor del panel del creador (base32) |
 | `OPEN_REGISTRATION` | `1` deja que cualquiera se registre. **Solo para demos** |
 | `STATE_INTERVAL_MS` | Cada cuánto se emite el estado (3000 por defecto) |
+| `SIN_SENAL_MS` | A los cuántos ms sin GPS una unidad queda marcada **sin señal** (30 000). Sigue en la fila y en el mapa con su última posición, pero nadie se mide contra ella |
+| `OLVIDAR_MS` | A los cuántos ms se la borra de verdad y se descarta su vuelta en curso (180 000). El número bueno sale de la calle: tres minutos aguantan una llamada o un semáforo largo |
 
 **Persistencia:** el historial del grupo (últimos 200 mensajes: texto, notas
 de voz y SOS) vive en SQLite (`server/r14.db`). En Railway, para que
