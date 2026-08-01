@@ -13,3 +13,5 @@ pruebas/*.db-wal
 pruebas/*.db-shm
 pruebas/shots/
 pruebas/cdn/
+# creador-ui.js saca las suyas al lado del script, no en shots/
+pruebas/*.png

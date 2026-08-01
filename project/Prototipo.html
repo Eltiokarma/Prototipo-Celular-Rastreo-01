@@ -297,6 +297,8 @@ function aplicarTema(modo) {
   HUD_STATUS.green  = { c: HUD.green, ink: HUD.greenInk };
   HUD_STATUS.yellow = { c: HUD.amber, ink: HUD.amberInk };
   HUD_STATUS.red    = { c: HUD.red,   ink: HUD.redInk };
+  // Un lado sin nadie: apagado, para que no compita con el dato de verdad.
+  HUD_STATUS.none   = { c: HUD.dim3, ink: HUD.dim3 };
 }
 aplicarTema('day');
 
@@ -313,6 +315,12 @@ function fmtGap(v) {
   return String(v || '').replace(/^0(\d)/, '$1');
 }
 
+// "+1 · M-08", o "sin nadie" si de ese lado no hay unidad. Sin esto el lado
+// vacío quedaba como "−1 · " con la unidad en blanco.
+function rotuloLado(lado) {
+  return lado.vacio ? 'sin nadie' : `${lado.sign} · ${lado.unit}`;
+}
+
 // 2 → "2:00", 2.5 → "2:30"
 function fmtTarget(min) {
   const m = Math.floor(min);
@@ -322,9 +330,27 @@ function fmtTarget(min) {
 
 // Modelo compartido del HUD: qué lado es héroe, colores por lado.
 // El héroe es el lado con MAYOR desvío absoluto respecto del objetivo.
+//
+// Con `gapMeta.vivo` el modelo pasa a los datos del servidor y **honra el
+// null**: primera y última de la ruta no tienen a nadie adelante ni atrás, y
+// ahí el servidor manda null. Antes el `||` de este bloque lo tapaba con los
+// valores de `DEFAULT_TWEAKS`, que son los de la maqueta: al primero de la
+// fila le aparecía un "ATRÁS −1 · M-21 1:40" que no existía, con el mismo
+// tamaño y el mismo color que el dato de verdad. Un lado sin nadie ahora se
+// dibuja vacío, que es lo que es.
 function buildHudModel(tweaks, gapMeta) {
   const target = tweaks.targetGap;
+  const vivo = !!gapMeta?.vivo;
   const mk = (value, label, sign, unit) => {
+    if (!value) {
+      return {
+        value: null, label, sign, unit: null, vacio: true,
+        status: 'none',
+        color: HUD_STATUS.none.c,
+        ink: HUD_STATUS.none.ink,
+        display: '—',
+      };
+    }
     const status = sideStatus(value, target);
     return {
       value, label, sign, unit,
@@ -334,12 +360,19 @@ function buildHudModel(tweaks, gapMeta) {
       display: fmtGap(value),
     };
   };
-  const front = mk(tweaks.frontTime, 'ADELANTE', '+1', gapMeta?.aheadUnit || 'M-08');
-  const back  = mk(tweaks.backTime,  'ATRÁS',    '−1', gapMeta?.behindUnit || 'M-21');
-  const heroIsBack =
-    Math.abs(parseMin(tweaks.backTime) - target) >= Math.abs(parseMin(tweaks.frontTime) - target);
+  const frontVal = vivo ? gapMeta.toAhead  : tweaks.frontTime;
+  const backVal  = vivo ? gapMeta.toBehind : tweaks.backTime;
+  const front = mk(frontVal, 'ADELANTE', '+1', vivo ? gapMeta.aheadUnit  : 'M-08');
+  const back  = mk(backVal,  'ATRÁS',    '−1', vivo ? gapMeta.behindUnit : 'M-21');
+
+  // El héroe es el lado con más desvío, pero un lado vacío nunca puede serlo:
+  // el dígito grande es para lo que el chofer tiene que corregir.
+  const desvio = v => (v ? Math.abs(parseMin(v) - target) : -1);
+  const heroIsBack = back.vacio ? false
+    : front.vacio ? true
+    : desvio(backVal) >= desvio(frontVal);
   return {
-    target,
+    target, vivo,
     front, back,
     hero: heroIsBack ? back : front,
     sec:  heroIsBack ? front : back,
@@ -647,14 +680,16 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
                 fontSize: 17, color: hud.hero.color,
               }}>{hud.hero.label}</span>
               <span style={{ fontSize: 15, fontWeight: 700, color: HUD.dim2, fontFamily: 'system-ui, sans-serif' }}>
-                {hud.hero.sign} · {hud.hero.unit}
+                {rotuloLado(hud.hero)}
               </span>
             </div>
+            {/* El "—" del lado vacío va en la tipografía de texto: en
+                Archivo Black se lee como una barra, no como un hueco. */}
             <div style={{
-              fontFamily: '"Archivo Black", system-ui, sans-serif',
-              fontSize: 56, lineHeight: 1, letterSpacing: -3,
-              color: HUD.resplandor ? hud.hero.ink : hud.hero.color,
-              textShadow: HUD.resplandor
+              fontFamily: hud.hero.vacio ? 'system-ui, sans-serif' : '"Archivo Black", system-ui, sans-serif',
+              fontSize: hud.hero.vacio ? 34 : 56, lineHeight: 1, letterSpacing: -3,
+              color: HUD.resplandor && !hud.hero.vacio ? hud.hero.ink : hud.hero.color,
+              textShadow: HUD.resplandor && !hud.hero.vacio
                 ? `0 0 10px ${hud.hero.color}, 0 0 34px ${hud.hero.color}` : 'none',
               fontVariantNumeric: 'tabular-nums',
             }}>{hud.hero.display}</div>
@@ -665,10 +700,10 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
               fontSize: 17, color: HUD.fg2,
             }}>{hud.sec.label}</div>
             <div style={{
-              fontFamily: '"Archivo Black", system-ui, sans-serif',
-              fontSize: 34, lineHeight: 1.1,
+              fontFamily: hud.sec.vacio ? 'system-ui, sans-serif' : '"Archivo Black", system-ui, sans-serif',
+              fontSize: hud.sec.vacio ? 22 : 34, lineHeight: 1.1,
               color: hud.sec.color,
-              textShadow: HUD.resplandor ? `0 0 14px ${hud.sec.color}80` : 'none',
+              textShadow: HUD.resplandor && !hud.sec.vacio ? `0 0 14px ${hud.sec.color}80` : 'none',
               fontVariantNumeric: 'tabular-nums',
             }}>{hud.sec.display}</div>
           </div>
@@ -677,12 +712,19 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
           borderTop: `1px solid ${HUD.divider}`, paddingTop: 12,
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: P.bright, flexShrink: 0 }} />
-          <span style={{
-            fontSize: 16, fontWeight: 700, color: HUD.dim,
-            fontFamily: 'system-ui, sans-serif',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
-          }}>{currentStop} → {nextStop}</span>
+          {/* Los paraderos son de la maqueta: el servidor no los tiene. En
+              vivo queda solo la coordenada, que sí es real. */}
+          {!hud.vivo && (
+            <React.Fragment>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: P.bright, flexShrink: 0 }} />
+              <span style={{
+                fontSize: 16, fontWeight: 700, color: HUD.dim,
+                fontFamily: 'system-ui, sans-serif',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
+              }}>{currentStop} → {nextStop}</span>
+            </React.Fragment>
+          )}
+          {hud.vivo && <span style={{ flex: 1 }} />}
           <span style={{
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
             fontSize: 13, fontWeight: 700, color: realPos ? HUD.dim3 : HUD.amber,
@@ -1478,7 +1520,7 @@ function LoginScreen({ onSuccess, notice }) {
   );
 }
 
-function StartRouteScreen({ user, lapNumber, onStart, onRest, onLogout }) {
+function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRest, onLogout }) {
   const [countdown, setCountdown] = React.useState(15);
   React.useEffect(() => {
     if (countdown <= 0) return;
@@ -1486,6 +1528,12 @@ function StartRouteScreen({ user, lapNumber, onStart, onRest, onLogout }) {
     return () => clearTimeout(t);
   }, [countdown]);
   const isFirstLap = lapNumber === 1;
+  // Lo que se sabe de verdad al abrir el turno. El turno con horario fijo
+  // no existe en el modelo: se abre cuando el chofer se conecta y se cierra
+  // cuando deja de verse, así que no hay una franja que mostrar. Se muestra
+  // la ruta, que sí está en la sesión, y la tarjeta que no tiene dato no se
+  // dibuja en vez de inventarlo.
+  const tarjetas = [['Unidad', unidad], ['Ruta', ruta]].filter(([, v]) => v);
 
   return (
     <div style={{
@@ -1495,7 +1543,7 @@ function StartRouteScreen({ user, lapNumber, onStart, onRest, onLogout }) {
       color: P.white, overflowY: 'auto',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <CoopLogo size={36} ruta={user?.routeId} />
+        <CoopLogo size={36} ruta={rutaId} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
@@ -1560,19 +1608,32 @@ function StartRouteScreen({ user, lapNumber, onStart, onRest, onLogout }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-        {[['Unidad', 'V-247'], ['Turno', '13:00 — 21:00']].map(([label, val]) => (
-          <div key={label} style={{
-            background: P.panel, border: `1px solid ${P.line}`, borderRadius: 12, padding: '10px 12px',
-          }}>
-            <div style={{
-              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-              fontSize: 9, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
-            }}>{label}</div>
-            <div style={{ fontFamily: '"Archivo Black", system-ui', fontSize: 20, color: P.white, letterSpacing: -0.3 }}>{val}</div>
-          </div>
-        ))}
-      </div>
+      {tarjetas.length > 0 && (
+        <div style={{
+          display: 'grid', gridTemplateColumns: `repeat(${tarjetas.length}, 1fr)`,
+          gap: 10, marginBottom: 16,
+        }}>
+          {tarjetas.map(([label, val]) => (
+            <div key={label} style={{
+              background: P.panel, border: `1px solid ${P.line}`, borderRadius: 12,
+              padding: '10px 12px', minWidth: 0,
+            }}>
+              <div style={{
+                fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+                fontSize: 9, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
+              }}>{label}</div>
+              {/* El nombre de una ruta es bastante más largo que "M-12": si
+                  no baja de cuerpo se sale de la tarjeta en un celular. */}
+              <div style={{
+                fontFamily: '"Archivo Black", system-ui',
+                fontSize: String(val).length > 10 ? 14 : 20,
+                color: P.white, letterSpacing: -0.3, lineHeight: 1.15,
+                overflowWrap: 'anywhere',
+              }}>{val}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <button onClick={onStart} style={{
         width: '100%', padding: '22px',
@@ -1610,8 +1671,12 @@ const DEFAULT_TWEAKS = {
   currentStop: 'Tumbes', nextStop: 'Lambayeque', avgSpeed: 28,
 };
 
+// "02:15" → 2.25. Un lado sin unidad llega como null y antes reventaba acá
+// con un `split` sobre null: la pantalla del chofer quedaba en blanco. Se
+// devuelve NaN, que es lo que un tiempo que no existe vale.
 function parseMin(s) {
-  const [m, sec] = s.split(':').map(Number);
+  if (!s) return NaN;
+  const [m, sec] = String(s).split(':').map(Number);
   return m + sec / 60;
 }
 
@@ -1694,9 +1759,13 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   const heroIsBack = hero === hud.back;
   const dev = parseMin(hero.value) - target;
   const speedUp = heroIsBack ? dev < 0 : dev > 0;
-  const instruction = hero.status === 'green'
-    ? `Mantené el ritmo. Objetivo ${fmtTarget(target)}.`
-    : `${speedUp ? 'Apurá' : 'Aflojá'} un poco. Objetivo ${fmtTarget(target)}.`;
+  // Con el lado héroe vacío no hay contra qué medirse: es el único en ruta.
+  // Decirle "mantené el ritmo" ahí sería inventar una referencia.
+  const instruction = hero.vacio
+    ? 'Sos la única unidad en ruta.'
+    : hero.status === 'green'
+      ? `Mantené el ritmo. Objetivo ${fmtTarget(target)}.`
+      : `${speedUp ? 'Apurá' : 'Aflojá'} un poco. Objetivo ${fmtTarget(target)}.`;
 
   return (
     <div style={{
@@ -1770,19 +1839,24 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
             textShadow: glow(`0 0 14px ${stateColor}`),
           }}>{hero.label}</span>
           <span style={{ fontSize: 15, fontWeight: 700, color: dim2, fontFamily: 'system-ui, sans-serif' }}>
-            {hero.sign} · {hero.unit}
+            {rotuloLado(hero)}
           </span>
         </div>
-        <div style={{ color: heroInk }}>
-          <HudDigits
-            value={hero.display}
-            fontSize={118}
-            color={heroInk}
-            letterSpacing={-5}
-            glow={glow(`0 0 8px ${stateColor}, 0 0 26px ${stateColor}, 0 0 70px ${stateColor}, 0 0 130px ${stateColor}`)}
-            enableAnim={tweaks.microAnims}
-          />
-        </div>
+        {/* Un lado vacío no lleva dígitos: el "—" en Archivo Black a 118 px
+            es una barra maciza que se lee como un dato. El rótulo de arriba
+            ya dice "sin nadie". */}
+        {!hero.vacio && (
+          <div style={{ color: heroInk }}>
+            <HudDigits
+              value={hero.display}
+              fontSize={118}
+              color={heroInk}
+              letterSpacing={-5}
+              glow={glow(`0 0 8px ${stateColor}, 0 0 26px ${stateColor}, 0 0 70px ${stateColor}, 0 0 130px ${stateColor}`)}
+              enableAnim={tweaks.microAnims}
+            />
+          </div>
+        )}
         <div style={{
           fontSize: 16, lineHeight: 1.5, color: sun ? '#3D5C7A' : '#93AAC2',
           marginTop: 10, fontFamily: 'system-ui, sans-serif',
@@ -1799,19 +1873,21 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
                 fontSize: 17, color: sun ? '#3D5C7A' : '#A9C0D6',
               }}>{sec.label}</span>
               <span style={{ fontSize: 15, fontWeight: 700, color: dim2, fontFamily: 'system-ui, sans-serif' }}>
-                {sec.sign} · {sec.unit}
+                {rotuloLado(sec)}
               </span>
             </div>
-            <div style={{ color: secColor }}>
-              <HudDigits
-                value={sec.display}
-                fontSize={62}
-                color={secColor}
-                letterSpacing={-2}
-                glow={glow(`0 0 16px ${secColor}8C`)}
-                enableAnim={tweaks.microAnims}
-              />
-            </div>
+            {!sec.vacio && (
+              <div style={{ color: secColor }}>
+                <HudDigits
+                  value={sec.display}
+                  fontSize={62}
+                  color={secColor}
+                  letterSpacing={-2}
+                  glow={glow(`0 0 16px ${secColor}8C`)}
+                  enableAnim={tweaks.microAnims}
+                />
+              </div>
+            )}
           </div>
           {sec.status === 'green' && (
             <div style={{
@@ -1821,29 +1897,36 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
           )}
         </div>
 
-        {/* ±2: presentes pero mínimos */}
-        <div style={{
-          display: 'flex', gap: 18, marginTop: 18,
-          fontSize: 15, fontWeight: 700, color: dim3,
-          fontFamily: 'system-ui, sans-serif',
-        }}>
-          <span>+2 <span style={{ color: dim, fontVariantNumeric: 'tabular-nums' }}>{fmtGap(tweaks.front2Time)}</span></span>
-          <span>−2 <span style={{ color: dim, fontVariantNumeric: 'tabular-nums' }}>{fmtGap(tweaks.back2Time)}</span></span>
-        </div>
+        {/* ±2: presentes pero mínimos. El servidor solo manda la de adelante
+            y la de atrás; el ±2 es de la maqueta, así que en vivo no va. */}
+        {!hud.vivo && (
+          <div style={{
+            display: 'flex', gap: 18, marginTop: 18,
+            fontSize: 15, fontWeight: 700, color: dim3,
+            fontFamily: 'system-ui, sans-serif',
+          }}>
+            <span>+2 <span style={{ color: dim, fontVariantNumeric: 'tabular-nums' }}>{fmtGap(tweaks.front2Time)}</span></span>
+            <span>−2 <span style={{ color: dim, fontVariantNumeric: 'tabular-nums' }}>{fmtGap(tweaks.back2Time)}</span></span>
+          </div>
+        )}
       </div>
 
-      {/* tramo */}
-      <div style={{
-        padding: '0 18px 14px', position: 'relative',
-        display: 'flex', alignItems: 'center', gap: 8,
-      }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: P.bright, flexShrink: 0 }} />
-        <span style={{
-          fontSize: 16, fontWeight: 700, color: dim,
-          fontFamily: 'system-ui, sans-serif',
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        }}>{tweaks.currentStop} → {tweaks.nextStop}</span>
-      </div>
+      {/* tramo — los paraderos no existen en el modelo del servidor: son de
+          la maqueta. En vivo esta línea se calla en vez de decir el nombre
+          de dos ciudades que no tienen nada que ver con la ruta. */}
+      {!hud.vivo && (
+        <div style={{
+          padding: '0 18px 14px', position: 'relative',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: P.bright, flexShrink: 0 }} />
+          <span style={{
+            fontSize: 16, fontWeight: 700, color: dim,
+            fontFamily: 'system-ui, sans-serif',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>{tweaks.currentStop} → {tweaks.nextStop}</span>
+        </div>
+      )}
 
       {/* SOS */}
       <div style={{ padding: '0 18px 26px', position: 'relative' }}>
@@ -2320,15 +2403,32 @@ function Root() {
         setTweaks(t => t.targetGap === state.targetGapMin ? t : { ...t, targetGap: state.targetGapMin });
       }
       const myGaps = state.gaps?.[myVehicleId];
+      const miUnidad = state.units?.find(u => u.unitId === myVehicleId);
       if (myGaps) {
         setTweaks(t => ({
           ...t,
           frontTime: myGaps.toAhead || t.frontTime,
           backTime:  myGaps.toBehind || t.backTime,
-          avgSpeed:  state.units?.find(u => u.unitId === myVehicleId)?.speed || t.avgSpeed,
         }));
-        setGapMeta({ aheadUnit: myGaps.aheadUnit, behindUnit: myGaps.behindUnit });
       }
+      // La velocidad va aparte de las brechas y **sin `||`**: una combi
+      // parada manda 0, y `0 || 28` devolvía los 28 km/h de la maqueta. El
+      // chofer detenido en el paradero veía que iba a 28.
+      if (miUnidad) {
+        setTweaks(t => ({ ...t, avgSpeed: Math.round(miUnidad.speed || 0) }));
+      }
+      // `vivo` le dice al HUD que a partir de acá manda el servidor, null
+      // incluido: sin esta marca no hay forma de distinguir "no hay nadie
+      // atrás" del valor de arranque de la maqueta. Se pone con el primer
+      // estado que llega, no solo cuando hay brechas, porque una unidad sola
+      // en la ruta no tiene brechas y es justo el caso que se inventaba.
+      setGapMeta({
+        vivo: true,
+        toAhead: myGaps?.toAhead || null,
+        toBehind: myGaps?.toBehind || null,
+        aheadUnit: myGaps?.aheadUnit || null,
+        behindUnit: myGaps?.behindUnit || null,
+      });
       // Todas las combis en ruta menos la mía (ya vienen solo de mi ruta)
       const others = (state.units || []).filter(u => u.unitId !== myVehicleId && u.lat);
       setOtherUnits(others);
@@ -2467,6 +2567,9 @@ function Root() {
   } else if (screen === 'start') {
     content = <StartRouteScreen
       user={(user?.driverName || user?.unitId || '').toUpperCase()}
+      unidad={user?.vehicleId || user?.unitId || null}
+      ruta={user?.routeName || user?.routeId || null}
+      rutaId={user?.routeId || null}
       lapNumber={lap}
       onStart={() => setScreen('app')}
       onRest={() => setScreen('app')}

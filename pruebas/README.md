@@ -92,14 +92,26 @@ porque listan cualquier error de JavaScript al final.
 node rediseno.js        # Despacho, Gestión y el trazador
 node gerencia-shot.js   # el panel del gerente, con tres semanas de historial
 node creador-ui-run.js  # el panel del creador (esta sí verifica, no solo mira)
+node chofer-shot.js     # la app del chofer (esta también verifica)
 ```
+
+`chofer-shot.js` es la que más tardó en existir y la que más encontró: entra
+como chofer con dos unidades en ruta, le mueve el GPS al navegador y revisa
+que lo que se ve sea del servidor. Lo que atrapó la primera vez fue una
+familia entera de datos de maqueta que se colaban como si fueran en vivo —una
+unidad de atrás que no existía, una velocidad de 28 km/h con la combi parada,
+un tramo de dos ciudades de la costa— porque el cliente tapaba con `||` los
+`null` que el servidor manda bien.
 
 Necesitan Chromium. En este entorno está en `/opt/pw-browsers/chromium`; en otro,
 cambiar el `executablePath` o instalar el de Playwright.
 
 `cdn.js` guarda en disco lo que se baja de CDN (React, Babel, Leaflet, fuentes,
 tiles) para que una caída de red no deje la página en blanco a mitad de una
-corrida.
+corrida. Baja **de a una y con reintento**: el proxy del sandbox contesta 503
+cuando le entran varias juntas, y el navegador pide React, React-DOM, Babel,
+Leaflet y las fuentes en paralelo. Sin eso el caché nunca llegaba a poblarse
+en la primera corrida y los bancos morían con la página en blanco.
 
 ## Lo que estas pruebas NO cubren
 
