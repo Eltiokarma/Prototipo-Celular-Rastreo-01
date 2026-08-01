@@ -1,0 +1,137 @@
+const RAIZ = require('path').join(__dirname, '..');
+const WebSocket = require(RAIZ + '/server/node_modules/ws');
+const API = 'http://localhost:3001';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const ok = (n, c, e) => console.log(n, c === true ? 'OK' : 'FALLA', e !== undefined ? '→ ' + e : '');
+const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
+  headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: u, password: p }) }).then(r => r.json());
+
+(async () => {
+  const tk = (await login('DESPACHO', 'despacho99')).token;
+  const H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk };
+  await fetch(API + '/admin/users', { method: 'POST', headers: H,
+    body: JSON.stringify({ unitId: 'M-01', name: 'Chofer uno', personRole: 'driver', password: 'clave1234' }) });
+
+  // Punto de partida limpio: sin recorrido, umbral normal y sin silenciar.
+  // Borrar el recorrido además limpia el estado de desvío que hubiera quedado
+  // en memoria de otra suite o de una corrida anterior de esta misma.
+  await fetch(API + '/admin/routes/R-14/points', { method: 'PUT', headers: H,
+    body: JSON.stringify({ tramos: { ida: [], vuelta: [] } }) });
+  await fetch(API + '/admin/routes/R-14/desvio', { method: 'POST', headers: H,
+    body: JSON.stringify({ silenciarMin: 0 }) });
+  await sleep(500);
+
+  // La auditoría acumula entre corridas: se cuenta la DIFERENCIA, no el total
+  const contarDesvios = async () => {
+    const a = await fetch(API + '/admin/audit', { headers: H }).then(r => r.json());
+    return a.events.filter(x => x.action === 'desvio').length;
+  };
+  const desviosAlEmpezar = await contarDesvios();
+
+  const s = await login('M-01', 'clave1234');
+  const rec = { states: [] };
+  let ws;
+  // El test manda posiciones mucho más rápido que una combi real (una cada
+  // 3 s = 20 por minuto) y choca con el cupo antiinundación de 40 por minuto.
+  // Reconectar es lo que haría un celular que perdió señal, y renueva el cupo.
+  const conectar = async () => {
+    if (ws) { try { ws.close(); } catch {} await sleep(400); }
+    ws = new WebSocket('ws://localhost:3001');
+    await new Promise(r => ws.on('open', r));
+    ws.on('message', raw => { const m = JSON.parse(raw); if (m.type === 'state') rec.states.push(m); });
+    ws.send(JSON.stringify({ type: 'identify', token: s.token }));
+    await sleep(500);
+  };
+  await conectar();
+
+  const LAT = -15.50, LNG = -70.13;
+  const gLat = 1 / 111320;   // 1 metro en latitud
+  const kLng = Math.cos(LAT * Math.PI / 180);
+  const gLng = 1 / (111320 * kLng);
+
+  const mandar = async (metrosAlCostado, veces = 1) => {
+    for (let i = 0; i < veces; i++) {
+      ws.send(JSON.stringify({
+        type: 'gps',
+        lat: LAT + gLat * 200,                       // a mitad del trazado
+        lng: LNG + gLng * metrosAlCostado,           // desplazado al costado
+        speed: 20, routeProgress: 0,
+      }));
+      await sleep(120);
+    }
+    await sleep(3800);
+    return rec.states.at(-1).units.find(u => u.unitId === 'M-01');
+  };
+
+  // Una ruta nueva tolera tres cuadras: un chofer puede esquivar un
+  // embotellamiento sin que eso figure como que se salió de la ruta.
+  const rutas = await fetch(API + '/admin/routes', { headers: H }).then(r => r.json());
+  const r14 = rutas.routes.find(x => x.routeId === 'R-14');
+  ok('0. El umbral por defecto son tres cuadras', r14.desvioMaxM === 300, r14.desvioMaxM + ' m');
+
+  // Sin recorrido cargado no se puede hablar de desvío
+  let u = await mandar(500, 3);
+  ok('1. Sin recorrido cargado, nadie está "fuera de ruta"',
+     u.fueraDeRuta === false && u.desvioM === null, `desvioM: ${u.desvioM}`);
+
+  // Recorrido recto de 400 m hacia el norte
+  await fetch(API + '/admin/routes/R-14/points', { method: 'PUT', headers: H,
+    body: JSON.stringify({ tramos: { ida: [
+      { lat: LAT, lng: LNG }, { lat: LAT + gLat * 400, lng: LNG },
+    ], vuelta: [] } }) });
+  await sleep(600);
+
+  // Sobre el trazado: nada
+  u = await mandar(0, 5);
+  ok('2. Sobre el trazado, todo normal', u.fueraDeRuta === false && u.desvioM <= 2, `${u.desvioM} m`);
+
+  // Un solo salto de GPS lejos: NO tiene que marcar nada
+  u = await mandar(400, 1);
+  ok('3. Un salto suelto del GPS no marca desvío', u.fueraDeRuta === false, `${u.desvioM} m, un solo dato`);
+
+  // Vuelve al trazado y después se va sostenido
+  await mandar(0, 5);
+  u = await mandar(400, 12);
+  ok('4. Un desvío sostenido sí lo marca', u.fueraDeRuta === true, `${u.desvioM} m del trazado`);
+  ok('5. Y dice desde cuándo', typeof u.fueraDesde === 'number' && u.fueraDesde > 0);
+
+  // Vuelve
+  u = await mandar(0, 6);
+  ok('6. Al volver al recorrido se limpia solo', u.fueraDeRuta === false, `${u.desvioM} m`);
+
+  // Umbral por ruta: con 200 m de tolerancia, ese mismo desvío no cuenta
+  await conectar();
+  let r = await fetch(API + '/admin/routes/R-14/desvio', { method: 'POST', headers: H,
+    body: JSON.stringify({ umbralM: 600 }) }).then(async x => ({ status: x.status, body: await x.json() }));
+  ok('7. Se puede subir el umbral de la ruta', r.status === 200 && r.body.umbralM === 600);
+  u = await mandar(400, 12);
+  ok('8. Con el umbral alto, ese mismo desvío ya no es desvío', u.fueraDeRuta === false, `${u.desvioM} m con umbral 600`);
+
+  r = await fetch(API + '/admin/routes/R-14/desvio', { method: 'POST', headers: H,
+    body: JSON.stringify({ umbralM: 20 }) }).then(x => x.status);
+  ok('9. Rechaza un umbral que solo daría falsas alarmas', r === 400);
+
+  // Silenciar: hay obra hoy y ya lo sabemos
+  await fetch(API + '/admin/routes/R-14/desvio', { method: 'POST', headers: H,
+    body: JSON.stringify({ umbralM: 300, silenciarMin: 60 }) });
+  await sleep(600);
+  const e = rec.states.at(-1);
+  ok('10. El estado avisa que el desvío está silenciado',
+     !!e.desvio.mudoHasta && e.desvio.umbralM === 300,
+     `hasta ${new Date(e.desvio.mudoHasta).toLocaleTimeString('es-PE')}`);
+
+  // Silenciado NO significa ciego: se sigue viendo, no se registra
+  await conectar();
+  u = await mandar(400, 12);
+  ok('11. Silenciado sigue mostrando la unidad fuera (no queda ciego)', u.fueraDeRuta === true);
+  const nuevos = (await contarDesvios()) - desviosAlEmpezar;
+  ok('12. Pero no vuelve a registrarlo mientras está silenciado',
+     nuevos === 1, `${nuevos} registro(s) nuevo(s) en esta corrida`);
+
+  await fetch(API + '/admin/routes/R-14/desvio', { method: 'POST', headers: H,
+    body: JSON.stringify({ silenciarMin: 0 }) });
+  await sleep(500);
+  ok('13. Se puede quitar el silencio', rec.states.at(-1).desvio.mudoHasta === null);
+
+  ws.close(); process.exit(0);
+})();
