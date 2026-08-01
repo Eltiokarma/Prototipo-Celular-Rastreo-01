@@ -1,0 +1,26 @@
+{
+  "name": "coop-r14-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App del chofer — la nativa. El servidor no cambia: habla el protocolo de PROTOCOLO.md",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "build:dev": "eas build --profile development --platform android",
+    "build:apk": "eas build --profile apk --platform android"
+  },
+  "dependencies": {
+    "expo": "~54.0.0",
+    "expo-location": "~19.0.0",
+    "expo-task-manager": "~14.0.0",
+    "expo-notifications": "~0.32.0",
+    "expo-secure-store": "~15.0.0",
+    "expo-status-bar": "~3.0.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0"
+  }
+}

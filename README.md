@@ -45,16 +45,20 @@ server/             Servidor de tiempo real (Node + Express + ws)
   creador.html        Su pantalla. NO vive en project/ a propósito: ahí se
                       serviría como estático aunque el panel esté apagado
 
-app/                La app nativa (en construcción). El servidor no cambia
-  protocolo/cliente.js  Cliente del protocolo en JS puro: sin React Native ni
-                      navegador adentro, así corre igual en Node —donde lo
-                      prueba pruebas/cliente.js contra el servidor real— y
-                      dentro de la app. Resuelve una sola vez las cuatro
-                      cosas que cada pantalla resolvería mal por su cuenta:
-                      el rol de GPS, el null de las brechas, el freno de
-                      cadencia y la reconexión con espera creciente
+app/                La app del chofer, nativa (Expo). El servidor no cambia.
+                    Ver app/README.md
+  protocolo/cliente.js  El protocolo en JS puro: login, WebSocket, rol de
+                      GPS, brechas, reconexión y freno de cadencia
+  hud.js              Qué mostrarle al chofer a partir de las brechas
+  cola.js             Las posiciones cuando no hay datos
+  gps/servicio.js     GPS en segundo plano: foreground service y cadencia
+  App.js              Las dos pantallas. Solo dibujan
+                    Los tres primeros son JS puro y sin React a propósito:
+                    corren en Node, así que tienen suites de verdad y no hace
+                    falta un teléfono para saber si andan. Es donde vivieron
+                    todos los bugs de esta pantalla
 
-pruebas/            Catorce suites de regresión contra el servidor de verdad.
+pruebas/            Dieciséis suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas

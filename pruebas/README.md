@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Catorce suites que corren contra el servidor de verdad: levantan un proceso,
+Dieciséis suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -28,7 +28,7 @@ falló, así que sirve en CI tal cual.
 ## Correr una sola
 
 Ocho suites **esperan un servidor ya levantado en 3001** con la base a la que
-ellas van a mirar. Las otras seis levantan la suya.
+ellas van a mirar. Las otras seis levantan la suya, y dos (`hud` y `cola`) no necesitan ninguno: prueban lógica pura de la app nativa.
 
 ```bash
 # las que necesitan servidor: tramos objetivo informes desvio turnos privado seguridad empresas
@@ -37,6 +37,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal
+# las que no necesitan servidor: hud cola
 node gerencia.js
 ```
 
@@ -69,6 +70,8 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `creador` | Las cuatro barreras del nivel de arriba, incluido que sin `CREATOR_PASSWORD` responda 404 y no 403 |
 | `gerencia` | Que el gerente vea lo suyo y **no toque nada**: 403 en todo `/admin/*`, rechazo en el WebSocket, y que Despacho no le pueda tocar la cuenta |
 | `senal` | Que una unidad que deja de reportar quede **sin señal** y no borrada: que la de atrás no salte a medirse contra la que sigue, que vuelva sola al reaparecer, que se olvide recién a los 3 min, y que ninguna brecha salga con los segundos en 60 |
+| `hud` | Qué se le muestra al chofer en la app nativa: los tres estados de un lado, cuál es el dígito grande, los colores y el texto de la notificación. Sin servidor — es lógica pura |
+| `cola` | Las posiciones guardadas cuando no hay datos: orden, tope, y que un corte a la mitad de la descarga no las pierda |
 | `cliente` | El cliente del protocolo que va a usar la app nativa (`app/protocolo/`): el rol de GPS cuando hay relevo, las brechas que respetan el null, el freno de cadencia y el privado que no se filtra |
 
 ## Sintaxis de las pantallas
@@ -82,6 +85,11 @@ npm run sintaxis
 
 Compila el bloque `<script type="text/babel">` de cada `.html` con el mismo
 Babel que usa el navegador y dice en qué línea del archivo está el error.
+
+Corre además `chk-rn.js`, que hace lo mismo con los archivos de la app nativa
+(`app/`). Hace falta porque usan JSX e `import` —`node -c` no los parsea— y
+porque las suites solo cargan los módulos puros: un error de tipeo en
+`App.js` o en el servicio de GPS no aparecería hasta tener el teléfono.
 
 ## Bancos visuales
 

@@ -13,7 +13,7 @@ const S = __dirname;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const COMPARTIDAS = ['tramos', 'objetivo', 'informes', 'desvio', 'turnos', 'privado', 'seguridad', 'empresas'];
-const PROPIAS = ['variantes', 'brecha', 'creador', 'gerencia', 'cliente', 'senal'];
+const PROPIAS = ['variantes', 'brecha', 'creador', 'gerencia', 'cliente', 'senal', 'hud', 'cola'];
 
 const correr = (suite, env) => new Promise((resolve) => {
   let salida = '';
