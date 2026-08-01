@@ -95,23 +95,36 @@ export default function App() {
   // ── Cadencia según la pantalla ──────────────────────────────
   // Con la pantalla apagada el chofer no mira el HUD: la posición ya solo
   // sirve para la brecha de los demás, y 10 s alcanzan. Baja mucho el gasto.
+  //
+  // OJO CON ESTO, que ya se rompió una vez: `cambiarCadencia` reinicia el
+  // servicio de ubicación —expo-location no deja cambiarle el intervalo ni
+  // el texto a una tarea en curso—, así que solo puede llamarse cuando
+  // cambia algo de verdad. La versión anterior lo colgaba de la brecha, que
+  // cambia cada 3 segundos: reiniciaba el GPS cada 3 segundos y quemaba
+  // batería, que es exactamente lo que este build viene a medir.
+  //
+  // El texto va en un ref para que el oyente se suscriba UNA vez: si
+  // dependiera del hud, se re-suscribiría con cada brecha nueva.
+  const textoRef = React.useRef('Turno en curso');
+  textoRef.current = textoNotificacion(hud, reporta);
+
   React.useEffect(() => {
+    if (!sesion) return;
     const sub = AppState.addEventListener('change', (estado) => {
       const activo = estado === 'active';
       gps.cambiarCadencia(
         activo ? gps.CADENCIA_PANTALLA_ENCENDIDA : gps.CADENCIA_PANTALLA_APAGADA,
-        textoNotificacion(hud, reporta),
+        textoRef.current,
       ).catch(() => {});
     });
     return () => sub.remove();
-  }, [hud, reporta]);
+  }, [sesion]);
 
-  // La notificación permanente es obligatoria para el GPS de fondo, así que
-  // que diga algo útil sale gratis. Es lo que el chofer ve sin desbloquear.
-  React.useEffect(() => {
-    if (!sesion) return;
-    gps.cambiarCadencia(gps.CADENCIA_PANTALLA_ENCENDIDA, textoNotificacion(hud, reporta)).catch(() => {});
-  }, [hud.principal.display, hud.principal.rotulo, reporta]);
+  // La notificación permanente lleva la brecha, pero solo se refresca cuando
+  // la app pasa a segundo plano (arriba) — que es justo cuando el chofer va a
+  // mirarla. Ponerla al día en vivo pide otro camino: una notificación
+  // aparte con expo-notifications, para no tocar el servicio de ubicación.
+  // Queda pendiente y anotado en el README.
 
   if (!sesion) return <Entrar servidor={SERVIDOR} aviso={aviso} onEntrar={async (s) => {
     await SecureStore.setItemAsync('sesion', JSON.stringify(s));

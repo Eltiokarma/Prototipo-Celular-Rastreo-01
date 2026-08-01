@@ -107,10 +107,14 @@ Corren con el resto: `npm test` desde la raíz.
   pantalla apagada el chofer no mira el HUD y la posición solo le sirve a la
   brecha de los demás. A 30 km/h son ~83 m entre reportes, un 8 % contra un
   objetivo de 2 minutos, y el gasto de GPS baja a un tercio.
-- **La notificación permanente lleva la brecha.** Android la exige para el
-  GPS de fondo, así que va a existir igual: que diga `ADELANTE M-08 · 2:24`
-  en vez de "la app está corriendo" sale gratis y es lo que el chofer lee sin
-  desbloquear.
+- **La notificación permanente lleva la brecha, pero NO en vivo.** Se refresca
+  cuando la app pasa a segundo plano, que es justo cuando el chofer la va a
+  mirar. No puede refrescarse más seguido: `expo-location` no deja cambiarle
+  el texto a una tarea en curso, hay que reiniciarla, y colgar eso de la
+  brecha reiniciaba el GPS **cada 3 segundos**. Ya pasó una vez y es
+  exactamente lo que arruinaría la medición de batería. Para tenerla viva hay
+  que ir por otro lado: una notificación aparte con `expo-notifications`, sin
+  tocar el servicio de ubicación.
 - **`gps_role` manda.** Solo una conexión reporta la posición de cada
   vehículo y cambia sola cuando entra otro chofer. Si `reporting` es `false`,
   el servicio no manda: el servidor lo descartaría igual, en silencio.
@@ -119,8 +123,20 @@ Corren con el resto: `npm test` desde la raíz.
   unidad se teletransporte. Por ahora al reconectar se manda solo la más
   fresca. Ver el comentario grande de `cola.js`.
 
+## Si EAS te pide instalar algo
+
+Al primer `eas build` puede ofrecerte instalar `expo-dev-client` o crear el
+proyecto en tu cuenta: decile que sí a las dos. La segunda escribe un
+`projectId` en `app.json` — **conviene commitearlo**, así el próximo clon
+apunta al mismo proyecto en vez de crear otro.
+
+El keystore que genera Expo queda guardado en tu cuenta. **No lo regeneres**
+sin necesidad: es lo que firma la app, y cambiarlo obliga a desinstalar y
+reinstalar en cada teléfono.
+
 ## Lo que falta
 
+- La brecha en vivo en la notificación, sin reiniciar el GPS.
 - Mapa (`react-native-maps`), chat con los dos canales, SOS deslizable.
 - Ingreso histórico en el servidor, para aprovechar la cola entera.
 - Medir un turno completo en la calle. Nada de acá lo reemplaza.
