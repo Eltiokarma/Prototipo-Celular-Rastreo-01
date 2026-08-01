@@ -20,25 +20,43 @@ alcanza. Lo demás es portar interfaz que ya funciona en la web.
 
 ## Cómo correrla
 
-```bash
-cd app && npm install
-```
-
-**El GPS en segundo plano NO funciona en Expo Go.** Hace falta una
-*development build* — se compila una vez y después se recarga como siempre:
+**No hay nada que "exportar".** VSCode es solo el editor: todo pasa en su
+terminal. Y **el GPS en segundo plano NO funciona en Expo Go** —Expo Go no
+trae el módulo nativo de ubicación en segundo plano—, así que hace falta
+compilar una vez.
 
 ```bash
-npx eas login
+cd app
+npm install
+npx expo login          # tu cuenta de Expo
 npx eas build --profile development --platform android
-# instalás el APK en el teléfono, y después:
-npm start
 ```
 
-Apuntá `SERVIDOR` a tu máquina editando `EXPO_PUBLIC_SERVIDOR`, o dejá el
-valor por defecto y cambiá la IP en `App.js`. **El celular no resuelve
-`localhost`**: tiene que ser la IP de tu máquina en la red del wifi.
+Ese build corre **en la nube de Expo**, tarda unos 10-20 minutos, y al
+terminar da un link para bajar el APK al teléfono. **Se hace una sola vez**:
+mientras no agregues librerías nativas nuevas, ese mismo APK sirve siempre.
 
-Para un APK repartible sin tienda:
+Con el APK instalado, el ciclo de todos los días es:
+
+```bash
+npm start               # levanta el servidor de desarrollo
+```
+
+Se abre la app en el teléfono, se conecta, y a partir de ahí **cada vez que
+guardás un archivo la app se recarga sola**. Igual que la web. El teléfono y
+la PC tienen que estar en la misma wifi.
+
+Por defecto la app le pega al **servidor que ya está en la nube**, así que la
+primera prueba no depende de tu red. Para pegarle a uno local:
+
+```bash
+EXPO_PUBLIC_SERVIDOR=http://192.168.1.X:3001 npm start
+```
+
+con la IP de tu máquina en la wifi — **el celular no resuelve `localhost`**,
+que para él es él mismo.
+
+Para un APK repartible a los choferes, sin tienda:
 
 ```bash
 npx eas build --profile apk --platform android
