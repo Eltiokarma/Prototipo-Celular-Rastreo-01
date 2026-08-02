@@ -1089,11 +1089,14 @@ const lapState = new Map();
 // lapState = { vehicleId → { lapStart, speedSum, speedCount, samples,
 //                          lastProgress, brechaSum, brechaCount } }
 
-function trackLap(unitId, routeId, progress, speed) {
+// `cuando` es la hora en que se tomó la posición. Con el atraso de un túnel
+// llegando de golpe, medir con la hora de llegada inflaría la vuelta por todo
+// lo que duró el corte.
+function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
   let st = lapState.get(unitId);
   if (!st) {
     lapState.set(unitId, {
-      lapStart: Date.now(), speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
+      lapStart: cuando, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
       brechaSum: 0, brechaCount: 0,
     });
     return;
@@ -1111,7 +1114,7 @@ function trackLap(unitId, routeId, progress, speed) {
   // automático, porque la rueda que se reparte entre las combis es el
   // circuito entero.
   if (st.lastProgress - progress > 0.5 && st.lastProgress > 0.8 && st.samples >= 5) {
-    const now = Date.now();
+    const now = cuando;
     const durationSec = Math.round((now - st.lapStart) / 1000);
     const avgSpeed = st.speedCount ? Math.round(st.speedSum / st.speedCount) : 0;
     // Con qué trazado se midió esta vuelta. La ruta sin geometría no tiene
@@ -1263,6 +1266,72 @@ app.post('/auth/login', (req, res) => {
     supervisor: user.role === 'dispatch' && !user.routeId,
     created,
   });
+});
+
+// ─── POSICIONES POR HTTP ─────────────────────────────────────
+// El camino que usa la app nativa con la pantalla apagada.
+//
+// Por qué existe: Android suspende el JavaScript cuando la app pasa a
+// segundo plano, y con él se cae el WebSocket. El servicio de ubicación
+// nativo sigue vivo —la notificación permanente sigue ahí— pero las
+// posiciones no tienen por dónde salir. Se midió en un teléfono real: la
+// unidad quedaba muda apenas se bloqueaba la pantalla.
+//
+// Un POST no necesita nada vivo del lado del cliente, así que la tarea de
+// fondo puede mandar aunque la app esté dormida. Y como acepta VARIAS
+// posiciones con su hora, sirve además para vaciar el atraso que se juntó en
+// una zona sin datos — que era lo que `app/cola.js` no podía hacer.
+const MAX_POSICIONES_POR_ENVIO = 200;
+const ATRASO_MAXIMO_MS = 6 * 3600_000;   // 6 h: más viejo que eso no se mide
+
+app.post('/gps', (req, res) => {
+  const auth = String(req.headers.authorization || '');
+  const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
+  if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+
+  // Las mismas reglas que por WebSocket: solo el chofer reporta, el cobrador
+  // nunca, y si otro chofer tomó la unidad manda el otro.
+  if (user.role !== 'driver') return res.status(403).json({ error: 'Solo el chofer reporta posición' });
+  const vehicleId = user.vehicleId || user.unitId;
+  const duenoWs = gpsOwner.get(vehicleId);
+  if (duenoWs && clients.get(duenoWs) && clients.get(duenoWs) !== user.unitId) {
+    return res.status(409).json({ error: 'Otro chofer tomó esta unidad' });
+  }
+
+  const crudas = Array.isArray(req.body?.posiciones) ? req.body.posiciones : [];
+  if (!crudas.length) return res.status(400).json({ error: 'Sin posiciones' });
+  if (crudas.length > MAX_POSICIONES_POR_ENVIO) {
+    return res.status(413).json({ error: `Máximo ${MAX_POSICIONES_POR_ENVIO} posiciones por envío` });
+  }
+
+  // Se ordenan por hora y se descartan las imposibles. Un reloj adelantado
+  // mandaría posiciones del futuro y arruinaría la medición de la vuelta;
+  // una demasiado vieja ya no le sirve a nadie.
+  const ahora = Date.now();
+  const buenas = crudas
+    .filter(p => typeof p?.lat === 'number' && typeof p?.lng === 'number')
+    .map(p => ({
+      lat: p.lat, lng: p.lng, speed: Number(p.speed) || 0,
+      cuando: Number(p.timestamp) || ahora,
+    }))
+    .filter(p => p.cuando <= ahora + 120_000 && p.cuando >= ahora - ATRASO_MAXIMO_MS)
+    .sort((a, b) => a.cuando - b.cuando);
+
+  if (!buenas.length) return res.status(400).json({ error: 'Ninguna posición utilizable' });
+
+  const prof = profiles.get(user.unitId) || {
+    routeId: user.routeId, vehicleId, role: user.role,
+    driverName: displayName(user), companyId: user.companyId,
+  };
+  // Se abre turno igual que al identificarse por WebSocket: si el chofer solo
+  // reporta por HTTP (app en segundo plano toda la mañana) igual trabajó.
+  abrirTurno(user.unitId, vehicleId, user.routeId || prof.routeId || DEFAULT_ROUTE, user.role);
+
+  let routeId = null;
+  for (const p of buenas) {
+    routeId = anotarPosicion(vehicleId, user.unitId, prof, p, p.cuando);
+  }
+  res.json({ ok: true, aceptadas: buenas.length, descartadas: crudas.length - buenas.length, routeId });
 });
 
 // ─── ADMINISTRACIÓN (solo Despacho) ──────────────────────────
@@ -2836,66 +2905,10 @@ wss.on('connection', (ws) => {
       // recibiendo todo, pero su GPS se ignora: así la unidad no salta.
       if (gpsOwner.get(vehicleId) !== ws) return;
 
-      const unit = units.get(vehicleId) || {};
-      const routeId = unit.routeId || prof.routeId || DEFAULT_ROUTE;
-
-      // El progreso lo calcula EL SERVIDOR, que es donde vive la geometría:
-      // así cargar o corregir el recorrido tiene efecto al instante, sin
-      // actualizar la app de nadie. Si la ruta todavía no tiene trazado, se
-      // usa el que estima el cliente (proyección lineal, como antes).
-      // Hacia dónde venía yendo: es lo que desempata entre ida y vuelta
-      // cuando las dos pasan por la misma calle en sentidos opuestos.
-      const rumboReal = (unit.lat != null && unit.lng != null &&
-                         metrosEntre(unit.lat, unit.lng, msg.lat, msg.lng) > 8)
-        ? Math.atan2(
-            (msg.lng - unit.lng) * METROS_POR_GRADO * Math.cos(unit.lat * Math.PI / 180),
-            (msg.lat - unit.lat) * METROS_POR_GRADO
-          ) * 180 / Math.PI
-        : (unit.rumbo ?? null);
-
-      const proy = proyectarEnRuta(routeId, msg.lat, msg.lng, {
-        tramo: unit.tramo || null, rumbo: rumboReal,
+      anotarPosicion(vehicleId, personId, prof, {
+        lat: msg.lat, lng: msg.lng, speed: msg.speed,
+        routeProgress: msg.routeProgress,
       });
-      const progreso = proy ? proy.progreso : (msg.routeProgress || 0);
-
-      // ¿Se salió del recorrido? Solo cuenta si se sostiene (ver arriba)
-      const desvio = evaluarDesvio(vehicleId, routeId, proy ? proy.desvioM : null);
-
-      units.set(vehicleId, {
-        ...unit,
-        unitId: vehicleId,
-        routeId,
-        lat: msg.lat,
-        lng: msg.lng,
-        speed: msg.speed || 0,
-        routeProgress: progreso,
-        // En qué tramo del circuito va y cuánto lleva de ese tramo
-        tramo: proy ? proy.tramo : null,
-        progresoTramo: proy ? proy.progresoTramo : null,
-        rumbo: rumboReal,
-        // A cuántos metros del trazado va. null si la ruta no tiene geometría.
-        desvioM: proy ? Math.round(proy.desvioM) : null,
-        // Va por afuera del recorrido, sostenido. Viaja como un booleano
-        // dentro del estado que ya se emite: no hace falta mensaje aparte.
-        fueraDeRuta: !!(desvio && desvio.fuera),
-        fueraDesde: desvio && desvio.fuera ? desvio.desde : null,
-        // Volvió la señal. Se limpia explícitamente porque el spread de
-        // arriba arrastra el `sinSenal` de la vuelta anterior, y una unidad
-        // que reapareció seguiría dibujada en gris para siempre.
-        sinSenal: false,
-        sinSenalDesde: null,
-        timestamp: Date.now(),
-      });
-
-      // Detección de vuelta completa a partir del progreso (del vehículo)
-      trackLap(vehicleId, routeId, progreso, msg.speed || 0);
-
-      // Y que la persona sigue arriba, para poder cerrar bien el turno si el
-      // servidor se reinicia
-      marcarVivo(personId);
-
-      // Solo se recalcula y emite el estado de SU ruta
-      scheduleStateBroadcast(routeId);
     }
 
     // La ruta a la que pertenece lo que este cliente emite: la del chofer,
@@ -3284,6 +3297,81 @@ function buildState(routeId, acumular) {
     sinSenal: all.filter(u => u.sinSenal).length,
     timestamp: Date.now(),
   };
+}
+
+// ─── ANOTAR UNA POSICIÓN ─────────────────────────────────────
+// Una sola puerta para las posiciones, sin importar por dónde entraron.
+// Antes esto vivía adentro del handler del WebSocket, y ahí se descubrió el
+// problema: cuando Android manda la app atrás suspende el JavaScript y el
+// WebSocket se cae, aunque el servicio de ubicación siga corriendo. La combi
+// seguía sabiendo dónde estaba y no tenía por dónde decirlo.
+//
+// `cuando` es la hora en que se TOMÓ la posición, no la de llegada. Por
+// WebSocket son casi lo mismo; por HTTP puede venir un atraso entero después
+// de un túnel, y usar la hora de llegada haría que la unidad se
+// teletransporte y que las vueltas se midan mal.
+function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
+  const unit = units.get(vehicleId) || {};
+  const routeId = unit.routeId || prof.routeId || DEFAULT_ROUTE;
+
+  // El progreso lo calcula EL SERVIDOR, que es donde vive la geometría: así
+  // cargar o corregir el recorrido tiene efecto al instante, sin actualizar
+  // la app de nadie. Si la ruta todavía no tiene trazado, se usa el que
+  // estima el cliente (proyección lineal, como antes).
+  // Hacia dónde venía yendo: es lo que desempata entre ida y vuelta cuando
+  // las dos pasan por la misma calle en sentidos opuestos.
+  const rumboReal = (unit.lat != null && unit.lng != null &&
+                     metrosEntre(unit.lat, unit.lng, pos.lat, pos.lng) > 8)
+    ? Math.atan2(
+        (pos.lng - unit.lng) * METROS_POR_GRADO * Math.cos(unit.lat * Math.PI / 180),
+        (pos.lat - unit.lat) * METROS_POR_GRADO
+      ) * 180 / Math.PI
+    : (unit.rumbo ?? null);
+
+  const proy = proyectarEnRuta(routeId, pos.lat, pos.lng, {
+    tramo: unit.tramo || null, rumbo: rumboReal,
+  });
+  const progreso = proy ? proy.progreso : (pos.routeProgress || 0);
+
+  // ¿Se salió del recorrido? Solo cuenta si se sostiene (ver arriba)
+  const desvio = evaluarDesvio(vehicleId, routeId, proy ? proy.desvioM : null);
+
+  units.set(vehicleId, {
+    ...unit,
+    unitId: vehicleId,
+    routeId,
+    lat: pos.lat,
+    lng: pos.lng,
+    speed: pos.speed || 0,
+    routeProgress: progreso,
+    // En qué tramo del circuito va y cuánto lleva de ese tramo
+    tramo: proy ? proy.tramo : null,
+    progresoTramo: proy ? proy.progresoTramo : null,
+    rumbo: rumboReal,
+    // A cuántos metros del trazado va. null si la ruta no tiene geometría.
+    desvioM: proy ? Math.round(proy.desvioM) : null,
+    // Va por afuera del recorrido, sostenido. Viaja como un booleano dentro
+    // del estado que ya se emite: no hace falta mensaje aparte.
+    fueraDeRuta: !!(desvio && desvio.fuera),
+    fueraDesde: desvio && desvio.fuera ? desvio.desde : null,
+    // Volvió la señal. Se limpia explícitamente porque el spread de arriba
+    // arrastra el `sinSenal` de la vuelta anterior, y una unidad que
+    // reapareció seguiría dibujada en gris para siempre.
+    sinSenal: false,
+    sinSenalDesde: null,
+    timestamp: cuando,
+  });
+
+  // Detección de vuelta completa a partir del progreso (del vehículo)
+  trackLap(vehicleId, routeId, progreso, pos.speed || 0, cuando);
+
+  // Y que la persona sigue arriba, para poder cerrar bien el turno si el
+  // servidor se reinicia
+  marcarVivo(personId);
+
+  // Solo se recalcula y emite el estado de SU ruta
+  scheduleStateBroadcast(routeId);
+  return routeId;
 }
 
 // ─── CALCULAR GAPS ───────────────────────────────────────────

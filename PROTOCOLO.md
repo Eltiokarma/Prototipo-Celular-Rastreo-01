@@ -209,6 +209,40 @@ puede quemar.
   una app nativa graba m4a/aac. Como quien lo escucha es Chrome en el panel,
   m4a funciona, pero conviene decidirlo antes y no descubrirlo en producción.
 
+## 4bis. Posiciones por HTTP: `POST /gps`
+
+**El camino que usa la app nativa con la pantalla apagada.** Existe por una
+medición en un teléfono real: al bloquear la pantalla, Android suspende el
+JavaScript y **el WebSocket se cae**, aunque el servicio de ubicación nativo
+siga corriendo —la notificación permanente sigue ahí—. La combi seguía
+sabiendo dónde estaba y no tenía por dónde decirlo.
+
+```json
+POST /gps
+Authorization: Bearer <token>
+{ "posiciones": [ { "lat": -15.48, "lng": -70.13, "speed": 22,
+                    "timestamp": 1785649191992 }, … ] }
+```
+
+Devuelve `{ ok, aceptadas, descartadas, routeId }`.
+
+- **Un POST no necesita nada vivo del lado del cliente**, así que la tarea de
+  fondo puede mandar con la app dormida.
+- **Acepta varias posiciones con su hora**, así que sirve para vaciar el
+  atraso juntado en una zona sin datos. La hora que vale es la de la
+  posición, no la de llegada: con la de llegada la unidad se teletransporta
+  por el recorrido y las vueltas salen infladas por lo que duró el corte.
+- Se ordenan por hora antes de procesarse. La **última** queda como posición
+  en vivo.
+- Se descartan las del futuro (más de 2 min de adelanto: un reloj mal puesto)
+  y las de más de 6 h. Máximo 200 por envío.
+- Mismas reglas de rol que por WebSocket: **solo el chofer**; `403` para el
+  cobrador, `409` si otro chofer tomó la unidad.
+
+El WebSocket queda para **recibir** el estado mientras la pantalla está
+encendida. Mandar posición por ahí sigue funcionando y es lo que hace la app
+web, pero una app nativa debería usar el POST.
+
 ## 5. Reconexión y caídas
 
 - La app web reconecta **cada 3 s** (`project/realtime.js`) y al volver a

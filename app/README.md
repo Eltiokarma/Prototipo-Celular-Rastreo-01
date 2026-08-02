@@ -118,10 +118,15 @@ Corren con el resto: `npm test` desde la raíz.
 - **`gps_role` manda.** Solo una conexión reporta la posición de cada
   vehículo y cambia sola cuando entra otro chofer. Si `reporting` es `false`,
   el servicio no manda: el servidor lo descartaría igual, en silencio.
-- **La cola todavía no se puede vaciar entera.** El servidor le pone la hora
-  de llegada a cada `gps`, así que mandarle posiciones viejas haría que la
-  unidad se teletransporte. Por ahora al reconectar se manda solo la más
-  fresca. Ver el comentario grande de `cola.js`.
+- **Las posiciones van por HTTP, NO por el WebSocket.** Es la corrección más
+  importante que salió de probar en un teléfono: al bloquear la pantalla,
+  Android suspende el JavaScript y el socket se cae, aunque el servicio de
+  ubicación siga vivo. La combi quedaba muda apenas se bloqueaba la pantalla
+  —justo lo que la app nativa venía a evitar—. Un `POST /gps` no necesita
+  nada vivo del lado del cliente. El WebSocket queda solo para **recibir** el
+  estado mientras el chofer mira el HUD.
+- **La cola ya se puede vaciar entera.** `POST /gps` acepta varias posiciones
+  con su hora, y el servidor mide con esa hora y no con la de llegada.
 
 ## Si Metro dice "Cannot find module ..."
 
@@ -152,5 +157,4 @@ reinstalar en cada teléfono.
 
 - La brecha en vivo en la notificación, sin reiniciar el GPS.
 - Mapa (`react-native-maps`), chat con los dos canales, SOS deslizable.
-- Ingreso histórico en el servidor, para aprovechar la cola entera.
 - Medir un turno completo en la calle. Nada de acá lo reemplaza.

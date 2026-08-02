@@ -230,6 +230,31 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     try { ws.send(JSON.stringify(obj)); return true; } catch { return false; }
   }
 
+  // ─── Mandar posiciones por HTTP ────────────────────────────
+  // El camino que usa el servicio de fondo. NO depende de que el WebSocket
+  // esté vivo, y ese es todo el punto: se midió en un teléfono real que al
+  // bloquear la pantalla Android suspende el JavaScript y el socket se cae,
+  // aunque el servicio de ubicación siga corriendo. La combi quedaba muda.
+  //
+  // Acepta varias posiciones con su hora, así que también sirve para vaciar
+  // el atraso juntado en una zona sin datos.
+  async function subirPosiciones(posiciones) {
+    if (!token || !posiciones?.length) return { ok: false, motivo: 'nada-que-mandar' };
+    try {
+      const r = await fetch(servidor + '/gps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ posiciones }),
+      });
+      const cuerpo = await r.json().catch(() => ({}));
+      if (!r.ok) return { ok: false, status: r.status, motivo: cuerpo.error || 'rechazado' };
+      return { ok: true, aceptadas: cuerpo.aceptadas || 0 };
+    } catch (e) {
+      // Sin datos. El que llama guarda en la cola y reintenta al volver.
+      return { ok: false, motivo: 'sin-red' };
+    }
+  }
+
   // Devuelve por qué NO se mandó, o null si se mandó. Se devuelve el motivo
   // en vez de un booleano pelado porque las dos razones de rechazo son cosas
   // que el chofer tiene que poder ver en pantalla.
@@ -269,7 +294,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
 
   return {
     entrar, conectar, salir,
-    mandarGps, mandarChat, mandarSos,
+    mandarGps, subirPosiciones, mandarChat, mandarSos,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {
       if (!oyentes.has(evento)) oyentes.set(evento, new Set());

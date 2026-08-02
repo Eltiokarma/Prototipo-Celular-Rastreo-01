@@ -43,6 +43,7 @@ export default function App() {
   const [conectado, setConectado] = React.useState(false);
   const [reporta, setReporta] = React.useState(false);
   const [aviso, setAviso] = React.useState(null);
+  const [enCola, setEnCola] = React.useState(0);
   const cliente = React.useRef(null);
 
   // ── El cliente vive fuera de React ──────────────────────────
@@ -79,16 +80,26 @@ export default function App() {
   };
 
   // ── Las posiciones que llegan del servicio de fondo ─────────
+  //
+  // Van SIEMPRE por HTTP, nunca por el WebSocket, y esa es la corrección más
+  // importante que salió de probar en un teléfono de verdad: al bloquear la
+  // pantalla Android suspende el JavaScript y el socket se cae, aunque el
+  // servicio de ubicación siga vivo. La combi quedaba muda apenas se
+  // bloqueaba la pantalla, que es justo lo que la app nativa venía a evitar.
+  //
+  // El WebSocket queda solo para RECIBIR el estado mientras la pantalla está
+  // encendida y el chofer mira el HUD.
   React.useEffect(() => {
-    gps.cuandoLlegueUnaPosicion((pos) => {
+    gps.cuandoLlegueUnaPosicion(async (pos) => {
       const c = cliente.current;
       if (!c) return;
-      const motivo = c.mandarGps(pos);
-      // Sin conexión se guarda. Ver el comentario grande de `cola.js`: por
-      // ahora al volver se manda solo la más fresca, porque el servidor no
-      // acepta posiciones con fecha vieja.
-      if (motivo === 'sin-conexion') cola.guardar(pos);
-      else if (motivo === null && cola.largo) { c.mandarGps(cola.ultima); cola.vaciar(); }
+      cola.guardar(pos);
+      // Se manda todo lo que haya en cola, de a tandas para no pasarse del
+      // cupo del servidor. Lo que no se confirma queda guardado.
+      const tanda = cola.proximas(60);
+      const r = await c.subirPosiciones(tanda);
+      if (r.ok) { cola.confirmar(tanda.length); setEnCola(cola.largo); }
+      else setEnCola(cola.largo);
     });
   }, []);
 
@@ -132,7 +143,7 @@ export default function App() {
   }} clienteRef={cliente} />;
 
   return <Ruta hud={hud} conectado={conectado} reporta={reporta} aviso={aviso}
-    enCola={cola.largo}
+    enCola={enCola}
     onSalir={async () => {
       await SecureStore.deleteItemAsync('sesion');
       await gps.parar();
