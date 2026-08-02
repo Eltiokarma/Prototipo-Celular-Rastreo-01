@@ -26,6 +26,8 @@ import * as SecureStore from 'expo-secure-store';
 import { crearCliente } from './protocolo/cliente';
 import { construirHud, textoNotificacion } from './hud';
 import { aMensaje, hilo, sinLeer } from './chat';
+import { useAudioRecorder, useAudioPlayer, RecordingPresets,
+         pedirPermisoMicrofono, aDataUrl, MAX_SEGUNDOS } from './voz';
 import * as gps from './gps/servicio';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
@@ -193,7 +195,8 @@ export default function App() {
       mensajes={hilo(mensajes, canal)}
       canal={canal}
       onCanal={(cual) => { setCanal(cual); marcarVisto(cual); }}
-      onEnviar={(texto) => cliente.current.mandarChat(texto, { privado: canal === 'directo' })} />;
+      onEnviar={(texto) => cliente.current.mandarChat(texto, { privado: canal === 'directo' })}
+      onVoz={(data, duration) => cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' })} />;
   }
 
   return <Ruta {...comun} hud={hud} reporta={reporta}
@@ -373,7 +376,7 @@ function Barra({ pantalla, noLeidos, onIr }) {
 // El chat, con sus DOS canales. El grupo lo ven todos los de la ruta; el
 // directo, solo este chofer y Despacho. Chofer ↔ chofer privado no existe y
 // eso lo decide el servidor, no esta pantalla.
-function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnviar, onIr }) {
+function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnviar, onVoz, onIr }) {
   const [texto, setTexto] = React.useState('');
   const lista = React.useRef(null);
 
@@ -422,7 +425,9 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
             <Text style={s.burbujaQuien}>
               {m.quien}{m.unidad ? ` · ${m.unidad}` : ''} · {m.hora}
             </Text>
-            <Text style={s.burbujaTexto}>{m.texto}</Text>
+            {m.audio
+              ? <Reproducir uri={m.audio} etiqueta={m.texto} />
+              : <Text style={s.burbujaTexto}>{m.texto}</Text>}
           </View>
         )}
       />
@@ -438,15 +443,102 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
           maxLength={500}
           onSubmitEditing={enviar}
         />
-        <Pressable onPress={enviar} disabled={!conectado || !texto.trim()}
-          style={[s.enviar, (!conectado || !texto.trim()) && { opacity: 0.4 }]}>
-          <Text style={s.enviarTexto}>➤</Text>
-        </Pressable>
+        {texto.trim()
+          ? <Pressable onPress={enviar} disabled={!conectado}
+              style={[s.enviar, !conectado && { opacity: 0.4 }]}>
+              <Text style={s.enviarTexto}>➤</Text>
+            </Pressable>
+          : <Grabar onListo={onVoz} habilitado={conectado} />}
       </View>
       {!conectado && <Text style={s.avisoBarra}>Sin conexión — lo que escribas no va a salir</Text>}
 
       <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
     </KeyboardAvoidingView>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Se graba MANTENIENDO APRETADO y se suelta para mandar, como en WhatsApp.
+// No es imitación: el chofer tiene una mano en el volante, y mantener es un
+// gesto que no pide precisión ni mirar la pantalla. Soltar sin llegar al
+// segundo cancela, que es la salida para el toque sin querer.
+function Grabar({ onListo, habilitado }) {
+  const grabador = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [grabando, setGrabando] = React.useState(false);
+  const [segundos, setSegundos] = React.useState(0);
+  const [error, setError] = React.useState(null);
+  const desdeRef = React.useRef(0);
+
+  const soltar = React.useCallback(async (cancelar = false) => {
+    setGrabando(false);
+    const dur = Math.round((Date.now() - desdeRef.current) / 1000);
+    try {
+      await grabador.stop();
+      // Menos de un segundo es un toque sin querer, no una nota.
+      if (cancelar || dur < 1 || !grabador.uri) return;
+      const motivo = onListo?.(await aDataUrl(grabador.uri), dur);
+      if (motivo) setError(motivo === 'muy-larga' ? 'La nota pesa demasiado' : 'No se pudo enviar');
+    } catch (e) { setError('No se pudo enviar'); }
+  }, [grabador, onListo]);
+
+  React.useEffect(() => {
+    if (!grabando) return;
+    const t = setInterval(() => {
+      const s = Math.round((Date.now() - desdeRef.current) / 1000);
+      setSegundos(s);
+      if (s >= MAX_SEGUNDOS) soltar();   // se corta sola en el tope
+    }, 500);
+    return () => clearInterval(t);
+  }, [grabando, soltar]);
+
+  const empezar = async () => {
+    setError(null);
+    if (!habilitado) return;
+    if (!(await pedirPermisoMicrofono())) { setError('Sin permiso de micrófono'); return; }
+    try {
+      await grabador.prepareToRecordAsync();
+      grabador.record();
+      desdeRef.current = Date.now();
+      setSegundos(0);
+      setGrabando(true);
+      Vibration.vibrate(40);
+    } catch (e) { setError('No se pudo grabar'); }
+  };
+
+  return (
+    <View>
+      {(grabando || error) && (
+        <Text style={s.grabandoAviso}>
+          {error || `● Grabando ${segundos}s — soltá para enviar`}
+        </Text>
+      )}
+      <Pressable
+        onPressIn={empezar}
+        onPressOut={() => soltar(false)}
+        disabled={!habilitado}
+        style={[s.enviar, grabando && { backgroundColor: C.rojo },
+                !habilitado && { opacity: 0.4 }]}>
+        <Text style={s.enviarTexto}>{grabando ? '●' : '🎤'}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function Reproducir({ uri, etiqueta }) {
+  const reproductor = useAudioPlayer({ uri });
+  const [sonando, setSonando] = React.useState(false);
+  return (
+    <Pressable
+      onPress={() => {
+        if (sonando) { reproductor.pause(); setSonando(false); return; }
+        reproductor.seekTo(0);
+        reproductor.play();
+        setSonando(true);
+      }}
+      style={s.reproducir}>
+      <Text style={s.reproducirIcono}>{sonando ? '❚❚' : '▶'}</Text>
+      <Text style={s.burbujaTexto}>{etiqueta}</Text>
+    </Pressable>
   );
 }
 
@@ -541,4 +633,13 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   enviarTexto: { color: '#fff', fontSize: 20 },
+  grabandoAviso: {
+    color: C.ambar, fontSize: 12, fontWeight: '700',
+    position: 'absolute', bottom: 56, right: 0, width: 220, textAlign: 'right',
+  },
+  reproducir: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  reproducirIcono: {
+    color: '#fff', fontSize: 13, width: 30, height: 30, borderRadius: 15,
+    backgroundColor: C.brillante, textAlign: 'center', lineHeight: 30,
+  },
 });

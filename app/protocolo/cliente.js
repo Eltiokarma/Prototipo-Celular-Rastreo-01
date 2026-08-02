@@ -279,6 +279,21 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
                     timestamp: ahora(), ...(privado ? { privado: true } : {}) });
   }
 
+  // Nota de voz. Viaja como data-URL en base64 dentro del mismo WebSocket que
+  // el texto, que es como lo espera el servidor. El tope de 2 MB es suyo y no
+  // avisa: pasado eso descarta el mensaje **en silencio**, así que se corta
+  // acá con margen y se devuelve el motivo.
+  const TOPE_AUDIO = 1_900_000;
+  function mandarVoz({ data, duration, privado = false }) {
+    if (!data || !String(data).startsWith('data:audio')) return 'formato';
+    if (String(data).length > TOPE_AUDIO) return 'muy-larga';
+    const ok = enviar({
+      type: 'voice', data, duration: Math.round(duration || 0),
+      timestamp: ahora(), ...(privado ? { privado: true } : {}),
+    });
+    return ok ? null : 'sin-conexion';
+  }
+
   function mandarSos({ lat = null, lng = null } = {}) {
     return enviar({ type: 'sos', lat, lng, timestamp: ahora() });
   }
@@ -294,7 +309,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
 
   return {
     entrar, conectar, salir,
-    mandarGps, subirPosiciones, mandarChat, mandarSos,
+    mandarGps, subirPosiciones, mandarChat, mandarVoz, mandarSos,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {
       if (!oyentes.has(evento)) oyentes.set(evento, new Set());

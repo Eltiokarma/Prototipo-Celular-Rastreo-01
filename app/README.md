@@ -30,12 +30,14 @@ lo mata más tarde. Varios minutos no dicen nada de eso.
 
 ## Qué hay hoy
 
-Entrar → brecha en vivo → chat (grupo y directo con Despacho) → SOS
+Entrar → brecha en vivo → chat con los dos canales → notas de voz → SOS
 deslizable → GPS en segundo plano con la brecha en la notificación.
 
-**Falta el mapa**, y a propósito: necesita `react-native-maps`, que es una
-librería nativa y obliga a compilar un APK nuevo. Todo lo demás es
-JavaScript puro y entra por recarga en caliente, así que fue primero.
+**Falta el mapa.** Necesita `react-native-maps`, y en Android eso pide una
+**clave de Google Maps**: crear un proyecto en Google Cloud, habilitar "Maps
+SDK for Android" y generar la clave. Son unos diez minutos y es gratis en
+este volumen, pero es una cuenta tuya y no lo puedo hacer yo. Cuando la
+tengas, va en `app.json` y se compila.
 
 ## Cómo correrla
 
@@ -105,6 +107,10 @@ hud.js                 Qué brecha se muestra y qué se le dice al chofer.
                        JS puro y sin React. Probado en pruebas/hud.js
 chat.js                Qué mensaje va en qué canal y quién lo firma.
                        JS puro. Probado en pruebas/chat.js
+voz.js                 Grabar y reproducir notas de voz. Acá SÍ hay Expo:
+                       tiene permiso, grabador y reproductor con su ciclo
+                       de vida, y mezclarlo con el render es la forma más
+                       segura de dejar el micrófono abierto
 cola.js                Las posiciones cuando no hay datos. Probada en
                        pruebas/cola.js
 gps/servicio.js        expo-location + expo-task-manager: el foreground
@@ -183,13 +189,23 @@ reinstalar en cada teléfono.
   vuelve solo a los 6 s por si hace falta repetirlo.
 - **El SOS manda la última posición conocida.** Es lo primero que pregunta
   quien sale a ayudar.
+- **La nota de voz se graba manteniendo apretado**, como en WhatsApp. No es
+  imitación: el chofer tiene una mano en el volante, y mantener es un gesto
+  que no pide precisión ni mirar la pantalla. Menos de un segundo se descarta
+  —es un toque sin querer— y a los 60 s se corta sola.
+- **El formato del audio no es el mismo que en la web.** La web graba
+  webm/opus y Android graba m4a/aac. El servidor solo mira el prefijo
+  `data:audio` y el tamaño, así que los dos pasan, y quien las escucha es
+  Chrome en el panel de Despacho, que reproduce m4a sin problema.
+- **Las notas viejas pierden el audio a propósito**: el servidor conserva solo
+  las 30 últimas. Quedan como burbuja sin reproducción, que es honesto —
+  existió, ya no está.
 - **El chat tiene dos canales**: la ruta y el directo con Despacho. Chofer ↔
   chofer privado no existe, y eso lo decide el servidor: el canal entre
   choferes es el grupo.
 
 ## Lo que falta
 
-- **El mapa** (`react-native-maps`). Es lo único que exige un APK nuevo.
-- Las notas de voz.
+- **El mapa** (`react-native-maps`), que además necesita la clave de Google.
 - La brecha en vivo en la notificación, sin reiniciar el GPS.
 - Medir un turno completo en la calle. Nada de acá lo reemplaza.

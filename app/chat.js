@@ -34,9 +34,14 @@ function aMensaje(crudo, { miPersona, miVehiculo }) {
     unidad: crudo.vehicleId && crudo.vehicleId !== miVehiculo ? crudo.vehicleId : null,
     texto: esSos
       ? `SOS — ${crudo.driverName || crudo.unitId} pide ayuda`
-      : esVoz ? 'Nota de voz'
+      : esVoz ? `Nota de voz · ${crudo.duration || 0}s`
       : String(crudo.text || ''),
-    tono: esSos ? 'sos' : crudo.role === 'dispatch' ? 'despacho' : 'normal',
+    // El audio en sí, para poder reproducirlo. Las notas viejas pierden el
+    // audio a propósito —el servidor solo conserva las 30 últimas— y quedan
+    // como burbuja sin reproducción, que es honesto: existió, ya no está.
+    audio: esVoz ? (crudo.data || null) : null,
+    segundos: esVoz ? (crudo.duration || 0) : null,
+    tono: esSos ? 'sos' : esVoz ? 'voz' : crudo.role === 'dispatch' ? 'despacho' : 'normal',
     timestamp: crudo.timestamp || 0,
     hora: hora(crudo.timestamp),
   };

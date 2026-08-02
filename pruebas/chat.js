@@ -69,6 +69,21 @@ console.log('\nEL SOS');
   ok('y lleva su propio tono para poder destacarlo', sos.tono === 'sos', sos.tono);
 }
 
+console.log('\nLAS NOTAS DE VOZ');
+{
+  const voz = aMensaje(crudo({ kind: 'voice', unitId: 'M-08', driverName: 'Rufino',
+                               duration: 7, data: 'data:audio/m4a;base64,AAAA' }), YO);
+  ok('se anuncia como nota con su duración', /Nota de voz · 7s/.test(voz.texto), voz.texto);
+  ok('lleva el audio para poder reproducirlo', voz.audio === 'data:audio/m4a;base64,AAAA', voz.audio);
+  ok('y su propio tono', voz.tono === 'voz', voz.tono);
+
+  // El servidor solo conserva el audio de las 30 más recientes: las viejas
+  // llegan sin `data` y tienen que verse como lo que son.
+  const vieja = aMensaje(crudo({ kind: 'voice', unitId: 'M-08', duration: 4 }), YO);
+  ok('una nota vieja sin audio no revienta y queda sin reproducción',
+     vieja.audio === null && /Nota de voz/.test(vieja.texto), vieja);
+}
+
 console.log('\nSIN LEER');
 {
   const ms = [
