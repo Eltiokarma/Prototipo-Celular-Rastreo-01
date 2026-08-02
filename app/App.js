@@ -1,22 +1,31 @@
-// La app del chofer. Corte vertical: entrar → brecha en vivo → GPS en
-// segundo plano con la brecha en la notificación.
+// La app del chofer: brecha en vivo, chat, SOS y GPS en segundo plano.
 //
-// Falta a propósito el mapa, el chat y el SOS. No es que se hayan olvidado:
-// esto existe para contestar la única pregunta que ninguna pantalla contesta
-// —si el celular aguanta un turno con el GPS prendido a 3800 m y si Android
-// deja vivo el servicio— y para eso alcanza con esto. Lo demás es portar
-// interfaz que ya funciona en la web.
+// Falta el mapa, y a propósito: necesita `react-native-maps`, que es una
+// librería nativa y obliga a compilar un APK nuevo. El chat y el SOS son
+// JavaScript puro y entran por recarga en caliente, así que van primero.
 //
-// Lo que decide qué se ve NO está acá: está en `hud.js`, que es JavaScript
-// puro y tiene su suite en `pruebas/hud.js`. Esta pantalla solo dibuja.
+// Este archivo SOLO DIBUJA. Lo que decide qué se ve vive afuera, en módulos
+// de JavaScript puro con sus propias pruebas, y no es un capricho: es donde
+// estuvieron todos los bugs de esta app —la unidad inventada, el lado vacío,
+// el "sin señal", el 02:60, el envío colgado de React—, y afuera se pueden
+// correr en Node sin un teléfono.
+//
+//   hud.js       qué brecha se muestra y qué se le dice al chofer
+//   chat.js      qué mensaje va en qué canal y quién lo firma
+//   protocolo/   hablar con el servidor
+//   gps/         el servicio de fondo, que además MANDA las posiciones
 
 import React from 'react';
-import { View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet } from 'react-native';
+import {
+  View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
+  FlatList, KeyboardAvoidingView, Platform, PanResponder, Animated, Vibration,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
 
 import { crearCliente } from './protocolo/cliente';
 import { construirHud, textoNotificacion } from './hud';
+import { aMensaje, hilo, sinLeer } from './chat';
 import * as gps from './gps/servicio';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
@@ -25,6 +34,13 @@ import * as gps from './gps/servicio';
 // "localhost", que para él es él mismo.
 const SERVIDOR = process.env.EXPO_PUBLIC_SERVIDOR
   || 'https://prototipo-celular-rastreo-01-production.up.railway.app';
+
+// La persona firma el mensaje; el vehículo define el canal privado. No son
+// lo mismo y confundirlos rompe las dos cosas — ver PROTOCOLO.md.
+const quienSoy = (c) => ({
+  miPersona: c.sesion?.unitId || null,
+  miVehiculo: c.sesion?.vehicleId || c.sesion?.unitId || null,
+});
 
 const C = {
   fondo: '#0A1A2E', panel: '#16304A', linea: '#234969',
@@ -40,6 +56,10 @@ export default function App() {
   const [conectado, setConectado] = React.useState(false);
   const [reporta, setReporta] = React.useState(false);
   const [aviso, setAviso] = React.useState(null);
+  const [mensajes, setMensajes] = React.useState([]);
+  const [pantalla, setPantalla] = React.useState('ruta');   // 'ruta' | 'chat'
+  const [canal, setCanal] = React.useState('grupo');        // 'grupo' | 'directo'
+  const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0 });
   const cliente = React.useRef(null);
 
   // ── El cliente vive fuera de React ──────────────────────────
@@ -53,6 +73,12 @@ export default function App() {
       c.on('conexion', ({ conectado }) => setConectado(conectado)),
       c.on('rolGps', ({ reporta, motivo }) => { setReporta(reporta); setAviso(motivo); }),
       c.on('authError', (e) => { setAviso(e); setSesion(null); }),
+      // El historial llega al identificarse y trae solo lo que a este chofer
+      // le corresponde ver: el filtrado del privado lo hace el servidor.
+      c.on('historial', (items) => setMensajes(items.map(m => aMensaje(m, quienSoy(c))))),
+      c.on('chat', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
+      c.on('sos',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
+      c.on('voz',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
     ];
     return () => off.forEach(f => f());
   }, []);
@@ -86,6 +112,13 @@ export default function App() {
   // bloqueada, que es el caso para el que la app nativa fue hecha.
   //
   // Acá solo se mira, para poder mostrar en pantalla qué está pasando.
+  // El SOS vale mucho más con coordenadas: es lo primero que pregunta quien
+  // sale a ayudar. Se guarda la última que pasó por la tarea.
+  const ultimaPos = React.useRef({ lat: null, lng: null });
+  React.useEffect(() => {
+    gps.cuandoLlegueUnaPosicion((p) => { ultimaPos.current = { lat: p.lat, lng: p.lng }; });
+  }, []);
+
   const [diag, setDiag] = React.useState({ ...gps.diagnostico });
   React.useEffect(() => {
     if (!sesion) return;
@@ -132,14 +165,39 @@ export default function App() {
     entrarConSesion(s);
   }} clienteRef={cliente} />;
 
-  return <Ruta hud={hud} conectado={conectado} reporta={reporta} aviso={aviso}
-    diag={diag}
-    onSalir={async () => {
+  const irA = (p) => {
+    setPantalla(p);
+    if (p === 'chat') marcarVisto(canal);
+  };
+  const marcarVisto = (cual) =>
+    setVistoHasta(v => ({ ...v, [cual]: Date.now() }));
+
+  const noLeidos = {
+    grupo: sinLeer(mensajes, 'grupo', vistoHasta.grupo),
+    directo: sinLeer(mensajes, 'directo', vistoHasta.directo),
+  };
+
+  const comun = {
+    conectado, aviso, diag, pantalla, noLeidos,
+    onIr: irA,
+    onSalir: async () => {
       await SecureStore.deleteItemAsync(gps.LLAVE_SESION);
       await gps.parar();
       cliente.current.salir();
       setSesion(null);
-    }} />;
+    },
+  };
+
+  if (pantalla === 'chat') {
+    return <Chat {...comun}
+      mensajes={hilo(mensajes, canal)}
+      canal={canal}
+      onCanal={(cual) => { setCanal(cual); marcarVisto(cual); }}
+      onEnviar={(texto) => cliente.current.mandarChat(texto, { privado: canal === 'directo' })} />;
+  }
+
+  return <Ruta {...comun} hud={hud} reporta={reporta}
+    onSos={() => cliente.current.mandarSos(ultimaPos.current)} />;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -186,7 +244,7 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-function Ruta({ hud, conectado, reporta, aviso, diag, onSalir }) {
+function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, onIr, onSalir, onSos }) {
   const p = hud.principal, sec = hud.secundario;
   const color = COLOR_ESTADO[p.estado];
 
@@ -238,7 +296,157 @@ function Ruta({ hud, conectado, reporta, aviso, diag, onSalir }) {
           <Text style={[s.digitosSec, { color: COLOR_ESTADO[sec.estado] }]}>{sec.display}</Text>
         )}
       </View>
+
+      <SosDeslizable onDisparar={onSos} />
+      <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
     </View>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// El botón de pánico. Se DESLIZA y no se toca: un botón de emergencia que
+// se dispara con un roce es peor que no tenerlo — el celular va en un
+// soporte, en una combi que se mueve, y un falso SOS que moviliza gente
+// quema la confianza en el sistema entero.
+function SosDeslizable({ onDisparar }) {
+  const [ancho, setAncho] = React.useState(0);
+  const [disparado, setDisparado] = React.useState(false);
+  const x = React.useRef(new Animated.Value(0)).current;
+  const recorrido = Math.max(0, ancho - 78);
+
+  const pan = React.useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => !disparado,
+    onMoveShouldSetPanResponder: () => !disparado,
+    onPanResponderMove: (_, g) => {
+      x.setValue(Math.max(0, Math.min(g.dx, recorrido)));
+    },
+    onPanResponderRelease: (_, g) => {
+      // Tiene que llegar casi al final. Un 85 % perdona el último tramo,
+      // que es donde el dedo se frena solo, sin volverlo disparable de refilón.
+      if (recorrido > 0 && g.dx >= recorrido * 0.85) {
+        setDisparado(true);
+        Vibration.vibrate(400);
+        onDisparar?.();
+        Animated.timing(x, { toValue: recorrido, duration: 120, useNativeDriver: false }).start();
+        // Vuelve solo pasado un rato: que quede la marca de que se mandó,
+        // pero que no quede trabado para siempre si hace falta repetirlo.
+        setTimeout(() => {
+          setDisparado(false);
+          Animated.timing(x, { toValue: 0, duration: 200, useNativeDriver: false }).start();
+        }, 6000);
+      } else {
+        Animated.spring(x, { toValue: 0, useNativeDriver: false }).start();
+      }
+    },
+  }), [recorrido, disparado]);
+
+  return (
+    <View style={s.sosPista} onLayout={e => setAncho(e.nativeEvent.layout.width)}>
+      <Text style={s.sosTexto}>
+        {disparado ? 'ALERTA ENVIADA' : 'DESLIZÁ PARA SOS  →'}
+      </Text>
+      <Animated.View {...pan.panHandlers}
+        style={[s.sosBoton, { transform: [{ translateX: x }] },
+                disparado && { backgroundColor: C.verde }]}>
+        <Text style={s.sosBotonTexto}>{disparado ? '✓' : 'SOS'}</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+function Barra({ pantalla, noLeidos, onIr }) {
+  const total = (noLeidos?.grupo || 0) + (noLeidos?.directo || 0);
+  return (
+    <View style={s.barraAbajo}>
+      {[['ruta', 'RUTA', 0], ['chat', 'CHAT', total]].map(([id, texto, badge]) => (
+        <Pressable key={id} onPress={() => onIr(id)} style={s.tab}>
+          <Text style={[s.tabTexto, pantalla === id && { color: C.brillante }]}>{texto}</Text>
+          {badge > 0 && <View style={s.badge}><Text style={s.badgeTexto}>{badge}</Text></View>}
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// El chat, con sus DOS canales. El grupo lo ven todos los de la ruta; el
+// directo, solo este chofer y Despacho. Chofer ↔ chofer privado no existe y
+// eso lo decide el servidor, no esta pantalla.
+function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnviar, onIr }) {
+  const [texto, setTexto] = React.useState('');
+  const lista = React.useRef(null);
+
+  const enviar = () => {
+    const t = texto.trim();
+    if (!t) return;
+    onEnviar(t);
+    setTexto('');
+  };
+
+  return (
+    <KeyboardAvoidingView style={s.pantalla}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <StatusBar style="light" />
+
+      <View style={s.canales}>
+        {[['grupo', 'RUTA'], ['directo', 'DESPACHO']].map(([id, texto]) => (
+          <Pressable key={id} onPress={() => onCanal(id)}
+            style={[s.canal, canal === id && s.canalActivo]}>
+            <Text style={[s.canalTexto, canal === id && { color: '#fff' }]}>{texto}</Text>
+            {noLeidos?.[id] > 0 && canal !== id && (
+              <View style={s.badge}><Text style={s.badgeTexto}>{noLeidos[id]}</Text></View>
+            )}
+          </Pressable>
+        ))}
+      </View>
+
+      <FlatList
+        ref={lista}
+        style={{ flex: 1 }}
+        data={mensajes}
+        keyExtractor={m => m.id}
+        onContentSizeChange={() => lista.current?.scrollToEnd({ animated: true })}
+        ListEmptyComponent={
+          <Text style={s.vacio}>
+            {canal === 'grupo'
+              ? 'Todavía no hay mensajes en el canal de la ruta.'
+              : 'Acá hablás solo con Despacho. Nadie más lo ve.'}
+          </Text>
+        }
+        renderItem={({ item: m }) => (
+          <View style={[s.burbuja,
+            m.propio && s.burbujaPropia,
+            m.tono === 'sos' && s.burbujaSos,
+            m.tono === 'despacho' && s.burbujaDespacho]}>
+            <Text style={s.burbujaQuien}>
+              {m.quien}{m.unidad ? ` · ${m.unidad}` : ''} · {m.hora}
+            </Text>
+            <Text style={s.burbujaTexto}>{m.texto}</Text>
+          </View>
+        )}
+      />
+
+      <View style={s.escribir}>
+        <TextInput
+          style={s.campoChat}
+          value={texto}
+          onChangeText={setTexto}
+          placeholder={canal === 'grupo' ? 'Mensaje a la ruta…' : 'Mensaje a Despacho…'}
+          placeholderTextColor={C.tenue}
+          multiline
+          maxLength={500}
+          onSubmitEditing={enviar}
+        />
+        <Pressable onPress={enviar} disabled={!conectado || !texto.trim()}
+          style={[s.enviar, (!conectado || !texto.trim()) && { opacity: 0.4 }]}>
+          <Text style={s.enviarTexto}>➤</Text>
+        </Pressable>
+      </View>
+      {!conectado && <Text style={s.avisoBarra}>Sin conexión — lo que escribas no va a salir</Text>}
+
+      <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
+    </KeyboardAvoidingView>
   );
 }
 
@@ -271,4 +479,66 @@ const s = StyleSheet.create({
   digitosSec: { fontSize: 58, fontWeight: '900', letterSpacing: -2 },
   instruccion: { fontSize: 16, color: '#93AAC2', marginTop: 10, lineHeight: 24 },
   divisor: { height: 1, backgroundColor: C.linea, marginVertical: 24 },
+
+  // ── SOS ──────────────────────────────────────────────────────
+  sosPista: {
+    height: 62, borderRadius: 16, backgroundColor: C.panel,
+    borderWidth: 1, borderColor: C.linea,
+    justifyContent: 'center', marginTop: 10, overflow: 'hidden',
+  },
+  sosTexto: {
+    position: 'absolute', alignSelf: 'center',
+    color: C.tenue, fontSize: 15, fontWeight: '700', letterSpacing: 1,
+  },
+  sosBoton: {
+    width: 70, height: 54, margin: 4, borderRadius: 12,
+    backgroundColor: C.rojo, alignItems: 'center', justifyContent: 'center',
+  },
+  sosBotonTexto: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+
+  // ── Navegación ───────────────────────────────────────────────
+  barraAbajo: {
+    flexDirection: 'row', borderTopWidth: 1, borderTopColor: C.linea,
+    marginTop: 12, paddingTop: 10,
+  },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: 8, flexDirection: 'row', justifyContent: 'center', gap: 8 },
+  tabTexto: { color: C.tenue, fontSize: 15, fontWeight: '900', letterSpacing: 2 },
+  badge: {
+    minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5,
+    backgroundColor: C.brillante, alignItems: 'center', justifyContent: 'center',
+  },
+  badgeTexto: { color: '#fff', fontSize: 11, fontWeight: '900' },
+
+  // ── Chat ─────────────────────────────────────────────────────
+  canales: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  canal: {
+    flex: 1, paddingVertical: 11, borderRadius: 10,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+    alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8,
+  },
+  canalActivo: { backgroundColor: C.brillante, borderColor: C.brillante },
+  canalTexto: { color: C.tenue, fontSize: 13, fontWeight: '900', letterSpacing: 1.5 },
+  vacio: { color: C.tenue, fontSize: 14, textAlign: 'center', marginTop: 40, paddingHorizontal: 20, lineHeight: 21 },
+  burbuja: {
+    backgroundColor: C.panel, borderRadius: 12, padding: 11,
+    marginBottom: 8, maxWidth: '88%', alignSelf: 'flex-start',
+  },
+  burbujaPropia: { alignSelf: 'flex-end', backgroundColor: '#1D598F' },
+  burbujaDespacho: { borderLeftWidth: 3, borderLeftColor: C.brillante },
+  burbujaSos: { backgroundColor: '#4A0D1B', borderLeftWidth: 3, borderLeftColor: C.rojo },
+  burbujaQuien: {
+    fontFamily: 'monospace', fontSize: 10, letterSpacing: 1,
+    color: C.cielo, marginBottom: 3,
+  },
+  burbujaTexto: { color: C.blanco, fontSize: 15, lineHeight: 21 },
+  escribir: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 6 },
+  campoChat: {
+    flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+    borderRadius: 12, color: C.blanco, fontSize: 16, padding: 12, maxHeight: 110,
+  },
+  enviar: {
+    width: 50, height: 50, borderRadius: 12, backgroundColor: C.brillante,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  enviarTexto: { color: '#fff', fontSize: 20 },
 });

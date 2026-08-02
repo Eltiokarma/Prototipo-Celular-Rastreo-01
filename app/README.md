@@ -30,13 +30,12 @@ lo mata más tarde. Varios minutos no dicen nada de eso.
 
 ## Qué hay hoy
 
-Un **corte vertical**: entrar → brecha en vivo → GPS en segundo plano con la
-brecha en la notificación permanente.
+Entrar → brecha en vivo → chat (grupo y directo con Despacho) → SOS
+deslizable → GPS en segundo plano con la brecha en la notificación.
 
-Faltan el mapa, el chat y el SOS **a propósito**. Esto existe para contestar
-la pregunta que ninguna pantalla contesta —si el celular aguanta un turno con
-el GPS prendido a 3800 m y si Android deja vivo el servicio— y para eso
-alcanza. Lo demás es portar interfaz que ya funciona en la web.
+**Falta el mapa**, y a propósito: necesita `react-native-maps`, que es una
+librería nativa y obliga a compilar un APK nuevo. Todo lo demás es
+JavaScript puro y entra por recarga en caliente, así que fue primero.
 
 ## Cómo correrla
 
@@ -102,17 +101,19 @@ problema del principio.
 protocolo/cliente.js   El protocolo. JS puro: login, WebSocket, reconexión,
                        rol de GPS y brechas. Probado contra el servidor de
                        verdad en pruebas/cliente.js
-hud.js                 Qué mostrarle al chofer a partir de las brechas.
+hud.js                 Qué brecha se muestra y qué se le dice al chofer.
                        JS puro y sin React. Probado en pruebas/hud.js
+chat.js                Qué mensaje va en qué canal y quién lo firma.
+                       JS puro. Probado en pruebas/chat.js
 cola.js                Las posiciones cuando no hay datos. Probada en
                        pruebas/cola.js
 gps/servicio.js        expo-location + expo-task-manager: el foreground
-                       service y la cadencia
-App.js                 Las dos pantallas. Solo dibuja lo que le dan
+                       service, la cadencia, y el ENVÍO de las posiciones
+App.js                 Las pantallas. Solo dibujan lo que les dan
 ```
 
 **La lógica está afuera de los componentes a propósito.** `cliente.js`,
-`hud.js` y `cola.js` son JavaScript puro y corren en Node, así que tienen
+`hud.js`, `chat.js` y `cola.js` son JavaScript puro y corren en Node, así que tienen
 suites de verdad y no hace falta un teléfono para saber si andan. Es donde
 vivieron todos los bugs de esta pantalla —la unidad inventada, el lado vacío,
 el "sin señal" confundido con "no hay nadie", el `02:60`—, y ahora cada uno
@@ -173,8 +174,22 @@ El keystore que genera Expo queda guardado en tu cuenta. **No lo regeneres**
 sin necesidad: es lo que firma la app, y cambiarlo obliga a desinstalar y
 reinstalar en cada teléfono.
 
+## Decisiones de las pantallas nuevas
+
+- **El SOS se desliza, no se toca.** Un botón de emergencia que se dispara con
+  un roce es peor que no tenerlo: el celular va en un soporte, en una combi
+  que se mueve, y un falso SOS que moviliza gente quema la confianza en el
+  sistema entero. Hay que llegar al 85 % del recorrido, vibra al disparar, y
+  vuelve solo a los 6 s por si hace falta repetirlo.
+- **El SOS manda la última posición conocida.** Es lo primero que pregunta
+  quien sale a ayudar.
+- **El chat tiene dos canales**: la ruta y el directo con Despacho. Chofer ↔
+  chofer privado no existe, y eso lo decide el servidor: el canal entre
+  choferes es el grupo.
+
 ## Lo que falta
 
+- **El mapa** (`react-native-maps`). Es lo único que exige un APK nuevo.
+- Las notas de voz.
 - La brecha en vivo en la notificación, sin reiniciar el GPS.
-- Mapa (`react-native-maps`), chat con los dos canales, SOS deslizable.
 - Medir un turno completo en la calle. Nada de acá lo reemplaza.

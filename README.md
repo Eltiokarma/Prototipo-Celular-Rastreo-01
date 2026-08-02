@@ -50,15 +50,16 @@ app/                La app del chofer, nativa (Expo). El servidor no cambia.
   protocolo/cliente.js  El protocolo en JS puro: login, WebSocket, rol de
                       GPS, brechas, reconexión y freno de cadencia
   hud.js              Qué mostrarle al chofer a partir de las brechas
+  chat.js             Qué mensaje va en qué canal y quién lo firma
   cola.js             Las posiciones cuando no hay datos
   gps/servicio.js     GPS en segundo plano: foreground service y cadencia
-  App.js              Las dos pantallas. Solo dibujan
+  App.js              Las pantallas. Solo dibujan
                     Los tres primeros son JS puro y sin React a propósito:
                     corren en Node, así que tienen suites de verdad y no hace
                     falta un teléfono para saber si andan. Es donde vivieron
                     todos los bugs de esta pantalla
 
-pruebas/            Diecisiete suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Dieciocho suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas

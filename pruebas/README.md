@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Diecisiete suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Dieciocho suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -28,7 +28,7 @@ falló, así que sirve en CI tal cual.
 ## Correr una sola
 
 Ocho suites **esperan un servidor ya levantado en 3001** con la base a la que
-ellas van a mirar. Las otras seis levantan la suya, y dos (`hud` y `cola`) no necesitan ninguno: prueban lógica pura de la app nativa.
+ellas van a mirar. Las otras siete levantan la suya, y tres (`hud`, `chat` y `cola`) no necesitan ninguno: prueban lógica pura de la app nativa.
 
 ```bash
 # las que necesitan servidor: tramos objetivo informes desvio turnos privado seguridad empresas
@@ -37,7 +37,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp
-# las que no necesitan servidor: hud cola
+# las que no necesitan servidor: hud chat cola
 node gerencia.js
 ```
 
@@ -72,6 +72,7 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `senal` | Que una unidad que deja de reportar quede **sin señal** y no borrada: que la de atrás no salte a medirse contra la que sigue, que vuelva sola al reaparecer, que se olvide recién a los 3 min, y que ninguna brecha salga con los segundos en 60 |
 | `gpshttp` | `POST /gps`: que la posición pueda entrar **sin WebSocket vivo**, que un atraso entero se mida con la hora de cada posición y no la de llegada, y que el cobrador y los relojes mal puestos no pasen |
 | `hud` | Qué se le muestra al chofer en la app nativa: los tres estados de un lado, cuál es el dígito grande, los colores y el texto de la notificación. Sin servidor — es lógica pura |
+| `chat` | El chat de la app nativa: que un privado no aparezca en el grupo, que Despacho se lea como Despacho, que el hilo no repita al reconectar y que lo propio no cuente como sin leer |
 | `cola` | Las posiciones guardadas cuando no hay datos: orden, tope, y que un corte a la mitad de la descarga no las pierda |
 | `cliente` | El cliente del protocolo que va a usar la app nativa (`app/protocolo/`): el rol de GPS cuando hay relevo, las brechas que respetan el null, el freno de cadencia y el privado que no se filtra |
 

@@ -14,6 +14,7 @@ const ARCHIVOS = process.argv.slice(2).length ? process.argv.slice(2) : [
   'app/App.js',
   'app/index.js',
   'app/hud.js',
+  'app/chat.js',
   'app/cola.js',
   'app/babel.config.js',
   'app/gps/servicio.js',
