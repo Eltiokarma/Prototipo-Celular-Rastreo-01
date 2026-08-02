@@ -8,7 +8,7 @@ limitación se resuelva o aparezca una nueva.
 
 | # | Limitación | Impacto | Salida |
 |---|---|---|---|
-| 1 | El GPS se corta con la pantalla apagada | **Mitigado, no resuelto.** El navegador sigue cortando el GPS, pero la unidad ya no se borra: a los 30 s queda **sin señal** —en el mapa con su última posición, y nadie se mide contra ella— y recién a los 3 min se olvida. Antes desaparecía y la de atrás recibía "apurá" hacia una combi que tenía justo adelante | App nativa (React Native), para que el GPS no se corte |
+| 1 | El GPS se corta con la pantalla apagada | **Resuelto en la app nativa, con condiciones** (medido en un teléfono real: siguió reportando varios minutos con la pantalla bloqueada). En la **web** sigue igual y no tiene arreglo. Las condiciones están abajo, en la sección A | `app/` — ya construida |
 | 2 | Sin notificaciones con la app cerrada | Un SOS o mensaje no suena si el chofer/encargado no tiene la app abierta | Web Push (Android) o app nativa |
 | 3 | Sin volumen en Railway, un redeploy borra la base | Se pierden usuarios, historial de chat y vueltas | Montar volumen + `DB_FILE=/data/r14.db` (documentado en README) |
 | 4 | Brechas y vueltas son aproximadas | **Resuelto para las rutas con recorrido cargado**: el progreso se calcula proyectando la posición sobre el trazado real. Una ruta sin recorrido sigue con la estimación lineal | Ver README, sección El recorrido de la ruta |
@@ -34,6 +34,28 @@ limitación se resuelva o aparezca una nueva.
   queda marcada **sin señal** con su última posición y nadie se mide
   contra ella (ver `PROTOCOLO.md`, sección 5). Eso evita la falla
   peligrosa, pero no devuelve la posición: la combi sigue sin verse.
+
+- **En la app nativa el GPS SÍ sigue con la pantalla bloqueada**, y está
+  medido. Pero hicieron falta tres cosas, y cada una se descubrió fallando
+  en el teléfono, no leyendo documentación:
+
+  1. **Un foreground service nativo** (`expo-location` + `expo-task-manager`),
+     con su notificación permanente. Eso es lo que el navegador no puede.
+  2. **Que las posiciones salgan por HTTP y desde la propia tarea de fondo.**
+     Cuando Android manda la app atrás suspende el JavaScript: se cae el
+     WebSocket y se desmonta React. Cualquier envío colgado de la pantalla
+     deja de funcionar justo cuando más se lo necesita. Ver `PROTOCOLO.md`,
+     `POST /gps`.
+  3. **Que el teléfono tenga la app sin restricción de batería.** Si no,
+     Doze le corta la RED a la app de fondo aunque el GPS siga corriendo:
+     medido, el 43 % de los envíos fallaba con "sin red" y las posiciones se
+     perdían. Esto **no se arregla desde el código** — se configura en cada
+     teléfono, y en Xiaomi/Huawei/Oppo hace falta además el inicio
+     automático. Ver `app/README.md`.
+
+  Con las tres, los envíos fallidos bajaron de casi la mitad a casi cero.
+  Lo que **todavía no está medido** es un turno entero de 8 h: cuánta
+  batería consume y si Android lo mata más tarde.
 - **Notificaciones:** no hay push con la app cerrada. En Android es
   técnicamente posible con Web Push (pendiente); en iPhone es mucho más
   restringido.

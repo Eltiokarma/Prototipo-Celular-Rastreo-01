@@ -8,6 +8,26 @@ Existe por una sola razón, medida: los navegadores cortan el GPS al apagar la
 pantalla, y hasta hace poco eso hacía que la de atrás recibiera *"apurá"*
 hacia una combi que tenía justo adelante. Ver `LIMITACIONES.md`.
 
+## Lo que ya está medido
+
+En un teléfono real, con la pantalla bloqueada, **el GPS siguió reportando
+varios minutos**. Es lo que la versión web no pudo hacer nunca y la razón por
+la que esta app existe.
+
+Hicieron falta tres cosas, y ninguna se dedujo leyendo — las tres aparecieron
+fallando:
+
+1. El **foreground service** nativo, con su notificación permanente.
+2. Que las posiciones salgan **por HTTP y desde la propia tarea**, no desde
+   React: con la app atrás, Android suspende el JavaScript y se lleva puesto
+   el WebSocket y la pantalla.
+3. Que el teléfono tenga la app **sin restricción de batería**. Sin eso, Doze
+   le corta la red a la app de fondo: se medía un 43 % de envíos fallidos con
+   "sin red". Esto no se arregla en el código.
+
+**Lo que falta medir es un turno entero**: batería en 8 horas, y si Android
+lo mata más tarde. Varios minutos no dicen nada de eso.
+
 ## Qué hay hoy
 
 Un **corte vertical**: entrar → brecha en vivo → GPS en segundo plano con la
