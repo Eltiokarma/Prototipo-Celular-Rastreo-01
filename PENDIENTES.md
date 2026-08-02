@@ -33,6 +33,12 @@ cuando haya datos reales:
 | **Guardar el objetivo con cada vuelta** | Hoy el cumplimiento se mide contra el objetivo de HOY, no contra el que regía cuando se cerró la vuelta. Con objetivo automático eso puede haber cambiado dentro del mismo período. Una columna en `laps`, y empieza a valer el día que se enciende | 2 horas |
 | **Guardar los desvíos de ruta** | Se detectan y se gestionan en vivo, pero no se guardan: no se puede decir cuántas veces se salió una unidad la semana pasada. Es lo que le falta al panel del gerente para cerrar el cuadro | medio día |
 
+Y una que salió de usar el SOS en un teléfono de verdad:
+
+| Qué | Por qué | Tamaño |
+| --- | --- | --- |
+| **Tipo de emergencia en el SOS** | Hoy el SOS es uno solo. "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide una grúa, otro una ambulancia, el tercero es otra llamada. Despacho podría priorizar y avisar distinto, y el informe de emergencias dejaría de ser una lista plana. El deslizar tiene que seguir siendo lo primero —en una emergencia real nadie elige de un menú—: elegir el tipo va DESPUÉS de disparar, con la alerta ya enviada, y si no elige queda como SOS genérico | medio día, tocando servidor, app y los dos paneles |
+
 Y una que apareció midiendo, no usando:
 
 | Qué | Por qué | Tamaño |
