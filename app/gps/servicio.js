@@ -22,31 +22,86 @@
 
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import * as SecureStore from 'expo-secure-store';
 
 export const TAREA_GPS = 'coop-r14-gps';
+
+// Dónde quedan guardados el token y el servidor. Tienen que estar en disco y
+// no en memoria: cuando Android revive la tarea, el proceso arranca de cero.
+export const LLAVE_SESION = 'sesion';
+export const LLAVE_SERVIDOR = 'servidor';
 
 export const CADENCIA_PANTALLA_ENCENDIDA = 3000;
 export const CADENCIA_PANTALLA_APAGADA = 10000;
 
-// El puente entre la tarea de fondo y el resto de la app. La tarea puede
-// dispararse sin que haya ninguna pantalla montada, así que no puede escribir
-// en un estado de React: deja la posición acá y quien esté vivo la recoge.
+// Aviso a la pantalla, SOLO para dibujar. Puede no haber nadie escuchando y
+// no pasa nada: lo que importa —mandar la posición— no depende de esto.
 let alRecibir = null;
 export function cuandoLlegueUnaPosicion(fn) { alRecibir = fn; }
 
-TaskManager.defineTask(TAREA_GPS, ({ data, error }) => {
+// Cuántas se mandaron y cuándo, para poder mirarlo en pantalla. Sin esto,
+// "no aparece en el mapa" no distingue entre el GPS que no dispara, el envío
+// que falla y el servidor que rechaza.
+export const diagnostico = { enviadas: 0, fallidas: 0, ultimoEnvio: null, ultimoError: null };
+
+// LA TAREA MANDA SOLA, y esto es lo único que hace que la app sirva.
+//
+// La versión anterior le pasaba la posición a un callback de React y ESE
+// hacía el POST. Se probó en un teléfono real y no funcionaba: cuando Android
+// manda la app atrás suspende el contexto JavaScript, la pantalla se
+// desmonta, y el callback deja de existir. La tarea seguía disparando —el
+// servicio nativo sigue vivo, la notificación sigue en la barra— pero
+// `alRecibir?.()` no encontraba a nadie y se tragaba la posición en silencio.
+//
+// Por eso el envío vive acá, en el mismo módulo donde está `defineTask`: es
+// código que Android vuelve a cargar cuando revive la tarea, aunque no haya
+// ni una pantalla montada. Y el token se lee del disco, no de una variable,
+// porque la memoria del proceso anterior ya no está.
+TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
   if (error || !data?.locations?.length) return;
-  for (const l of data.locations) {
-    alRecibir?.({
-      lat: l.coords.latitude,
-      lng: l.coords.longitude,
-      // El GPS da m/s y el resto del sistema habla km/h. Puede venir null
-      // cuando el aparato está quieto: eso es 0, no "no sé".
-      speed: Math.max(0, Math.round((l.coords.speed || 0) * 3.6)),
-      timestamp: l.timestamp,
-    });
-  }
+  const posiciones = data.locations.map(l => ({
+    lat: l.coords.latitude,
+    lng: l.coords.longitude,
+    // El GPS da m/s y el resto del sistema habla km/h. Puede venir null
+    // cuando el aparato está quieto: eso es 0, no "no sé".
+    speed: Math.max(0, Math.round((l.coords.speed || 0) * 3.6)),
+    timestamp: l.timestamp,
+  }));
+
+  for (const p of posiciones) alRecibir?.(p);   // solo para la pantalla
+  await subir(posiciones);
 });
+
+async function subir(posiciones) {
+  try {
+    const [crudo, servidor] = await Promise.all([
+      SecureStore.getItemAsync(LLAVE_SESION),
+      SecureStore.getItemAsync(LLAVE_SERVIDOR),
+    ]);
+    if (!crudo || !servidor) { diagnostico.ultimoError = 'sin sesión guardada'; return; }
+    const { token } = JSON.parse(crudo);
+    if (!token) { diagnostico.ultimoError = 'sesión sin token'; return; }
+
+    const r = await fetch(servidor + '/gps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ posiciones }),
+    });
+    if (r.ok) {
+      diagnostico.enviadas += posiciones.length;
+      diagnostico.ultimoEnvio = Date.now();
+      diagnostico.ultimoError = null;
+    } else {
+      diagnostico.fallidas += posiciones.length;
+      diagnostico.ultimoError = 'HTTP ' + r.status;
+    }
+  } catch (e) {
+    // Sin datos. La posición de este lote se pierde; la próxima vuelve a
+    // intentar. Guardar el atraso en disco es lo que falta para no perderlo.
+    diagnostico.fallidas += posiciones.length;
+    diagnostico.ultimoError = 'sin red';
+  }
+}
 
 // Se piden por separado y en este orden porque Android lo exige: primero la
 // de primer plano, y recién después se puede pedir la de segundo plano. Al

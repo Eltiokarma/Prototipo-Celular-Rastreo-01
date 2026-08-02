@@ -17,7 +17,6 @@ import * as SecureStore from 'expo-secure-store';
 
 import { crearCliente } from './protocolo/cliente';
 import { construirHud, textoNotificacion } from './hud';
-import { crearCola } from './cola';
 import * as gps from './gps/servicio';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
@@ -35,15 +34,12 @@ const C = {
 };
 const COLOR_ESTADO = { verde: C.verde, ambar: C.ambar, rojo: C.rojo, ninguno: C.tenue };
 
-const cola = crearCola();
-
 export default function App() {
   const [sesion, setSesion] = React.useState(null);
   const [hud, setHud] = React.useState(() => construirHud(null));
   const [conectado, setConectado] = React.useState(false);
   const [reporta, setReporta] = React.useState(false);
   const [aviso, setAviso] = React.useState(null);
-  const [enCola, setEnCola] = React.useState(0);
   const cliente = React.useRef(null);
 
   // ── El cliente vive fuera de React ──────────────────────────
@@ -65,43 +61,37 @@ export default function App() {
   // El token dura 30 días: el chofer no vuelve a escribir la contraseña cada
   // mañana. Va en SecureStore y no en AsyncStorage porque es una credencial.
   React.useEffect(() => {
-    SecureStore.getItemAsync('sesion').then(guardada => {
+    SecureStore.getItemAsync(gps.LLAVE_SESION).then(guardada => {
       if (guardada) entrarConSesion(JSON.parse(guardada));
     }).catch(() => {});
   }, []);
 
   const entrarConSesion = async (s) => {
     setSesion(s);
-    cliente.current.sesionGuardada = s;
+    // El servidor va al disco junto con la sesión porque la tarea de fondo
+    // los lee de ahí: cuando Android la revive, no queda nada en memoria.
+    await SecureStore.setItemAsync(gps.LLAVE_SERVIDOR, SERVIDOR);
     cliente.current.conectar(s.token);
     const permisos = await gps.pedirPermisos();
     if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
     await gps.arrancar({ textoNotificacion: 'Buscando tu posición…' });
   };
 
-  // ── Las posiciones que llegan del servicio de fondo ─────────
+  // ── Las posiciones NO se mandan desde acá ───────────────────
   //
-  // Van SIEMPRE por HTTP, nunca por el WebSocket, y esa es la corrección más
-  // importante que salió de probar en un teléfono de verdad: al bloquear la
-  // pantalla Android suspende el JavaScript y el socket se cae, aunque el
-  // servicio de ubicación siga vivo. La combi quedaba muda apenas se
-  // bloqueaba la pantalla, que es justo lo que la app nativa venía a evitar.
+  // Las manda la propia tarea de fondo (`gps/servicio.js`), y es la lección
+  // más cara de todo esto: cuando Android manda la app atrás, suspende el
+  // JavaScript y esta pantalla deja de existir. Cualquier envío colgado de
+  // React se corta justo cuando más se lo necesita — con la pantalla
+  // bloqueada, que es el caso para el que la app nativa fue hecha.
   //
-  // El WebSocket queda solo para RECIBIR el estado mientras la pantalla está
-  // encendida y el chofer mira el HUD.
+  // Acá solo se mira, para poder mostrar en pantalla qué está pasando.
+  const [diag, setDiag] = React.useState({ ...gps.diagnostico });
   React.useEffect(() => {
-    gps.cuandoLlegueUnaPosicion(async (pos) => {
-      const c = cliente.current;
-      if (!c) return;
-      cola.guardar(pos);
-      // Se manda todo lo que haya en cola, de a tandas para no pasarse del
-      // cupo del servidor. Lo que no se confirma queda guardado.
-      const tanda = cola.proximas(60);
-      const r = await c.subirPosiciones(tanda);
-      if (r.ok) { cola.confirmar(tanda.length); setEnCola(cola.largo); }
-      else setEnCola(cola.largo);
-    });
-  }, []);
+    if (!sesion) return;
+    const t = setInterval(() => setDiag({ ...gps.diagnostico }), 2000);
+    return () => clearInterval(t);
+  }, [sesion]);
 
   // ── Cadencia según la pantalla ──────────────────────────────
   // Con la pantalla apagada el chofer no mira el HUD: la posición ya solo
@@ -138,14 +128,14 @@ export default function App() {
   // Queda pendiente y anotado en el README.
 
   if (!sesion) return <Entrar servidor={SERVIDOR} aviso={aviso} onEntrar={async (s) => {
-    await SecureStore.setItemAsync('sesion', JSON.stringify(s));
+    await SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(s));
     entrarConSesion(s);
   }} clienteRef={cliente} />;
 
   return <Ruta hud={hud} conectado={conectado} reporta={reporta} aviso={aviso}
-    enCola={enCola}
+    diag={diag}
     onSalir={async () => {
-      await SecureStore.deleteItemAsync('sesion');
+      await SecureStore.deleteItemAsync(gps.LLAVE_SESION);
       await gps.parar();
       cliente.current.salir();
       setSesion(null);
@@ -196,7 +186,7 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-function Ruta({ hud, conectado, reporta, aviso, enCola, onSalir }) {
+function Ruta({ hud, conectado, reporta, aviso, diag, onSalir }) {
   const p = hud.principal, sec = hud.secundario;
   const color = COLOR_ESTADO[p.estado];
 
@@ -206,12 +196,20 @@ function Ruta({ hud, conectado, reporta, aviso, enCola, onSalir }) {
       <View style={s.barra}>
         <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
           {conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
-          {enCola > 0 ? ` · ${enCola} en cola` : ''}
         </Text>
         <Pressable onPress={onSalir}><Text style={s.salir}>Salir</Text></Pressable>
       </View>
 
       {!reporta && aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
+
+      {/* Qué está haciendo el GPS. Está a la vista a propósito mientras se
+          mide en la calle: "no aparece en el mapa" no distingue entre el GPS
+          que no dispara, el envío que falla y el servidor que rechaza. */}
+      <Text style={s.diagnostico}>
+        GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
+        {diag.ultimoEnvio ? ` · último hace ${Math.round((Date.now() - diag.ultimoEnvio) / 1000)}s` : ' · todavía ninguna'}
+        {diag.ultimoError ? ` · ${diag.ultimoError}` : ''}
+      </Text>
 
       <View style={s.centro}>
         <View style={s.filaRotulo}>
@@ -255,6 +253,7 @@ const s = StyleSheet.create({
   chip: { fontFamily: 'monospace', fontSize: 12, letterSpacing: 1, fontWeight: '700' },
   salir: { color: C.tenue, fontSize: 14, fontWeight: '700' },
   avisoBarra: { color: C.ambar, fontSize: 13, marginTop: 10 },
+  diagnostico: { color: C.tenue, fontSize: 11, fontFamily: 'monospace', marginTop: 8 },
 
   centro: { flex: 1, justifyContent: 'center' },
   filaRotulo: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
