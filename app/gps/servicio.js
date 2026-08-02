@@ -49,8 +49,21 @@ export function cuandoLlegueUnaPosicion(fn) { alRecibir = fn; }
 // cuando había que verla.
 export const diagnostico = {
   enviadas: 0, fallidas: 0, ultimoEnvio: null, ultimoError: null,
-  motivos: {},
+  enEspera: 0, motivos: {},
 };
+
+// Lo que no se pudo mandar. Vive en el módulo del SERVICIO y no en la
+// pantalla: la pantalla se desmonta cuando Android manda la app atrás, que es
+// exactamente cuando fallan los envíos. Acá sobrevive mientras el proceso
+// siga vivo — y sigue vivo, porque el foreground service lo mantiene.
+//
+// Esto sale de una medición: con la app atrás, el `fetch` falla (Doze le
+// corta la red a las apps de fondo) y se perdían ~26 posiciones por cada
+// fallo. El GPS las tenía, el servidor las habría aceptado, y se tiraban en
+// el medio. Ahora esperan y se van con el próximo envío que sí salga, con su
+// hora original — el servidor acepta el atraso desde que existe `POST /gps`.
+const TOPE_PENDIENTES = 500;
+let pendientes = [];
 
 function anotarFallo(motivo, cuantas) {
   diagnostico.fallidas += cuantas;
@@ -86,15 +99,22 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
   await subir(posiciones);
 });
 
-async function subir(posiciones) {
+// Cuántas están esperando, para verlo en pantalla
+export function enEspera() { return pendientes.length; }
+
+async function subir(nuevas) {
+  // Lo atrasado va primero y ordenado: el servidor mide las vueltas con la
+  // hora de cada posición, así que el orden importa.
+  const posiciones = [...pendientes, ...nuevas].sort((a, b) => a.timestamp - b.timestamp);
+  pendientes = [];
   try {
     const [crudo, servidor] = await Promise.all([
       SecureStore.getItemAsync(LLAVE_SESION),
       SecureStore.getItemAsync(LLAVE_SERVIDOR),
     ]);
-    if (!crudo || !servidor) { anotarFallo('sin sesión guardada', posiciones.length); return; }
+    if (!crudo || !servidor) { guardar(posiciones); anotarFallo('sin sesión guardada', posiciones.length); return; }
     const { token } = JSON.parse(crudo);
-    if (!token) { anotarFallo('sesión sin token', posiciones.length); return; }
+    if (!token) { guardar(posiciones); anotarFallo('sesión sin token', posiciones.length); return; }
 
     const r = await fetch(servidor + '/gps', {
       method: 'POST',
@@ -105,17 +125,31 @@ async function subir(posiciones) {
       diagnostico.enviadas += posiciones.length;
       diagnostico.ultimoEnvio = Date.now();
       diagnostico.ultimoError = null;
+      diagnostico.enEspera = 0;
     } else {
       // El cuerpo del error dice bastante más que el número: 403 del cobrador,
       // 409 del relevo y 400 del reloj mal puesto se ven igual desde afuera.
       const cuerpo = await r.json().catch(() => ({}));
+      // Un 4xx que no sea de red es culpa del contenido o del permiso: no se
+      // reintenta, porque reintentarlo daría el mismo error para siempre y
+      // taparía las posiciones nuevas detrás de un atraso que nunca se vacía.
+      if (r.status >= 500) guardar(posiciones);
       anotarFallo(`HTTP ${r.status}${cuerpo.error ? ' ' + cuerpo.error : ''}`, posiciones.length);
     }
   } catch (e) {
-    // Sin datos. La posición de este lote se pierde; la próxima vuelve a
-    // intentar. Guardar el atraso en disco es lo que falta para no perderlo.
+    // Sin datos: en segundo plano es lo normal, Doze le corta la red a la app.
+    // NO se pierden — esperan al próximo envío que salga.
+    guardar(posiciones);
     anotarFallo('sin red', posiciones.length);
   }
+}
+
+// Se tiran las MÁS VIEJAS si el corte fue largo: si estuvo una hora sin red,
+// las de hace una hora ya no le sirven a nadie y solo hacen más pesada la
+// descarga cuando vuelva.
+function guardar(posiciones) {
+  pendientes = [...pendientes, ...posiciones].slice(-TOPE_PENDIENTES);
+  diagnostico.enEspera = pendientes.length;
 }
 
 // Se piden por separado y en este orden porque Android lo exige: primero la

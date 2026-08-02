@@ -207,6 +207,7 @@ function Ruta({ hud, conectado, reporta, aviso, diag, onSalir }) {
           que no dispara, el envío que falla y el servidor que rechaza. */}
       <Text style={s.diagnostico}>
         GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
+        {diag.enEspera > 0 ? ` · ${diag.enEspera} esperando` : ''}
         {diag.ultimoEnvio ? ` · último hace ${Math.round((Date.now() - diag.ultimoEnvio) / 1000)}s` : ' · todavía ninguna'}
       </Text>
       {/* Los motivos, con su cuenta. Es lo que dice DÓNDE está el problema:
