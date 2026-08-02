@@ -63,6 +63,11 @@ export const diagnostico = {
 // el medio. Ahora esperan y se van con el próximo envío que sí salga, con su
 // hora original — el servidor acepta el atraso desde que existe `POST /gps`.
 const TOPE_PENDIENTES = 500;
+// El servidor rechaza con 413 cualquier envío de más de 200 posiciones. Sin
+// cortar en tandas, una cola de más de 200 daba 413 —y como un 4xx no se
+// reintenta, se perdía entera— y además la cola no podía vaciarse NUNCA más:
+// cada intento mandaba de nuevo demasiadas. Se deja margen sobre el tope.
+const MAX_POR_ENVIO = 150;
 let pendientes = [];
 
 function anotarFallo(motivo, cuantas) {
@@ -104,9 +109,14 @@ export function enEspera() { return pendientes.length; }
 
 async function subir(nuevas) {
   // Lo atrasado va primero y ordenado: el servidor mide las vueltas con la
-  // hora de cada posición, así que el orden importa.
-  const posiciones = [...pendientes, ...nuevas].sort((a, b) => a.timestamp - b.timestamp);
-  pendientes = [];
+  // hora de cada posición, así que el orden importa. Se manda como mucho una
+  // tanda; lo que sobra espera al próximo envío y así la cola se drena de a
+  // poco en vez de rebotar contra el límite.
+  const todas = [...pendientes, ...nuevas].sort((a, b) => a.timestamp - b.timestamp);
+  const posiciones = todas.slice(0, MAX_POR_ENVIO);
+  pendientes = todas.slice(MAX_POR_ENVIO);
+  diagnostico.enEspera = pendientes.length;
+  if (!posiciones.length) return;
   try {
     const [crudo, servidor] = await Promise.all([
       SecureStore.getItemAsync(LLAVE_SESION),
@@ -125,7 +135,6 @@ async function subir(nuevas) {
       diagnostico.enviadas += posiciones.length;
       diagnostico.ultimoEnvio = Date.now();
       diagnostico.ultimoError = null;
-      diagnostico.enEspera = 0;
     } else {
       // El cuerpo del error dice bastante más que el número: 403 del cobrador,
       // 409 del relevo y 400 del reloj mal puesto se ven igual desde afuera.
