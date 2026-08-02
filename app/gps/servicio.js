@@ -42,7 +42,21 @@ export function cuandoLlegueUnaPosicion(fn) { alRecibir = fn; }
 // Cuántas se mandaron y cuándo, para poder mirarlo en pantalla. Sin esto,
 // "no aparece en el mapa" no distingue entre el GPS que no dispara, el envío
 // que falla y el servidor que rechaza.
-export const diagnostico = { enviadas: 0, fallidas: 0, ultimoEnvio: null, ultimoError: null };
+//
+// Los fallos se cuentan POR MOTIVO y no solo el último: la primera versión
+// guardaba `ultimoError` y lo limpiaba al primer envío bueno, así que con
+// fallos intermitentes —que es el caso interesante— la causa se perdía justo
+// cuando había que verla.
+export const diagnostico = {
+  enviadas: 0, fallidas: 0, ultimoEnvio: null, ultimoError: null,
+  motivos: {},
+};
+
+function anotarFallo(motivo, cuantas) {
+  diagnostico.fallidas += cuantas;
+  diagnostico.ultimoError = motivo;
+  diagnostico.motivos[motivo] = (diagnostico.motivos[motivo] || 0) + 1;
+}
 
 // LA TAREA MANDA SOLA, y esto es lo único que hace que la app sirva.
 //
@@ -78,9 +92,9 @@ async function subir(posiciones) {
       SecureStore.getItemAsync(LLAVE_SESION),
       SecureStore.getItemAsync(LLAVE_SERVIDOR),
     ]);
-    if (!crudo || !servidor) { diagnostico.ultimoError = 'sin sesión guardada'; return; }
+    if (!crudo || !servidor) { anotarFallo('sin sesión guardada', posiciones.length); return; }
     const { token } = JSON.parse(crudo);
-    if (!token) { diagnostico.ultimoError = 'sesión sin token'; return; }
+    if (!token) { anotarFallo('sesión sin token', posiciones.length); return; }
 
     const r = await fetch(servidor + '/gps', {
       method: 'POST',
@@ -92,14 +106,15 @@ async function subir(posiciones) {
       diagnostico.ultimoEnvio = Date.now();
       diagnostico.ultimoError = null;
     } else {
-      diagnostico.fallidas += posiciones.length;
-      diagnostico.ultimoError = 'HTTP ' + r.status;
+      // El cuerpo del error dice bastante más que el número: 403 del cobrador,
+      // 409 del relevo y 400 del reloj mal puesto se ven igual desde afuera.
+      const cuerpo = await r.json().catch(() => ({}));
+      anotarFallo(`HTTP ${r.status}${cuerpo.error ? ' ' + cuerpo.error : ''}`, posiciones.length);
     }
   } catch (e) {
     // Sin datos. La posición de este lote se pierde; la próxima vuelve a
     // intentar. Guardar el atraso en disco es lo que falta para no perderlo.
-    diagnostico.fallidas += posiciones.length;
-    diagnostico.ultimoError = 'sin red';
+    anotarFallo('sin red', posiciones.length);
   }
 }
 

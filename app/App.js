@@ -208,8 +208,14 @@ function Ruta({ hud, conectado, reporta, aviso, diag, onSalir }) {
       <Text style={s.diagnostico}>
         GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
         {diag.ultimoEnvio ? ` · último hace ${Math.round((Date.now() - diag.ultimoEnvio) / 1000)}s` : ' · todavía ninguna'}
-        {diag.ultimoError ? ` · ${diag.ultimoError}` : ''}
       </Text>
+      {/* Los motivos, con su cuenta. Es lo que dice DÓNDE está el problema:
+          "sin red" es el teléfono, un HTTP 4xx es el servidor rechazando. */}
+      {Object.keys(diag.motivos || {}).length > 0 && (
+        <Text style={s.diagnostico}>
+          {Object.entries(diag.motivos).map(([m, n]) => `${m} ×${n}`).join(' · ')}
+        </Text>
+      )}
 
       <View style={s.centro}>
         <View style={s.filaRotulo}>
