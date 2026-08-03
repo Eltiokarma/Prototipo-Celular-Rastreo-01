@@ -53,4 +53,59 @@ function deslizar(actual, gesto) {
   return PANTALLAS[destino];
 }
 
-module.exports = { PANTALLAS, esHorizontal, deslizar, _limites: { UMBRAL, PROPORCION } };
+// ── Que el deslizamiento se sienta, y no dé un salto ──────────
+//
+// La primera versión cambiaba de pantalla de golpe al soltar el dedo: se
+// sentía tosco porque no había nada que seguir al dedo. Un deslizamiento se
+// siente bien cuando la pantalla se mueve CON el dedo mientras dura, y se
+// termina de acomodar sola al soltar. Estas dos funciones son esa cuenta.
+
+// Cuánto resiste el borde. Al principio o al final no hay a dónde ir, pero
+// frenar en seco se siente roto —parece que la app se colgó—. Se deja mover
+// un tercio: alcanza para que el dedo entienda que ahí se termina.
+const RESISTENCIA = 3;
+
+// Un dedo rápido cuenta aunque recorra poco: en una combi que se mueve, el
+// gesto largo y prolijo no existe. Es px/ms.
+const VELOCIDAD_MINIMA = 0.35;
+
+// Cuánto se corrió el carrusel, en píxeles, mientras el dedo está apoyado.
+function desplazamiento(indice, dx, ancho) {
+  const i = Number(indice) || 0;
+  const a = Number(ancho) || 0;
+  const d = Number(dx) || 0;
+  const base = -i * a;
+  const enElBorde = (i === 0 && d > 0) || (i === PANTALLAS.length - 1 && d < 0);
+  return base + (enElBorde ? d / RESISTENCIA : d);
+}
+
+// A qué pantalla se acomoda al soltar.
+//
+// Se mira la distancia O la velocidad, no las dos juntas: pedir las dos deja
+// afuera el gesto lento pero largo (dedo apoyado, sin apuro) y el rápido pero
+// corto (un flick), que son los dos que la gente hace de verdad.
+// `gesto` se lee con `?.` y NO se desestructura con valores por defecto: el
+// valor por defecto de una desestructuración solo tapa `undefined`, no `null`.
+// Con `null` reventaba, y `null` es exactamente lo que llega cuando un gesto
+// se cancela — que en un teléfono en un soporte, en una combi, pasa seguido.
+function indiceDestino(indice, gesto, ancho = 0) {
+  const i = Number(indice) || 0;
+  const a = Number(ancho) || 0;
+  const d = Number(gesto?.dx) || 0;
+  const v = Number(gesto?.vx) || 0;
+
+  // Medio ancho de pantalla, o un envión claro.
+  const suficiente = (a > 0 && Math.abs(d) > a / 2) || Math.abs(v) > VELOCIDAD_MINIMA;
+  if (!suficiente) return i;                 // vuelve a donde estaba
+
+  // El sentido lo manda la velocidad si la hubo: un flick hacia atrás con el
+  // dedo ya pasado de la mitad tiene que volver, no seguir.
+  const haciaAdelante = Math.abs(v) > VELOCIDAD_MINIMA ? v < 0 : d < 0;
+  const destino = i + (haciaAdelante ? 1 : -1);
+  return Math.max(0, Math.min(PANTALLAS.length - 1, destino));
+}
+
+module.exports = {
+  PANTALLAS, esHorizontal, deslizar, desplazamiento, indiceDestino,
+  _limites: { UMBRAL, PROPORCION, RESISTENCIA, VELOCIDAD_MINIMA },
+};

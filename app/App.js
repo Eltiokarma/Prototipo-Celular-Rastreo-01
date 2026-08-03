@@ -19,7 +19,7 @@ import React from 'react';
 import {
   View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
   FlatList, KeyboardAvoidingView, Platform, PanResponder, Animated, Vibration,
-  Image, Modal,
+  Image, Modal, Dimensions,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,7 +29,8 @@ import { crearCliente } from './protocolo/cliente';
 import { construirHud, textoNotificacion } from './hud';
 import { aMensaje, hilo, sinLeer } from './chat';
 import { margenes, margenBarra } from './margenes';
-import { deslizar, esHorizontal } from './gestos';
+import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS } from './gestos';
+import { paleta, esOscuro, siguienteModo, ETIQUETA } from './tema';
 import { useAudioRecorder, useAudioPlayer, RecordingPresets,
          pedirPermisoMicrofono, aDataUrl, MAX_SEGUNDOS } from './voz';
 import { tomarFoto, elegirFoto, comoTexto } from './foto';
@@ -39,6 +40,10 @@ import * as gps from './gps/servicio';
 // un teléfono no depende de la red de casa. Para pegarle a un servidor local
 // hay que poner la IP de la máquina en la wifi — el celular NO resuelve
 // "localhost", que para él es él mismo.
+// Dónde se guarda el modo elegido. En SecureStore como el resto, no porque
+// sea secreto sino para no sumar otra librería de almacenamiento por un dato.
+const LLAVE_TEMA = 'r14_tema';
+
 const SERVIDOR = process.env.EXPO_PUBLIC_SERVIDOR
   || 'https://prototipo-celular-rastreo-01-production.up.railway.app';
 
@@ -49,13 +54,22 @@ const quienSoy = (c) => ({
   miVehiculo: c.sesion?.vehicleId || c.sesion?.unitId || null,
 });
 
-const C = {
-  fondo: '#0A1A2E', panel: '#16304A', linea: '#234969',
-  marca: '#2580CF', brillante: '#2E9DFF', cielo: '#71BCFF',
-  tenue: '#5A7A99', blanco: '#F5F9FF',
-  verde: '#3DD685', ambar: '#F5C542', rojo: '#FF4D6D',
-};
-const COLOR_ESTADO = { verde: C.verde, ambar: C.ambar, rojo: C.rojo, ninguno: C.tenue };
+// Los colores y la hoja de estilos dependen del tema, así que no pueden ser
+// constantes de módulo: se arman por paleta y viajan por contexto. Se pasan
+// por contexto y no por props porque los usa CADA componente de este archivo,
+// y enhebrarlos a mano por veinte lugares es el tipo de cambio donde se
+// olvida uno y queda una pantalla mitad de día y mitad de noche.
+const Tema = React.createContext(null);
+const usarTema = () => React.useContext(Tema);
+
+// La hoja se arma una vez por paleta y se guarda: `StyleSheet.create` en cada
+// render sería un objeto nuevo por frame, justo mientras el dedo arrastra.
+const hojas = new Map();
+function hojaDe(C) {
+  if (!hojas.has(C)) hojas.set(C, crearEstilos(C));
+  return hojas.get(C);
+}
+const colorEstado = (C) => ({ verde: C.verde, ambar: C.ambar, rojo: C.rojo, ninguno: C.tenue });
 
 // `SafeAreaProvider` tiene que envolver TODO: es quien mide dónde terminan la
 // barra de estado y la de navegación de Android, y sin él `useSafeAreaInsets`
@@ -64,9 +78,42 @@ const COLOR_ESTADO = { verde: C.verde, ambar: C.ambar, rojo: C.rojo, ninguno: C.
 export default function App() {
   return (
     <SafeAreaProvider>
-      <Aplicacion />
+      <ConTema>
+        <Aplicacion />
+      </ConTema>
     </SafeAreaProvider>
   );
+}
+
+// El tema se revisa cada minuto, no en cada render: el automático depende de
+// la hora y nadie está mirando cuando se hace de noche. Un minuto es de sobra
+// —el cambio ocurre una vez por turno— y no cuesta nada.
+function ConTema({ children }) {
+  const [modo, setModo] = React.useState('auto');
+  const [ahora, setAhora] = React.useState(() => new Date());
+
+  React.useEffect(() => {
+    SecureStore.getItemAsync(LLAVE_TEMA).then(g => { if (g) setModo(g); }).catch(() => {});
+  }, []);
+
+  React.useEffect(() => {
+    if (modo !== 'auto') return;      // forzado: el reloj no manda
+    const t = setInterval(() => setAhora(new Date()), 60_000);
+    return () => clearInterval(t);
+  }, [modo]);
+
+  const C = paleta(modo, ahora);
+  const valor = React.useMemo(() => ({
+    C, s: hojaDe(C), modo, oscuro: esOscuro(modo, ahora),
+    alternar: () => {
+      const nuevo = siguienteModo(modo);
+      setModo(nuevo);
+      setAhora(new Date());
+      SecureStore.setItemAsync(LLAVE_TEMA, nuevo).catch(() => {});
+    },
+  }), [C, modo, ahora]);
+
+  return <Tema.Provider value={valor}>{children}</Tema.Provider>;
 }
 
 function Aplicacion() {
@@ -232,44 +279,112 @@ function Aplicacion() {
     },
   };
 
-  if (pantalla === 'chat') {
-    return <Chat {...comun}
-      mensajes={hilo(mensajes, canal)}
-      canal={canal}
-      onCanal={(cual) => { setCanal(cual); marcarVisto(cual); }}
-      onEnviar={(texto) => cliente.current.mandarChat(texto, { privado: canal === 'directo' })}
-      onVoz={(data, duration) => cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' })}
-      onFoto={(data) => cliente.current.mandarFoto({ data, privado: canal === 'directo' })} />;
-  }
-
-  return <Ruta {...comun} hud={hud} reporta={reporta}
-    onSos={() => cliente.current.mandarSos(ultimaPos.current)} />;
+  // Las dos pantallas viven a la vez dentro del carrusel. Antes se devolvía
+  // una U otra, y por eso el deslizamiento se sentía tosco: no había nada
+  // que se moviera con el dedo, solo un cambio de golpe al soltar. Además,
+  // montadas las dos, el chat no pierde el scroll ni el texto a medio
+  // escribir cada vez que el chofer mira la brecha.
+  return (
+    <Carrusel pantalla={pantalla} onIr={irA}>
+      <Ruta {...comun} hud={hud} reporta={reporta}
+        onSos={() => cliente.current.mandarSos(ultimaPos.current)} />
+      <Chat {...comun}
+        mensajes={hilo(mensajes, canal)}
+        canal={canal}
+        onCanal={(cual) => { setCanal(cual); marcarVisto(cual); }}
+        onEnviar={(texto) => cliente.current.mandarChat(texto, { privado: canal === 'directo' })}
+        onVoz={(data, duration) => cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' })}
+        onFoto={(data) => cliente.current.mandarFoto({ data, privado: canal === 'directo' })} />
+    </Carrusel>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Pasar de pantalla deslizando el dedo. La barra de abajo sigue estando: esto
-// es el atajo, no el único camino.
+// Las dos pantallas, una al lado de la otra, corriéndose con el dedo.
 //
-// Se usa `onMoveShouldSetPanResponder` y NO la versión `...Capture`, y esa
-// diferencia de una palabra es la que protege al SOS: sin capturar, el hijo
-// reclama el gesto primero. El SOS es hijo de esta pantalla, también se
-// desliza en horizontal, y si esta capa se lo robara el chofer creería que
-// pidió ayuda sin haberla pedido. Ver `gestos.js`.
-function useDeslizar(pantalla, onIr) {
-  return React.useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => false,   // un toque no es asunto de esta capa
+// La barra de abajo sigue estando: esto es el atajo, no el único camino.
+//
+// Dos cosas que no son obvias y que sostienen todo lo demás:
+//
+// 1. `onMoveShouldSetPanResponder` y NO la versión `...Capture`. Esa
+//    diferencia de una palabra es la que protege al SOS: sin capturar, el
+//    hijo reclama el gesto primero. El SOS es hijo de acá, también se desliza
+//    en horizontal, y si esta capa le robara el dedo el chofer creería que
+//    pidió ayuda sin haberla pedido.
+// 2. `useNativeDriver: true`. La animación corre en el hilo nativo, así que
+//    sigue fluida aunque el JavaScript esté ocupado — y acá el JavaScript
+//    está ocupado seguido: cada 3 segundos entra una posición y se recalcula
+//    la brecha. Con el driver de JS, el deslizamiento se trababa justo
+//    cuando llegaba el estado.
+//
+// La cuenta de cuánto se corre y a dónde se acomoda está en `gestos.js`, que
+// se prueba en Node. Acá solo se dibuja.
+function Carrusel({ pantalla, onIr, children }) {
+  const { ancho } = useVentana();
+  const indice = Math.max(0, PANTALLAS.indexOf(pantalla));
+  const x = React.useRef(new Animated.Value(0)).current;
+  const indiceRef = React.useRef(indice);
+  indiceRef.current = indice;
+
+  // Cuando se cambia de pantalla con la barra —no con el dedo— igual se
+  // desliza. Que el mismo destino se vea igual sin importar cómo se llegó es
+  // lo que hace que la app se sienta de una pieza.
+  React.useEffect(() => {
+    Animated.spring(x, {
+      toValue: -indice * ancho,
+      useNativeDriver: true, bounciness: 0, speed: 14,
+    }).start();
+  }, [indice, ancho]);
+
+  const pan = React.useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: (_, g) => esHorizontal(g),
+    onPanResponderMove: (_, g) => x.setValue(desplazamiento(indiceRef.current, g.dx, ancho)),
     onPanResponderRelease: (_, g) => {
-      const destino = deslizar(pantalla, g);
-      if (destino) onIr(destino);
+      const destino = indiceDestino(indiceRef.current, g, ancho);
+      Animated.spring(x, {
+        toValue: -destino * ancho,
+        useNativeDriver: true, bounciness: 0, speed: 14,
+      }).start();
+      if (destino !== indiceRef.current) onIr(PANTALLAS[destino]);
     },
-  }), [pantalla, onIr]);
+    // Si el gesto se cancela —una llamada entrante, el sistema tomando el
+    // borde—, la pantalla no puede quedar a mitad de camino.
+    onPanResponderTerminate: () => {
+      Animated.spring(x, {
+        toValue: -indiceRef.current * ancho,
+        useNativeDriver: true, bounciness: 0, speed: 14,
+      }).start();
+    },
+  }), [ancho, onIr]);
+
+  return (
+    <Animated.View
+      style={{ flex: 1, flexDirection: 'row', width: ancho * PANTALLAS.length,
+               transform: [{ translateX: x }] }}
+      {...pan.panHandlers}>
+      {React.Children.map(children, (hijo) => <View style={{ width: ancho }}>{hijo}</View>)}
+    </Animated.View>
+  );
+}
+
+// El ancho de la ventana, que cambia al girar el teléfono. Con un ancho fijo
+// tomado al arrancar, girarlo dejaba el carrusel a medio camino para siempre.
+function useVentana() {
+  const [medida, setMedida] = React.useState(() => Dimensions.get('window'));
+  React.useEffect(() => {
+    const sub = Dimensions.addEventListener('change', ({ window }) => setMedida(window));
+    return () => sub.remove();
+  }, []);
+  return { ancho: medida.width, alto: medida.height };
 }
 
 // ═══════════════════════════════════════════════════════════════
 function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
+  const { s, C } = usarTema();
   const [usuario, setUsuario] = React.useState('');
   const [clave, setClave] = React.useState('');
+  const [verClave, setVerClave] = React.useState(false);
   const [cargando, setCargando] = React.useState(false);
   const [error, setError] = React.useState(null);
   const margen = margenes(useSafeAreaInsets());
@@ -297,8 +412,18 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
         autoCapitalize="characters" autoCorrect={false} placeholder="M-12"
         placeholderTextColor={C.tenue} />
       <Text style={s.rotulo}>CONTRASEÑA</Text>
-      <TextInput style={s.campo} value={clave} onChangeText={setClave}
-        secureTextEntry placeholderTextColor={C.tenue} />
+      {/* El ojo existe porque escribir a ciegas una clave que te dieron en un
+          papel, con el teclado de un celular y a veces con guantes, termina
+          en tres intentos fallidos y una llamada a Despacho. Arranca tapada:
+          el chofer entra con gente adelante. */}
+      <View style={s.campoConBoton}>
+        <TextInput style={[s.campo, s.campoSinBorde]} value={clave} onChangeText={setClave}
+          secureTextEntry={!verClave} autoCapitalize="none" autoCorrect={false}
+          placeholderTextColor={C.tenue} onSubmitEditing={enviar} />
+        <Pressable onPress={() => setVerClave(v => !v)} hitSlop={12} style={s.ojo}>
+          <Text style={s.ojoTexto}>{verClave ? 'OCULTAR' : 'VER'}</Text>
+        </Pressable>
+      </View>
 
       {(error || aviso) && <Text style={s.error}>{error || aviso}</Text>}
 
@@ -312,17 +437,18 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
 
 // ═══════════════════════════════════════════════════════════════
 function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, onIr, onSalir, onSos }) {
+  const { s, C } = usarTema();
   const p = hud.principal, sec = hud.secundario;
-  const color = COLOR_ESTADO[p.estado];
+  const color = colorEstado(C)[p.estado];
   // La pantalla termina en la barra de navegación de la app: el aire de abajo
   // lo pone ella, no ésta. Sumar los dos deja la línea divisoria flotando.
   const margen = margenes(useSafeAreaInsets(), { conBarra: true });
-  const pan = useDeslizar(pantalla, onIr);
 
   return (
-    <View style={[s.pantalla, margen]} {...pan.panHandlers}>
+    <View style={[s.pantalla, margen]}>
       <StatusBar style="light" />
       <View style={s.barra}>
+        <BotonTema />
         <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
           {conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
         </Text>
@@ -371,7 +497,7 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, onIr, 
           <Text style={s.ladoUnidad}>{sec.rotulo}</Text>
         </View>
         {sec.display && (
-          <Text style={[s.digitosSec, { color: COLOR_ESTADO[sec.estado] }]}>{sec.display}</Text>
+          <Text style={[s.digitosSec, { color: colorEstado(C)[sec.estado] }]}>{sec.display}</Text>
         )}
       </View>
 
@@ -386,7 +512,22 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, onIr, 
 // se dispara con un roce es peor que no tenerlo — el celular va en un
 // soporte, en una combi que se mueve, y un falso SOS que moviliza gente
 // quema la confianza en el sistema entero.
+function BotonTema() {
+  const { s, modo, alternar } = usarTema();
+  return (
+    <Pressable onPress={alternar} hitSlop={10}>
+      <Text style={s.chipTema}>{ETIQUETA[modo]}</Text>
+    </Pressable>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Día / noche / automático. El automático va primero porque es el que hay que
+// preferir: el chofer no debería tener que acordarse justo cuando se está
+// haciendo de noche y tiene las dos manos ocupadas. El manual existe porque
+// un túnel, una tormenta o un parabrisas polarizado no los sabe el reloj.
 function SosDeslizable({ onDisparar }) {
+  const { s, C } = usarTema();
   const [ancho, setAncho] = React.useState(0);
   const [disparado, setDisparado] = React.useState(false);
   const x = React.useRef(new Animated.Value(0)).current;
@@ -440,6 +581,7 @@ function SosDeslizable({ onDisparar }) {
 
 // ═══════════════════════════════════════════════════════════════
 function Barra({ pantalla, noLeidos, onIr }) {
+  const { s, C } = usarTema();
   const total = (noLeidos?.grupo || 0) + (noLeidos?.directo || 0);
   // Acá está el bug que se midió: sin este margen, estos botones quedan
   // DEBAJO de los de Android y hay que insistir para tocarlos. Ver
@@ -461,11 +603,11 @@ function Barra({ pantalla, noLeidos, onIr }) {
 // directo, solo este chofer y Despacho. Chofer ↔ chofer privado no existe y
 // eso lo decide el servidor, no esta pantalla.
 function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnviar, onVoz, onFoto, onIr }) {
+  const { s, C } = usarTema();
   const [texto, setTexto] = React.useState('');
   const [verFoto, setVerFoto] = React.useState(null);
   const lista = React.useRef(null);
   const margen = margenes(useSafeAreaInsets(), { conBarra: true });
-  const pan = useDeslizar(pantalla, onIr);
 
   const enviar = () => {
     const t = texto.trim();
@@ -475,7 +617,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
   };
 
   return (
-    <KeyboardAvoidingView style={[s.pantalla, margen]} {...pan.panHandlers}
+    <KeyboardAvoidingView style={[s.pantalla, margen]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar style="light" />
 
@@ -575,6 +717,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
 // una ruta con datos prepago eso no es un detalle de nerd, y es la diferencia
 // entre que el chofer use esto o lo apague.
 function Camara({ onListo, habilitado }) {
+  const { s } = usarTema();
   const [ocupado, setOcupado] = React.useState(false);
   const [aviso, setAviso] = React.useState(null);
 
@@ -613,6 +756,7 @@ function Camara({ onListo, habilitado }) {
 // gesto que no pide precisión ni mirar la pantalla. Soltar sin llegar al
 // segundo cancela, que es la salida para el toque sin querer.
 function Grabar({ onListo, habilitado }) {
+  const { s } = usarTema();
   const grabador = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [grabando, setGrabando] = React.useState(false);
   const [segundos, setSegundos] = React.useState(0);
@@ -675,6 +819,7 @@ function Grabar({ onListo, habilitado }) {
 }
 
 function Reproducir({ uri, etiqueta }) {
+  const { s } = usarTema();
   const reproductor = useAudioPlayer({ uri });
   const [sonando, setSonando] = React.useState(false);
   return (
@@ -692,7 +837,7 @@ function Reproducir({ uri, etiqueta }) {
   );
 }
 
-const s = StyleSheet.create({
+function crearEstilos(C) { return StyleSheet.create({
   // SIN padding: lo pone `margenes()` en cada pantalla, porque depende de
   // dónde terminan las barras de Android y eso cambia por teléfono. Un
   // número fijo acá fue lo que dejó el botón de CHAT debajo de los botones
@@ -741,6 +886,20 @@ const s = StyleSheet.create({
     backgroundColor: C.rojo, alignItems: 'center', justifyContent: 'center',
   },
   sosBotonTexto: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+
+  // ── Entrar / tema ────────────────────────────────────────────
+  campoConBoton: {
+    flexDirection: 'row', alignItems: 'center', marginTop: 6,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 10,
+  },
+  campoSinBorde: { flex: 1, marginTop: 0, borderWidth: 0, backgroundColor: 'transparent' },
+  ojo: { paddingHorizontal: 14, paddingVertical: 14 },
+  ojoTexto: { color: C.cielo, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
+  chipTema: {
+    fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.tenue,
+    borderWidth: 1, borderColor: C.linea, borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 3,
+  },
 
   // ── Foto ─────────────────────────────────────────────────────
   camara: {
@@ -820,4 +979,4 @@ const s = StyleSheet.create({
     color: '#fff', fontSize: 13, width: 30, height: 30, borderRadius: 15,
     backgroundColor: C.brillante, textAlign: 'center', lineHeight: 30,
   },
-});
+}); }

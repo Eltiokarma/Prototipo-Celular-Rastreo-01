@@ -11,7 +11,7 @@
 // Un chofer no va a reportar "el swipe tiene mal el umbral": va a decir que
 // la app hace cosas raras. Acá se fija el número.
 const RAIZ = require('path').join(__dirname, '..');
-const { deslizar, esHorizontal, PANTALLAS, _limites } = require(RAIZ + '/app/gestos.js');
+const { deslizar, esHorizontal, desplazamiento, indiceDestino, PANTALLAS, _limites } = require(RAIZ + '/app/gestos.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -70,9 +70,54 @@ console.log('\nQUÉ GESTO SE RECLAMA');
   ok('sin datos no reclama nada', esHorizontal(undefined) === false && esHorizontal({}) === false);
 }
 
+console.log('\nQUE SE SIENTA, Y NO DÉ UN SALTO');
+{
+  // La primera versión cambiaba de golpe al soltar: se sentía tosco porque no
+  // había nada que siguiera al dedo. Ahora el carrusel se corre CON el dedo.
+  const A = 400;
+  ok('en reposo, la pantalla 0 está en 0', desplazamiento(0, 0, A) === 0);
+  ok('en reposo, la pantalla 1 está corrida un ancho', desplazamiento(1, 0, A) === -A);
+  ok('el dedo la arrastra 1 a 1', desplazamiento(0, -120, A) === -120, desplazamiento(0, -120, A));
+
+  // En el borde no hay a dónde ir, pero frenar en seco parece que la app se
+  // colgó. Se deja mover un tercio: alcanza para que el dedo lo entienda.
+  const borde = desplazamiento(0, 150, A);
+  ok('en el borde resiste pero no se traba', borde > 0 && borde < 150, borde);
+  const bordeFinal = desplazamiento(1, -150, A);
+  ok('y en el otro borde igual', bordeFinal < -A && bordeFinal > -A - 150, bordeFinal);
+}
+
+console.log('\nA DÓNDE SE ACOMODA AL SOLTAR');
+{
+  const A = 400;
+  ok('pasada la mitad, avanza', indiceDestino(0, { dx: -220 }, A) === 1);
+  ok('sin llegar a la mitad, vuelve', indiceDestino(0, { dx: -120 }, A) === 0);
+
+  // Los dos gestos que la gente hace de verdad, y que exigir distancia Y
+  // velocidad juntas dejaría afuera:
+  ok('un flick corto y rápido alcanza',
+     indiceDestino(0, { dx: -40, vx: -1.2 }, A) === 1, indiceDestino(0, { dx: -40, vx: -1.2 }, A));
+  ok('y un arrastre lento pero largo también',
+     indiceDestino(0, { dx: -250, vx: 0.01 }, A) === 1);
+
+  // Arrepentirse a mitad de camino tiene que funcionar: es lo que uno hace
+  // cuando se dio cuenta de que se equivocó de pantalla.
+  ok('un flick hacia atrás pasada la mitad, vuelve',
+     indiceDestino(0, { dx: -260, vx: 1.5 }, A) === 0, indiceDestino(0, { dx: -260, vx: 1.5 }, A));
+
+  ok('en el borde no se pasa de largo', indiceDestino(0, { dx: 300, vx: 2 }, A) === 0);
+  ok('ni en el otro', indiceDestino(1, { dx: -300, vx: -2 }, A) === 1);
+}
+
 console.log('\nBORDES');
 {
   ok('las pantallas están en orden', PANTALLAS.join(',') === 'ruta,chat', PANTALLAS);
+  for (const malo of [undefined, null, {}, { dx: NaN }]) {
+    ok('desplazamiento no revienta con ' + JSON.stringify(malo),
+       Number.isFinite(desplazamiento(0, malo?.dx, 400)), desplazamiento(0, malo?.dx, 400));
+    ok('indiceDestino tampoco', indiceDestino(0, malo, 400) === 0);
+  }
+  ok('sin ancho no navega a ningún lado', indiceDestino(0, { dx: -10 }, 0) === 0);
   for (const malo of [undefined, null, {}, { dx: NaN, dy: NaN }]) {
     ok('no revienta con ' + JSON.stringify(malo), deslizar('ruta', malo) === null);
   }
