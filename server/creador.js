@@ -36,6 +36,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const coop = require('./cooperativas');
+const marca = require('./marca');
 
 // La clave del creador abre todas las cooperativas del servidor. El mínimo
 // de 6 que rige para Despacho acá sería una broma.
@@ -244,6 +245,41 @@ function montarPanelDelCreador(app, deps) {
       r.companyId);
     console.log(`Empresa creada desde el panel del creador: ${r.companyId}`);
     res.json(r);
+  });
+
+  // ─── LA MARCA DE UNA COOPERATIVA ───────────────────────────
+  //
+  // Acá arriba se configura, en Despacho se corrige. El caso normal es que la
+  // cooperativa reciba el sistema YA con su logo puesto: pedirle a un
+  // despachador que lo suba el primer día es pedirle que se ocupe de algo que
+  // nosotros podemos dejar hecho.
+  //
+  // El logo va por su propio endpoint y no en el listado: son hasta 200 kB
+  // cada uno, y una lista que crece con la cantidad de cooperativas no
+  // aguanta el día que haya veinte.
+  app.get(BASE + '/empresas/:companyId/marca', requireCreador, (req, res) => {
+    const e = db.prepare('SELECT companyId, name, logo FROM companies WHERE companyId = ?')
+      .get(String(req.params.companyId));
+    if (!e) return res.status(404).json({ error: 'Esa cooperativa no existe' });
+    res.json({ marca: marca.marcaDe(e) });
+  });
+
+  app.put(BASE + '/empresas/:companyId/logo', requireCreador, (req, res) => {
+    const companyId = String(req.params.companyId);
+    const e = db.prepare('SELECT companyId, name FROM companies WHERE companyId = ?').get(companyId);
+    if (!e) return res.status(404).json({ error: 'Esa cooperativa no existe' });
+
+    const crudo = req.body?.logo;
+    if (crudo === null || crudo === '') {
+      db.prepare('UPDATE companies SET logo = NULL WHERE companyId = ?').run(companyId);
+      anotar('logo_quitado', companyId, e.name, companyId);
+      return res.json({ ok: true, logo: null });
+    }
+    const logo = marca.logoValido(crudo);
+    if (!logo) return res.status(400).json({ error: marca.motivoRechazo(crudo) });
+    db.prepare('UPDATE companies SET logo = ? WHERE companyId = ?').run(logo, companyId);
+    anotar('logo_cambiado', companyId, e.name, companyId);
+    res.json({ ok: true, logo });
   });
 
   app.post(BASE + '/empresas/:companyId/estado', requireCreador, (req, res) => {

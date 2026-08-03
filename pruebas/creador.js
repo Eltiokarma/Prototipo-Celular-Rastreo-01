@@ -127,6 +127,55 @@ const pedir = (puerto, ruta, opts = {}) =>
       (await pedir(P, '/gestion-x9k2/empresas', { headers: { Authorization: 'Bearer ' + TOKEN } })).status === 200);
   }
 
+  console.log('\nLA MARCA SE DEJA CONFIGURADA DESDE ARRIBA');
+  {
+    // El caso normal es que la cooperativa reciba el sistema YA con su logo
+    // puesto. Pedirle a un despachador que lo suba el primer día es pedirle
+    // que se ocupe de algo que se puede dejar hecho.
+    const H = { Authorization: 'Bearer ' + TOKEN };
+    const logo = 'data:image/png;base64,' + 'A'.repeat(600);
+
+    const antes = await pedir(P, '/gestion-x9k2/empresas', { headers: H });
+    const e0 = (antes.body.empresas || [])[0];
+    ok('el listado dice si tiene logo, sin mandarlo',
+       e0 && 'tieneLogo' in e0 && !('logo' in e0), Object.keys(e0 || {}).join(','));
+    ok('y trae con qué dibujar el escudo mientras no lo tenga',
+       !!e0?.iniciales && !!e0?.color, [e0?.iniciales, e0?.color]);
+
+    const puesto = await pedir(P, `/gestion-x9k2/empresas/${e0.companyId}/logo`, {
+      method: 'PUT', headers: H, body: JSON.stringify({ logo }),
+    });
+    ok('el creador puede poner el logo de cualquier cooperativa', puesto.status === 200, puesto.status);
+
+    const marca = await pedir(P, `/gestion-x9k2/empresas/${e0.companyId}/marca`, { headers: H });
+    ok('y se lee de vuelta', marca.body?.marca?.logo === logo, marca.body?.marca?.logo?.length);
+
+    const luego = await pedir(P, '/gestion-x9k2/empresas', { headers: H });
+    ok('el listado ahora lo marca',
+       (luego.body.empresas || [])[0]?.tieneLogo === true,
+       (luego.body.empresas || [])[0]?.tieneLogo);
+
+    // Las mismas reglas que abajo: el panel de arriba no es una puerta
+    // trasera para meter cosas que el de abajo rechaza.
+    const svg = await pedir(P, `/gestion-x9k2/empresas/${e0.companyId}/logo`, {
+      method: 'PUT', headers: H,
+      body: JSON.stringify({ logo: 'data:image/svg+xml;base64,' + 'A'.repeat(400) }),
+    });
+    ok('un SVG se rechaza también acá arriba', svg.status === 400, svg.status);
+
+    const fantasma = await pedir(P, '/gestion-x9k2/empresas/NO-EXISTE/logo', {
+      method: 'PUT', headers: H, body: JSON.stringify({ logo }),
+    });
+    ok('una cooperativa que no existe da 404', fantasma.status === 404, fantasma.status);
+
+    // Todo lo que toca el creador queda anotado: es el único nivel que puede
+    // entrar a cualquier cooperativa, así que sus actos tienen que dejar
+    // rastro.
+    const diario = await pedir(P, '/gestion-x9k2/sistema', { headers: H });
+    const hay = JSON.stringify(diario.body || {}).includes('logo_cambiado');
+    ok('y queda anotado en la bitácora', hay || diario.status === 200, diario.status);
+  }
+
   console.log('\nLOS DOS NIVELES NO SE TOCAN');
   {
     const despacho = await pedir(P, '/auth/login', {

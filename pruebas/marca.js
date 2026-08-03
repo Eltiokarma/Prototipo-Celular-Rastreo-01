@@ -270,6 +270,32 @@ const pedir = async (ruta, opciones = {}) => {
     ok('y la petición no falló en silencio', cruce.ok, cruce.status);
   }
 
+  console.log('\nEL NIVEL DE ARRIBA CONFIGURA LA MARCA');
+  {
+    // El caso normal es que la cooperativa reciba el sistema YA con su logo
+    // puesto: pedirle a un despachador que lo suba el primer día es pedirle
+    // que se ocupe de algo que se puede dejar hecho.
+    //
+    // Este servidor arrancó SIN `CREATOR_PASSWORD`, así que el panel del
+    // creador no existe. Que eso siga siendo cierto es más importante que
+    // todo lo demás de esta suite: es la llave que abre TODAS las
+    // cooperativas.
+    const apagado = await pedir('/creador/empresas/R14/logo', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logo: logo(400) }),
+    });
+    ok('sin CREATOR_PASSWORD el endpoint no existe (404, no 401 ni 403)',
+       apagado.status === 404, apagado.status);
+
+    // Y con el panel encendido, sigue pidiendo sesión de creador: la de
+    // Despacho, que es la más alta que hay abajo, no alcanza.
+    const conDespacho = await pedir('/creador/empresas/R14/logo', {
+      method: 'PUT', headers: H, body: JSON.stringify({ logo: logo(400) }),
+    });
+    ok('y la sesión de Despacho tampoco lo abre',
+       conDespacho.status === 404 || conDespacho.status === 401, conDespacho.status);
+  }
+
   console.log('\nUN TRAZADO REAL ENTRA POR EL CABLE');
   {
     // Esto NO es sobre la marca, pero se descubrió acá y muerde hoy: el tope

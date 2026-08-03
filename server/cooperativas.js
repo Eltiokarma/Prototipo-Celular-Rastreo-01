@@ -18,10 +18,19 @@ const CLAVE_MINIMA = 6;
 
 // Todas las cooperativas con su tamaño. Es la vista del nivel de arriba: el
 // único lugar del sistema donde se ven varias empresas juntas.
+// El listado NO trae los logos, y es a propósito: son hasta 200 kB cada uno, y
+// una lista que crece con la cantidad de cooperativas es justo lo que no
+// aguanta cuando esto escale. Trae con qué DIBUJAR el escudo —iniciales,
+// color y si tiene logo o no— y el logo se pide por cooperativa, solo cuando
+// se abre la suya.
 function listar(db) {
+  const marca = require('./marca');
   return db.prepare('SELECT * FROM companies ORDER BY createdAt').all().map(e => ({
     companyId: e.companyId,
     name: e.name,
+    tieneLogo: !!e.logo,
+    iniciales: marca.iniciales(e.name),
+    color: marca.colorDe(e.companyId),
     ruc: e.ruc,
     contacto: e.contacto,
     activa: !!e.activa,

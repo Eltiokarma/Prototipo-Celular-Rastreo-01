@@ -275,6 +275,117 @@ function Trazados({ api, companyId, ruta, aviso, fallo }) {
 }
 
 // ─── COOPERATIVAS ──────────────────────────────────────────────
+// El escudo de una cooperativa en el listado.
+//
+// El listado NO trae los logos —son hasta 200 kB cada uno y una lista que
+// crece con la cantidad de cooperativas es lo que no aguanta cuando esto
+// escale—, así que se pide el suyo solo si tiene, y solo una vez.
+function Escudo({ empresa, api, tam = 30 }) {
+  const [logo, setLogo] = React.useState(null);
+  React.useEffect(() => {
+    if (!empresa.tieneLogo) { setLogo(null); return; }
+    let vivo = true;
+    api(`/empresas/${empresa.companyId}/marca`)
+      .then(r => { if (vivo && r?.marca?.logo) setLogo(r.marca.logo); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [empresa.companyId, empresa.tieneLogo]);
+
+  const caja = {
+    width: tam, height: tam, borderRadius: 7, flexShrink: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  };
+  if (logo) {
+    return <img src={logo} alt={empresa.name} title={empresa.name}
+      style={{ ...caja, objectFit: 'contain', background: '#fff' }} />;
+  }
+  // Nunca un hueco: dos letras se leen como "todavía no tiene logo", que es
+  // la verdad; un cuadro vacío se lee como que el panel está roto.
+  return (
+    <div style={{ ...caja, background: empresa.color || 'var(--brand)' }} title={empresa.name}>
+      <span className="black" style={{ fontSize: Math.round(tam * 0.42), color: '#fff' }}>
+        {empresa.iniciales || '·'}
+      </span>
+    </div>
+  );
+}
+
+// Subir el logo desde acá arriba. Se achica en el navegador a 256 px: lo que
+// una persona tiene a mano es el archivo del diseñador, de 2000 px y 3 MB, y
+// esto termina viajando al celular de cada chofer.
+const LADO_LOGO = 256;
+
+function achicarLogo(archivo) {
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onerror = () => reject(new Error('No se pudo leer el archivo'));
+    lector.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Ese archivo no es una imagen'));
+      img.onload = () => {
+        const escala = Math.min(1, LADO_LOGO / Math.max(img.width, img.height));
+        const lienzo = document.createElement('canvas');
+        lienzo.width = Math.max(1, Math.round(img.width * escala));
+        lienzo.height = Math.max(1, Math.round(img.height * escala));
+        // PNG y no JPEG: un logo suele tener fondo transparente y el JPEG lo
+        // rellena de negro. Es la diferencia entre un escudo y un cuadrado.
+        lienzo.getContext('2d').drawImage(img, 0, 0, lienzo.width, lienzo.height);
+        resolve(lienzo.toDataURL('image/png'));
+      };
+      img.src = lector.result;
+    };
+    lector.readAsDataURL(archivo);
+  });
+}
+
+function LogoDeEmpresa({ empresa, api, correr, ocupado }) {
+  const entrada = React.useRef(null);
+  const [version, setVersion] = React.useState(0);
+
+  const mandar = (logo) => correr(async () => {
+    await api(`/empresas/${empresa.companyId}/logo`, {
+      method: 'PUT', body: JSON.stringify({ logo }),
+    });
+    setVersion(v => v + 1);
+  }, logo ? 'Logo actualizado' : 'Logo quitado');
+
+  return (
+    <div>
+      <div className="mono" style={{
+        fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
+        textTransform: 'uppercase', marginBottom: 8,
+      }}>Logo</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Escudo key={version} empresa={empresa} api={api} tam={56} />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button disabled={ocupado} onClick={() => entrada.current?.click()} style={{
+            padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
+            color: 'var(--fg2)', border: '1px solid var(--line)',
+          }}>{empresa.tieneLogo ? 'Cambiar' : 'Subir'}</button>
+          {empresa.tieneLogo && (
+            <button disabled={ocupado} onClick={() => mandar(null)} style={{
+              padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
+              color: 'var(--dim2)', border: '1px solid var(--line)',
+            }}>Quitar</button>
+          )}
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--dim3)', marginTop: 8, lineHeight: 1.5 }}>
+        PNG, JPG o WEBP. Se achica solo a {LADO_LOGO} px.
+        Dejalo puesto al dar de alta: así la cooperativa recibe el sistema con su marca.
+      </div>
+      <input ref={entrada} type="file" accept="image/png,image/jpeg,image/webp"
+        style={{ display: 'none' }}
+        onChange={async (ev) => {
+          const f = ev.target.files?.[0];
+          ev.target.value = '';
+          if (!f) return;
+          try { await mandar(await achicarLogo(f)); } catch (err) { /* lo informa correr */ }
+        }} />
+    </div>
+  );
+}
+
 function Empresas({ api, empresas, recargar, aviso, fallo }) {
   const [abierta, setAbierta] = React.useState(null);
   const [nueva, setNueva] = React.useState(null);
@@ -390,6 +501,7 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
           borderRadius: 12, padding: 14, marginBottom: 10,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <Escudo empresa={e} api={api} />
             <div className="black" style={{
               fontSize: 16, color: e.activa ? 'var(--fg)' : 'var(--dim2)',
             }}>{e.name}</div>
@@ -435,6 +547,7 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
           {abierta === e.companyId && (
             <div style={{ marginTop: 14, borderTop: '1px solid var(--divider)', paddingTop: 14 }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 18 }}>
+                <LogoDeEmpresa empresa={e} api={api} correr={correr} ocupado={ocupado} />
                 <div>
                   <div className="mono" style={{
                     fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
