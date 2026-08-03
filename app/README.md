@@ -113,6 +113,8 @@ imagen.js              Cuánto achicarla y cuánto pesa. JS puro, probado
                        en pruebas/imagen.js
 margenes.js            Dónde terminan las barras de Android. JS puro,
                        probado en pruebas/margenes.js
+teclado.js             Cuánto levantar la pantalla con el teclado abierto.
+                       JS puro, probado en pruebas/teclado.js
 tema.js                Los colores y cuándo cambian a los de noche. JS
                        puro, probado en pruebas/tema.js
 mapa.js                Qué se dibuja en el mapa y la página del WebView.

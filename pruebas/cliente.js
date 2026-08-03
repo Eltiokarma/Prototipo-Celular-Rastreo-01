@@ -155,6 +155,43 @@ async function hasta(cond, ms = 6000) {
      relevo.otrasUnidades().map(u => u.unitId));
   ok('miUnidad sí soy yo', relevo.miUnidad()?.unitId === 'M-12');
 
+  console.log('\nLA SESIÓN GUARDADA (LA SEGUNDA VEZ QUE SE ABRE LA APP)');
+  {
+    // El token dura 30 días, así que de la segunda apertura en adelante NADIE
+    // llama a `entrar()`: se conecta con la sesión que quedó en el disco. Si
+    // el cliente no la recibe, no sabe quién es — y eso NO da ningún error:
+    // el HUD dice "sin nadie" para siempre, los mensajes propios del chat se
+    // ven como ajenos, y en el mapa ninguna unidad es "yo", así que el chofer
+    // no se ve a sí mismo y CENTRARME no tiene a dónde ir.
+    const guardada = await nuevo().entrar('M-08', 'chofer1234');
+
+    // Así es como se reabre la app: cliente NUEVO, sin entrar, con lo del disco.
+    const reabierto = nuevo();
+    reabierto.conectar(guardada.token, guardada);
+    ok('conecta con la sesión guardada', await hasta(() => reabierto.conectado));
+    ok('y sabe quién es', reabierto.sesion?.vehicleId === 'M-08', reabierto.sesion?.vehicleId);
+    ok('así que se encuentra a sí mismo en el estado',
+       await hasta(() => reabierto.miUnidad() !== null), reabierto.miUnidad()?.unitId);
+    ok('y su brecha no es la de un desconocido',
+       reabierto.miBrecha().objetivoMin !== null, reabierto.miBrecha());
+    reabierto.salir();
+
+    // Y sin la sesión, que es como estaba: conecta igual, recibe estado
+    // igual, y NO se encuentra. Ésta es la trampa, escrita.
+    const ciego = nuevo();
+    ciego.conectar(guardada.token);
+    ok('sin la sesión igual conecta (por eso no se notaba)',
+       await hasta(() => ciego.conectado));
+    ok('recibe el estado con las unidades adentro',
+       await hasta(() => (ciego.estado?.units || []).length > 0),
+       (ciego.estado?.units || []).length);
+    ok('pero NO se encuentra a sí mismo', ciego.miUnidad() === null, ciego.miUnidad());
+    ok('y las otras unidades le parecen todas ajenas, incluida la suya',
+       ciego.otrasUnidades().some(u => u.unitId === 'M-08'),
+       ciego.otrasUnidades().map(u => u.unitId));
+    ciego.salir();
+  }
+
   console.log('\nCUANDO EL DE ADELANTE SE QUEDA SIN SEÑAL');
   // M-08 deja de reportar; el relevo (M-12) sigue quieto donde estaba. Los
   // tres estados de un lado tienen que quedar distinguibles: hay alguien y

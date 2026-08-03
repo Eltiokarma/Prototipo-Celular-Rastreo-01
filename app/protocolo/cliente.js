@@ -67,9 +67,34 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   }
 
   // ─── Conectar ──────────────────────────────────────────────
-  function conectar(tk) {
+  //
+  // Recibe la SESIÓN además del token, y no es opcional de verdad: casi todo
+  // lo que este módulo ofrece depende de saber quién soy.
+  //
+  //   miBrecha()       busca `gaps[miVehiculo]`
+  //   quienSoy()       decide qué mensaje del chat es propio
+  //   miUnidad()       me encuentra en el estado, o sea en el mapa
+  //
+  // Antes la sesión solo se guardaba al entrar con usuario y contraseña. Pero
+  // el token dura 30 días: **desde la segunda vez que se abre la app, se
+  // entra con la sesión guardada y se llama `conectar(token)` a secas**, así
+  // que `sesion` quedaba en null para toda la corrida. Y todo lo de arriba
+  // fallaba en silencio:
+  //
+  //   - el HUD decía "sin nadie" siempre, hubiera o no combis al lado;
+  //   - los mensajes propios del chat se veían como ajenos;
+  //   - y en el mapa NINGUNA unidad era "yo", así que el chofer no se veía a
+  //     sí mismo y CENTRARME no tenía a dónde ir.
+  //
+  // Ninguna de las tres da error. Por eso, si no viene la sesión, se avisa
+  // por consola: es preferible una línea molesta a tres pantallas mintiendo.
+  function conectar(tk, sesionGuardada) {
     token = tk || token;
     if (!token) throw new Error('hace falta un token para conectar');
+    if (sesionGuardada) sesion = sesionGuardada;
+    else if (!sesion) {
+      console.warn('[protocolo] conectar() sin sesión: la brecha, el chat y el mapa no van a saber quién sos');
+    }
     cerradoAdrede = false;
     abrir();
   }

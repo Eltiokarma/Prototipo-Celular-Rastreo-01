@@ -18,8 +18,8 @@
 import React from 'react';
 import {
   View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
-  FlatList, KeyboardAvoidingView, Platform, PanResponder, Animated, Vibration,
-  Image, Modal, Dimensions,
+  FlatList, PanResponder, Animated, Vibration,
+  Image, Modal, Dimensions, Keyboard,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +32,7 @@ import { margenes, margenBarra } from './margenes';
 import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL } from './gestos';
 import * as mapa from './mapa';
 import { paleta, esOscuro, siguienteModo, ETIQUETA } from './tema';
+import { levantar } from './teclado';
 import { useAudioRecorder, useAudioPlayer, RecordingPresets,
          pedirPermisoMicrofono, aDataUrl, MAX_SEGUNDOS } from './voz';
 import { tomarFoto, elegirFoto, comoTexto } from './foto';
@@ -175,7 +176,9 @@ function Aplicacion() {
     // El servidor va al disco junto con la sesión porque la tarea de fondo
     // los lee de ahí: cuando Android la revive, no queda nada en memoria.
     await SecureStore.setItemAsync(gps.LLAVE_SERVIDOR, SERVIDOR);
-    cliente.current.conectar(s.token);
+    // La sesión va JUNTO con el token: sin ella el cliente no sabe quién soy,
+    // y la brecha, el chat y el mapa fallan en silencio. Ver `conectar()`.
+    cliente.current.conectar(s.token, s);
     cliente.current.pedirMarca(s.token).then(m => { if (m) setMarca(m); });
     const permisos = await gps.pedirPermisos();
     if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
@@ -753,7 +756,9 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
   const [texto, setTexto] = React.useState('');
   const [verFoto, setVerFoto] = React.useState(null);
   const lista = React.useRef(null);
-  const margen = margenes(useSafeAreaInsets(), { conBarra: true });
+  const insets = useSafeAreaInsets();
+  const margen = margenes(insets, { conBarra: true });
+  const alto = useTeclado(insets.bottom);
 
   const enviar = () => {
     const t = texto.trim();
@@ -762,9 +767,11 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
     setTexto('');
   };
 
+  // `paddingBottom` y no `KeyboardAvoidingView`: en Android ese componente sin
+  // `behavior` no hace NADA, y la parte que sí resolvía el sistema
+  // —achicar la ventana— no ocurre con edge-to-edge. Ver `teclado.js`.
   return (
-    <KeyboardAvoidingView style={[s.pantalla, margen]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <View style={[s.pantalla, margen, { paddingBottom: alto }]}>
       <StatusBar style="light" />
 
       <View style={s.canales}>
@@ -850,8 +857,27 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
           <Text style={s.visorPie}>Tocá para cerrar</Text>
         </Pressable>
       </Modal>
-    </KeyboardAvoidingView>
+    </View>
   );
+}
+
+// Cuánto levantar la pantalla mientras está el teclado.
+//
+// Se escuchan los eventos `...DidShow` / `...DidHide` y NO los `...Will`: los
+// `Will` solo existen en iOS, y acá el problema es de Android.
+function useTeclado(insetAbajo) {
+  const [alto, setAlto] = React.useState(0);
+  const { alto: altoVentana } = useVentana();
+
+  React.useEffect(() => {
+    const abrir = Keyboard.addListener('keyboardDidShow', (e) => {
+      setAlto(levantar(e?.endCoordinates?.height, { insetAbajo, altoVentana }));
+    });
+    const cerrar = Keyboard.addListener('keyboardDidHide', () => setAlto(0));
+    return () => { abrir.remove(); cerrar.remove(); };
+  }, [insetAbajo, altoVentana]);
+
+  return alto;
 }
 
 // ═══════════════════════════════════════════════════════════════
