@@ -122,18 +122,53 @@ console.log('\nEL LOCKFILE ACOMPAÑA AL PACKAGE.JSON');
      raiz.dependencies);
 }
 
+// Las dos comprobaciones de acá abajo son del mismo tipo, y es el tipo más
+// caro que tiene esta app: APIs que compilan, arrancan, y fallan **en
+// silencio y en la calle**. No hay stack trace, no hay pantalla roja; hay una
+// combi que no aparece en el mapa. Se chequean leyendo el código porque no
+// hay otra forma de verlas sin un teléfono y un turno entero.
 console.log('\nLA API QUE SE USA');
 {
-  // En el SDK 54 `expo-file-system` cambió de API y dejó las funciones
-  // viejas como stubs que TIPAN BIEN y revientan al ejecutarse. O sea que
-  // no falla al compilar ni al abrir: falla la primera vez que un chofer
-  // manda una nota de voz. Por eso se chequea acá y no en el teléfono.
   const fs = require('fs');
+
+  // 1) En el SDK 54 `expo-file-system` cambió de API y dejó las funciones
+  //    viejas como stubs que TIPAN BIEN y revientan al ejecutarse. No falla
+  //    al compilar ni al abrir: falla la primera vez que un chofer manda una
+  //    nota de voz.
   const voz = fs.readFileSync(RAIZ + '/app/voz.js', 'utf8');
   ok('voz.js no usa la API vieja de expo-file-system',
      !/readAsStringAsync|writeAsStringAsync|getInfoAsync/.test(voz)
      || /expo-file-system\/legacy/.test(voz));
   ok('y saca el base64 con la API nueva', /new File\([^)]*\)\.base64\(\)/.test(voz));
+
+  // 2) Y la peor de todas, medida en un teléfono: `arrancar` preguntaba
+  //    `isTaskRegisteredAsync` —¿existe el REGISTRO?— en vez de
+  //    `hasStartedLocationUpdatesAsync` —¿el servicio está CORRIENDO?—.
+  //
+  //    El registro lo guarda Android y sobrevive a que el servicio muera: a
+  //    una reinstalación del APK, a que Xiaomi mate la app, a un reinicio.
+  //    Con un registro huérfano dando vueltas, `arrancar` volvía enseguida
+  //    sin arrancar nada. La app se veía perfecta —entraba, chateaba,
+  //    mandaba fotos y SOS— y el GPS, que es el punto de todo esto, no
+  //    existía: "enviadas 0 · fallidas 0", ni un error.
+  //
+  //    Y lo dispara el caso más común de todos: instalar una versión nueva.
+  //    O sea que le iba a pasar a cada chofer en cada actualización.
+  const servicio = fs.readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
+  const cuerpoArrancar = (servicio.match(/export async function arrancar[\s\S]*?\n}/) || [''])[0];
+  ok('arrancar() decide por el SERVICIO, no por el registro de la tarea',
+     /hasStartedLocationUpdatesAsync/.test(cuerpoArrancar), cuerpoArrancar.slice(0, 200));
+
+  const cuerpoCadencia = (servicio.match(/export async function cambiarCadencia[\s\S]*?\n}/) || [''])[0];
+  ok('cambiarCadencia() también', /hasStartedLocationUpdatesAsync/.test(cuerpoCadencia));
+
+  // Y que la pantalla pueda preguntarlo, para que "0 y 0" deje de ser
+  // ambiguo entre "todavía ninguna" y "el servicio no existe".
+  ok('el servicio expone si está corriendo',
+     /export async function estaCorriendo/.test(servicio));
+  const app = fs.readFileSync(RAIZ + '/app/App.js', 'utf8');
+  ok('y la pantalla lo vigila y lo rearranca',
+     /estaCorriendo\(\)/.test(app) && /gps\.arrancar/.test(app));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

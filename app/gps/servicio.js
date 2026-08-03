@@ -50,6 +50,10 @@ export function cuandoLlegueUnaPosicion(fn) { alRecibir = fn; }
 export const diagnostico = {
   enviadas: 0, fallidas: 0, ultimoEnvio: null, ultimoError: null,
   enEspera: 0, motivos: {},
+  // Si el servicio de ubicación está CORRIENDO de verdad. Sin esto, "0
+  // enviadas y 0 fallidas" es indistinguible de "todavía no llegó ninguna
+  // posición", y esa ambigüedad ya costó una sesión entera de diagnóstico.
+  servicio: 'sin arrancar',
 };
 
 // Lo que no se pudo mandar. Vive en el módulo del SERVICIO y no en la
@@ -172,8 +176,33 @@ export async function pedirPermisos() {
   return { ok: true };
 }
 
+// OJO CON LA PREGUNTA QUE SE HACE ACÁ. Son dos cosas distintas:
+//
+//   isTaskRegisteredAsync        ¿existe el REGISTRO de la tarea?
+//   hasStartedLocationUpdatesAsync  ¿el servicio está CORRIENDO?
+//
+// El registro lo guarda Android y **sobrevive a que el servicio muera**: a
+// una reinstalación del APK, a que el fabricante mate la app, a un reinicio.
+// La versión anterior preguntaba por el registro, así que en cuanto quedaba
+// un registro viejo sin servicio detrás, `arrancar` volvía enseguida sin
+// arrancar nada. La app se veía perfecta —entraba, chateaba, mandaba fotos y
+// SOS— y el GPS, que es el punto de todo esto, no existía: `enviadas 0 ·
+// fallidas 0`, ni un error.
+//
+// Y el caso que lo dispara es el más común de todos: **instalar una versión
+// nueva**. O sea que le iba a pasar a cada chofer en cada actualización.
 export async function arrancar({ textoNotificacion = 'Turno en curso' } = {}) {
-  if (await TaskManager.isTaskRegisteredAsync(TAREA_GPS)) return;
+  if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
+    diagnostico.servicio = 'corriendo';
+    return;
+  }
+  // Un registro huérfano —sin servicio detrás— se limpia antes de arrancar.
+  // `startLocationUpdatesAsync` lo pisaría igual, pero dejarlo dando vueltas
+  // es lo que hizo que este bug fuera invisible.
+  if (await TaskManager.isTaskRegisteredAsync(TAREA_GPS)) {
+    diagnostico.servicio = 'registro huérfano, rearrancando';
+    try { await TaskManager.unregisterTaskAsync(TAREA_GPS); } catch {}
+  }
   await Location.startLocationUpdatesAsync(TAREA_GPS, {
     accuracy: Location.Accuracy.High,
     timeInterval: CADENCIA_PANTALLA_ENCENDIDA,
@@ -189,12 +218,16 @@ export async function arrancar({ textoNotificacion = 'Turno en curso' } = {}) {
       killServiceOnDestroy: false,
     },
   });
+  diagnostico.servicio = 'corriendo';
 }
 
 // Cambiar la cadencia es volver a arrancar con otro intervalo: expo-location
 // no expone un "cambiá el intervalo" sobre una tarea ya corriendo.
+//
+// Misma pregunta que en `arrancar`, y por el mismo motivo: con el registro
+// como condición, esto reiniciaba una tarea que no estaba corriendo.
 export async function cambiarCadencia(ms, textoNotificacion) {
-  if (!(await TaskManager.isTaskRegisteredAsync(TAREA_GPS))) return;
+  if (!(await Location.hasStartedLocationUpdatesAsync(TAREA_GPS))) return;
   await Location.startLocationUpdatesAsync(TAREA_GPS, {
     accuracy: Location.Accuracy.High,
     timeInterval: ms,
@@ -211,7 +244,19 @@ export async function cambiarCadencia(ms, textoNotificacion) {
 }
 
 export async function parar() {
-  if (await TaskManager.isTaskRegisteredAsync(TAREA_GPS)) {
+  if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
     await Location.stopLocationUpdatesAsync(TAREA_GPS);
+  } else if (await TaskManager.isTaskRegisteredAsync(TAREA_GPS)) {
+    // Registro sin servicio: si no se limpia, queda ahí para confundir a la
+    // próxima sesión. Es la basura que causó el bug de arriba.
+    try { await TaskManager.unregisterTaskAsync(TAREA_GPS); } catch {}
   }
+  diagnostico.servicio = 'detenido';
+}
+
+// Para mirarlo desde la pantalla sin adivinar. Se pregunta al sistema, no a
+// una variable nuestra: la variable puede estar al día y el servicio muerto.
+export async function estaCorriendo() {
+  try { return await Location.hasStartedLocationUpdatesAsync(TAREA_GPS); }
+  catch { return false; }
 }

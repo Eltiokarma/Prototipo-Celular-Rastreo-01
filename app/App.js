@@ -139,11 +139,40 @@ function Aplicacion() {
     gps.cuandoLlegueUnaPosicion((p) => { ultimaPos.current = { lat: p.lat, lng: p.lng }; });
   }, []);
 
+  // El texto de la notificación va en un ref para que los oyentes se
+  // suscriban UNA vez: si dependieran del hud, se re-suscribirían con cada
+  // brecha nueva. Lo usan la vigilancia y el cambio de cadencia.
+  const textoRef = React.useRef('Turno en curso');
+  textoRef.current = textoNotificacion(hud, reporta);
+
+  // ── Vigilancia del servicio de GPS ──────────────────────────
+  //
+  // No alcanza con arrancarlo una vez. Android lo mata —y Xiaomi, Huawei y
+  // Oppo lo matan más—, y cuando eso pasa la app se ve perfecta: entra,
+  // chatea, manda fotos y SOS. Lo único que falta es lo único que importa.
+  //
+  // Se le pregunta AL SISTEMA si está corriendo, no a una variable nuestra:
+  // la variable puede estar al día y el servicio muerto. Y si no está, se
+  // rearranca. `arrancar` ya chequea antes de hacer nada, así que esto no
+  // reinicia un servicio sano — que es lo que quemaría la batería.
   const [diag, setDiag] = React.useState({ ...gps.diagnostico });
   React.useEffect(() => {
     if (!sesion) return;
-    const t = setInterval(() => setDiag({ ...gps.diagnostico }), 2000);
-    return () => clearInterval(t);
+    let vivo = true;
+    const mirar = async () => {
+      const corriendo = await gps.estaCorriendo();
+      if (!vivo) return;
+      if (!corriendo) {
+        gps.diagnostico.servicio = 'caído, rearrancando';
+        gps.arrancar({ textoNotificacion: textoRef.current }).catch(() => {});
+      } else if (gps.diagnostico.servicio !== 'corriendo') {
+        gps.diagnostico.servicio = 'corriendo';
+      }
+      setDiag({ ...gps.diagnostico });
+    };
+    mirar();
+    const t = setInterval(mirar, 2000);
+    return () => { vivo = false; clearInterval(t); };
   }, [sesion]);
 
   // ── Cadencia según la pantalla ──────────────────────────────
@@ -157,11 +186,6 @@ function Aplicacion() {
   // cambia cada 3 segundos: reiniciaba el GPS cada 3 segundos y quemaba
   // batería, que es exactamente lo que este build viene a medir.
   //
-  // El texto va en un ref para que el oyente se suscriba UNA vez: si
-  // dependiera del hud, se re-suscribiría con cada brecha nueva.
-  const textoRef = React.useRef('Turno en curso');
-  textoRef.current = textoNotificacion(hud, reporta);
-
   React.useEffect(() => {
     if (!sesion) return;
     const sub = AppState.addEventListener('change', (estado) => {
@@ -310,6 +334,13 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, onIr, 
       {/* Qué está haciendo el GPS. Está a la vista a propósito mientras se
           mide en la calle: "no aparece en el mapa" no distingue entre el GPS
           que no dispara, el envío que falla y el servidor que rechaza. */}
+      {/* El estado del SERVICIO va primero. Sin él, "enviadas 0 · fallidas 0"
+          no distingue entre "todavía no llegó la primera posición" y "el
+          servicio ni siquiera está corriendo", y esa ambigüedad ya costó una
+          sesión entera de diagnóstico. */}
+      <Text style={[s.diagnostico, diag.servicio !== 'corriendo' && { color: C.rojo }]}>
+        Servicio de GPS: {diag.servicio}
+      </Text>
       <Text style={s.diagnostico}>
         GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
         {diag.enEspera > 0 ? ` · ${diag.enEspera} esperando` : ''}

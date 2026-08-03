@@ -151,6 +151,29 @@ Corren con el resto: `npm test` desde la raíz.
   exactamente lo que arruinaría la medición de batería. Para tenerla viva hay
   que ir por otro lado: una notificación aparte con `expo-notifications`, sin
   tocar el servicio de ubicación.
+- **Que la tarea esté REGISTRADA no quiere decir que el servicio esté
+  CORRIENDO.** Son dos preguntas distintas y confundirlas costó caro:
+
+  ```
+  isTaskRegisteredAsync            ¿existe el registro de la tarea?
+  hasStartedLocationUpdatesAsync   ¿el servicio está corriendo?
+  ```
+
+  El registro lo guarda Android y **sobrevive a que el servicio muera**: a
+  una reinstalación del APK, a que Xiaomi mate la app, a un reinicio. Con un
+  registro huérfano dando vueltas, `arrancar` volvía enseguida sin arrancar
+  nada. La app se veía perfecta —entraba, chateaba, mandaba fotos y SOS— y el
+  GPS, que es el punto de todo esto, no existía: `enviadas 0 · fallidas 0`,
+  ni un error. Y lo disparaba el caso más común de todos: **instalar una
+  versión nueva**, o sea que le iba a pasar a cada chofer en cada
+  actualización. Lo vigila `pruebas/nativas.js`.
+- **El servicio se vigila y se rearranca solo**, cada 2 s mientras la app está
+  abierta, preguntándole al sistema y no a una variable nuestra. Los
+  fabricantes matan servicios; arrancarlo una vez no alcanza.
+- **La pantalla muestra el estado del servicio, no solo los contadores.**
+  "enviadas 0 · fallidas 0" no distingue entre "todavía no llegó la primera
+  posición" y "el servicio ni siquiera existe". Esa ambigüedad se llevó una
+  sesión entera de diagnóstico.
 - **`gps_role` manda.** Solo una conexión reporta la posición de cada
   vehículo y cambia sola cuando entra otro chofer. Si `reporting` es `false`,
   el servicio no manda: el servidor lo descartaría igual, en silencio.
