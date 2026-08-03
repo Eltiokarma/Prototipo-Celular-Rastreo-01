@@ -110,12 +110,13 @@ const db = openDatabase(Database);
 db.exec(`
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,          -- 'chat' | 'voice' | 'sos'
+    kind TEXT NOT NULL,          -- 'chat' | 'voice' | 'photo' | 'sos'
     unitId TEXT,
     driverName TEXT,
     text TEXT,                   -- solo kind='chat'
     duration INTEGER,            -- segundos, solo kind='voice'
-    data TEXT,                   -- audio como data-URL base64, solo kind='voice'
+    data TEXT,                   -- data-URL base64: audio si kind='voice',
+                                 -- imagen si kind='photo'
     lat REAL, lng REAL,          -- solo kind='sos'
     timestamp INTEGER NOT NULL
   )
@@ -580,7 +581,13 @@ addColumnIfMissing('messages', 'toVehicleId', 'TEXT');
 
 const HISTORY_MAX = 200;   // mensajes que recibe un cliente al conectarse
 const KEEP_ROWS = 1000;    // filas totales que retiene la base
-const VOICE_KEEP = 30;     // notas de voz que conservan su audio
+// Cuánto contenido pesado se conserva. Configurable por entorno solo para
+// poder probarlo: con los valores de producción, una suite tendría que mandar
+// 20 fotos, y el cupo por minuto (6) la frenaría antes — serían cuatro
+// minutos de prueba para una comprobación. Mismo criterio que SIN_SENAL_MS.
+const VOICE_KEEP = Number(process.env.VOICE_KEEP) || 30;  // notas que conservan su audio
+const PHOTO_KEEP = Number(process.env.PHOTO_KEEP) || 20;  // fotos que conservan su imagen
+                                                          // (menos: pesan más que un audio)
 
 const insertStmt = db.prepare(`
   INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, toVehicleId, text, duration, data, lat, lng, timestamp)
@@ -589,12 +596,17 @@ const insertStmt = db.prepare(`
 const pruneRowsStmt = db.prepare(`
   DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY id DESC LIMIT ${KEEP_ROWS})
 `);
-// Las notas de voz viejas sueltan su audio (pesa mucho) pero conservan
-// la burbuja con su duración — el cliente las muestra como expiradas.
-const pruneVoiceStmt = db.prepare(`
+// Lo pesado viejo suelta su contenido pero conserva la burbuja — el cliente
+// la muestra como expirada, que es honesto: existió, ya no está.
+//
+// Se poda por tipo y NO en conjunto: una ráfaga de fotos no puede borrarle el
+// audio a las notas de voz. Son dos presupuestos separados a propósito,
+// porque una foto pesa varias veces lo que un audio y el que manda fotos no
+// es necesariamente el que mandó la nota de voz que hace falta escuchar.
+const pruneMediaStmt = db.prepare(`
   UPDATE messages SET data = NULL
-  WHERE kind = 'voice' AND data IS NOT NULL
-    AND id NOT IN (SELECT id FROM messages WHERE kind = 'voice' AND data IS NOT NULL ORDER BY id DESC LIMIT ${VOICE_KEEP})
+  WHERE data IS NOT NULL AND kind = @kind
+    AND id NOT IN (SELECT id FROM messages WHERE kind = @kind AND data IS NOT NULL ORDER BY id DESC LIMIT @conservar)
 `);
 
 function remember(item) {
@@ -602,7 +614,8 @@ function remember(item) {
     insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null,
       vehicleId: null, toVehicleId: null, ...item });
     pruneRowsStmt.run();
-    pruneVoiceStmt.run();
+    pruneMediaStmt.run({ kind: 'voice', conservar: VOICE_KEEP });
+    pruneMediaStmt.run({ kind: 'photo', conservar: PHOTO_KEEP });
   } catch (e) {
     console.error('No se pudo guardar el mensaje:', e.message);
   }
@@ -2719,6 +2732,7 @@ const CUPO = {
   gps:   { max: 40, ventanaMs: 60_000 },   // llega cada 3 s: 20/min es lo normal
   chat:  { max: 30, ventanaMs: 60_000 },
   voice: { max: 10, ventanaMs: 60_000 },
+  photo: { max: 6,  ventanaMs: 60_000 },   // pesa más que un audio, y se manda menos
   sos:   { max: 6,  ventanaMs: 60_000 },
   otro:  { max: 60, ventanaMs: 60_000 },
 };
@@ -2951,22 +2965,9 @@ wss.on('connection', (ws) => {
       const prof = profiles.get(unitId) || {};
       const routeId = rutaDelEmisor();
 
-      // ¿Privado? Despacho elige a qué unidad le escribe; una unidad solo
-      // puede escribirle a Despacho, y eso es su propia conversación.
-      // A propósito NO existe chofer ↔ chofer en privado: el canal entre
-      // choferes es el grupo, y abrir mensajería privada entre cientos de
-      // personas trae un problema de moderación que no queremos.
-      let toVehicleId = null;
-      if (prof.role === 'dispatch') {
-        const destino = idLimpio(msg.to);
-        if (destino) {
-          if (!units.has(destino) && !vehicleOf(destino)) return;  // unidad inexistente
-          toVehicleId = destino;
-        }
-      } else if (msg.to || msg.privado) {
-        toVehicleId = prof.vehicleId || null;
-        if (!toVehicleId) return;
-      }
+      const destino = destinoPrivado(prof, msg);
+      if (!destino) return;
+      const { toVehicleId } = destino;
 
       const entry = {
         unitId,
@@ -2988,32 +2989,20 @@ wss.on('connection', (ws) => {
     }
 
     // TIPO: voz — nota de voz grabada en el celular
-    // Llega como data-URL base64 (webm/opus). Tope ~1.5 MB de audio
-    // (unos 60s) para que el broadcast no se vuelva pesado.
+    // Llega como data-URL base64 (webm/opus desde la web, m4a/aac desde
+    // Android). Tope ~1,5 MB de audio (unos 60s) para que el broadcast no se
+    // vuelva pesado.
     if (msg.type === 'voice') {
       const unitId = clients.get(ws);
       if (!unitId) return;
-      const data = typeof msg.data === 'string'
-        && msg.data.startsWith('data:audio')
-        && msg.data.length <= 2_000_000
-        ? msg.data : null;
+      const data = medioValido(msg.data, 'data:audio', MAX_AUDIO);
       if (!data) return; // audio inválido o demasiado grande — se descarta
       const prof = profiles.get(unitId) || {};
       const routeId = rutaDelEmisor();
 
-      // Mismas reglas que el texto: Despacho elige unidad, una unidad solo
-      // puede hablar con Despacho (su propia conversación).
-      let toVehicleId = null;
-      if (prof.role === 'dispatch') {
-        const destino = idLimpio(msg.to);
-        if (destino) {
-          if (!units.has(destino) && !vehicleOf(destino)) return;
-          toVehicleId = destino;
-        }
-      } else if (msg.to || msg.privado) {
-        toVehicleId = prof.vehicleId || null;
-        if (!toVehicleId) return;
-      }
+      const destino = destinoPrivado(prof, msg);
+      if (!destino) return;
+      const { toVehicleId } = destino;
 
       const entry = {
         unitId,
@@ -3027,6 +3016,44 @@ wss.on('connection', (ws) => {
       };
       remember({ kind: 'voice', ...entry });
       const payload = { type: 'voice_msg', role: prof.role || 'driver', ...entry };
+      if (toVehicleId) enviarPrivado(routeId, toVehicleId, payload);
+      else broadcastToRoute(routeId, payload);
+    }
+
+    // TIPO: foto — una imagen sacada desde el celular
+    //
+    // Misma cañería que la voz, con dos diferencias que importan:
+    //
+    //   - El tope es MÁS CHICO que el del audio, no más grande. Una foto de
+    //     celular sale de 3 a 8 MB, y mandarla entera le quema los datos a
+    //     toda la ruta: el que la manda paga una vez, los que la reciben
+    //     pagan cada uno. El cliente la achica antes de mandarla; este tope
+    //     es la red por si algún cliente no lo hace.
+    //   - No hay `duration`. Lo que se guarda es el pie de foto, si lo tiene.
+    if (msg.type === 'photo') {
+      const unitId = clients.get(ws);
+      if (!unitId) return;
+      const data = medioValido(msg.data, 'data:image', MAX_IMAGEN);
+      if (!data) return;
+      const prof = profiles.get(unitId) || {};
+      const routeId = rutaDelEmisor();
+
+      const destino = destinoPrivado(prof, msg);
+      if (!destino) return;
+      const { toVehicleId } = destino;
+
+      const entry = {
+        unitId,
+        driverName: prof.driverName || 'Conductor',
+        vehicleId: prof.vehicleId || null,
+        toVehicleId,
+        routeId,
+        text: String(msg.text || '').slice(0, 200),   // pie de foto, opcional
+        data,
+        timestamp: msg.timestamp || Date.now(),
+      };
+      remember({ kind: 'photo', ...entry });
+      const payload = { type: 'photo_msg', role: prof.role || 'driver', ...entry };
       if (toVehicleId) enviarPrivado(routeId, toVehicleId, payload);
       else broadcastToRoute(routeId, payload);
     }
@@ -3093,6 +3120,49 @@ wss.on('connection', (ws) => {
   // El estado y el historial se mandan recién después de un identify
   // válido — una conexión sin autenticar no recibe nada.
 });
+
+// Topes de lo que viaja incrustado en el mensaje, en caracteres del data-URL
+// (el base64 infla ~4/3, así que el archivo real es como un 75 % de esto).
+//
+// La imagen tiene MENOS lugar que el audio, y no es un descuido: una foto de
+// celular sale de 3 a 8 MB, y en un canal donde el que manda paga una vez y
+// los que reciben pagan cada uno, lo caro es el reparto. El cliente la achica
+// antes; esto es la red por si algún cliente no lo hace.
+const MAX_AUDIO = 2_000_000;
+const MAX_IMAGEN = 1_200_000;
+
+const medioValido = (data, prefijo, tope) =>
+  (typeof data === 'string' && data.startsWith(prefijo) && data.length <= tope) ? data : null;
+
+// A quién va este mensaje, si es que va a alguien en particular.
+//
+// La regla: Despacho elige a qué unidad le escribe; una unidad solo puede
+// escribirle a Despacho, y eso es su propia conversación. A propósito NO
+// existe chofer ↔ chofer en privado — el canal entre choferes es el grupo, y
+// abrir mensajería privada entre cientos de personas trae un problema de
+// moderación que no queremos.
+//
+// Está acá afuera porque la usan el texto, la voz y la foto. Eran tres copias
+// de la MISMA regla de seguridad, y tres copias es una que se queda atrás:
+// alcanza con que un tipo nuevo se olvide de validar el destino para que un
+// privado termine en el grupo. Las suites `privado` y `seguridad` la cubren.
+//
+// Devuelve null cuando hay que descartar el mensaje, o `{ toVehicleId }` con
+// null adentro si es para el grupo.
+function destinoPrivado(prof, msg) {
+  if (prof.role === 'dispatch') {
+    const destino = idLimpio(msg.to);
+    if (!destino) return { toVehicleId: null };
+    if (!units.has(destino) && !vehicleOf(destino)) return null;  // unidad inexistente
+    return { toVehicleId: destino };
+  }
+  if (msg.to || msg.privado) {
+    const propio = prof.vehicleId || null;
+    if (!propio) return null;
+    return { toVehicleId: propio };
+  }
+  return { toVehicleId: null };
+}
 
 // Reparto de un mensaje privado: los que van ARRIBA de ese vehículo (chofer y
 // cobrador) y Despacho mirando esa ruta. Nadie más — ni los otros choferes.

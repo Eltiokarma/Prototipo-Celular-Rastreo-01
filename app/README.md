@@ -30,8 +30,9 @@ lo mata más tarde. Varios minutos no dicen nada de eso.
 
 ## Qué hay hoy
 
-Entrar → brecha en vivo → chat con los dos canales → notas de voz → SOS
-deslizable → GPS en segundo plano con la brecha en la notificación.
+Entrar → brecha en vivo → chat con los dos canales → notas de voz → fotos →
+SOS deslizable → GPS en segundo plano con la brecha en la notificación. Se
+pasa de pantalla deslizando el dedo o con la barra de abajo.
 
 **Falta el mapa.** Necesita `react-native-maps`, y en Android eso pide una
 **clave de Google Maps**: crear un proyecto en Google Cloud, habilitar "Maps
@@ -111,6 +112,13 @@ voz.js                 Grabar y reproducir notas de voz. Acá SÍ hay Expo:
                        tiene permiso, grabador y reproductor con su ciclo
                        de vida, y mezclarlo con el render es la forma más
                        segura de dejar el micrófono abierto
+foto.js                Sacar o elegir una foto. También con Expo
+imagen.js              Cuánto achicarla y cuánto pesa. JS puro, probado
+                       en pruebas/imagen.js
+margenes.js            Dónde terminan las barras de Android. JS puro,
+                       probado en pruebas/margenes.js
+gestos.js              Pasar de pantalla deslizando, sin robarle el gesto
+                       al SOS. JS puro, probado en pruebas/gestos.js
 cola.js                Las posiciones cuando no hay datos. Probada en
                        pruebas/cola.js
 gps/servicio.js        expo-location + expo-task-manager: el foreground
@@ -119,7 +127,8 @@ App.js                 Las pantallas. Solo dibujan lo que les dan
 ```
 
 **La lógica está afuera de los componentes a propósito.** `cliente.js`,
-`hud.js`, `chat.js` y `cola.js` son JavaScript puro y corren en Node, así que tienen
+`hud.js`, `chat.js`, `cola.js`, `margenes.js`, `gestos.js` e `imagen.js` son
+JavaScript puro y corren en Node, así que tienen
 suites de verdad y no hace falta un teléfono para saber si andan. Es donde
 vivieron todos los bugs de esta pantalla —la unidad inventada, el lado vacío,
 el "sin señal" confundido con "no hay nadie", el `02:60`—, y ahora cada uno
@@ -257,9 +266,36 @@ reinstalar en cada teléfono.
 - **El chat tiene dos canales**: la ruta y el directo con Despacho. Chofer ↔
   chofer privado no existe, y eso lo decide el servidor: el canal entre
   choferes es el grupo.
+- **La foto se achica siempre antes de salir**: 1280 px en el lado largo y
+  JPEG al 50 %. Una de celular sale de 3 a 8 MB, y acá el que la manda paga
+  una vez y **los que la reciben pagan cada uno** — una foto sin achicar en
+  una ruta de veinte combis son veinte descargas, en Juliaca y con prepago.
+  Después de mandarla se muestra cuánto pesó, que es lo que hace que un
+  chofer siga usándola en vez de apagarla.
+- **Un toque abre la cámara, mantener apretado abre la galería.** La fila de
+  escribir ya está llena; dos gestos sobre un botón cuestan menos que otro
+  botón.
+- **El tope de la foto lo saben los dos lados y tiene que ser el mismo
+  número.** El servidor descarta en silencio: si el cliente permitiera más, la
+  foto saldría y se perdería sin que nadie se entere. `pruebas/foto.js` manda
+  una de más y una de menos contra el servidor de verdad para que no se
+  separen.
+- **Las pantallas no tienen márgenes fijos.** Los pone `margenes.js` a partir
+  de lo que reporta Android, porque el espacio de las barras cambia por
+  teléfono y por cómo lo configuró cada chofer. Un `paddingTop: 56` escrito a
+  mano fue lo que dejó el botón de CHAT debajo de los botones del sistema.
+- **El deslizamiento lateral NO le puede robar el gesto al SOS.** Son los dos
+  horizontales. La pantalla usa `onMoveShouldSetPanResponder` —sin
+  `Capture`—, así el hijo reclama primero; y el SOS declara
+  `onPanResponderTerminationRequest: () => false`, así una vez que tomó el
+  dedo no lo suelta. Un falso SOS moviliza gente y quema la confianza en el
+  sistema entero.
 
 ## Lo que falta
 
 - **El mapa** (`react-native-maps`), que además necesita la clave de Google.
 - La brecha en vivo en la notificación, sin reiniciar el GPS.
 - Medir un turno completo en la calle. Nada de acá lo reemplaza.
+- Probarlo en teléfonos de verdad con las tres configuraciones de navegación
+  de Android (botones, gestos, y alguno viejo sin insets). `pruebas/margenes.js`
+  cubre la cuenta, no el vidrio.

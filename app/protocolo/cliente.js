@@ -174,6 +174,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       case 'chat_history': emitir('historial', m.items || []); break;
       case 'chat_msg':     emitir('chat', m); break;
       case 'voice_msg':    emitir('voz', m); break;
+      case 'photo_msg':    emitir('foto', m); break;
       case 'sos_alert':    emitir('sos', m); break;
       case 'unit_joined':  emitir('unidadEntro', m.unitId); break;
       case 'unit_left':    emitir('unidadSalio', m.unitId); break;
@@ -294,6 +295,21 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     return ok ? null : 'sin-conexion';
   }
 
+  // Foto. Mismo camino que la voz, con MENOS lugar: el tope del servidor para
+  // imágenes es más chico que el del audio a propósito —una foto pesa mucho
+  // más y el reparto lo pagan todos los que la reciben, no el que la manda—.
+  // Ver `app/imagen.js`.
+  const TOPE_IMAGEN = 1_150_000;
+  function mandarFoto({ data, text = '', privado = false }) {
+    if (!data || !String(data).startsWith('data:image')) return 'formato';
+    if (String(data).length > TOPE_IMAGEN) return 'muy-pesada';
+    const ok = enviar({
+      type: 'photo', data, text: String(text || '').slice(0, 200),
+      timestamp: ahora(), ...(privado ? { privado: true } : {}),
+    });
+    return ok ? null : 'sin-conexion';
+  }
+
   function mandarSos({ lat = null, lng = null } = {}) {
     return enviar({ type: 'sos', lat, lng, timestamp: ahora() });
   }
@@ -309,7 +325,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
 
   return {
     entrar, conectar, salir,
-    mandarGps, subirPosiciones, mandarChat, mandarVoz, mandarSos,
+    mandarGps, subirPosiciones, mandarChat, mandarVoz, mandarFoto, mandarSos,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {
       if (!oyentes.has(evento)) oyentes.set(evento, new Set());

@@ -21,6 +21,7 @@ function aMensaje(crudo, { miPersona, miVehiculo }) {
   const propio = crudo.unitId === miPersona;
   const esSos = crudo.kind === 'sos' || crudo.type === 'sos_alert';
   const esVoz = crudo.kind === 'voice' || crudo.type === 'voice_msg';
+  const esFoto = crudo.kind === 'photo' || crudo.type === 'photo_msg';
   return {
     id: `${crudo.unitId}-${crudo.timestamp}`,
     canal: crudo.toVehicleId ? 'directo' : 'grupo',
@@ -32,16 +33,22 @@ function aMensaje(crudo, { miPersona, miVehiculo }) {
       : (crudo.driverName || crudo.unitId || 'Conductor'),
     // La unidad, solo si NO es la mía: en mi propio canal es ruido.
     unidad: crudo.vehicleId && crudo.vehicleId !== miVehiculo ? crudo.vehicleId : null,
+    // Una foto puede llevar pie o no. Si no lleva, el texto igual dice algo:
+    // una burbuja vacía cuando la imagen ya expiró no se distingue de un bug.
     texto: esSos
       ? `SOS — ${crudo.driverName || crudo.unitId} pide ayuda`
       : esVoz ? `Nota de voz · ${crudo.duration || 0}s`
+      : esFoto ? String(crudo.text || 'Foto')
       : String(crudo.text || ''),
-    // El audio en sí, para poder reproducirlo. Las notas viejas pierden el
-    // audio a propósito —el servidor solo conserva las 30 últimas— y quedan
-    // como burbuja sin reproducción, que es honesto: existió, ya no está.
+    // El contenido en sí, para poder reproducirlo o verlo. Lo viejo lo pierde
+    // a propósito —el servidor solo conserva las últimas: 30 audios, 20
+    // fotos— y queda como burbuja sin contenido, que es honesto: existió, ya
+    // no está.
     audio: esVoz ? (crudo.data || null) : null,
+    imagen: esFoto ? (crudo.data || null) : null,
     segundos: esVoz ? (crudo.duration || 0) : null,
-    tono: esSos ? 'sos' : esVoz ? 'voz' : crudo.role === 'dispatch' ? 'despacho' : 'normal',
+    tono: esSos ? 'sos' : esVoz ? 'voz' : esFoto ? 'foto'
+      : crudo.role === 'dispatch' ? 'despacho' : 'normal',
     timestamp: crudo.timestamp || 0,
     hora: hora(crudo.timestamp),
   };

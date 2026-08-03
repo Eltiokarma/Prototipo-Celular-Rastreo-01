@@ -166,7 +166,7 @@ Lo que hay que tener claro:
 asimétrico con el `PUT /admin/routes/:id/points`, que sí recibe objetos. Es
 así hoy; si se toca, se rompen las dos pantallas web.
 
-### 3.4 `chat_history`, `chat_msg`, `sos_alert`
+### 3.4 `chat_history`, `chat_msg`, `voice_msg`, `photo_msg`, `sos_alert`
 
 ```json
 { "type": "chat_msg", "role": "driver",
@@ -181,8 +181,25 @@ así hoy; si se toca, se rompen las dos pantallas web.
   "lat": -15.4828, "lng": -70.1302, "timestamp": 1785562735837 }
 ```
 
+```json
+{ "type": "photo_msg", "role": "driver",
+  "unitId": "M-08", "driverName": "Rufino Quispe", "vehicleId": "M-08",
+  "toVehicleId": null, "routeId": "R-14",
+  "text": "se rompió el eje", "data": "data:image/jpeg;base64,…",
+  "timestamp": 1785728569716 }
+```
+
 `toVehicleId` distingue el canal: `null` es el grupo de la ruta, y con valor
 es la conversación privada de esa unidad con Despacho.
+
+**El contenido pesado caduca, la burbuja no.** El servidor conserva el `data`
+de las **30** notas de voz y las **20** fotos más recientes; pasado eso lo
+pone en `NULL` y el mensaje sigue llegando sin él. El cliente lo muestra como
+expirado, que es honesto: existió, ya no está.
+
+Se poda **por tipo y no en conjunto**, a propósito: si el presupuesto fuera
+compartido, una ráfaga de fotos le borraría el audio a la nota de voz que
+justamente hace falta escuchar.
 
 ## 4. Lo que el cliente manda
 
@@ -192,6 +209,7 @@ es la conversación privada de esa unidad con Despacho.
 | `gps` | `{ lat, lng, speed }` | **40** |
 | `chat` | `{ text, timestamp, to? }` | 30 |
 | `voice` | `{ data, timestamp, to? }` | 10 |
+| `photo` | `{ data, text?, timestamp, to? }` | 6 |
 | `sos` | `{ lat, lng, timestamp }` | 6 |
 
 **Pasado el cupo, el mensaje se descarta en silencio.** No hay respuesta de
@@ -208,6 +226,15 @@ puede quemar.
   valida el prefijo y el tamaño — **no el formato**. La web graba webm/opus;
   una app nativa graba m4a/aac. Como quien lo escucha es Chrome en el panel,
   m4a funciona, pero conviene decidirlo antes y no descubrirlo en producción.
+- `photo`: data-URL (`data:image/…;base64,…`), máximo **1,2 MB** — o sea
+  MENOS que el audio, y no es un descuido. Una foto de celular sale de 3 a
+  8 MB, y en este canal el que la manda paga una vez y **los que la reciben
+  pagan cada uno**: lo caro es el reparto. El cliente la achica a 1280 px en
+  el lado largo y JPEG al 50 % antes de mandarla (`app/imagen.js`); este tope
+  es la red por si algún cliente no lo hace. `text` es el pie de foto, hasta
+  200 caracteres, y es opcional. Se descarta en silencio como todo lo demás,
+  así que el cliente tiene que medirla ANTES: si no, el chofer ve su foto
+  salir y nunca se entera de que no llegó.
 
 ## 4bis. Posiciones por HTTP: `POST /gps`
 

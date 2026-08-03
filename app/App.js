@@ -19,15 +19,20 @@ import React from 'react';
 import {
   View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
   FlatList, KeyboardAvoidingView, Platform, PanResponder, Animated, Vibration,
+  Image, Modal,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 
 import { crearCliente } from './protocolo/cliente';
 import { construirHud, textoNotificacion } from './hud';
 import { aMensaje, hilo, sinLeer } from './chat';
+import { margenes, margenBarra } from './margenes';
+import { deslizar, esHorizontal } from './gestos';
 import { useAudioRecorder, useAudioPlayer, RecordingPresets,
          pedirPermisoMicrofono, aDataUrl, MAX_SEGUNDOS } from './voz';
+import { tomarFoto, elegirFoto, comoTexto } from './foto';
 import * as gps from './gps/servicio';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
@@ -52,7 +57,19 @@ const C = {
 };
 const COLOR_ESTADO = { verde: C.verde, ambar: C.ambar, rojo: C.rojo, ninguno: C.tenue };
 
+// `SafeAreaProvider` tiene que envolver TODO: es quien mide dónde terminan la
+// barra de estado y la de navegación de Android, y sin él `useSafeAreaInsets`
+// devuelve ceros. Con ceros el botón de CHAT vuelve a quedar debajo de los
+// botones del sistema, que es el bug que se midió en un teléfono de verdad.
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <Aplicacion />
+    </SafeAreaProvider>
+  );
+}
+
+function Aplicacion() {
   const [sesion, setSesion] = React.useState(null);
   const [hud, setHud] = React.useState(() => construirHud(null));
   const [conectado, setConectado] = React.useState(false);
@@ -81,6 +98,7 @@ export default function App() {
       c.on('chat', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('sos',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('voz',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
+      c.on('foto', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
     ];
     return () => off.forEach(f => f());
   }, []);
@@ -196,11 +214,32 @@ export default function App() {
       canal={canal}
       onCanal={(cual) => { setCanal(cual); marcarVisto(cual); }}
       onEnviar={(texto) => cliente.current.mandarChat(texto, { privado: canal === 'directo' })}
-      onVoz={(data, duration) => cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' })} />;
+      onVoz={(data, duration) => cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' })}
+      onFoto={(data) => cliente.current.mandarFoto({ data, privado: canal === 'directo' })} />;
   }
 
   return <Ruta {...comun} hud={hud} reporta={reporta}
     onSos={() => cliente.current.mandarSos(ultimaPos.current)} />;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Pasar de pantalla deslizando el dedo. La barra de abajo sigue estando: esto
+// es el atajo, no el único camino.
+//
+// Se usa `onMoveShouldSetPanResponder` y NO la versión `...Capture`, y esa
+// diferencia de una palabra es la que protege al SOS: sin capturar, el hijo
+// reclama el gesto primero. El SOS es hijo de esta pantalla, también se
+// desliza en horizontal, y si esta capa se lo robara el chofer creería que
+// pidió ayuda sin haberla pedido. Ver `gestos.js`.
+function useDeslizar(pantalla, onIr) {
+  return React.useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,   // un toque no es asunto de esta capa
+    onMoveShouldSetPanResponder: (_, g) => esHorizontal(g),
+    onPanResponderRelease: (_, g) => {
+      const destino = deslizar(pantalla, g);
+      if (destino) onIr(destino);
+    },
+  }), [pantalla, onIr]);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -209,6 +248,7 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
   const [clave, setClave] = React.useState('');
   const [cargando, setCargando] = React.useState(false);
   const [error, setError] = React.useState(null);
+  const margen = margenes(useSafeAreaInsets());
 
   const enviar = async () => {
     setError(null); setCargando(true);
@@ -223,7 +263,7 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
   };
 
   return (
-    <View style={s.pantalla}>
+    <View style={[s.pantalla, margen]}>
       <StatusBar style="light" />
       <Text style={s.tituloChico}>CONTROL DE RUTA</Text>
       <Text style={s.subtitulo}>Ingresá con el usuario que te dio tu cooperativa</Text>
@@ -250,9 +290,13 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
 function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, onIr, onSalir, onSos }) {
   const p = hud.principal, sec = hud.secundario;
   const color = COLOR_ESTADO[p.estado];
+  // La pantalla termina en la barra de navegación de la app: el aire de abajo
+  // lo pone ella, no ésta. Sumar los dos deja la línea divisoria flotando.
+  const margen = margenes(useSafeAreaInsets(), { conBarra: true });
+  const pan = useDeslizar(pantalla, onIr);
 
   return (
-    <View style={s.pantalla}>
+    <View style={[s.pantalla, margen]} {...pan.panHandlers}>
       <StatusBar style="light" />
       <View style={s.barra}>
         <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
@@ -320,6 +364,12 @@ function SosDeslizable({ onDisparar }) {
   const pan = React.useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => !disparado,
     onMoveShouldSetPanResponder: () => !disparado,
+    // Una vez que el dedo está en el botón, NADIE se lo lleva. Desde que la
+    // pantalla también se desliza en horizontal para cambiar de pantalla,
+    // esta línea es lo que impide que un pedido de ayuda a medio hacer se
+    // convierta en un cambio de pantalla — o, peor, que el chofer crea que
+    // pidió ayuda y no la haya pedido. Ver `gestos.js`.
+    onPanResponderTerminationRequest: () => false,
     onPanResponderMove: (_, g) => {
       x.setValue(Math.max(0, Math.min(g.dx, recorrido)));
     },
@@ -360,8 +410,11 @@ function SosDeslizable({ onDisparar }) {
 // ═══════════════════════════════════════════════════════════════
 function Barra({ pantalla, noLeidos, onIr }) {
   const total = (noLeidos?.grupo || 0) + (noLeidos?.directo || 0);
+  // Acá está el bug que se midió: sin este margen, estos botones quedan
+  // DEBAJO de los de Android y hay que insistir para tocarlos. Ver
+  // `margenes.js` — un elemento que se toca necesita más aire que un texto.
   return (
-    <View style={s.barraAbajo}>
+    <View style={[s.barraAbajo, margenBarra(useSafeAreaInsets())]}>
       {[['ruta', 'RUTA', 0], ['chat', 'CHAT', total]].map(([id, texto, badge]) => (
         <Pressable key={id} onPress={() => onIr(id)} style={s.tab}>
           <Text style={[s.tabTexto, pantalla === id && { color: C.brillante }]}>{texto}</Text>
@@ -376,9 +429,12 @@ function Barra({ pantalla, noLeidos, onIr }) {
 // El chat, con sus DOS canales. El grupo lo ven todos los de la ruta; el
 // directo, solo este chofer y Despacho. Chofer ↔ chofer privado no existe y
 // eso lo decide el servidor, no esta pantalla.
-function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnviar, onVoz, onIr }) {
+function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnviar, onVoz, onFoto, onIr }) {
   const [texto, setTexto] = React.useState('');
+  const [verFoto, setVerFoto] = React.useState(null);
   const lista = React.useRef(null);
+  const margen = margenes(useSafeAreaInsets(), { conBarra: true });
+  const pan = useDeslizar(pantalla, onIr);
 
   const enviar = () => {
     const t = texto.trim();
@@ -388,7 +444,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
   };
 
   return (
-    <KeyboardAvoidingView style={s.pantalla}
+    <KeyboardAvoidingView style={[s.pantalla, margen]} {...pan.panHandlers}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar style="light" />
 
@@ -425,9 +481,18 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
             <Text style={s.burbujaQuien}>
               {m.quien}{m.unidad ? ` · ${m.unidad}` : ''} · {m.hora}
             </Text>
-            {m.audio
-              ? <Reproducir uri={m.audio} etiqueta={m.texto} />
-              : <Text style={s.burbujaTexto}>{m.texto}</Text>}
+            {m.audio && <Reproducir uri={m.audio} etiqueta={m.texto} />}
+            {m.imagen && (
+              // Tocarla la abre entera: en la burbuja entra chica, y lo que
+              // se manda —una chapa, un desperfecto— hay que poder mirarlo.
+              <Pressable onPress={() => setVerFoto(m.imagen)}>
+                <Image source={{ uri: m.imagen }} style={s.miniatura} resizeMode="cover" />
+              </Pressable>
+            )}
+            {/* Una foto sin imagen ya expiró en el servidor: la burbuja se
+                queda, con su pie, para que se sepa que existió. */}
+            {m.tono === 'foto' && !m.imagen && <Text style={s.expirada}>Foto ya no disponible</Text>}
+            {!m.audio && <Text style={s.burbujaTexto}>{m.texto}</Text>}
           </View>
         )}
       />
@@ -448,12 +513,66 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
               style={[s.enviar, !conectado && { opacity: 0.4 }]}>
               <Text style={s.enviarTexto}>➤</Text>
             </Pressable>
-          : <Grabar onListo={onVoz} habilitado={conectado} />}
+          : <>
+              <Camara onListo={onFoto} habilitado={conectado} />
+              <Grabar onListo={onVoz} habilitado={conectado} />
+            </>}
       </View>
       {!conectado && <Text style={s.avisoBarra}>Sin conexión — lo que escribas no va a salir</Text>}
 
       <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
+
+      {/* El visor. A pantalla completa y con fondo negro: una foto de la
+          calle en una burbuja de 200 px no sirve para decidir nada. */}
+      <Modal visible={!!verFoto} transparent animationType="fade"
+             onRequestClose={() => setVerFoto(null)}>
+        <Pressable style={s.visor} onPress={() => setVerFoto(null)}>
+          {verFoto && <Image source={{ uri: verFoto }} style={s.visorFoto} resizeMode="contain" />}
+          <Text style={s.visorPie}>Tocá para cerrar</Text>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// La foto. Un toque abre la cámara; mantener apretado abre la galería —para
+// mandar algo que ya se sacó sin ocupar otro botón en una fila que ya está
+// llena.
+//
+// Se achica ANTES de salir, en `foto.js`. Acá solo se avisa cuánto pesó: en
+// una ruta con datos prepago eso no es un detalle de nerd, y es la diferencia
+// entre que el chofer use esto o lo apague.
+function Camara({ onListo, habilitado }) {
+  const [ocupado, setOcupado] = React.useState(false);
+  const [aviso, setAviso] = React.useState(null);
+
+  const correr = async (fn) => {
+    if (ocupado || !habilitado) return;
+    setOcupado(true); setAviso(null);
+    try {
+      const r = await fn();
+      if (!r) return;                              // canceló
+      if (r.error) { setAviso(r.error); return; }
+      onListo?.(r.dataUrl);
+      setAviso(comoTexto(r.bytes));
+      setTimeout(() => setAviso(null), 3000);
+    } catch (e) {
+      setAviso('No se pudo usar la cámara');
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  return (
+    <View>
+      <Pressable onPress={() => correr(tomarFoto)} onLongPress={() => correr(elegirFoto)}
+        disabled={!habilitado || ocupado}
+        style={[s.camara, (!habilitado || ocupado) && { opacity: 0.4 }]}>
+        {ocupado ? <ActivityIndicator color="#fff" /> : <Text style={s.camaraTexto}>📷</Text>}
+      </Pressable>
+      {aviso && <Text style={s.camaraAviso}>{aviso}</Text>}
+    </View>
   );
 }
 
@@ -543,7 +662,11 @@ function Reproducir({ uri, etiqueta }) {
 }
 
 const s = StyleSheet.create({
-  pantalla: { flex: 1, backgroundColor: C.fondo, padding: 22, paddingTop: 56 },
+  // SIN padding: lo pone `margenes()` en cada pantalla, porque depende de
+  // dónde terminan las barras de Android y eso cambia por teléfono. Un
+  // número fijo acá fue lo que dejó el botón de CHAT debajo de los botones
+  // del sistema. Ver `margenes.js`.
+  pantalla: { flex: 1, backgroundColor: C.fondo },
   tituloChico: { fontFamily: 'monospace', fontSize: 12, letterSpacing: 2, color: C.cielo, textAlign: 'center' },
   subtitulo: { fontSize: 14, color: C.tenue, textAlign: 'center', marginTop: 6, marginBottom: 28 },
   rotulo: { fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.cielo, marginTop: 14 },
@@ -587,6 +710,30 @@ const s = StyleSheet.create({
     backgroundColor: C.rojo, alignItems: 'center', justifyContent: 'center',
   },
   sosBotonTexto: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+
+  // ── Foto ─────────────────────────────────────────────────────
+  camara: {
+    width: 50, height: 50, borderRadius: 12, backgroundColor: C.panel,
+    borderWidth: 1, borderColor: C.linea,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  camaraTexto: { fontSize: 22 },
+  // Cuánto pesó. En una ruta con datos prepago no es un detalle de nerd.
+  camaraAviso: {
+    position: 'absolute', bottom: 54, right: 0, width: 120, textAlign: 'right',
+    color: C.tenue, fontSize: 11,
+  },
+  miniatura: {
+    width: 200, height: 150, borderRadius: 10, marginTop: 6,
+    backgroundColor: C.fondo,
+  },
+  expirada: { color: C.tenue, fontSize: 13, fontStyle: 'italic', marginTop: 4 },
+  visor: {
+    flex: 1, backgroundColor: '#000000EE',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  visorFoto: { width: '100%', height: '85%' },
+  visorPie: { color: C.tenue, fontSize: 13, marginTop: 10 },
 
   // ── Navegación ───────────────────────────────────────────────
   barraAbajo: {

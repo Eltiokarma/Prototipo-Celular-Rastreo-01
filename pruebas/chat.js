@@ -84,6 +84,31 @@ console.log('\nLAS NOTAS DE VOZ');
      vieja.audio === null && /Nota de voz/.test(vieja.texto), vieja);
 }
 
+console.log('\nLAS FOTOS');
+{
+  const foto = aMensaje(crudo({ kind: 'photo', unitId: 'M-08', driverName: 'Rufino',
+                                data: 'data:image/jpeg;base64,AAAA' }), YO);
+  ok('lleva la imagen para poder verla', foto.imagen === 'data:image/jpeg;base64,AAAA', foto.imagen);
+  ok('y su propio tono', foto.tono === 'foto', foto.tono);
+  // Una burbuja vacía no se distingue de un bug: sin pie, algo tiene que decir.
+  ok('sin pie de foto igual dice algo', foto.texto === 'Foto', foto.texto);
+
+  const conPie = aMensaje(crudo({ kind: 'photo', unitId: 'M-08', text: 'se rompió el eje',
+                                  data: 'data:image/jpeg;base64,AAAA' }), YO);
+  ok('con pie de foto, se muestra el pie', conPie.texto === 'se rompió el eje', conPie.texto);
+
+  // El servidor conserva solo las 20 últimas imágenes.
+  const expirada = aMensaje(crudo({ kind: 'photo', unitId: 'M-08', text: 'el choque' }), YO);
+  ok('una foto vieja sin imagen no revienta',
+     expirada.imagen === null && expirada.texto === 'el choque', expirada);
+
+  // Y que no se crucen: una foto no es un audio.
+  ok('una foto no trae audio', foto.audio === null, foto.audio);
+  const voz2 = aMensaje(crudo({ kind: 'voice', unitId: 'M-08', duration: 3,
+                                data: 'data:audio/m4a;base64,AAAA' }), YO);
+  ok('y una nota de voz no trae imagen', voz2.imagen === null, voz2.imagen);
+}
+
 console.log('\nSIN LEER');
 {
   const ms = [

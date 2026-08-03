@@ -400,6 +400,18 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
                     ? (m.audio
                         ? <audio controls src={m.audio} style={{ width: 220, height: 36 }} />
                         : <span style={{ color: HUD.dim3 }}>🎙 nota de voz ({m.voice}s{m.expired ? ' · expirada' : ''})</span>)
+                    : m.photo
+                    ? (m.image
+                        // Se abre en pestaña nueva: lo que mandan —una chapa,
+                        // un desperfecto— hay que poder mirarlo en grande.
+                        ? <div>
+                            <a href={m.image} target="_blank" rel="noreferrer">
+                              <img src={m.image} alt={m.text}
+                                style={{ maxWidth: 240, borderRadius: 8, display: 'block', cursor: 'zoom-in' }} />
+                            </a>
+                            {m.text && m.text !== 'Foto' && <div style={{ marginTop: 4 }}>{m.text}</div>}
+                          </div>
+                        : <span style={{ color: HUD.dim3 }}>📷 {m.text} · ya no disponible</span>)
                     : m.text}
                 </div>
               </div>
@@ -2385,6 +2397,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       tone: 'normal',
     };
     if (kind === 'voice') return { ...base, voice: m.duration, audio: m.data || null, expired: m.expired };
+    // La foto puede llegar sin imagen: el servidor solo conserva las últimas
+    // 20. El pie de foto se queda, para que se sepa que existió.
+    if (kind === 'photo') return { ...base, photo: true, image: m.data || null, text: m.text || 'Foto' };
     return { ...base, text: m.text };
   };
 
@@ -2441,12 +2456,14 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           }
         } else if (msg.type === 'voice_msg') {
           pushMsg(mapMsg(msg, 'voice'));
+        } else if (msg.type === 'photo_msg') {
+          pushMsg(mapMsg(msg, 'photo'));
         } else if (msg.type === 'sos_alert') {
           pushMsg(mapMsg(msg, 'sos'));
           setSos({ ...msg, receivedAt: Date.now() });
         } else if (msg.type === 'chat_history') {
           setMessages((msg.items || []).map(it => mapMsg(
-            { ...it, expired: it.kind === 'voice' && !it.data },
+            { ...it, expired: (it.kind === 'voice' || it.kind === 'photo') && !it.data },
             it.kind
           )));
         } else if (msg.type === 'auth_error') {

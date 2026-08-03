@@ -43,11 +43,14 @@ const ESPERADO = {
   'expo-audio':        '~1.1.1',
   'expo-dev-client':   '~6.0.21',
   'expo-file-system':  '~19.0.23',
+  'expo-image-manipulator': '~14.0.8',
+  'expo-image-picker': '~17.0.11',
   'expo-location':     '~19.0.8',
   'expo-secure-store': '~15.0.8',
   'expo-status-bar':   '~3.0.9',
   'expo-task-manager': '~14.0.9',
   'babel-preset-expo': '~54.0.12',
+  'react-native-safe-area-context': '~5.6.0',
 };
 
 const declarado = { ...pkg.dependencies, ...pkg.devDependencies };
