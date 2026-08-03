@@ -125,6 +125,10 @@ function Aplicacion() {
   // brecha; el mapa necesita dónde está cada una.
   const [estado, setEstado] = React.useState(null);
   const [geometria, setGeometria] = React.useState(null);
+  // La marca de la cooperativa. Es lo que le dice al chofer que ésta es la app
+  // de SU empresa y no la de cualquiera: con varias cooperativas en el mismo
+  // sistema, una pantalla sin marca no se distingue de la de al lado.
+  const [marca, setMarca] = React.useState(null);
   const [conectado, setConectado] = React.useState(false);
   const [reporta, setReporta] = React.useState(false);
   const [aviso, setAviso] = React.useState(null);
@@ -172,6 +176,7 @@ function Aplicacion() {
     // los lee de ahí: cuando Android la revive, no queda nada en memoria.
     await SecureStore.setItemAsync(gps.LLAVE_SERVIDOR, SERVIDOR);
     cliente.current.conectar(s.token);
+    cliente.current.pedirMarca(s.token).then(m => { if (m) setMarca(m); });
     const permisos = await gps.pedirPermisos();
     if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
     await gps.arrancar({ textoNotificacion: 'Buscando tu posición…' });
@@ -276,7 +281,7 @@ function Aplicacion() {
   };
 
   const comun = {
-    conectado, aviso, diag, pantalla, noLeidos,
+    conectado, aviso, diag, pantalla, noLeidos, marca,
     onIr: irA,
     onSalir: async () => {
       await SecureStore.deleteItemAsync(gps.LLAVE_SESION);
@@ -445,7 +450,7 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, onIr, onSalir, onSos }) {
+function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca, onIr, onSalir, onSos }) {
   const { s, C } = usarTema();
   const p = hud.principal, sec = hud.secundario;
   const color = colorEstado(C)[p.estado];
@@ -457,6 +462,7 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, onIr, 
     <View style={[s.pantalla, margen]}>
       <StatusBar style="light" />
       <View style={s.barra}>
+        <Marca marca={marca} />
         <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
           {conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
         </Text>
@@ -615,6 +621,30 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
       <View style={{ paddingHorizontal: 22 }}>
         <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
       </View>
+    </View>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// El escudo de la cooperativa: su logo, o sus iniciales sobre su color.
+//
+// NUNCA un hueco. Con varias cooperativas en el mismo sistema, una pantalla
+// sin marca no se distingue de la de al lado: el chofer no sabe si se
+// equivocó de cuenta ni a quién reclamarle. Y un cuadro vacío se lee como que
+// la app está rota, mientras que dos letras se leen como "todavía no subieron
+// el logo" — que es la verdad, y funciona desde el primer día.
+function Marca({ marca, tam = 26 }) {
+  const { s, C } = usarTema();
+  if (marca?.logo) {
+    return <Image source={{ uri: marca.logo }} resizeMode="contain"
+      style={[s.marca, { width: tam, height: tam, backgroundColor: '#fff' }]} />;
+  }
+  return (
+    <View style={[s.marca, { width: tam, height: tam,
+                             backgroundColor: marca?.color || C.marca }]}>
+      <Text style={[s.marcaTexto, { fontSize: Math.round(tam * 0.42) }]}>
+        {marca?.iniciales || '·'}
+      </Text>
     </View>
   );
 }
@@ -1011,6 +1041,10 @@ function crearEstilos(C) { return StyleSheet.create({
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
   },
   centrarTexto: { color: C.cielo, fontSize: 11, fontWeight: '900', letterSpacing: 1.5 },
+
+  // ── Marca de la cooperativa ──────────────────────────────────
+  marca: { borderRadius: 6, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  marcaTexto: { color: '#fff', fontWeight: '900', letterSpacing: 0.5 },
 
   // ── Entrar / tema ────────────────────────────────────────────
   campoConBoton: {

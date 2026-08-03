@@ -2174,6 +2174,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
 
                 {empresa.puedeEditar ? (
                   <div style={{ maxWidth: 560, display: 'grid', gap: 14 }}>
+                    <SubirLogo marca={marca} token={session.token} onListo={refrescarMarca}
+                      onOk={setOkMsg} onError={setError} />
                     <div>
                       <div style={{ ...rotulo(9), marginBottom: 6 }}>Nombre</div>
                       <input value={empForm.name} placeholder="Cooperativa de Transportes…"
@@ -2307,7 +2309,137 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
 // ═══════════════════════════════════════════════════════════════
 // PANEL
 // ═══════════════════════════════════════════════════════════════
+// El escudo de la cooperativa: su logo, o sus iniciales sobre su color.
+//
+// NUNCA un hueco. Un cuadro vacío donde va la marca se lee como que el panel
+// está roto; dos letras se leen como "todavía no subieron el logo", que es la
+// verdad, y funciona desde el primer día sin que nadie haga nada.
+function Marca({ marca, tam = 30 }) {
+  const caja = {
+    width: tam, height: tam, borderRadius: 7, flexShrink: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  };
+  if (marca?.logo) {
+    return <img src={marca.logo} alt={marca.nombre || ''} title={marca.nombre || ''}
+      style={{ ...caja, objectFit: 'contain', background: '#fff' }} />;
+  }
+  return (
+    <div style={{ ...caja, background: marca?.color || HUD.brand }} title={marca?.nombre || ''}>
+      <span style={{ fontFamily: black, fontSize: Math.round(tam * 0.42), color: '#fff', letterSpacing: 0.5 }}>
+        {marca?.iniciales || '·'}
+      </span>
+    </div>
+  );
+}
+
+// Subir el logo. Se achica ACÁ, en el navegador, antes de mandarlo.
+//
+// Nadie tiene a mano un PNG de 256 px: lo que sube una persona es el archivo
+// que le pasó el diseñador, de 2000 px y 3 MB. Rechazarlo y pedirle que lo
+// achique es empujarle un problema que la máquina resuelve en un segundo —y
+// que además hay que resolver igual, porque este logo va a viajar al celular
+// de cada chofer.
+const LADO_LOGO = 256;
+
+function achicarLogo(archivo) {
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onerror = () => reject(new Error('No se pudo leer el archivo'));
+    lector.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Ese archivo no es una imagen'));
+      img.onload = () => {
+        const escala = Math.min(1, LADO_LOGO / Math.max(img.width, img.height));
+        const lienzo = document.createElement('canvas');
+        lienzo.width = Math.max(1, Math.round(img.width * escala));
+        lienzo.height = Math.max(1, Math.round(img.height * escala));
+        // PNG y no JPEG: un logo suele tener fondo transparente, y el JPEG lo
+        // rellena de negro. Es la diferencia entre un escudo y un cuadrado.
+        lienzo.getContext('2d').drawImage(img, 0, 0, lienzo.width, lienzo.height);
+        resolve(lienzo.toDataURL('image/png'));
+      };
+      img.src = lector.result;
+    };
+    lector.readAsDataURL(archivo);
+  });
+}
+
+function SubirLogo({ marca, token, onListo, onOk, onError }) {
+  const entrada = React.useRef(null);
+  const [ocupado, setOcupado] = React.useState(false);
+
+  const mandar = async (logo) => {
+    setOcupado(true); onError?.(null); onOk?.(null);
+    try {
+      const r = await fetch(`${HTTP_URL}/admin/company/logo`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ logo }),
+      });
+      const cuerpo = await r.json().catch(() => ({}));
+      if (!r.ok) { onError?.(cuerpo.error || 'No se pudo guardar el logo'); return; }
+      onOk?.(logo ? 'Logo actualizado' : 'Logo quitado');
+      onListo?.();
+    } catch {
+      onError?.('No se pudo guardar el logo');
+    } finally {
+      setOcupado(false);
+      if (entrada.current) entrada.current.value = '';
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ ...rotulo(9), marginBottom: 6 }}>Logo de la cooperativa</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <Marca marca={marca} tam={64} />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button disabled={ocupado} style={btnSecundario(40)}
+            onClick={() => entrada.current?.click()}>
+            {ocupado ? 'Subiendo…' : marca?.logo ? 'Cambiar' : 'Subir logo'}
+          </button>
+          {marca?.logo && (
+            <button disabled={ocupado} style={btnSecundario(40)} onClick={() => mandar(null)}>
+              Quitar
+            </button>
+          )}
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 8, lineHeight: 1.5 }}>
+        PNG, JPG o WEBP. Se achica solo a {LADO_LOGO} px — no hace falta que lo prepares.
+        Sin logo se muestran las iniciales, que es lo que ven hoy tus choferes.
+      </div>
+      <input ref={entrada} type="file" accept="image/png,image/jpeg,image/webp"
+        style={{ display: 'none' }}
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          if (!f) return;
+          try { await mandar(await achicarLogo(f)); }
+          catch (err) { onError?.(err.message); setOcupado(false); }
+        }} />
+    </div>
+  );
+}
+
+// La marca se pide aparte del login: así Despacho la cambia y las pantallas
+// la ven sin que nadie tenga que volver a entrar, y cada login no arrastra
+// ~100 kB de imagen.
+function useMarca(token) {
+  const [marca, setMarca] = React.useState(null);
+  const traer = React.useCallback(() => {
+    if (!token) return;
+    fetch(`${HTTP_URL}/marca`, { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.marca) setMarca(d.marca); })
+      .catch(() => {});
+  }, [token]);
+  React.useEffect(() => { traer(); }, [traer]);
+  return [marca, traer];
+}
+
 function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
+  const [marca, refrescarMarca] = useMarca(session.token);
   const [connected, setConnected] = React.useState(false);
   const [units, setUnits] = React.useState([]);
   const [gaps, setGaps] = React.useState({});
@@ -2601,14 +2733,17 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         borderBottom: `1px solid ${HUD.divider}`, background: HUD.surface,
         overflow: 'hidden',
       }}>
-        {/* El nombre de la cooperativa, no una marca fija: el mismo panel lo
-            usan empresas distintas y cada una tiene que ver la suya. */}
+        {/* La marca de la cooperativa, no una marca fija: el mismo panel lo
+            usan empresas distintas y cada una tiene que ver la suya. En el
+            celular queda SOLO el escudo: ocupa 30 px y sigue diciendo de
+            quién es esta pantalla, que es lo que importa. */}
+        <Marca marca={marca} />
         {!isMobile && (
           <span style={{
-            fontFamily: black, fontSize: 17, maxWidth: 230,
+            fontFamily: black, fontSize: 17, maxWidth: 210,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }} title={session.companyName || ''}>
-            {session.companyName || session.companyId || 'Despacho'}
+          }} title={marca?.nombre || session.companyName || ''}>
+            {marca?.nombre || session.companyName || session.companyId || 'Despacho'}
           </span>
         )}
         {/* En un celular el chip sobra: la pantalla ES el panel de Despacho,

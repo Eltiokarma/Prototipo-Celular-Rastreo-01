@@ -10,9 +10,22 @@ const crypto = require('crypto');
 // Compartido con las herramientas de consola (ver `base.js` y `empresa.js`)
 const { openDatabase, hashPassword, verifyPassword, idLimpio } = require('./base');
 const { montarPanelDelCreador } = require('./creador');
+const marca = require('./marca');
 
 const app = express();
-app.use(express.json());
+// El tope de cuerpo de `express.json()` viene en 100 kB, y eso era MÁS CHICO
+// que lo que este servidor dice aceptar:
+//
+//   - el trazado de una ruta admite 2000 puntos por tramo, o sea ~148 kB con
+//     los dos tramos. Cargar un recorrido real denso fallaba con un
+//     PayloadTooLargeError crudo —un HTML de Express, no un JSON— antes de
+//     llegar a ninguna de las validaciones lindas de más abajo;
+//   - el logo de una cooperativa llega hasta ~195 kB.
+//
+// 1 MB deja las dos cosas holgadas y sigue siendo un tope. Lo pesado de
+// verdad —audio y fotos— no pasa por acá: va por el WebSocket, que tiene sus
+// propios límites y su cupo por minuto.
+app.use(express.json({ limit: '1mb' }));
 
 // ─── CORS ────────────────────────────────────────────────────
 // Permite que la app (en otro dominio) hable con este servidor.
@@ -578,6 +591,12 @@ if (addColumnIfMissing('messages', 'vehicleId', 'TEXT')) {
 // conversación es "Despacho ↔ esa combi", así que la ven tanto el chofer como
 // su cobrador. NULL = mensaje del grupo, lo ve toda la ruta.
 addColumnIfMissing('messages', 'toVehicleId', 'TEXT');
+
+// El logo de la cooperativa, como data-URL. Va en la fila de la empresa y no
+// en un archivo: son ~100 kB, se piden una vez por sesión, y guardarlos en
+// disco obligaría a montar un volumen aparte y a resolver el respaldo de otra
+// cosa más. En la base viajan con el resto y se respaldan con el resto.
+addColumnIfMissing('companies', 'logo', 'TEXT');
 
 const HISTORY_MAX = 200;   // mensajes que recibe un cliente al conectarse
 const KEEP_ROWS = 1000;    // filas totales que retiene la base
@@ -1416,6 +1435,45 @@ function rutaObjetivo(req) {
   const rs = routesOfCompany(req.empresa);
   return rs[0] ? rs[0].routeId : null;
 }
+
+// ─── LA MARCA DE LA COOPERATIVA ──────────────────────────────
+//
+// Suena a decoración y no lo es. Este sistema atiende a VARIAS cooperativas a
+// la vez, y hasta ahora la única señal de a cuál pertenecía una pantalla era
+// el nombre en un rincón. Un chofer que abre la app y ve la marca de otra
+// cooperativa —o ninguna— no sabe si se equivocó de cuenta ni a quién
+// reclamarle.
+//
+// Va en su propio endpoint y NO adentro del login por dos razones: se puede
+// pedir de nuevo sin volver a entrar (Despacho lo cambia y las pantallas lo
+// ven), y no infla cada login con ~100 kB de imagen.
+app.get('/marca', (req, res) => {
+  const auth = String(req.headers.authorization || '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  const user = sessionUser(token);
+  if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  const empresa = companyOf(user.companyId);
+  res.json({ marca: marca.marcaDe(empresa) });
+});
+
+// Cambiarlo es cosa de Despacho, no del chofer.
+//
+// OJO: la cooperativa sale de LA SESIÓN y no del cuerpo. Si viniera en el
+// cuerpo, cualquier despacho podría pisarle el logo a la cooperativa de al
+// lado mandando el id ajeno. Está cubierto en la suite `marca`.
+app.put('/admin/company/logo', requireDispatch, (req, res) => {
+  const crudo = req.body?.logo;
+  // Sacarlo tiene que ser posible: un logo mal subido no puede quedar pegado
+  // hasta que alguien toque la base a mano.
+  if (crudo === null || crudo === '') {
+    db.prepare('UPDATE companies SET logo = NULL WHERE companyId = ?').run(req.empresa);
+    return res.json({ ok: true, logo: null });
+  }
+  const logo = marca.logoValido(crudo);
+  if (!logo) return res.status(400).json({ error: marca.motivoRechazo(crudo) });
+  db.prepare('UPDATE companies SET logo = ? WHERE companyId = ?').run(logo, req.empresa);
+  res.json({ ok: true, logo });
+});
 
 // ─── LA EMPRESA ──────────────────────────────────────────────
 // Cada cooperativa ve y corrige SUS datos. Crear una empresa nueva no está

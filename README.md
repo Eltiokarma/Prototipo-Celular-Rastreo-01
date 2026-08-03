@@ -38,6 +38,8 @@ server/             Servidor de tiempo real (Node + Express + ws)
                       Escritas una sola vez: las usan la consola y el panel
   empresa.js          Consola de cooperativas. El piso: funciona aunque el
                       panel del creador no se pueda abrir
+  marca.js            La identidad de cada cooperativa: qué logo se acepta,
+                      y las iniciales y el color para cuando no hay ninguno
   creador.js          Panel del creador: el nivel de arriba de todas las
                       cooperativas. Apagado salvo que CREATOR_PASSWORD esté
                       en el entorno. En su propio archivo para que toda su
@@ -75,7 +77,7 @@ herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
                       hace login y manda posiciones por el MISMO POST /gps que
                       el celular. Ver herramientas/README.md
 
-pruebas/            Veintiséis suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Veintisiete suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -124,7 +126,7 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 
 ```bash
 cd pruebas && npm install    # solo la primera vez
-cd .. && npm test            # las veintiséis suites, ~5 minutos
+cd .. && npm test            # las veintisiete suites, ~5 minutos
 ```
 
 Corren contra el servidor de verdad —levantan el proceso, abren WebSockets,

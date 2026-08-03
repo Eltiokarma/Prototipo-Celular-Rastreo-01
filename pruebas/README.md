@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Veintiséis suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Veintisiete suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -38,7 +38,7 @@ DB=/tmp/una.db
 PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
-# las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp foto
+# las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp foto marca
 # las que no necesitan servidor: hud chat cola margenes gestos imagen tema mapa nativas
 node gerencia.js
 ```
@@ -82,6 +82,7 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `imagen` | Las cuentas de la foto: a qué medida se achica según sea vertical u horizontal, que una chica no se AGRANDE, y que el peso no se confunda con el largo del base64 (infla 4/3, y confundirlos rechaza fotos que entraban) |
 | `tema` | Los colores de día y de noche: que la regla horaria sea la de Juliaca, que la de noche sea más oscura y **menos azul** (el azul es lo que arruina la visión nocturna del chofer), que verde/ámbar/rojo sigan siendo reconocibles, y que ninguna paleta tenga huecos |
 | `mapa` | Qué se dibuja en el mapa del chofer: que la unidad sin señal siga apareciendo pero apagada, que una sin coordenadas no termine en el Golfo de Guinea, y que un apellido con comilla o con `<` no rompa la página del WebView — los nombres los tipea Despacho a mano |
+| `marca` | La identidad de cada cooperativa: qué logo se acepta (los SVG NO — son documentos con scripts adentro y esto se pinta en el panel y en el WebView del chofer), qué se muestra cuando no hay logo, y sobre todo que **una cooperativa no le pueda pisar el logo a la de al lado** mandando el companyId ajeno. Ahí adentro está también la prueba de que un trazado real de 2000+2000 puntos entra por el cable: el tope de cuerpo de express venía más chico que lo que el servidor decía aceptar |
 | `nativas` | Las versiones de los módulos nativos de la app: que ningún `expo-*` venga de otro SDK, que no haya un módulo duplicado, que el lockfile no quede viejo, y que no se use una API que Expo dejó como stub que revienta. Lee el lockfile: sin teléfono, sin red, un segundo. Existe porque un `expo-asset` del SDK 57 al lado de un `expo-modules-core` del 54 dejó la app sin abrir, y eso solo se veía con el APK ya instalado, veinte minutos de build después |
 | `cliente` | El cliente del protocolo que va a usar la app nativa (`app/protocolo/`): el rol de GPS cuando hay relevo, las brechas que respetan el null, el freno de cadencia y el privado que no se filtra |
 

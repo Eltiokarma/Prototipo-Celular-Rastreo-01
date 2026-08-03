@@ -310,6 +310,26 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     return ok ? null : 'sin-conexion';
   }
 
+  // La marca de la cooperativa: nombre, logo, iniciales y color.
+  //
+  // Se pide aparte del login a propósito. Si viniera adentro, cada entrada
+  // arrastraría ~100 kB de imagen —y el chofer entra con datos móviles—, y
+  // además no habría forma de que Despacho cambie el logo y la app lo vea sin
+  // volver a entrar. Acá el token dura 30 días: sería un mes de desfase.
+  async function pedirMarca(token) {
+    try {
+      const r = await fetch(servidor + '/marca', {
+        headers: { Authorization: 'Bearer ' + (token || sesion?.token || '') },
+      });
+      if (!r.ok) return null;
+      const cuerpo = await r.json();
+      return cuerpo?.marca || null;
+    } catch {
+      // Sin marca la app funciona igual. Es lo primero que se puede perder.
+      return null;
+    }
+  }
+
   function mandarSos({ lat = null, lng = null } = {}) {
     return enviar({ type: 'sos', lat, lng, timestamp: ahora() });
   }
@@ -326,6 +346,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   return {
     entrar, conectar, salir,
     mandarGps, subirPosiciones, mandarChat, mandarVoz, mandarFoto, mandarSos,
+    pedirMarca,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {
       if (!oyentes.has(evento)) oyentes.set(evento, new Set());
