@@ -554,6 +554,23 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
   const web = React.useRef(null);
   const [siguiendo, setSiguiendo] = React.useState(true);
 
+  // ── El mapa arranca BLOQUEADO ───────────────────────────────
+  //
+  // Un WebView se queda con el dedo: mientras esté escuchando, arrastrar
+  // sobre el mapa lo mueve a él y NO cambia de pantalla. O sea que el mapa se
+  // volvía una trampa — se entraba y no se salía deslizando.
+  //
+  // Así que por defecto va una capa transparente encima: el dedo nunca llega
+  // al WebView, el carrusel lo recibe, y deslizar funciona igual que en las
+  // otras dos pantallas. Un toque levanta la capa y ahí sí el mapa se arrastra
+  // y se hace zoom. Sale del prototipo viejo, donde ya estaba resuelto así.
+  //
+  // Y se vuelve a bloquear solo al salir de la pantalla: si quedara suelto, el
+  // chofer volvería al mapa una hora después y el deslizamiento no le
+  // respondería, sin ninguna pista de por qué.
+  const [suelto, setSuelto] = React.useState(false);
+  React.useEffect(() => { if (!activo) setSuelto(false); }, [activo]);
+
   // La página NO depende del tema y se arma una sola vez. Los colores entran
   // después, por mensaje. Antes se armaba con la paleta del momento, así que
   // al pasar a modo noche —a las 18:30, en plena vuelta— cambiaba el `source`
@@ -612,6 +629,32 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
           startInLoadingState
           renderLoading={() => <ActivityIndicator color={C.brillante} />}
         />
+        {/* La capa que le saca el dedo al WebView. Va DESPUÉS del mapa y
+            ANTES de los botones, así ella tapa el mapa pero los botones la
+            tapan a ella. */}
+        {!suelto && (
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSuelto(true)}>
+            <View style={s.pistaMapa} pointerEvents="none">
+              <Text style={s.pistaMapaTexto}>TOCÁ PARA MOVER EL MAPA</Text>
+            </View>
+          </Pressable>
+        )}
+
+        {/* Con el mapa suelto, deslizar ya no cambia de pantalla: hay que
+            devolverle el dedo al carrusel. El botón lo dice con todas las
+            letras en vez de dejarlo adivinar. */}
+        {suelto && (
+          <Pressable style={s.soltar} onPress={() => {
+            setSuelto(false);
+            // Bloquear es volver al automático. Si no, el mapa queda congelado
+            // donde el chofer lo dejó y la combi se le va de la pantalla sin
+            // que él pueda arrastrarlo — porque acaba de bloquearlo.
+            mandar({ tipo: 'centrar', vista: vistaAhora() });
+          }}>
+            <Text style={s.soltarTexto}>LISTO</Text>
+          </Pressable>
+        )}
+
         {/* Aparece cuando el chofer movió el mapa con el dedo. Sin esto,
             volver a encontrarse a uno mismo obliga a buscarse a ojo. */}
         {!siguiendo && (
@@ -1061,6 +1104,22 @@ function crearEstilos(C) { return StyleSheet.create({
 
   // ── Mapa ─────────────────────────────────────────────────────
   mapaCaja: { flex: 1, overflow: 'hidden' },
+  // La pista va ABAJO y no en el centro: en el centro tapa justo la zona
+  // donde el chofer se está buscando a sí mismo.
+  pistaMapa: {
+    position: 'absolute', bottom: 16, alignSelf: 'center',
+    backgroundColor: C.panel + 'E6', borderWidth: 1, borderColor: C.linea,
+    borderRadius: 100, paddingVertical: 7, paddingHorizontal: 16,
+  },
+  pistaMapaTexto: {
+    fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.cielo,
+  },
+  soltar: {
+    position: 'absolute', top: 12, right: 16,
+    backgroundColor: C.brillante, borderRadius: 10,
+    paddingHorizontal: 16, paddingVertical: 10,
+  },
+  soltarTexto: { color: '#fff', fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
   centrar: {
     position: 'absolute', right: 16, bottom: 16,
     backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,

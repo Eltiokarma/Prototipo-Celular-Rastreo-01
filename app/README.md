@@ -304,6 +304,16 @@ reinstalar en cada teléfono.
 - **Los marcadores se MUEVEN, no se rehacen.** Borrar y recrear veinte
   marcadores cada 3 s hace parpadear el mapa y tira las etiquetas justo
   cuando el chofer las está leyendo. Es lo que hace viables veinte unidades.
+- **El mapa arranca BLOQUEADO, y se toca para soltarlo.** Un WebView se queda
+  con el dedo: mientras escucha, arrastrar sobre el mapa lo mueve a él y no
+  cambia de pantalla, así que el mapa se volvía una trampa — se entraba y no
+  se salía deslizando. Por defecto va una capa transparente encima: el dedo
+  nunca llega al WebView y el carrusel lo recibe. Un toque la levanta y ahí sí
+  se arrastra y se hace zoom; LISTO la vuelve a poner y devuelve el mapa al
+  seguimiento. Sale del prototipo viejo, donde ya estaba resuelto así.
+- **Y se re-bloquea solo al salir de la pantalla.** Si quedara suelto, el
+  chofer volvería al mapa una hora después y el deslizamiento no le
+  respondería, sin ninguna pista de por qué.
 - **El mapa es Leaflet en un WebView, NO `react-native-maps`.** El nativo usa
   Google Maps y en Android **exige una clave de Google Cloud**: cuenta,
   tarjeta, consola, un trámite antes de ver un solo punto. Leaflet sobre
