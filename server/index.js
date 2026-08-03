@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const { openDatabase, hashPassword, verifyPassword, idLimpio } = require('./base');
 const { montarPanelDelCreador } = require('./creador');
 const marca = require('./marca');
+const respaldo = require('./respaldo');
 
 const app = express();
 // El tope de cuerpo de `express.json()` viene en 100 kB, y eso era MÁS CHICO
@@ -3688,6 +3689,13 @@ setInterval(() => {
   // Sin este envío, si todas dejan de reportar el mapa queda congelado
   rutasAfectadas.forEach(r => scheduleStateBroadcast(r, true));
 }, 10_000);
+
+// ─── RESPALDO AUTOMÁTICO ─────────────────────────────────────
+// Uno cada RESPALDO_CADA_H horas (6 por defecto) en `respaldos/` junto a la
+// base, verificado y con rotación. Ver server/respaldo.js — y bajarse uno
+// desde el panel del creador de vez en cuando ES el respaldo fuera del
+// servidor.
+respaldo.programar(db, Database);
 
 // ─── ARRANCAR ────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;

@@ -37,6 +37,7 @@ const fs = require('fs');
 const path = require('path');
 const coop = require('./cooperativas');
 const marca = require('./marca');
+const respaldo = require('./respaldo');
 
 // La clave del creador abre todas las cooperativas del servidor. El mínimo
 // de 6 que rige para Despacho acá sería una broma.
@@ -396,6 +397,44 @@ function montarPanelDelCreador(app, deps) {
       return null;   // no se pudo averiguar: mejor decirlo que inventar
     }
   }
+
+  // ─── RESPALDOS ─────────────────────────────────────────────
+  //
+  // Viven en el nivel del creador y no en Despacho a propósito: la base es de
+  // TODAS las cooperativas a la vez, así que su respaldo no le pertenece a
+  // ninguna. Y la descarga es la pieza que completa el esquema: el automático
+  // queda en el mismo disco (cubre corrupción y borrados, no la pérdida del
+  // volumen); bajarse el archivo a otra máquina es el respaldo de verdad.
+  app.get(BASE + '/respaldos', requireCreador, (req, res) => {
+    const carpeta = respaldo.dirDe(db.name || '');
+    res.json({
+      respaldos: respaldo.listar(carpeta).reverse(),   // el más nuevo primero
+      cadaHoras: respaldo.CADA_HORAS,
+      conservar: respaldo.CONSERVAR,
+      enMemoria: !db.name || db.name === ':memory:',
+    });
+  });
+
+  app.post(BASE + '/respaldos', requireCreador, async (req, res) => {
+    const r = await respaldo.respaldar(db, db.constructor);
+    if (!r.ok) return res.status(500).json({ error: r.motivo });
+    anotar('respaldo_manual', null, `${r.archivo} (${Math.round(r.bytes / 1024)} kB)`);
+    res.json(r);
+  });
+
+  app.get(BASE + '/respaldos/:archivo', requireCreador, (req, res) => {
+    const nombre = String(req.params.archivo);
+    // Solo el formato exacto de nombre que generamos: sin esto, un
+    // `../../etc/passwd` viaja como "nombre de archivo" y esto se vuelve
+    // lectura arbitraria del disco con sesión de creador.
+    if (!respaldo.ES_RESPALDO.test(nombre)) {
+      return res.status(400).json({ error: 'Ese nombre no es un respaldo' });
+    }
+    const ruta = path.join(respaldo.dirDe(db.name || ''), nombre);
+    if (!fs.existsSync(ruta)) return res.status(404).json({ error: 'Ese respaldo no existe' });
+    anotar('respaldo_descargado', null, nombre);
+    res.download(ruta, nombre);
+  });
 
   app.get(BASE + '/sistema', requireCreador, (req, res) => {
     const mem = process.memoryUsage();

@@ -40,6 +40,9 @@ server/             Servidor de tiempo real (Node + Express + ws)
                       panel del creador no se pueda abrir
   marca.js            La identidad de cada cooperativa: qué logo se acepta,
                       y las iniciales y el color para cuando no hay ninguno
+  respaldo.js         El respaldo de la base: en caliente (db.backup, nunca
+                      cp), verificado, con rotación, y descargable desde el
+                      panel del creador
   creador.js          Panel del creador: el nivel de arriba de todas las
                       cooperativas. Apagado salvo que CREATOR_PASSWORD esté
                       en el entorno. En su propio archivo para que toda su
@@ -77,7 +80,7 @@ herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
                       hace login y manda posiciones por el MISMO POST /gps que
                       el celular. Ver herramientas/README.md
 
-pruebas/            Veintiocho suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Veintinueve suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -126,7 +129,7 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 
 ```bash
 cd pruebas && npm install    # solo la primera vez
-cd .. && npm test            # las veintiocho suites, ~5 minutos
+cd .. && npm test            # las veintinueve suites, ~6 minutos
 ```
 
 Corren contra el servidor de verdad —levantan el proceso, abren WebSockets,
@@ -134,6 +137,13 @@ mandan GPS y leen la base—, sin mocks: casi todo lo que se rompió en este
 proyecto se rompió en la juntura entre esas tres cosas. Ver `pruebas/README.md`
 para correr una sola, para el verificador de sintaxis de las pantallas (los
 paneles no tienen paso de compilación) y para lo que las pruebas **no** cubren.
+
+**Respaldos:** la base se respalda sola cada 6 horas en `respaldos/` junto al
+archivo (verificado y con rotación), y desde el panel del creador se crea uno
+a pedido y **se descarga** — bajarse el archivo a otra máquina es el respaldo
+que sobrevive a perder el servidor. **Restaurar** es: parar el servidor,
+copiar el respaldo sobre `DB_FILE` (borrando los `-wal`/`-shm` si quedaron), y
+arrancar. Nada más: el respaldo ES la base.
 
 Limitaciones conocidas del sistema: ver **LIMITACIONES.md**.
 Plan de crecimiento a 20+ rutas con números: ver **ESCALABILIDAD.md**.
@@ -153,6 +163,9 @@ Lo que falta construir, ordenado: ver **PENDIENTES.md**.
 | `OPEN_REGISTRATION` | `1` deja que cualquiera se registre. **Solo para demos** |
 | `STATE_INTERVAL_MS` | Cada cuánto se emite el estado (3000 por defecto) |
 | `SIN_SENAL_MS` | A los cuántos ms sin GPS una unidad queda marcada **sin señal** (30 000). Sigue en la fila y en el mapa con su última posición, pero nadie se mide contra ella |
+| `RESPALDO_CADA_H` | Cada cuántas horas se respalda la base sola (6). `0` lo apaga |
+| `RESPALDO_CONSERVAR` | Cuántos respaldos se guardan antes de rotar (28 ≈ una semana) |
+| `RESPALDO_DIR` | Dónde se guardan (por defecto `respaldos/` junto a la base, adentro del volumen) |
 | `OLVIDAR_MS` | A los cuántos ms se la borra de verdad y se descarta su vuelta en curso (180 000). El número bueno sale de la calle: tres minutos aguantan una llamada o un semáforo largo |
 
 **Persistencia:** el historial del grupo (últimos 200 mensajes: texto, notas

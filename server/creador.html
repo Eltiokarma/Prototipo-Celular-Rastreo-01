@@ -744,6 +744,88 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
 }
 
 // ─── SALUD DEL SISTEMA ─────────────────────────────────────────
+// Los respaldos de la base, y la pieza que completa el esquema: BAJARSE uno.
+//
+// El automático queda en el mismo disco que la base — cubre corrupción y
+// borrados por error, no la pérdida del volumen. Descargar el archivo a otra
+// máquina ES el respaldo fuera del servidor. Por eso el botón de descarga no
+// es un extra: es la mitad del plan.
+function Respaldos({ datos, api, recargar, aviso, fallo, token }) {
+  const [ocupado, setOcupado] = React.useState(false);
+  if (!datos) return <div style={{ color: 'var(--dim)' }}>Cargando…</div>;
+
+  const kb = (b) => b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + ' MB' : Math.round(b / 1024) + ' kB';
+  const hace = (ms) => {
+    if (!ms) return '';
+    const min = Math.round((Date.now() - ms) / 60000);
+    return min < 60 ? `hace ${min} min` : min < 60 * 48 ? `hace ${Math.round(min / 60)} h` : `hace ${Math.round(min / 1440)} días`;
+  };
+  const crear = async () => {
+    setOcupado(true);
+    try { await api('/respaldos', { method: 'POST' }); aviso('Respaldo creado y verificado'); await recargar(); }
+    catch (e) { fallo(e.message); }
+    setOcupado(false);
+  };
+  // La descarga va por fetch + blob y NO con el token en la URL: una URL con
+  // token queda en la barra de direcciones, el historial y los logs.
+  const bajar = async (archivo) => {
+    try {
+      const r = await fetch(BASE + '/respaldos/' + archivo, {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      if (!r.ok) throw new Error('No se pudo descargar');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = archivo; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { fallo(e.message); }
+  };
+
+  return (
+    <div>
+      {datos.enMemoria && (
+        <div style={{
+          background: 'var(--rojoFondo)', border: '1px solid var(--rojoBorde)',
+          borderLeft: '3px solid var(--red)', borderRadius: 11,
+          padding: '11px 13px', marginBottom: 14, fontSize: 13, fontWeight: 700,
+          color: 'var(--rojoTinta)',
+        }}>La base está EN MEMORIA: no hay nada que respaldar ni que salvar. Montá el volumen primero.</div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
+        <button disabled={ocupado || datos.enMemoria} onClick={crear} style={{
+          padding: '10px 18px', fontSize: 13, fontWeight: 700,
+          background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8,
+        }}>{ocupado ? 'Creando…' : 'Respaldar ahora'}</button>
+        <span style={{ fontSize: 12, color: 'var(--dim2)' }}>
+          Automático cada {datos.cadaHoras} h · se conservan {datos.conservar} ·
+          y cada tanto <b>bajate uno</b>: el archivo en tu máquina es el respaldo
+          que sobrevive a perder el servidor.
+        </span>
+      </div>
+      {(datos.respaldos || []).length === 0 && !datos.enMemoria && (
+        <div style={{ color: 'var(--dim)', fontSize: 13 }}>
+          Todavía no hay ninguno. El primero sale solo, o con el botón de arriba.
+        </div>
+      )}
+      {(datos.respaldos || []).map(r => (
+        <div key={r.archivo} style={{
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          background: 'var(--surface)', border: '1px solid var(--divider)',
+          borderRadius: 10, padding: '10px 14px', marginBottom: 8,
+        }}>
+          <span className="mono" style={{ fontSize: 12, flex: '1 1 240px' }}>{r.archivo}</span>
+          <span style={{ fontSize: 12, color: 'var(--dim2)' }}>{kb(r.bytes)} · {hace(r.cuando)}</span>
+          <button onClick={() => bajar(r.archivo)} style={{
+            padding: '7px 13px', fontSize: 12, background: 'var(--campo)',
+            color: 'var(--fg2)', border: '1px solid var(--line)', borderRadius: 7,
+          }}>Descargar</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Sistema({ datos }) {
   if (!datos) return <div style={{ color: 'var(--dim)' }}>Cargando…</div>;
   const tarjetas = [
@@ -890,6 +972,7 @@ function Panel({ token, onSalir }) {
   const [pestana, setPestana] = React.useState('empresas');
   const [empresas, setEmpresas] = React.useState([]);
   const [sistema, setSistema] = React.useState(null);
+  const [respaldos, setRespaldos] = React.useState(null);
   const [eventos, setEventos] = React.useState(null);
   const [aviso, setAviso] = React.useState(null);
   const [error, setError] = React.useState(null);
@@ -908,6 +991,7 @@ function Panel({ token, onSalir }) {
 
   const cargarEmpresas = () => api('/empresas').then(d => setEmpresas(d.empresas)).catch(e => setError(e.message));
   const cargarSistema = () => api('/sistema').then(setSistema).catch(e => setError(e.message));
+  const cargarRespaldos = () => api('/respaldos').then(setRespaldos).catch(e => setError(e.message));
   const cargarActividad = () => api('/actividad').then(d => setEventos(d.eventos)).catch(e => setError(e.message));
 
   React.useEffect(() => { cargarEmpresas(); }, []);
@@ -915,6 +999,7 @@ function Panel({ token, onSalir }) {
     setError(null);
     if (pestana === 'empresas') cargarEmpresas();
     if (pestana === 'sistema') cargarSistema();
+    if (pestana === 'respaldos') cargarRespaldos();
     if (pestana === 'actividad') cargarActividad();
   }, [pestana]);
 
@@ -954,7 +1039,7 @@ function Panel({ token, onSalir }) {
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>Herramienta interna · la sesión muere al cerrar la pestaña</div>
           <div style={{ flex: 1 }} />
-          {[['empresas', 'COOPERATIVAS'], ['sistema', 'SISTEMA'], ['actividad', 'ACTIVIDAD']].map(([k, etiqueta]) => (
+          {[['empresas', 'COOPERATIVAS'], ['respaldos', 'RESPALDOS'], ['sistema', 'SISTEMA'], ['actividad', 'ACTIVIDAD']].map(([k, etiqueta]) => (
             <button key={k} onClick={() => setPestana(k)} style={{
               background: 'transparent', padding: '0 0 4px', fontSize: 11, letterSpacing: 1,
               borderRadius: 0, flexShrink: 0,
@@ -990,6 +1075,10 @@ function Panel({ token, onSalir }) {
         <Empresas api={api} empresas={empresas} recargar={cargarEmpresas} aviso={avisar} fallo={fallar} />
       )}
       {pestana === 'sistema' && <Sistema datos={sistema} />}
+      {pestana === 'respaldos' && (
+        <Respaldos datos={respaldos} api={api} recargar={cargarRespaldos}
+          aviso={avisar} fallo={fallar} token={token} />
+      )}
       {pestana === 'actividad' && <Actividad eventos={eventos} />}
       </div>
     </div>

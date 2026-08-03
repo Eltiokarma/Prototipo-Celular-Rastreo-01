@@ -17,7 +17,7 @@ primero lo que impide vender, después lo que impide escalar, después producto.
 | # | Qué | Por qué bloquea | Tamaño |
 | --- | --- | --- | --- |
 | 1.1 | **Cambiar `CREATOR_PASSWORD`** | Estuvo escrita en un chat en texto plano y es la ÚNICA llave que abre TODAS las cooperativas. Todo lo demás de esta lista da lo mismo si esto queda | 10 minutos |
-| 1.2 | **Respaldo automático de la base** | Hoy NO HAY NINGUNO. La base tiene usuarios, rutas, trazados, chat, vueltas e informes. Un volumen perdido o un `DB_FILE` mal apuntado se lleva la cooperativa entera, y no hay de dónde volver. Es lo primero que pregunta cualquiera que confíe su operación a un sistema | medio día |
+| 1.2 | ~~Respaldo automático de la base~~ | **HECHO.** Cada 6 h en el volumen, verificado (se abre y se lee, no solo se escribe) y con rotación. Desde el panel del creador: crear a pedido y **descargar** — el archivo en otra máquina es el respaldo que sobrevive a perder el servidor. Suite `respaldo` con restauración real | ✔ |
 | 1.3 | **Medir un turno de 8 horas** | Toda la app nativa existe por una promesa —el GPS aguanta con la pantalla bloqueada— que solo está comprobada por *varios minutos*. Si a las 3 horas Android la mata, el producto no es lo que decimos que es. No se arregla programando: se mide | 1 turno |
 
 ### 2 · Para escalar de 1 cooperativa a varias, y de 6 combis a 20
@@ -74,7 +74,7 @@ parece y nada de esto bloquea la calle.
 ## Puesta en producción — la lista corta
 
 - [ ] **Cambiar `CREATOR_PASSWORD`** (ver 1.1).
-- [ ] **Respaldo automático de la base** (ver 1.2).
+- [x] Respaldo automático de la base, con descarga desde el panel del creador (ver 1.2).
 - [x] Volumen montado y `DB_FILE` apuntando ahí — comprobado con un
       despliegue real: los datos sobrevivieron al cambio de contenedor.
 - [x] Segundo factor del panel del creador activo (`CREATOR_TOTP_SECRET`).
