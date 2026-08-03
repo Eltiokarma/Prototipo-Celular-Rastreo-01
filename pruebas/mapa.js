@@ -5,7 +5,8 @@
 // en un mapa se cree MÁS que un número, así que un error acá es más caro que
 // el mismo error en el HUD.
 const RAIZ = require('path').join(__dirname, '..');
-const { marcadores, lineas, centro, vista, html, escapar, JULIACA, TILES } = require(RAIZ + '/app/mapa.js');
+const { marcadores, lineas, centro, vista, html, escapar, coloresDe,
+        JULIACA, TILES, ZOOM_SEGUIMIENTO } = require(RAIZ + '/app/mapa.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -151,10 +152,59 @@ console.log('\nDÓNDE ABRE EL MAPA');
   ok('que no es 0,0', nada.lat !== 0 && nada.lng !== 0);
 }
 
+console.log('\nEL TEMA NO PUEDE RECARGAR EL MAPA');
+{
+  // La página se armaba con la paleta del momento. Al pasar a modo noche
+  // —a las 18:30, en plena vuelta— cambiaba el `source` del WebView y el
+  // mapa SE RECARGABA ENTERO: se perdían el zoom y el desplazamiento que el
+  // chofer tenía puestos, y había que esperar las tiles de nuevo. Un cambio
+  // de color no puede costar eso.
+  ok('la página no depende del tema', html() === html(), 'iguales');
+  ok('y no toma argumentos de color',
+     html.length === 0, 'html() recibe ' + html.length + ' argumento(s)');
+
+  const p = html();
+  ok('los colores entran por variables CSS', /--fondo/.test(p) && /setProperty/.test(p));
+  ok('y el tema llega por mensaje, no incrustado', /m\.colores/.test(p));
+
+  // Lo que se le manda ANTES de que cargue se pierde: no hay nadie
+  // escuchando. Sin el saludo, el mapa arrancaba con los colores de día
+  // aunque fuera de noche.
+  ok('la página avisa cuando está lista', /listo:\s*true/.test(p));
+
+  // Y los colores tienen que llegar completos: una clave faltante deja un
+  // punto `undefined`, que en Leaflet se dibuja transparente.
+  const c = coloresDe({ fondo: '#000', panel: '#111', linea: '#222', blanco: '#fff',
+                        tenue: '#555', brillante: '#0f0', ambar: '#ff0' });
+  for (const k of ['fondo', 'panel', 'linea', 'blanco', 'tenue', 'yo', 'otra', 'sinSenal', 'ida', 'vuelta']) {
+    ok('coloresDe trae ' + k, typeof c[k] === 'string' && c[k].length > 0, c[k]);
+  }
+  ok('y sin paleta igual devuelve todo',
+     Object.values(coloresDe(null)).every(v => typeof v === 'string' && v));
+}
+
+console.log('\nCENTRARME CENTRA, SIEMPRE');
+{
+  const p = html();
+  // Antes centrar caía en una rama que quedaba muerta después del primer
+  // dibujo del trazado, así que el botón no hacía nada. Ahora es una orden:
+  // no depende de que haya llegado un estado nuevo.
+  ok('centrar llama a setView sin condiciones previas',
+     /if \(m\.tipo === 'centrar'\)[\s\S]{0,400}mapa\.setView\(aDonde/.test(p));
+  ok('y siempre tiene a dónde ir', /function aDonde/.test(p) && /mapa\.getCenter\(\)/.test(p));
+  // Centrarse es para VERSE. Dejarlo en el zoom de la ruta entera es como no
+  // haber centrado.
+  ok('y se acerca al centrar', p.includes(String(ZOOM_SEGUIMIENTO)), ZOOM_SEGUIMIENTO);
+
+  // `centro()` nunca devuelve null, así que el destino existe siempre —
+  // incluso sin unidades y sin trazado.
+  const v = vista(null, null, null);
+  ok('hasta sin datos hay un centro', typeof v.centro.lat === 'number', v.centro);
+}
+
 console.log('\nLA PÁGINA DEL WEBVIEW');
 {
-  const p = html({ fondo: '#0A1A2E', brillante: '#2E9DFF', cielo: '#71BCFF',
-                   tenue: '#5A7A99', marca: '#2580CF' });
+  const p = html();
   ok('es una página completa', /^<!DOCTYPE html>/.test(p) && /<\/html>$/.test(p.trim()));
   ok('trae Leaflet', /leaflet@1\.9\.4/.test(p));
 
@@ -185,9 +235,8 @@ console.log('\nLA PÁGINA DEL WEBVIEW');
   ok('escucha el mensaje por document (Android)', /document\.addEventListener\('message'/.test(p));
   ok('y por window (iOS)', /window\.addEventListener\('message'/.test(p));
 
-  ok('los colores entran en la página', p.includes('#2E9DFF'));
   ok('y tiene el modo noche para el mapa', /\.oscuro \.leaflet-tile-pane/.test(p));
-  ok('sin colores tampoco revienta', typeof html() === 'string' && html().length > 500);
+  ok('es una página con cuerpo', html().length > 2000, html().length);
 }
 
 console.log('\nTODO JUNTO');

@@ -457,7 +457,6 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, onIr, 
     <View style={[s.pantalla, margen]}>
       <StatusBar style="light" />
       <View style={s.barra}>
-        <BotonTema />
         <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
           {conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
         </Text>
@@ -546,20 +545,35 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
   const web = React.useRef(null);
   const [siguiendo, setSiguiendo] = React.useState(true);
 
-  // La página se arma con los colores del tema del momento y NO se rearma en
-  // cada render: cambiarle el `source` a un WebView lo recarga entero.
-  const pagina = React.useMemo(() => mapa.html(C), [C]);
+  // La página NO depende del tema y se arma una sola vez. Los colores entran
+  // después, por mensaje. Antes se armaba con la paleta del momento, así que
+  // al pasar a modo noche —a las 18:30, en plena vuelta— cambiaba el `source`
+  // y el WebView SE RECARGABA ENTERO: adiós al zoom y al desplazamiento que
+  // el chofer tenía puestos, y a esperar las tiles de nuevo.
+  const pagina = React.useMemo(() => mapa.html(), []);
 
   const mandar = React.useCallback((obj) => {
     try { web.current?.postMessage(JSON.stringify(obj)); } catch {}
   }, []);
 
-  React.useEffect(() => {
-    if (!activo) return;
-    mandar({ tipo: 'vista', vista: mapa.vista(estado, yo, geometria) });
-  }, [activo, estado, geometria, yo, mandar]);
+  // Lo que le llega a la página ANTES de que termine de cargar se pierde: no
+  // hay nadie escuchando todavía. Por eso ella avisa cuando está lista y
+  // recién entonces se le manda todo. Sin este saludo, el mapa arrancaba con
+  // los colores de día aunque fuera de noche.
+  const [listo, setListo] = React.useState(false);
 
-  React.useEffect(() => { mandar({ tipo: 'tema', oscuro }); }, [oscuro, mandar]);
+  const vistaAhora = React.useCallback(
+    () => mapa.vista(estado, yo, geometria), [estado, yo, geometria]);
+
+  React.useEffect(() => {
+    if (!listo) return;
+    mandar({ tipo: 'tema', oscuro, colores: mapa.coloresDe(C) });
+  }, [listo, oscuro, C, mandar]);
+
+  React.useEffect(() => {
+    if (!listo || !activo) return;
+    mandar({ tipo: 'vista', vista: vistaAhora() });
+  }, [listo, activo, vistaAhora, mandar]);
 
   return (
     <View style={[s.pantalla, margen, { paddingLeft: 0, paddingRight: 0 }]}>
@@ -577,11 +591,12 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
           cacheEnabled
           androidLayerType="hardware"
           onMessage={(e) => {
-            // Solo los mensajes que traen `seguir` tocan el botón. Tocar un
-            // marcador también manda un mensaje, y leerlo como "el chofer
-            // movió el mapa" hacía aparecer CENTRARME de la nada.
+            // Solo los mensajes que traen `seguir` tocan el botón: leer
+            // cualquier mensaje como "el chofer movió el mapa" hacía aparecer
+            // CENTRARME de la nada.
             try {
               const m = JSON.parse(e.nativeEvent.data);
+              if (m.listo) setListo(true);
               if ('seguir' in m) setSiguiendo(!!m.seguir);
             } catch {}
           }}
@@ -592,7 +607,7 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
             volver a encontrarse a uno mismo obliga a buscarse a ojo. */}
         {!siguiendo && (
           <Pressable style={s.centrar}
-            onPress={() => mandar({ tipo: 'centrar', vista: mapa.vista(estado, yo, geometria) })}>
+            onPress={() => mandar({ tipo: 'centrar', vista: vistaAhora() })}>
             <Text style={s.centrarTexto}>CENTRARME</Text>
           </Pressable>
         )}
@@ -685,6 +700,10 @@ function Barra({ pantalla, noLeidos, onIr }) {
   // `margenes.js` — un elemento que se toca necesita más aire que un texto.
   return (
     <View style={[s.barraAbajo, margenBarra(useSafeAreaInsets())]}>
+      {/* El tema se cambia desde acá y no desde la pantalla de la brecha:
+          esta barra está en las TRES, y si se hace de noche mientras el
+          chofer mira el mapa tiene que poder apagarlo sin volver. */}
+      <BotonTema />
       {[['mapa', 'MAPA', 0], ['ruta', 'RUTA', 0], ['chat', 'CHAT', total]].map(([id, texto, badge]) => (
         <Pressable key={id} onPress={() => onIr(id)} style={s.tab}>
           <Text style={[s.tabTexto, pantalla === id && { color: C.brillante }]}>{texto}</Text>
@@ -1033,7 +1052,8 @@ function crearEstilos(C) { return StyleSheet.create({
 
   // ── Navegación ───────────────────────────────────────────────
   barraAbajo: {
-    flexDirection: 'row', borderTopWidth: 1, borderTopColor: C.linea,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderTopWidth: 1, borderTopColor: C.linea,
     marginTop: 12, paddingTop: 10,
   },
   tab: { flex: 1, alignItems: 'center', paddingVertical: 8, flexDirection: 'row', justifyContent: 'center', gap: 8 },

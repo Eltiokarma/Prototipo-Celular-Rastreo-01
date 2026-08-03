@@ -117,9 +117,20 @@ function vista(estado, yo, geometria) {
   };
 }
 
-// El HTML del WebView. Se arma UNA vez y después solo se le mandan datos por
-// `postMessage`: recargar la página en cada estado —cada 3 segundos— tiraría
-// el zoom y el desplazamiento que el chofer acaba de hacer con el dedo.
+// El HTML del WebView.
+//
+// SE ARMA UNA SOLA VEZ Y NO DEPENDE DEL TEMA. Los colores entran después, por
+// mensaje, y se aplican con variables CSS. Antes la página se armaba con la
+// paleta del momento, así que al pasar a modo noche —a las 18:30, en plena
+// vuelta— el `source` del WebView cambiaba y **el mapa se recargaba entero**:
+// se perdían el zoom y el desplazamiento que el chofer tenía puestos, y había
+// que esperar a que bajaran las tiles de nuevo. Un cambio de color no puede
+// costar eso.
+//
+// Además, el estado que se le manda antes de que la página termine de cargar
+// SE PIERDE —no hay nadie escuchando todavía—, así que la página avisa cuando
+// está lista y recién ahí se le manda todo. Sin ese saludo, el mapa arrancaba
+// con los colores de día aunque fuera de noche, hasta que algo lo cambiara.
 //
 // EL FONDO ES OSCURO Y SIN DETALLE, a propósito. Un mapa de calles a todo
 // color tiene cientos de nombres, íconos y manchas de parque compitiendo con
@@ -133,34 +144,59 @@ function vista(estado, yo, geometria) {
 const TILES = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png';
 const ATRIBUCION = '© OpenStreetMap · © CARTO';
 
-function html(C) {
+// Al centrarse, el chofer quiere VERSE, no ver la ruta entera. Si estaba lejos
+// con el mapa desplegado, dejarlo en ese zoom es como no haber centrado.
+const ZOOM_SEGUIMIENTO = 16;
+
+// Los colores que la página necesita saber. Se mandan por mensaje; acá solo
+// están los de arranque, para que nunca dibuje con `undefined`.
+function coloresDe(C) {
   const c = C || {};
+  return {
+    fondo: c.fondo || '#0A1A2E',
+    panel: c.panel || '#16304A',
+    linea: c.linea || '#234969',
+    blanco: c.blanco || '#F5F9FF',
+    tenue: c.tenue || '#5A7A99',
+    yo: c.blanco || '#F5F9FF',
+    otra: c.brillante || '#2E9DFF',
+    sinSenal: c.tenue || '#5A7A99',
+    ida: c.brillante || '#2E9DFF',
+    vuelta: c.ambar || '#F5C542',
+  };
+}
+
+function html() {
+  const d = coloresDe(null);
   return `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  html, body, #m { margin:0; padding:0; height:100%; width:100%; background:${c.fondo || '#0A1A2E'}; }
+  :root {
+    --fondo:${d.fondo}; --panel:${d.panel}; --linea:${d.linea};
+    --blanco:${d.blanco}; --tenue:${d.tenue};
+  }
+  html, body, #m { margin:0; padding:0; height:100%; width:100%; background:var(--fondo); }
   .u { border-radius:50%; box-shadow:0 0 10px rgba(0,0,0,.9); }
   /* La etiqueta es un tooltip de Leaflet y no un div al costado: así se
      acomoda sola arriba del punto y no se monta sobre el marcador cuando la
      combi se mueve. */
   .leaflet-tooltip.rot {
-    background:${c.panel || '#16304A'}; color:${c.blanco || '#F5F9FF'};
-    border:1px solid ${c.linea || '#234969'}; border-radius:6px;
-    font:700 10px system-ui,sans-serif; letter-spacing:.5px;
+    background:var(--panel); color:var(--blanco); border:1px solid var(--linea);
+    border-radius:6px; font:700 10px system-ui,sans-serif; letter-spacing:.5px;
     padding:1px 5px; white-space:nowrap; box-shadow:none;
   }
   .leaflet-tooltip.rot:before { display:none; }
   .leaflet-control-attribution {
-    background:rgba(0,0,0,.45); color:${c.tenue || '#5A7A99'};
+    background:rgba(0,0,0,.45); color:var(--tenue);
     font:400 9px system-ui,sans-serif; padding:1px 5px;
   }
-  .leaflet-control-attribution a { color:${c.tenue || '#5A7A99'}; }
+  .leaflet-control-attribution a { color:var(--tenue); }
   /* De noche, todavía más apagado: el mapa es lo único que ocupa todo el
      vidrio, así que es lo que más encandila. */
-  .oscuro .leaflet-tile-pane { filter: brightness(.55) contrast(1.05); }
+  .oscuro .leaflet-tile-pane { filter: brightness(.5) contrast(1.05) sepia(.25); }
 </style>
 </head><body>
 <div id="m"></div>
@@ -175,30 +211,27 @@ function html(C) {
 
   var capaLineas = L.layerGroup().addTo(mapa);
   var marcas = {};            // id -> marcador, para MOVERLOS y no redibujarlos
+  var lineas = [];            // las polilíneas, para poder recolorearlas
   var seguir = true;          // hasta que el chofer mueva el mapa con el dedo
   var dibujadas = false;
+  var ultima = null;          // la última vista, para repintar al cambiar el tema
+  var C = ${JSON.stringify(d)};
 
-  mapa.on('dragstart', function () { seguir = false; avisar(); });
-  function avisar() {
-    try { window.ReactNativeWebView.postMessage(JSON.stringify({ seguir: seguir })); } catch (e) {}
+  mapa.on('dragstart', function () { seguir = false; avisar({ seguir: false }); });
+  function avisar(obj) {
+    try { window.ReactNativeWebView.postMessage(JSON.stringify(obj)); } catch (e) {}
   }
-
-  var COLOR = { yo: '${c.blanco || '#F5F9FF'}', otra: '${c.brillante || '#2E9DFF'}',
-                sinSenal: '${c.tenue || '#5A7A99'}' };
-  var IDA = '${c.brillante || '#2E9DFF'}', VUELTA = '${c.ambar || '#F5C542'}';
 
   function icono(u) {
     var tam = u.tipo === 'yo' ? 16 : u.fija ? 14 : 10;
     var op = u.tipo === 'sinSenal' ? .4 : 1;
     // El mío lleva anillo en vez de otro color: en un mapa oscuro, "el punto
-    // blanco con halo" se encuentra sin leer nada.
-    var borde = u.tipo === 'yo'
-      ? '3px solid ' + '${c.fondo || '#0A1A2E'}'
-      : u.fija ? '2px solid #fff' : 'none';
-    var halo = u.tipo === 'yo' ? ';box-shadow:0 0 0 2px ' + COLOR.yo + ',0 0 14px ' + COLOR.yo : '';
+    // con halo" se encuentra sin leer nada.
+    var borde = u.tipo === 'yo' ? '3px solid ' + C.fondo : u.fija ? '2px solid #fff' : 'none';
+    var halo = u.tipo === 'yo' ? ';box-shadow:0 0 0 2px ' + C.yo + ',0 0 14px ' + C.yo : '';
     return L.divIcon({ className: '', iconSize: [tam, tam], iconAnchor: [tam / 2, tam / 2],
       html: '<div class="u" style="width:' + tam + 'px;height:' + tam + 'px;opacity:' + op
-          + ';background:' + COLOR[u.tipo] + ';border:' + borde + halo + '"></div>' });
+          + ';background:' + C[u.tipo] + ';border:' + borde + halo + '"></div>' });
   }
 
   function rotulo(u) {
@@ -207,23 +240,24 @@ function html(C) {
   }
 
   function pintar(v) {
+    if (!v) return;
+    ultima = v;
+
     // IDA llena, VUELTA punteada, y de colores distintos. Una sola línea de
     // un solo color no dice para qué lado va ese trazo, que es justo lo que
     // hay que saber para entender dónde está la de adelante.
     if (!dibujadas && v.lineas && v.lineas.length) {
-      var todas = [];
       v.lineas.forEach(function (t) {
         var vuelta = t.nombre === 'vuelta';
-        var l = L.polyline(t.puntos, {
-          color: vuelta ? VUELTA : IDA, weight: 3, opacity: .9,
+        lineas.push(L.polyline(t.puntos, {
+          color: vuelta ? C.vuelta : C.ida, weight: 3, opacity: .9,
           dashArray: vuelta ? '5,7' : null,
-        }).addTo(capaLineas);
-        todas.push(l);
+        }).addTo(capaLineas));
       });
       dibujadas = true;       // el trazado no cambia: se dibuja una sola vez
-      if (todas.length) {
-        var b = todas[0].getBounds();
-        for (var k = 1; k < todas.length; k++) b = b.extend(todas[k].getBounds());
+      if (lineas.length) {
+        var b = lineas[0].getBounds();
+        for (var k = 1; k < lineas.length; k++) b = b.extend(lineas[k].getBounds());
         mapa.fitBounds(b, { padding: [36, 36] });
       }
     }
@@ -237,9 +271,6 @@ function html(C) {
       var m = marcas[u.id];
       if (!m) {
         m = L.marker([u.lat, u.lng], { icon: icono(u) }).addTo(mapa);
-        m.on('click', function () {
-          try { window.ReactNativeWebView.postMessage(JSON.stringify({ tocada: u.id })); } catch (e) {}
-        });
         marcas[u.id] = m;
       } else {
         m.setLatLng([u.lat, u.lng]);
@@ -255,26 +286,64 @@ function html(C) {
       if (!vistos[id]) { mapa.removeLayer(marcas[id]); delete marcas[id]; }
     });
 
-    var mio = (v.marcadores || []).filter(function (u) { return u.tipo === 'yo'; })[0];
-    if (seguir && mio) mapa.setView([mio.lat, mio.lng], mapa.getZoom());
-    else if (seguir && !dibujadas && v.centro) mapa.setView([v.centro.lat, v.centro.lng], mapa.getZoom());
+    if (seguir) mapa.setView(aDonde(v), mapa.getZoom(), { animate: false });
+  }
+
+  // Dónde está "yo", o el centro que mandó la app, o donde ya estaba. Siempre
+  // devuelve algo: centrar no puede fallar en silencio.
+  function aDonde(v) {
+    var mio = ((v && v.marcadores) || []).filter(function (u) { return u.tipo === 'yo'; })[0];
+    if (mio) return [mio.lat, mio.lng];
+    if (v && v.centro) return [v.centro.lat, v.centro.lng];
+    return mapa.getCenter();
+  }
+
+  function tema(m) {
+    if (m.colores) {
+      C = m.colores;
+      var r = document.documentElement.style;
+      r.setProperty('--fondo', C.fondo); r.setProperty('--panel', C.panel);
+      r.setProperty('--linea', C.linea); r.setProperty('--blanco', C.blanco);
+      r.setProperty('--tenue', C.tenue);
+      lineas.forEach(function (l, i) {
+        l.setStyle({ color: l.options.dashArray ? C.vuelta : C.ida });
+      });
+      if (ultima) {           // los marcadores llevan el color adentro del HTML
+        (ultima.marcadores || []).forEach(function (u) {
+          if (marcas[u.id]) marcas[u.id].setIcon(icono(u));
+        });
+      }
+    }
+    document.body.className = m.oscuro ? 'oscuro' : '';
   }
 
   function recibir(e) {
     try {
       var m = JSON.parse(e.data);
+      if (m.tipo === 'tema') tema(m);
       if (m.tipo === 'vista') pintar(m.vista);
-      if (m.tipo === 'centrar') { seguir = true; avisar(); pintar(m.vista); }
-      if (m.tipo === 'tema') document.body.className = m.oscuro ? 'oscuro' : '';
+      if (m.tipo === 'centrar') {
+        // Centrar es una ORDEN, no una sugerencia: no depende de que haya
+        // llegado un estado nuevo ni de si el trazado ya se dibujo. Antes
+        // caia en una rama que quedaba muerta despues del primer dibujo, y
+        // el boton no hacia nada.
+        seguir = true;
+        avisar({ seguir: true });
+        if (m.vista) pintar(m.vista);
+        mapa.setView(aDonde(m.vista || ultima), ${ZOOM_SEGUIMIENTO}, { animate: true });
+      }
     } catch (err) {}
   }
   document.addEventListener('message', recibir);   // Android
   window.addEventListener('message', recibir);     // iOS y web
-  avisar();
+
+  // El saludo. Hasta que esto no sale, cualquier cosa que le manden se pierde
+  // en el vacío: todavía no hay nadie escuchando.
+  avisar({ listo: true, seguir: true });
 })();
 </script>
 </body></html>`;
 }
 
-module.exports = { marcadores, lineas, centro, vista, html, escapar,
-                   JULIACA, ZOOM_INICIAL, TILES, ATRIBUCION };
+module.exports = { marcadores, lineas, centro, vista, html, escapar, coloresDe,
+                   JULIACA, ZOOM_INICIAL, ZOOM_SEGUIMIENTO, TILES, ATRIBUCION };
