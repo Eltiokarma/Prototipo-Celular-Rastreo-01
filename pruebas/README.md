@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Dieciocho suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Diecinueve suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -28,7 +28,9 @@ falló, así que sirve en CI tal cual.
 ## Correr una sola
 
 Ocho suites **esperan un servidor ya levantado en 3001** con la base a la que
-ellas van a mirar. Las otras siete levantan la suya, y tres (`hud`, `chat` y `cola`) no necesitan ninguno: prueban lógica pura de la app nativa.
+ellas van a mirar. Las otras siete levantan la suya, y cuatro (`hud`, `chat`,
+`cola` y `nativas`) no necesitan ninguno: prueban lógica pura de la app nativa
+y sus versiones.
 
 ```bash
 # las que necesitan servidor: tramos objetivo informes desvio turnos privado seguridad empresas
@@ -37,7 +39,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp
-# las que no necesitan servidor: hud chat cola
+# las que no necesitan servidor: hud chat cola nativas
 node gerencia.js
 ```
 
@@ -74,6 +76,7 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `hud` | Qué se le muestra al chofer en la app nativa: los tres estados de un lado, cuál es el dígito grande, los colores y el texto de la notificación. Sin servidor — es lógica pura |
 | `chat` | El chat de la app nativa: que un privado no aparezca en el grupo, que Despacho se lea como Despacho, que el hilo no repita al reconectar y que lo propio no cuente como sin leer |
 | `cola` | Las posiciones guardadas cuando no hay datos: orden, tope, y que un corte a la mitad de la descarga no las pierda |
+| `nativas` | Las versiones de los módulos nativos de la app: que ningún `expo-*` venga de otro SDK, que no haya un módulo duplicado, que el lockfile no quede viejo, y que no se use una API que Expo dejó como stub que revienta. Lee el lockfile: sin teléfono, sin red, un segundo. Existe porque un `expo-asset` del SDK 57 al lado de un `expo-modules-core` del 54 dejó la app sin abrir, y eso solo se veía con el APK ya instalado, veinte minutos de build después |
 | `cliente` | El cliente del protocolo que va a usar la app nativa (`app/protocolo/`): el rol de GPS cuando hay relevo, las brechas que respetan el null, el freno de cadencia y el privado que no se filtra |
 
 ## Sintaxis de las pantallas

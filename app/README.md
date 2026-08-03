@@ -155,19 +155,73 @@ Corren con el resto: `npm test` desde la raíz.
 - **La cola ya se puede vaciar entera.** `POST /gps` acepta varias posiciones
   con su hora, y el servidor mide con esa hora y no con la de llegada.
 
+## Las versiones de los módulos nativos NO se adivinan
+
+Cada librería nativa tiene una versión por SDK, y mezclarlas rompe la app
+**después** de compilar. Pasó, y costó un build entero: la app dejó de abrir
+con
+
+```
+Failed resolution of: Lexpo/modules/kotlin/types/AnyTypeCache;
+  at expo.modules.asset.AssetModule.definition(AssetModule.kt:125)
+```
+
+Nadie había declarado `expo-asset`. Lo pedía `expo-audio` como
+peerDependency con el rango `*`, npm lo tomó literal y bajó la última —la del
+SDK 57— al lado de un `expo-modules-core` del SDK 54. El autolinking de
+Android compila lo que encuentra, y ese Kotlin le habla a una clase que en el
+54 no existe.
+
+Lo caro es **cuándo** se entera uno: `npm install` no dice nada, el bundle de
+JavaScript arma bien, el build en la nube sale verde, y el error recién
+aparece con el APK ya instalado en el teléfono. Veinte minutos por intento.
+
+Por eso:
+
+- **`expo-asset` está declarado en `package.json` aunque el código no lo
+  importe.** No es basura: es lo que impide que el `*` de `expo-audio` se
+  resuelva a la última. Si alguien lo saca por "no se usa", vuelve el crash.
+- **El `package-lock.json` se commitea.** Es lo que decide qué se compila.
+- **`pruebas/nativas.js` lo verifica en un segundo**, sin teléfono ni red: lee
+  el lockfile y falla si algún `expo-*` viene de otro SDK, si hay un módulo
+  nativo duplicado, o si el lockfile quedó viejo respecto del `package.json`.
+  Corre con el resto de la regresión.
+
+Para agregar una librería, siempre así — elige la versión del SDK:
+
+```bash
+npx expo install <lo-que-falte>
+```
+
+Y para revisar todo el árbol de una:
+
+```bash
+npx expo install --check
+```
+
+Si se sube de SDK, la lista de versiones sale del mismo índice que usa
+`expo install`, y hay que pegarla en `pruebas/nativas.js`:
+
+```bash
+curl https://api.expo.dev/v2/sdks/54.0.0/native-modules
+```
+
+### Y las APIs tampoco
+
+En el SDK 54 `expo-file-system` cambió de API y dejó las funciones viejas
+como **stubs que tipan bien y revientan al ejecutarse**. `readAsStringAsync`
+es una: no falla al compilar ni al abrir la app, falla la primera vez que un
+chofer manda una nota de voz. Por eso `voz.js` usa `new File(uri).base64()` y
+`pruebas/nativas.js` chequea que siga siendo así. La API anterior sigue
+disponible en `expo-file-system/legacy` si alguna vez hace falta.
+
 ## Si Metro dice "Cannot find module ..."
 
 Casi siempre es una librería que usa la configuración pero nadie declaró en
 `package.json`. `babel-preset-expo` fue una: lo usa `babel.config.js`, en un
 proyecto hecho con `create-expo-app` viene solo, y al escribir este a mano se
 pasó por alto. El bundle falla en el primer intento, con la app ya instalada.
-
-La forma correcta de agregarlo es siempre la misma, porque elige la versión
-que corresponde al SDK:
-
-```bash
-npx expo install <lo-que-falte>
-```
+Se agrega con `npx expo install`, igual que todo lo demás.
 
 ## Si EAS te pide instalar algo
 

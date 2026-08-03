@@ -16,7 +16,7 @@
 
 import { useAudioRecorder, useAudioPlayer, RecordingPresets,
          setAudioModeAsync, requestRecordingPermissionsAsync } from 'expo-audio';
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 
 // 60 s es el tope de la web y alcanza de sobra: una nota de voz de un chofer
 // es "estoy en el paradero", no un audio de WhatsApp.
@@ -32,8 +32,15 @@ export async function pedirPermisoMicrofono() {
 }
 
 // De archivo grabado a data-URL, que es lo que el servidor acepta.
+//
+// Va con `new File(uri).base64()` y NO con `readAsStringAsync`: en el SDK 54
+// `expo-file-system` cambió de API y la vieja quedó como una función que
+// existe, tipa bien, y **revienta al ejecutarse**. O sea que el error no
+// aparece al compilar ni al abrir la app: aparece la primera vez que un
+// chofer mantiene apretado para grabar. Está la versión anterior en
+// `expo-file-system/legacy` si alguna vez hace falta otra de esas.
 export async function aDataUrl(uri) {
-  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+  const base64 = await new File(uri).base64();
   // El tipo sale de la extensión que dejó el grabador; si no se reconoce se
   // manda genérico, que el servidor acepta igual porque solo mira el prefijo.
   const ext = (uri.split('.').pop() || '').toLowerCase();

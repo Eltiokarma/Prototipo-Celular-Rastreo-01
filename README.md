@@ -59,7 +59,7 @@ app/                La app del chofer, nativa (Expo). El servidor no cambia.
                     falta un teléfono para saber si andan. Es donde vivieron
                     todos los bugs de esta pantalla
 
-pruebas/            Dieciocho suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Diecinueve suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
