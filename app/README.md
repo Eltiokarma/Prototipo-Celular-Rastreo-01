@@ -30,15 +30,11 @@ lo mata más tarde. Varios minutos no dicen nada de eso.
 
 ## Qué hay hoy
 
-Entrar → brecha en vivo → chat con los dos canales → notas de voz → fotos →
-SOS deslizable → GPS en segundo plano con la brecha en la notificación. Se
-pasa de pantalla deslizando el dedo o con la barra de abajo.
-
-**Falta el mapa.** Necesita `react-native-maps`, y en Android eso pide una
-**clave de Google Maps**: crear un proyecto en Google Cloud, habilitar "Maps
-SDK for Android" y generar la clave. Son unos diez minutos y es gratis en
-este volumen, pero es una cuenta tuya y no lo puedo hacer yo. Cuando la
-tengas, va en `app.json` y se compila.
+Tres pantallas —**mapa · ruta · chat**— con la ruta en el medio, así las
+otras dos quedan a un solo deslizamiento. Entrar → brecha en vivo → mapa de
+la ruta → chat con los dos canales → notas de voz → fotos → SOS deslizable →
+GPS en segundo plano con la brecha en la notificación. Modo día/noche
+automático.
 
 ## Cómo correrla
 
@@ -117,6 +113,10 @@ imagen.js              Cuánto achicarla y cuánto pesa. JS puro, probado
                        en pruebas/imagen.js
 margenes.js            Dónde terminan las barras de Android. JS puro,
                        probado en pruebas/margenes.js
+tema.js                Los colores y cuándo cambian a los de noche. JS
+                       puro, probado en pruebas/tema.js
+mapa.js                Qué se dibuja en el mapa y la página del WebView.
+                       JS puro, probado en pruebas/mapa.js
 gestos.js              Pasar de pantalla deslizando, sin robarle el gesto
                        al SOS. JS puro, probado en pruebas/gestos.js
 cola.js                Las posiciones cuando no hay datos. Probada en
@@ -127,8 +127,8 @@ App.js                 Las pantallas. Solo dibujan lo que les dan
 ```
 
 **La lógica está afuera de los componentes a propósito.** `cliente.js`,
-`hud.js`, `chat.js`, `cola.js`, `margenes.js`, `gestos.js` e `imagen.js` son
-JavaScript puro y corren en Node, así que tienen
+`hud.js`, `chat.js`, `cola.js`, `margenes.js`, `gestos.js`, `imagen.js`,
+`tema.js` y `mapa.js` son JavaScript puro y corren en Node, así que tienen
 suites de verdad y no hace falta un teléfono para saber si andan. Es donde
 vivieron todos los bugs de esta pantalla —la unidad inventada, el lado vacío,
 el "sin señal" confundido con "no hay nadie", el `02:60`—, y ahora cada uno
@@ -286,6 +286,36 @@ reinstalar en cada teléfono.
 - **Las notas viejas pierden el audio a propósito**: el servidor conserva solo
   las 30 últimas. Quedan como burbuja sin reproducción, que es honesto —
   existió, ya no está.
+- **El mapa es Leaflet en un WebView, NO `react-native-maps`.** El nativo usa
+  Google Maps y en Android **exige una clave de Google Cloud**: cuenta,
+  tarjeta, consola, un trámite antes de ver un solo punto. Leaflet sobre
+  OpenStreetMap no pide nada y usa las **mismas tiles que los tres paneles
+  web**, así que la ruta se ve igual en el celular del chofer que en la
+  pantalla de Despacho. Si algún día hace falta el nativo, lo único que
+  cambia es quién dibuja la lista que arma `mapa.js`.
+- **La página del mapa se arma una vez** y después solo recibe datos por
+  `postMessage`. Recargarla en cada estado —cada 3 s— tiraría el zoom y el
+  desplazamiento que el chofer acaba de hacer con el dedo.
+- **El mapa solo recibe datos mientras está a la vista**, y aun así no se
+  desmonta. Empujar una vista cada 3 s con la app en otra pantalla es
+  batería tirada; recargarlo al volver lo haría inútil justo cuando se lo
+  necesita rápido.
+- **La que perdió señal SIGUE en el mapa, apagada y rotulada.** Sacarla hace
+  creer que la combi no está —y está, con gente arriba—; dibujarla igual que
+  las demás hace creer que ese punto es de ahora. Es el mismo error que costó
+  caro en las brechas, y en un mapa se ve peor: un punto se cree más que un
+  número.
+- **Los nombres se escapan antes de entrar al WebView.** Los tipea Despacho a
+  mano, y un apellido con comilla o con `<` rompe la página entera — en el
+  celular eso es una pantalla en blanco sin ningún mensaje.
+- **Modo noche ≠ modo oscuro.** La app ya era oscura. De noche, en la cabina,
+  lo que encandila es el AZUL: es lo que más dilata la pupila y lo que más
+  tarda en soltar la vista, o sea tiempo manejando con los ojos todavía
+  adaptándose. La paleta de noche baja la luminancia y se va al ámbar, como
+  el tablero de un auto. Verde, ámbar y rojo se bajan pero no se cambian: son
+  información. Automático por hora —a 15° de latitud sur el día casi no
+  cambia con la estación— y con manual, porque un túnel o una tormenta no los
+  sabe el reloj.
 - **El chat tiene dos canales**: la ruta y el directo con Despacho. Chofer ↔
   chofer privado no existe, y eso lo decide el servidor: el canal entre
   choferes es el grupo.
@@ -316,7 +346,6 @@ reinstalar en cada teléfono.
 
 ## Lo que falta
 
-- **El mapa** (`react-native-maps`), que además necesita la clave de Google.
 - La brecha en vivo en la notificación, sin reiniciar el GPS.
 - Medir un turno completo en la calle. Nada de acá lo reemplaza.
 - Probarlo en teléfonos de verdad con las tres configuraciones de navegación

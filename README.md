@@ -57,6 +57,9 @@ app/                La app del chofer, nativa (Expo). El servidor no cambia.
                       de los botones del sistema
   gestos.js           Pasar de pantalla deslizando, sin robarle el gesto al SOS
   imagen.js           Cuánto achicar una foto y cuánto pesa de verdad
+  tema.js             Los colores, y cuándo pasan a los de noche
+  mapa.js             Qué se dibuja en el mapa (Leaflet en un WebView, sin
+                      clave de Google) y la página que lo dibuja
   voz.js / foto.js    Grabar audio y sacar fotos. Acá SÍ hay Expo
   gps/servicio.js     GPS en segundo plano: foreground service y cadencia
   App.js              Las pantallas. Solo dibujan
@@ -65,7 +68,7 @@ app/                La app del chofer, nativa (Expo). El servidor no cambia.
                     y no hace falta un teléfono para saber si andan. Es donde
                     vivieron todos los bugs de esta pantalla
 
-pruebas/            Veintitrés suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Veintiséis suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -114,7 +117,7 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 
 ```bash
 cd pruebas && npm install    # solo la primera vez
-cd .. && npm test            # las veintitrés suites, ~5 minutos
+cd .. && npm test            # las veintiséis suites, ~5 minutos
 ```
 
 Corren contra el servidor de verdad —levantan el proceso, abren WebSockets,

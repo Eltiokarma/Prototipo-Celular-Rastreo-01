@@ -29,11 +29,13 @@ import { crearCliente } from './protocolo/cliente';
 import { construirHud, textoNotificacion } from './hud';
 import { aMensaje, hilo, sinLeer } from './chat';
 import { margenes, margenBarra } from './margenes';
-import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS } from './gestos';
+import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL } from './gestos';
+import * as mapa from './mapa';
 import { paleta, esOscuro, siguienteModo, ETIQUETA } from './tema';
 import { useAudioRecorder, useAudioPlayer, RecordingPresets,
          pedirPermisoMicrofono, aDataUrl, MAX_SEGUNDOS } from './voz';
 import { tomarFoto, elegirFoto, comoTexto } from './foto';
+import { WebView } from 'react-native-webview';
 import * as gps from './gps/servicio';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
@@ -119,11 +121,15 @@ function ConTema({ children }) {
 function Aplicacion() {
   const [sesion, setSesion] = React.useState(null);
   const [hud, setHud] = React.useState(() => construirHud(null));
+  // El estado crudo y el trazado son para el mapa. El HUD ya sale de la
+  // brecha; el mapa necesita dónde está cada una.
+  const [estado, setEstado] = React.useState(null);
+  const [geometria, setGeometria] = React.useState(null);
   const [conectado, setConectado] = React.useState(false);
   const [reporta, setReporta] = React.useState(false);
   const [aviso, setAviso] = React.useState(null);
   const [mensajes, setMensajes] = React.useState([]);
-  const [pantalla, setPantalla] = React.useState('ruta');   // 'ruta' | 'chat'
+  const [pantalla, setPantalla] = React.useState(INICIAL);  // ver gestos.js
   const [canal, setCanal] = React.useState('grupo');        // 'grupo' | 'directo'
   const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0 });
   const cliente = React.useRef(null);
@@ -135,7 +141,8 @@ function Aplicacion() {
     cliente.current = crearCliente({ servidor: SERVIDOR, WebSocketImpl: WebSocket });
     const c = cliente.current;
     const off = [
-      c.on('estado', () => setHud(construirHud(c.miBrecha()))),
+      c.on('estado', () => { setHud(construirHud(c.miBrecha())); setEstado(c.estado); }),
+      c.on('geometria', (g) => setGeometria(g)),
       c.on('conexion', ({ conectado }) => setConectado(conectado)),
       c.on('rolGps', ({ reporta, motivo }) => { setReporta(reporta); setAviso(motivo); }),
       c.on('authError', (e) => { setAviso(e); setSesion(null); }),
@@ -286,6 +293,8 @@ function Aplicacion() {
   // escribir cada vez que el chofer mira la brecha.
   return (
     <Carrusel pantalla={pantalla} onIr={irA}>
+      <Mapa {...comun} estado={estado} geometria={geometria}
+        yo={cliente.current?.sesion} activo={pantalla === 'mapa'} />
       <Ruta {...comun} hud={hud} reporta={reporta}
         onSos={() => cliente.current.mandarSos(ultimaPos.current)} />
       <Chat {...comun}
@@ -508,10 +517,92 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, onIr, 
 }
 
 // ═══════════════════════════════════════════════════════════════
-// El botón de pánico. Se DESLIZA y no se toca: un botón de emergencia que
-// se dispara con un roce es peor que no tenerlo — el celular va en un
-// soporte, en una combi que se mueve, y un falso SOS que moviliza gente
-// quema la confianza en el sistema entero.
+// El mapa: un Leaflet adentro de un WebView.
+//
+// NO es `react-native-maps`. Ese usa Google Maps y en Android **exige una
+// clave de Google Cloud** —cuenta, tarjeta, consola—, o sea un trámite que
+// hay que hacer antes de poder ver un solo punto. Leaflet sobre
+// OpenStreetMap no pide nada y usa las MISMAS tiles que los tres paneles web
+// de este proyecto, así que la ruta se ve igual en el celular del chofer que
+// en la pantalla de Despacho.
+//
+// Tres decisiones que sostienen el resto:
+//
+// 1. La página se arma UNA vez y después solo se le mandan datos por
+//    `postMessage`. Recargarla en cada estado —cada 3 segundos— tiraría el
+//    zoom y el desplazamiento que el chofer acaba de hacer con el dedo.
+// 2. Solo se manda mientras el mapa está a la vista. Con la app en la ruta o
+//    en el chat, empujar una vista cada 3 s es trabajo puro para nada, y esta
+//    app se mide por batería.
+// 3. El WebView se queda montado igual, sin recargar: volver al mapa y
+//    esperar a que carguen Leaflet y las tiles de nuevo, cada vez, lo haría
+//    inútil justo cuando se lo necesita rápido.
+//
+// Qué se dibuja está en `mapa.js`, que es JS puro y se prueba en Node. Acá
+// solo se le pasa el papel.
+function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
+  const { s, C, oscuro } = usarTema();
+  const margen = margenes(useSafeAreaInsets(), { conBarra: true });
+  const web = React.useRef(null);
+  const [siguiendo, setSiguiendo] = React.useState(true);
+
+  // La página se arma con los colores del tema del momento y NO se rearma en
+  // cada render: cambiarle el `source` a un WebView lo recarga entero.
+  const pagina = React.useMemo(() => mapa.html(C), [C]);
+
+  const mandar = React.useCallback((obj) => {
+    try { web.current?.postMessage(JSON.stringify(obj)); } catch {}
+  }, []);
+
+  React.useEffect(() => {
+    if (!activo) return;
+    mandar({ tipo: 'vista', vista: mapa.vista(estado, yo, geometria) });
+  }, [activo, estado, geometria, yo, mandar]);
+
+  React.useEffect(() => { mandar({ tipo: 'tema', oscuro }); }, [oscuro, mandar]);
+
+  return (
+    <View style={[s.pantalla, margen, { paddingLeft: 0, paddingRight: 0 }]}>
+      <StatusBar style="light" />
+      <View style={s.mapaCaja}>
+        <WebView
+          ref={web}
+          source={{ html: pagina, baseUrl: 'https://localhost' }}
+          originWhitelist={['*']}
+          style={{ flex: 1, backgroundColor: C.fondo }}
+          javaScriptEnabled
+          domStorageEnabled
+          // Sin esto el WebView tira las tiles al perder el foco y hay que
+          // bajarlas de nuevo cada vez que se vuelve al mapa.
+          cacheEnabled
+          androidLayerType="hardware"
+          onMessage={(e) => {
+            try { setSiguiendo(!!JSON.parse(e.nativeEvent.data).seguir); } catch {}
+          }}
+          startInLoadingState
+          renderLoading={() => <ActivityIndicator color={C.brillante} />}
+        />
+        {/* Aparece cuando el chofer movió el mapa con el dedo. Sin esto,
+            volver a encontrarse a uno mismo obliga a buscarse a ojo. */}
+        {!siguiendo && (
+          <Pressable style={s.centrar}
+            onPress={() => mandar({ tipo: 'centrar', vista: mapa.vista(estado, yo, geometria) })}>
+            <Text style={s.centrarTexto}>CENTRARME</Text>
+          </Pressable>
+        )}
+      </View>
+      <View style={{ paddingHorizontal: 22 }}>
+        <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
+      </View>
+    </View>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Día / noche / automático. El automático va primero porque es el que hay que
+// preferir: el chofer no debería tener que acordarse justo cuando se está
+// haciendo de noche y tiene las dos manos ocupadas. El manual existe porque
+// un túnel, una tormenta o un parabrisas polarizado no los sabe el reloj.
 function BotonTema() {
   const { s, modo, alternar } = usarTema();
   return (
@@ -522,10 +613,10 @@ function BotonTema() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Día / noche / automático. El automático va primero porque es el que hay que
-// preferir: el chofer no debería tener que acordarse justo cuando se está
-// haciendo de noche y tiene las dos manos ocupadas. El manual existe porque
-// un túnel, una tormenta o un parabrisas polarizado no los sabe el reloj.
+// El botón de pánico. Se DESLIZA y no se toca: un botón de emergencia que
+// se dispara con un roce es peor que no tenerlo — el celular va en un
+// soporte, en una combi que se mueve, y un falso SOS que moviliza gente
+// quema la confianza en el sistema entero.
 function SosDeslizable({ onDisparar }) {
   const { s, C } = usarTema();
   const [ancho, setAncho] = React.useState(0);
@@ -588,7 +679,7 @@ function Barra({ pantalla, noLeidos, onIr }) {
   // `margenes.js` — un elemento que se toca necesita más aire que un texto.
   return (
     <View style={[s.barraAbajo, margenBarra(useSafeAreaInsets())]}>
-      {[['ruta', 'RUTA', 0], ['chat', 'CHAT', total]].map(([id, texto, badge]) => (
+      {[['mapa', 'MAPA', 0], ['ruta', 'RUTA', 0], ['chat', 'CHAT', total]].map(([id, texto, badge]) => (
         <Pressable key={id} onPress={() => onIr(id)} style={s.tab}>
           <Text style={[s.tabTexto, pantalla === id && { color: C.brillante }]}>{texto}</Text>
           {badge > 0 && <View style={s.badge}><Text style={s.badgeTexto}>{badge}</Text></View>}
@@ -886,6 +977,15 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.rojo, alignItems: 'center', justifyContent: 'center',
   },
   sosBotonTexto: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+
+  // ── Mapa ─────────────────────────────────────────────────────
+  mapaCaja: { flex: 1, overflow: 'hidden' },
+  centrar: {
+    position: 'absolute', right: 16, bottom: 16,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+  },
+  centrarTexto: { color: C.cielo, fontSize: 11, fontWeight: '900', letterSpacing: 1.5 },
 
   // ── Entrar / tema ────────────────────────────────────────────
   campoConBoton: {

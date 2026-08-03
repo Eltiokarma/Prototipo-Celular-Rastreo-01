@@ -51,6 +51,7 @@ const ESPERADO = {
   'expo-task-manager': '~14.0.9',
   'babel-preset-expo': '~54.0.12',
   'react-native-safe-area-context': '~5.6.0',
+  'react-native-webview': '13.15.0',
 };
 
 const declarado = { ...pkg.dependencies, ...pkg.devDependencies };

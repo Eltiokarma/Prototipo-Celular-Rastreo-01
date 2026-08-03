@@ -20,9 +20,14 @@
 // JS puro y probado por eso mismo: los tres casos de arriba son fáciles de
 // escribir y muy difíciles de verificar con el teléfono en la mano.
 
-// El orden manda: 'ruta' está a la izquierda de 'chat'. Deslizar a la
-// izquierda avanza, como pasar la hoja de un cuaderno.
-const PANTALLAS = ['ruta', 'chat'];
+// El orden manda. Deslizar a la izquierda avanza, como pasar la hoja de un
+// cuaderno.
+//
+// RUTA va EN EL MEDIO a propósito: es la pantalla de trabajo, la que está
+// abierta el 95 % del turno, y desde ahí las otras dos quedan a un solo
+// deslizamiento cada una. Con ruta en una punta, el chat quedaba a dos.
+const PANTALLAS = ['mapa', 'ruta', 'chat'];
+const INICIAL = 'ruta';
 
 // Menos que esto es un toque, o el temblor de una combi en pista de tierra.
 // A 3800 m y en la ruta a Juliaca eso no es una hipótesis.
@@ -36,21 +41,6 @@ function esHorizontal(gesto) {
   const dx = Math.abs(gesto?.dx || 0);
   const dy = Math.abs(gesto?.dy || 0);
   return dx >= UMBRAL && dx > dy * PROPORCION;
-}
-
-// A qué pantalla va, o null si el gesto no alcanza o no hay a dónde ir.
-//
-// NO da la vuelta a propósito: desde 'ruta' deslizar a la derecha no lleva a
-// 'chat'. Con dos pantallas, envolver significa que el mismo gesto en un
-// sentido y en el otro terminan en el mismo lado, y eso se siente roto. Que
-// se frene en el borde es la señal de que no hay nada más allá.
-function deslizar(actual, gesto) {
-  if (!esHorizontal(gesto)) return null;
-  const i = PANTALLAS.indexOf(actual);
-  if (i < 0) return null;
-  const destino = i + (gesto.dx < 0 ? 1 : -1);
-  if (destino < 0 || destino >= PANTALLAS.length) return null;
-  return PANTALLAS[destino];
 }
 
 // ── Que el deslizamiento se sienta, y no dé un salto ──────────
@@ -106,6 +96,6 @@ function indiceDestino(indice, gesto, ancho = 0) {
 }
 
 module.exports = {
-  PANTALLAS, esHorizontal, deslizar, desplazamiento, indiceDestino,
+  PANTALLAS, INICIAL, esHorizontal, desplazamiento, indiceDestino,
   _limites: { UMBRAL, PROPORCION, RESISTENCIA, VELOCIDAD_MINIMA },
 };

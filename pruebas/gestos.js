@@ -11,7 +11,7 @@
 // Un chofer no va a reportar "el swipe tiene mal el umbral": va a decir que
 // la app hace cosas raras. Acá se fija el número.
 const RAIZ = require('path').join(__dirname, '..');
-const { deslizar, esHorizontal, desplazamiento, indiceDestino, PANTALLAS, _limites } = require(RAIZ + '/app/gestos.js');
+const { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL, _limites } = require(RAIZ + '/app/gestos.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -19,45 +19,64 @@ const ok = (n, c, e) => {
   console.log((c === true ? '  ok   ' : '  FALLA') + '  ' + n + (e !== undefined ? '  → ' + JSON.stringify(e) : ''));
 };
 
+console.log('\nEL ORDEN DE LAS PANTALLAS');
+{
+  // RUTA en el medio: es la pantalla de trabajo, la que está abierta casi
+  // todo el turno, y desde ahí las otras dos quedan a un solo deslizamiento.
+  // Con ruta en una punta, el chat quedaba a dos.
+  ok('son tres', PANTALLAS.length === 3, PANTALLAS);
+  ok('y la ruta está en el medio', PANTALLAS[1] === 'ruta', PANTALLAS);
+  ok('se arranca en la ruta', INICIAL === 'ruta', INICIAL);
+  const i = PANTALLAS.indexOf('ruta');
+  ok('el mapa está a un deslizamiento', Math.abs(PANTALLAS.indexOf('mapa') - i) === 1);
+  ok('y el chat también', Math.abs(PANTALLAS.indexOf('chat') - i) === 1);
+}
+
 console.log('\nIR Y VOLVER');
 {
-  ok('desde la ruta, deslizando a la izquierda se abre el chat',
-     deslizar('ruta', { dx: -120, dy: 5 }) === 'chat', deslizar('ruta', { dx: -120, dy: 5 }));
-  ok('y desde el chat, a la derecha se vuelve a la ruta',
-     deslizar('chat', { dx: 120, dy: 5 }) === 'ruta', deslizar('chat', { dx: 120, dy: 5 }));
+  const A = 400;
+  const r = PANTALLAS.indexOf('ruta');
+  ok('desde la ruta, a la izquierda se abre el chat',
+     PANTALLAS[indiceDestino(r, { dx: -250 }, A)] === 'chat');
+  ok('y a la derecha, el mapa',
+     PANTALLAS[indiceDestino(r, { dx: 250 }, A)] === 'mapa');
+  ok('desde el chat se vuelve a la ruta',
+     PANTALLAS[indiceDestino(2, { dx: 250 }, A)] === 'ruta');
+  ok('y desde el mapa también',
+     PANTALLAS[indiceDestino(0, { dx: -250 }, A)] === 'ruta');
 }
 
 console.log('\nLOS BORDES NO DAN LA VUELTA');
 {
-  // Con dos pantallas, envolver hace que el mismo gesto en los dos sentidos
-  // termine en el mismo lado. Frenar en el borde es lo que le dice al dedo
-  // que no hay nada más allá.
-  ok('en la ruta, a la derecha no pasa nada', deslizar('ruta', { dx: 150, dy: 0 }) === null);
-  ok('en el chat, a la izquierda tampoco', deslizar('chat', { dx: -150, dy: 0 }) === null);
-  ok('una pantalla que no existe no navega', deslizar('mapa', { dx: -150, dy: 0 }) === null);
+  // Envolver haría que el mismo gesto en los dos sentidos termine en el
+  // mismo lado. Frenar en el borde es lo que le dice al dedo que no hay nada
+  // más allá.
+  const A = 400;
+  ok('en el mapa, a la derecha no pasa nada', indiceDestino(0, { dx: 300, vx: 2 }, A) === 0);
+  ok('en el chat, a la izquierda tampoco', indiceDestino(2, { dx: -300, vx: -2 }, A) === 2);
 }
 
 console.log('\nEL SCROLL DEL CHAT NO SE ROBA');
 {
-  // Leer los mensajes viejos es un arrastre vertical largo. Si eso cambia de
-  // pantalla, el chat es inusable.
-  ok('un scroll vertical no navega', deslizar('ruta', { dx: 10, dy: -300 }) === null);
-  ok('ni uno vertical con algo de deriva', deslizar('ruta', { dx: -60, dy: -200 }) === null,
-     deslizar('ruta', { dx: -60, dy: -200 }));
-  // 45 grados es ambiguo: ante la duda, gana quien ya estaba scrolleando.
-  ok('a 45 grados gana el scroll', deslizar('ruta', { dx: -100, dy: -100 }) === null);
+  // `esHorizontal` es lo único que decide si el carrusel reclama el dedo.
+  // Leer los mensajes viejos es un arrastre vertical largo; si eso cambiara
+  // de pantalla, el chat sería inusable.
+  ok('un scroll vertical no se reclama', esHorizontal({ dx: 10, dy: -300 }) === false);
+  ok('ni uno vertical con algo de deriva', esHorizontal({ dx: -60, dy: -200 }) === false);
+  // 45 grados es ambiguo: ante la duda gana quien ya estaba scrolleando.
+  ok('a 45 grados gana el scroll', esHorizontal({ dx: -100, dy: -100 }) === false);
 }
 
 console.log('\nLA COMBI SE MUEVE');
 {
   // El celular va en un soporte, en pista de tierra y a 3800 m. Un toque con
   // temblor no puede cambiar de pantalla.
-  ok('un toque no navega', deslizar('ruta', { dx: 0, dy: 0 }) === null);
-  ok('un temblor chico tampoco', deslizar('ruta', { dx: -18, dy: 4 }) === null);
+  ok('un toque no se reclama', esHorizontal({ dx: 0, dy: 0 }) === false);
+  ok('un temblor chico tampoco', esHorizontal({ dx: -18, dy: 4 }) === false);
   ok('pero un deslizamiento decidido sí',
-     deslizar('ruta', { dx: -(_limites.UMBRAL + 1), dy: 2 }) === 'chat');
+     esHorizontal({ dx: -(_limites.UMBRAL + 1), dy: 2 }) === true);
   ok('y justo en el umbral también',
-     deslizar('ruta', { dx: -_limites.UMBRAL, dy: 0 }) === 'chat');
+     esHorizontal({ dx: -_limites.UMBRAL, dy: 0 }) === true);
 }
 
 console.log('\nQUÉ GESTO SE RECLAMA');
@@ -83,8 +102,13 @@ console.log('\nQUE SE SIENTA, Y NO DÉ UN SALTO');
   // colgó. Se deja mover un tercio: alcanza para que el dedo lo entienda.
   const borde = desplazamiento(0, 150, A);
   ok('en el borde resiste pero no se traba', borde > 0 && borde < 150, borde);
-  const bordeFinal = desplazamiento(1, -150, A);
-  ok('y en el otro borde igual', bordeFinal < -A && bordeFinal > -A - 150, bordeFinal);
+  const bordeFinal = desplazamiento(PANTALLAS.length - 1, -150, A);
+  const baseFinal = -(PANTALLAS.length - 1) * A;
+  ok('y en el otro borde igual',
+     bordeFinal < baseFinal && bordeFinal > baseFinal - 150, bordeFinal);
+  // En el MEDIO no hay resistencia: hay a dónde ir para los dos lados.
+  ok('en el medio el dedo arrastra 1 a 1',
+     desplazamiento(1, 150, A) === -A + 150, desplazamiento(1, 150, A));
 }
 
 console.log('\nA DÓNDE SE ACOMODA AL SOLTAR');
@@ -105,13 +129,11 @@ console.log('\nA DÓNDE SE ACOMODA AL SOLTAR');
   ok('un flick hacia atrás pasada la mitad, vuelve',
      indiceDestino(0, { dx: -260, vx: 1.5 }, A) === 0, indiceDestino(0, { dx: -260, vx: 1.5 }, A));
 
-  ok('en el borde no se pasa de largo', indiceDestino(0, { dx: 300, vx: 2 }, A) === 0);
-  ok('ni en el otro', indiceDestino(1, { dx: -300, vx: -2 }, A) === 1);
 }
 
 console.log('\nBORDES');
 {
-  ok('las pantallas están en orden', PANTALLAS.join(',') === 'ruta,chat', PANTALLAS);
+  ok('las pantallas están en orden', PANTALLAS.join(',') === 'mapa,ruta,chat', PANTALLAS);
   for (const malo of [undefined, null, {}, { dx: NaN }]) {
     ok('desplazamiento no revienta con ' + JSON.stringify(malo),
        Number.isFinite(desplazamiento(0, malo?.dx, 400)), desplazamiento(0, malo?.dx, 400));
@@ -119,7 +141,7 @@ console.log('\nBORDES');
   }
   ok('sin ancho no navega a ningún lado', indiceDestino(0, { dx: -10 }, 0) === 0);
   for (const malo of [undefined, null, {}, { dx: NaN, dy: NaN }]) {
-    ok('no revienta con ' + JSON.stringify(malo), deslizar('ruta', malo) === null);
+    ok('esHorizontal no revienta con ' + JSON.stringify(malo), esHorizontal(malo) === false);
   }
 }
 
