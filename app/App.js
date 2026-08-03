@@ -19,7 +19,7 @@ import React from 'react';
 import {
   View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
   FlatList, PanResponder, Animated, Vibration,
-  Image, Modal, Dimensions, Keyboard,
+  Image, Modal, Dimensions, Keyboard, BackHandler,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -172,6 +172,7 @@ function Aplicacion() {
   }, []);
 
   const entrarConSesion = async (s) => {
+    saliendo.current = false;
     setSesion(s);
     // El servidor va al disco junto con la sesión porque la tarea de fondo
     // los lee de ahí: cuando Android la revive, no queda nada en memoria.
@@ -218,12 +219,20 @@ function Aplicacion() {
   // rearranca. `arrancar` ya chequea antes de hacer nada, así que esto no
   // reinicia un servicio sano — que es lo que quemaría la batería.
   const [diag, setDiag] = React.useState({ ...gps.diagnostico });
+  // Levantado mientras se está SALIENDO. Existe por una carrera medida: el
+  // vigilante revisa cada 2 s, y su tick podía caer justo entre `gps.parar()`
+  // y el desmontaje del efecto — veía el servicio detenido y lo REARRANCABA.
+  // Resultado: un servicio huérfano reportando para nadie, con la sesión ya
+  // borrada del disco ("sin sesión guardada" ×38 en un teléfono real). Un
+  // booleano en un ref le gana a la carrera porque se lee en el momento, no
+  // al armar el efecto.
+  const saliendo = React.useRef(false);
   React.useEffect(() => {
     if (!sesion) return;
     let vivo = true;
     const mirar = async () => {
       const corriendo = await gps.estaCorriendo();
-      if (!vivo) return;
+      if (!vivo || saliendo.current) return;
       if (!corriendo) {
         gps.diagnostico.servicio = 'caído, rearrancando';
         gps.arrancar({ textoNotificacion: textoRef.current }).catch(() => {});
@@ -275,6 +284,22 @@ function Aplicacion() {
     setPantalla(p);
     if (p === 'chat') marcarVisto(canal);
   };
+
+  // El botón ATRÁS de Android navega antes de salir: desde el mapa o el chat
+  // vuelve a la ruta, y recién desde la ruta sale de la app. Sin esto, atrás
+  // cerraba la app desde cualquier pantalla — y el que está mirando el mapa
+  // no quiere irse de la app, quiere volver.
+  //
+  // (El mapa suelto registra SU propio manejador, más nuevo que éste, así que
+  // Android le pregunta primero: atrás ahí bloquea el mapa, no navega.)
+  React.useEffect(() => {
+    if (pantalla === 'ruta') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      irA('ruta');
+      return true;
+    });
+    return () => sub.remove();
+  }, [pantalla]);
   const marcarVisto = (cual) =>
     setVistoHasta(v => ({ ...v, [cual]: Date.now() }));
 
@@ -287,6 +312,9 @@ function Aplicacion() {
     conectado, aviso, diag, pantalla, noLeidos, marca,
     onIr: irA,
     onSalir: async () => {
+      // El orden importa: primero se le avisa al vigilante, DESPUÉS se para
+      // el servicio. Al revés, un tick del vigilante en medio lo rearrancaba.
+      saliendo.current = true;
       await SecureStore.deleteItemAsync(gps.LLAVE_SESION);
       await gps.parar();
       cliente.current.salir();
@@ -571,6 +599,27 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
   const [suelto, setSuelto] = React.useState(false);
   React.useEffect(() => { if (!activo) setSuelto(false); }, [activo]);
 
+  // Bloquear es volver al automático. Si no, el mapa queda congelado donde el
+  // chofer lo dejó y la combi se le va de la pantalla sin que él pueda
+  // arrastrarlo — porque acaba de bloquearlo.
+  const bloquear = React.useCallback(() => {
+    setSuelto(false);
+    mandar({ tipo: 'centrar', vista: vistaAhora() });
+  }, [mandar, vistaAhora]);
+
+  // Con el mapa suelto, el botón ATRÁS de Android bloquea el mapa — no saca
+  // de la app. Es lo que la mano hace sola: "terminé de mirar, atrás". Este
+  // manejador se registra recién al soltar el mapa, así que es más nuevo que
+  // el de navegación de la app y Android le pregunta primero a él.
+  React.useEffect(() => {
+    if (!suelto || !activo) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      bloquear();
+      return true;
+    });
+    return () => sub.remove();
+  }, [suelto, activo, bloquear]);
+
   // La página NO depende del tema y se arma una sola vez. Los colores entran
   // después, por mensaje. Antes se armaba con la paleta del momento, así que
   // al pasar a modo noche —a las 18:30, en plena vuelta— cambiaba el `source`
@@ -650,13 +699,7 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
             devolverle el dedo al carrusel. El botón lo dice con todas las
             letras en vez de dejarlo adivinar. */}
         {suelto && (
-          <Pressable style={s.soltar} onPress={() => {
-            setSuelto(false);
-            // Bloquear es volver al automático. Si no, el mapa queda congelado
-            // donde el chofer lo dejó y la combi se le va de la pantalla sin
-            // que él pueda arrastrarlo — porque acaba de bloquearlo.
-            mandar({ tipo: 'centrar', vista: vistaAhora() });
-          }}>
+          <Pressable style={s.soltar} onPress={bloquear}>
             <Text style={s.soltarTexto}>LISTO</Text>
           </Pressable>
         )}

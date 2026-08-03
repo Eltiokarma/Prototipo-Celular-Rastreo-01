@@ -67,6 +67,14 @@ export const diagnostico = {
 // el medio. Ahora esperan y se van con el próximo envío que sí salga, con su
 // hora original — el servidor acepta el atraso desde que existe `POST /gps`.
 const TOPE_PENDIENTES = 500;
+// Si la tarea dispara tantas veces seguidas sin encontrar sesión en el disco,
+// es que NO HAY sesión — el chofer salió— y un servicio de ubicación corriendo
+// para nadie es exactamente lo que no puede existir: quema batería, llena la
+// cola de posiciones que jamás van a salir e infla los contadores. Pasó de
+// verdad: quedó un servicio huérfano reportando "sin sesión guardada" ×38.
+// Con la cadencia de pantalla apagada (10 s) esto corta en ~2 minutos.
+const SIN_SESION_TOPE = 12;
+let sinSesionSeguidas = 0;
 // El servidor rechaza con 413 cualquier envío de más de 200 posiciones. Sin
 // cortar en tandas, una cola de más de 200 daba 413 —y como un 4xx no se
 // reintenta, se perdía entera— y además la cola no podía vaciarse NUNCA más:
@@ -74,9 +82,27 @@ const TOPE_PENDIENTES = 500;
 const MAX_POR_ENVIO = 150;
 let pendientes = [];
 
-function anotarFallo(motivo, cuantas) {
-  diagnostico.fallidas += cuantas;
+// Cada posición cuenta como fallida UNA sola vez, aunque se reintente veinte.
+//
+// Antes `fallidas` sumaba el tamaño del lote en cada intento, y como los
+// lotes re-encolados se reintentan enteros, las mismas ~150 posiciones
+// contadas veinte veces daban "fallidas 3901" al lado de "enviadas 568": un
+// número de catástrofe para lo que era una cola esperando red. Un diagnóstico
+// que asusta de más es casi tan malo como uno que calla.
+//
+// El WeakSet funciona porque la cola conserva LOS MISMOS objetos al
+// re-encolar, y se limpia solo cuando las posiciones se van.
+const yaContadas = new WeakSet();
+
+function anotarFallo(motivo, posiciones) {
+  let nuevas = 0;
+  for (const p of posiciones) {
+    if (!yaContadas.has(p)) { yaContadas.add(p); nuevas++; }
+  }
+  diagnostico.fallidas += nuevas;
   diagnostico.ultimoError = motivo;
+  // Los motivos sí cuentan cada intento: "sin red ×24" dice cuántas veces se
+  // chocó contra el problema, que es lo que sirve para dimensionarlo.
   diagnostico.motivos[motivo] = (diagnostico.motivos[motivo] || 0) + 1;
 }
 
@@ -126,9 +152,21 @@ async function subir(nuevas) {
       SecureStore.getItemAsync(LLAVE_SESION),
       SecureStore.getItemAsync(LLAVE_SERVIDOR),
     ]);
-    if (!crudo || !servidor) { guardar(posiciones); anotarFallo('sin sesión guardada', posiciones.length); return; }
+    if (!crudo || !servidor || !JSON.parse(crudo)?.token) {
+      guardar(posiciones);
+      anotarFallo(!crudo || !servidor ? 'sin sesión guardada' : 'sesión sin token', posiciones);
+      // Sin sesión SOSTENIDO no es un tropiezo: es que nadie está adentro.
+      // El servicio se apaga solo en vez de girar para nadie.
+      sinSesionSeguidas++;
+      if (sinSesionSeguidas >= SIN_SESION_TOPE) {
+        sinSesionSeguidas = 0;
+        diagnostico.servicio = 'detenido: sin sesión';
+        try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+      }
+      return;
+    }
+    sinSesionSeguidas = 0;
     const { token } = JSON.parse(crudo);
-    if (!token) { guardar(posiciones); anotarFallo('sesión sin token', posiciones.length); return; }
 
     const r = await fetch(servidor + '/gps', {
       method: 'POST',
@@ -147,13 +185,13 @@ async function subir(nuevas) {
       // reintenta, porque reintentarlo daría el mismo error para siempre y
       // taparía las posiciones nuevas detrás de un atraso que nunca se vacía.
       if (r.status >= 500) guardar(posiciones);
-      anotarFallo(`HTTP ${r.status}${cuerpo.error ? ' ' + cuerpo.error : ''}`, posiciones.length);
+      anotarFallo(`HTTP ${r.status}${cuerpo.error ? ' ' + cuerpo.error : ''}`, posiciones);
     }
   } catch (e) {
     // Sin datos: en segundo plano es lo normal, Doze le corta la red a la app.
     // NO se pierden — esperan al próximo envío que salga.
     guardar(posiciones);
-    anotarFallo('sin red', posiciones.length);
+    anotarFallo('sin red', posiciones);
   }
 }
 

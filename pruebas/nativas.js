@@ -163,6 +163,18 @@ console.log('\nLA API QUE SE USA');
   const cuerpoCadencia = (servicio.match(/export async function cambiarCadencia[\s\S]*?\n}/) || [''])[0];
   ok('cambiarCadencia() también', /hasStartedLocationUpdatesAsync/.test(cuerpoCadencia));
 
+  // 3) Un servicio sin sesión sostenida se apaga SOLO. Pasó: quedó un
+  //    servicio huérfano girando para nadie ("sin sesión guardada" ×38),
+  //    llenando la cola y quemando batería con la sesión ya borrada.
+  ok('la tarea se apaga sola si no hay sesión sostenida',
+     /SIN_SESION_TOPE/.test(servicio) && /detenido: sin sesión/.test(servicio));
+
+  // 4) Y cada posición cuenta como fallida UNA vez aunque se reintente
+  //    veinte: sin esto, la misma cola esperando red daba "fallidas 3901"
+  //    al lado de "enviadas 568" — un número de catástrofe para un túnel.
+  ok('las fallidas no se recuentan en cada reintento',
+     /yaContadas/.test(servicio) && /WeakSet/.test(servicio));
+
   // Y que la pantalla pueda preguntarlo, para que "0 y 0" deje de ser
   // ambiguo entre "todavía ninguna" y "el servicio no existe".
   ok('el servicio expone si está corriendo',
