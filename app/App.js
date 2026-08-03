@@ -577,7 +577,13 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
           cacheEnabled
           androidLayerType="hardware"
           onMessage={(e) => {
-            try { setSiguiendo(!!JSON.parse(e.nativeEvent.data).seguir); } catch {}
+            // Solo los mensajes que traen `seguir` tocan el botón. Tocar un
+            // marcador también manda un mensaje, y leerlo como "el chofer
+            // movió el mapa" hacía aparecer CENTRARME de la nada.
+            try {
+              const m = JSON.parse(e.nativeEvent.data);
+              if ('seguir' in m) setSiguiendo(!!m.seguir);
+            } catch {}
           }}
           startInLoadingState
           renderLoading={() => <ActivityIndicator color={C.brillante} />}

@@ -68,6 +68,13 @@ app/                La app del chofer, nativa (Expo). El servidor no cambia.
                     y no hace falta un teléfono para saber si andan. Es donde
                     vivieron todos los bugs de esta pantalla
 
+herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
+  flota.js            Veinte combis falsas manejando la ruta de verdad, para
+                      ver el mapa y las brechas con la flota llena sin tener
+                      veinte teléfonos. Entra por la puerta: crea usuarios,
+                      hace login y manda posiciones por el MISMO POST /gps que
+                      el celular. Ver herramientas/README.md
+
 pruebas/            Veintiséis suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)

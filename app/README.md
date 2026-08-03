@@ -286,6 +286,22 @@ reinstalar en cada teléfono.
 - **Las notas viejas pierden el audio a propósito**: el servidor conserva solo
   las 30 últimas. Quedan como burbuja sin reproducción, que es honesto —
   existió, ya no está.
+- **El fondo del mapa es oscuro y sin detalle** (tiles `dark_all` de CARTO), no
+  el mapa de calles a todo color. Un mapa a color tiene cientos de nombres,
+  íconos y manchas de parque compitiendo con lo único que el chofer necesita
+  ver: tres puntos y una línea. Sale del prototipo viejo (`Micros-Tracking`),
+  donde ya estaba resuelto así. **La atribución se muestra**: OSM y CARTO la
+  piden en sus condiciones de uso y esto se va a repartir.
+- **Ida llena, vuelta punteada, y de colores distintos.** Una sola línea de un
+  solo color no dice para qué lado va ese trazo, que es justo lo que hace
+  falta para entender dónde está la de adelante.
+- **Solo se rotulan tres unidades: la mía, la de adelante y la de atrás.** Con
+  veinte combis, veinte etiquetas permanentes tapan el mapa y no dicen nada.
+  Las tres salen de la MISMA brecha que alimenta el HUD, así el mapa y el
+  número grande no pueden contar cosas distintas. El resto se toca.
+- **Los marcadores se MUEVEN, no se rehacen.** Borrar y recrear veinte
+  marcadores cada 3 s hace parpadear el mapa y tira las etiquetas justo
+  cuando el chofer las está leyendo. Es lo que hace viables veinte unidades.
 - **El mapa es Leaflet en un WebView, NO `react-native-maps`.** El nativo usa
   Google Maps y en Android **exige una clave de Google Cloud**: cuenta,
   tarjeta, consola, un trámite antes de ver un solo punto. Leaflet sobre

@@ -5,7 +5,7 @@
 // en un mapa se cree MÁS que un número, así que un error acá es más caro que
 // el mismo error en el HUD.
 const RAIZ = require('path').join(__dirname, '..');
-const { marcadores, lineas, centro, vista, html, escapar, JULIACA } = require(RAIZ + '/app/mapa.js');
+const { marcadores, lineas, centro, vista, html, escapar, JULIACA, TILES } = require(RAIZ + '/app/mapa.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -45,6 +45,38 @@ console.log('\nLA QUE PERDIÓ SEÑAL SE VE, PERO NO SE VE IGUAL');
      ms.find(m => m.id === 'M-08')?.detalle);
   ok('el nombre del chofer NO tapa el aviso',
      ms.find(m => m.id === 'M-08')?.detalle === 'sin señal');
+}
+
+console.log('\nSOLO SE ROTULAN LAS QUE IMPORTAN');
+{
+  // Con veinte combis, veinte etiquetas permanentes tapan el mapa y no dicen
+  // nada. Al chofer le importan la de adelante y la de atrás: son las que le
+  // mueven la brecha. Es la misma tesis del HUD, dibujada.
+  const estado = {
+    units: [
+      u({ unitId: 'M-12', vehicleId: 'M-12' }),          // yo
+      u({ unitId: 'M-08', vehicleId: 'M-08' }),          // adelante
+      u({ unitId: 'M-20', vehicleId: 'M-20' }),          // atrás
+      u({ unitId: 'M-31', vehicleId: 'M-31' }),          // una cualquiera
+      u({ unitId: 'M-44', vehicleId: 'M-44' }),          // otra
+    ],
+    gaps: { 'M-12': { aheadUnit: 'M-08', behindUnit: 'M-20', toAhead: 90, toBehind: 150 } },
+  };
+  const ms = marcadores(estado, YO);
+  const fijas = ms.filter(m => m.fija).map(m => m.id).sort();
+  ok('se rotulan yo, la de adelante y la de atrás',
+     fijas.join(',') === 'M-08,M-12,M-20', fijas);
+  ok('y las demás no', ms.filter(m => !m.fija).length === 2, ms.filter(m => !m.fija).map(m => m.id));
+
+  ok('la de adelante sabe que es la de adelante',
+     ms.find(m => m.id === 'M-08')?.rol === 'adelante');
+  ok('y la de atrás también', ms.find(m => m.id === 'M-20')?.rol === 'atras');
+  ok('las demás no tienen rol', ms.find(m => m.id === 'M-31')?.rol === null);
+
+  // El mapa y el número grande salen de la MISMA brecha: si se separaran,
+  // el chofer vería un "apurá" contra una combi que el mapa no destaca.
+  ok('sale de gaps, que es de donde sale el HUD',
+     marcadores({ units: estado.units }, YO).filter(m => m.fija).length === 1);
 }
 
 console.log('\nSIN COORDENADAS NO HAY PUNTO');
@@ -126,6 +158,27 @@ console.log('\nLA PÁGINA DEL WEBVIEW');
   ok('es una página completa', /^<!DOCTYPE html>/.test(p) && /<\/html>$/.test(p.trim()));
   ok('trae Leaflet', /leaflet@1\.9\.4/.test(p));
 
+  // El fondo oscuro y sin detalle es la decisión que hace legible el mapa: un
+  // mapa de calles a todo color tiene cientos de nombres, íconos y manchas de
+  // parque compitiendo con tres puntos y una línea.
+  ok('el fondo es el mapa oscuro, no el de calles a color',
+     p.includes(TILES.replace(/\{s\}/, '{s}')) && /dark_all/.test(p), TILES);
+  ok('y NO usa el de OpenStreetMap a color', !/tile\.openstreetmap\.org/.test(p));
+
+  // OSM y CARTO la piden en sus condiciones de uso, y esto se va a repartir.
+  ok('la atribución se muestra', /attribution:/.test(p) && !/attributionControl:\s*false/.test(p));
+
+  // Ida llena, vuelta punteada: una línea de un solo color no dice para qué
+  // lado va ese trazo, que es lo que hay que saber para ubicar a la de adelante.
+  ok('la vuelta va punteada y de otro color', /dashArray/.test(p) && /vuelta/.test(p));
+
+  // Mover marcadores en vez de rehacerlos es lo que hace viables 20 unidades:
+  // borrar y recrear cada 3 s hace parpadear el mapa y tira las etiquetas
+  // justo cuando el chofer las está leyendo.
+  ok('los marcadores se mueven, no se rehacen',
+     /setLatLng/.test(p) && !/capaUnidades\.clearLayers/.test(p));
+  ok('y encuadra el trazado al dibujarlo', /fitBounds/.test(p));
+
   // Escucha los DOS: en Android el mensaje llega por `document`, en iOS por
   // `window`. Con uno solo, el mapa se queda vacío en una de las dos
   // plataformas y no da ningún error.
@@ -133,7 +186,7 @@ console.log('\nLA PÁGINA DEL WEBVIEW');
   ok('y por window (iOS)', /window\.addEventListener\('message'/.test(p));
 
   ok('los colores entran en la página', p.includes('#2E9DFF'));
-  ok('y tiene el modo oscuro para el mapa', /\.oscuro \.leaflet-tile-pane/.test(p));
+  ok('y tiene el modo noche para el mapa', /\.oscuro \.leaflet-tile-pane/.test(p));
   ok('sin colores tampoco revienta', typeof html() === 'string' && html().length > 500);
 }
 
