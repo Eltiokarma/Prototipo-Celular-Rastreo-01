@@ -7,17 +7,58 @@ recorrido de una variante— ya están hechos, así que cargar choferes,
 cooperativas o trazados nuevos ya no compromete nada (ver *Ítems ya cerrados*
 al final).
 
-## Puesta en producción — lo que queda pendiente hoy
+## PLAN DE DESARROLLO
 
-- [ ] **Cambiar `CREATOR_PASSWORD`.** La que está puesta se generó para la
-      primera prueba y **estuvo escrita en un chat en texto plano**. Es la
-      única clave que abre TODAS las cooperativas del servidor. Reemplazarla
-      por una de un gestor de contraseñas (24 caracteres) y aplicar: al
-      reiniciarse se cierran solas las sesiones de creador que hubiera.
+Revisado contra el código, no contra la memoria. El orden es el que sigue:
+primero lo que impide vender, después lo que impide escalar, después producto.
+
+### 1 · Bloqueantes. Nada de esto puede quedar así con un cliente pagando
+
+| # | Qué | Por qué bloquea | Tamaño |
+| --- | --- | --- | --- |
+| 1.1 | **Cambiar `CREATOR_PASSWORD`** | Estuvo escrita en un chat en texto plano y es la ÚNICA llave que abre TODAS las cooperativas. Todo lo demás de esta lista da lo mismo si esto queda | 10 minutos |
+| 1.2 | **Respaldo automático de la base** | Hoy NO HAY NINGUNO. La base tiene usuarios, rutas, trazados, chat, vueltas e informes. Un volumen perdido o un `DB_FILE` mal apuntado se lleva la cooperativa entera, y no hay de dónde volver. Es lo primero que pregunta cualquiera que confíe su operación a un sistema | medio día |
+| 1.3 | **Medir un turno de 8 horas** | Toda la app nativa existe por una promesa —el GPS aguanta con la pantalla bloqueada— que solo está comprobada por *varios minutos*. Si a las 3 horas Android la mata, el producto no es lo que decimos que es. No se arregla programando: se mide | 1 turno |
+
+### 2 · Para escalar de 1 cooperativa a varias, y de 6 combis a 20
+
+| # | Qué | Por qué | Tamaño |
+| --- | --- | --- | --- |
+| 2.1 | **Bajar el peso del arranque** | Medido hoy: la primera carga de un panel baja **4,4 MB**. De eso, 1,05 MB son `react-dom.development.js` — la build de DESARROLLO en producción, que además corre más lento. Cambiar a las de producción son dos líneas y ahorra **1 MB**. Los otros 3 MB son Babel compilando en el navegador, que es una decisión más grande (ver 4.1) | 2.1a: 15 minutos |
+| 2.2 | **Bajar Leaflet localmente** | El mapa del chofer lo carga de `unpkg` DENTRO del WebView. Sin señal en la primera apertura, el mapa queda en blanco — y la primera apertura de un chofer suele ser en la calle. Son 144 kB que pueden ir incrustados en el APK | 2 horas |
+| 2.3 | **Guardar el objetivo con cada vuelta** | El cumplimiento se mide contra el objetivo de HOY, no contra el que regía cuando se cerró la vuelta. Con objetivo automático eso cambia solo, así que los informes de la semana pasada mienten un poco. Una columna en `laps` | 2 horas |
+| 2.4 | **Guardar los desvíos de ruta** | Se detectan y se gestionan en vivo pero no se guardan: no se puede decir cuántas veces se salió una unidad la semana pasada. Es lo que le falta al panel del gerente para cerrar el cuadro | medio día |
+
+### 3 · Producto — lo que pidieron los que lo usaron
+
+| # | Qué | Por qué | Tamaño |
+| --- | --- | --- | --- |
+| 3.1 | **Tipo de emergencia en el SOS** | "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide una grúa, otro una ambulancia, el tercero es otra llamada. El deslizar tiene que seguir siendo lo primero —en una emergencia real nadie elige de un menú—: el tipo se elige DESPUÉS de disparar, con la alerta ya enviada, y sin elegir queda como SOS genérico | medio día |
+| 3.2 | **La palabra al lado del color en Despacho** | Verde y ámbar son el mismo color para un daltónico rojo-verde (medido: ΔE 5,4). En gerencia ya está resuelto; en la fila de unidad de Despacho el juicio «va bien / se está yendo» todavía depende solo del color | 1 hora |
+| 3.3 | **La brecha en vivo en la notificación** | Hoy se refresca solo al pasar la app a segundo plano. Para tenerla viva hace falta una notificación aparte con `expo-notifications`, sin tocar el servicio de ubicación — colgarla del servicio lo reiniciaba cada 3 s y quemaba la batería | medio día |
+| 3.4 | **Grabador de rutas** | Del prototipo viejo: subirse a una combi, grabar el recorrido manejando y exportar los puntos. Hoy el trazado se dibuja a ojo sobre el mapa, y manejarlo es más fiel. Guarda un punto cada 30 m recorridos, no cada N segundos, así parar en un semáforo no genera puntos repetidos | medio día |
+
+### 4 · Deuda conocida que NO es urgente
+
+| # | Qué | Estado |
+| --- | --- | --- |
+| 4.1 | **Babel compila en el navegador** | 3 MB y arranque lento. Es el precio de no tener paso de build, y ese precio se eligió a conciencia. Se paga una vez por dispositivo (el service worker lo guarda). Vale revisarlo cuando la app del chofer sea 100 % nativa y los paneles queden solo en desktop |
+| 4.2 | **Una sola instancia, SQLite compartido** | Alcanza de sobra para decenas de cooperativas. El día que no alcance, `ESCALABILIDAD.md` tiene el plan con números |
+| 4.3 | **iPhone** | Todo el desarrollo asume Android, que es lo que usan los choferes. Nada está probado en iOS |
+| 4.4 | **Nombres cosméticos con "R-14"** | "Servidor COOP-R14", títulos de páginas, la descripción del `package.json`. El modelo de datos ya es multi-cooperativa; esto es solo texto que suena a un solo cliente |
+
+---
+
+## Puesta en producción — la lista corta
+
+- [ ] **Cambiar `CREATOR_PASSWORD`** (ver 1.1).
+- [ ] **Respaldo automático de la base** (ver 1.2).
 - [x] Volumen montado y `DB_FILE` apuntando ahí — comprobado con un
       despliegue real: los datos sobrevivieron al cambio de contenedor.
 - [x] Segundo factor del panel del creador activo (`CREATOR_TOTP_SECRET`).
-- [ ] Cargar el recorrido real de la R-14 con el trazador.
+- [ ] Cargar el recorrido real con el trazador.
+- [x] Marca de cada cooperativa (logo y nombre) configurable desde el panel
+      del creador y corregible desde Despacho.
 
 ## Lo que queda por construir
 
