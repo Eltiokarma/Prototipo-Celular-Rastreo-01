@@ -275,6 +275,28 @@ function Aplicacion() {
   // aparte con expo-notifications, para no tocar el servicio de ubicación.
   // Queda pendiente y anotado en el README.
 
+  // El botón ATRÁS de Android navega antes de salir: desde el mapa o el chat
+  // vuelve a la ruta, y recién desde la ruta sale de la app. Sin esto, atrás
+  // cerraba la app desde cualquier pantalla — y el que está mirando el mapa
+  // no quiere irse de la app, quiere volver.
+  //
+  // OJO CON DÓNDE VIVE ESTE HOOK. Tiene que estar ANTES del `return` temprano
+  // de la pantalla de entrar: un hook después de un return condicional hace
+  // que el componente rinda 22 hooks sin sesión y 23 con sesión, y React
+  // corta con "Rendered more hooks than during the previous render" justo al
+  // entrar. Pasó en un teléfono real.
+  //
+  // (El mapa suelto registra SU propio manejador, más nuevo que éste, así que
+  // Android le pregunta primero: atrás ahí bloquea el mapa, no navega.)
+  React.useEffect(() => {
+    if (!sesion || pantalla === 'ruta') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setPantalla('ruta');
+      return true;
+    });
+    return () => sub.remove();
+  }, [sesion, pantalla]);
+
   if (!sesion) return <Entrar servidor={SERVIDOR} aviso={aviso} onEntrar={async (s) => {
     await SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(s));
     entrarConSesion(s);
@@ -284,22 +306,6 @@ function Aplicacion() {
     setPantalla(p);
     if (p === 'chat') marcarVisto(canal);
   };
-
-  // El botón ATRÁS de Android navega antes de salir: desde el mapa o el chat
-  // vuelve a la ruta, y recién desde la ruta sale de la app. Sin esto, atrás
-  // cerraba la app desde cualquier pantalla — y el que está mirando el mapa
-  // no quiere irse de la app, quiere volver.
-  //
-  // (El mapa suelto registra SU propio manejador, más nuevo que éste, así que
-  // Android le pregunta primero: atrás ahí bloquea el mapa, no navega.)
-  React.useEffect(() => {
-    if (pantalla === 'ruta') return;
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      irA('ruta');
-      return true;
-    });
-    return () => sub.remove();
-  }, [pantalla]);
   const marcarVisto = (cual) =>
     setVistoHasta(v => ({ ...v, [cual]: Date.now() }));
 

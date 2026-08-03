@@ -169,6 +169,30 @@ console.log('\nLA API QUE SE USA');
   ok('la tarea se apaga sola si no hay sesión sostenida',
      /SIN_SESION_TOPE/.test(servicio) && /detenido: sin sesión/.test(servicio));
 
+  // 3bis) Ningún hook puede vivir DESPUÉS de un return condicional. Pasó en
+  //    un teléfono real: el useEffect del botón atrás quedó abajo del
+  //    `if (!sesion) return <Entrar/>`, así que el componente rendía 22
+  //    hooks sin sesión y 23 con sesión — y React corta con "Rendered more
+  //    hooks than during the previous render" JUSTO AL ENTRAR. Compila bien,
+  //    el chequeo de sintaxis no lo ve, y explota en la primera pantalla.
+  {
+    const app = fs.readFileSync(RAIZ + '/app/App.js', 'utf8');
+    const componentes = app.split(/\n(?=function [A-Z]|export default function )/);
+    const infractores = [];
+    for (const comp of componentes) {
+      const m = comp.match(/^(?:export default )?function (\w+)/);
+      if (!m) continue;
+      // Un return temprano a nivel del componente (indentación 2) seguido,
+      // más abajo, de una llamada a hook.
+      const rets = [...comp.matchAll(/\n  if \([^\n]*\) return/g)].map(x => x.index);
+      const hooks = [...comp.matchAll(/React\.use\w+\(|useSafeAreaInsets\(|usarTema\(|useVentana\(|useTeclado\(/g)]
+        .map(x => x.index);
+      if (rets.some(r => hooks.some(h => h > r))) infractores.push(m[1]);
+    }
+    ok('ningún componente llama hooks después de un return temprano',
+       infractores.length === 0, infractores);
+  }
+
   // 4) Y cada posición cuenta como fallida UNA vez aunque se reintente
   //    veinte: sin esto, la misma cola esperando red daba "fallidas 3901"
   //    al lado de "enviadas 568" — un número de catástrofe para un túnel.
