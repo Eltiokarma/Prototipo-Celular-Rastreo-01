@@ -50,11 +50,30 @@ círculo inventado. Si no hay trazado, la herramienta lo dice y no arranca.
 | `--despacho` | `despacho99` | La clave de la cuenta DESPACHO |
 | `--cadencia` | `3000` | Cada cuántos ms reportan, como el teléfono |
 | `--prefijo` | `F` | Con qué letra se llaman (`F-01`, `F-02`…) |
+| `--acelerar` | `1` | Reloj simulado ×N. Las posiciones salen igual cada 3 s, pero las combis avanzan N veces más rápido: con `--acelerar 10`, el almuerzo de 30 min dura 3 |
 
 Las velocidades son **distintas entre sí** a propósito: con todas iguales las
 brechas quedan congeladas y no se ve nunca un "apurá" ni un "aguantá", que es
-justo lo que se viene a mirar. Y descansan en los terminales, que es lo que
-produce las unidades detenidas.
+justo lo que se viene a mirar.
+
+### Los perfiles
+
+Una flota real no son veinte relojes suizos, así que los fantasmas tampoco:
+
+- **Todos descansan en los dos terminales**, un rato distinto en cada vuelta
+  (determinista: dos corridas dan lo mismo). Es lo que produce las combis
+  detenidas en el punto inicial y final, con la app abierta y reportando
+  velocidad cero.
+- **Algunos se van a almorzar 30 minutos** cada tres vueltas, sin apagar la
+  app — quedan parados en el terminal, reportando, como un chofer con el
+  celular en el bolsillo. La herramienta dice cuáles al arrancar.
+- **Uno pierde la señal en un tramo fijo de la ida** —un mercado, una zona sin
+  cobertura— y deja de mandar SIN dejar de moverse. Reaparece más adelante.
+  Es lo que dispara el "sin señal" del servidor: se ve gris en el mapa, y la
+  que viene atrás deja de medirse contra él.
+
+La línea de estado lo va contando: `14 ok · 4 en terminal · 1 almorzando ·
+1 sin señal`.
 
 ### Cuidado
 

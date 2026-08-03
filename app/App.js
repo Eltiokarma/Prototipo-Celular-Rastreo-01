@@ -615,7 +615,13 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
           // Sin esto el WebView tira las tiles al perder el foco y hay que
           // bajarlas de nuevo cada vez que se vuelve al mapa.
           cacheEnabled
-          androidLayerType="hardware"
+          // SIN androidLayerType="hardware", y es a propósito. Un WebView en
+          // Android dibuja en su propia superficie nativa, y con layerType
+          // hardware esa superficie NO sigue a tiempo el translateX del
+          // carrusel (que corre en el hilo nativo): al deslizar quedaba un
+          // rectángulo del color del fondo donde el mapa todavía no se había
+          // re-pintado. Con el layerType por defecto, el WebView se compone
+          // con la jerarquía y se mueve con ella.
           onMessage={(e) => {
             // Solo los mensajes que traen `seguir` tocan el botón: leer
             // cualquier mensaje como "el chofer movió el mapa" hacía aparecer

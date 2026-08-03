@@ -47,6 +47,10 @@ const CLAVE_DESPACHO = opcion('despacho', process.env.DISPATCH_PASSWORD || 'desp
 const CLAVE_CHOFER = 'flota1234';
 const CADENCIA_MS = Number(opcion('cadencia', 3000));
 const PREFIJO = opcion('prefijo', 'F');
+// Acelera el RELOJ SIMULADO, no la cadencia: las posiciones salen igual cada
+// 3 s, pero las combis avanzan N veces más rápido. Sin esto, ver un almuerzo
+// de 30 minutos lleva 30 minutos — con --acelerar 10, lleva 3.
+const ACELERAR = Math.max(1, Number(opcion('acelerar', 1)));
 
 // Los nombres son inventados pero verosímiles: en el panel de Despacho una
 // lista de "Chofer 1, Chofer 2…" no deja ver si la pantalla aguanta nombres
@@ -116,32 +120,97 @@ function puntoA(tramo, d) {
 //
 // Velocidades DISTINTAS a propósito: con todas iguales las brechas quedan
 // congeladas y no se ve nunca un "apurá" ni un "aguantá", que es justo lo que
-// se viene a mirar. Y descansos en los terminales, que es lo que produce las
-// unidades detenidas y los estados de espera.
+// se viene a mirar.
+//
+// Y PERFILES, porque una flota real no son veinte relojes suizos. Lo que se
+// vio en la calle y en el prototipo viejo, acá adentro:
+//
+//   espera      todos descansan en los DOS terminales, un rato distinto cada
+//               vez (determinista por unidad y por vuelta, así dos corridas
+//               dan lo mismo). Es lo que produce las combis detenidas en el
+//               punto inicial y final, con la app abierta y reportando.
+//   almuerzo    algunas, cada tantas vueltas, se quedan 30 MINUTOS en el
+//               terminal. No apagan la app: siguen reportando con velocidad
+//               cero, que es exactamente lo que hace un chofer que se fue a
+//               almorzar con el celular en el bolsillo.
+//   sinSenal    una pierde la señal en un tramo fijo de la ida —un mercado,
+//               una zona sin cobertura— y deja de MANDAR sin dejar de
+//               moverse. Al salir del tramo reaparece más adelante. Es lo
+//               que dispara el "sin señal" del servidor y se ve gris en el
+//               mapa y en el HUD de la que viene atrás.
+//
+// Determinista a propósito, como en Micros-Tracking: sin Math.random, así una
+// corrida se puede repetir y lo que se vio se puede volver a ver.
+function seudoAzar(a, b) {
+  const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+const ALMUERZO_S = 30 * 60;          // los 30 minutos del pedido
+const CADA_CUANTO_ALMUERZA = 3;      // vueltas completas entre almuerzos
+// El tramo de la ida donde la unidad 'sinSenal' va callada (fracciones del
+// largo). Un 20 % de una ida de 25 minutos son ~5 minutos muda: de sobra para
+// pasar el umbral de 30 s del servidor.
+const MUDA_DESDE = 0.40, MUDA_HASTA = 0.60;
+
 function crearUnidad(i, tramos) {
   const kmh = 14 + (i % 7) * 2.5;                 // de 14 a 29 km/h
   const vMs = kmh * 1000 / 3600;
   const ida = medir(tramos.ida);
   const vuelta = medir(tramos.vuelta.length ? tramos.vuelta : [...tramos.ida].reverse());
-  const descanso = 60 + (i % 5) * 45;             // de 1 a 4 minutos
-  const vueltaCompleta = ida.largo / vMs + descanso + vuelta.largo / vMs + descanso;
-  // Repartidas a lo largo del recorrido, no todas juntas en el terminal.
-  const desfase = (i / CUANTAS) * vueltaCompleta;
+  const tIda = ida.largo / vMs;
+  const tVuelta = vuelta.largo / vMs;
+
+  const perfil = i % 7 === 2 ? 'almuerzo' : i % 7 === 5 ? 'sinSenal' : 'normal';
+
+  // Descansos por vuelta: 1 a 5 minutos, distintos en cada terminal y en
+  // cada vuelta, pero siempre los mismos para la misma unidad y vuelta.
+  const esperaIni = (c) => 60 + Math.floor(seudoAzar(i + 1, c * 2 + 1) * 240);
+  const esperaFin = (c) => 60 + Math.floor(seudoAzar(i + 7, c * 2 + 5) * 240);
+  const almuerza = (c) => perfil === 'almuerzo' && c > 0 && c % CADA_CUANTO_ALMUERZA === 0;
+
+  // Duración aproximada de una vuelta para repartir los desfases iniciales.
+  const vueltaTipica = tIda + tVuelta + 300;
+  const desfase = (i / CUANTAS) * vueltaTipica;
 
   return {
     id: `${PREFIJO}-${String(i + 1).padStart(2, '0')}`,
     nombre: NOMBRES[i % NOMBRES.length] + (i >= NOMBRES.length ? ` ${Math.floor(i / NOMBRES.length) + 1}` : ''),
-    kmh, token: null, sesion: null,
+    kmh, perfil, token: null, sesion: null,
+
+    // Posición al segundo SIMULADO `segundos`. Devuelve también `manda`:
+    // false es "la app está viva pero la posición no sale" — la zona muda.
     donde(segundos) {
-      let t = (segundos + desfase) % vueltaCompleta;
-      const tIda = ida.largo / vMs;
-      if (t < tIda) return { ...puntoA(ida, t * vMs), speed: kmh, parada: false };
-      t -= tIda;
-      if (t < descanso) return { ...puntoA(ida, ida.largo), speed: 0, parada: true };
-      t -= descanso;
-      const tVuelta = vuelta.largo / vMs;
-      if (t < tVuelta) return { ...puntoA(vuelta, t * vMs), speed: kmh, parada: false };
-      return { ...puntoA(vuelta, vuelta.largo), speed: 0, parada: true };
+      let t = segundos + desfase;
+      for (let c = 0; c < 100000; c++) {
+        // 1) Espera en el terminal de salida (más el almuerzo, si toca).
+        //    La app queda abierta: se reporta velocidad 0, no silencio.
+        const eIni = esperaIni(c) + (almuerza(c) ? ALMUERZO_S : 0);
+        if (t < eIni) {
+          return { ...puntoA(ida, 0), speed: 0, parada: true, manda: true,
+                   almorzando: almuerza(c) };
+        }
+        t -= eIni;
+        // 2) La ida. La unidad 'sinSenal' se calla en su tramo, sin frenarse.
+        if (t < tIda) {
+          const frac = (t * vMs) / (ida.largo || 1);
+          const muda = perfil === 'sinSenal' && frac >= MUDA_DESDE && frac < MUDA_HASTA;
+          return { ...puntoA(ida, t * vMs), speed: kmh, parada: false, manda: !muda };
+        }
+        t -= tIda;
+        // 3) Espera en el terminal de llegada.
+        const eFin = esperaFin(c);
+        if (t < eFin) {
+          return { ...puntoA(ida, ida.largo), speed: 0, parada: true, manda: true };
+        }
+        t -= eFin;
+        // 4) La vuelta.
+        if (t < tVuelta) {
+          return { ...puntoA(vuelta, t * vMs), speed: kmh, parada: false, manda: true };
+        }
+        t -= tVuelta;
+      }
+      return { ...puntoA(ida, 0), speed: 0, parada: true, manda: true };
     },
   };
 }
@@ -197,11 +266,23 @@ function crearUnidad(i, tramos) {
   console.log(`Entraron ${vivas.length}/${CUANTAS}.  Ctrl+C para parar.\n`);
   if (!vivas.length) process.exit(1);
 
+  // Quiénes son los raros, para saber qué mirar en el mapa sin adivinar.
+  const almorzadores = vivas.filter(u => u.perfil === 'almuerzo').map(u => u.id);
+  const mudas = vivas.filter(u => u.perfil === 'sinSenal').map(u => u.id);
+  if (almorzadores.length) {
+    console.log(`Almuerzan 30 min cada ${CADA_CUANTO_ALMUERZA} vueltas (sin apagar la app): ${almorzadores.join(', ')}`);
+  }
+  if (mudas.length) {
+    console.log(`Pierden la señal en un tramo de la ida (siguen andando): ${mudas.join(', ')}`);
+  }
+  if (ACELERAR > 1) console.log(`Reloj simulado ×${ACELERAR}: los 30 min de almuerzo duran ${Math.round(ALMUERZO_S / ACELERAR / 60)} min de verdad.`);
+  console.log('');
+
   const desde = Date.now();
   let vueltas = 0;
   for (;;) {
-    const segundos = (Date.now() - desde) / 1000;
-    let bien = 0, mal = 0;
+    const segundos = ((Date.now() - desde) / 1000) * ACELERAR;
+    let bien = 0, mal = 0, paradas = 0, calladas = 0, almorzando = 0;
 
     // Las posiciones van por `POST /gps`, el MISMO camino que usa el teléfono
     // con la pantalla bloqueada. Si mañana ese endpoint se rompe, esto se
@@ -210,6 +291,12 @@ function crearUnidad(i, tramos) {
     await Promise.all(vivas.map(async (u) => {
       const p = u.donde(segundos);
       if (!p || !isFinite(p.lat)) return;
+      if (p.parada) paradas++;
+      if (p.almorzando) almorzando++;
+      // La zona muda: la combi sigue andando pero la posición no sale, igual
+      // que un teléfono sin cobertura. NO se manda nada — el silencio es el
+      // dato, y es lo que dispara el "sin señal" del servidor.
+      if (!p.manda) { calladas++; return; }
       const r = await pedir('/gps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + u.token },
@@ -221,7 +308,11 @@ function crearUnidad(i, tramos) {
     vueltas++;
     if (vueltas % 5 === 0 || vueltas === 1) {
       const min = Math.floor(segundos / 60);
-      process.stdout.write(`\r  ${min}m  ·  ${bien} ok  ${mal ? mal + ' fallidas' : ''}        `);
+      process.stdout.write(
+        `\r  ${min}m sim  ·  ${bien} ok  ${mal ? mal + ' fallidas  ' : ''}` +
+        `${paradas ? paradas + ' en terminal  ' : ''}` +
+        `${almorzando ? almorzando + ' almorzando  ' : ''}` +
+        `${calladas ? calladas + ' sin señal  ' : ''}      `);
     }
     await dormir(CADENCIA_MS);
   }

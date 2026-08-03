@@ -29,6 +29,28 @@ primero lo que impide vender, después lo que impide escalar, después producto.
 | 2.3 | **Guardar el objetivo con cada vuelta** | El cumplimiento se mide contra el objetivo de HOY, no contra el que regía cuando se cerró la vuelta. Con objetivo automático eso cambia solo, así que los informes de la semana pasada mienten un poco. Una columna en `laps` | 2 horas |
 | 2.4 | **Guardar los desvíos de ruta** | Se detectan y se gestionan en vivo pero no se guardan: no se puede decir cuántas veces se salió una unidad la semana pasada. Es lo que le falta al panel del gerente para cerrar el cuadro | medio día |
 
+### 2bis · El trazador se muda al panel del creador
+
+Decisión tomada usándolo: **las rutas las carga el nivel de arriba al dar de
+alta la cooperativa**, igual que el logo — la cooperativa recibe el sistema ya
+configurado. Despacho a lo sumo corrige. Hoy el trazador vive en el panel de
+Despacho y se queda ahí mientras tanto, pero el destino es el creador.
+
+Y al moverlo, dárselo con las herramientas que le faltan (pedido de quien lo
+usó: "más herramientas de desplazamiento y selección"):
+
+| Herramienta | Para qué |
+| --- | --- |
+| **Arrastrar un punto** | Hoy un punto mal puesto se borra y se vuelve a poner; moverlo es lo natural |
+| **Seleccionar un tramo** (dos clics: desde acá hasta acá) | Borrar o rehacer una cuadra entera sin tocar el resto |
+| **Insertar en el medio** | Hoy solo se agrega al final: densificar una curva obliga a rehacer desde ahí |
+| **Deshacer** (Ctrl+Z) | Sin esto, cada error cuesta minutos |
+| **Mover el mapa sin dibujar** (modo mano / barra espaciadora) | Desplazarse por una ruta larga sin sembrar puntos por accidente |
+| **Importar GPX** | Lo que salga del grabador de rutas (3.4) entra directo |
+
+Tamaño: 1-2 días. Va DESPUÉS del respaldo (1.2): es más horas de las que
+parece y nada de esto bloquea la calle.
+
 ### 3 · Producto — lo que pidieron los que lo usaron
 
 | # | Qué | Por qué | Tamaño |
