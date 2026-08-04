@@ -15,6 +15,9 @@ const ok = (n, c, e) => {
   const errores = [];
   const p = await ctx.newPage();
   p.on('pageerror', e => errores.push(e.message));
+  // El único diálogo del panel es el confirm de "cambios sin guardar" del
+  // trazador: acá siempre se descartan a propósito.
+  p.on('dialog', d => d.accept());
 
   await p.goto(`http://localhost:${P}/creador`, { waitUntil: 'domcontentloaded', timeout: 40000 });
   await p.waitForTimeout(2500);
@@ -56,6 +59,34 @@ const ok = (n, c, e) => {
   t = await p.innerText('body');
   ok('se crea una cooperativa entera desde la pantalla',
     /Cooperativa creada/.test(t) && /Cooperativa de Prueba/.test(t) && /RUI-1/.test(t));
+
+  // Administrar: corregir datos y renombrar una ruta sin dar nada de baja
+  const laNueva = p.locator('[data-empresa="UI-COOP"]');
+  t = await laNueva.innerText();
+  ok('la tarjeta muestra RUC, contacto y fecha de alta', /RUC/.test(t) && /CONTACTO/i.test(t) && /ALTA/i.test(t));
+  ok('y el nombre de cada ruta, no solo el código', /Terminal ↔ Mercado/.test(t));
+
+  await laNueva.getByRole('button', { name: 'Administrar' }).click();
+  await p.waitForTimeout(800);
+  const camposDatos = laNueva.locator('input');
+  await camposDatos.nth(2).fill('999 111 222');   // contacto (0=nombre, 1=RUC)
+  await laNueva.getByRole('button', { name: 'Guardar datos' }).click();
+  await p.waitForTimeout(2000);
+  t = await p.innerText('body');
+  ok('los datos se corrigen desde la tarjeta',
+    /Datos guardados/.test(t) && /contacto 999 111 222/.test(t));
+
+  await laNueva.getByRole('button', { name: 'Renombrar' }).click();
+  await p.waitForTimeout(400);
+  await laNueva.locator('input:focus').fill('Terminal ↔ Feria Dominical');
+  await laNueva.getByRole('button', { name: 'Guardar', exact: true }).click();
+  await p.waitForTimeout(2000);
+  t = await p.innerText('body');
+  ok('una ruta se renombra en su propia fila',
+    /Ruta renombrada/.test(t) && /Terminal ↔ Feria Dominical/.test(t));
+  await p.screenshot({ path: SHOT + '/creador-administrar.png' });
+  await laNueva.getByRole('button', { name: 'Cerrar', exact: true }).click();
+  await p.waitForTimeout(500);
 
   // Suspender y volver. La tarjeta se busca por su código, que es único:
   // apuntarle por nombre agarraba el contenedor de todas y terminaba
@@ -156,6 +187,26 @@ const ok = (n, c, e) => {
   await p.waitForTimeout(500);
   ok('Ctrl+Z deshace y deja algo para guardar',
     await p.getByRole('button', { name: 'Guardar', exact: true }).isEnabled());
+
+  // Cambiar de cooperativa y de ruta NO puede matar el mapa. Regresión: el
+  // div del mapa se desmontaba con el cambio y al volver quedaba un
+  // rectángulo blanco muerto — "explota" al segundo uso del selector.
+  // (Hay cambios sin guardar por el Ctrl+Z: salta el confirm y se acepta.)
+  await p.locator('select').nth(0).selectOption('R14');
+  await p.waitForTimeout(1000);
+  await p.locator('select').nth(1).selectOption('R-14');
+  await p.waitForTimeout(3000);
+  ok('cambiar de cooperativa deja el mapa vivo',
+    (await p.locator('.leaflet-container').count()) === 1);
+  const caja2 = await p.locator('.leaflet-container').boundingBox();
+  await p.mouse.click(caja2.x + caja2.width / 2 - 50, caja2.y + caja2.height / 2);
+  await p.waitForTimeout(300);
+  await p.mouse.click(caja2.x + caja2.width / 2 + 50, caja2.y + caja2.height / 2);
+  await p.waitForTimeout(500);
+  t = await p.innerText('body');
+  ok('y en la ruta recién elegida se puede dibujar',
+    /IDA [0-9]+([.,][0-9])? km/.test(t) && !/IDA 0([.,]0)? km/.test(t),
+    (t.match(/IDA [\d.,]+ km/) || [])[0]);
 
   console.log('\nSALIR');
   await p.click('button:has-text("Salir")');

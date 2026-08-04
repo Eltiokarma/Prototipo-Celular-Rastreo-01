@@ -622,7 +622,12 @@ El nivel que está por encima de todas las cooperativas, hecho pantalla. Es
 donde se dan de alta las empresas, se les crea o restablece la cuenta de
 Despacho, se les agregan rutas y se las suspende; además muestra la salud
 del servidor y la actividad de todas juntas — el único lugar del sistema
-donde se ven así.
+donde se ven así. Lo que se cargó también se **corrige** sin dar nada de
+baja: nombre, RUC y contacto de la cooperativa, y el nombre de cada ruta —
+los códigos no, porque de ellos cuelga todo lo demás. La tarjeta muestra lo
+que se necesita al hablar con la cooperativa: RUC, contacto, fecha de alta,
+rutas con su nombre y el último ingreso de las cuentas de Despacho y
+gerencia.
 
 **Es sobrio a propósito, no oscuro.** Usa los mismos tokens claros que el
 panel de Despacho; lo que lo hace herramienta interna es que no tiene marca,

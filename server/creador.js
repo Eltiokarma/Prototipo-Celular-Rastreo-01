@@ -283,6 +283,16 @@ function montarPanelDelCreador(app, deps) {
     res.json({ ok: true, logo });
   });
 
+  // Corregir nombre, RUC y contacto. El código no se toca: cuelga de él
+  // todo lo demás. Queda anotado con la empresa, como todo lo que el
+  // creador le hace a una cooperativa.
+  app.put(BASE + '/empresas/:companyId/datos', requireCreador, (req, res) => {
+    const r = coop.editar(db, { ...req.body, companyId: req.params.companyId });
+    if (r.error) return res.status(/No existe/.test(r.error) ? 404 : 400).json({ error: r.error });
+    anotar('editar_empresa', r.companyId, r.name, r.companyId);
+    res.json(r);
+  });
+
   app.post(BASE + '/empresas/:companyId/estado', requireCreador, (req, res) => {
     const r = coop.estado(db, { companyId: req.params.companyId, activa: !!req.body?.activa });
     if (r.error) return res.status(400).json({ error: r.error });
@@ -326,6 +336,16 @@ function montarPanelDelCreador(app, deps) {
     const r = coop.altaRuta(db, { ...req.body, companyId: req.params.companyId });
     if (r.error) return res.status(400).json({ error: r.error });
     anotar('alta_ruta', r.routeId, `empresa ${r.companyId}`, r.companyId);
+    res.json(r);
+  });
+
+  // Renombrar una ruta (el código no: por lo mismo que el de la empresa).
+  app.put(BASE + '/empresas/:companyId/rutas/:routeId', requireCreador, (req, res) => {
+    const r = coop.editarRuta(db, {
+      companyId: req.params.companyId, routeId: req.params.routeId, name: req.body?.name,
+    });
+    if (r.error) return res.status(/no es de/.test(r.error) ? 404 : 400).json({ error: r.error });
+    anotar('editar_ruta', r.routeId, r.name, r.companyId);
     res.json(r);
   });
 

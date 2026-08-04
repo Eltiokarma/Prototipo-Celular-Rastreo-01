@@ -238,6 +238,41 @@ function altaRuta(db, { companyId, routeId, name, targetGapMin, durationMin } = 
   return { ok: true, companyId: empresa, routeId: ruta };
 }
 
+// ─── CORREGIR LOS DATOS ──────────────────────────────────────
+// Nombre, RUC y contacto se corrigen; el CÓDIGO (companyId) no se toca:
+// cuelga de él todo lo demás —usuarios, rutas, sesiones, auditoría— y
+// renombrarlo sería mover la cooperativa entera de lugar.
+function editar(db, { companyId, name, ruc, contacto } = {}) {
+  const empresa = idLimpio(companyId);
+  if (!empresa) return { error: 'Falta el código de la empresa' };
+  if (!db.prepare('SELECT companyId FROM companies WHERE companyId = ?').get(empresa)) {
+    return { error: `No existe la empresa ${empresa}` };
+  }
+  const nombre = String(name || '').trim().slice(0, 80);
+  if (!nombre) return { error: 'El nombre de la cooperativa es obligatorio' };
+  const rucLimpio = String(ruc || '').trim().slice(0, 20) || null;
+  const contactoLimpio = String(contacto || '').trim().slice(0, 80) || null;
+  db.prepare('UPDATE companies SET name = ?, ruc = ?, contacto = ? WHERE companyId = ?')
+    .run(nombre, rucLimpio, contactoLimpio, empresa);
+  return { ok: true, companyId: empresa, name: nombre, ruc: rucLimpio, contacto: contactoLimpio };
+}
+
+// El nombre de una ruta también se corrige (el código no, por lo mismo).
+// Es lo que se lee en los selectores y en el mapa del chofer: un error de
+// tipeo ahí queda a la vista de todos los días.
+function editarRuta(db, { companyId, routeId, name } = {}) {
+  const empresa = idLimpio(companyId);
+  const ruta = idLimpio(routeId);
+  if (!empresa || !ruta) return { error: 'Falta la empresa o la ruta' };
+  if (!db.prepare('SELECT routeId FROM routes WHERE routeId = ? AND companyId = ?').get(ruta, empresa)) {
+    return { error: `La ruta ${ruta} no es de la empresa ${empresa}` };
+  }
+  const nombre = String(name || '').trim().slice(0, 60);
+  if (!nombre) return { error: 'El nombre de la ruta no puede quedar vacío' };
+  db.prepare('UPDATE routes SET name = ? WHERE routeId = ?').run(nombre, ruta);
+  return { ok: true, companyId: empresa, routeId: ruta, name: nombre };
+}
+
 // ─── SUSPENDER O HABILITAR ───────────────────────────────────
 function estado(db, { companyId, activa } = {}) {
   const empresa = idLimpio(companyId);
@@ -362,7 +397,7 @@ function bajaVariante(db, { variantId } = {}) {
 }
 
 module.exports = {
-  listar, alta, supervisor, gerente, altaRuta, estado,
+  listar, alta, supervisor, gerente, altaRuta, estado, editar, editarRuta,
   variantes, altaVariante, editarVariante, bajaVariante,
   CLAVE_MINIMA,
 };

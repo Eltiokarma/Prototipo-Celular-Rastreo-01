@@ -98,6 +98,11 @@ function fecha(ts) {
   return d.toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function diaConAnio(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
 function duracion(ms) {
   const min = Math.floor(ms / 60000);
   if (min < 60) return `${min} min`;
@@ -180,11 +185,13 @@ function Puerta({ onEntrar }) {
 // cuando hay una obra, un desfile o un mercado que corta dos cuadras. Acá se
 // crean; el dibujo se hace en la pestaña RUTAS de este mismo panel (Despacho
 // también puede, con su trazador), y activarlo es decisión del día de ellos.
-function Trazados({ api, companyId, ruta, aviso, fallo }) {
+function Trazados({ api, companyId, ruta, aviso, fallo, recargar }) {
   const [lista, setLista] = React.useState(null);
   const [abierto, setAbierto] = React.useState(false);
   const [form, setForm] = React.useState({ name: '', copiarDe: '', desde: '', hasta: '' });
   const [ocupado, setOcupado] = React.useState(false);
+  const [renombrando, setRenombrando] = React.useState(false);
+  const [nombre, setNombre] = React.useState(ruta.name || '');
 
   const base = `/empresas/${encodeURIComponent(companyId)}/rutas/${encodeURIComponent(ruta.routeId)}/variantes`;
   const cargar = () => api(base).then(d => setLista(d.variantes)).catch(e => fallo(e.message));
@@ -204,7 +211,39 @@ function Trazados({ api, companyId, ruta, aviso, fallo }) {
     <div style={{ borderTop: '1px solid var(--divider)', padding: '8px 0' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span className="mono" style={{ fontSize: 13, fontWeight: 800 }}>{ruta.routeId}</span>
-        <span style={{ fontSize: 12, color: 'var(--dim)', flex: 1, minWidth: 0 }}>{ruta.name}</span>
+        {!renombrando && (
+          <span style={{ fontSize: 12, color: 'var(--dim)', flex: 1, minWidth: 0 }}>{ruta.name}</span>
+        )}
+        {/* El nombre de la ruta se corrige acá mismo, en la fila: es lo que
+            se lee en los selectores y en el mapa del chofer. El código no. */}
+        {renombrando && (
+          <React.Fragment>
+            <input value={nombre} autoFocus
+              onChange={ev => setNombre(ev.target.value)}
+              onKeyDown={ev => { if (ev.key === 'Escape') setRenombrando(false); }}
+              style={{ width: 240, height: 32, fontSize: 13 }} />
+            <button disabled={ocupado || !nombre.trim()} onClick={() => correr(async () => {
+              await api(`/empresas/${encodeURIComponent(companyId)}/rutas/${encodeURIComponent(ruta.routeId)}`, {
+                method: 'PUT', body: JSON.stringify({ name: nombre }),
+              });
+              setRenombrando(false);
+              if (recargar) await recargar();
+            }, 'Ruta renombrada')} style={{
+              padding: '5px 10px', fontSize: 12, background: 'var(--bright)', color: '#fff',
+            }}>Guardar</button>
+            <button onClick={() => setRenombrando(false)} style={{
+              padding: '5px 10px', fontSize: 12, background: 'var(--campo)',
+              color: 'var(--dim2)', border: '1px solid var(--line)',
+            }}>Cancelar</button>
+            <span style={{ flex: 1 }} />
+          </React.Fragment>
+        )}
+        {!renombrando && (
+          <button onClick={() => { setNombre(ruta.name || ''); setRenombrando(true); }} style={{
+            padding: '5px 10px', fontSize: 12, background: 'var(--campo)',
+            color: 'var(--fg2)', border: '1px solid var(--line)',
+          }}>Renombrar</button>
+        )}
         <button onClick={() => setAbierto(!abierto)} style={{
           padding: '5px 10px', fontSize: 12, background: 'var(--campo)',
           color: 'var(--fg2)', border: '1px solid var(--line)',
@@ -348,6 +387,58 @@ function achicarLogo(archivo) {
     };
     lector.readAsDataURL(archivo);
   });
+}
+
+// Corregir los datos de una cooperativa sin darla de baja y de alta: un RUC
+// mal tipeado o un contacto que cambió no pueden costar más que esto. El
+// código no se edita — cuelga de él todo lo demás — y la pantalla lo dice.
+function DatosDeEmpresa({ empresa, api, correr, ocupado }) {
+  const [form, setForm] = React.useState({
+    name: empresa.name || '', ruc: empresa.ruc || '', contacto: empresa.contacto || '',
+  });
+  // Si el listado se recargó (guardar, u otra acción), el formulario se
+  // realinea con lo que quedó guardado de verdad.
+  React.useEffect(() => {
+    setForm({ name: empresa.name || '', ruc: empresa.ruc || '', contacto: empresa.contacto || '' });
+  }, [empresa.name, empresa.ruc, empresa.contacto]);
+
+  const distinto = form.name !== (empresa.name || '') ||
+    form.ruc !== (empresa.ruc || '') || form.contacto !== (empresa.contacto || '');
+
+  return (
+    <div>
+      <div className="mono" style={{
+        fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
+        textTransform: 'uppercase', marginBottom: 8,
+      }}>Datos</div>
+      <div className="campo">
+        <label>Nombre</label>
+        <input value={form.name} onChange={ev => setForm({ ...form, name: ev.target.value })} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div className="campo">
+          <label>RUC</label>
+          <input value={form.ruc} onChange={ev => setForm({ ...form, ruc: ev.target.value })} />
+        </div>
+        <div className="campo">
+          <label>Contacto</label>
+          <input value={form.contacto} onChange={ev => setForm({ ...form, contacto: ev.target.value })} />
+        </div>
+      </div>
+      <button disabled={ocupado || !distinto || !form.name.trim()} onClick={() => correr(
+        () => api(`/empresas/${empresa.companyId}/datos`, {
+          method: 'PUT', body: JSON.stringify(form),
+        }), 'Datos guardados',
+      )} style={{
+        padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
+        color: distinto ? 'var(--fg2)' : 'var(--dim3)', border: '1px solid var(--line)',
+      }}>Guardar datos</button>
+      <div style={{ fontSize: 11, color: 'var(--dim2)', marginTop: 6, lineHeight: 1.45 }}>
+        El código <code>{empresa.companyId}</code> no se cambia: cuelga de él
+        todo lo demás — cuentas, rutas, historial.
+      </div>
+    </div>
+  );
 }
 
 function LogoDeEmpresa({ empresa, api, correr, ocupado }) {
@@ -545,20 +636,37 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
             )}
           </div>
 
-          <div style={{ fontSize: 13, color: 'var(--dim)', marginTop: 8 }}>
-            {e.rutas.length
-              ? e.rutas.map(r => r.routeId).join(' · ')
-              : <span style={{ color: 'var(--amber)' }}>Sin rutas — nadie puede conectarse</span>}
-            {' — '}{e.vehiculos} vehículo(s) · {e.personas} persona(s)
-            {' — '}
-            {e.despacho.length
-              ? `despacho: ${e.despacho.map(d => d.unitId).join(', ')}`
-              : <span style={{ color: 'var(--amber)' }}>sin cuenta de Despacho</span>}
+          <div style={{ fontSize: 13, color: 'var(--dim)', marginTop: 8, lineHeight: 1.7 }}>
+            <div>
+              {e.rutas.length
+                ? e.rutas.map(r => (
+                    <span key={r.routeId} style={{ marginRight: 16 }}>
+                      <span className="mono" style={{ fontWeight: 800 }}>{r.routeId}</span>
+                      {r.name && r.name !== r.routeId ? <span> {r.name}</span> : null}
+                    </span>
+                  ))
+                : <span style={{ color: 'var(--amber)' }}>Sin rutas — nadie puede conectarse</span>}
+            </div>
+            <div>
+              {e.vehiculos} vehículo(s) · {e.personas} persona(s)
+              {' · '}
+              {e.despacho.length
+                ? `despacho: ${e.despacho.map(d => d.unitId).join(', ')}`
+                : <span style={{ color: 'var(--amber)' }}>sin cuenta de Despacho</span>}
+              {e.gerencia && e.gerencia.length ? ` · gerencia: ${e.gerencia.map(g => g.unitId).join(', ')}` : ''}
+            </div>
+            {/* Lo que se necesita tener a mano al hablar con la cooperativa:
+                el RUC para la factura, el contacto para llamar, y desde
+                cuándo es cliente. */}
+            <div className="mono" style={{ fontSize: 11, color: 'var(--dim3)' }}>
+              RUC {e.ruc || '—'} · contacto {e.contacto || '—'} · alta {diaConAnio(e.createdAt) || '—'}
+            </div>
           </div>
 
           {abierta === e.companyId && (
             <div style={{ marginTop: 14, borderTop: '1px solid var(--divider)', paddingTop: 14 }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 18 }}>
+                <DatosDeEmpresa empresa={e} api={api} correr={correr} ocupado={ocupado} />
                 <LogoDeEmpresa empresa={e} api={api} correr={correr} ocupado={ocupado} />
                 <div>
                   <div className="mono" style={{
@@ -588,6 +696,11 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
                     cierran las sesiones abiertas. Queda registrado en la
                     actividad de esa cooperativa: ellos van a ver que alguien
                     de arriba les tocó una cuenta.
+                    {e.despacho.length > 0 && (
+                      <> Hoy: {e.despacho.map(d =>
+                        d.unitId + (d.lastLogin ? ` (entró ${fecha(d.lastLogin)})` : ' (nunca entró)')
+                      ).join(', ')}.</>
+                    )}
                   </div>
                 </div>
 
@@ -662,7 +775,9 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
                     administra nada, no ve el mapa en vivo y Despacho no le puede
                     tocar la cuenta.
                     {e.gerencia && e.gerencia.length > 0 && (
-                      <> Hoy: {e.gerencia.map(g => g.routeId ? `${g.unitId} (${g.routeId})` : `${g.unitId} (toda)`).join(', ')}.</>
+                      <> Hoy: {e.gerencia.map(g =>
+                        `${g.unitId} (${g.routeId || 'toda'}${g.lastLogin ? ` · entró ${fecha(g.lastLogin)}` : ' · nunca entró'})`
+                      ).join(', ')}.</>
                     )}
                   </div>
                 </div>
@@ -684,7 +799,7 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
                 )}
                 {e.rutas.map(r => (
                   <Trazados key={r.routeId} api={api} companyId={e.companyId} ruta={r}
-                    aviso={aviso} fallo={fallo} />
+                    aviso={aviso} fallo={fallo} recargar={recargar} />
                 ))}
               </div>
 
@@ -905,7 +1020,19 @@ function Rutas({ api, empresas, aviso, fallo }) {
   }, []);
 
   const initMap = React.useCallback((node) => {
-    if (!node || mapRef.current) return;
+    // React llama esto con null cuando el div del mapa se DESMONTA — y eso
+    // pasa cada vez que se cambia de ruta (el bloque entero se va mientras
+    // cargan los trazados nuevos). Hay que matar el mapa viejo acá: si no,
+    // al volver el div, mapRef sigue apuntando al mapa del div anterior, no
+    // se crea uno nuevo, y queda un rectángulo blanco muerto — con los
+    // efectos dibujando sobre un mapa que ya no está en la página.
+    if (!node) {
+      if (mapRef.current) { try { mapRef.current.remove(); } catch {} }
+      mapRef.current = null;
+      capaRef.current = null;
+      return;
+    }
+    if (mapRef.current) return;
     const map = L.map(node, { center: CENTRO_JULIACA, zoom: 14, zoomControl: true, attributionControl: true });
     map.attributionControl.setPrefix(false);
     L.tileLayer(BALDOSAS, { maxZoom: 19, attribution: '© OpenStreetMap · © CARTO' }).addTo(map);

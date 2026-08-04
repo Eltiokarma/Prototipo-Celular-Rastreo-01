@@ -254,6 +254,55 @@ const pedir = (puerto, ruta, opts = {}) =>
       (await pedir(P, '/auth/login', { method: 'POST', body: JSON.stringify({ user: 'DESP-N1', password: 'otraclave99' }) })).status === 200);
   }
 
+  console.log('\nCORREGIR SIN DAR DE BAJA');
+  {
+    // Un RUC mal tipeado o un contacto que cambió no pueden costar más que
+    // un formulario. El código NO se toca: cuelga de él todo lo demás.
+    const datos = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/datos', {
+      method: 'PUT', headers: H,
+      body: JSON.stringify({ name: 'Cooperativa Nueva SAC', ruc: '20123456789', contacto: '987 654 321' }),
+    });
+    ok('se corrigen nombre, RUC y contacto', datos.status === 200 && datos.body.name === 'Cooperativa Nueva SAC', datos.body);
+
+    const lista = await pedir(P, '/gestion-x9k2/empresas', { headers: H });
+    const e1 = lista.body.empresas.find(e => e.companyId === 'NUEVA-1');
+    ok('y el listado ya lo muestra', e1.name === 'Cooperativa Nueva SAC' && e1.ruc === '20123456789' &&
+       e1.contacto === '987 654 321', [e1.name, e1.ruc, e1.contacto]);
+    ok('el listado trae lo que la tarjeta necesita mostrar',
+       'createdAt' in e1 && Array.isArray(e1.gerencia) && 'name' in (e1.rutas[0] || {}),
+       Object.keys(e1).join(','));
+
+    const sinNombre = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/datos', {
+      method: 'PUT', headers: H, body: JSON.stringify({ name: '   ' }),
+    });
+    ok('sin nombre no hay guardado', sinNombre.status === 400, sinNombre.body.error);
+    const fantasma = await pedir(P, '/gestion-x9k2/empresas/NO-EXISTE/datos', {
+      method: 'PUT', headers: H, body: JSON.stringify({ name: 'X' }),
+    });
+    ok('una empresa que no existe da 404', fantasma.status === 404, fantasma.status);
+
+    // El nombre de una ruta también: es lo que se lee en los selectores y
+    // en el mapa del chofer.
+    const renombrada = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/rutas/RN-2', {
+      method: 'PUT', headers: H, body: JSON.stringify({ name: 'Salida Cusco ↔ Plaza' }),
+    });
+    ok('una ruta se renombra', renombrada.status === 200 && renombrada.body.name === 'Salida Cusco ↔ Plaza', renombrada.body);
+    const lista2 = await pedir(P, '/gestion-x9k2/empresas', { headers: H });
+    ok('y el listado lo refleja',
+       lista2.body.empresas.find(e => e.companyId === 'NUEVA-1').rutas
+         .find(r => r.routeId === 'RN-2').name === 'Salida Cusco ↔ Plaza');
+
+    const cruzada = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/rutas/R-14', {
+      method: 'PUT', headers: H, body: JSON.stringify({ name: 'Robada' }),
+    });
+    ok('renombrar la ruta de OTRA cooperativa da 404', cruzada.status === 404, cruzada.status);
+
+    const act = await pedir(P, '/gestion-x9k2/actividad', { headers: H });
+    ok('las dos correcciones quedan anotadas con su empresa',
+       act.body.eventos.some(e => e.action === 'editar_empresa' && e.companyId === 'NUEVA-1') &&
+       act.body.eventos.some(e => e.action === 'editar_ruta' && e.companyId === 'NUEVA-1'));
+  }
+
   console.log('\nEL RECORRIDO SE DIBUJA DESDE ARRIBA');
   {
     // El trazador vive en este panel: las rutas se entregan ya dibujadas,
