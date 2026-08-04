@@ -9,7 +9,9 @@ const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
 (async () => {
   const tk = (await login('DESPACHO', 'despacho99')).token;
   const H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk };
-  await fetch(API + '/admin/users', { method: 'POST', headers: H,
+  const HG = { 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + await require('./gerente.js')(API, process.env.DBFILE || process.env.DB_FILE) };
+  await fetch(API + '/admin/users', { method: 'POST', headers: HG,
     body: JSON.stringify({ unitId: 'M-01', name: 'Chofer uno', personRole: 'driver', password: 'clave1234' }) });
 
   // Punto de partida limpio: sin recorrido, umbral normal y sin silenciar.

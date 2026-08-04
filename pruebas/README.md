@@ -70,7 +70,7 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `variantes` | Rutas alternas: que cambiar el trazado descarte las vueltas en curso y no mezcle geometrías en el promedio |
 | `brecha` | Que la brecha promedio por vuelta se guarde, sea creíble, y quede vacía cuando no hay con qué compararse |
 | `creador` | Las cuatro barreras del nivel de arriba, incluido que sin `CREATOR_PASSWORD` responda 404 y no 403 |
-| `gerencia` | Que el gerente vea lo suyo y **no toque nada**: 403 en todo `/admin/*`, rechazo en el WebSocket, y que Despacho no le pueda tocar la cuenta |
+| `gerencia` | La fusión de los dos paneles: el gerente entra a `/admin/*` y al tiempo real como un panel más, y puede lo que Despacho no — vehículos con placa, chofer-con-combi de una, datos de la empresa, logo. Despacho recibe 403 en todo eso (y el error dice quién sí), no le puede tocar la cuenta al gerente, y `/gerencia/*` sigue siendo solo del gerente |
 | `senal` | Que una unidad que deja de reportar quede **sin señal** y no borrada: que la de atrás no salte a medirse contra la que sigue, que vuelva sola al reaparecer, que se olvide recién a los 3 min, y que ninguna brecha salga con los segundos en 60 |
 | `gpshttp` | `POST /gps`: que la posición pueda entrar **sin WebSocket vivo**, que un atraso entero se mida con la hora de cada posición y no la de llegada, y que el cobrador y los relojes mal puestos no pasen |
 | `hud` | Qué se le muestra al chofer en la app nativa: los tres estados de un lado, cuál es el dígito grande, los colores y el texto de la notificación. Sin servidor — es lógica pura |

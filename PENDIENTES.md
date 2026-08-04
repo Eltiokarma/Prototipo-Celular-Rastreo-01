@@ -54,6 +54,16 @@ herramientas pedidas ("más herramientas de desplazamiento y selección"):
 Una ruta recién dada de alta recibe su variante base al preguntarle
 (`varianteActiva`), así siempre hay sobre qué dibujar.
 
+### 2ter · ~~Fusionar Gerencia y Despacho~~ — HECHO
+
+Pedido usándolo: un solo panel (`despacho.html`), dos niveles de permiso.
+El gerente (`manager`) entra ahí con su misma cuenta y puede lo que el
+administrador del día no: los ACTIVOS — vehículos con su placa (y el
+chofer-con-combi de una), los datos de la empresa, el logo — más la pestaña
+**Números** (la vieja gerencia.html, que quedó como redirección). Los
+límites nuevos quedaron suite en mano (`gerencia`): Despacho recibe 403 en
+todo eso y el error dice quién sí puede.
+
 ### 3 · Producto — lo que pidieron los que lo usaron
 
 | # | Qué | Por qué | Tamaño |

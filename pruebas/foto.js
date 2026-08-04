@@ -70,8 +70,10 @@ async function hasta(cond, ms = 6000) {
   const despacho = nuevo();
   const d = await despacho.entrar('DESPACHO', 'despacho99');
   const H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + d.token };
+  const HG = { 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + await require('./gerente.js')(API, DB) };
   for (const [u, n] of [['M-08', 'Rufino Quispe'], ['M-12', 'Elmer Ccama']]) {
-    await fetch(`${API}/admin/users`, { method: 'POST', headers: H,
+    await fetch(`${API}/admin/users`, { method: 'POST', headers: HG,
       body: JSON.stringify({ unitId: u, name: n, password: 'chofer1234' }) });
   }
 

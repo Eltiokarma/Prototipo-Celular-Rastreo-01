@@ -76,14 +76,6 @@ const ok = (n, c, e) => {
   ok('los datos se corrigen desde la tarjeta',
     /Datos guardados/.test(t) && /contacto 999 111 222/.test(t));
 
-  await laNueva.getByRole('button', { name: 'Renombrar' }).click();
-  await p.waitForTimeout(400);
-  await laNueva.locator('input:focus').fill('Terminal ↔ Feria Dominical');
-  await laNueva.getByRole('button', { name: 'Guardar', exact: true }).click();
-  await p.waitForTimeout(2000);
-  t = await p.innerText('body');
-  ok('una ruta se renombra en su propia fila',
-    /Ruta renombrada/.test(t) && /Terminal ↔ Feria Dominical/.test(t));
   await p.screenshot({ path: SHOT + '/creador-administrar.png' });
   await laNueva.getByRole('button', { name: 'Cerrar', exact: true }).click();
   await p.waitForTimeout(500);
@@ -157,6 +149,33 @@ const ok = (n, c, e) => {
   ok('y la ruta nueva ya tiene su trazado base, midiendo', /MIDIENDO/.test(t));
   const mapa = p.locator('.leaflet-container');
   ok('el mapa está', (await mapa.count()) === 1);
+
+  // La gestión vive acá ahora: renombrar la ruta…
+  await p.getByRole('button', { name: 'Renombrar ruta' }).click();
+  await p.waitForTimeout(400);
+  await p.locator('input:focus').fill('Terminal ↔ Feria Dominical');
+  await p.getByRole('button', { name: 'Guardar', exact: true }).click();
+  await p.waitForTimeout(2000);
+  t = await p.innerText('body');
+  ok('la ruta se renombra desde RUTAS',
+    /Ruta renombrada/.test(t) && /Terminal ↔ Feria Dominical/.test(t));
+
+  // …crear un trazado nuevo (queda elegido, en ámbar por no ser el que mide)…
+  await p.getByRole('button', { name: '+ Nuevo trazado' }).click();
+  await p.waitForTimeout(400);
+  await p.locator('input:focus').fill('Obra de prueba');
+  await p.getByRole('button', { name: 'Crear trazado' }).click();
+  await p.waitForTimeout(2000);
+  t = await p.innerText('body');
+  ok('un trazado nuevo se crea y queda elegido',
+    /Trazado «Obra de prueba» creado/.test(t) && /no es el\s+trazado que está midiendo/.test(t.replace(/\n/g, ' ')));
+
+  // …y borrarlo (el confirm se acepta solo en este banco)
+  await p.getByRole('button', { name: 'Borrar este trazado' }).click();
+  await p.waitForTimeout(2000);
+  t = await p.innerText('body');
+  ok('y se borra, volviendo al que mide',
+    /Trazado borrado/.test(t) && /MIDIENDO/.test(t));
 
   // Dibujar: dos clics separados agregan A y B; el tercero cae SOBRE la
   // línea que quedó entre ellos, así que inserta en el medio en vez de

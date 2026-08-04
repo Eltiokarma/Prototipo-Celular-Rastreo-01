@@ -155,12 +155,29 @@ const pedir = async (ruta, opciones = {}) => {
   const d = await entrar('DESPACHO', 'despacho99');
   const H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + d.token };
 
+  // Desde la fusión Despacho/gerencia, el logo es un ACTIVO y los activos
+  // son del gerente. Se crea uno con las mismas piezas que usa la consola.
+  {
+    const Database = require(RAIZ + '/server/node_modules/better-sqlite3');
+    const coop = require(RAIZ + '/server/cooperativas.js');
+    const base = new Database(DB);
+    coop.gerente(base, { companyId: d.companyId, usuario: 'GERENTE-M', clave: 'gerente99' });
+    base.close();
+  }
+  const g = await entrar('GERENTE-M', 'gerente99');
+  const HG = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + g.token };
+
   console.log('\nSUBIR Y VER EL LOGO');
   {
-    const puesto = await pedir('/admin/company/logo', {
+    const deDespacho = await pedir('/admin/company/logo', {
       method: 'PUT', headers: H, body: JSON.stringify({ logo: logo(500) }),
     });
-    ok('Despacho puede poner el logo de SU cooperativa', puesto.ok, puesto.status);
+    ok('Despacho ya NO pone el logo: es un activo, y los activos son del gerente',
+       deDespacho.status === 403, deDespacho.status);
+    const puesto = await pedir('/admin/company/logo', {
+      method: 'PUT', headers: HG, body: JSON.stringify({ logo: logo(500) }),
+    });
+    ok('el gerente pone el logo de SU cooperativa', puesto.ok, puesto.status);
 
     const marca = await pedir('/marca', { headers: { Authorization: 'Bearer ' + d.token } });
     ok('y se lee de vuelta', marca.ok && marca.cuerpo?.marca?.logo?.length === 500,
@@ -172,26 +189,26 @@ const pedir = async (ruta, opciones = {}) => {
     // Sacarlo tiene que ser posible: un logo mal subido no puede quedar
     // pegado hasta que alguien toque la base a mano.
     const vacio = await pedir('/admin/company/logo', {
-      method: 'PUT', headers: H, body: JSON.stringify({ logo: null }),
+      method: 'PUT', headers: HG, body: JSON.stringify({ logo: null }),
     });
     const tras = await pedir('/marca', { headers: { Authorization: 'Bearer ' + d.token } });
     ok('se puede sacar', vacio.ok && tras.cuerpo?.marca?.logo === null, tras.cuerpo?.marca?.logo);
     ok('y quedan las iniciales', !!tras.cuerpo?.marca?.iniciales, tras.cuerpo?.marca?.iniciales);
 
-    await pedir('/admin/company/logo', { method: 'PUT', headers: H, body: JSON.stringify({ logo: logo(500) }) });
+    await pedir('/admin/company/logo', { method: 'PUT', headers: HG, body: JSON.stringify({ logo: logo(500) }) });
   }
 
   console.log('\nLO QUE NO SE ACEPTA, TAMPOCO POR EL CABLE');
   {
     const svg = await pedir('/admin/company/logo', {
-      method: 'PUT', headers: H,
+      method: 'PUT', headers: HG,
       body: JSON.stringify({ logo: 'data:image/svg+xml;base64,' + 'A'.repeat(400) }),
     });
     ok('un SVG se rechaza con 400', svg.status === 400, svg.status);
     ok('y con un motivo que se puede leer', /SVG/.test(svg.cuerpo?.error || ''), svg.cuerpo?.error);
 
     const gordo = await pedir('/admin/company/logo', {
-      method: 'PUT', headers: H, body: JSON.stringify({ logo: logo(MAX_LOGO + 5000) }),
+      method: 'PUT', headers: HG, body: JSON.stringify({ logo: logo(MAX_LOGO + 5000) }),
     });
     ok('uno demasiado pesado también', gordo.status === 400, gordo.status);
 
@@ -204,7 +221,7 @@ const pedir = async (ruta, opciones = {}) => {
 
   console.log('\nEL CHOFER VE LA MARCA DE SU COOPERATIVA');
   {
-    await pedir('/admin/users', { method: 'POST', headers: H,
+    await pedir('/admin/users', { method: 'POST', headers: HG,
       body: JSON.stringify({ unitId: 'M-12', name: 'Elmer Ccama', password: 'chofer1234' }) });
     const s = await entrar('M-12', 'chofer1234');
     const marca = await pedir('/marca', { headers: { Authorization: 'Bearer ' + s.token } });
@@ -212,7 +229,7 @@ const pedir = async (ruta, opciones = {}) => {
     ok('y es la de SU cooperativa', marca.cuerpo?.marca?.companyId === d.companyId,
        [marca.cuerpo?.marca?.companyId, d.companyId]);
 
-    // Pero NO puede cambiarla: la marca la maneja Despacho.
+    // Pero NO puede cambiarla: la marca la maneja la gerencia.
     const intento = await pedir('/admin/company/logo', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.token },
@@ -235,14 +252,16 @@ const pedir = async (ruta, opciones = {}) => {
       companyId: 'OTRA', name: 'Cooperativa Los Andes',
       ruta: 'R-99', despacho: 'DESPACHO2', clave: 'despacho99',
     });
+    coop.gerente(base, { companyId: 'OTRA', usuario: 'GER-2', clave: 'gerente99' });
     base.close();
     ok('se creó la segunda cooperativa', !otra.error, otra.error || otra.companyId);
 
     const d2 = await entrar('DESPACHO2', 'despacho99');
     ok('y entra su despacho', !!d2?.token, d2?.error);
 
-    const H2 = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + d2.token };
-    await pedir('/admin/company/logo', { method: 'PUT', headers: H2, body: JSON.stringify({ logo: logo(700) }) });
+    const g2 = await entrar('GER-2', 'gerente99');
+    const HG2 = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + g2.token };
+    await pedir('/admin/company/logo', { method: 'PUT', headers: HG2, body: JSON.stringify({ logo: logo(700) }) });
 
     const m1 = await pedir('/marca', { headers: { Authorization: 'Bearer ' + d.token } });
     const m2 = await pedir('/marca', { headers: { Authorization: 'Bearer ' + d2.token } });
@@ -259,7 +278,7 @@ const pedir = async (ruta, opciones = {}) => {
     // recibiera, bastaría con mandar el ajeno para pisarle el logo a otra
     // cooperativa.
     const cruce = await pedir('/admin/company/logo', {
-      method: 'PUT', headers: H2,
+      method: 'PUT', headers: HG2,
       body: JSON.stringify({ logo: logo(900), companyId: d.companyId }),
     });
     const m1b = await pedir('/marca', { headers: { Authorization: 'Bearer ' + d.token } });

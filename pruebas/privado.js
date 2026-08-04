@@ -25,7 +25,9 @@ const conectar = async (user, clave = 'clave1234') => {
 (async () => {
   const tk = (await login('DESPACHO', 'despacho99')).token;
   const H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk };
-  const alta = (b) => fetch(API + '/admin/users', { method: 'POST', headers: H, body: JSON.stringify(b) });
+  const HG = { 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + await require('./gerente.js')(API, process.env.DBFILE || process.env.DB_FILE) };
+  const alta = (b) => fetch(API + '/admin/users', { method: 'POST', headers: HG, body: JSON.stringify(b) });
   await alta({ unitId: 'raul', name: 'Raúl Mamani', alias: 'El Chino', personRole: 'driver', password: 'clave1234' });
   await alta({ unitId: 'maria', name: 'María Quispe', personRole: 'collector', vehicleId: 'raul', password: 'clave1234' });
   await alta({ unitId: 'M-08', name: 'Ana Flores', personRole: 'driver', password: 'clave1234' });

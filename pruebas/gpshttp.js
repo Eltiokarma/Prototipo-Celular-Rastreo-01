@@ -69,13 +69,15 @@ const mandar = (token, posiciones) => fetch(API + '/gps', {
   const db = new Database(DB);
   db.prepare("UPDATE routes SET durationMin=50, targetGapMin=2, autoTarget=0 WHERE routeId='R-14'").run();
   db.close();
+  const HG = { 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + await require('./gerente.js')(API, DB) };
   for (const [u, n] of [['M-08', 'Rufino Quispe'], ['M-12', 'Elmer Ccama']]) {
-    await fetch(`${API}/admin/users`, { method: 'POST', headers: H,
+    await fetch(`${API}/admin/users`, { method: 'POST', headers: HG,
       body: JSON.stringify({ unitId: u, name: n, personRole: 'driver', password: 'clave1234' }) });
   }
   // Un cobrador necesita el vehículo asignado a mano: no se le crea uno solo,
   // porque el cobrador SUBE a una combi, no es una combi.
-  const altaCobrador = await fetch(`${API}/admin/users`, { method: 'POST', headers: H,
+  const altaCobrador = await fetch(`${API}/admin/users`, { method: 'POST', headers: HG,
     body: JSON.stringify({ unitId: 'C-12', name: 'Cobrador Doce', personRole: 'collector',
                            vehicleId: 'M-12', password: 'clave1234' }) }).then(r => r.status);
 

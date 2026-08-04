@@ -1296,7 +1296,7 @@ app.post('/auth/login', (req, res) => {
     // pantalla que dice COOP-R14.
     companyId: user.companyId || null,
     companyName: empresa ? empresa.name : null,
-    supervisor: user.role === 'dispatch' && !user.routeId,
+    supervisor: (user.role === 'dispatch' || user.role === 'manager') && !user.routeId,
     created,
   });
 });
@@ -1382,8 +1382,11 @@ function requireDispatch(req, res, next) {
   if (!user) {
     return res.status(401).json({ error: 'Sesión inválida o expirada' });
   }
-  if (user.role !== 'dispatch') {
-    return res.status(403).json({ error: 'Requiere una cuenta de Despacho' });
+  // El gerente y el administrador usan EL MISMO panel (Despacho): el
+  // gerente es una cuenta de arriba con más permisos, no otro mundo. Lo que
+  // distingue a cada uno se decide endpoint por endpoint con req.esGerente.
+  if (user.role !== 'dispatch' && user.role !== 'manager') {
+    return res.status(403).json({ error: 'Requiere una cuenta de Despacho o de gerencia' });
   }
   // Sin empresa no se administra nada. No es un caso teórico: es la puerta
   // que quedaría abierta si alguien creara una cuenta a mano en la base, y
@@ -1392,6 +1395,7 @@ function requireDispatch(req, res, next) {
     return res.status(403).json({ error: 'Esta cuenta no está asignada a ninguna empresa' });
   }
   req.dispatchUser = user;
+  req.esGerente = user.role === 'manager';
   // Alcance del despachador. Dos bordes, y el de afuera manda:
   //   empresa → nunca se ve ni se toca nada de otra cooperativa
   //   ruta    → dentro de la empresa, un despachador de ruta ve solo la suya
@@ -1406,6 +1410,20 @@ function requireSupervisor(req, res, next) {
   requireDispatch(req, res, () => {
     if (req.scope) {
       return res.status(403).json({ error: 'Requiere una cuenta supervisora (sin ruta asignada)' });
+    }
+    next();
+  });
+}
+
+// Lo que separa al GERENTE del administrador del día: los ACTIVOS de la
+// cooperativa. El admin opera lo que existe —gente, turnos, objetivo, el
+// mapa—; el gerente decide QUÉ existe: los vehículos con su placa, los
+// datos de la empresa, el logo. Es la diferencia entre manejar la flota y
+// ser responsable de ella.
+function requireGerente(req, res, next) {
+  requireDispatch(req, res, () => {
+    if (!req.esGerente) {
+      return res.status(403).json({ error: 'Esto lo hace la cuenta de gerencia' });
     }
     next();
   });
@@ -1457,12 +1475,13 @@ app.get('/marca', (req, res) => {
   res.json({ marca: marca.marcaDe(empresa) });
 });
 
-// Cambiarlo es cosa de Despacho, no del chofer.
+// Cambiarlo es cosa del GERENTE, no del chofer ni del administrador del
+// día: el logo es la identidad de la empresa, un activo más.
 //
 // OJO: la cooperativa sale de LA SESIÓN y no del cuerpo. Si viniera en el
-// cuerpo, cualquier despacho podría pisarle el logo a la cooperativa de al
+// cuerpo, cualquier cuenta podría pisarle el logo a la cooperativa de al
 // lado mandando el id ajeno. Está cubierto en la suite `marca`.
-app.put('/admin/company/logo', requireDispatch, (req, res) => {
+app.put('/admin/company/logo', requireGerente, (req, res) => {
   const crudo = req.body?.logo;
   // Sacarlo tiene que ser posible: un logo mal subido no puede quedar pegado
   // hasta que alguien toque la base a mano.
@@ -1501,13 +1520,18 @@ app.get('/admin/company', requireDispatch, (req, res) => {
       gerencia: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role = 'manager'").get(req.empresa).c,
       enLinea: Array.from(units.values()).filter(u => rutas.some(r => r.routeId === u.routeId)).length,
     },
-    puedeEditar: !req.scope,
+    // Los datos de la empresa los corrige el gerente sin ruta acotada: son
+    // de la cooperativa entera, no de una ruta ni del turno de hoy.
+    puedeEditar: req.esGerente && !req.scope,
   });
 });
 
 // Corregir los datos de la propia empresa. El código (companyId) no se toca:
 // cuelga de él todo lo demás, y renombrarlo sería mover la cooperativa entera.
-app.post('/admin/company', requireSupervisor, (req, res) => {
+app.post('/admin/company', requireGerente, (req, res) => {
+  if (req.scope) {
+    return res.status(403).json({ error: 'Los datos de la empresa los corrige la gerencia de toda la cooperativa' });
+  }
   const c = companyOf(req.empresa);
   if (!c) return res.status(404).json({ error: 'Esa empresa no existe' });
   const name = String(req.body?.name || '').trim().slice(0, 80);
@@ -1861,7 +1885,9 @@ app.get('/admin/vehicles', requireDispatch, (req, res) => {
   res.json({ vehicles: vehiculos, supervisor: !req.scope });
 });
 
-app.post('/admin/vehicles', requireDispatch, (req, res) => {
+// El vehículo es un ACTIVO: placa, permiso de ruta, seguro. Lo da de alta
+// el gerente; el administrador del día asigna gente a los que existen.
+app.post('/admin/vehicles', requireGerente, (req, res) => {
   const vehicleId = idLimpio(req.body?.vehicleId);
   if (req.body?.vehicleId && !vehicleId) {
     return res.status(400).json({ error: 'El código del vehículo solo admite letras, números, punto, guion y guion bajo' });
@@ -1960,6 +1986,13 @@ app.post('/admin/users', requireDispatch, (req, res) => {
   } else if (role === 'driver') {
     vehiculoFinal = unitId;
     if (!vehicleOf(vehiculoFinal)) {
+      // Crear el vehículo al vuelo es crear un ACTIVO, y eso es del gerente.
+      // El admin da de alta a la persona y la sube a un vehículo que exista.
+      if (!req.esGerente) {
+        return res.status(403).json({
+          error: `No existe el vehículo ${vehiculoFinal}. Los vehículos (con su placa) los da de alta la cuenta de gerencia; elegí uno existente o pedile el alta.`,
+        });
+      }
       db.prepare('INSERT INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES (?, ?, ?, ?, ?)')
         .run(vehiculoFinal, null, routeId, req.empresa, Date.now());
     }
@@ -2864,18 +2897,10 @@ wss.on('connection', (ws) => {
         ws.close();
         return;
       }
-      // El gerente mira números, no la calle. No entra al tiempo real: no le
-      // hace falta para nada de lo que tiene su panel, y dejarlo entrar sería
-      // darle el chat operativo de la ruta, que es de los que trabajan en
-      // ella. Se le dice explícito en vez de dejarlo colgado esperando.
-      if (user.role === 'manager') {
-        ws.send(JSON.stringify({
-          type: 'auth_error',
-          error: 'Las cuentas de gerencia no entran al tiempo real. Entrá por gerencia.html.',
-        }));
-        ws.close();
-        return;
-      }
+      // El gerente entra al tiempo real IGUAL que Despacho: desde la fusión
+      // de los dos paneles usa la misma pantalla, con más permisos. Antes se
+      // lo rechazaba acá y se lo mandaba a gerencia.html; ese panel ya no
+      // existe como puerta aparte.
       clients.set(ws, user.unitId);
       const vehicleId = user.vehicleId || (user.role === 'driver' ? user.unitId : null);
       profiles.set(user.unitId, {
@@ -2901,9 +2926,9 @@ wss.on('connection', (ws) => {
       }
       watching.set(ws, rutaInicial);
 
-      // Despacho observa y habla, pero NO va en un vehículo: no entra al
-      // mapa ni al cálculo de brechas.
-      if (user.role !== 'dispatch' && vehicleId) {
+      // Despacho y gerencia observan y hablan, pero NO van en un vehículo:
+      // no entran al mapa ni al cálculo de brechas.
+      if (user.role !== 'dispatch' && user.role !== 'manager' && vehicleId) {
         const yaEstaba = units.has(vehicleId);
         const veh = vehicleOf(vehicleId);
         const previo = units.get(vehicleId);
@@ -2949,13 +2974,13 @@ wss.on('connection', (ws) => {
         }
       }
       const quien = `${displayName(user)}${vehicleId ? ' en ' + vehicleId : ''}`;
-      console.log(`${user.role === 'dispatch' ? 'Despacho conectado' : `${user.role === 'collector' ? 'Cobrador' : 'Chofer'} identificado`}: ${quien} (${rutaInicial})`);
+      console.log(`${user.role === 'dispatch' ? 'Despacho conectado' : user.role === 'manager' ? 'Gerencia conectada' : `${user.role === 'collector' ? 'Cobrador' : 'Chofer'} identificado`}: ${quien} (${rutaInicial})`);
 
       // Recién ahora recibe el estado y la conversación en curso
       ws.send(JSON.stringify({ type: 'state', ...buildState(rutaInicial) }));
       // Qué conversación privada le corresponde ver: Despacho todas las de
       // su ruta, una combi la suya, nadie la de otro.
-      const privados = user.role === 'dispatch' ? '*' : (vehicleId || null);
+      const privados = (user.role === 'dispatch' || user.role === 'manager') ? '*' : (vehicleId || null);
       ws.send(JSON.stringify({
         type: 'chat_history', routeId: rutaInicial,
         items: recentHistory(rutaInicial, privados),
@@ -3229,7 +3254,7 @@ const medioValido = (data, prefijo, tope) =>
 // Devuelve null cuando hay que descartar el mensaje, o `{ toVehicleId }` con
 // null adentro si es para el grupo.
 function destinoPrivado(prof, msg) {
-  if (prof.role === 'dispatch') {
+  if (prof.role === 'dispatch' || prof.role === 'manager') {
     const destino = idLimpio(msg.to);
     if (!destino) return { toVehicleId: null };
     if (!units.has(destino) && !vehicleOf(destino)) return null;  // unidad inexistente
@@ -3252,7 +3277,7 @@ function enviarPrivado(routeId, toVehicleId, payload) {
     const prof = profiles.get(personId);
     if (!prof) continue;
     const esDeEsaCombi = prof.vehicleId === toVehicleId;
-    const esDespachoDeLaRuta = prof.role === 'dispatch' && watching.get(ws) === routeId;
+    const esDespachoDeLaRuta = (prof.role === 'dispatch' || prof.role === 'manager') && watching.get(ws) === routeId;
     if (esDeEsaCombi || esDespachoDeLaRuta) {
       try { ws.send(crudo); } catch {}
     }
@@ -3597,7 +3622,7 @@ const watching = new Map();   // websocket → routeId
 function esSupervisor(ws) {
   const unitId = clients.get(ws);
   const prof = unitId ? profiles.get(unitId) : null;
-  return !!prof && prof.role === 'dispatch' && !prof.routeId;
+  return !!prof && (prof.role === 'dispatch' || prof.role === 'manager') && !prof.routeId;
 }
 
 // De qué empresa es la conexión

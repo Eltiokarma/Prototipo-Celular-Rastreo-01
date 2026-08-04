@@ -17,7 +17,8 @@ project/            La app (PWA servida como archivos estáticos)
   Prototipo.html      TODA la app del chofer: React + Babel inline (sin build)
                       (también la usa el cobrador, en modo acompañante)
   despacho.html       Panel web de Despacho (flota, chat, SOS) — desktop
-  gerencia.html       Panel del gerente de ruta: solo números, solo lectura
+  gerencia.html       Redirección al panel de Despacho: gerencia se FUSIONÓ
+                      con Despacho (el gerente entra ahí, con más permisos)
   realtime.js         Cliente WebSocket: GPS, estado, chat y SOS
   service-worker.js   Caché offline + caché de tiles del mapa
                       (bump CACHE_NAME en cada release; tiles y librerías
@@ -83,7 +84,7 @@ herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
                       hace login y manda posiciones por el MISMO POST /gps que
                       el celular. Ver herramientas/README.md
 
-pruebas/            Veintinueve suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Treinta suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -110,8 +111,8 @@ morir con `Segmentation fault` sin dar mensaje.
 cd server && npm install && npm start
 # una sola URL para todo:
 #   http://localhost:3001/               → app del chofer
-#   http://localhost:3001/despacho.html  → panel de Despacho
-#   http://localhost:3001/gerencia.html  → panel del gerente de ruta
+#   http://localhost:3001/despacho.html  → panel de Despacho (la gerencia
+#                                          entra acá mismo, con más permisos)
 #   http://localhost:3001/ping           → health check
 ```
 
@@ -132,7 +133,7 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 
 ```bash
 cd pruebas && npm install    # solo la primera vez
-cd .. && npm test            # las veintinueve suites, ~6 minutos
+cd .. && npm test            # las treinta suites, ~6 minutos
 ```
 
 Corren contra el servidor de verdad —levantan el proceso, abren WebSockets,
@@ -532,7 +533,7 @@ una contraseña más.
 
 Desde el panel, la pestaña **EMPRESA** muestra la ficha de la cooperativa y
 su tamaño (rutas, flota, personas, cuentas de despacho, unidades en línea),
-y el supervisor puede corregir nombre, RUC y contacto. El código no se
+y la gerencia puede corregir nombre, RUC y contacto. El código no se
 toca: de él cuelga todo lo demás.
 
 ## Quién puede qué (la línea entre los dos paneles)
@@ -540,25 +541,30 @@ toca: de él cuelga todo lo demás.
 Hay dos paneles y **no se pisan**. La regla que ordena todo: **la estructura
 la define el nivel de arriba, la operación del día es de la cooperativa.**
 
-| | Despacho | Creador |
-| --- | :---: | :---: |
-| Personas: alta, baja, claves, identidad | ✅ | — |
-| Vehículos | ✅ | — |
-| Objetivo de brecha (manual o automático) | ✅ | — |
-| Umbral de desvío y silenciarlo | ✅ | — |
-| Dibujar el recorrido (trazador) | ✅ | ✅ |
-| **Elegir** con qué trazado se mide | ✅ | — |
-| Turnos, vueltas, informes | ✅ | — |
-| Datos de su cooperativa (nombre, RUC, contacto) | ✅ | — |
-| Actividad **de su cooperativa** | ✅ | — |
-| | | |
-| **Crear** una cooperativa | — | ✅ |
-| **Crear** una ruta | — | ✅ |
-| **Crear y borrar** trazados de una ruta | — | ✅ |
-| Suspender una cooperativa | — | ✅ |
-| Crear o restablecer una cuenta de Despacho | — | ✅ |
-| Salud del servidor y de la base | — | ✅ |
-| Actividad de **todas** las cooperativas | — | ✅ |
+Adentro de la cooperativa hay a su vez dos niveles en el MISMO panel: el
+administrador del día (`dispatch`) y el gerente (`manager`) — ver *El
+gerente*, más abajo.
+
+| | Despacho (admin) | Gerente | Creador |
+| --- | :---: | :---: | :---: |
+| Personas: alta sobre vehículos existentes, baja, claves, identidad | ✅ | ✅ | — |
+| Vehículos (el activo, con su placa) | — | ✅ | — |
+| Objetivo de brecha (manual o automático) | ✅ | ✅ | — |
+| Umbral de desvío y silenciarlo | ✅ | ✅ | — |
+| Dibujar el recorrido (trazador) | ✅ | ✅ | ✅ |
+| **Elegir** con qué trazado se mide | ✅ | ✅ | — |
+| Turnos, vueltas, informes | ✅ | ✅ | — |
+| Datos de su cooperativa (nombre, RUC, contacto) y logo | — | ✅ | — |
+| Números del período (cumplimiento) | — | ✅ | — |
+| Actividad **de su cooperativa** | ✅ | ✅ | — |
+| | | | |
+| **Crear** una cooperativa | — | — | ✅ |
+| **Crear** una ruta | — | — | ✅ |
+| **Crear y borrar** trazados de una ruta | — | — | ✅ |
+| Suspender una cooperativa | — | — | ✅ |
+| Crear o restablecer cuentas de Despacho y de gerencia | — | — | ✅ |
+| Salud del servidor y de la base | — | — | ✅ |
+| Actividad de **todas** las cooperativas | — | — | ✅ |
 
 Tres detalles que explican los casos raros:
 
@@ -574,47 +580,44 @@ Tres detalles que explican los casos raros:
   cuando una cooperativa se queda afuera de su propio panel. Queda registrado
   en la actividad de esa cooperativa.
 
-## Panel del gerente de ruta
+## El gerente: la cuenta de arriba del panel de Despacho
 
-**Despacho opera el día; el gerente mira.** Son dos oficios distintos y por eso
-son dos pantallas y no dos pestañas de la misma: `gerencia.html` no tiene altas,
-ni bajas, ni chat, ni mapa operativo. Tiene los números de un período y los
-informes para llevarlos a una reunión.
+**Gerencia y Despacho se fusionaron: un solo panel, dos niveles.** El gerente
+entra por `despacho.html` con su cuenta de rol `manager` y ve todo lo que ve
+Despacho —el mapa en vivo, el chat, la gestión— más lo que es solo suyo. La
+diferencia no es la pantalla: son los PERMISOS. El administrador del día
+opera lo que existe; el gerente decide **qué existe** — los activos de la
+cooperativa:
 
-Entra con una cuenta de rol `manager`, con alcance **a una ruta o a toda la
-cooperativa** — el mismo borde de dos capas que ya usa Despacho.
+| | Despacho (admin) | Gerente |
+| --- | :---: | :---: |
+| Mapa en vivo, chat, SOS, turnos | ✅ | ✅ |
+| Alta de personas (choferes y cobradores) sobre vehículos existentes | ✅ | ✅ |
+| Objetivo de brecha, umbral de desvío, elegir trazado | ✅ | ✅ |
+| Informes CSV | ✅ | ✅ |
+| **Vehículos** (alta, con su placa) | — | ✅ |
+| Chofer nuevo **con combi nueva** de una | — | ✅ |
+| **Datos de la empresa** (nombre, RUC, contacto) | — | ✅ |
+| **Logo** | — | ✅ |
+| Pestaña **Números** (cumplimiento del período) | — | ✅ |
 
-**Qué muestra**, y todo sale de datos que ya existen:
+La pestaña **Números** (Gestión → Números) es la vieja pantalla de gerencia:
+cumplimiento contra el objetivo de cada ruta (la misma tolerancia del 15 %
+que pinta de verde el mapa), vueltas, brecha promedio, horas y SOS del
+período, unidad por unidad, y los CSV para llevar a una reunión. Solo el
+gerente la ve: los números miden, entre otras cosas, el trabajo de Despacho,
+y nadie audita su propio trabajo. Por lo mismo, `/gerencia/*` sigue
+respondiendo 403 a un token de Despacho.
 
-| Bloque | De dónde sale |
-| --- | --- |
-| **Cumplimiento de la brecha** — la cifra que encabeza | Proporción de vueltas cuya brecha promedio quedó dentro del 15 % del objetivo de su ruta. La misma tolerancia que pinta de verde el panel de Despacho, para que los dos no digan cosas distintas del mismo día |
-| Vueltas, vuelta promedio, brecha promedio, horas, emergencias | `laps`, `shifts` y los SOS del período |
-| **Cómo viene** — cumplimiento por día y vueltas por día | Dos gráficos separados, nunca dos escalas en el mismo dibujo. Con su tabla equivalente a un clic |
-| **Unidad por unidad** | Vueltas, horas, vuelta promedio, brecha y cumplimiento. Las horas van al lado de las vueltas a propósito: veinte vueltas en cuatro horas y veinte en diez no son lo mismo |
-| **Horas por persona** | Turnos del período |
-| **Informes** | Los mismos cuatro CSV que baja Despacho, firmados por quien los pidió |
+**Las cuentas de gerencia las crea el nivel de arriba**, no Despacho — desde
+el panel del creador o con `empresa.js gerencia`, con alcance a una ruta o a
+toda la cooperativa. Despacho **ve** al gerente en su lista de personas —que
+esté a la vista es parte de que se sepa quién mira— pero no le puede tocar
+la clave, el nombre ni darlo de baja. Un gerente acotado a UNA ruta tampoco
+toca lo que es de toda la empresa (datos, logo).
 
-**Las cuentas de gerencia las crea el nivel de arriba**, no Despacho — desde el
-panel del creador o con `empresa.js gerencia`. La razón no es jerárquica: buena
-parte de lo que el gerente mira es *qué tan bien se está corriendo la ruta*, o
-sea el trabajo de Despacho. Si Despacho pudiera crearle o borrarle la cuenta, esa
-medición no valdría nada. Despacho **ve** al gerente en su lista de personas —
-que esté a la vista es parte de que se sepa quién mira— pero no le puede tocar la
-clave, el nombre ni darlo de baja.
-
-**Lo que el gerente no puede hacer**, comprobado suite en mano: entrar a
-cualquier `/admin/*` (403, no 401), conectarse al tiempo real (el WebSocket lo
-rechaza diciendo por qué), ver otra cooperativa, ni —si tiene alcance de ruta—
-las otras rutas de la suya. Y al revés: un token de Despacho no abre
-`/gerencia/*`. **No hay un solo endpoint de gerencia que escriba.**
-
-**Solo tema día.** El resto del sistema tiene tema noche porque alguien maneja a
-las tres de la mañana; esto se lee en una oficina. Además los colores de estado
-del tema noche no pasan la separación para daltonismo (ver `LIMITACIONES.md`,
-sección *Accesibilidad*), y no valía la pena arrastrar eso a una pantalla nueva.
-Acá el cumplimiento **nunca depende del color**: lleva siempre su número y su
-palabra, y la desviación de la brecha una flecha ▾▴, que es forma.
+`gerencia.html` quedó como una redirección al panel, para los marcadores
+viejos.
 
 ## Panel del creador
 

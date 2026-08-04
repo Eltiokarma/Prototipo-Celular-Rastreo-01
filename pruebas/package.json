@@ -4,7 +4,7 @@
   "description": "Suites de regresión de COOP-R14. Aparte del servidor a propósito: nada de esto se despliega.",
   "scripts": {
     "test": "node regresion.js",
-    "sintaxis": "node chk-html.js ../project/despacho.html ../project/Prototipo.html ../project/gerencia.html ../server/creador.html && node chk-rn.js"
+    "sintaxis": "node chk-html.js ../project/despacho.html ../project/Prototipo.html ../server/creador.html && node chk-rn.js"
   },
   "devDependencies": {
     "@babel/standalone": "^7.29.0",

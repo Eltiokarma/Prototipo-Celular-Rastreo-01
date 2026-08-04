@@ -36,7 +36,10 @@ const meterVuelta = (unitId, minutos, cuandoMs, routeId = 'R-14') => {
 
   const tk = (await login('DESPACHO', 'despacho99')).token;
   H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk };
-  const alta = (b) => fetch(API + '/admin/users', { method: 'POST', headers: H, body: JSON.stringify(b) });
+  // Sembrar choferes crea vehículos, y eso es de la gerencia desde la fusión
+  const HG = { 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + await require('./gerente.js')(API, DB) };
+  const alta = (b) => fetch(API + '/admin/users', { method: 'POST', headers: HG, body: JSON.stringify(b) });
   // El servidor cachea el objetivo un minuto: este POST lo hace recalcular
   await objetivo({});
   for (const u of ['M-01', 'M-02', 'M-03', 'M-04']) {
@@ -125,7 +128,7 @@ const meterVuelta = (unitId, minutos, cuandoMs, routeId = 'R-14') => {
       [RAIZ + '/server/empresa.js', 'ruta', 'R14', 'R-20', 'Ruta de prueba'],
       { env: { ...process.env, DB_FILE: DB }, stdio: 'ignore' });
   } catch { /* ya existía */ }
-  await fetch(API + '/admin/users', { method: 'POST', headers: H,
+  await fetch(API + '/admin/users', { method: 'POST', headers: HG,
     body: JSON.stringify({ unitId: 'V-01', name: 'Chofer V-01', personRole: 'driver', routeId: 'R-20', password: 'clave1234' }) });
   for (let i = 0; i < 5; i++) {
     meterVuelta('V-01', 30, mediodiaHace3Dias + i * 60e3, 'R-20');

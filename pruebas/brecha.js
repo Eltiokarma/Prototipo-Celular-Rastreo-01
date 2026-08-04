@@ -60,8 +60,10 @@ const punto = (m) => ({ lat: LAT + gLat * m, lng: LNG });
     body: JSON.stringify({ tramos: { ida: [punto(0), punto(2000)], vuelta: [punto(2000), punto(0)] } }),
   });
 
+  const HG = { 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + await require('./gerente.js')(`http://localhost:${P}`, DB) };
   for (const u of ['B-01', 'B-02']) {
-    await pedir('/admin/users', { method: 'POST', headers: H,
+    await pedir('/admin/users', { method: 'POST', headers: HG,
       body: JSON.stringify({ unitId: u, name: 'Chofer ' + u, password: 'chofer1234' }) });
   }
 

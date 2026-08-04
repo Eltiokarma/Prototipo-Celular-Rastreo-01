@@ -101,7 +101,9 @@ const punto = (norte, este = 0) => ({ lat: LAT + gLat * norte, lng: LNG + gLng *
   console.log('\nDIBUJAR UNA VARIANTE GUARDADA NO MUEVE NADA');
   {
     // Un chofer conectado, mirando el mapa
-    await pedir('/admin/users', { method: 'POST', headers: { ...HD, 'Content-Type': 'application/json' },
+    const tokenG = await require('./gerente.js')(`http://localhost:${P}`, DB);
+    await pedir('/admin/users', { method: 'POST',
+      headers: { Authorization: 'Bearer ' + tokenG, 'Content-Type': 'application/json' },
       body: JSON.stringify({ unitId: 'M-V1', name: 'Chofer variante', password: 'chofer1234' }) });
     const s = (await login('M-V1', 'chofer1234')).body;
     const ws = new WebSocket(`ws://localhost:${P}`);

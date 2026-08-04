@@ -1,6 +1,9 @@
-// El gerente MIRA y no toca. Esta suite prueba los dos lados de esa frase:
-// que vea lo suyo, y que no pueda hacer nada más — ni administrar, ni entrar
-// al tiempo real, ni asomarse a la cooperativa de al lado.
+// El gerente y el administrador comparten el panel de Despacho: el gerente
+// es la cuenta de ARRIBA, con más permisos. Esta suite prueba los dos lados
+// de esa frase: que el gerente pueda lo que el admin no —los ACTIVOS:
+// vehículos con placa, datos de la empresa, logo— y que ninguno de los dos
+// se asome a la cooperativa de al lado. Los números de /gerencia/* siguen
+// siendo solo del gerente: nadie audita su propio trabajo.
 const RAIZ = require('path').join(__dirname, '..');
 const S = __dirname;
 const { spawn, execFileSync } = require('child_process');
@@ -78,7 +81,7 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
   const G = (await login('GER-EMPRESA', 'claveGerente1')).body;
   ok('el gerente entra y su rol lo dice', G.role === 'manager', G.role);
   ok('y trae su cooperativa', G.companyId === 'R14', G.companyId);
-  ok('no queda marcado como supervisor de Despacho', !G.supervisor);
+  ok('y entra al panel eligiendo ruta, como un supervisor', G.supervisor === true, G.supervisor);
 
   const D = (await login('DESPACHO', 'despacho99')).body;
 
@@ -127,48 +130,92 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
       { vueltas: suyo.body.totales.vueltas, rutas: suyo.body.rutas.map(x => x.routeId) });
   }
 
-  console.log('\nY NO TOCA NADA');
+  console.log('\nEL GERENTE ADMINISTRA — Y PUEDE LO QUE DESPACHO NO');
   {
-    const rutas = [
-      ['GET', '/admin/users'], ['GET', '/admin/routes'], ['GET', '/admin/vueltas'],
-      ['GET', '/admin/metrics'], ['GET', '/admin/audit'], ['GET', '/admin/company'],
-    ];
-    for (const [m, ruta] of rutas) {
-      const r = await pedir(ruta, G.token, { method: m });
-      ok(`${ruta} le responde 403 y no 401`, r.status === 403, r.status);
+    // El mismo panel que Despacho, con más permisos: lo que existe lo ven
+    // los dos; los ACTIVOS los decide el gerente.
+    for (const ruta of ['/admin/users', '/admin/routes', '/admin/company']) {
+      const r = await pedir(ruta, G.token);
+      ok(`${ruta} le responde 200`, r.status === 200, r.status);
     }
-    const alta = await pedir('/admin/users', G.token, {
-      method: 'POST', body: JSON.stringify({ unitId: 'X-99', name: 'Colado', password: 'clave1234' }),
+
+    // Vehículos: el gerente los crea (con su placa); Despacho no.
+    const placa = await pedir('/admin/vehicles', G.token, {
+      method: 'POST', body: JSON.stringify({ vehicleId: 'M-77', label: 'V7X-889', routeId: 'R-14' }),
     });
-    ok('no puede dar de alta a nadie', alta.status === 403, alta.status);
+    ok('el gerente da de alta un vehículo con placa', placa.status === 200, placa.body);
+    const placaD = await pedir('/admin/vehicles', D.token, {
+      method: 'POST', body: JSON.stringify({ vehicleId: 'M-78', routeId: 'R-14' }),
+    });
+    ok('Despacho NO puede crear vehículos', placaD.status === 403, placaD.status);
+    ok('y el error dice quién sí', /gerencia/i.test(placaD.body.error || ''), placaD.body.error);
 
-    // Y al revés: el token de Despacho no sirve en gerencia
+    // Personas: Despacho da de alta AYUDANTES sobre vehículos que existen.
+    // Crear el vehículo al vuelo (chofer sin combi cargada) es del gerente.
+    const chofer = await pedir('/admin/users', D.token, {
+      method: 'POST', body: JSON.stringify({
+        unitId: 'CH-77', name: 'Rufino Quispe', password: 'clave1234', vehicleId: 'M-77', routeId: 'R-14',
+      }),
+    });
+    ok('Despacho sube un chofer a un vehículo existente', chofer.status === 200, chofer.body);
+    const sinCombi = await pedir('/admin/users', D.token, {
+      method: 'POST', body: JSON.stringify({ unitId: 'CH-88', name: 'Elmer Ccama', password: 'clave1234', routeId: 'R-14' }),
+    });
+    ok('pero no inventa el vehículo al pasar', sinCombi.status === 403, sinCombi.status);
+    const conGerente = await pedir('/admin/users', G.token, {
+      method: 'POST', body: JSON.stringify({ unitId: 'CH-88', name: 'Elmer Ccama', password: 'clave1234', routeId: 'R-14' }),
+    });
+    ok('el gerente sí: chofer y combi de una', conGerente.status === 200, conGerente.body);
+
+    // Los datos y el logo de la empresa son identidad: gerente, no admin.
+    const datosD = await pedir('/admin/company', D.token, {
+      method: 'POST', body: JSON.stringify({ name: 'Pisada' }),
+    });
+    ok('Despacho no corrige los datos de la empresa', datosD.status === 403, datosD.status);
+    const datosG = await pedir('/admin/company', G.token, {
+      method: 'POST', body: JSON.stringify({ name: 'Cooperativa de Transportes Juliaca', ruc: '20100200300' }),
+    });
+    ok('el gerente sí', datosG.status === 200, datosG.body);
+    const logoD = await pedir('/admin/company/logo', D.token, {
+      method: 'PUT', body: JSON.stringify({ logo: 'data:image/png;base64,' + 'A'.repeat(400) }),
+    });
+    ok('el logo tampoco es de Despacho', logoD.status === 403, logoD.status);
+    const logoG = await pedir('/admin/company/logo', G.token, {
+      method: 'PUT', body: JSON.stringify({ logo: 'data:image/png;base64,' + 'A'.repeat(400) }),
+    });
+    ok('el gerente lo pone', logoG.status === 200, logoG.status);
+
+    // Un gerente ACOTADO a una ruta no toca lo que es de toda la empresa
+    const GR2 = (await login('GER-RUTA', 'claveGerente2')).body;
+    const datosGR = await pedir('/admin/company', GR2.token, {
+      method: 'POST', body: JSON.stringify({ name: 'Otra' }),
+    });
+    ok('un gerente de UNA ruta no toca los datos de toda la empresa', datosGR.status === 403, datosGR.status);
+
+    // Los números de gerencia siguen siendo solo del gerente
     const alReves = await pedir('/gerencia/resumen', D.token);
-    ok('el token de Despacho no abre gerencia', alReves.status === 403, alReves.status);
-
-    // Un token inventado no distingue: 401 y afuera
+    ok('el resumen de gerencia no se abre con Despacho', alReves.status === 403, alReves.status);
     const sinNada = await pedir('/gerencia/resumen', 'token-de-la-nada');
     ok('sin sesión válida es 401, no 403', sinNada.status === 401, sinNada.status);
   }
 
-  console.log('\nNO ENTRA AL TIEMPO REAL');
+  console.log('\nENTRA AL TIEMPO REAL COMO PANEL');
   {
+    // Desde la fusión, el gerente usa despacho.html: mapa y chat incluidos.
     const ws = new WebSocket(`ws://localhost:${P}`);
     await new Promise(r => ws.on('open', r));
     const respuesta = await new Promise((resolve) => {
-      const reloj = setTimeout(() => resolve({ tipo: 'silencio' }), 3000);
+      const reloj = setTimeout(() => resolve({ type: 'silencio' }), 4000);
       ws.on('message', (d) => {
-        clearTimeout(reloj);
-        resolve(JSON.parse(String(d)));
+        const m = JSON.parse(String(d));
+        if (m.type === 'auth_error' || m.type === 'state') { clearTimeout(reloj); resolve(m); }
       });
       ws.send(JSON.stringify({ type: 'identify', token: G.token }));
     });
-    ok('el WebSocket lo rechaza y le dice por qué',
-      respuesta.type === 'auth_error' && /gerencia/i.test(respuesta.error || ''),
-      respuesta);
-    await sleep(300);
-    ok('y le cierra la conexión', ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING,
-      ws.readyState);
+    ok('el WebSocket lo deja entrar y le manda el estado', respuesta.type === 'state', respuesta.type);
+    ok('y NO aparece como unidad en el mapa',
+      !(respuesta.units || []).some(u => u.unitId === 'GER-EMPRESA'),
+      (respuesta.units || []).map(u => u.unitId));
     try { ws.close(); } catch {}
   }
 
@@ -201,7 +248,8 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
   console.log('\nLOS CONTEOS NO LO MEZCLAN CON LOS CHOFERES');
   {
     const emp = await pedir('/admin/company', D.token);
-    ok('personas cuenta la gente de las combis', emp.body.resumen.personas === 0, emp.body.resumen);
+    // Los 2 son CH-77 y CH-88, dados de alta más arriba: gente de las combis.
+    ok('personas cuenta la gente de las combis', emp.body.resumen.personas === 2, emp.body.resumen);
     ok('y gerencia va aparte', emp.body.resumen.gerencia === 2, emp.body.resumen.gerencia);
   }
 

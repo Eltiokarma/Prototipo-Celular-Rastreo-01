@@ -245,6 +245,10 @@ function coopRecordada() {
 function Login({ onSuccess, notice }) {
   const [user, setUser] = React.useState('DESPACHO');
   const [pass, setPass] = React.useState('');
+  // Ver lo tipeado a pedido: las claves acá las dicta una persona a otra
+  // por teléfono, y un error de tipeo a ciegas cuesta un bloqueo por
+  // intentos. El de la app del chofer ya lo tiene; este es el mismo gesto.
+  const [verPass, setVerPass] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
   const coop = coopRecordada();
@@ -264,7 +268,11 @@ function Login({ onSuccess, notice }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Error de autenticación');
-      if (data.role !== 'dispatch') throw new Error('Esta cuenta no es de Despacho');
+      // Despacho y gerencia comparten este panel: el gerente es la cuenta
+      // de arriba, con más permisos (vehículos, datos de la empresa, logo).
+      if (data.role !== 'dispatch' && data.role !== 'manager') {
+        throw new Error('Esta cuenta no es de Despacho ni de gerencia');
+      }
       try {
         localStorage.setItem('r14_dispatch_session', JSON.stringify(data));
         if (data.companyName) localStorage.setItem('r14_coop_panel', data.companyName);
@@ -302,7 +310,15 @@ function Login({ onSuccess, notice }) {
         <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1, color: HUD.dim2, marginBottom: 6 }}>USUARIO</div>
         <input value={user} onChange={e => setUser(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
         <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1, color: HUD.dim2, marginBottom: 6 }}>CONTRASEÑA</div>
-        <input type="password" value={pass} autoFocus onChange={e => setPass(e.target.value)} style={{ ...inputStyle, marginBottom: 18 }} />
+        <div style={{ position: 'relative', marginBottom: 18 }}>
+          <input type={verPass ? 'text' : 'password'} value={pass} autoFocus
+            onChange={e => setPass(e.target.value)} style={{ ...inputStyle, paddingRight: 78 }} />
+          <button type="button" onClick={() => setVerPass(v => !v)} style={{
+            position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1, color: HUD.dim2,
+          }}>{verPass ? 'OCULTAR' : 'VER'}</button>
+        </div>
 
         {(error || notice) && (
           <div style={{
@@ -1064,10 +1080,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   }, []);
   const [empresa, setEmpresa] = React.useState(null);
   const [empForm, setEmpForm] = React.useState({ name: '', ruc: '', contacto: '' });
+  // Los números de gerencia (pestaña Números, solo del gerente)
+  const [resumenGer, setResumenGer] = React.useState(null);
+  const [diasGer, setDiasGer] = React.useState(7);
   const [nuevoVeh, setNuevoVeh] = React.useState({ vehicleId: '', label: '' });
   // Ruta cuyo recorrido se está trazando (null = trazador cerrado)
   const [trazando, setTrazando] = React.useState(null);
   const esSupervisor = !!session.supervisor;
+  // El gerente usa este mismo panel con más permisos: los ACTIVOS (vehículos
+  // con placa, datos de la empresa, logo) son suyos; la operación del día es
+  // de los dos.
+  const esGerente = session.role === 'manager';
   const [error, setError] = React.useState(null);
   const [okMsg, setOkMsg] = React.useState(null);
   // personRole: 'driver' (chofer, maneja y reporta GPS) | 'collector' (cobrador)
@@ -1144,6 +1167,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
       .catch(e => setError(e.message));
   };
 
+  const loadGerencia = (dias = diasGer) => {
+    const hasta = Date.now();
+    return api(`/gerencia/resumen?desde=${hasta - dias * 86400000}&hasta=${hasta}`)
+      .then(setResumenGer).catch(e => setError(e.message));
+  };
   const loadEmpresa = () => api('/admin/company')
     .then(d => {
       setEmpresa(d);
@@ -1162,6 +1190,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     if (tab === 'vehicles') loadVehicles();
     if (tab === 'shifts') loadShifts();
     if (tab === 'empresa') loadEmpresa();
+    if (tab === 'gerencia') loadGerencia();
   }, [tab]);
 
   const run = async (fn, ok) => {
@@ -1290,6 +1319,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     ]],
     ['La cooperativa', [
       ['empresa', 'Empresa', null],
+      // Los números del período — la vieja pantalla de gerencia.html, ahora
+      // adentro del panel. Solo la ve la cuenta de gerencia: nadie audita su
+      // propio trabajo.
+      ...(esGerente ? [['gerencia', 'Números', null]] : []),
       ['audit', 'Actividad', '↺'],
     ]],
   ];
@@ -1302,6 +1335,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     informes: ['Informes', 'Descargas para la cooperativa: vueltas, brechas y turnos en un rango de fechas.'],
     empresa: ['Empresa', 'Datos de la cooperativa que se muestran en el panel y en la app del chofer.'],
     audit: ['Actividad', 'Todo lo que se hizo en el panel de esta cooperativa. Solo la de ustedes.'],
+    gerencia: ['Números', 'Cumplimiento, vueltas, horas y SOS del período, por unidad. Se juzga contra el objetivo de HOY de cada ruta.'],
   };
 
   const fmtSeg = (s) => s == null ? '—'
@@ -1671,6 +1705,18 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
 
             {/* ─── VEHÍCULOS ────────────────────────────────────── */}
             {tab === 'vehicles' && (<div>
+              {!esGerente && (
+                <div style={{
+                  background: HUD.bg, border: `1px solid ${HUD.divider}`,
+                  borderRadius: 12, padding: '12px 14px', marginBottom: 16,
+                  fontSize: 13, color: HUD.dim2, lineHeight: 1.5,
+                }}>
+                  Los vehículos (con su placa) los da de alta la <strong>cuenta de
+                  gerencia</strong>: son los activos de la cooperativa. Acá se ve la
+                  flota y quién va arriba de cada una.
+                </div>
+              )}
+              {esGerente && (
               <div style={{
                 background: HUD.bg, border: `1px solid ${HUD.divider}`,
                 borderRadius: 12, padding: 14, marginBottom: 16,
@@ -1693,10 +1739,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   style={{ ...campo(40), flex: '1 1 180px' }} />
                 <button onClick={crearVehiculo} disabled={busy} style={btnPrimario(40)}>+ Vehículo</button>
               </div>
+              )}
 
               {!vehicles && <Vacio>Cargando…</Vacio>}
               {vehicles && vehicles.length === 0 && (
-                <Vacio>Todavía no hay vehículos. Se crean acá, o solos al dar de alta a un chofer.</Vacio>
+                <Vacio>Todavía no hay vehículos. Los da de alta la cuenta de gerencia (o se crean solos cuando la gerencia carga a un chofer con su combi).</Vacio>
               )}
               {vehicles && vehicles.length > 0 && (() => {
                 const cols = '120px 84px 1fr 220px 96px';
@@ -2215,7 +2262,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     </div>
                     {empresa.empresa.ruc && <div>RUC · {empresa.empresa.ruc}</div>}
                     {empresa.empresa.contacto && <div>Contacto · {empresa.empresa.contacto}</div>}
-                    <div style={{ marginTop: 8 }}>Solo una cuenta supervisora puede corregir estos datos.</div>
+                    <div style={{ marginTop: 8 }}>Estos datos, y el logo, los corrige la cuenta de gerencia.</div>
                   </div>
                 )}
 
@@ -2226,6 +2273,101 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   y sus informes—; ninguna ve nada de otra, ni desde el panel ni desde
                   el mapa. Dar de alta una cooperativa nueva se hace desde el nivel de
                   arriba, no desde acá.
+                </Pie>
+              </div>)}
+            </div>)}
+
+            {/* ─── NÚMEROS (GERENCIA) ──────────────────────────────
+                La vieja pantalla de gerencia.html, adentro del panel. Solo
+                la ve el gerente (la pestaña ni figura para Despacho, y el
+                servidor igual responde 403). */}
+            {tab === 'gerencia' && (<div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+                {[7, 14, 30].map(d => (
+                  <button key={d} disabled={busy}
+                    onClick={() => { setDiasGer(d); setResumenGer(null); loadGerencia(d); }}
+                    style={{
+                      ...btnSecundario(36),
+                      background: diasGer === d ? HUD.bright : 'transparent',
+                      color: diasGer === d ? '#fff' : HUD.dim,
+                    }}>{d} días</button>
+                ))}
+                <div style={{ flex: 1 }} />
+                {['vueltas', 'turnos'].map(tipo => (
+                  <button key={tipo} style={btnSecundario(36)} onClick={async () => {
+                    try {
+                      const hasta = Date.now(), desde = hasta - diasGer * 86400000;
+                      const r = await fetch(`${HTTP_URL}/gerencia/informe/${tipo}.csv?desde=${desde}&hasta=${hasta}`,
+                        { headers: { Authorization: 'Bearer ' + session.token } });
+                      if (!r.ok) throw new Error('No se pudo descargar');
+                      const url = URL.createObjectURL(await r.blob());
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${(session.companyId || 'gerencia').toLowerCase()}-${tipo}-${diasGer}d.csv`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch (e) { setError(e.message); }
+                  }}>CSV {tipo}</button>
+                ))}
+              </div>
+
+              {!resumenGer && <Vacio>Cargando…</Vacio>}
+              {resumenGer && (<div>
+                <div style={{
+                  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gap: 12, marginBottom: 18,
+                }}>
+                  {[
+                    ['Vueltas', resumenGer.totales.vueltas],
+                    ['Cumplimiento', resumenGer.totales.cumplimiento === null ? '—' : `${resumenGer.totales.cumplimiento}%`],
+                    ['Brecha promedio', resumenGer.totales.brechaProm === null ? '—' : `${Math.floor(resumenGer.totales.brechaProm / 60)}:${String(resumenGer.totales.brechaProm % 60).padStart(2, '0')}`],
+                    ['Horas trabajadas', `${(resumenGer.totales.horasSec / 3600).toFixed(1)} h`],
+                    ['Unidades', resumenGer.totales.unidades],
+                    ['SOS', resumenGer.totales.sos],
+                  ].map(([etiqueta, valor]) => (
+                    <div key={etiqueta} style={{ ...tarjeta(14), background: HUD.bg }}>
+                      <div style={{ fontFamily: black, fontSize: 22 }}>{valor}</div>
+                      <div style={{ ...rotulo(9), marginTop: 4 }}>{etiqueta}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {resumenGer.porUnidad.length === 0 && (
+                  <Vacio>Sin vueltas cerradas en el período.</Vacio>
+                )}
+                {resumenGer.porUnidad.length > 0 && (
+                  <Tabla cols="110px 90px 1fr 1fr 1fr 1fr" ancho={640}
+                    cabeceras={['Unidad', 'Ruta', 'Vueltas', 'Cumple', 'Brecha prom.', 'Horas']}>
+                    {resumenGer.porUnidad.map(u => (
+                      <div key={u.unitId} style={{
+                        display: 'grid', gridTemplateColumns: '110px 90px 1fr 1fr 1fr 1fr',
+                        gap: 12, alignItems: 'center', padding: '11px 14px',
+                        borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                      }}>
+                        <div style={{ fontFamily: mono, fontWeight: 800 }}>{u.unitId}</div>
+                        <div style={{ fontFamily: mono, color: HUD.dim }}>{u.routeId}</div>
+                        <div>{u.vueltas}</div>
+                        <div style={{
+                          fontWeight: 700,
+                          color: u.cumplimiento === null ? HUD.dim3
+                            : u.cumplimiento >= 70 ? HUD.green
+                            : u.cumplimiento >= 40 ? HUD.amber : HUD.red,
+                        }}>{u.cumplimiento === null ? '—' : `${u.cumplimiento}%`}</div>
+                        <div style={{ fontFamily: mono }}>
+                          {u.brechaProm === null ? '—' : fmtSeg(u.brechaProm)}
+                        </div>
+                        <div>{(u.horasSec / 3600).toFixed(1)} h</div>
+                      </div>
+                    ))}
+                  </Tabla>
+                )}
+
+                <Pie>
+                  Una vuelta cumple si su brecha quedó dentro del
+                  {' '}{Math.round((resumenGer.toleranciaCumple || 0.15) * 100)} % del objetivo de SU ruta —
+                  el mismo criterio que pinta de verde el mapa. Se juzga contra el
+                  objetivo de HOY: si el objetivo cambió durante el período, las
+                  vueltas viejas se miden con el nuevo.
                 </Pie>
               </div>)}
             </div>)}
@@ -2521,7 +2663,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       };
     }
     const base = {
-      from: m.role === 'dispatch' ? 'DESPACHO' : (m.driverName || m.unitId || 'Conductor'),
+      from: m.role === 'dispatch' ? 'DESPACHO' : m.role === 'manager' ? 'GERENCIA' : (m.driverName || m.unitId || 'Conductor'),
       role: own ? 'dispatch-self' : m.role,
       unit: m.role === 'dispatch' ? null : (m.vehicleId || null),
       // Con qué unidad es la conversación privada; null = mensaje del grupo

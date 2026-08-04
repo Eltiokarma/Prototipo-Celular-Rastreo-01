@@ -9,7 +9,10 @@ const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
 (async () => {
   const tk = (await login('DESPACHO', 'despacho99')).token;
   const H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk };
-  await fetch(API + '/admin/users', { method: 'POST', headers: H,
+  // Los choferes-con-combi los siembra la gerencia: los vehículos son suyos
+  const HG = { 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + await require('./gerente.js')(API, process.env.DBFILE || process.env.DB_FILE) };
+  await fetch(API + '/admin/users', { method: 'POST', headers: HG,
     body: JSON.stringify({ unitId: 'M-01', name: 'Chofer uno', personRole: 'driver', password: 'clave1234' }) });
 
   // Circuito de 2 km POR LA MISMA CALLE: 1 km hacia el norte (ida) y el
@@ -70,7 +73,7 @@ const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
   ok('10. Al salir otra vez vuelve a la IDA', u.tramo === 'ida', `${u.tramo} · ${u.routeProgress.toFixed(3)}`);
 
   // Dos unidades, una de ida y otra de vuelta: la brecha se calcula igual
-  await fetch(API + '/admin/users', { method: 'POST', headers: H,
+  await fetch(API + '/admin/users', { method: 'POST', headers: HG,
     body: JSON.stringify({ unitId: 'M-02', name: 'Chofer dos', personRole: 'driver', password: 'clave1234' }) });
   const s2 = await login('M-02', 'clave1234');
   const ws2 = new WebSocket('ws://localhost:3001');

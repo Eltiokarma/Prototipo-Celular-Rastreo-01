@@ -12,6 +12,18 @@ const login = (u, p, ip) => fetch(API + '/auth/login', { method: 'POST',
 (async () => {
   const tk = (await login('DESPACHO', 'despacho99')).body.token;
   const H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk };
+
+  // Los vehículos son del GERENTE desde la fusión de paneles: para atacar
+  // ese endpoint hace falta una cuenta que llegue hasta él.
+  {
+    const Database = require(RAIZ + '/server/node_modules/better-sqlite3');
+    const coop = require(RAIZ + '/server/cooperativas.js');
+    const base = new Database(process.env.DBFILE || process.env.DB_FILE);
+    coop.gerente(base, { companyId: 'R14', usuario: 'GER-SEG', clave: 'gerenteseg1' });
+    base.close();
+  }
+  const tg = (await login('GER-SEG', 'gerenteseg1')).body.token;
+  const HG = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tg };
   const alta = (b) => fetch(API + '/admin/users', { method: 'POST', headers: H, body: JSON.stringify(b) })
     .then(async r => ({ status: r.status, body: await r.json() }));
 
@@ -27,9 +39,12 @@ const login = (u, p, ip) => fetch(API + '/auth/login', { method: 'POST',
   let r = await alta({ unitId: XSS, name: 'Malicioso', personRole: 'driver', password: 'clave1234' });
   ok('1. No deja crear una unidad con HTML en el nombre de usuario', r.status === 400, JSON.stringify(r.body));
 
-  r = await fetch(API + '/admin/vehicles', { method: 'POST', headers: H,
+  r = await fetch(API + '/admin/vehicles', { method: 'POST', headers: HG,
     body: JSON.stringify({ vehicleId: XSS, label: 'x' }) }).then(async x => ({ status: x.status, body: await x.json() }));
-  ok('2. Ni un vehículo', r.status === 400, JSON.stringify(r.body));
+  ok('2. Ni un vehículo (ni siquiera el gerente)', r.status === 400, JSON.stringify(r.body));
+  r = await fetch(API + '/admin/vehicles', { method: 'POST', headers: H,
+    body: JSON.stringify({ vehicleId: 'M-99X', label: 'x' }) }).then(async x => ({ status: x.status }));
+  ok('2b. Despacho no crea vehículos: es del gerente', r.status === 403, 'HTTP ' + r.status);
 
   // Las rutas ya no se crean desde Despacho — el endpoint no existe. El
   // rechazo de un código con HTML se prueba en la suite del creador, que es
@@ -38,7 +53,10 @@ const login = (u, p, ip) => fetch(API + '/auth/login', { method: 'POST',
     body: JSON.stringify({ routeId: 'R-XX', name: 'x' }) }).then(async x => ({ status: x.status }));
   ok('3. Despacho no puede crear rutas: no existe el endpoint', r.status === 404, r.status);
 
-  // El NOMBRE sí puede tener cualquier cosa: lo pinta React, que lo escapa
+  // El NOMBRE sí puede tener cualquier cosa: lo pinta React, que lo escapa.
+  // El vehículo lo crea antes el gerente: Despacho ya no los inventa al paso.
+  await fetch(API + '/admin/vehicles', { method: 'POST', headers: HG,
+    body: JSON.stringify({ vehicleId: 'M-77', label: 'V7A-123' }) });
   r = await alta({ unitId: 'M-77', name: XSS, personRole: 'driver', password: 'clave1234' });
   ok('4. El nombre de la persona sí acepta cualquier texto (lo escapa React)', r.status === 200);
 

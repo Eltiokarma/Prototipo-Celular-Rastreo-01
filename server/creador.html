@@ -205,151 +205,6 @@ function Puerta({ onEntrar }) {
   );
 }
 
-// ─── TRAZADOS DE UNA RUTA ──────────────────────────────────────
-// Una ruta puede tener varios trazados: el de siempre y los que hacen falta
-// cuando hay una obra, un desfile o un mercado que corta dos cuadras. Acá se
-// crean; el dibujo se hace en la pestaña RUTAS de este mismo panel (Despacho
-// también puede, con su trazador), y activarlo es decisión del día de ellos.
-function Trazados({ api, companyId, ruta, aviso, fallo, recargar }) {
-  const [lista, setLista] = React.useState(null);
-  const [abierto, setAbierto] = React.useState(false);
-  const [form, setForm] = React.useState({ name: '', copiarDe: '', desde: '', hasta: '' });
-  const [ocupado, setOcupado] = React.useState(false);
-  const [renombrando, setRenombrando] = React.useState(false);
-  const [nombre, setNombre] = React.useState(ruta.name || '');
-
-  const base = `/empresas/${encodeURIComponent(companyId)}/rutas/${encodeURIComponent(ruta.routeId)}/variantes`;
-  const cargar = () => api(base).then(d => setLista(d.variantes)).catch(e => fallo(e.message));
-
-  React.useEffect(() => { if (abierto && !lista) cargar(); }, [abierto]);
-
-  const correr = async (fn, mensaje) => {
-    setOcupado(true);
-    try { await fn(); aviso(mensaje); await cargar(); }
-    catch (e) { fallo(e.message); }
-    setOcupado(false);
-  };
-
-  const dia = (ts) => ts ? new Date(ts).toISOString().slice(0, 10) : '';
-
-  return (
-    <div style={{ borderTop: '1px solid var(--divider)', padding: '8px 0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span className="mono" style={{ fontSize: 13, fontWeight: 800 }}>{ruta.routeId}</span>
-        {!renombrando && (
-          <span style={{ fontSize: 12, color: 'var(--dim)', flex: 1, minWidth: 0 }}>{ruta.name}</span>
-        )}
-        {/* El nombre de la ruta se corrige acá mismo, en la fila: es lo que
-            se lee en los selectores y en el mapa del chofer. El código no. */}
-        {renombrando && (
-          <React.Fragment>
-            <input value={nombre} autoFocus
-              onChange={ev => setNombre(ev.target.value)}
-              onKeyDown={ev => { if (ev.key === 'Escape') setRenombrando(false); }}
-              style={{ width: 240, height: 32, fontSize: 13 }} />
-            <button disabled={ocupado || !nombre.trim()} onClick={() => correr(async () => {
-              await api(`/empresas/${encodeURIComponent(companyId)}/rutas/${encodeURIComponent(ruta.routeId)}`, {
-                method: 'PUT', body: JSON.stringify({ name: nombre }),
-              });
-              setRenombrando(false);
-              if (recargar) await recargar();
-            }, 'Ruta renombrada')} style={{
-              padding: '5px 10px', fontSize: 12, background: 'var(--bright)', color: '#fff',
-            }}>Guardar</button>
-            <button onClick={() => setRenombrando(false)} style={{
-              padding: '5px 10px', fontSize: 12, background: 'var(--campo)',
-              color: 'var(--dim2)', border: '1px solid var(--line)',
-            }}>Cancelar</button>
-            <span style={{ flex: 1 }} />
-          </React.Fragment>
-        )}
-        {!renombrando && (
-          <button onClick={() => { setNombre(ruta.name || ''); setRenombrando(true); }} style={{
-            padding: '5px 10px', fontSize: 12, background: 'var(--campo)',
-            color: 'var(--fg2)', border: '1px solid var(--line)',
-          }}>Renombrar</button>
-        )}
-        <button onClick={() => setAbierto(!abierto)} style={{
-          padding: '5px 10px', fontSize: 12, background: 'var(--campo)',
-          color: 'var(--fg2)', border: '1px solid var(--line)',
-        }}>{abierto ? 'Cerrar' : 'Trazados'}</button>
-      </div>
-
-      {abierto && (
-        <div style={{ marginTop: 10 }}>
-          {!lista && <div style={{ fontSize: 12, color: 'var(--dim2)' }}>Cargando…</div>}
-          {lista && lista.map(v => (
-            <div key={v.variantId} style={{
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              padding: '6px 0', borderBottom: '1px solid var(--divider)', fontSize: 13,
-            }}>
-              <span style={{ fontWeight: 700 }}>{v.name}</span>
-              {v.activa && (
-                <span className="mono" style={{ fontSize: 10, fontWeight: 800, color: 'var(--green)' }}>MIDIENDO</span>
-              )}
-              <span style={{ fontSize: 12, color: v.puntos ? 'var(--dim)' : 'var(--amber)' }}>
-                {v.puntos ? `${v.puntos} pts` : 'sin dibujar'}
-              </span>
-              {(v.desde || v.hasta) && (
-                <span className="mono" style={{ fontSize: 11, color: 'var(--dim2)' }}>
-                  {dia(v.desde) || '…'} → {dia(v.hasta) || '…'}
-                </span>
-              )}
-              <div style={{ flex: 1 }} />
-              {!v.activa && (
-                <button disabled={ocupado} onClick={() => correr(
-                  () => api(`/variantes/${v.variantId}`, { method: 'DELETE' }), 'Trazado borrado',
-                )} style={{
-                  padding: '4px 9px', fontSize: 11, background: 'transparent',
-                  color: 'var(--red)', border: '1px solid var(--line)',
-                }}>Borrar</button>
-              )}
-            </div>
-          ))}
-
-          {lista && (
-            <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label>Nombre del trazado nuevo</label>
-                <input value={form.name} placeholder="Obra Av. Circunvalación"
-                  onChange={ev => setForm({ ...form, name: ev.target.value })} />
-              </div>
-              <div>
-                <label>Copiar de</label>
-                <select value={form.copiarDe} onChange={ev => setForm({ ...form, copiarDe: ev.target.value })}>
-                  <option value="">Empezar vacío</option>
-                  {lista.map(v => <option key={v.variantId} value={v.variantId}>{v.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label>Rige desde / hasta (opcional)</label>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input type="date" value={form.desde} onChange={ev => setForm({ ...form, desde: ev.target.value })} />
-                  <input type="date" value={form.hasta} onChange={ev => setForm({ ...form, hasta: ev.target.value })} />
-                </div>
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <button disabled={ocupado} onClick={() => correr(async () => {
-                  await api(base, { method: 'POST', body: JSON.stringify(form) });
-                  setForm({ name: '', copiarDe: '', desde: '', hasta: '' });
-                }, 'Trazado creado')} style={{
-                  padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
-                  color: 'var(--fg2)', border: '1px solid var(--line)',
-                }}>Crear trazado</button>
-                <span style={{ fontSize: 11, color: 'var(--dim2)', marginLeft: 10 }}>
-                  Copiar del de siempre y corregir dos cuadras suele ser más
-                  rápido que dibujarlo de nuevo. Con fechas, se activa y se
-                  desactiva solo el día que corresponde.
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── COOPERATIVAS ──────────────────────────────────────────────
 // El escudo de una cooperativa en el listado.
 //
@@ -796,9 +651,10 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
                     color: 'var(--fg2)', border: '1px solid var(--line)',
                   }}>Crear o restablecer</button>
                   <div style={{ fontSize: 11, color: 'var(--dim2)', marginTop: 6, lineHeight: 1.45 }}>
-                    Entra por <code>gerencia.html</code> y solo mira números: no
-                    administra nada, no ve el mapa en vivo y Despacho no le puede
-                    tocar la cuenta.
+                    Entra por el MISMO panel de Despacho, con más permisos: los
+                    vehículos con su placa, los datos de la empresa y el logo son
+                    suyos, y tiene la pestaña de números que Despacho no ve.
+                    Despacho no le puede tocar la cuenta.
                     {e.gerencia && e.gerencia.length > 0 && (
                       <> Hoy: {e.gerencia.map(g =>
                         `${g.unitId} (${g.routeId || 'toda'}${g.lastLogin ? ` · entró ${fecha(g.lastLogin)}` : ' · nunca entró'})`
@@ -808,25 +664,10 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
                 </div>
               </div>
 
-              {/* Los trazados de cada ruta. Crear una variante es decidir que
-                  esa ruta puede manejarse de dos maneras: eso es cartografía
-                  y se decide acá. Despacho después ELIGE con cuál se mide y
-                  la dibuja con su trazador, que es donde está el mapa. */}
-              <div style={{ marginTop: 16, borderTop: '1px solid var(--divider)', paddingTop: 14 }}>
-                <div className="mono" style={{
-                  fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
-                  textTransform: 'uppercase', marginBottom: 8,
-                }}>Trazados por ruta</div>
-                {!e.rutas.length && (
-                  <div style={{ fontSize: 12, color: 'var(--dim2)' }}>
-                    Esta cooperativa todavía no tiene rutas.
-                  </div>
-                )}
-                {e.rutas.map(r => (
-                  <Trazados key={r.routeId} api={api} companyId={e.companyId} ruta={r}
-                    aviso={aviso} fallo={fallo} recargar={recargar} />
-                ))}
-              </div>
+              {/* Los trazados (variantes) de cada ruta se crean, renombran,
+                  borran y DIBUJAN en la pestaña RUTAS: acá estaban repetidos
+                  y a medias. Esta tarjeta administra la cooperativa; el mapa
+                  y su cartografía viven allá. */}
 
             </div>
           )}
@@ -919,7 +760,7 @@ const TOPE_ARRASTRABLES = 200;
 // El dedo/cursor "toca" la línea hasta esta distancia en pantalla.
 const UMBRAL_PX = 12;
 
-function Rutas({ api, empresas, aviso, fallo }) {
+function Rutas({ api, empresas, aviso, fallo, recargar }) {
   // Si Leaflet o la lógica del trazador no llegaron, se dice QUÉ faltó en
   // vez de reventar la página entera (pasó: sin leaflet.js, elegir una ruta
   // dejaba todo en blanco). La condición no cambia durante la vida de la
@@ -1253,6 +1094,65 @@ function Rutas({ api, empresas, aviso, fallo }) {
 
   const kmDe = (ps) => (T.largoDe(ps || []) / 1000).toFixed(1);
 
+  // La gestión de los trazados vive ACÁ, al lado del selector — antes
+  // estaba repetida en la tarjeta de la cooperativa, a medias y sin mapa.
+  const [gestion, setGestion] = React.useState(null);   // 'renombrar' | 'nuevo' | null
+  const [nombreRuta, setNombreRuta] = React.useState('');
+  const [nuevoTrazado, setNuevoTrazado] = React.useState({ name: '', copiarDe: '', desde: '', hasta: '' });
+  const [gestionando, setGestionando] = React.useState(false);
+
+  const urlVariantes = () =>
+    `/empresas/${encodeURIComponent(companyId)}/rutas/${encodeURIComponent(routeId)}/variantes`;
+
+  const renombrarRuta = async () => {
+    setGestionando(true);
+    try {
+      await api(`/empresas/${encodeURIComponent(companyId)}/rutas/${encodeURIComponent(routeId)}`, {
+        method: 'PUT', body: JSON.stringify({ name: nombreRuta }),
+      });
+      aviso('Ruta renombrada');
+      setGestion(null);
+      if (recargar) await recargar();
+    } catch (e) { fallo(e.message); }
+    setGestionando(false);
+  };
+
+  const crearTrazado = async () => {
+    if (!confirmarDescarte()) return;   // crear también CAMBIA al trazado nuevo
+    setGestionando(true);
+    try {
+      const r = await api(urlVariantes(), { method: 'POST', body: JSON.stringify(nuevoTrazado) });
+      aviso(`Trazado «${r.name}» creado — quedó elegido para dibujar`);
+      setNuevoTrazado({ name: '', copiarDe: '', desde: '', hasta: '' });
+      setGestion(null);
+      const d = await api(urlVariantes());
+      setVariantes(d.variantes);
+      setVariantId(r.variantId);
+      setSucio(false);
+    } catch (e) { fallo(e.message); }
+    setGestionando(false);
+  };
+
+  const borrarTrazado = async () => {
+    if (!variante || variante.activa) return;
+    if (!window.confirm(`¿Borrar el trazado «${variante.name}»? Su dibujo se pierde.`)) return;
+    setGestionando(true);
+    try {
+      await api(`/variantes/${variante.variantId}`, { method: 'DELETE' });
+      aviso('Trazado borrado');
+      const d = await api(urlVariantes());
+      setVariantes(d.variantes);
+      setVariantId(((d.variantes.find(v => v.activa) || d.variantes[0]) || {}).variantId || null);
+      setSucio(false);
+    } catch (e) { fallo(e.message); }
+    setGestionando(false);
+  };
+
+  const btnChico = (extra) => ({
+    height: 34, padding: '0 12px', fontSize: 12, background: 'var(--campo)',
+    color: 'var(--fg2)', border: '1px solid var(--line)', ...extra,
+  });
+
   const botonModo = (m, texto, titulo) => (
     <button key={m} onClick={() => setModo(m)} title={titulo} style={{
       height: 34, padding: '0 12px', fontSize: 12,
@@ -1293,12 +1193,90 @@ function Rutas({ api, empresas, aviso, fallo }) {
         </div>
       </div>
 
+      {/* Renombrar la ruta, crear un trazado nuevo, borrar el elegido:
+          todo lo de cartografía junto, al lado del selector. */}
+      {routeId && variantes && (
+        <div style={{ marginBottom: 12 }}>
+          {gestion === null && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <button style={btnChico()} onClick={() => {
+                setNombreRuta((rutas.find(r => r.routeId === routeId) || {}).name || '');
+                setGestion('renombrar');
+              }}>Renombrar ruta</button>
+              <button style={btnChico()} onClick={() => setGestion('nuevo')}>+ Nuevo trazado</button>
+              {variante && !variante.activa && (
+                <button disabled={gestionando} onClick={borrarTrazado}
+                  style={btnChico({ color: 'var(--red)' })}>Borrar este trazado</button>
+              )}
+            </div>
+          )}
+          {gestion === 'renombrar' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span className="mono" style={{ fontSize: 12, fontWeight: 800 }}>{routeId}</span>
+              <input value={nombreRuta} autoFocus
+                onChange={ev => setNombreRuta(ev.target.value)}
+                onKeyDown={ev => { if (ev.key === 'Escape') setGestion(null); }}
+                style={{ width: 280, height: 34, fontSize: 13 }} />
+              <button disabled={gestionando || !nombreRuta.trim()} onClick={renombrarRuta} style={{
+                height: 34, padding: '0 12px', fontSize: 12, background: 'var(--bright)', color: '#fff',
+              }}>Guardar</button>
+              <button style={btnChico({ color: 'var(--dim2)' })} onClick={() => setGestion(null)}>Cancelar</button>
+              <span style={{ fontSize: 11, color: 'var(--dim3)' }}>
+                El código {routeId} no se cambia: cuelga de él todo lo demás.
+              </span>
+            </div>
+          )}
+          {gestion === 'nuevo' && (
+            <div style={{
+              background: 'var(--surface)', border: '1px solid var(--line)',
+              borderRadius: 12, padding: 14,
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                <div>
+                  <label>Nombre del trazado nuevo</label>
+                  <input value={nuevoTrazado.name} placeholder="Obra Av. Circunvalación" autoFocus
+                    onChange={ev => setNuevoTrazado({ ...nuevoTrazado, name: ev.target.value })} />
+                </div>
+                <div>
+                  <label>Copiar de</label>
+                  <select value={nuevoTrazado.copiarDe}
+                    onChange={ev => setNuevoTrazado({ ...nuevoTrazado, copiarDe: ev.target.value })}>
+                    <option value="">Empezar vacío</option>
+                    {variantes.map(v => <option key={v.variantId} value={v.variantId}>{v.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label>Rige desde / hasta (opcional)</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input type="date" value={nuevoTrazado.desde}
+                      onChange={ev => setNuevoTrazado({ ...nuevoTrazado, desde: ev.target.value })} />
+                    <input type="date" value={nuevoTrazado.hasta}
+                      onChange={ev => setNuevoTrazado({ ...nuevoTrazado, hasta: ev.target.value })} />
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button disabled={gestionando} onClick={crearTrazado} style={{
+                  padding: '8px 14px', fontSize: 13, background: 'var(--bright)', color: '#fff',
+                }}>Crear trazado</button>
+                <button style={btnChico({ color: 'var(--dim2)' })} onClick={() => setGestion(null)}>Cancelar</button>
+                <span style={{ fontSize: 11, color: 'var(--dim2)' }}>
+                  Copiar del de siempre y corregir dos cuadras suele ser más
+                  rápido que dibujarlo de nuevo. Con fechas, se activa y se
+                  desactiva solo el día que corresponde.
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {!variantId && (
         <div style={{ fontSize: 13, color: 'var(--dim2)', lineHeight: 1.6, maxWidth: 640 }}>
-          Elegí cooperativa y ruta para dibujar su recorrido. Los trazados se
-          crean en COOPERATIVAS → Administrar; acá se dibujan. Lo que se
-          guarda sobre el trazado que está midiendo sale en el mapa de esa
-          cooperativa al instante.
+          Elegí cooperativa y ruta para dibujar su recorrido. Acá se crean
+          los trazados y acá se dibujan; la tarjeta de COOPERATIVAS
+          administra cuentas y datos. Lo que se guarda sobre el trazado que
+          está midiendo sale en el mapa de esa cooperativa al instante.
         </div>
       )}
 
@@ -1726,7 +1704,7 @@ function Panel({ token, onSalir }) {
         <Empresas api={api} empresas={empresas} recargar={cargarEmpresas} aviso={avisar} fallo={fallar} />
       )}
       {pestana === 'rutas' && (
-        <Rutas api={api} empresas={empresas} aviso={avisar} fallo={fallar} />
+        <Rutas api={api} empresas={empresas} aviso={avisar} fallo={fallar} recargar={cargarEmpresas} />
       )}
       {pestana === 'sistema' && <Sistema datos={sistema} />}
       {pestana === 'respaldos' && (

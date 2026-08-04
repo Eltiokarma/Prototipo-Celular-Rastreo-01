@@ -78,8 +78,10 @@ async function hasta(cond, ms = 12000) {
 
   // Tres en fila sobre el anillo: M-01 adelante, M-02 en el medio, M-03 atrás.
   const unidades = ['M-01', 'M-02', 'M-03'];
+  const HG = { 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + await require('./gerente.js')(API, DB) };
   for (const u of unidades) {
-    await fetch(`${API}/admin/users`, { method: 'POST', headers: H,
+    await fetch(`${API}/admin/users`, { method: 'POST', headers: HG,
       body: JSON.stringify({ unitId: u, name: 'Chofer ' + u, password: 'clave1234' }) });
   }
 

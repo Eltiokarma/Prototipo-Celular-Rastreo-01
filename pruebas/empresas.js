@@ -48,9 +48,17 @@ const cli = (...args) => execFileSync('node', [RAIZ + '/server/empresa.js', ...a
 
   cli('alta', 'EMP-A', 'Cooperativa Alfa', '--ruta', 'RA-1', '--despacho', 'SUP-A', '--clave', 'clavealfa1');
   cli('alta', 'EMP-B', 'Cooperativa Beta', '--ruta', 'RB-1', '--despacho', 'SUP-B', '--clave', 'clavebeta1');
+  // Cada una con su gerente: desde la fusión, los choferes-con-combi y los
+  // datos de la empresa los carga la gerencia, no el despacho del día.
+  cli('gerencia', 'EMP-A', 'GER-A', 'clavegerentea');
+  cli('gerencia', 'EMP-B', 'GER-B', 'clavegerenteb');
 
   const A = (await login('SUP-A', 'clavealfa1')).body;
   const B = (await login('SUP-B', 'clavebeta1')).body;
+  const GA = (await login('GER-A', 'clavegerentea')).body;
+  const GB = (await login('GER-B', 'clavegerenteb')).body;
+  const HGA = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + GA.token };
+  const HGB = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + GB.token };
   const HA = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + A.token };
   const HB = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + B.token };
   const get = (h, url) => fetch(API + url, { headers: h }).then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
@@ -61,9 +69,9 @@ const cli = (...args) => execFileSync('node', [RAIZ + '/server/empresa.js', ...a
   ok('el login trae la empresa', A.companyId === 'EMP-A' && A.companyName === 'Cooperativa Alfa', A.companyId);
   ok('y el supervisor es supervisor', A.supervisor === true && B.supervisor === true);
 
-  // Cada una carga su gente
-  await post(HA, '/admin/users', { unitId: 'CH-A', name: 'Chofer Alfa', password: 'chofer1234' });
-  await post(HB, '/admin/users', { unitId: 'CH-B', name: 'Chofer Beta', password: 'chofer1234' });
+  // Cada gerencia carga su gente (chofer y combi de una)
+  await post(HGA, '/admin/users', { unitId: 'CH-A', name: 'Chofer Alfa', password: 'chofer1234' });
+  await post(HGB, '/admin/users', { unitId: 'CH-B', name: 'Chofer Beta', password: 'chofer1234' });
 
   console.log('\nLO QUE CADA UNA VE');
   const rutasA = await get(HA, '/admin/routes');
@@ -106,11 +114,11 @@ const cli = (...args) => execFileSync('node', [RAIZ + '/server/empresa.js', ...a
   ok('y su recorrido sigue vacío', objB.puntos === 0, objB.puntos);
 
   console.log('\nPEDIR LA RUTA DE OTRO COMO PARÁMETRO');
-  const altaCruzada = await post(HA, '/admin/users', {
+  const altaCruzada = await post(HGA, '/admin/users', {
     unitId: 'CH-A2', name: 'Chofer dos', password: 'chofer1234', routeId: 'RB-1',
   });
   ok('un alta pidiendo la ruta ajena cae en la propia', altaCruzada.body.routeId === 'RA-1', altaCruzada.body.routeId);
-  const vehCruzado = await post(HA, '/admin/users', {
+  const vehCruzado = await post(HGA, '/admin/users', {
     unitId: 'CH-A3', name: 'Chofer tres', password: 'chofer1234', vehicleId: 'CH-B',
   });
   ok('y con un vehículo ajeno, ese vehículo no existe', vehCruzado.status === 400, vehCruzado.body.error);
@@ -127,8 +135,10 @@ const cli = (...args) => execFileSync('node', [RAIZ + '/server/empresa.js', ...a
   const empA = await get(HA, '/admin/company');
   ok('cada una ve su ficha', empA.body.empresa.companyId === 'EMP-A', empA.body.empresa.companyId);
   ok('con su resumen', empA.body.resumen.rutas === 1 && empA.body.resumen.personas >= 1, empA.body.resumen);
-  const editada = await post(HA, '/admin/company', { name: 'Cooperativa Alfa S.A.', ruc: '20999888777' });
-  ok('el supervisor la puede corregir', editada.status === 200 && editada.body.empresa.ruc === '20999888777');
+  ok('el despacho ya no corrige la ficha: es de la gerencia',
+    (await post(HA, '/admin/company', { name: 'Pisada' })).status === 403);
+  const editada = await post(HGA, '/admin/company', { name: 'Cooperativa Alfa S.A.', ruc: '20999888777' });
+  ok('la gerencia la puede corregir', editada.status === 200 && editada.body.empresa.ruc === '20999888777');
   const empB = await get(HB, '/admin/company');
   ok('y no le tocó la de al lado', empB.body.empresa.name === 'Cooperativa Beta', empB.body.empresa.name);
 

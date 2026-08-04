@@ -21,7 +21,9 @@ const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
   // el CSV no se parte. Se usa un usuario propio de esta suite: reutilizar
   // uno de otra dejaba el nombre que aquella le hubiera puesto.
   const PERSONA = 'csvtest';
-  let alta = await fetch(API + '/admin/users', { method: 'POST', headers: H,
+  const HG = { 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + await require('./gerente.js')(API, process.env.DBFILE || process.env.DB_FILE) };
+  let alta = await fetch(API + '/admin/users', { method: 'POST', headers: HG,
     body: JSON.stringify({ unitId: PERSONA, name: 'Mamani; Raúl "El Chino"', personRole: 'driver', password: 'clave1234' }) });
   if (alta.status === 409) {
     // Ya existía de una corrida anterior: se le vuelve a poner el nombre
