@@ -140,7 +140,7 @@ function montarPanelDelCreador(app, deps) {
     }
   }
 
-  const { db, audit, origenDe, dbFile, routeOf } = deps;
+  const { db, audit, origenDe, dbFile, routeOf, guardarRecorrido, puntosDeVariante, varianteActiva } = deps;
   const arrancadoEn = Date.now();
 
   // Sesiones EN MEMORIA a propósito: un reinicio las cierra todas, y no queda
@@ -344,6 +344,9 @@ function montarPanelDelCreador(app, deps) {
   app.get(BASE + '/empresas/:companyId/rutas/:routeId/variantes', requireCreador, (req, res) => {
     const ruta = rutaDe(req.params.companyId, req.params.routeId);
     if (!ruta) return res.status(404).json({ error: 'Esa ruta no existe' });
+    // Toda ruta tiene al menos su variante base: se crea acá si falta, para
+    // que una ruta recién dada de alta ya tenga sobre qué dibujar.
+    varianteActiva(ruta.routeId);
     res.json({ routeId: ruta.routeId, variantes: coop.variantes(db, ruta.routeId) });
   });
 
@@ -397,6 +400,62 @@ function montarPanelDelCreador(app, deps) {
       return null;   // no se pudo averiguar: mejor decirlo que inventar
     }
   }
+
+  // ─── EL RECORRIDO DE UNA RUTA ──────────────────────────────
+  //
+  // El trazador vive acá arriba porque las rutas las carga este nivel al dar
+  // de alta la cooperativa — igual que el logo: la cooperativa recibe el
+  // sistema ya configurado, y Despacho a lo sumo corrige.
+  //
+  // Se guarda por la MISMA función que usa Despacho (validación, transacción,
+  // recarga de geometría y broadcast): dos copias de eso es una que se queda
+  // atrás justo en lo que recalcula todas las brechas.
+  const rutaDeLaEmpresa = (companyId, routeId) =>
+    db.prepare('SELECT routeId FROM routes WHERE routeId = ? AND companyId = ?')
+      .get(String(routeId), String(companyId));
+
+  const varianteDe = (routeId, variantId) => {
+    if (Number.isFinite(Number(variantId)) && variantId !== undefined && variantId !== '') {
+      return db.prepare('SELECT * FROM route_variants WHERE variantId = ? AND routeId = ?')
+        .get(Number(variantId), String(routeId)) || null;
+    }
+    // Sin variantId se trabaja sobre la activa — creándola si la ruta es
+    // nueva, igual que hace el endpoint gemelo de Despacho.
+    return varianteActiva(String(routeId));
+  };
+
+  app.get(BASE + '/empresas/:companyId/rutas/:routeId/recorrido', requireCreador, (req, res) => {
+    // La ruta tiene que ser DE ESA cooperativa: el creador ve todas, pero una
+    // URL que mezcla la empresa A con la ruta de B es un error que conviene
+    // que explote acá y no en silencio.
+    if (!rutaDeLaEmpresa(req.params.companyId, req.params.routeId)) {
+      return res.status(404).json({ error: 'Esa ruta no es de esa cooperativa' });
+    }
+    const variante = varianteDe(req.params.routeId, req.query.variantId);
+    if (!variante) return res.status(404).json({ error: 'Esa variante no existe' });
+    res.json({
+      routeId: req.params.routeId,
+      variante: { variantId: variante.variantId, name: variante.name, activa: !!variante.activa },
+      tramos: {
+        ida: puntosDeVariante(variante.variantId, 'ida'),
+        vuelta: puntosDeVariante(variante.variantId, 'vuelta'),
+      },
+    });
+  });
+
+  app.put(BASE + '/empresas/:companyId/rutas/:routeId/recorrido', requireCreador, (req, res) => {
+    if (!rutaDeLaEmpresa(req.params.companyId, req.params.routeId)) {
+      return res.status(404).json({ error: 'Esa ruta no es de esa cooperativa' });
+    }
+    const variante = varianteDe(req.params.routeId, req.body?.variantId);
+    if (!variante) return res.status(404).json({ error: 'Esa variante no existe' });
+    const r = guardarRecorrido(String(req.params.routeId), variante, req.body, 'CREADOR');
+    if (r.error) return res.status(r.status || 400).json({ error: r.error });
+    anotar('recorrido', req.params.routeId,
+      `${r.variante.name}: ida ${r.puntos.ida} pts · vuelta ${r.puntos.vuelta} pts`,
+      req.params.companyId);
+    res.json(r);
+  });
 
   // ─── RESPALDOS ─────────────────────────────────────────────
   //
@@ -483,6 +542,16 @@ function montarPanelDelCreador(app, deps) {
       FROM audit ORDER BY id DESC LIMIT 200
     `).all();
     res.json({ eventos });
+  });
+
+  // La lógica del trazador (geometría, inserción, deshacer) vive en
+  // server/trazador.js: Node la prueba con require() y el panel la carga
+  // con este <script>. Sin sesión igual que el HTML — una etiqueta <script>
+  // no puede mandar el Bearer, y el archivo es código, no datos.
+  const MODULO_TRAZADOR = path.join(__dirname, 'trazador.js');
+  app.get(BASE + '/trazador.js', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.type('application/javascript').sendFile(MODULO_TRAZADOR);
   });
 
   // ─── LA PANTALLA ───────────────────────────────────────────

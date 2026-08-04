@@ -49,6 +49,9 @@ server/             Servidor de tiempo real (Node + Express + ws)
                       superficie se lea de una sentada
   creador.html        Su pantalla. NO vive en project/ a propósito: ahí se
                       serviría como estático aunque el panel esté apagado
+  trazador.js         La lógica del trazador de la pestaña RUTAS (geometría,
+                      insertar en el medio, selección, deshacer, GPX). Node
+                      la prueba con require(); el panel la carga tal cual
 
 app/                La app del chofer, nativa (Expo). El servidor no cambia.
                     Ver app/README.md
@@ -415,8 +418,8 @@ haga falta.
 
 | | |
 | --- | --- |
-| **Nosotros** (panel del creador) | Creamos y borramos variantes. Decidir que una ruta puede manejarse de dos maneras es cartografía, no operación del día |
-| **Despacho** | **Elige** con cuál se mide, y la dibuja con el trazador, que es donde está el mapa. No puede inventar una variante: solo llenar y elegir entre las que existen |
+| **Nosotros** (panel del creador) | Creamos y borramos variantes, y las **dibujamos** en la pestaña RUTAS: las rutas se entregan ya trazadas al dar de alta la cooperativa, igual que el logo. Decidir que una ruta puede manejarse de dos maneras es cartografía, no operación del día |
+| **Despacho** | **Elige** con cuál se mide, y puede corregir el dibujo con su propio trazador. No puede inventar una variante: solo llenar y elegir entre las que existen |
 
 Cuatro cosas que hubo que resolver, y cómo:
 
@@ -543,7 +546,7 @@ la define el nivel de arriba, la operación del día es de la cooperativa.**
 | Vehículos | ✅ | — |
 | Objetivo de brecha (manual o automático) | ✅ | — |
 | Umbral de desvío y silenciarlo | ✅ | — |
-| Dibujar el recorrido (trazador) | ✅ | — |
+| Dibujar el recorrido (trazador) | ✅ | ✅ |
 | **Elegir** con qué trazado se mide | ✅ | — |
 | Turnos, vueltas, informes | ✅ | — |
 | Datos de su cooperativa (nombre, RUC, contacto) | ✅ | — |
@@ -638,6 +641,19 @@ Desde acá también se manejan los **trazados de cada ruta**: crear una
 variante, copiarla de otra (un desvío suele ser el recorrido de siempre con
 dos cuadras distintas), programarle vigencia y borrarla. Ver *Rutas
 alternas*.
+
+Y se **dibujan**, en la pestaña RUTAS: las rutas se entregan ya trazadas al
+dar de alta la cooperativa, igual que el logo. El trazador de acá tiene las
+herramientas que al de Despacho le faltan — un clic **sobre la línea**
+inserta en el medio (densificar una curva sin rehacer desde ahí), modo
+SELECCIONAR (dos clics y se borra la cuadra que quedó entre ellos), deshacer
+con Ctrl+Z, modo mano (o la barra espaciadora, mientras se la tenga
+apretada) e importar GPX o GeoJSON. La geometría y la edición viven en
+`server/trazador.js`, que Node prueba con `require()` y el navegador carga
+tal cual; el guardado pasa por la **misma función** que usa el trazador de
+Despacho — validación, transacción, recarga de geometría y aviso a los mapas,
+escritos una sola vez. Lo guardado sobre el trazado que está midiendo sale
+en el mapa de esa cooperativa al instante.
 
 | Variable | Qué hace |
 | --- | --- |

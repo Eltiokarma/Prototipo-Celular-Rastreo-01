@@ -29,27 +29,30 @@ primero lo que impide vender, después lo que impide escalar, después producto.
 | 2.3 | **Guardar el objetivo con cada vuelta** | El cumplimiento se mide contra el objetivo de HOY, no contra el que regía cuando se cerró la vuelta. Con objetivo automático eso cambia solo, así que los informes de la semana pasada mienten un poco. Una columna en `laps` | 2 horas |
 | 2.4 | **Guardar los desvíos de ruta** | Se detectan y se gestionan en vivo pero no se guardan: no se puede decir cuántas veces se salió una unidad la semana pasada. Es lo que le falta al panel del gerente para cerrar el cuadro | medio día |
 
-### 2bis · El trazador se muda al panel del creador
+### 2bis · ~~El trazador se muda al panel del creador~~ — HECHO
 
 Decisión tomada usándolo: **las rutas las carga el nivel de arriba al dar de
 alta la cooperativa**, igual que el logo — la cooperativa recibe el sistema ya
-configurado. Despacho a lo sumo corrige. Hoy el trazador vive en el panel de
-Despacho y se queda ahí mientras tanto, pero el destino es el creador.
+configurado. Despacho a lo sumo corrige (su trazador sigue existiendo).
 
-Y al moverlo, dárselo con las herramientas que le faltan (pedido de quien lo
-usó: "más herramientas de desplazamiento y selección"):
+Quedó así: pestaña **RUTAS** en el panel del creador, con la lógica de
+edición en `server/trazador.js` — el mismo archivo que Node prueba con
+`require()` (suite `trazador`) llega al navegador como `window.Trazador`.
+Guarda por la MISMA función que Despacho (`guardarRecorrido`): validación,
+transacción, recarga de geometría y broadcast, escritos una sola vez. Y las
+herramientas pedidas ("más herramientas de desplazamiento y selección"):
 
-| Herramienta | Para qué |
+| Herramienta | Cómo quedó |
 | --- | --- |
-| **Arrastrar un punto** | Hoy un punto mal puesto se borra y se vuelve a poner; moverlo es lo natural |
-| **Seleccionar un tramo** (dos clics: desde acá hasta acá) | Borrar o rehacer una cuadra entera sin tocar el resto |
-| **Insertar en el medio** | Hoy solo se agrega al final: densificar una curva obliga a rehacer desde ahí |
-| **Deshacer** (Ctrl+Z) | Sin esto, cada error cuesta minutos |
-| **Mover el mapa sin dibujar** (modo mano / barra espaciadora) | Desplazarse por una ruta larga sin sembrar puntos por accidente |
-| **Importar GPX** | Lo que salga del grabador de rutas (3.4) entra directo |
+| **Arrastrar un punto** | Igual que en Despacho, con A y B marcados |
+| **Seleccionar un tramo** (dos clics) | Modo SELECCIONAR: dos clics y se borra la cuadra entre ellos; el hueco queda en línea recta y se rellena haciendo clic encima |
+| **Insertar en el medio** | El clic decide solo: sobre la línea inserta en ese segmento, lejos agrega al final (`dondeVa`, umbral de 12 px convertido a metros según el zoom) |
+| **Deshacer** (Ctrl+Z) | Historial de estados enteros, inmune a mutaciones, tope 60 |
+| **Modo mano** | Botón MANO, y la barra espaciadora lo activa mientras se la tenga apretada |
+| **Importar GPX** | GPX y GeoJSON, simplificados con Douglas-Peucker a ~10 m |
 
-Tamaño: 1-2 días. Va DESPUÉS del respaldo (1.2): es más horas de las que
-parece y nada de esto bloquea la calle.
+Una ruta recién dada de alta recibe su variante base al preguntarle
+(`varianteActiva`), así siempre hay sobre qué dibujar.
 
 ### 3 · Producto — lo que pidieron los que lo usaron
 

@@ -254,6 +254,80 @@ const pedir = (puerto, ruta, opts = {}) =>
       (await pedir(P, '/auth/login', { method: 'POST', body: JSON.stringify({ user: 'DESP-N1', password: 'otraclave99' }) })).status === 200);
   }
 
+  console.log('\nEL RECORRIDO SE DIBUJA DESDE ARRIBA');
+  {
+    // El trazador vive en este panel: las rutas se entregan ya dibujadas,
+    // igual que el logo. Y guarda por la MISMA función que Despacho — lo que
+    // se prueba acá es la puerta, no una segunda copia del guardado.
+    const ida = [
+      { lat: -15.4904, lng: -70.1333 }, { lat: -15.4880, lng: -70.1300 }, { lat: -15.4850, lng: -70.1260 },
+    ];
+    const vuelta = [{ lat: -15.4850, lng: -70.1260 }, { lat: -15.4904, lng: -70.1333 }];
+
+    // RN-2 se creó recién y nadie la tocó: no tiene ni variante todavía.
+    // Pedir sus trazados tiene que crearle la base, no devolver vacío.
+    const vs = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/rutas/RN-2/variantes', { headers: H });
+    ok('una ruta nueva recibe su variante base al preguntarle',
+       vs.status === 200 && vs.body.variantes.length === 1 && vs.body.variantes[0].activa === true,
+       vs.body.variantes);
+
+    const vacio = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/rutas/RN-2/recorrido', { headers: H });
+    ok('y su recorrido existe, vacío', vacio.status === 200 &&
+       vacio.body.tramos.ida.length === 0 && !!vacio.body.variante, vacio.status);
+
+    const puesto = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/rutas/RN-2/recorrido', {
+      method: 'PUT', headers: H, body: JSON.stringify({ tramos: { ida, vuelta } }),
+    });
+    ok('se guardan ida y vuelta', puesto.status === 200 &&
+       puesto.body.puntos.ida === 3 && puesto.body.puntos.vuelta === 2, puesto.body);
+    ok('con el largo calculado', puesto.body.largoM > 500, puesto.body.largoM);
+
+    const leido = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/rutas/RN-2/recorrido', { headers: H });
+    ok('y se leen de vuelta iguales',
+       leido.body.tramos.ida.length === 3 && leido.body.tramos.ida[0].lat === -15.4904 &&
+       leido.body.tramos.vuelta.length === 2, leido.body.tramos.ida[0]);
+
+    // Lo guardado acá arriba es EXACTAMENTE lo que ve la cooperativa: su
+    // Despacho lo lee por su propio endpoint, sin enterarse de quién dibujó.
+    const suLogin = await pedir(P, '/auth/login', {
+      method: 'POST', body: JSON.stringify({ user: 'DESP-N1', password: 'otraclave99' }),
+    });
+    const suyo = await pedir(P, '/admin/routes/RN-2/points', {
+      headers: { Authorization: 'Bearer ' + suLogin.body.token },
+    });
+    ok('la cooperativa ve el mismo dibujo por su endpoint',
+       suyo.status === 200 && (suyo.body.tramos?.ida || []).length === 3,
+       (suyo.body.tramos?.ida || []).length);
+
+    // La ruta tiene que ser DE ESA cooperativa: el creador ve todas, pero
+    // una URL que mezcla la empresa A con la ruta de B es un error.
+    const emp = await pedir(P, '/gestion-x9k2/empresas', { headers: H });
+    const otra = emp.body.empresas.find(e => e.companyId !== 'NUEVA-1');
+    const cruzado = await pedir(P, `/gestion-x9k2/empresas/${otra.companyId}/rutas/RN-2/recorrido`, {
+      method: 'PUT', headers: H, body: JSON.stringify({ tramos: { ida } }),
+    });
+    ok('una ruta ajena colgada de otra empresa da 404', cruzado.status === 404, cruzado.status);
+
+    // Las mismas reglas que en Despacho: el panel de arriba no es una
+    // puerta trasera para guardar un circuito roto.
+    const roto = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/rutas/RN-2/recorrido', {
+      method: 'PUT', headers: H, body: JSON.stringify({ tramos: { ida: [ida[0]] } }),
+    });
+    ok('un tramo de un solo punto se rechaza', roto.status === 400, roto.body.error);
+    const sinIda = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/rutas/RN-2/recorrido', {
+      method: 'PUT', headers: H, body: JSON.stringify({ tramos: { ida: [], vuelta } }),
+    });
+    ok('y la vuelta sin ida también', sinIda.status === 400, sinIda.body.error);
+    const despues = await pedir(P, '/gestion-x9k2/empresas/NUEVA-1/rutas/RN-2/recorrido', { headers: H });
+    ok('los rechazos no tocaron lo guardado', despues.body.tramos.ida.length === 3);
+
+    // La lógica del trazador la sirve el propio panel: el mismo archivo que
+    // Node prueba con require() llega al navegador como window.Trazador.
+    const js = await fetch(`http://localhost:${P}/gestion-x9k2/trazador.js`);
+    const cuerpo = await js.text();
+    ok('el panel sirve la lógica del trazador', js.status === 200 && /window\.Trazador/.test(cuerpo), js.status);
+  }
+
   console.log('\nQUEDA REGISTRADO');
   {
     const act = await pedir(P, '/gestion-x9k2/actividad', { headers: H });

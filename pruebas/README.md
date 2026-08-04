@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Veintinueve suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Treinta suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -28,9 +28,9 @@ falló, así que sirve en CI tal cual.
 ## Correr una sola
 
 Ocho suites **esperan un servidor ya levantado en 3001** con la base a la que
-ellas van a mirar. Las otras ocho levantan la suya, y siete (`hud`, `chat`,
-`cola`, `margenes`, `gestos`, `imagen` y `nativas`) no necesitan ninguno:
-prueban lógica pura de la app nativa y sus versiones.
+ellas van a mirar. Las demás levantan el suyo solas, y once no necesitan
+ninguno: prueban lógica pura —de la app nativa, del trazador del creador y
+las versiones—.
 
 ```bash
 # las que necesitan servidor: tramos objetivo informes desvio turnos privado seguridad empresas
@@ -39,7 +39,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp foto marca respaldo
-# las que no necesitan servidor: hud chat cola margenes gestos imagen tema mapa teclado nativas
+# las que no necesitan servidor: trazador hud chat cola margenes gestos imagen tema mapa teclado nativas
 node gerencia.js
 ```
 
@@ -83,6 +83,7 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `tema` | Los colores de día y de noche: que la regla horaria sea la de Juliaca, que la de noche sea más oscura y **menos azul** (el azul es lo que arruina la visión nocturna del chofer), que verde/ámbar/rojo sigan siendo reconocibles, y que ninguna paleta tenga huecos |
 | `mapa` | Qué se dibuja en el mapa del chofer: que la unidad sin señal siga apareciendo pero apagada, que una sin coordenadas no termine en el Golfo de Guinea, y que un apellido con comilla o con `<` no rompa la página del WebView — los nombres los tipea Despacho a mano |
 | `marca` | La identidad de cada cooperativa: qué logo se acepta (los SVG NO — son documentos con scripts adentro y esto se pinta en el panel y en el WebView del chofer), qué se muestra cuando no hay logo, y sobre todo que **una cooperativa no le pueda pisar el logo a la de al lado** mandando el companyId ajeno. Ahí adentro está también la prueba de que un trazado real de 2000+2000 puntos entra por el cable: el tope de cuerpo de express venía más chico que lo que el servidor decía aceptar |
+| `trazador` | La lógica del trazador del panel del creador (`server/trazador.js`), sin mapa ni navegador: que un clic **sobre la línea** inserte en el segmento correcto y uno lejos agregue al final, que borrar entre dos puntos respete los elegidos y no le importe el orden, que **deshacer** devuelva el estado de antes aunque el presente se haya seguido mutando, que simplificar borre el zigzag del GPS pero no las esquinas, y que un GPX o GeoJSON se lea con lat y lng en su lugar. El mismo archivo que corre en el navegador, probado con `require()` |
 | `respaldo` | El respaldo de la base, juzgado por lo único que importa: **la restauración**. Respalda una base real en caliente, la abre de vuelta y lee las filas; rechaza la basura y la base equivocada; rota borrando los más viejos; y por el panel del creador crea, lista y **descarga** — y lo descargado se abre y tiene el DESPACHO adentro. Un `../` en el nombre no es un nombre |
 | `teclado` | Cuánto levantar la pantalla cuando sale el teclado de Android. Existe porque el campo de escribir quedaba DEBAJO del teclado: `KeyboardAvoidingView` sin `behavior` no hace nada en Android, y lo que sí resolvía el sistema —achicar la ventana— no ocurre con edge-to-edge. La cuenta fina es no contar dos veces la barra de navegación, que la pantalla ya reservó |
 | `nativas` | Las versiones de los módulos nativos de la app: que ningún `expo-*` venga de otro SDK, que no haya un módulo duplicado, que el lockfile no quede viejo, y que no se use una API que Expo dejó como stub que revienta. Lee el lockfile: sin teléfono, sin red, un segundo. Existe porque un `expo-asset` del SDK 57 al lado de un `expo-modules-core` del 54 dejó la app sin abrir, y eso solo se veía con el APK ya instalado, veinte minutos de build después |

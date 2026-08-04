@@ -107,6 +107,56 @@ const ok = (n, c, e) => {
   ok('incluida la de la cooperativa nueva', /UI-COOP/.test(t));
   await p.screenshot({ path: SHOT + '/creador-actividad.png' });
 
+  console.log('\nRUTAS: EL TRAZADOR');
+  await p.click('button:has-text("RUTAS")');
+  await p.waitForTimeout(1500);
+  t = await p.innerText('body');
+  ok('la pestaña pide elegir cooperativa y ruta', /Elegí cooperativa y ruta/.test(t));
+  ok('la lógica del trazador llegó al navegador',
+    (await p.evaluate(() => typeof window.Trazador)) === 'object');
+
+  // La cooperativa creada más arriba, con su ruta RUI-1 recién nacida
+  await p.locator('select').nth(0).selectOption('UI-COOP');
+  await p.waitForTimeout(800);
+  await p.locator('select').nth(1).selectOption('RUI-1');
+  await p.waitForTimeout(3000);
+  t = await p.innerText('body');
+  ok('elegida la ruta, aparecen las herramientas',
+    /DIBUJAR/.test(t) && /MANO/.test(t) && /SELECCIONAR/.test(t));
+  ok('y la ruta nueva ya tiene su trazado base, midiendo', /MIDIENDO/.test(t));
+  const mapa = p.locator('.leaflet-container');
+  ok('el mapa está', (await mapa.count()) === 1);
+
+  // Dibujar: dos clics separados agregan A y B; el tercero cae SOBRE la
+  // línea que quedó entre ellos, así que inserta en el medio en vez de
+  // colgar del final — la herramienta nueva.
+  const caja = await mapa.boundingBox();
+  const cx = caja.x + caja.width / 2, cy = caja.y + caja.height / 2;
+  await p.mouse.click(cx - 60, cy);
+  await p.waitForTimeout(400);
+  await p.mouse.click(cx + 60, cy);
+  await p.waitForTimeout(400);
+  t = await p.innerText('body');
+  ok('dos clics dibujan la ida y el largo se ve', /IDA [0-9]+([.,][0-9])? km/.test(t) && !/IDA 0([.,]0)? km/.test(t),
+    (t.match(/IDA [\d.,]+ km/) || [])[0]);
+  await p.mouse.click(cx, cy);
+  await p.waitForTimeout(400);
+  await p.screenshot({ path: SHOT + '/creador-rutas.png' });
+
+  await p.getByRole('button', { name: 'Guardar', exact: true }).click();
+  await p.waitForTimeout(2000);
+  t = await p.innerText('body');
+  ok('el clic sobre la línea insertó en el medio: se guardan 3 puntos',
+    /ida 3 pts/.test(t), (t.match(/Guardado[^·]*·?[^·]*/) || [])[0]);
+  ok('y avisa que el trazado que mide ya salió al mapa de todos', /ya está en el mapa de todos/.test(t));
+
+  // Deshacer con el teclado: vuelve el estado de antes del último clic y
+  // el botón de guardar se vuelve a encender.
+  await p.keyboard.press('Control+z');
+  await p.waitForTimeout(500);
+  ok('Ctrl+Z deshace y deja algo para guardar',
+    await p.getByRole('button', { name: 'Guardar', exact: true }).isEnabled());
+
   console.log('\nSALIR');
   await p.click('button:has-text("Salir")');
   await p.waitForTimeout(1500);

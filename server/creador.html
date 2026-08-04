@@ -57,6 +57,17 @@
   code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .92em; }
 </style>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+
+<!-- La lógica del trazador (server/trazador.js) la sirve el propio panel,
+     así Node la prueba con require() y acá es window.Trazador — el mismo
+     archivo, sin copia. La ruta del panel la fija el servidor
+     (CREATOR_PATH), así que el src se arma con la URL de esta página. -->
+<script>
+document.write('<script src="' + location.pathname.replace(/\/+$/, '') + '/trazador.js"><\/script>');
+</script>
+
 <!-- Producción, no desarrollo: react-dom pasa de 1054 kB a 128. -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
@@ -167,8 +178,8 @@ function Puerta({ onEntrar }) {
 // ─── TRAZADOS DE UNA RUTA ──────────────────────────────────────
 // Una ruta puede tener varios trazados: el de siempre y los que hacen falta
 // cuando hay una obra, un desfile o un mercado que corta dos cuadras. Acá se
-// crean; el dibujo se hace desde el panel de Despacho, que es donde vive el
-// mapa, y activarlo es decisión del día de ellos.
+// crean; el dibujo se hace en la pestaña RUTAS de este mismo panel (Despacho
+// también puede, con su trazador), y activarlo es decisión del día de ellos.
 function Trazados({ api, companyId, ruta, aviso, fallo }) {
   const [lista, setLista] = React.useState(null);
   const [abierto, setAbierto] = React.useState(false);
@@ -605,8 +616,8 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
                     color: 'var(--fg2)', border: '1px solid var(--line)',
                   }}>Crear ruta</button>
                   <div style={{ fontSize: 11, color: 'var(--dim2)', marginTop: 6, lineHeight: 1.45 }}>
-                    El recorrido se dibuja después, desde el panel de Despacho
-                    de esa cooperativa.
+                    El recorrido se dibuja después, en la pestaña RUTAS de
+                    este panel.
                   </div>
                 </div>
 
@@ -740,6 +751,471 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+// ─── RUTAS: EL TRAZADOR ────────────────────────────────────────
+// Las rutas las carga este nivel al dar de alta la cooperativa — igual que
+// el logo: la cooperativa recibe el sistema ya configurado y Despacho a lo
+// sumo corrige. La geometría y la edición viven en window.Trazador
+// (server/trazador.js), que Node prueba con require(); acá solo está el
+// mapa y el pegamento con React.
+//
+// Las herramientas que el trazador de Despacho no tiene, pedidas por quien
+// lo usó ("más herramientas de desplazamiento y selección"):
+//   · clic SOBRE la línea inserta en el medio (densificar una curva sin
+//     rehacer desde ahí)
+//   · SELECCIONAR dos puntos y borrar la cuadra que quedó entre ellos
+//   · deshacer (Ctrl+Z)
+//   · modo mano — y la barra espaciadora lo activa mientras se la tenga
+//     apretada, que es como se usa en cualquier editor de dibujo
+
+const CENTRO_JULIACA = [-15.4904, -70.1333];
+const BALDOSAS = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+// Arriba de este tope los puntos dejan de ser arrastrables (miles de
+// marcadores hacen inusable el mapa): queda la línea, y Deshacer.
+const TOPE_ARRASTRABLES = 200;
+// El dedo/cursor "toca" la línea hasta esta distancia en pantalla.
+const UMBRAL_PX = 12;
+
+function Rutas({ api, empresas, aviso, fallo }) {
+  const T = window.Trazador;
+  const [companyId, setCompanyId] = React.useState('');
+  const [routeId, setRouteId] = React.useState('');
+  const [variantes, setVariantes] = React.useState(null);
+  const [variantId, setVariantId] = React.useState(null);
+  const [tramos, setTramos] = React.useState(null);       // { ida, vuelta } de [lat, lng]
+  const [tramo, setTramo] = React.useState('ida');
+  const [modo, setModo] = React.useState('dibujar');      // dibujar · mano · seleccionar
+  const [manoTemporal, setManoTemporal] = React.useState(false);   // barra espaciadora
+  const [seleccion, setSeleccion] = React.useState([]);   // índices elegidos: [] · [i] · [i, j]
+  const [sucio, setSucio] = React.useState(false);
+  const [guardando, setGuardando] = React.useState(false);
+
+  const mapRef = React.useRef(null);
+  const capaRef = React.useRef(null);
+  const archivoRef = React.useRef(null);
+  const encuadradoRef = React.useRef(false);
+  const historialRef = React.useRef(T.crearHistorial());
+  // Los manejadores de Leaflet viven fuera del flujo de React: leen refs.
+  const tramosRef = React.useRef(null);
+  const tramoRef = React.useRef('ida');
+  const modoRef = React.useRef('dibujar');
+  const manoRef = React.useRef(false);
+  const sucioRef = React.useRef(false);
+  React.useEffect(() => { tramosRef.current = tramos; }, [tramos]);
+  React.useEffect(() => { tramoRef.current = tramo; }, [tramo]);
+  React.useEffect(() => { modoRef.current = modo; setSeleccion([]); }, [modo]);
+  React.useEffect(() => { manoRef.current = manoTemporal; }, [manoTemporal]);
+  React.useEffect(() => { sucioRef.current = sucio; }, [sucio]);
+
+  const empresa = empresas.find(e => e.companyId === companyId) || null;
+  const rutas = empresa ? empresa.rutas : [];
+  const variante = (variantes || []).find(v => v.variantId === variantId) || null;
+
+  // Cambiar de dibujo con trabajo sin guardar merece una pregunta. Es un
+  // confirm() pelado y no un modal: herramienta interna, y la alternativa
+  // real es perder media hora de puntos.
+  const confirmarDescarte = () =>
+    !sucioRef.current || window.confirm('Hay cambios sin guardar en este recorrido. ¿Descartarlos?');
+
+  const elegirEmpresa = (id) => {
+    if (!confirmarDescarte()) return;
+    setCompanyId(id); setRouteId(''); setVariantes(null); setVariantId(null);
+    setTramos(null); setSucio(false); setSeleccion([]);
+  };
+  const elegirRuta = (id) => {
+    if (!confirmarDescarte()) return;
+    setRouteId(id); setVariantes(null); setVariantId(null);
+    setTramos(null); setSucio(false); setSeleccion([]);
+  };
+  const elegirVariante = (id) => {
+    if (!confirmarDescarte()) return;
+    setVariantId(id); setSucio(false); setSeleccion([]);
+  };
+
+  // Los trazados de la ruta elegida. Se arranca por el que está MIDIENDO,
+  // que es el caso normal.
+  React.useEffect(() => {
+    if (!companyId || !routeId) return;
+    let vivo = true;
+    api(`/empresas/${encodeURIComponent(companyId)}/rutas/${encodeURIComponent(routeId)}/variantes`)
+      .then(d => {
+        if (!vivo) return;
+        setVariantes(d.variantes);
+        const inicial = (d.variantes.find(v => v.activa) || d.variantes[0] || {}).variantId || null;
+        setVariantId(inicial);
+      })
+      .catch(e => fallo(e.message));
+    return () => { vivo = false; };
+  }, [companyId, routeId]);
+
+  // El dibujo que ya tenía ese trazado. Historial nuevo: deshacer no tiene
+  // por qué poder cruzar a la variante anterior.
+  React.useEffect(() => {
+    if (!variantId) return;
+    let vivo = true;
+    setTramos(null);
+    historialRef.current = T.crearHistorial();
+    encuadradoRef.current = false;
+    api(`/empresas/${encodeURIComponent(companyId)}/rutas/${encodeURIComponent(routeId)}/recorrido?variantId=${variantId}`)
+      .then(d => {
+        if (!vivo) return;
+        setTramos({
+          ida: (d.tramos?.ida || []).map(p => [p.lat, p.lng]),
+          vuelta: (d.tramos?.vuelta || []).map(p => [p.lat, p.lng]),
+        });
+      })
+      .catch(e => { fallo(e.message); if (vivo) setTramos({ ida: [], vuelta: [] }); });
+    return () => { vivo = false; };
+  }, [variantId]);
+
+  // TODA mutación pasa por acá: guarda el estado en el historial ANTES de
+  // cambiar nada — eso es lo que Ctrl+Z devuelve después.
+  const aplicar = (fn) => {
+    const ts = tramosRef.current;
+    if (!ts) return;
+    historialRef.current.guardar(ts);
+    setTramos({ ...ts, [tramoRef.current]: fn(ts[tramoRef.current]) });
+    setSucio(true);
+  };
+
+  const deshacer = () => {
+    const antes = historialRef.current.deshacer();
+    if (!antes) return;
+    setTramos(antes); setSucio(true); setSeleccion([]);
+  };
+
+  // Ctrl+Z y la barra espaciadora, mientras esta pestaña esté abierta.
+  React.useEffect(() => {
+    const abajo = (e) => {
+      if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); deshacer(); }
+      else if (e.key === ' ') { e.preventDefault(); setManoTemporal(true); }
+      else if (e.key === 'Escape') setSeleccion([]);
+    };
+    const arriba = (e) => { if (e.key === ' ') setManoTemporal(false); };
+    window.addEventListener('keydown', abajo);
+    window.addEventListener('keyup', arriba);
+    return () => {
+      window.removeEventListener('keydown', abajo);
+      window.removeEventListener('keyup', arriba);
+    };
+  }, []);
+
+  const initMap = React.useCallback((node) => {
+    if (!node || mapRef.current) return;
+    const map = L.map(node, { center: CENTRO_JULIACA, zoom: 14, zoomControl: true, attributionControl: true });
+    map.attributionControl.setPrefix(false);
+    L.tileLayer(BALDOSAS, { maxZoom: 19, attribution: '© OpenStreetMap · © CARTO' }).addTo(map);
+    capaRef.current = L.layerGroup().addTo(map);
+
+    map.on('click', (e) => {
+      const ts = tramosRef.current;
+      if (!ts || manoRef.current || modoRef.current === 'mano') return;
+      if (modoRef.current === 'seleccionar') { setSeleccion([]); return; }   // clic al vacío: afuera
+      const p = [e.latlng.lat, e.latlng.lng];
+      // El umbral va en pantalla (px) pero la geometría en metros: se
+      // convierte con el zoom del momento. Sobre la línea inserta; lejos,
+      // agrega al final — el clic decide solo.
+      const umbralM = UMBRAL_PX * T.metrosPorPixel(p[0], map.getZoom());
+      const d = T.dondeVa(ts[tramoRef.current], p, umbralM);
+      aplicar(ps => d.accion === 'insertar' ? T.insertar(ps, d.i, p) : T.agregar(ps, p));
+    });
+
+    mapRef.current = map;
+    setTimeout(() => map.invalidateSize(), 80);
+    setTimeout(() => map.invalidateSize(), 400);
+  }, []);
+
+  // Redibuja todo cada vez que algo cambia. Barato con cientos de puntos, y
+  // mucho más simple que reconciliar marcadores uno a uno.
+  React.useEffect(() => {
+    const map = mapRef.current, capa = capaRef.current;
+    if (!map || !capa || !tramos) return;
+    capa.clearLayers();
+
+    // El tramo que NO se edita, punteado y apagado de fondo: la vuelta se
+    // dibuja pegada a la ida y hay que verla para calzarla.
+    const otro = tramo === 'ida' ? 'vuelta' : 'ida';
+    if (tramos[otro].length > 1) {
+      L.polyline(tramos[otro], { color: 'var(--dim3)', weight: 4, opacity: 0.5, dashArray: '6 6' })
+        .addTo(capa);
+    }
+
+    // Ámbar cuando lo que se dibuja NO es el trazado que mide hoy: mismo
+    // aviso de color que usa el trazador de Despacho.
+    const tinta = variante && !variante.activa ? '#A67300' : '#1668C4';
+    const puntos = tramos[tramo];
+    if (puntos.length > 1) {
+      L.polyline(puntos, { color: tinta, weight: 5, opacity: 0.9 }).addTo(capa);
+    }
+
+    const [selA, selB] = seleccion.length === 2
+      ? [Math.min(...seleccion), Math.max(...seleccion)] : [null, null];
+    const enSeleccion = (i) => selA !== null
+      ? i >= selA && i <= selB
+      : seleccion.length === 1 && seleccion[0] === i;
+
+    const editando = modo === 'dibujar' && !manoTemporal;
+    const eligiendo = modo === 'seleccionar' && !manoTemporal;
+    const arrastrables = editando && puntos.length <= TOPE_ARRASTRABLES;
+
+    puntos.forEach((p, i) => {
+      const extremo = i === 0 || i === puntos.length - 1;
+
+      if (eligiendo) {
+        // En selección, TODOS los puntos son clicleables aunque sean miles:
+        // los circleMarker aguantan donde los divIcon no.
+        const marcado = enSeleccion(i);
+        const c = L.circleMarker(p, {
+          radius: marcado ? 7 : 5, weight: 2,
+          color: marcado ? '#C2001D' : tinta,
+          fillColor: marcado ? '#C2001D' : '#fff', fillOpacity: 1,
+        }).addTo(capa);
+        c.on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          setSeleccion(sel => sel.length === 1 && sel[0] !== i ? [sel[0], i] : [i]);
+        });
+        return;
+      }
+
+      if (!arrastrables) {
+        L.circleMarker(p, { radius: 4, color: tinta, weight: 2, fillColor: '#fff', fillOpacity: 1 })
+          .addTo(capa);
+        return;
+      }
+
+      // A y B se quedan siempre: son lo único que dice en qué sentido se maneja.
+      const etiqueta = i === 0 ? 'A' : i === puntos.length - 1 ? 'B' : '';
+      const marcador = L.marker(p, {
+        draggable: true,
+        icon: L.divIcon({
+          className: '',
+          iconSize: [extremo ? 22 : 12, extremo ? 22 : 12],
+          iconAnchor: [extremo ? 11 : 6, extremo ? 11 : 6],
+          html: `<div style="width:100%;height:100%;border-radius:50%;
+            background:#fff; border:2px solid ${tinta}; color:${tinta};
+            box-sizing:border-box;
+            display:flex;align-items:center;justify-content:center;
+            font:700 11px/1 system-ui,sans-serif;">${etiqueta}</div>`,
+        }),
+      }).addTo(capa);
+      marcador.on('dragstart', () => {
+        // El historial guarda el estado de ANTES del arrastre entero, no
+        // cada pixel del camino.
+        historialRef.current.guardar(tramosRef.current);
+      });
+      marcador.on('dragend', (e) => {
+        const { lat, lng } = e.target.getLatLng();
+        const ts = tramosRef.current;
+        setTramos({ ...ts, [tramoRef.current]: T.mover(ts[tramoRef.current], i, [lat, lng]) });
+        setSucio(true);
+      });
+      // Tocar un punto lo borra (arrastrar no dispara click en Leaflet)
+      marcador.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        aplicar(ps => T.borrar(ps, i));
+      });
+    });
+
+    // Encuadrar una sola vez, cuando llega el dibujo que ya existía
+    const todos = [...tramos.ida, ...tramos.vuelta];
+    if (!encuadradoRef.current && todos.length > 1) {
+      map.fitBounds(L.latLngBounds(todos).pad(0.15));
+      encuadradoRef.current = true;
+    }
+
+    // El modo mano se nota en el cursor, no solo en el botón
+    const nodo = map.getContainer();
+    nodo.style.cursor = (modo === 'mano' || manoTemporal) ? 'grab'
+      : modo === 'seleccionar' ? 'pointer' : 'crosshair';
+  }, [tramos, tramo, modo, manoTemporal, seleccion, variante]);
+
+  const importar = (texto) => {
+    try {
+      const crudos = T.leerRecorrido(texto);
+      const simple = T.simplificar(crudos, 10).slice(0, 2000);
+      aplicar(() => simple);
+      encuadradoRef.current = false;
+      aviso(`Importados ${crudos.length} puntos a la ${tramo}, simplificados a ${simple.length} sin cambiar la forma`);
+    } catch (e) {
+      fallo('No se pudo leer el archivo: ' + e.message);
+    }
+  };
+
+  const borrarSeleccion = () => {
+    if (seleccion.length !== 2) return;
+    aplicar(ps => T.borrarEntre(ps, seleccion[0], seleccion[1]));
+    setSeleccion([]);
+    aviso('Cuadra borrada. El hueco quedó unido en línea recta: clic encima para redibujarla.');
+  };
+
+  const guardar = async () => {
+    setGuardando(true);
+    try {
+      const aPuntos = (ps) => ps.map(p => ({ lat: p[0], lng: p[1] }));
+      const r = await api(`/empresas/${encodeURIComponent(companyId)}/rutas/${encodeURIComponent(routeId)}/recorrido`, {
+        method: 'PUT',
+        body: JSON.stringify({ variantId, tramos: { ida: aPuntos(tramos.ida), vuelta: aPuntos(tramos.vuelta) } }),
+      });
+      setSucio(false);
+      // El conteo de puntos del selector de trazados quedó viejo
+      setVariantes(vs => (vs || []).map(v => v.variantId === variantId
+        ? { ...v, puntos: r.puntos.ida + r.puntos.vuelta } : v));
+      aviso(`Guardado: ida ${r.puntos.ida} pts · vuelta ${r.puntos.vuelta} pts · ${(r.largoM / 1000).toFixed(1)} km` +
+        (variante?.activa ? ' — ya está en el mapa de todos' : ''));
+    } catch (e) { fallo(e.message); }
+    setGuardando(false);
+  };
+
+  // Guardar con un tramo a medias sería un circuito roto: mismas reglas que
+  // valida el servidor, dichas ANTES del viaje.
+  const idaIncompleta = tramos && tramos.ida.length === 1;
+  const vueltaIncompleta = tramos && tramos.vuelta.length === 1;
+  const sinIda = tramos && !tramos.ida.length && tramos.vuelta.length > 0;
+  const trabado = guardando || !tramos || !sucio || idaIncompleta || vueltaIncompleta || sinIda;
+
+  const kmDe = (ps) => (T.largoDe(ps || []) / 1000).toFixed(1);
+
+  const botonModo = (m, texto, titulo) => (
+    <button key={m} onClick={() => setModo(m)} title={titulo} style={{
+      height: 34, padding: '0 12px', fontSize: 12,
+      background: modo === m ? 'var(--fg)' : 'var(--campo)',
+      color: modo === m ? '#fff' : 'var(--fg2)',
+      border: modo === m ? 'none' : '1px solid var(--line)',
+    }}>{texto}</button>
+  );
+
+  return (
+    <div>
+      {/* Elegir sobre qué se dibuja: cooperativa → ruta → trazado */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 12 }}>
+        <div>
+          <label>Cooperativa</label>
+          <select value={companyId} onChange={e => elegirEmpresa(e.target.value)}>
+            <option value="">Elegí una…</option>
+            {empresas.map(e => <option key={e.companyId} value={e.companyId}>{e.name} ({e.companyId})</option>)}
+          </select>
+        </div>
+        <div>
+          <label>Ruta</label>
+          <select value={routeId} disabled={!empresa} onChange={e => elegirRuta(e.target.value)}>
+            <option value="">{empresa && !rutas.length ? 'No tiene rutas' : 'Elegí una…'}</option>
+            {rutas.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}{r.name ? ` · ${r.name}` : ''}</option>)}
+          </select>
+        </div>
+        <div>
+          <label>Trazado</label>
+          <select value={variantId || ''} disabled={!variantes}
+            onChange={e => elegirVariante(Number(e.target.value))}>
+            {(variantes || []).map(v => (
+              <option key={v.variantId} value={v.variantId}>
+                {v.name}{v.activa ? ' — MIDIENDO' : ''}{v.puntos ? '' : ' (sin dibujar)'}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {!variantId && (
+        <div style={{ fontSize: 13, color: 'var(--dim2)', lineHeight: 1.6, maxWidth: 640 }}>
+          Elegí cooperativa y ruta para dibujar su recorrido. Los trazados se
+          crean en COOPERATIVAS → Administrar; acá se dibujan. Lo que se
+          guarda sobre el trazado que está midiendo sale en el mapa de esa
+          cooperativa al instante.
+        </div>
+      )}
+
+      {variantId && (
+        <div>
+          {variante && !variante.activa && (
+            <div style={{
+              background: 'var(--ambarFondo)', border: '1px solid var(--ambarBorde)',
+              borderLeft: '3px solid var(--amber)', borderRadius: 10,
+              padding: '9px 12px', marginBottom: 10, fontSize: 13, color: 'var(--ambarTinta)',
+            }}>
+              Estás dibujando <strong>«{variante.name}»</strong>, que no es el
+              trazado que está midiendo. Se guarda sin mover el mapa de nadie,
+              hasta que Despacho lo active.
+            </div>
+          )}
+
+          {/* La barra de herramientas */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            {botonModo('dibujar', 'DIBUJAR', 'Clic agrega al final · clic sobre la línea inserta en el medio · arrastrá para mover · clic en un punto lo borra')}
+            {botonModo('mano', 'MANO', 'Moverse por el mapa sin sembrar puntos (o mantené la barra espaciadora)')}
+            {botonModo('seleccionar', 'SELECCIONAR', 'Dos clics: desde acá hasta acá, y borrás la cuadra entera')}
+            <span style={{ width: 1, height: 22, background: 'var(--divider)' }} />
+            {['ida', 'vuelta'].map(tr => (
+              <button key={tr} onClick={() => { setTramo(tr); setSeleccion([]); }} style={{
+                height: 34, padding: '0 12px', fontSize: 12,
+                background: tramo === tr ? 'var(--bright)' : 'var(--campo)',
+                color: tramo === tr ? '#fff' : 'var(--fg2)',
+                border: tramo === tr ? 'none' : '1px solid var(--line)',
+              }}>{tr.toUpperCase()} {kmDe(tramos?.[tr])} km</button>
+            ))}
+            <span style={{ width: 1, height: 22, background: 'var(--divider)' }} />
+            <button onClick={deshacer} title="Ctrl+Z" style={{
+              height: 34, padding: '0 12px', fontSize: 12, background: 'var(--campo)',
+              color: 'var(--fg2)', border: '1px solid var(--line)',
+            }}>Deshacer</button>
+            <button onClick={() => archivoRef.current?.click()} style={{
+              height: 34, padding: '0 12px', fontSize: 12, background: 'var(--campo)',
+              color: 'var(--fg2)', border: '1px solid var(--line)',
+            }}>Importar GPX</button>
+            {modo === 'seleccionar' && (
+              <button onClick={borrarSeleccion} disabled={seleccion.length !== 2} style={{
+                height: 34, padding: '0 12px', fontSize: 12,
+                background: seleccion.length === 2 ? 'var(--red)' : 'var(--campo)',
+                color: seleccion.length === 2 ? '#fff' : 'var(--dim3)',
+                border: seleccion.length === 2 ? 'none' : '1px solid var(--line)',
+              }}>
+                {seleccion.length === 2 ? 'Borrar la cuadra elegida' :
+                 seleccion.length === 1 ? 'Elegí el otro extremo…' : 'Elegí dos puntos'}
+              </button>
+            )}
+            <div style={{ flex: 1 }} />
+            {(idaIncompleta || vueltaIncompleta || sinIda) && (
+              <span style={{ fontSize: 12, color: 'var(--amber)', fontWeight: 700 }}>
+                {sinIda ? 'Falta la ida: el circuito arranca por ahí'
+                  : `La ${idaIncompleta ? 'ida' : 'vuelta'} tiene un solo punto: dos como mínimo, o ninguno`}
+              </span>
+            )}
+            <button disabled={trabado} onClick={guardar} style={{
+              height: 36, padding: '0 18px', fontSize: 13,
+              background: trabado ? 'var(--dim3)' : 'var(--bright)', color: '#fff',
+            }}>{guardando ? 'Guardando…' : sucio ? 'Guardar' : 'Guardado'}</button>
+          </div>
+
+          <div ref={initMap} style={{
+            height: 'max(420px, calc(100vh - 340px))', borderRadius: 12,
+            border: '1px solid var(--line)', overflow: 'hidden',
+          }} />
+          {!tramos && <div style={{ fontSize: 12, color: 'var(--dim2)', marginTop: 8 }}>Cargando el recorrido…</div>}
+
+          <div style={{ fontSize: 12, color: 'var(--dim3)', marginTop: 8, lineHeight: 1.6 }}>
+            Clic agrega al final · clic <b>sobre la línea</b> inserta en el
+            medio · arrastrá un punto para moverlo · clic en un punto lo borra
+            · <b>espacio</b> = mano · <b>Ctrl+Z</b> deshace
+            {tramos && tramos[tramo].length > TOPE_ARRASTRABLES &&
+              ` · con más de ${TOPE_ARRASTRABLES} puntos no se arrastran (usá SELECCIONAR y Deshacer)`}
+          </div>
+
+          <input ref={archivoRef} type="file" accept=".gpx,.json,.geojson,application/gpx+xml"
+            style={{ display: 'none' }}
+            onChange={(ev) => {
+              const f = ev.target.files?.[0];
+              ev.target.value = '';
+              if (!f) return;
+              const lector = new FileReader();
+              lector.onload = () => importar(lector.result);
+              lector.onerror = () => fallo('No se pudo leer el archivo');
+              lector.readAsText(f);
+            }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -998,7 +1474,7 @@ function Panel({ token, onSalir }) {
   React.useEffect(() => { cargarEmpresas(); }, []);
   React.useEffect(() => {
     setError(null);
-    if (pestana === 'empresas') cargarEmpresas();
+    if (pestana === 'empresas' || pestana === 'rutas') cargarEmpresas();
     if (pestana === 'sistema') cargarSistema();
     if (pestana === 'respaldos') cargarRespaldos();
     if (pestana === 'actividad') cargarActividad();
@@ -1040,7 +1516,7 @@ function Panel({ token, onSalir }) {
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>Herramienta interna · la sesión muere al cerrar la pestaña</div>
           <div style={{ flex: 1 }} />
-          {[['empresas', 'COOPERATIVAS'], ['respaldos', 'RESPALDOS'], ['sistema', 'SISTEMA'], ['actividad', 'ACTIVIDAD']].map(([k, etiqueta]) => (
+          {[['empresas', 'COOPERATIVAS'], ['rutas', 'RUTAS'], ['respaldos', 'RESPALDOS'], ['sistema', 'SISTEMA'], ['actividad', 'ACTIVIDAD']].map(([k, etiqueta]) => (
             <button key={k} onClick={() => setPestana(k)} style={{
               background: 'transparent', padding: '0 0 4px', fontSize: 11, letterSpacing: 1,
               borderRadius: 0, flexShrink: 0,
@@ -1074,6 +1550,9 @@ function Panel({ token, onSalir }) {
 
       {pestana === 'empresas' && (
         <Empresas api={api} empresas={empresas} recargar={cargarEmpresas} aviso={avisar} fallo={fallar} />
+      )}
+      {pestana === 'rutas' && (
+        <Rutas api={api} empresas={empresas} aviso={avisar} fallo={fallar} />
       )}
       {pestana === 'sistema' && <Sistema datos={sistema} />}
       {pestana === 'respaldos' && (

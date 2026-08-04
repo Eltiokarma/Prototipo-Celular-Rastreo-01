@@ -1746,25 +1746,26 @@ app.get('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
 // Guarda el recorrido completo de una vez: llega la lista entera de puntos y
 // reemplaza la anterior. Es más simple y más seguro que editar punto por
 // punto — el panel manda lo que quedó dibujado en el mapa.
-app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
-  const routeId = String(req.params.routeId);
-  const veto = vetoDeRuta(req, routeId);
-  if (veto) return res.status(veto.error).json({ error: veto.msg });
-  const variante = varianteObjetivo(req, routeId);
-  if (!variante) return res.status(404).json({ error: 'Esa variante no existe' });
-
+// Guardar el recorrido de una variante, DE PUNTA A PUNTA: validación,
+// escritura transaccional, recarga de la geometría viva y aviso a los mapas.
+// Es una función y no código del handler porque la usan DOS niveles — el
+// panel de Despacho y el del creador — y dos copias de esto es una que se
+// queda atrás justo en lo que recalcula todas las brechas de una ruta.
+//
+// Devuelve { error, status } o el resultado. `quien` es solo para el diario.
+function guardarRecorrido(routeId, variante, cuerpoCrudo, quien) {
   // Llegan los dos tramos. Se acepta también una lista suelta, que se toma
   // como la ida (así no se rompe nada que mande el formato viejo).
-  const cuerpo = Array.isArray(req.body?.points)
-    ? { ida: req.body.points, vuelta: [] }
-    : (req.body?.tramos || null);
-  if (!cuerpo) return res.status(400).json({ error: 'Faltan los puntos del recorrido' });
+  const cuerpo = Array.isArray(cuerpoCrudo?.points)
+    ? { ida: cuerpoCrudo.points, vuelta: [] }
+    : (cuerpoCrudo?.tramos || null);
+  if (!cuerpo) return { error: 'Faltan los puntos del recorrido', status: 400 };
 
   const limpios = {};
   for (const leg of TRAMOS) {
     const crudos = Array.isArray(cuerpo[leg]) ? cuerpo[leg] : [];
     if (crudos.length > 2000) {
-      return res.status(400).json({ error: `Demasiados puntos en la ${leg}: el tope es 2000` });
+      return { error: `Demasiados puntos en la ${leg}: el tope es 2000`, status: 400 };
     }
     // Se validan uno por uno: un punto fuera de rango arruinaría el cálculo
     // de todas las brechas de la ruta, así que se rechaza el lote entero.
@@ -1773,18 +1774,18 @@ app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
       const lat = Number(p?.lat), lng = Number(p?.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
           lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        return res.status(400).json({ error: `Hay un punto con coordenadas inválidas en la ${leg}` });
+        return { error: `Hay un punto con coordenadas inválidas en la ${leg}`, status: 400 };
       }
       puntos.push({ lat, lng });
     }
     if (puntos.length === 1) {
-      return res.status(400).json({ error: `La ${leg} necesita al menos 2 puntos` });
+      return { error: `La ${leg} necesita al menos 2 puntos`, status: 400 };
     }
     limpios[leg] = puntos;
   }
   // Una vuelta sin ida no tiene sentido: el circuito arranca por la ida
   if (!limpios.ida.length && limpios.vuelta.length) {
-    return res.status(400).json({ error: 'No se puede cargar la vuelta sin la ida' });
+    return { error: 'No se puede cargar la vuelta sin la ida', status: 400 };
   }
 
   const guardar = db.transaction(() => {
@@ -1806,7 +1807,7 @@ app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
   const detalle = `${variante.name}: ` + (tIda
     ? `ida ${limpios.ida.length} pts${limpios.vuelta.length ? ` · vuelta ${limpios.vuelta.length} pts` : ''} · ${(largoM / 1000).toFixed(2)} km`
     : 'recorrido borrado');
-  audit(req.dispatchUser.unitId, 'recorrido', routeId, detalle, routeId);
+  audit(quien, 'recorrido', routeId, detalle, routeId);
   console.log(`Recorrido de ${routeId} — ${detalle}`);
 
   if (esLaActiva) {
@@ -1821,12 +1822,24 @@ app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
     scheduleStateBroadcast(routeId, true);
   }
 
-  res.json({
+  return {
     ok: true,
     variante: { variantId: variante.variantId, name: variante.name, activa: esLaActiva },
     puntos: { ida: limpios.ida.length, vuelta: limpios.vuelta.length },
     largoM,
-  });
+  };
+}
+
+app.put('/admin/routes/:routeId/points', requireDispatch, (req, res) => {
+  const routeId = String(req.params.routeId);
+  const veto = vetoDeRuta(req, routeId);
+  if (veto) return res.status(veto.error).json({ error: veto.msg });
+  const variante = varianteObjetivo(req, routeId);
+  if (!variante) return res.status(404).json({ error: 'Esa variante no existe' });
+
+  const r = guardarRecorrido(routeId, variante, req.body, req.dispatchUser.unitId);
+  if (r.error) return res.status(r.status || 400).json({ error: r.error });
+  res.json(r);
 });
 
 // ─── VEHÍCULOS ───────────────────────────────────────────────
@@ -2701,6 +2714,13 @@ montarPanelDelCreador(app, {
   routeOf,
   // Renombrar una variante cambia lo que viaja en el mensaje de geometría
   recargarGeometria: (routeId) => { geometrias.delete(routeId); cargarGeometria(routeId); },
+  // El trazador del creador guarda por la MISMA función que el de Despacho:
+  // validación, transacción, recarga y broadcast, una sola vez escritos.
+  guardarRecorrido,
+  puntosDeVariante,
+  // Crea la variante base si la ruta no tiene ninguna: sin esto, una ruta
+  // recién dada de alta no tendría sobre qué dibujar.
+  varianteActiva,
   estadoVivo: () => ({ unidades: units.size, conexiones: clients.size }),
 });
 
