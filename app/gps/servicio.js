@@ -30,6 +30,10 @@ export const TAREA_GPS = 'coop-r14-gps';
 // no en memoria: cuando Android revive la tarea, el proceso arranca de cero.
 export const LLAVE_SESION = 'sesion';
 export const LLAVE_SERVIDOR = 'servidor';
+// La presencia declarada ('ruta' | 'ausente') viaja pegada a cada POST de
+// posiciones: con la pantalla apagada no hay WebSocket, y así el estado
+// sobrevive hasta a un reinicio del servidor.
+export const LLAVE_PRESENCIA = 'presencia';
 
 export const CADENCIA_PANTALLA_ENCENDIDA = 3000;
 export const CADENCIA_PANTALLA_APAGADA = 10000;
@@ -148,9 +152,10 @@ async function subir(nuevas) {
   diagnostico.enEspera = pendientes.length;
   if (!posiciones.length) return;
   try {
-    const [crudo, servidor] = await Promise.all([
+    const [crudo, servidor, presencia] = await Promise.all([
       SecureStore.getItemAsync(LLAVE_SESION),
       SecureStore.getItemAsync(LLAVE_SERVIDOR),
+      SecureStore.getItemAsync(LLAVE_PRESENCIA).catch(() => null),
     ]);
     if (!crudo || !servidor || !JSON.parse(crudo)?.token) {
       guardar(posiciones);
@@ -171,7 +176,10 @@ async function subir(nuevas) {
     const r = await fetch(servidor + '/gps', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ posiciones }),
+      body: JSON.stringify({
+        posiciones,
+        ...(presencia === 'ruta' || presencia === 'ausente' ? { presencia } : {}),
+      }),
     });
     if (r.ok) {
       diagnostico.enviadas += posiciones.length;

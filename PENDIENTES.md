@@ -64,6 +64,16 @@ chofer-con-combi de una), los datos de la empresa, el logo — más la pestaña
 límites nuevos quedaron suite en mano (`gerencia`): Despacho recibe 403 en
 todo eso y el error dice quién sí puede.
 
+### 2quater · ~~La presencia: salir a ruta, ausente, fuera~~ — HECHO
+
+La pantalla del medio es ahora la puerta ("¿Salís a ruta?", deslizable como
+el SOS). Declarar "en ruta" no mete a nadie en la cadena: el servidor
+confirma con el GPS sobre el trazado — el caso de Ignacio marcando desde su
+casa quedó cubierto con la suite `presencia`. AUSENTE (comer, repuestos)
+saca de la cadena sin salir del mapa; FUERA borra del mapa en el acto. La
+flota fantasma declara igual que la app (los que almuerzan van AUSENTE) y
+Despacho muestra YENDO/AUSENTE en fila y mapa.
+
 ### 3 · Producto — lo que pidieron los que lo usaron
 
 | # | Qué | Por qué | Tamaño |

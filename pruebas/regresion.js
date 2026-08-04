@@ -13,7 +13,7 @@ const S = __dirname;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const COMPARTIDAS = ['tramos', 'objetivo', 'informes', 'desvio', 'turnos', 'privado', 'seguridad', 'empresas'];
-const PROPIAS = ['variantes', 'brecha', 'creador', 'gerencia', 'cliente', 'senal', 'gpshttp', 'foto', 'marca', 'respaldo',
+const PROPIAS = ['variantes', 'brecha', 'creador', 'gerencia', 'cliente', 'senal', 'gpshttp', 'presencia', 'foto', 'marca', 'respaldo',
                  'trazador', 'hud', 'chat', 'cola', 'margenes', 'gestos', 'imagen', 'tema', 'mapa', 'teclado', 'nativas'];
 
 const correr = (suite, env) => new Promise((resolve) => {

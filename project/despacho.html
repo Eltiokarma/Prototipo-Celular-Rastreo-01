@@ -2801,12 +2801,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       // estuvo, no donde está. Un pin lleno del color de su brecha diría que
       // esa posición es de ahora, y es de hace minutos.
       const callada = !!u.sinSenal;
-      const colorPin = callada ? HUD.dim3 : color;
-      const relleno = callada ? HUD.bg : '#fff';
+      // Las que no están EN la cadena se apagan igual que las calladas: la
+      // ausente está comiendo y la que va yendo todavía no pisó el trazado.
+      // Ninguna de las dos es una combi contra la que alguien se mida.
+      const fueraDeCadena = u.presencia === 'ausente' || (u.presencia === 'ruta' && u.enRuta === false);
+      const colorPin = (callada || fueraDeCadena) ? HUD.dim3 : color;
+      const relleno = (callada || fueraDeCadena) ? HUD.bg : '#fff';
+      const sufijo = u.presencia === 'ausente' ? ' · AUSENTE'
+        : (u.presencia === 'ruta' && u.enRuta === false) ? ' · YENDO' : '';
       // width:max-content porque el icono de Leaflet mide 0×0: sin eso la
       // etiqueta se parte en dos líneas dentro de un contenedor sin ancho.
-      const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:${fuera ? 6 : 3}px;${callada ? 'opacity:.65;' : ''}">
-        <div style="font-family:${black};font-size:11px;color:#fff;background:${colorPin};padding:2px 6px;border-radius:5px;white-space:nowrap;">${escaparHtml(u.unitId)}${fuera ? ' ◇' : ''}${callada ? ' ⌁' : ''}</div>
+      const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:${fuera ? 6 : 3}px;${(callada || fueraDeCadena) ? 'opacity:.65;' : ''}">
+        <div style="font-family:${black};font-size:11px;color:#fff;background:${colorPin};padding:2px 6px;border-radius:5px;white-space:nowrap;">${escaparHtml(u.unitId)}${fuera ? ' ◇' : ''}${callada ? ' ⌁' : ''}${sufijo}</div>
         <div style="width:10px;height:10px;border-radius:50%;background:${relleno};border:3px solid ${colorPin};box-sizing:content-box;${halo}"></div>
       </div>`;
       const icon = L.divIcon({ html, className: '', iconSize: [0, 0], iconAnchor: [0, 0] });
@@ -3169,6 +3175,22 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                       fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
                       color: HUD.amber, marginTop: 8,
                     }}>SIN SEÑAL DESDE {nowTime(u.sinSenalDesde || u.timestamp)}</div>
+                )}
+                {/* La presencia declarada desde la app. AUSENTE: comiendo o
+                    en un repuesto — fuera de la cadena, a la vista. YENDO:
+                    marcó "en ruta" pero el GPS todavía no lo vio sobre el
+                    trazado (la brecha sale en "—" a propósito). */}
+                {u.presencia === 'ausente' && (
+                  <div style={{
+                    fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
+                    color: HUD.dim2, marginTop: 8,
+                  }}>AUSENTE — FUERA DE LA CADENA</div>
+                )}
+                {u.presencia === 'ruta' && u.enRuta === false && (
+                  <div style={{
+                    fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
+                    color: HUD.amber, marginTop: 8,
+                  }}>YENDO A LA RUTA — ENTRA AL PISAR EL TRAZADO</div>
                 )}
                 {!u.lat && (
                   <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.amber, marginTop: 8 }}>SIN GPS</div>

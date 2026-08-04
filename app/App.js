@@ -135,6 +135,10 @@ function Aplicacion() {
   const [aviso, setAviso] = React.useState(null);
   const [mensajes, setMensajes] = React.useState([]);
   const [pantalla, setPantalla] = React.useState(INICIAL);  // ver gestos.js
+  // La presencia: 'fuera' (recién entrado, sin emitir), 'ruta', 'ausente'.
+  // Se DECLARA acá; entrar a la cadena de brechas lo confirma el servidor
+  // cuando el GPS pisa el trazado — ver `enRutaConfirmada` más abajo.
+  const [presencia, setPresencia] = React.useState('fuera');
   const [canal, setCanal] = React.useState('grupo');        // 'grupo' | 'directo'
   const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0 });
   const cliente = React.useRef(null);
@@ -181,9 +185,37 @@ function Aplicacion() {
     // y la brecha, el chat y el mapa fallan en silencio. Ver `conectar()`.
     cliente.current.conectar(s.token, s);
     cliente.current.pedirMarca(s.token).then(m => { if (m) setMarca(m); });
-    const permisos = await gps.pedirPermisos();
-    if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
-    await gps.arrancar({ textoNotificacion: 'Buscando tu posición…' });
+    // El GPS ya NO arranca al entrar: arranca al SALIR A RUTA. Pero si la
+    // app murió a mitad de turno (Android la mató, el chofer la reabrió),
+    // la presencia guardada retoma sola: nadie vuelve a marcar nada.
+    const previa = await SecureStore.getItemAsync(gps.LLAVE_PRESENCIA).catch(() => null);
+    if (previa === 'ruta' || previa === 'ausente') {
+      setPresencia(previa);
+      cliente.current.marcarPresencia(previa);
+      const permisos = await gps.pedirPermisos();
+      if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
+      await gps.arrancar({ textoNotificacion: 'Turno en curso' });
+    }
+  };
+
+  // Cambiar de presencia es UNA función porque toca tres mundos a la vez y
+  // el orden importa: el disco (para la tarea de fondo y para retomar), el
+  // servidor (la declaración), y el servicio de GPS (que emite o calla).
+  const cambiarPresencia = async (nueva) => {
+    setPresencia(nueva);
+    try { await SecureStore.setItemAsync(gps.LLAVE_PRESENCIA, nueva); } catch {}
+    cliente.current.marcarPresencia(nueva);
+    if (nueva === 'fuera') {
+      // Primero se le avisa al vigilante, DESPUÉS se para: la misma carrera
+      // que ya nos costó un servicio huérfano en `onSalir`.
+      saliendo.current = true;
+      await gps.parar();
+    } else {
+      saliendo.current = false;
+      const permisos = await gps.pedirPermisos();
+      if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
+      await gps.arrancar({ textoNotificacion: textoRef.current });
+    }
   };
 
   // ── Las posiciones NO se mandan desde acá ───────────────────
@@ -228,7 +260,9 @@ function Aplicacion() {
   // al armar el efecto.
   const saliendo = React.useRef(false);
   React.useEffect(() => {
-    if (!sesion) return;
+    // Fuera de ruta no hay nada que vigilar: el servicio está parado a
+    // propósito y rearrancarlo sería emitir señal de alguien que no salió.
+    if (!sesion || presencia === 'fuera') return;
     let vivo = true;
     const mirar = async () => {
       const corriendo = await gps.estaCorriendo();
@@ -244,7 +278,7 @@ function Aplicacion() {
     mirar();
     const t = setInterval(mirar, 2000);
     return () => { vivo = false; clearInterval(t); };
-  }, [sesion]);
+  }, [sesion, presencia]);
 
   // ── Cadencia según la pantalla ──────────────────────────────
   // Con la pantalla apagada el chofer no mira el HUD: la posición ya solo
@@ -258,7 +292,7 @@ function Aplicacion() {
   // batería, que es exactamente lo que este build viene a medir.
   //
   React.useEffect(() => {
-    if (!sesion) return;
+    if (!sesion || presencia === 'fuera') return;
     const sub = AppState.addEventListener('change', (estado) => {
       const activo = estado === 'active';
       gps.cambiarCadencia(
@@ -267,7 +301,7 @@ function Aplicacion() {
       ).catch(() => {});
     });
     return () => sub.remove();
-  }, [sesion]);
+  }, [sesion, presencia]);
 
   // La notificación permanente lleva la brecha, pero solo se refresca cuando
   // la app pasa a segundo plano (arriba) — que es justo cuando el chofer va a
@@ -314,13 +348,22 @@ function Aplicacion() {
     directo: sinLeer(mensajes, 'directo', vistoHasta.directo),
   };
 
+  // ¿El servidor ya me confirmó sobre el trazado? Es SU palabra, no la mía:
+  // viaja en el estado que él emite. Mientras no, la pantalla dice "yendo".
+  const miVehiculo = sesion.vehicleId || sesion.unitId;
+  const enRutaConfirmada = !!(estado && estado.units &&
+    estado.units.find(u => u.unitId === miVehiculo && u.enRuta !== false));
+
   const comun = {
-    conectado, aviso, diag, pantalla, noLeidos, marca,
+    conectado, aviso, diag, pantalla, noLeidos, marca, presencia,
     onIr: irA,
     onSalir: async () => {
       // El orden importa: primero se le avisa al vigilante, DESPUÉS se para
       // el servicio. Al revés, un tick del vigilante en medio lo rearrancaba.
       saliendo.current = true;
+      // Que la unidad se vaya del mapa en el acto, no a los 3 min del olvido
+      try { cliente.current.marcarPresencia('fuera'); } catch {}
+      try { await SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA); } catch {}
       await SecureStore.deleteItemAsync(gps.LLAVE_SESION);
       await gps.parar();
       cliente.current.salir();
@@ -338,6 +381,8 @@ function Aplicacion() {
       <Mapa {...comun} estado={estado} geometria={geometria}
         yo={cliente.current?.sesion} activo={pantalla === 'mapa'} />
       <Ruta {...comun} hud={hud} reporta={reporta}
+        confirmada={enRutaConfirmada}
+        onPresencia={cambiarPresencia}
         onSos={() => cliente.current.mandarSos(ultimaPos.current)} />
       <Chat {...comun}
         mensajes={hilo(mensajes, canal)}
@@ -487,26 +532,99 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca, onIr, onSalir, onSos }) {
+function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
+                presencia, confirmada, onPresencia, onIr, onSalir, onSos }) {
   const { s, C } = usarTema();
   const p = hud.principal, sec = hud.secundario;
   const color = colorEstado(C)[p.estado];
   // La pantalla termina en la barra de navegación de la app: el aire de abajo
   // lo pone ella, no ésta. Sumar los dos deja la línea divisoria flotando.
   const margen = margenes(useSafeAreaInsets(), { conBarra: true });
+  // "Salir de ruta" pide un segundo toque: apretarlo sin querer a mitad de
+  // vuelta te saca del mapa de todos. Un confirm de dos toques alcanza.
+  const [confirmarSalida, setConfirmarSalida] = React.useState(false);
+  React.useEffect(() => {
+    if (!confirmarSalida) return;
+    const t = setTimeout(() => setConfirmarSalida(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmarSalida]);
+
+  const cabecera = (
+    <View style={s.barra}>
+      <Marca marca={marca} />
+      <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
+        {conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
+      </Text>
+      <Pressable onPress={onSalir}><Text style={s.salir}>Salir</Text></Pressable>
+    </View>
+  );
+
+  // ── FUERA: la puerta. Recién entrado (o ya retirado): no se emite señal,
+  // el mapa está vedado, el chat queda abierto. Salir a ruta es un gesto
+  // deliberado — el mismo deslizar del SOS, para que no pase por accidente.
+  if (presencia === 'fuera') {
+    return (
+      <View style={[s.pantalla, margen]}>
+        <StatusBar style="light" />
+        {cabecera}
+        <View style={s.centro}>
+          <Text style={[s.ladoEtiqueta, { color: C.brillante }]}>¿SALÍS A RUTA?</Text>
+          <Text style={[s.instruccion, { marginTop: 14 }]}>
+            Al salir, tu combi aparece en el mapa y empieza a emitir tu
+            posición. Tu vuelta y tu brecha arrancan recién cuando pises el
+            trazado — marcar desde tu casa no confunde a nadie.
+          </Text>
+          <Text style={[s.diagnostico, { marginTop: 18 }]}>
+            Mientras tanto el chat queda abierto y no se emite nada.
+          </Text>
+        </View>
+        <Deslizable texto="DESLIZÁ PARA SALIR A RUTA  →" textoBoton="IR"
+          colorListo={C.verde} onDisparar={() => onPresencia('ruta')} />
+        <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
+      </View>
+    );
+  }
+
+  // ── AUSENTE: comer, un repuesto, un descanso. Se sigue emitiendo (que
+  // Despacho sepa dónde está la combi) pero fuera de la cadena de brechas.
+  if (presencia === 'ausente') {
+    return (
+      <View style={[s.pantalla, margen]}>
+        <StatusBar style="light" />
+        {cabecera}
+        <View style={s.centro}>
+          <Text style={[s.ladoEtiqueta, { color: C.ambar }]}>AUSENTE</Text>
+          <Text style={[s.instruccion, { marginTop: 14 }]}>
+            Estás fuera de la cadena: nadie se mide contra vos y tu vuelta
+            quedó descartada. Despacho te sigue viendo en el mapa, quieto.
+          </Text>
+          <Pressable onPress={() => onPresencia('ruta')} style={[s.botonAncho, { backgroundColor: C.verde }]}>
+            <Text style={s.botonAnchoTexto}>VOLVER A RUTA</Text>
+          </Pressable>
+          <Text style={s.diagnostico}>
+            Al volver, entrás a la cadena cuando el GPS te vea sobre el trazado.
+          </Text>
+        </View>
+        <SosDeslizable onDisparar={onSos} />
+        <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
+      </View>
+    );
+  }
 
   return (
     <View style={[s.pantalla, margen]}>
       <StatusBar style="light" />
-      <View style={s.barra}>
-        <Marca marca={marca} />
-        <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
-          {conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
-        </Text>
-        <Pressable onPress={onSalir}><Text style={s.salir}>Salir</Text></Pressable>
-      </View>
+      {cabecera}
 
       {!reporta && aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
+
+      {/* Declarado en ruta pero el GPS todavía no lo vio sobre el trazado:
+          se dice, para que "no tengo brecha" no parezca una falla. */}
+      {!confirmada && (
+        <Text style={[s.avisoBarra, { color: C.ambar }]}>
+          YENDO A LA RUTA — tu brecha y tu vuelta arrancan al pisar el trazado
+        </Text>
+      )}
 
       {/* Qué está haciendo el GPS. Está a la vista a propósito mientras se
           mide en la calle: "no aparece en el mapa" no distingue entre el GPS
@@ -552,8 +670,63 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
         )}
       </View>
 
+      {/* Los dos movimientos del turno, a un toque del pulgar: pausar
+          (ausente) y terminar (salir de ruta, con confirmación de 2 toques). */}
+      <View style={s.filaPresencia}>
+        <Pressable onPress={() => onPresencia('ausente')} style={[s.botonPresencia, { borderColor: C.ambar }]}>
+          <Text style={[s.botonPresenciaTexto, { color: C.ambar }]}>AUSENTE</Text>
+        </Pressable>
+        <Pressable onPress={() => {
+          if (!confirmarSalida) { setConfirmarSalida(true); return; }
+          setConfirmarSalida(false);
+          onPresencia('fuera');
+        }} style={[s.botonPresencia, confirmarSalida && { backgroundColor: C.rojo, borderColor: C.rojo }]}>
+          <Text style={[s.botonPresenciaTexto, confirmarSalida && { color: '#fff' }]}>
+            {confirmarSalida ? '¿SEGURO? TOCÁ DE NUEVO' : 'SALIR DE RUTA'}
+          </Text>
+        </Pressable>
+      </View>
+
       <SosDeslizable onDisparar={onSos} />
       <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
+    </View>
+  );
+}
+
+// El deslizar genérico: la misma mecánica que el SOS (nadie te roba el dedo,
+// hay que llegar casi al final) para el gesto de salir a ruta — deliberado,
+// no un toque al pasar.
+function Deslizable({ texto, textoBoton, colorListo, onDisparar }) {
+  const { s } = usarTema();
+  const [ancho, setAncho] = React.useState(0);
+  const x = React.useRef(new Animated.Value(0)).current;
+  const recorrido = Math.max(0, ancho - 78);
+
+  const pan = React.useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderMove: (_, g) => {
+      x.setValue(Math.max(0, Math.min(g.dx, recorrido)));
+    },
+    onPanResponderRelease: (_, g) => {
+      if (recorrido > 0 && g.dx >= recorrido * 0.85) {
+        Vibration.vibrate(120);
+        Animated.timing(x, { toValue: recorrido, duration: 120, useNativeDriver: false }).start();
+        onDisparar?.();
+      } else {
+        Animated.spring(x, { toValue: 0, useNativeDriver: false }).start();
+      }
+    },
+  }), [recorrido]);
+
+  return (
+    <View style={s.sosPista} onLayout={e => setAncho(e.nativeEvent.layout.width)}>
+      <Text style={s.sosTexto}>{texto}</Text>
+      <Animated.View {...pan.panHandlers}
+        style={[s.sosBoton, { backgroundColor: colorListo }, { transform: [{ translateX: x }] }]}>
+        <Text style={s.sosBotonTexto}>{textoBoton}</Text>
+      </Animated.View>
     </View>
   );
 }
@@ -582,7 +755,7 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
 //
 // Qué se dibuja está en `mapa.js`, que es JS puro y se prueba en Node. Acá
 // solo se le pasa el papel.
-function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
+function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, onIr }) {
   const { s, C, oscuro } = usarTema();
   const margen = margenes(useSafeAreaInsets(), { conBarra: true });
   const web = React.useRef(null);
@@ -642,6 +815,10 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
   // recién entonces se le manda todo. Sin este saludo, el mapa arrancaba con
   // los colores de día aunque fuera de noche.
   const [listo, setListo] = React.useState(false);
+  // Fuera de ruta el WebView se DESMONTA. Si `listo` quedara en true, al
+  // volver los mensajes saldrían hacia una página a medio cargar y se
+  // perderían — el mismo bug del handshake que ya se pagó una vez.
+  React.useEffect(() => { if (presencia === 'fuera') setListo(false); }, [presencia]);
 
   const vistaAhora = React.useCallback(
     () => mapa.vista(estado, yo, geometria), [estado, yo, geometria]);
@@ -655,6 +832,25 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, onIr }) {
     if (!listo || !activo) return;
     mandar({ tipo: 'vista', vista: vistaAhora() });
   }, [listo, activo, vistaAhora, mandar]);
+
+  // Fuera de ruta el mapa está vedado: es el mapa DE LA RUTA, de los que
+  // están trabajando. Además el WebView ni se monta — sin señal emitida no
+  // hay nada que mirar, y las tiles gastan datos.
+  if (presencia === 'fuera') {
+    return (
+      <View style={[s.pantalla, margen]}>
+        <StatusBar style="light" />
+        <View style={s.centro}>
+          <Text style={s.ladoEtiquetaSec}>EL MAPA ES DE LA RUTA</Text>
+          <Text style={[s.instruccion, { marginTop: 12 }]}>
+            Salí a ruta para verlo. Desde acá podés chatear con el grupo y
+            con Despacho mientras tanto.
+          </Text>
+        </View>
+        <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
+      </View>
+    );
+  }
 
   return (
     <View style={[s.pantalla, margen, { paddingLeft: 0, paddingRight: 0 }]}>
@@ -1156,6 +1352,19 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.rojo, alignItems: 'center', justifyContent: 'center',
   },
   sosBotonTexto: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+
+  // ── Presencia ────────────────────────────────────────────────
+  filaPresencia: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  botonPresencia: {
+    flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
+    backgroundColor: C.panel, alignItems: 'center', justifyContent: 'center',
+  },
+  botonPresenciaTexto: { color: C.tenue, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
+  botonAncho: {
+    height: 58, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
+    marginTop: 26,
+  },
+  botonAnchoTexto: { color: '#08131F', fontSize: 17, fontWeight: '900', letterSpacing: 1.5 },
 
   // ── Mapa ─────────────────────────────────────────────────────
   mapaCaja: { flex: 1, overflow: 'hidden' },

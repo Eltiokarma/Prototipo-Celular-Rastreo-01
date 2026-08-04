@@ -300,7 +300,13 @@ function crearUnidad(i, tramos) {
       const r = await pedir('/gps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + u.token },
-        body: JSON.stringify({ posiciones: [{ lat: p.lat, lng: p.lng, speed: p.speed, timestamp: Date.now() }] }),
+        body: JSON.stringify({
+          posiciones: [{ lat: p.lat, lng: p.lng, speed: p.speed, timestamp: Date.now() }],
+          // La presencia declarada, como la app de verdad: el almuerzo es
+          // AUSENTE (fuera de la cadena, visible en el mapa), el resto va
+          // en ruta y el servidor lo confirma al verlo sobre el trazado.
+          presencia: p.almorzando ? 'ausente' : 'ruta',
+        }),
       });
       if (r.ok) bien++; else mal++;
     }));

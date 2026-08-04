@@ -1118,6 +1118,44 @@ if (db.prepare('SELECT COUNT(*) AS c FROM laps WHERE routeId IS NULL').get().c >
   db.prepare('UPDATE laps SET routeId = ? WHERE routeId IS NULL').run(DEFAULT_ROUTE);
 }
 
+// ─── PRESENCIA ───────────────────────────────────────────────
+// El chofer DECLARA su estado desde la app — salir a ruta, ausente (comer,
+// un repuesto), fuera (terminó) — pero declarar no basta: entrar a la
+// cadena de brechas y a la medición de vueltas exige CONFIRMACIÓN física,
+// el GPS parado sobre el trazado. El caso que esto evita es real: Ignacio
+// marca "en ruta" a las 5:30 desde su casa, y sin la confirmación su señal
+// le movería las brechas a todos los que pasan cerca.
+//
+// Sin declaración (clientes viejos, la flota fantasma vieja, las suites) la
+// unidad se comporta como siempre: en cadena desde la primera posición.
+//
+// vehicleId → { estado: 'ruta'|'ausente', enRuta: bool (confirmada) }
+// Vive aparte de `units` a propósito: el olvido a los 3 min borra la unidad
+// del mapa, pero la palabra del chofer sigue valiendo cuando reaparece.
+const presencias = new Map();
+
+function fijarPresencia(vehicleId, routeId, estado) {
+  if (estado === 'fuera') {
+    // Se va del mapa EN EL ACTO, no a los 3 minutos del olvido: lo pidió él.
+    presencias.delete(vehicleId);
+    lapState.delete(vehicleId);
+    const u = units.get(vehicleId);
+    units.delete(vehicleId);
+    scheduleStateBroadcast((u && u.routeId) || routeId);
+    return;
+  }
+  const previa = presencias.get(vehicleId);
+  if (previa && previa.estado === estado) return;
+  // Todo cambio de estado descarta la vuelta a medias y obliga a
+  // RECONFIRMAR sobre el trazado: un almuerzo en el medio no es una vuelta,
+  // y volver de ausente es volver a entrar a la ruta.
+  presencias.set(vehicleId, { estado, enRuta: false });
+  lapState.delete(vehicleId);
+  const u = units.get(vehicleId);
+  if (u) units.set(vehicleId, { ...u, presencia: estado, enRuta: false });
+  scheduleStateBroadcast((u && u.routeId) || routeId);
+}
+
 const lapState = new Map();
 // lapState = { vehicleId → { lapStart, speedSum, speedCount, samples,
 //                          lastProgress, brechaSum, brechaCount } }
@@ -1317,6 +1355,23 @@ app.post('/auth/login', (req, res) => {
 const MAX_POSICIONES_POR_ENVIO = 200;
 const ATRASO_MAXIMO_MS = 6 * 3600_000;   // 6 h: más viejo que eso no se mide
 
+// La presencia por HTTP: el mismo camino robusto que POST /gps, para que la
+// app pueda declarar aunque el WebSocket esté caído. 'fuera' acá también:
+// es el botón "salir de ruta" y tiene que funcionar hasta con mala señal.
+app.post('/presencia', (req, res) => {
+  const auth = String(req.headers.authorization || '');
+  const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
+  if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  if (user.role !== 'driver' && user.role !== 'collector') {
+    return res.status(403).json({ error: 'La presencia es de la gente de la combi' });
+  }
+  const estado = ['ruta', 'ausente', 'fuera'].includes(req.body?.estado) ? req.body.estado : null;
+  if (!estado) return res.status(400).json({ error: 'Estado inválido: ruta, ausente o fuera' });
+  const vehicleId = user.vehicleId || user.unitId;
+  fijarPresencia(vehicleId, user.routeId || DEFAULT_ROUTE, estado);
+  res.json({ ok: true, estado });
+});
+
 app.post('/gps', (req, res) => {
   const auth = String(req.headers.authorization || '');
   const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
@@ -1329,6 +1384,14 @@ app.post('/gps', (req, res) => {
   const duenoWs = gpsOwner.get(vehicleId);
   if (duenoWs && clients.get(duenoWs) && clients.get(duenoWs) !== user.unitId) {
     return res.status(409).json({ error: 'Otro chofer tomó esta unidad' });
+  }
+
+  // La presencia puede venir pegada a las posiciones: con la pantalla
+  // apagada el WebSocket muere y este POST es el único canal, y así el
+  // estado declarado sobrevive hasta a un reinicio del servidor. 'fuera'
+  // no viaja por acá: para irse se deja de mandar (y está POST /presencia).
+  if (req.body?.presencia === 'ruta' || req.body?.presencia === 'ausente') {
+    fijarPresencia(vehicleId, user.routeId || DEFAULT_ROUTE, req.body.presencia);
   }
 
   const crudas = Array.isArray(req.body?.posiciones) ? req.body.posiciones : [];
@@ -3029,6 +3092,18 @@ wss.on('connection', (ws) => {
       });
     }
 
+    // TIPO: presencia — el chofer declara su estado desde la app.
+    // 'ruta' no lo mete a la cadena: eso lo hace el GPS al pisar el trazado.
+    if (msg.type === 'presencia') {
+      const personId = clients.get(ws);
+      const prof = personId ? profiles.get(personId) : null;
+      const vehicleId = prof?.vehicleId;
+      const estado = ['ruta', 'ausente', 'fuera'].includes(msg.estado) ? msg.estado : null;
+      if (vehicleId && estado) {
+        fijarPresencia(vehicleId, prof.routeId || DEFAULT_ROUTE, estado);
+      }
+    }
+
     // La ruta a la que pertenece lo que este cliente emite: la del chofer,
     // o la que el supervisor está mirando en el panel.
     const rutaDelEmisor = () => {
@@ -3389,7 +3464,8 @@ function objetivoDe(routeId) {
   // Sin contarla el objetivo queda algo más grande de lo ideal mientras dura
   // el corte, que es el error barato. Vuelve a contar apenas reaparece.
   const unidades = Array.from(units.values())
-    .filter(u => u.routeId === routeId && u.lat !== null && !u.sinSenal).length;
+    .filter(u => u.routeId === routeId && u.lat !== null && !u.sinSenal &&
+                 u.enRuta !== false && u.presencia !== 'ausente').length;
   const diaSemana = new Date().getDay();
   const prom = promedioVuelta(routeId, diaSemana);
 
@@ -3444,6 +3520,14 @@ function buildState(routeId, acumular) {
     .filter(u => u.routeId === routeId && u.lat !== null) // solo su ruta, con GPS
     .sort((a, b) => b.routeProgress - a.routeProgress);    // ordenadas por avance
 
+  // La CADENA de brechas es solo de las confirmadas en ruta. Las que van
+  // yendo (declararon y todavía no pisaron el trazado) y las ausentes se
+  // dibujan igual —Despacho tiene que verlas— pero no ocupan lugar en la
+  // fila: el que pasa cerca de la casa de Ignacio no se mide contra él.
+  // Es distinto de sinSenal, que SÍ ocupa su lugar: esa combi está en la
+  // calle trabajando y solo se calló; estas dos nunca entraron o se bajaron.
+  const enCadena = all.filter(u => u.enRuta !== false && u.presencia !== 'ausente');
+
   const objetivo = objetivoDe(routeId);
   const ruta2 = routeOf(routeId);
   return {
@@ -3462,13 +3546,15 @@ function buildState(routeId, acumular) {
       manual: ruta ? ruta.targetGapMin : 2,
     },
     units: all,
-    gaps: calculateGaps(all, ruta ? ruta.durationMin : 50, acumular ? anotarBrecha : null),
-    // `totalOnRoute` sigue contando a las que perdieron señal: la combi está
-    // en la calle igual, y sacarla de la cuenta haría parpadear el "N en
-    // ruta" cada vez que alguien entra a un túnel. Cuántas están calladas va
-    // aparte, para que el panel lo pueda decir sin adivinar.
-    totalOnRoute: all.length,
-    sinSenal: all.filter(u => u.sinSenal).length,
+    gaps: calculateGaps(enCadena, ruta ? ruta.durationMin : 50, acumular ? anotarBrecha : null),
+    // `totalOnRoute` cuenta la cadena: las confirmadas en ruta, incluidas
+    // las que perdieron señal (la combi está en la calle igual, y sacarla
+    // haría parpadear el "N en ruta" en cada túnel). Las que van yendo y
+    // las ausentes van aparte, para que el panel lo diga sin adivinar.
+    totalOnRoute: enCadena.length,
+    sinSenal: enCadena.filter(u => u.sinSenal).length,
+    yendo: all.filter(u => u.presencia === 'ruta' && u.enRuta === false).length,
+    ausentes: all.filter(u => u.presencia === 'ausente').length,
     timestamp: Date.now(),
   };
 }
@@ -3510,6 +3596,22 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   // ¿Se salió del recorrido? Solo cuenta si se sostiene (ver arriba)
   const desvio = evaluarDesvio(vehicleId, routeId, proy ? proy.desvioM : null);
 
+  // La confirmación de presencia: declaró "en ruta" y esta posición cayó
+  // SOBRE el trazado (mismo umbral que el desvío) → entra a la cadena.
+  // Una vez adentro se queda: el desvío sostenido ya tiene su propia
+  // alarma, y desconfirmar por cada semáforo haría bailar las brechas.
+  const decl = presencias.get(vehicleId) || null;
+  let enRuta = decl ? decl.enRuta : true;
+  if (decl && decl.estado === 'ruta' && !enRuta) {
+    const umbral = (routeOf(routeId) || {}).desvioMaxM || DESVIO_DEFECTO_M;
+    // Sin geometría cargada no hay contra qué confirmar: vale la palabra.
+    if (!proy || proy.desvioM <= umbral) {
+      enRuta = true;
+      decl.enRuta = true;
+      console.log(`Presencia: ${vehicleId} pisó el trazado — entra a la cadena de brechas`);
+    }
+  }
+
   units.set(vehicleId, {
     ...unit,
     unitId: vehicleId,
@@ -3533,11 +3635,19 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     // reapareció seguiría dibujada en gris para siempre.
     sinSenal: false,
     sinSenalDesde: null,
+    // La presencia declarada y si ya está confirmada sobre el trazado.
+    // Sin declaración: 'ruta' confirmada, como fue siempre.
+    presencia: decl ? decl.estado : 'ruta',
+    enRuta,
     timestamp: cuando,
   });
 
-  // Detección de vuelta completa a partir del progreso (del vehículo)
-  trackLap(vehicleId, routeId, progreso, pos.speed || 0, cuando);
+  // Detección de vuelta completa a partir del progreso (del vehículo).
+  // SOLO para las confirmadas en ruta: el viaje de la casa a la ruta no es
+  // una vuelta, y el almuerzo estacionado cerca del terminal tampoco.
+  if (enRuta && (!decl || decl.estado === 'ruta')) {
+    trackLap(vehicleId, routeId, progreso, pos.speed || 0, cuando);
+  }
 
   // Y que la persona sigue arriba, para poder cerrar bien el turno si el
   // servidor se reinicia

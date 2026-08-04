@@ -107,6 +107,12 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       // `identify` SIEMPRE primero: lo que se mande antes se ignora en
       // silencio, y es de los errores más difíciles de ver porque no da error.
       ws.send(JSON.stringify({ type: 'identify', token }));
+      // La presencia declarada se repite en cada conexión: el servidor la
+      // guarda en memoria y un reinicio suyo la olvidaría — el chofer que
+      // marcó "en ruta" a las 6 no tiene por qué volver a marcarla a las 9.
+      if (presenciaDeclarada && presenciaDeclarada !== 'fuera') {
+        ws.send(JSON.stringify({ type: 'presencia', estado: presenciaDeclarada }));
+      }
     };
     const alMensaje = (crudo) => {
       let m;
@@ -368,10 +374,29 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     reportaGps = false;
   }
 
+  // Declarar el estado: en ruta, ausente, fuera. Por el WebSocket si está
+  // vivo; si no, por HTTP — el botón "salir de ruta" tiene que funcionar
+  // hasta con mala señal. Declarar 'ruta' NO mete a la unidad en la cadena:
+  // eso lo confirma el servidor cuando el GPS pisa el trazado.
+  let presenciaDeclarada = null;
+  function marcarPresencia(estado) {
+    presenciaDeclarada = estado;
+    if (ws && conectado) {
+      try { ws.send(JSON.stringify({ type: 'presencia', estado })); return; } catch {}
+    }
+    if (token) {
+      fetch(servidor + '/presencia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ estado }),
+      }).catch(() => {});
+    }
+  }
+
   return {
     entrar, conectar, salir,
     mandarGps, subirPosiciones, mandarChat, mandarVoz, mandarFoto, mandarSos,
-    pedirMarca,
+    pedirMarca, marcarPresencia,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {
       if (!oyentes.has(evento)) oyentes.set(evento, new Set());
