@@ -375,6 +375,14 @@ const pedir = (puerto, ruta, opts = {}) =>
     const js = await fetch(`http://localhost:${P}/gestion-x9k2/trazador.js`);
     const cuerpo = await js.text();
     ok('el panel sirve la lógica del trazador', js.status === 200 && /window\.Trazador/.test(cuerpo), js.status);
+
+    // Y Leaflet también: NO viene de un CDN. Pasó en producción — unpkg no
+    // entregó leaflet.js y elegir una ruta dejaba la página en blanco.
+    const lf = await fetch(`http://localhost:${P}/gestion-x9k2/leaflet.js`);
+    const lfCss = await fetch(`http://localhost:${P}/gestion-x9k2/leaflet.css`);
+    ok('el panel sirve Leaflet él mismo, sin CDN',
+       lf.status === 200 && /leaflet/i.test(await lf.text()) && lfCss.status === 200,
+       [lf.status, lfCss.status]);
   }
 
   console.log('\nQUEDA REGISTRADO');

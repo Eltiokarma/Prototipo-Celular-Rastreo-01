@@ -574,6 +574,21 @@ function montarPanelDelCreador(app, deps) {
     res.type('application/javascript').sendFile(MODULO_TRAZADOR);
   });
 
+  // Leaflet lo sirve el propio panel, NO un CDN. Pasó de verdad: unpkg no
+  // le entregó leaflet.js al navegador del creador y elegir una ruta dejaba
+  // la página en blanco — el mapa se inicializaba con `L` sin existir. El
+  // único nivel que puede depender de la red ajena es ninguno. Son 160 kB
+  // en server/vendor/, verificados contra los hashes oficiales de 1.9.4.
+  // Sí se cachea (a diferencia del resto del panel): es código público de
+  // Leaflet, no datos de nadie, y pesa más que todo lo demás junto.
+  const VENDOR = path.join(__dirname, 'vendor', 'leaflet');
+  for (const [archivo, tipo] of [['leaflet.js', 'application/javascript'], ['leaflet.css', 'text/css']]) {
+    app.get(BASE + '/' + archivo, (req, res) => {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.type(tipo).sendFile(path.join(VENDOR, archivo));
+    });
+  }
+
   // ─── LA PANTALLA ───────────────────────────────────────────
   // El HTML NO vive en project/, que se sirve entero como estáticos: ahí
   // quedaría accesible para cualquiera aunque el panel estuviera apagado.

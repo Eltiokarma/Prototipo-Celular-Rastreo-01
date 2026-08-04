@@ -648,7 +648,12 @@ dos cuadras distintas), programarle vigencia y borrarla. Ver *Rutas
 alternas*.
 
 Y se **dibujan**, en la pestaña RUTAS: las rutas se entregan ya trazadas al
-dar de alta la cooperativa, igual que el logo. El trazador de acá tiene las
+dar de alta la cooperativa, igual que el logo. El mapa (Leaflet) lo sirve el
+**propio panel** desde `server/vendor/` — no un CDN: pasó que unpkg no
+entregó `leaflet.js` y elegir una ruta dejaba la página en blanco. Y si aun
+así algo no llega o se rompe, el panel lo **dice** en un cartel con el error
+a la vista (muro de contención de React) en vez de quedar mudo en blanco.
+El trazador de acá tiene las
 herramientas que al de Despacho le faltan — un clic **sobre la línea**
 inserta en el medio (densificar una curva sin rehacer desde ahí), modo
 SELECCIONAR (dos clics y se borra la cuadra que quedó entre ellos), deshacer

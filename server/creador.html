@@ -57,15 +57,19 @@
   code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .92em; }
 </style>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
-
-<!-- La lógica del trazador (server/trazador.js) la sirve el propio panel,
-     así Node la prueba con require() y acá es window.Trazador — el mismo
-     archivo, sin copia. La ruta del panel la fija el servidor
-     (CREATOR_PATH), así que el src se arma con la URL de esta página. -->
+<!-- Leaflet y la lógica del trazador (server/trazador.js) los sirve el
+     PROPIO panel, no un CDN. Pasó de verdad: unpkg no entregó leaflet.js y
+     elegir una ruta dejaba la página en blanco. La ruta del panel la fija
+     el servidor (CREATOR_PATH), así que los src se arman con la URL de
+     esta página. El trazador además es el mismo archivo que Node prueba
+     con require() — acá llega como window.Trazador, sin copia. -->
 <script>
-document.write('<script src="' + location.pathname.replace(/\/+$/, '') + '/trazador.js"><\/script>');
+(function () {
+  var BASE = location.pathname.replace(/\/+$/, '');
+  document.write('<link rel="stylesheet" href="' + BASE + '/leaflet.css" />');
+  document.write('<script src="' + BASE + '/leaflet.js"><\/script>');
+  document.write('<script src="' + BASE + '/trazador.js"><\/script>');
+})();
 </script>
 
 <!-- Producción, no desarrollo: react-dom pasa de 1054 kB a 128. -->
@@ -75,6 +79,27 @@ document.write('<script src="' + location.pathname.replace(/\/+$/, '') + '/traza
 </head>
 <body>
 <div id="root"></div>
+
+<!-- Si React o Babel no llegan del CDN, nada de lo de abajo corre y la
+     página queda en blanco sin decir palabra. Esto espera un rato y, si el
+     panel sigue sin dibujarse, lo dice en HTML pelado. Si el panel carga
+     después (red lenta), React pisa este cartel al renderizar: no estorba. -->
+<script>
+setTimeout(function () {
+  var root = document.getElementById('root');
+  if (root && !root.children.length) {
+    root.innerHTML =
+      '<div style="max-width:560px;margin:80px auto;padding:24px;' +
+      'font-family:system-ui,sans-serif;font-size:14px;line-height:1.6;' +
+      'background:#FCEBEE;border:1px solid #E6BFC6;border-left:3px solid #C2001D;' +
+      'border-radius:14px;color:#5C0010;">' +
+      '<strong>El panel no pudo cargar sus librerías.</strong><br>' +
+      'React o Babel no llegaron desde el CDN (unpkg.com). Suele ser un corte ' +
+      'de red de un momento: recargá con Ctrl+Shift+R. Si sigue pasando, ' +
+      'fijate si tu red bloquea unpkg.com.</div>';
+  }
+}, 6000);
+</script>
 
 <script type="text/babel" data-presets="react">
 // ═══════════════════════════════════════════════════════════════
@@ -895,6 +920,28 @@ const TOPE_ARRASTRABLES = 200;
 const UMBRAL_PX = 12;
 
 function Rutas({ api, empresas, aviso, fallo }) {
+  // Si Leaflet o la lógica del trazador no llegaron, se dice QUÉ faltó en
+  // vez de reventar la página entera (pasó: sin leaflet.js, elegir una ruta
+  // dejaba todo en blanco). La condición no cambia durante la vida de la
+  // página —los <script> ya corrieron o ya fallaron al llegar acá—, así que
+  // este return temprano nunca altera el orden de los hooks entre renders.
+  if (typeof L === 'undefined' || !window.Trazador) {
+    const falta = [
+      typeof L === 'undefined' && 'el mapa (leaflet.js)',
+      !window.Trazador && 'la lógica del trazador (trazador.js)',
+    ].filter(Boolean).join(' y ');
+    return (
+      <div style={{
+        background: 'var(--rojoFondo)', border: '1px solid var(--rojoBorde)',
+        borderLeft: '3px solid var(--red)', borderRadius: 12, padding: 16,
+        fontSize: 13, lineHeight: 1.6, color: 'var(--rojoTinta)', maxWidth: 640,
+      }}>
+        <div className="black" style={{ fontSize: 15, marginBottom: 6 }}>El trazador no pudo cargar</div>
+        No llegó {falta} desde el servidor. Suele ser un corte de red de un
+        momento: recargá la página (Ctrl+Shift+R). Si sigue pasando, avisanos.
+      </div>
+    );
+  }
   const T = window.Trazador;
   const [companyId, setCompanyId] = React.useState('');
   const [routeId, setRouteId] = React.useState('');
@@ -1700,7 +1747,44 @@ function App() {
     : <Puerta onEntrar={setToken} />;
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+// El muro de contención. Con React 18, un error no atrapado en un render o
+// un efecto DESMONTA el árbol entero: página en blanco, sin una palabra.
+// Pasó en producción y lo único que se pudo mandar de vuelta fue "quedó
+// blanco". Esto lo convierte en un cartel que dice el error de verdad, que
+// es exactamente lo que hace falta para arreglarlo a la distancia.
+class Muro extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div style={{
+        maxWidth: 640, margin: '80px auto', padding: 24,
+        background: 'var(--rojoFondo)', border: '1px solid var(--rojoBorde)',
+        borderLeft: '3px solid var(--red)', borderRadius: 14,
+        color: 'var(--rojoTinta)', fontSize: 14, lineHeight: 1.6,
+      }}>
+        <div className="black" style={{ fontSize: 18, marginBottom: 8 }}>El panel se rompió</div>
+        <div>
+          Es un error del programa, no tuyo. Recargá la página; si vuelve a
+          pasar, mandanos una captura de este cartel — el renglón de abajo
+          dice exactamente qué se rompió.
+        </div>
+        <code style={{
+          display: 'block', marginTop: 12, padding: '10px 12px',
+          background: 'rgba(255,255,255,.6)', borderRadius: 8,
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12,
+        }}>{String((this.state.error && (this.state.error.message || this.state.error)) || 'error desconocido')}</code>
+        <button onClick={() => location.reload()} style={{
+          marginTop: 14, padding: '10px 18px', fontSize: 14,
+          background: 'var(--red)', color: '#fff', borderRadius: 9,
+        }}>Recargar</button>
+      </div>
+    );
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Muro><App /></Muro>);
 </script>
 </body>
 </html>

@@ -208,6 +208,31 @@ const ok = (n, c, e) => {
     /IDA [0-9]+([.,][0-9])? km/.test(t) && !/IDA 0([.,]0)? km/.test(t),
     (t.match(/IDA [\d.,]+ km/) || [])[0]);
 
+  console.log('\nSI EL MAPA NO LLEGA, SE DICE (nada de página en blanco)');
+  {
+    // La reproducción exacta de lo que pasó en producción: leaflet.js no
+    // llega. Antes: elegir una ruta desmontaba TODO React — página blanca,
+    // sin una palabra. Ahora: la pestaña dice qué faltó y el panel sigue.
+    const p2 = await ctx.newPage();
+    const errores2 = [];
+    p2.on('pageerror', e => errores2.push(e.message));
+    await p2.route('**/leaflet.js', r => r.abort());
+    await p2.goto(`http://localhost:${P}/creador`, { waitUntil: 'domcontentloaded' });
+    await p2.waitForTimeout(2500);
+    await p2.fill('input[type="password"]', 'clave-larga-del-creador');
+    await p2.click('button:has-text("Entrar")');
+    await p2.waitForTimeout(2000);
+    await p2.click('button:has-text("RUTAS")');
+    await p2.waitForTimeout(1200);
+    const t2 = await p2.innerText('body');
+    ok('la pestaña avisa qué faltó, con nombre y apellido',
+      /El trazador no pudo cargar/.test(t2) && /leaflet\.js/.test(t2));
+    ok('el resto del panel sigue vivo', /COOPERATIVAS/.test(t2) && /Salir/.test(t2));
+    ok('y sin errores de página', errores2.length === 0, errores2.join(' | ') || undefined);
+    await p2.screenshot({ path: SHOT + '/creador-sin-leaflet.png' });
+    await p2.close();
+  }
+
   console.log('\nSALIR');
   await p.click('button:has-text("Salir")');
   await p.waitForTimeout(1500);
