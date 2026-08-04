@@ -154,7 +154,9 @@ function Aplicacion() {
       c.on('geometria', (g) => setGeometria(g)),
       c.on('conexion', ({ conectado }) => setConectado(conectado)),
       c.on('rolGps', ({ reporta, motivo }) => { setReporta(reporta); setAviso(motivo); }),
-      c.on('authError', (e) => { setAviso(e); setSesion(null); }),
+      // La presencia vuelve a 'fuera' con la sesión: sin esto, el próximo
+      // login saltaba la puerta y mostraba el HUD sin GPS corriendo.
+      c.on('authError', (e) => { setAviso(e); setSesion(null); setPresencia('fuera'); }),
       // El historial llega al identificarse y trae solo lo que a este chofer
       // le corresponde ver: el filtrado del privado lo hace el servidor.
       c.on('historial', (items) => setMensajes(items.map(m => aMensaje(m, quienSoy(c))))),
@@ -189,6 +191,7 @@ function Aplicacion() {
     // app murió a mitad de turno (Android la mató, el chofer la reabrió),
     // la presencia guardada retoma sola: nadie vuelve a marcar nada.
     const previa = await SecureStore.getItemAsync(gps.LLAVE_PRESENCIA).catch(() => null);
+    if (previa !== 'ruta' && previa !== 'ausente') setPresencia('fuera');
     if (previa === 'ruta' || previa === 'ausente') {
       setPresencia(previa);
       cliente.current.marcarPresencia(previa);
@@ -364,6 +367,7 @@ function Aplicacion() {
       // Que la unidad se vaya del mapa en el acto, no a los 3 min del olvido
       try { cliente.current.marcarPresencia('fuera'); } catch {}
       try { await SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA); } catch {}
+      setPresencia('fuera');
       await SecureStore.deleteItemAsync(gps.LLAVE_SESION);
       await gps.parar();
       cliente.current.salir();

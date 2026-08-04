@@ -193,6 +193,84 @@ let servidor = null;
     ok('Despacho no declara presencia: no va arriba de una combi', deDespacho.status === 403, deDespacho.status);
     ok('sin sesión, nada', (await pedir('/presencia', {
       method: 'POST', body: JSON.stringify({ estado: 'ruta' }) })).status === 401);
+
+    // El COBRADOR tampoco: la presencia es de la unidad y la unidad la
+    // lleva el que maneja. Si valiera su palabra, cerrar SU app mandaría
+    // 'fuera' y borraría del mapa una combi en plena vuelta.
+    await pedir('/admin/users', { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: 'C-01', name: 'Cobrador Uno', personRole: 'collector',
+                             vehicleId: 'M-01', password: 'cobra1234' }) });
+    const sc = await login('C-01', 'cobra1234');
+    const delCobrador = await presencia(sc, 'fuera');
+    ok('el cobrador no puede sacar la combi del mapa', delCobrador.status === 403, delCobrador.status);
+    const st = await estado();
+    ok('y M-01 sigue donde estaba', st.units.some(u => u.unitId === 'M-01'), st.units.map(u => u.unitId));
+  }
+
+  console.log('\nEL OLVIDO BORRA LA CONFIRMACIÓN');
+  {
+    // El caso de la mañana siguiente: mató la app sin "salir de ruta", el
+    // olvido lo sacó del mapa, y al otro día la app retoma "en ruta" desde
+    // su CASA. El true de ayer no puede meterlo a la cadena: tiene que
+    // volver a pisar el trazado. Se prueba con un servidor de olvido corto.
+    const P2 = 3162;
+    const DB2 = S + '/presencia-olvido.db';
+    for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
+    const srv2 = spawn('node', [RAIZ + '/server/index.js'], {
+      env: { ...process.env, PORT: String(P2), DB_FILE: DB2, DISPATCH_PASSWORD: 'despacho99',
+             OLVIDAR_MS: '1500', SIN_SENAL_MS: '600', STATE_INTERVAL_MS: '300' },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    const API2 = `http://localhost:${P2}`;
+    for (let i = 0; i < 80; i++) { await sleep(250); try { await fetch(API2 + '/ping'); break; } catch {} }
+    const pedir2 = (ruta, opts = {}) => fetch(API2 + ruta, {
+      ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    }).then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+    const d2 = (await pedir2('/auth/login', { method: 'POST', body: JSON.stringify({ user: 'DESPACHO', password: 'despacho99' }) })).body;
+    await pedir2('/admin/routes/R-14/points', {
+      method: 'PUT', headers: { Authorization: 'Bearer ' + d2.token },
+      body: JSON.stringify({ tramos: { ida, vuelta } }),
+    });
+    const tokenG2 = await require('./gerente.js')(API2, DB2);
+    await pedir2('/admin/users', { method: 'POST', headers: { Authorization: 'Bearer ' + tokenG2 },
+      body: JSON.stringify({ unitId: 'M-09', name: 'Ignacio', password: 'chofer1234' }) });
+    const s9 = (await pedir2('/auth/login', { method: 'POST', body: JSON.stringify({ user: 'M-09', password: 'chofer1234' }) })).body;
+
+    const ws2 = new WebSocket(`ws://localhost:${P2}`);
+    let ultimo2 = null;
+    ws2.on('message', raw => { const m = JSON.parse(raw); if (m.type === 'state') ultimo2 = m; });
+    await new Promise(r => ws2.on('open', r));
+    ws2.send(JSON.stringify({ type: 'identify', token: d2.token }));
+
+    // Declara, pisa el trazado, queda CONFIRMADO…
+    await pedir2('/presencia', { method: 'POST',
+      headers: { Authorization: 'Bearer ' + s9.token }, body: JSON.stringify({ estado: 'ruta' }) });
+    await pedir2('/gps', { method: 'POST', headers: { Authorization: 'Bearer ' + s9.token },
+      body: JSON.stringify({ posiciones: [{ lat: -15.4900, lng: -70.1300, speed: 6, timestamp: Date.now() }] }) });
+    await sleep(700);
+    ok('confirmado sobre el trazado', !!ultimo2 && !!ultimo2.gaps['M-09'],
+       ultimo2 && Object.keys(ultimo2.gaps || {}));
+
+    // …se calla más del olvido corto. El barrido corre cada 10 s fijos, así
+    // que hay que esperar el tick, no solo el plazo.
+    await sleep(11_500);
+    ok('el olvido lo saca del mapa', !(ultimo2.units || []).some(u => u.unitId === 'M-09'),
+       (ultimo2.units || []).map(u => u.unitId));
+
+    // …y reaparece DESDE SU CASA, con la presencia guardada de ayer.
+    await pedir2('/gps', { method: 'POST', headers: { Authorization: 'Bearer ' + s9.token },
+      body: JSON.stringify({ presencia: 'ruta',
+        posiciones: [{ lat: -15.5200, lng: -70.1650, speed: 4, timestamp: Date.now() }] }) });
+    await sleep(700);
+    const el = (ultimo2.units || []).find(u => u.unitId === 'M-09');
+    ok('reaparece YENDO, no confirmado por el true de ayer',
+       !!el && el.enRuta === false && !ultimo2.gaps['M-09'],
+       el && { enRuta: el.enRuta, enGaps: !!ultimo2.gaps['M-09'] });
+
+    try { ws2.close(); } catch {}
+    srv2.kill();
+    await sleep(300);
+    for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   }
 
   console.log(fallas === 0 ? '\nTODO EN ORDEN\n' : `\n${fallas} FALLA(S)\n`);

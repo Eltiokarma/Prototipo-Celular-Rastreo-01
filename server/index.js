@@ -1141,6 +1141,9 @@ function fijarPresencia(vehicleId, routeId, estado) {
     lapState.delete(vehicleId);
     const u = units.get(vehicleId);
     units.delete(vehicleId);
+    // El mismo aviso que manda el olvido: los mapas que borran por evento
+    // no tienen por qué esperar al próximo estado completo.
+    if (u) broadcastToRoute(u.routeId, { type: 'unit_left', unitId: vehicleId });
     scheduleStateBroadcast((u && u.routeId) || routeId);
     return;
   }
@@ -1362,8 +1365,11 @@ app.post('/presencia', (req, res) => {
   const auth = String(req.headers.authorization || '');
   const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
   if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
-  if (user.role !== 'driver' && user.role !== 'collector') {
-    return res.status(403).json({ error: 'La presencia es de la gente de la combi' });
+  // SOLO el chofer, la misma regla que POST /gps: la presencia es DE LA
+  // UNIDAD, y la unidad la lleva el que maneja. Si el cobrador pudiera
+  // declarar, cerrar su app borraría del mapa una combi en plena vuelta.
+  if (user.role !== 'driver') {
+    return res.status(403).json({ error: 'La presencia la declara el chofer' });
   }
   const estado = ['ruta', 'ausente', 'fuera'].includes(req.body?.estado) ? req.body.estado : null;
   if (!estado) return res.status(400).json({ error: 'Estado inválido: ruta, ausente o fuera' });
@@ -3099,7 +3105,10 @@ wss.on('connection', (ws) => {
       const prof = personId ? profiles.get(personId) : null;
       const vehicleId = prof?.vehicleId;
       const estado = ['ruta', 'ausente', 'fuera'].includes(msg.estado) ? msg.estado : null;
-      if (vehicleId && estado) {
+      // SOLO el chofer, la misma regla que el GPS. Si valiera la palabra del
+      // cobrador, cerrar SU app mandaría 'fuera' y borraría del mapa una
+      // combi que sigue manejando otro — descartándole la vuelta en curso.
+      if (vehicleId && estado && prof.role === 'driver') {
         fijarPresencia(vehicleId, prof.routeId || DEFAULT_ROUTE, estado);
       }
     }
@@ -3827,6 +3836,11 @@ setInterval(() => {
     if (callada > OLVIDAR_MS) {
       units.delete(unitId);
       lapState.delete(unitId); // la vuelta a medias no cuenta
+      // Y la CONFIRMACIÓN se pierde con el olvido: si mató la app sin
+      // "salir de ruta" y reaparece mañana desde su casa, tiene que volver
+      // a pisar el trazado — no entrar a la cadena por un true de ayer.
+      const decl = presencias.get(unitId);
+      if (decl) decl.enRuta = false;
       console.log(`Unidad olvidada tras ${Math.round(callada / 1000)} s sin señal: ${unitId}`);
       broadcastToRoute(unit.routeId, { type: 'unit_left', unitId });
       rutasAfectadas.add(unit.routeId);

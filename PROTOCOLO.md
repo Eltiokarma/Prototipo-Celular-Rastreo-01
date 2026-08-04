@@ -270,6 +270,30 @@ El WebSocket queda para **recibir** el estado mientras la pantalla está
 encendida. Mandar posición por ahí sigue funcionando y es lo que hace la app
 web, pero una app nativa debería usar el POST.
 
+## 4ter. La presencia: `presencia` (WS), `POST /presencia` y el campo en `/gps`
+
+El chofer declara su estado: `'ruta'`, `'ausente'` o `'fuera'`.
+
+```json
+{ "type": "presencia", "estado": "ruta" }
+```
+
+- Por HTTP: `POST /presencia` con `{ "estado": "ruta" }` (Bearer). Solo el
+  CHOFER — el cobrador y Despacho reciben 403: la presencia es de la unidad
+  y la unidad la lleva el que maneja.
+- Pegada al GPS: `POST /gps` acepta `"presencia": "ruta" | "ausente"` junto
+  a las posiciones. Es el canal con la pantalla apagada, y hace que el
+  estado sobreviva a un reinicio del servidor.
+
+**Declarar `ruta` NO mete a la unidad en la cadena de brechas.** Eso lo
+confirma el servidor cuando una posición cae sobre el trazado (el umbral del
+desvío). Hasta entonces la unidad viaja en el estado con `presencia: 'ruta'`
+y `enRuta: false`, sin entrada en `gaps`. `ausente` la saca de la cadena sin
+sacarla de `units`; `fuera` la borra en el acto (llega `unit_left`). El
+cliente debe RE-DECLARAR su presencia al reconectar el WebSocket: el
+servidor la guarda en memoria. Un cliente que no declara nada se comporta
+como siempre: en cadena desde la primera posición.
+
 ## 5. Reconexión y caídas
 
 - La app web reconecta **cada 3 s** (`project/realtime.js`) y al volver a
