@@ -57,7 +57,15 @@
     authToken = token;
     authFailed = false;
 
-    if (ws) ws.close();
+    // El socket que se reemplaza no puede hablar más. Sin esto, su onclose
+    // agendaba OTRA reconexión —bucle de identificaciones cada 3 s— y sus
+    // últimos mensajes pisaban el estado del socket nuevo: el cartel de
+    // «otro chofer tomó la unidad» apareciendo en el propio login era esto.
+    clearTimeout(reconnectTimeout);
+    if (ws) {
+      ws.onmessage = ws.onclose = ws.onerror = null;
+      ws.close();
+    }
 
     ws = new WebSocket(SERVER_URL);
 
@@ -124,7 +132,12 @@
   function disconnect() {
     clearTimeout(reconnectTimeout);
     stopGps();
-    if (ws) ws.close();
+    // Mudo antes de cerrar, por la misma razón que en connect(): que un
+    // socket moribundo no agende reconexiones ni emita eventos viejos.
+    if (ws) {
+      ws.onmessage = ws.onclose = ws.onerror = null;
+      ws.close();
+    }
     ws = null;
   }
 
