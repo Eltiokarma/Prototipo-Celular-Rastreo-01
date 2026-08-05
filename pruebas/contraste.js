@@ -11,13 +11,14 @@
 // el #FF2D55 está reservado a emergencia, y ninguna paleta tiene huecos.
 //
 // Dos pisos distintos, y es a propósito:
-//   4.5:1 (AA)  texto normal — etiquetas, chat, tintas de estado.
-//   3.0:1       el número héroe de brecha (texto gigante en Archivo Black,
-//               donde la propia WCAG pide 3:1) y `dim3`, que el tema declara
-//               "metadatos mínimos". Lo que queda entre 3 y 4.5 se lista en
-//               un bloque informativo en cada corrida: no falla, pero no se
-//               esconde. Subir la tinta o la vara es decisión del dueño del
-//               producto, no de esta suite.
+//   4.5:1 (AA)  todo texto — etiquetas, chat, tintas de estado, y también
+//               `dim3`: nació en 3.14 y se subió a AA a propósito (el
+//               argumento del encargo —se lee al sol, de reojo— le aplica
+//               igual a la hora de un mensaje que al número de brecha).
+//   3.0:1       solo el número héroe de brecha: texto gigante en Archivo
+//               Black, donde la propia WCAG pide 3:1. Lo que queda entre 3
+//               y 4.5 se lista en un bloque informativo en cada corrida: no
+//               falla, pero no se esconde.
 const fs = require('fs');
 const RAIZ = require('path').join(__dirname, '..');
 
@@ -96,7 +97,7 @@ const PARES_PROTO = [
   ['texto secundario / fondo',      t => t.fg2,  t => t.bg, AA],
   ['etiquetas / fondo',             t => t.dim,  t => t.bg, AA],
   ['metadatos / fondo',             t => t.dim2, t => t.bg, AA],
-  ['metadatos mínimos / fondo',     t => t.dim3, t => t.bg, GRANDE],
+  ['metadatos mínimos / fondo',     t => t.dim3, t => t.bg, AA],
   ['texto primario / superficie',   t => t.fg,   t => t.surface, AA],
   ['HÉROE verde / fondo',  t => t.resplandor ? t.greenInk : t.green, t => t.bg, GRANDE],
   ['HÉROE ámbar / fondo',  t => t.resplandor ? t.amberInk : t.amber, t => t.bg, GRANDE],
@@ -112,7 +113,7 @@ const PARES_DESP = [
   ['texto secundario / fondo',      t => t.fg2,  t => t.bg, AA],
   ['etiquetas / fondo',             t => t.dim,  t => t.bg, AA],
   ['metadatos / fondo',             t => t.dim2, t => t.bg, AA],
-  ['metadatos mínimos / fondo',     t => t.dim3, t => t.bg, GRANDE],
+  ['metadatos mínimos / fondo',     t => t.dim3, t => t.bg, AA],
   ['texto primario / superficie',   t => t.fg,   t => t.surface, AA],
   ['brecha verde / celda',          t => t.green, t => t.celda, GRANDE],
   ['brecha ámbar / celda',          t => t.amber, t => t.celda, GRANDE],
@@ -189,7 +190,7 @@ medir('despacho', desp.temas, PARES_DESP);
     ['texto primario / fondo',    cread.fg,   cread.bg, AA],
     ['texto secundario / fondo',  cread.fg2,  cread.bg, AA],
     ['etiquetas / fondo',         cread.dim,  cread.bg, AA],
-    ['metadatos mínimos / fondo', cread.dim3, cread.bg, GRANDE],
+    ['metadatos mínimos / fondo', cread.dim3, cread.bg, AA],
     ['tinta verde / su fondo',    cread.verdeTinta, cread.verdeFondo, AA],
     ['tinta ámbar / su fondo',    cread.ambarTinta, cread.ambarFondo, AA],
     ['tinta roja / su fondo',     cread.rojoTinta,  cread.rojoFondo, AA],
