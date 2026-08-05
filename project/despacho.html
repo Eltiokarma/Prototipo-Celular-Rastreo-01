@@ -12,9 +12,23 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Despacho">
 
-<!-- Leaflet: mapa de calles reales -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Leaflet: mapa de calles reales. Lo sirve ESTE servidor, no un CDN.
+     Pasó en producción con el panel del creador: unpkg no entregó leaflet.js
+     y la página quedaba en blanco sin un solo error visible, porque el mapa
+     se inicializaba con `L` sin existir. Despacho es la pantalla que mira el
+     que despacha durante ocho horas: no puede depender de la red de otro. -->
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+<script src="vendor/leaflet/leaflet.js"></script>
+<!-- La caída al CDN es para el caso en que este HTML se publique en un
+     hosting estático sin el servidor Node al lado: ahí la copia local da 404.
+     El navegador ejecuta este bloque recién después del <script> de arriba,
+     así que `L` ya está definido o no lo estará nunca. -->
+<script>
+if (typeof L === 'undefined') {
+  document.write('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />');
+  document.write('<scr' + 'ipt src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/scr' + 'ipt>');
+}
+</script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -174,6 +188,27 @@ function gapColor(gapStr, target = TARGET_GAP_DEFAULT) {
   if (dev <= 0.15) return HUD.green;
   if (dev <= 0.30) return HUD.amber;
   return HUD.red;
+}
+
+// El mismo juicio que `gapColor`, en palabras.
+//
+// Verde y ámbar son EL MISMO COLOR para un daltónico rojo-verde: medido con el
+// validador de paletas, el par queda en ΔE 5,4 bajo protanopia, por debajo del
+// piso aceptable. Y no se arregla moviendo el color — corriendo el ámbar hacia
+// el naranja se despega del verde pero se pega al rojo. La salida es no
+// depender del color: el número de la brecha ya estaba, pero *si esa brecha
+// está bien o se está yendo* lo decía únicamente el color, así que un
+// despachador daltónico veía el dato y no veía el juicio.
+//
+// Las palabras son las de la leyenda que ya está en el mapa, para que la fila
+// y la leyenda no digan lo mismo de dos maneras distintas. Sin dato no hay
+// palabra: el "—" del valor ya dice todo lo que se sabe.
+function gapWord(gapStr, target = TARGET_GAP_DEFAULT) {
+  const c = gapColor(gapStr, target);
+  if (c === HUD.green) return 'EN OBJETIVO';
+  if (c === HUD.amber) return 'AL LÍMITE';
+  if (c === HUD.red) return 'CRÍTICA';
+  return null;
 }
 
 function nowTime(ts) {
@@ -1335,7 +1370,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     informes: ['Informes', 'Descargas para la cooperativa: vueltas, brechas y turnos en un rango de fechas.'],
     empresa: ['Empresa', 'Datos de la cooperativa que se muestran en el panel y en la app del chofer.'],
     audit: ['Actividad', 'Todo lo que se hizo en el panel de esta cooperativa. Solo la de ustedes.'],
-    gerencia: ['Números', 'Cumplimiento, vueltas, horas y SOS del período, por unidad. Se juzga contra el objetivo de HOY de cada ruta.'],
+    gerencia: ['Números', 'Cumplimiento, vueltas, horas y SOS del período, por unidad. Cada vuelta se juzga contra el objetivo que regía cuando se cerró.'],
   };
 
   const fmtSeg = (s) => s == null ? '—'
@@ -2039,11 +2074,15 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                         cabeceras={['Unidad', 'Salió', 'Volvió', 'Brecha promedio', 'Vuelta']}>
                         {vueltas.vueltas.map(l => {
                           // La barra se lee contra el objetivo: llena = en el
-                          // objetivo, corta = pegada al de adelante.
+                          // objetivo, corta = pegada al de adelante. Contra el
+                          // de ESA vuelta si lo tiene guardado: con objetivo
+                          // automático el número se mueve dentro del mismo día,
+                          // y esta lista abarca las últimas 24 horas.
+                          const vara = l.objetivoSec || obj;
                           const color = l.brechaProm === null ? HUD.dim3
-                            : gapColor(fmtSeg(l.brechaProm), obj ? obj / 60 : TARGET_GAP_DEFAULT);
-                          const parte = l.brechaProm === null || !obj ? 0
-                            : Math.max(0.04, Math.min(1, l.brechaProm / obj));
+                            : gapColor(fmtSeg(l.brechaProm), vara ? vara / 60 : TARGET_GAP_DEFAULT);
+                          const parte = l.brechaProm === null || !vara ? 0
+                            : Math.max(0.04, Math.min(1, l.brechaProm / vara));
                           return (
                             <FilaTabla key={l.id} cols={cols}>
                               <span style={{ fontFamily: black, fontSize: 14 }}>{l.unitId}</span>
@@ -2110,7 +2149,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 La <strong>brecha promedio</strong> es la separación que la unidad
                 mantuvo contra la de adelante durante toda la vuelta. Empieza a
                 existir el día que se enciende: las vueltas viejas quedan sin el dato
-                y no se puede reconstruir. La base retiene las últimas 2000 vueltas.
+                y no se puede reconstruir. La base retiene 120 días de vueltas.
               </Pie>
             </div>)}
 
@@ -2119,6 +2158,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               const informes = [
                 ['vueltas', 'Vueltas y brechas (CSV)', true],
                 ['horas', 'Turnos por persona (CSV)', false],
+                ['desvios', 'Salidas del recorrido (CSV)', false],
                 ['sos', 'Emergencias (CSV)', false],
                 ['actividad', 'Actividad de administración (CSV)', false],
               ];
@@ -2293,7 +2333,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     }}>{d} días</button>
                 ))}
                 <div style={{ flex: 1 }} />
-                {['vueltas', 'turnos'].map(tipo => (
+                {/* Los nombres son los del servidor (`INFORMES`), no los de la
+                    pantalla: "turnos" no existe y el botón devolvía 404 con un
+                    "No se pudo descargar" que no decía nada. El de horas se
+                    llama `horas`. */}
+                {[['vueltas', 'vueltas'], ['horas', 'turnos'], ['desvios', 'salidas']].map(([tipo, rotulo]) => (
                   <button key={tipo} style={btnSecundario(36)} onClick={async () => {
                     try {
                       const hasta = Date.now(), desde = hasta - diasGer * 86400000;
@@ -2307,7 +2351,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                       a.click();
                       URL.revokeObjectURL(url);
                     } catch (e) { setError(e.message); }
-                  }}>CSV {tipo}</button>
+                  }}>CSV {rotulo}</button>
                 ))}
               </div>
 
@@ -2323,6 +2367,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     ['Brecha promedio', resumenGer.totales.brechaProm === null ? '—' : `${Math.floor(resumenGer.totales.brechaProm / 60)}:${String(resumenGer.totales.brechaProm % 60).padStart(2, '0')}`],
                     ['Horas trabajadas', `${(resumenGer.totales.horasSec / 3600).toFixed(1)} h`],
                     ['Unidades', resumenGer.totales.unidades],
+                    ['Salidas del recorrido', resumenGer.totales.desvios ?? 0],
                     ['SOS', resumenGer.totales.sos],
                   ].map(([etiqueta, valor]) => (
                     <div key={etiqueta} style={{ ...tarjeta(14), background: HUD.bg }}>
@@ -2336,11 +2381,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   <Vacio>Sin vueltas cerradas en el período.</Vacio>
                 )}
                 {resumenGer.porUnidad.length > 0 && (
-                  <Tabla cols="110px 90px 1fr 1fr 1fr 1fr" ancho={640}
-                    cabeceras={['Unidad', 'Ruta', 'Vueltas', 'Cumple', 'Brecha prom.', 'Horas']}>
+                  <Tabla cols="110px 90px 1fr 1fr 1fr 1fr 1fr" ancho={720}
+                    cabeceras={['Unidad', 'Ruta', 'Vueltas', 'Cumple', 'Brecha prom.', 'Horas', 'Salidas']}>
                     {resumenGer.porUnidad.map(u => (
                       <div key={u.unitId} style={{
-                        display: 'grid', gridTemplateColumns: '110px 90px 1fr 1fr 1fr 1fr',
+                        display: 'grid', gridTemplateColumns: '110px 90px 1fr 1fr 1fr 1fr 1fr',
                         gap: 12, alignItems: 'center', padding: '11px 14px',
                         borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
                       }}>
@@ -2357,6 +2402,14 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                           {u.brechaProm === null ? '—' : fmtSeg(u.brechaProm)}
                         </div>
                         <div>{(u.horasSec / 3600).toFixed(1)} h</div>
+                        {/* Cuántas veces se salió del recorrido y cuánto duró
+                            en total. Una salida es una obra; la misma salida
+                            todos los días es otra cosa, y sin este número las
+                            dos se ven igual. */}
+                        <div title={u.desvios ? `${Math.round((u.desvioSec || 0) / 60)} min fuera del recorrido en total` : 'No se salió del recorrido'}
+                          style={{ fontFamily: mono, color: u.desvios ? HUD.amber : HUD.dim3 }}>
+                          {u.desvios ? `${u.desvios} · ${Math.round((u.desvioSec || 0) / 60)}′` : '—'}
+                        </div>
                       </div>
                     ))}
                   </Tabla>
@@ -2365,9 +2418,21 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 <Pie>
                   Una vuelta cumple si su brecha quedó dentro del
                   {' '}{Math.round((resumenGer.toleranciaCumple || 0.15) * 100)} % del objetivo de SU ruta —
-                  el mismo criterio que pinta de verde el mapa. Se juzga contra el
-                  objetivo de HOY: si el objetivo cambió durante el período, las
-                  vueltas viejas se miden con el nuevo.
+                  el mismo criterio que pinta de verde el mapa. Cada vuelta se
+                  juzga contra el objetivo que regía cuando se cerró, no contra
+                  el de hoy.
+                  {/* Mientras queden vueltas anteriores a que el objetivo se
+                      guardara, una parte del número está medida con la vara de
+                      hoy. Se dice cuántas son: callarlo es presentar como
+                      exacto un promedio que todavía no lo es. Con el tiempo
+                      llega solo a cero y esta línea desaparece sola. */}
+                  {resumenGer.totales.conObjetivoViejo > 0 && (
+                    <span style={{ color: HUD.amber }}>
+                      {' '}De las {resumenGer.totales.conObjetivoViejo + resumenGer.totales.conObjetivoPropio}
+                      {' '}vueltas juzgadas, {resumenGer.totales.conObjetivoViejo} son anteriores a que el
+                      objetivo se guardara con cada vuelta y se miden contra el de hoy.
+                    </span>
+                  )}
                 </Pie>
               </div>)}
             </div>)}
@@ -3148,12 +3213,24 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                 <div style={{
                   display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 9,
                 }}>
-                  {[['+1 ADELANTE', g.toAhead, cAdelante], ['−1 ATRÁS', g.toBehind, cAtras]].map(([et, val, color]) => (
-                    <div key={et} style={{ padding: '6px 8px', borderRadius: 8, background: HUD.celda }}>
-                      <div style={{ ...rotulo(9), letterSpacing: 1 }}>{et}</div>
-                      <div style={{ fontFamily: black, fontSize: 17, lineHeight: 1.2, color }}>{val || '—'}</div>
-                    </div>
-                  ))}
+                  {[['+1 ADELANTE', g.toAhead, cAdelante], ['−1 ATRÁS', g.toBehind, cAtras]].map(([et, val, color]) => {
+                    const palabra = gapWord(val, routeInfo.targetGapMin);
+                    return (
+                      <div key={et} style={{ padding: '6px 8px', borderRadius: 8, background: HUD.celda }}>
+                        <div style={{ ...rotulo(9), letterSpacing: 1 }}>{et}</div>
+                        <div style={{ fontFamily: black, fontSize: 17, lineHeight: 1.2, color }}>{val || '—'}</div>
+                        {/* El juicio en palabras, porque el color solo no lo
+                            dice para un daltónico rojo-verde. Ver
+                            LIMITACIONES.md, sección Accesibilidad. */}
+                        {palabra && (
+                          <div style={{
+                            fontFamily: mono, fontSize: 9, fontWeight: 700,
+                            letterSpacing: .8, color, marginTop: 1,
+                          }}>{palabra}</div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
                 {/* No se puede esconder ni resumir: es el aviso por el que
                     Despacho levanta el teléfono. */}

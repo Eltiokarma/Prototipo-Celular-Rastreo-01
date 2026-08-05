@@ -600,7 +600,26 @@ addColumnIfMissing('messages', 'toVehicleId', 'TEXT');
 addColumnIfMissing('companies', 'logo', 'TEXT');
 
 const HISTORY_MAX = 200;   // mensajes que recibe un cliente al conectarse
-const KEEP_ROWS = 1000;    // filas totales que retiene la base
+
+// Cuánto historial de mensajes se guarda, y por qué NO es un tope de filas.
+//
+// Era uno solo y global: las últimas 1000 filas de toda la base. Con una ruta
+// y seis combis alcanza. Con 40 rutas no: cada cliente recibe hasta 200
+// mensajes DE SU RUTA al conectarse, así que 40 rutas necesitan 8000 filas
+// solo para que nadie abra el chat vacío — y el tope era 1000. Peor todavía,
+// en esta misma tabla viven los SOS: una tarde de chat activo borraba las
+// emergencias del mes, que son justo lo que nadie puede perder. El informe de
+// emergencias y el contador del gerente salían vacíos y no había forma de
+// darse cuenta mirando la pantalla.
+//
+// En días significa lo mismo con seis combis que con dos mil. El SOS se
+// guarda mucho más que la conversación porque no es lo mismo: un "¿espero en
+// el paradero?" de hace dos meses no le importa a nadie, un accidente sí.
+const CHAT_DIAS = Number(process.env.CHAT_DIAS || 30);
+const SOS_DIAS = Number(process.env.SOS_DIAS || 365);
+// Techo de filas como cinturón, nunca como el límite de todos los días: son
+// filas de texto, así que medio millón son unas decenas de MB.
+const MENSAJES_MAX_FILAS = Number(process.env.MENSAJES_MAX_FILAS || 500_000);
 // Cuánto contenido pesado se conserva. Configurable por entorno solo para
 // poder probarlo: con los valores de producción, una suite tendría que mandar
 // 20 fotos, y el cupo por minuto (6) la frenaría antes — serían cuatro
@@ -613,8 +632,15 @@ const insertStmt = db.prepare(`
   INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, toVehicleId, text, duration, data, lat, lng, timestamp)
   VALUES (@kind, @unitId, @driverName, @routeId, @vehicleId, @toVehicleId, @text, @duration, @data, @lat, @lng, @timestamp)
 `);
+// La conversación vieja se va; el SOS viejo se queda mucho más. Se poda cada
+// 6 h junto con el resto del historial y NO en cada mensaje: a esta escala
+// serían miles de recorridas de tabla por hora para borrar nada.
+const pruneChatStmt = db.prepare(
+  "DELETE FROM messages WHERE kind != 'sos' AND timestamp < @corte");
+const pruneSosStmt = db.prepare(
+  "DELETE FROM messages WHERE kind = 'sos' AND timestamp < @corte");
 const pruneRowsStmt = db.prepare(`
-  DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY id DESC LIMIT ${KEEP_ROWS})
+  DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY id DESC LIMIT @tope)
 `);
 // Lo pesado viejo suelta su contenido pero conserva la burbuja — el cliente
 // la muestra como expirada, que es honesto: existió, ya no está.
@@ -633,7 +659,8 @@ function remember(item) {
   try {
     insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null,
       vehicleId: null, toVehicleId: null, ...item });
-    pruneRowsStmt.run();
+    // Lo pesado sí se poda en el acto: una foto ocupa lugar de verdad y no
+    // puede esperar seis horas. Las filas de texto se podan en la barrida.
     pruneMediaStmt.run({ kind: 'voice', conservar: VOICE_KEEP });
     pruneMediaStmt.run({ kind: 'photo', conservar: PHOTO_KEEP });
   } catch (e) {
@@ -933,20 +960,91 @@ const DESVIO_MUESTRAS = 10;
 // tiene sentido seguir mostrándolo fuera.
 const REGRESO_MUESTRAS = 4;
 
-// { vehicleId → { fuera, seguidasFuera, seguidasDentro, desde, maxM } }
+// Los desvíos que ya pasaron.
+//
+// Hasta ahora el desvío se detectaba y se gestionaba EN VIVO y se perdía: al
+// día siguiente no había forma de contestar "¿cuántas veces se salió M-17 la
+// semana pasada, y por cuánto tiempo?". El aviso servía para el momento y para
+// nada más, y es justo la clase de dato que una cooperativa mira cuando tiene
+// que hablar con un chofer: uno se sale una vez por una obra, otro se sale
+// todos los días a la misma hora, y esas dos cosas se parecen mucho mientras
+// se las mire de a una.
+//
+// Se guarda el episodio ENTERO, no cada posición: una fila por salida, con
+// cuándo empezó, cuándo volvió, cuánto se alejó como máximo y si Despacho lo
+// tenía silenciado en ese momento (un desvío silenciado sigue siendo un
+// desvío; lo que cambia es que ya se sabía).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS deviations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicleId TEXT NOT NULL,
+    routeId TEXT NOT NULL,
+    startedAt INTEGER NOT NULL,
+    endedAt INTEGER,             -- NULL mientras sigue afuera
+    durationSec INTEGER,
+    maxM INTEGER NOT NULL,
+    umbralM INTEGER NOT NULL,    -- contra qué se lo midió: el umbral cambia
+    silenciado INTEGER NOT NULL DEFAULT 0,
+    cierre TEXT                  -- 'regreso' | 'corte' | 'trazado'
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_deviations_ruta ON deviations (routeId, startedAt)');
+
+// Un desvío abierto al apagarse el servidor quedaría abierto para siempre y
+// ensuciaría todos los informes con una duración que crece sola. Se los cierra
+// al arrancar, marcados como lo que son: cortados, no terminados.
+{
+  const abiertos = db.prepare(
+    "UPDATE deviations SET endedAt = startedAt, durationSec = 0, cierre = 'corte' WHERE endedAt IS NULL").run();
+  if (abiertos.changes) {
+    console.log(`${abiertos.changes} desvío(s) quedaron abiertos del arranque anterior: cerrados como cortados`);
+  }
+}
+
+// { vehicleId → { fuera, seguidasFuera, seguidasDentro, desde, maxM, id } }
 const desvios = new Map();
+
+// Abre la fila del episodio y devuelve su id, para poder cerrarla después.
+function abrirDesvio(vehicleId, routeId, maxM, umbralM, silenciado) {
+  return db.prepare(
+    'INSERT INTO deviations (vehicleId, routeId, startedAt, maxM, umbralM, silenciado) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(vehicleId, routeId, Date.now(), Math.round(maxM), umbralM, silenciado ? 1 : 0).lastInsertRowid;
+}
+
+// Cierra el episodio. `cierre` dice POR QUÉ dejó de estar abierto, que no es
+// lo mismo en los tres casos: volvió al trazado, se quedó sin señal (o terminó
+// el turno) mientras seguía afuera, o le cambiaron el trazado abajo — en ese
+// último ni siquiera se puede afirmar que estuviera fuera de algo.
+function cerrarDesvio(estado, cierre) {
+  if (!estado || !estado.id) return;
+  const ahora = Date.now();
+  db.prepare('UPDATE deviations SET endedAt = ?, durationSec = ?, maxM = ?, cierre = ? WHERE id = ?')
+    .run(ahora, Math.max(0, Math.round((ahora - estado.desde) / 1000)), estado.maxM, cierre, estado.id);
+  estado.id = null;
+}
+
+// Todo camino por el que una unidad deja de ser evaluada tiene que cerrar su
+// desvío abierto: si no, la fila queda creciendo y el informe del mes dice que
+// una combi estuvo fuera de ruta cuatro días.
+function olvidarDesvio(vehicleId, cierre) {
+  const e = desvios.get(vehicleId);
+  if (e && e.fuera) cerrarDesvio(e, cierre);
+  desvios.delete(vehicleId);
+}
 
 function evaluarDesvio(vehicleId, routeId, desvioM) {
   const ruta = routeOf(routeId);
   // Sin geometría no hay nada que comparar
   if (desvioM === null || desvioM === undefined || !ruta) {
-    desvios.delete(vehicleId);
+    // Se quedó sin con qué compararse. Si venía afuera, el episodio se cierra
+    // acá: dejar la fila abierta la haría crecer hasta el fin de los tiempos.
+    olvidarDesvio(vehicleId, 'corte');
     return null;
   }
   const umbral = ruta.desvioMaxM || DESVIO_DEFECTO_M;
   let e = desvios.get(vehicleId);
   if (!e) {
-    e = { fuera: false, seguidasFuera: 0, seguidasDentro: 0, desde: null, maxM: 0 };
+    e = { fuera: false, seguidasFuera: 0, seguidasDentro: 0, desde: null, maxM: 0, maxGuardado: 0 };
     desvios.set(vehicleId, e);
   }
 
@@ -958,10 +1056,23 @@ function evaluarDesvio(vehicleId, routeId, desvioM) {
       e.fuera = true;
       e.desde = Date.now();
       const mudo = ruta.desvioMudoHasta && ruta.desvioMudoHasta > Date.now();
+      // Se guarda TAMBIÉN el silenciado. Silenciar es "ya lo sé, no me avises
+      // más", no "esto no pasó": si no quedara registrado, la forma de que un
+      // desvío no aparezca en el informe sería apretar el botón de silencio.
+      e.id = abrirDesvio(vehicleId, routeId, e.maxM, umbral, mudo);
+      e.maxGuardado = e.maxM;
       if (!mudo) {
         console.log(`Fuera de ruta: ${vehicleId} a ${Math.round(desvioM)} m del trazado`);
         audit('sistema', 'desvio', vehicleId, `${Math.round(desvioM)} m del trazado`, routeId);
       }
+    } else if (e.fuera && e.id && e.maxM > e.maxGuardado) {
+      // Mientras dura, el máximo puede seguir creciendo: si el servidor se cae
+      // con el episodio abierto, la fila ya tiene el peor valor visto. Se
+      // escribe SOLO cuando de verdad creció — si no, sería una escritura por
+      // cada posición de cada unidad que esté afuera, que a 2000 unidades es
+      // mucho disco para dejar el mismo número.
+      db.prepare('UPDATE deviations SET maxM = ? WHERE id = ?').run(e.maxM, e.id);
+      e.maxGuardado = e.maxM;
     }
   } else {
     e.seguidasDentro++;
@@ -969,9 +1080,11 @@ function evaluarDesvio(vehicleId, routeId, desvioM) {
     if (e.fuera && e.seguidasDentro >= REGRESO_MUESTRAS) {
       const minutos = Math.round((Date.now() - e.desde) / 60000);
       console.log(`De vuelta en ruta: ${vehicleId} (estuvo ${minutos} min fuera)`);
+      cerrarDesvio(e, 'regreso');
       e.fuera = false;
       e.desde = null;
       e.maxM = 0;
+      e.maxGuardado = 0;
     }
   }
   return e;
@@ -1092,6 +1205,22 @@ addColumnIfMissing('laps', 'variantId', 'INTEGER');
 // atrás. Queda NULL cuando no hubo con quién compararse.
 addColumnIfMissing('laps', 'brechaProm', 'INTEGER');
 
+// El objetivo de brecha que REGÍA cuando se cerró esta vuelta, en segundos.
+//
+// Sin esto, el cumplimiento se medía contra el objetivo de HOY. Con objetivo
+// manual casi da igual —cambia cuando alguien lo cambia—, pero con objetivo
+// automático el número se mueve solo: depende de cuántas unidades hay en ruta
+// y de la vuelta promedio de ese día de la semana. Un lunes con 12 combis y un
+// jueves con 6 no tienen el mismo objetivo, así que el informe de la semana
+// pasada juzgaba las vueltas del lunes con la vara del jueves y nadie podía
+// notarlo mirando la pantalla.
+//
+// Queda NULL en las vueltas viejas —el dato no existió cuando se cerraron y no
+// hay forma de reconstruirlo— y esas se siguen juzgando contra el objetivo de
+// hoy, que es lo único que hay. El informe dice cuántas son de cada clase en
+// vez de mezclarlas en silencio.
+addColumnIfMissing('laps', 'objetivoSec', 'INTEGER');
+
 // Las vueltas que ya estaban guardadas cuando el recorrido pasó a colgar de
 // una variante se midieron con ESE trazado: es el mismo, solo que ahora tiene
 // un nombre. Se las ata a él, porque si no el objetivo automático de cada
@@ -1108,6 +1237,49 @@ if (variantesMigradas.size) {
   if (n) console.log(`${n} vuelta(s) atadas al recorrido con el que se midieron`);
   variantesMigradas = new Map();
 }
+
+// Cuánto historial se guarda, y por qué se mide en DÍAS y no en filas.
+//
+// Antes el tope era global y fijo: las últimas 2000 vueltas, borradas en cada
+// cierre de vuelta. Con seis combis eso son meses de historial y funcionaba.
+// Con 2000 unidades son **tres horas**: cada una cierra unas ocho vueltas por
+// turno, o sea unas 16 000 por día, así que el informe de la semana pasada
+// saldría vacío y el objetivo automático se quedaría sin promedio del que
+// salir. Un tope en filas significa cosas distintas según el tamaño de la
+// cooperativa, que es justo lo que un tope no debería hacer.
+//
+// En días significa lo mismo siempre. 120 cubre con margen los 90 que es el
+// rango máximo que acepta un informe, y a 16 000 vueltas por día son ~2
+// millones de filas de unos 100 bytes: unos 200 MB, que SQLite mueve sin
+// despeinarse (`ESCALABILIDAD.md`). El techo de filas queda como cinturón por
+// si alguna vez el reloj o la carga se van a un lugar raro — nunca como el
+// límite que manda todos los días.
+const LAPS_DIAS = Number(process.env.LAPS_DIAS || 120);
+const LAPS_MAX_FILAS = Number(process.env.LAPS_MAX_FILAS || 3_000_000);
+const DESVIOS_DIAS = Number(process.env.DESVIOS_DIAS || LAPS_DIAS);
+
+// Podar es barato pero no gratis (recorre por fecha), y no hay ningún apuro:
+// una fila de hace 120 días y 3 horas no molesta a nadie. Va cada 6 horas, y
+// una vez al arrancar para que un servidor que estuvo apagado se ponga al día.
+function podarHistorico() {
+  const corte = Date.now() - LAPS_DIAS * 86400_000;
+  const viejas = db.prepare('DELETE FROM laps WHERE finishedAt < ?').run(corte).changes;
+  const sobrantes = db.prepare(
+    'DELETE FROM laps WHERE id NOT IN (SELECT id FROM laps ORDER BY id DESC LIMIT ?)').run(LAPS_MAX_FILAS).changes;
+  const desviosViejos = db.prepare(
+    'DELETE FROM deviations WHERE startedAt < ?').run(Date.now() - DESVIOS_DIAS * 86400_000).changes;
+  const chat = pruneChatStmt.run({ corte: Date.now() - CHAT_DIAS * 86400_000 }).changes;
+  const sos = pruneSosStmt.run({ corte: Date.now() - SOS_DIAS * 86400_000 }).changes;
+  const mensajesDeMas = pruneRowsStmt.run({ tope: MENSAJES_MAX_FILAS }).changes;
+  if (viejas || sobrantes || desviosViejos || chat || sos || mensajesDeMas) {
+    console.log(`Historial podado: ${viejas + sobrantes} vuelta(s), ${desviosViejos} desvío(s), ` +
+      `${chat + mensajesDeMas} mensaje(s), ${sos} SOS` +
+      (sobrantes ? ` — ${sobrantes} vuelta(s) por el techo de ${LAPS_MAX_FILAS} filas` : ''));
+  }
+}
+
+podarHistorico();
+setInterval(podarHistorico, 6 * 3600_000).unref();
 
 // ¿El objetivo de brecha se calcula solo? Apagado por defecto: una ruta
 // recién cargada no tiene historial y el número manual es el que vale.
@@ -1139,6 +1311,9 @@ function fijarPresencia(vehicleId, routeId, estado) {
     // Se va del mapa EN EL ACTO, no a los 3 minutos del olvido: lo pidió él.
     presencias.delete(vehicleId);
     lapState.delete(vehicleId);
+    // Terminó el turno estando fuera del trazado: el episodio se cierra acá.
+    // Dejarlo abierto lo haría durar hasta que alguien lo mire.
+    olvidarDesvio(vehicleId, 'corte');
     const u = units.get(vehicleId);
     units.delete(vehicleId);
     // El mismo aviso que manda el olvido: los mapas que borran por evento
@@ -1198,9 +1373,14 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
     // compararse —una unidad sola en la ruta, o la que iba primera todo el
     // tiempo— y así no cuenta ni a favor ni en contra de nadie.
     const brechaProm = st.brechaCount ? Math.round(st.brechaSum / st.brechaCount) : null;
-    db.prepare('INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(unitId, routeId || null, geo ? geo.variantId : null, st.lapStart, now, durationSec, avgSpeed, brechaProm);
-    db.prepare('DELETE FROM laps WHERE id NOT IN (SELECT id FROM laps ORDER BY id DESC LIMIT 2000)').run();
+    // Contra qué vara se corrió esta vuelta. Se toma ACÁ, al cerrarla, porque
+    // es el único momento en que existe: con objetivo automático el número
+    // cambia con las unidades que hay en ruta, y dentro de un mes nadie puede
+    // reconstruir cuántas había este martes a las 7. Sin ruta no hay objetivo
+    // que valga —el progreso vino estimado por el cliente—, y queda NULL.
+    const objetivoSec = routeId ? Math.round(objetivoDe(routeId).min * 60) : null;
+    db.prepare('INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(unitId, routeId || null, geo ? geo.variantId : null, st.lapStart, now, durationSec, avgSpeed, brechaProm, objetivoSec);
     console.log(`Vuelta completada: ${unitId} en ${Math.round(durationSec / 60)} min`);
     objetivoCache.delete(routeId);   // hay un dato nuevo: que se recalcule
     lapState.set(unitId, {
@@ -1713,9 +1893,11 @@ function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
   }
 
   // El estado de desvío también: lo que estaba fuera con el trazado viejo
-  // puede estar adentro del nuevo, y al revés.
+  // puede estar adentro del nuevo, y al revés. El episodio abierto se cierra
+  // marcado como 'trazado' — de esos no se puede afirmar cuánto duró el
+  // desvío, porque a mitad de camino cambió contra qué se lo medía.
   for (const [vehicleId, unidad] of units) {
-    if (unidad.routeId === routeId) desvios.delete(vehicleId);
+    if (unidad.routeId === routeId) olvidarDesvio(vehicleId, 'trazado');
   }
 
   // El objetivo automático se recalcula solo con las vueltas de ESTA
@@ -2271,7 +2453,7 @@ const INFORMES = {
   // Vueltas por unidad: cuántas, cuánto tardaron, a qué velocidad
   vueltas: (filtro) => {
     const filas = db.prepare(`
-      SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm
+      SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
       FROM laps
       WHERE finishedAt BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -2280,14 +2462,19 @@ const INFORMES = {
     `).all(filtro);
     return {
       nombre: 'vueltas',
+      // El objetivo va AL LADO de la brecha: sin él, la columna "Brecha
+      // promedio" es un número sin vara. Y tiene que ser el de esa vuelta y no
+      // el de hoy, porque el que abre el CSV el mes que viene no tiene forma
+      // de saber cuál regía ese martes.
       cabecera: ['Unidad', 'Ruta', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos',
-        'Velocidad media (km/h)', 'Brecha promedio (m:ss)'],
+        'Velocidad media (km/h)', 'Brecha promedio (m:ss)', 'Objetivo de esa vuelta (m:ss)'],
       filas: filas.map(l => [
         l.unitId, l.routeId, fechaHora(l.startedAt), fechaHora(l.finishedAt),
         duracionHm(l.durationSec), Math.round(l.durationSec / 60), l.avgSpeed,
         // Vacío en las vueltas anteriores a que esto existiera, y en las que
         // no tuvieron con quién compararse. Vacío es más honesto que un cero.
         l.brechaProm === null ? '' : formatMinutes(l.brechaProm / 60),
+        l.objetivoSec ? formatMinutes(l.objetivoSec / 60) : '',
       ]),
     };
   },
@@ -2335,6 +2522,41 @@ const INFORMES = {
       filas: filas.map(m => [
         fechaHora(m.timestamp), m.driverName, m.unitId, m.vehicleId, m.routeId,
         m.lat ?? '', m.lng ?? '',
+      ]),
+    };
+  },
+
+  // Salidas del recorrido. Una fila por episodio, no por posición: lo que se
+  // quiere contestar es "cuántas veces y por cuánto tiempo", no "dónde estuvo
+  // cada tres segundos".
+  desvios: (filtro) => {
+    const filas = db.prepare(`
+      SELECT vehicleId, routeId, startedAt, endedAt, durationSec, maxM, umbralM, silenciado, cierre
+      FROM deviations
+      WHERE startedAt BETWEEN @desde AND @hasta
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY startedAt
+    `).all(filtro);
+    // Cada columna dice contra qué se midió: el umbral es por ruta y se puede
+    // cambiar, así que "estuvo a 340 m" no significa lo mismo en dos rutas.
+    const COMO_TERMINO = {
+      regreso: 'volvió al recorrido',
+      corte: 'dejó de reportar',
+      trazado: 'le cambiaron el trazado',
+    };
+    return {
+      nombre: 'desvios',
+      cabecera: ['Unidad', 'Ruta', 'Salió', 'Volvió', 'Duración (h:mm)', 'Minutos',
+        'Máxima distancia (m)', 'Umbral de la ruta (m)', 'Cómo terminó', 'Estaba silenciado'],
+      filas: filas.map(d => [
+        d.vehicleId, d.routeId, fechaHora(d.startedAt),
+        d.endedAt ? fechaHora(d.endedAt) : '',
+        d.durationSec === null ? '' : duracionHm(d.durationSec),
+        d.durationSec === null ? '' : Math.round(d.durationSec / 60),
+        d.maxM, d.umbralM,
+        COMO_TERMINO[d.cierre] || (d.endedAt ? d.cierre : 'sigue fuera'),
+        d.silenciado ? 'sí' : 'no',
       ]),
     };
   },
@@ -2481,8 +2703,12 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
   })();
 
+  // `objetivoSec` viaja por vuelta: el de la ruta viene aparte en la respuesta
+  // pero es el de AHORA, y con objetivo automático puede haber cambiado dentro
+  // del mismo día — la lista es de las últimas 24 h, más que suficiente para
+  // que se mueva. Cada fila se pinta contra la vara con la que se corrió.
   const filas = db.prepare(`
-    SELECT id, unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm
+    SELECT id, unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
     FROM laps
     WHERE finishedAt >= @inicio
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -2601,9 +2827,13 @@ function requireManager(req, res, next) {
 // misma tolerancia que pinta de verde el panel de Despacho, para que los dos
 // paneles no digan cosas distintas del mismo día.
 //
-// OJO con lo que esto NO es: se mide contra el objetivo de HOY, no contra el
-// que regía cuando se cerró la vuelta. Ese número no se guarda con la vuelta,
-// y con objetivo automático puede haber cambiado. La pantalla lo dice.
+// Cada vuelta se juzga contra el objetivo que REGÍA cuando se cerró
+// (`laps.objetivoSec`). Antes se juzgaba contra el de hoy, que con objetivo
+// automático puede ser otro: el número depende de cuántas unidades hay en
+// ruta, así que un lunes con 12 combis y un jueves con 6 no tienen la misma
+// vara. Las vueltas anteriores a que esto existiera no lo tienen guardado y no
+// hay forma de reconstruirlo; ésas caen al objetivo de hoy y se CUENTAN
+// aparte, para que la pantalla pueda decirlo en vez de mezclarlas callada.
 const TOLERANCIA_CUMPLE = 0.15;
 
 app.get('/gerencia/resumen', requireManager, (req, res) => {
@@ -2631,7 +2861,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   const objetivoDeRuta = new Map(rutas.map(r => [r.routeId, r.objetivoSec]));
 
   const vueltas = db.prepare(`
-    SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm
+    SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
     FROM laps
     WHERE finishedAt BETWEEN @desde AND @hasta
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -2639,10 +2869,14 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     ORDER BY finishedAt
   `).all(filtro);
 
+  // Contra qué se juzga cada vuelta: el objetivo que regía cuando se cerró y,
+  // solo si esa vuelta es anterior a que lo guardáramos, el de hoy.
+  const varaDe = (l) => l.objetivoSec || objetivoDeRuta.get(l.routeId) || null;
+
   // Cumple / no cumple, vuelta por vuelta. `null` cuando no hay con qué
   // juzgarla: sin brecha guardada, o sin objetivo para su ruta.
   const juzgar = (l) => {
-    const obj = objetivoDeRuta.get(l.routeId);
+    const obj = varaDe(l);
     if (l.brechaProm === null || !obj) return null;
     return Math.abs(l.brechaProm - obj) / obj <= TOLERANCIA_CUMPLE;
   };
@@ -2691,6 +2925,30 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     horasDe.set(t.vehicleId, (horasDe.get(t.vehicleId) || 0) + sec);
   }
 
+  // Salidas del recorrido del período. Es lo que le faltaba a este cuadro:
+  // hasta ahora el desvío se veía en vivo y se perdía, así que el gerente
+  // podía saber cuántas vueltas dio cada unidad pero no cuántas veces se
+  // salió. Un desvío aislado es una obra; el mismo desvío todos los días es
+  // otra cosa, y sin el histórico las dos se ven igual.
+  const desviosPeriodo = db.prepare(`
+    SELECT vehicleId, routeId, startedAt, endedAt, durationSec, maxM, silenciado, cierre
+    FROM deviations
+    WHERE startedAt BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    ORDER BY startedAt DESC
+  `).all(filtro);
+  const desviosDe = new Map();
+  for (const d of desviosPeriodo) {
+    if (!desviosDe.has(d.vehicleId)) desviosDe.set(d.vehicleId, { veces: 0, segundos: 0, maxM: 0 });
+    const x = desviosDe.get(d.vehicleId);
+    x.veces++;
+    // Los cortados (dejó de reportar) cuentan como salida pero su duración no
+    // se sabe: sumarla como cero es más honesto que inventar hasta cuándo.
+    x.segundos += d.durationSec || 0;
+    x.maxM = Math.max(x.maxM, d.maxM);
+  }
+
   const unidades = new Map();
   for (const l of vueltas) {
     if (!unidades.has(l.unitId)) unidades.set(l.unitId, []);
@@ -2709,6 +2967,8 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       cumplimiento: porcentaje(ls.map(juzgar)),
       sinBrecha: ls.length - conB.length,
       horasSec: horasDe.get(unitId) || 0,
+      desvios: (desviosDe.get(unitId) || { veces: 0 }).veces,
+      desvioSec: (desviosDe.get(unitId) || { segundos: 0 }).segundos,
     };
   }).sort((a, b) => b.vueltas - a.vueltas);
 
@@ -2735,6 +2995,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     p.horasSec += Math.max(0, Math.round(((t.endedAt || t.lastSeenAt || ahora) - t.startedAt) / 1000));
     if (t.vehicleId) p.unidades.add(t.vehicleId);
   }
+
 
   // Emergencias del período. Se cuentan y se listan: en una reunión "hubo tres
   // SOS" abre una conversación que "hubo SOS" no abre.
@@ -2764,6 +3025,15 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       sinBrecha: vueltas.length - conBrecha.length,
       horasSec: Array.from(horasDe.values()).reduce((a, x) => a + x, 0),
       sos: sos.length,
+      // Cuántas de las vueltas juzgadas se midieron contra el objetivo de SU
+      // momento y cuántas contra el de hoy porque son anteriores a que se
+      // guardara. Mientras `conObjetivoViejo` no sea cero el número de
+      // cumplimiento tiene una parte medida con la vara equivocada, y la
+      // pantalla tiene que poder decirlo. Con el tiempo llega solo a cero.
+      conObjetivoPropio: vueltas.filter(l => l.brechaProm !== null && l.objetivoSec).length,
+      conObjetivoViejo: vueltas.filter(l => l.brechaProm !== null && !l.objetivoSec).length,
+      desvios: desviosPeriodo.length,
+      desvioSec: desviosPeriodo.reduce((a, d) => a + (d.durationSec || 0), 0),
     },
     porDia,
     porUnidad,
@@ -2771,6 +3041,9 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       .map(p => ({ ...p, unidades: Array.from(p.unidades) }))
       .sort((a, b) => b.horasSec - a.horasSec),
     sos,
+    // Los últimos, con nombre y apellido: el número suelto dice que hubo
+    // catorce salidas, y la lista dice cuáles y de quién.
+    desvios: desviosPeriodo.slice(0, 50),
     toleranciaCumple: TOLERANCIA_CUMPLE,
   });
 });
@@ -2840,6 +3113,27 @@ function resolveProjectDir() {
 }
 
 const PROJECT_DIR = resolveProjectDir();
+
+// Leaflet lo sirve ESTE servidor, no un CDN. Ya pasó en producción con el
+// panel del creador: unpkg no entregó leaflet.js y elegir una ruta dejaba la
+// página en blanco, sin un solo error visible — el mapa se inicializaba con
+// `L` sin existir. El panel del creador se resolvió sirviéndose el suyo; esto
+// es lo mismo para Despacho y para la app web del chofer, que seguían
+// colgadas del CDN. Son 160 kB de la MISMA copia (server/vendor/leaflet/):
+// una sola versión de Leaflet en el repositorio.
+//
+// Se sirve fuera del `if (PROJECT_DIR)` a propósito: si algún día el HTML se
+// publica en un hosting estático aparte, esta URL sigue existiendo acá y las
+// páginas la encuentran igual (tienen, además, una caída al CDN por las
+// dudas). Se cachea un día: es código público de Leaflet, no datos de nadie.
+const VENDOR_LEAFLET = path.join(__dirname, 'vendor', 'leaflet');
+for (const [archivo, tipo] of [['leaflet.js', 'application/javascript'], ['leaflet.css', 'text/css']]) {
+  app.get('/vendor/leaflet/' + archivo, (req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.type(tipo).sendFile(path.join(VENDOR_LEAFLET, archivo));
+  });
+}
 
 if (PROJECT_DIR) {
   // Cuando la app se sirve desde acá, habla con este mismo origen.
@@ -3836,6 +4130,9 @@ setInterval(() => {
     if (callada > OLVIDAR_MS) {
       units.delete(unitId);
       lapState.delete(unitId); // la vuelta a medias no cuenta
+      // Y el desvío abierto se cierra: de una unidad que dejó de reportar no
+      // se puede decir que "siguió fuera de ruta" — no se sabe dónde está.
+      olvidarDesvio(unitId, 'corte');
       // Y la CONFIRMACIÓN se pierde con el olvido: si mató la app sin
       // "salir de ruta" y reaparece mañana desde su casa, tiene que volver
       // a pisar el trazado — no entrar a la cadena por un true de ayer.

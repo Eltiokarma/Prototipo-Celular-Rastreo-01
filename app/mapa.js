@@ -15,6 +15,21 @@
 
 'use strict';
 
+// Leaflet viaja ADENTRO del APK, no se baja de un CDN. La primera vez que un
+// chofer abre el mapa es en la calle, con el celular recién instalado: si en
+// ese momento unpkg no contesta —o no hay señal, que es lo normal— el mapa
+// queda en blanco y sin decir por qué, porque `L` no existe y el script de
+// abajo se corta en la primera línea. Son 158 kB en el bundle, una sola vez.
+// Sale de server/vendor/leaflet/ por herramientas/vendor-leaflet.js.
+const LEAFLET = require('./vendor/leaflet');
+
+// Las barras de cierre van escapadas una sola vez, acá: Leaflet lleva
+// etiquetas HTML adentro de sus textos (el "<span>+</span>" del botón de zoom)
+// y sin escaparlas el parser del WebView cerraría la etiqueta <script> antes de
+// tiempo, perdiendo media librería. Se hace al cargar el módulo y no dentro de
+// `html()` para no repetir un reemplazo sobre 144 kB en cada llamada.
+const LEAFLET_JS = LEAFLET.js.replace(/<\//g, '<\\/');
+
 // Juliaca. Si no hay nada que mostrar, el mapa igual tiene que abrir en algún
 // lado, y abrirlo en el Golfo de Guinea —que es lo que pasa con 0,0— hace
 // creer que se rompió.
@@ -172,7 +187,7 @@ function html() {
 <html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>${LEAFLET.css}</style>
 <style>
   :root {
     --fondo:${d.fondo}; --panel:${d.panel}; --linea:${d.linea};
@@ -200,7 +215,8 @@ function html() {
 </style>
 </head><body>
 <div id="m"></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Leaflet entero, acá adentro y no en un CDN -->
+<script>${LEAFLET_JS}</script>
 <script>
 (function () {
   var mapa = L.map('m', { zoomControl: false })

@@ -206,7 +206,6 @@ console.log('\nLA PÁGINA DEL WEBVIEW');
 {
   const p = html();
   ok('es una página completa', /^<!DOCTYPE html>/.test(p) && /<\/html>$/.test(p.trim()));
-  ok('trae Leaflet', /leaflet@1\.9\.4/.test(p));
 
   // El fondo oscuro y sin detalle es la decisión que hace legible el mapa: un
   // mapa de calles a todo color tiene cientos de nombres, íconos y manchas de
@@ -237,6 +236,33 @@ console.log('\nLA PÁGINA DEL WEBVIEW');
 
   ok('y tiene el modo noche para el mapa', /\.oscuro \.leaflet-tile-pane/.test(p));
   ok('es una página con cuerpo', html().length > 2000, html().length);
+}
+
+console.log('\nEL MAPA NO DEPENDE DE QUE HAYA INTERNET PARA EXISTIR');
+{
+  // La primera apertura del mapa es en la calle, con el celular recién
+  // instalado. Si en ese momento Leaflet viene de un CDN y el CDN no
+  // contesta, el mapa queda en blanco y sin decir por qué: `L` no existe y
+  // el script de la página se corta en la primera línea. Ya pasó en el panel
+  // del creador, en producción, con este mismo CDN.
+  const p = html();
+  ok('Leaflet no se baja de ningún lado', !/unpkg\.com|cdnjs|jsdelivr/.test(p));
+  ok('viene adentro de la página, código y estilos',
+     /Leaflet 1\.9\.4, a JS library/.test(p) && /\.leaflet-pane\s*\{/.test(p));
+
+  // Las tiles SÍ son de la red y no hay forma de que no lo sean: sin señal el
+  // mapa queda gris, pero los puntos y el trazado —que es lo que el chofer
+  // necesita— se dibujan igual. Eso es lo que se gana.
+  ok('las tiles siguen siendo de la red (no hay cómo evitarlo)', /cartocdn/.test(p));
+
+  // Leaflet lleva etiquetas HTML adentro de sus textos ("<span>+</span>" en
+  // los botones de zoom). Sin escapar la barra, el parser del WebView cierra
+  // la etiqueta antes de tiempo y se pierde media librería.
+  ok('las barras de cierre van escapadas', !/<\/span>/.test(p) && p.includes('<\\/span>'));
+
+  // Que la copia del APK siga siendo la misma que sirve el servidor lo
+  // verifica la suite `vendor`, que es la dueña de ese contrato para las
+  // cuatro pantallas. Acá solo importa qué tiene adentro esta página.
 }
 
 console.log('\nTODO JUNTO');

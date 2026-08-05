@@ -63,8 +63,16 @@ async function arrancar() {
   const azar = () => { semilla = (semilla * 1103515245 + 12345) % 2147483648; return semilla / 2147483648; };
 
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-  const insVuelta = db.prepare(`INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm)
-                                VALUES (?, 'R-14', ?, ?, ?, ?, ?, ?)`);
+  // La vuelta guarda el objetivo con el que se la corrió, igual que en
+  // producción: sin eso el panel avisa —con razón— que está juzgando historial
+  // viejo con la vara de hoy, y el banco fotografía ese aviso todos los días.
+  const insVuelta = db.prepare(`INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec)
+                                VALUES (?, 'R-14', ?, ?, ?, ?, ?, ?, 120)`);
+  // Salidas del recorrido: una unidad que se sale seguido y otra una sola vez.
+  // Es la diferencia que el cuadro tiene que dejar ver de un vistazo — una
+  // salida es una obra, la misma salida todos los días es otra cosa.
+  const insDesvio = db.prepare(`INSERT INTO deviations (vehicleId, routeId, startedAt, endedAt, durationSec, maxM, umbralM, silenciado, cierre)
+                                VALUES (?, 'R-14', ?, ?, ?, ?, 300, 0, 'regreso')`);
   const insTurno = db.prepare(`INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, endedAt, lastSeenAt)
                                VALUES (?, ?, 'R-14', 'driver', ?, ?, ?)`);
   db.transaction(() => {
@@ -84,6 +92,13 @@ async function arrancar() {
             20 + Math.floor(azar() * 8),
             Math.max(20, Math.round(brecha + (azar() - 0.5) * disp * 2)));
         }
+        // M-17 se sale casi todos los días; M-03 una vez en las tres semanas
+        const salidas = u === 'M-17' ? (azar() < 0.75 ? 1 : 0) : (u === 'M-03' && d === 9 ? 1 : 0);
+        for (let k = 0; k < salidas; k++) {
+          const desde = entrada + 2 * 3600e3 + Math.floor(azar() * 3600e3);
+          const dur = 240 + Math.floor(azar() * 900);
+          insDesvio.run(u, desde, desde + dur * 1000, dur, 320 + Math.floor(azar() * 400));
+        }
       }
     }
   })();
@@ -97,30 +112,42 @@ async function arrancar() {
     const p = await ctx.newPage();
     p.on('pageerror', e => errores.push(e.message));
     p.on('console', m => { if (m.type() === 'error') errores.push('console: ' + m.text()); });
-    await p.goto(`http://localhost:${P}/gerencia.html`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    // El panel del gerente ya NO tiene pantalla propia: gerencia se fusionó
+    // con Despacho y el gerente entra por la misma puerta, con más permisos.
+    // `gerencia.html` quedó como una redirección con un cartel, así que este
+    // banco venía fotografiando ese cartel y cayéndose al buscar el formulario.
+    await p.goto(`http://localhost:${P}/despacho.html`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await p.waitForTimeout(2500);
     return p;
   };
 
+  // Sus números viven en Gestión ▸ Números, que solo existe para el gerente
+  const entrar = async (pag) => {
+    const inputs = await pag.$$('input');
+    await inputs[0].fill('GERENTE-1');
+    await pag.fill('input[type="password"]', 'claveGerente1');
+    await pag.click('button:has-text("INGRESAR")');
+    await pag.waitForTimeout(3500);
+    await pag.click('button:has-text("Gestión")');
+    await pag.waitForTimeout(1000);
+    await pag.click('button:has-text("Números")');
+    await pag.waitForTimeout(2500);
+  };
+
   const p = await abrir(1280, 1100);
   await p.screenshot({ path: SALIDA + '/g0-puerta.png' });
-  const inputs = await p.$$('input');
-  await inputs[0].fill('GERENTE-1');
-  await p.fill('input[type="password"]', 'claveGerente1');
-  await p.click('button:has-text("Entrar")');
-  await p.waitForTimeout(3000);
+  await entrar(p);
   await p.screenshot({ path: SALIDA + '/g1-resumen.png', fullPage: true });
 
-  await p.click('button:has-text("Ver tabla")');
-  await p.waitForTimeout(800);
+  // La tabla por unidad: vueltas, cumplimiento, horas y salidas del recorrido
+  const txt = await p.evaluate(() => document.body.innerText);
+  for (const esperado of ['Cumplimiento', 'Salidas', 'M-17']) {
+    if (!txt.includes(esperado)) errores.push(`el cuadro del gerente no muestra "${esperado}"`);
+  }
   await p.screenshot({ path: SALIDA + '/g2-tabla.png' });
 
   const cel = await abrir(412, 1400);
-  const ci = await cel.$$('input');
-  await ci[0].fill('GERENTE-1');
-  await cel.fill('input[type="password"]', 'claveGerente1');
-  await cel.click('button:has-text("Entrar")');
-  await cel.waitForTimeout(3000);
+  await entrar(cel);
   await cel.screenshot({ path: SALIDA + '/g3-celular.png' });
 
   console.log('capturas en', SALIDA);
