@@ -24,8 +24,8 @@ primero lo que impide vender, después lo que impide escalar, después producto.
 
 | # | Qué | Por qué | Tamaño |
 | --- | --- | --- | --- |
-| 2.1 | **Bajar el peso del arranque** | Medido hoy: la primera carga de un panel baja **4,4 MB**. De eso, 1,05 MB son `react-dom.development.js` — la build de DESARROLLO en producción, que además corre más lento. Cambiar a las de producción son dos líneas y ahorra **1 MB**. Los otros 3 MB son Babel compilando en el navegador, que es una decisión más grande (ver 4.1) | 2.1a: 15 minutos |
-| 2.2 | **Bajar Leaflet localmente** | El mapa del chofer lo carga de `unpkg` DENTRO del WebView. Sin señal en la primera apertura, el mapa queda en blanco — y la primera apertura de un chofer suele ser en la calle. Son 144 kB que pueden ir incrustados en el APK | 2 horas |
+| 2.1 | **Bajar el peso del arranque** | ~~2.1a: React de producción~~ **HECHO** en los cuatro paneles (−1 MB por carga, con SRI). Lo que queda son los ~3 MB de Babel compilando en el navegador, que es una decisión más grande (ver 4.1) | resto: ver 4.1 |
+| 2.2 | **Bajar Leaflet localmente** | A MEDIAS: el panel del creador ya se sirve su propio Leaflet (`server/vendor/`, tras la página en blanco de producción). Faltan: el WebView del chofer (144 kB incrustables en el APK — sin señal en la primera apertura el mapa queda en blanco, y la primera apertura suelee ser en la calle) y los paneles de Despacho/chofer web, que siguen en unpkg | 2 horas |
 | 2.3 | **Guardar el objetivo con cada vuelta** | El cumplimiento se mide contra el objetivo de HOY, no contra el que regía cuando se cerró la vuelta. Con objetivo automático eso cambia solo, así que los informes de la semana pasada mienten un poco. Una columna en `laps` | 2 horas |
 | 2.4 | **Guardar los desvíos de ruta** | Se detectan y se gestionan en vivo pero no se guardan: no se puede decir cuántas veces se salió una unidad la semana pasada. Es lo que le falta al panel del gerente para cerrar el cuadro | medio día |
 
@@ -83,10 +83,14 @@ ubicación de la casa toda la noche. Marcar AUSENTE automáticamente se
 descartó a conciencia: un embotellamiento parece un almuerzo, y esconderle
 a Despacho una combi trabada es esconder justo lo que tiene que ver.
 
+**Verificado en un teléfono real** (APK compilado y probado el 4/8): puerta,
+confirmación, ausente y salir de ruta funcionando contra producción.
+
 ### 3 · Producto — lo que pidieron los que lo usaron
 
 | # | Qué | Por qué | Tamaño |
 | --- | --- | --- | --- |
+| 3.0 | **La puerta de presencia en la app web del chofer** | `Prototipo.html` no declara presencia: emite desde el login, como siempre (compatibilidad a propósito). Si alguien sigue usando la web en vez del APK, dejarla igual que la nativa — o decidir retirarla | medio día |
 | 3.1 | **Tipo de emergencia en el SOS** | "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide una grúa, otro una ambulancia, el tercero es otra llamada. El deslizar tiene que seguir siendo lo primero —en una emergencia real nadie elige de un menú—: el tipo se elige DESPUÉS de disparar, con la alerta ya enviada, y sin elegir queda como SOS genérico | medio día |
 | 3.2 | **La palabra al lado del color en Despacho** | Verde y ámbar son el mismo color para un daltónico rojo-verde (medido: ΔE 5,4). En gerencia ya está resuelto; en la fila de unidad de Despacho el juicio «va bien / se está yendo» todavía depende solo del color | 1 hora |
 | 3.3 | **La brecha en vivo en la notificación** | Hoy se refresca solo al pasar la app a segundo plano. Para tenerla viva hace falta una notificación aparte con `expo-notifications`, sin tocar el servicio de ubicación — colgarla del servicio lo reiniciaba cada 3 s y quemaba la batería | medio día |
