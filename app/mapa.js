@@ -153,11 +153,21 @@ function vista(estado, yo, geometria) {
 // claro había que buscarse; con éste, las combis son lo primero que salta.
 // Sale del prototipo viejo, donde ya estaba resuelto así.
 //
-// La atribución SE MUESTRA. Es chiquita y se puede ignorar, pero tanto
-// OpenStreetMap como CARTO la piden en sus condiciones de uso, y esto va a
-// una app que se va a repartir.
-const TILES = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png';
-const ATRIBUCION = '© OpenStreetMap · © CARTO';
+// La atribución SE MUESTRA. Es chiquita y se puede ignorar, pero OpenStreetMap
+// la exige en su licencia (ODbL) y Geoapify la pide en su plan gratuito, y
+// esto va a una app que se va a repartir.
+//
+// El proveedor es Geoapify y NO CARTO, porque el CDN de CARTO es solo para
+// clientes enterprise y proyectos sin fines de lucro — una cooperativa que
+// cobra pasaje es uso comercial. `dark-matter` es el mismo diseño que el
+// dark_all de antes: el mapa se ve igual.
+//
+// La URL de acá abajo NO lleva clave, a propósito: la página se arma una sola
+// vez y la clave vive en el servidor (variable de entorno GEOAPIFY_API_KEY),
+// llega con el login y entra por mensaje, como los colores. Compilarla en el
+// APK obligaría a repartir una app nueva a toda la flota para rotarla.
+const TILES = 'https://maps.geoapify.com/v1/tile/dark-matter/{z}/{x}/{y}.png';
+const ATRIBUCION = 'Geoapify · © OpenMapTiles · © OpenStreetMap contributors';
 
 // Al centrarse, el chofer quiere VERSE, no ver la ruta entera. Si estaba lejos
 // con el mapa desplegado, dejarlo en ese zoom es como no haber centrado.
@@ -221,7 +231,9 @@ function html() {
 (function () {
   var mapa = L.map('m', { zoomControl: false })
               .setView([${JULIACA.lat}, ${JULIACA.lng}], ${ZOOM_INICIAL});
-  L.tileLayer('${TILES}', { subdomains: 'abcd', maxZoom: 19,
+  // Sin clave todavía: hasta que llegue por mensaje, las tiles no cargan y el
+  // fondo queda del color del tema — los puntos y el trazado se dibujan igual.
+  var capaTiles = L.tileLayer('${TILES}', { maxZoom: 19,
                             attribution: '${ATRIBUCION}' }).addTo(mapa);
   mapa.attributionControl.setPrefix('');
 
@@ -338,6 +350,11 @@ function html() {
       var m = JSON.parse(e.data);
       if (m.tipo === 'tema') tema(m);
       if (m.tipo === 'vista') pintar(m.vista);
+      // La clave de las tiles, del login. setUrl repinta la capa entera y las
+      // que ya estaban en el caché HTTP del WebView no se vuelven a bajar.
+      if (m.tipo === 'tiles' && m.clave) {
+        capaTiles.setUrl('${TILES}?apiKey=' + encodeURIComponent(m.clave));
+      }
       if (m.tipo === 'centrar') {
         // Centrar es una ORDEN, no una sugerencia: no depende de que haya
         // llegado un estado nuevo ni de si el trazado ya se dibujo. Antes

@@ -153,11 +153,16 @@ nada.
 
 Para 2000 unidades quedan dos preguntas que solo contesta la calle, y las dos
 siguen abiertas (ver 1.3): **el turno de 8 horas** con el GPS y la pantalla
-bloqueada, y **las tiles del mapa**. Esta última tiene número: el CDN gratuito
-de CARTO no está pensado para 2000 usuarios diarios, y sin caché son 20–50 MB
-por turno y por chofer. El service worker ya las guarda —la segunda visita no
-gasta un byte—, pero la primera de cada dispositivo sí, y a esa escala conviene
-mirar el plan de `ESCALABILIDAD.md` antes de encender todo junto.
+bloqueada, y **las tiles del mapa**. De esta última, la parte de licencia ya
+está resuelta: las cuatro pantallas dejaron CARTO (su CDN es solo enterprise y
+sin fines de lucro — cobrando pasaje estábamos fuera de licencia) y usan
+Geoapify, cuyo plan gratuito sí permite uso comercial, con la clave en la
+variable de entorno `GEOAPIFY_API_KEY` y la suite `tiles` vigilando que ningún
+host sin licencia vuelva a entrar. Queda la parte de volumen: sin caché son
+20–50 MB por turno y por chofer, y el tier gratuito (~12 000 tiles/día) no
+aguanta 2000 primeras cargas. El plan es servir el área de Juliaca desde
+nuestro propio backend (PMTiles raster) y dejar el proveedor externo solo
+para lo que caiga fuera — fases 2 y 3, todavía no implementadas.
 
 ## Lo que queda por construir
 

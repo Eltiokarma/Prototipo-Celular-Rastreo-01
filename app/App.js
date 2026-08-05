@@ -753,11 +753,11 @@ function Deslizable({ texto, textoBoton, colorListo, onDisparar }) {
 // El mapa: un Leaflet adentro de un WebView.
 //
 // NO es `react-native-maps`. Ese usa Google Maps y en Android **exige una
-// clave de Google Cloud** —cuenta, tarjeta, consola—, o sea un trámite que
-// hay que hacer antes de poder ver un solo punto. Leaflet sobre
-// OpenStreetMap no pide nada y usa las MISMAS tiles que los tres paneles web
-// de este proyecto, así que la ruta se ve igual en el celular del chofer que
-// en la pantalla de Despacho.
+// clave de Google Cloud compilada en el APK** —cuenta, tarjeta, consola—, o
+// sea un trámite antes de poder ver un solo punto y una app nueva para toda
+// la flota si la clave rota. Leaflet usa las MISMAS tiles que los tres
+// paneles web de este proyecto (la clave viene del servidor, con el login),
+// así que la ruta se ve igual en el celular del chofer que en Despacho.
 //
 // Tres decisiones que sostienen el resto:
 //
@@ -845,6 +845,15 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
     if (!listo) return;
     mandar({ tipo: 'tema', oscuro, colores: mapa.coloresDe(C) });
   }, [listo, oscuro, C, mandar]);
+
+  // La clave de las tiles viene del login (el servidor la tiene en una
+  // variable de entorno; en la app no hay ninguna clave compilada). Sin ella
+  // el fondo queda liso — los puntos y el trazado se dibujan igual.
+  const tilesKey = yo?.tilesKey || null;
+  React.useEffect(() => {
+    if (!listo || !tilesKey) return;
+    mandar({ tipo: 'tiles', clave: tilesKey });
+  }, [listo, tilesKey, mandar]);
 
   React.useEffect(() => {
     if (!listo || !activo) return;

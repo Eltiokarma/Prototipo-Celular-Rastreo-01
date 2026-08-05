@@ -209,6 +209,20 @@ function recordarCoop(nombre) {
   } catch {}
 }
 
+// El fondo del mapa viene de Geoapify: raster 256px servido con clave, y el
+// tier gratuito permite uso comercial — CARTO no, y un corte por licencia
+// llegaría sin aviso a toda la flota. La clave NO está acá: la pone el
+// servidor en /config.js desde su variable de entorno GEOAPIFY_API_KEY.
+// Sin clave (hosting estático sin config.js) el fondo sale gris, pero los
+// puntos y el trazado se dibujan igual.
+// `positron` y `dark-matter` son los mismos diseños que light_all/dark_all
+// de CARTO: el mapa se ve igual que siempre.
+const TILES_KEY = window.TILES_KEY || '';
+const tilesUrl = (estilo) =>
+  `https://maps.geoapify.com/v1/tile/${estilo}/{z}/{x}/{y}{r}.png?apiKey=${TILES_KEY}`;
+// OSM la exige (ODbL) y Geoapify la pide en su plan gratuito. Se muestra.
+const TILES_ATRIB = 'Powered by <a href="https://www.geoapify.com/">Geoapify</a> · © OpenMapTiles · © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
 // Tokens HUD (rediseño 2a/3a/3b) — se suman a PALETTE sin tocarla.
 // Regla: el rojo #FF2D55 queda reservado a emergencia/brecha crítica.
 // Tres juegos de tokens. El de DÍA es el de fábrica: el celular va en
@@ -243,7 +257,7 @@ const TEMAS = {
     burbujaWarn:  '#FFF4D6', burbujaWarnInk: '#5C4100', warnEdge: '#A67300',
     burbujaSos:   '#FFE1E7', burbujaSosInk:  '#68001A',
     // Mapa: tiles claros y tarjetas claras encima
-    tiles: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    tiles: tilesUrl('positron'),
     tarjeta: 'rgba(255,255,255,.92)', tarjetaSolida: 'rgba(255,255,255,.96)',
     resplandor: false,   // el glow no funciona sobre fondo claro
   },
@@ -269,7 +283,7 @@ const TEMAS = {
     burbujaAdmin: '#D2E6FA',
     burbujaWarn:  '#FFEFC2', burbujaWarnInk: '#3D2B00', warnEdge: '#7A5400',
     burbujaSos:   '#FFD6DE', burbujaSosInk:  '#3D000B',
-    tiles: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    tiles: tilesUrl('positron'),
     tarjeta: 'rgba(255,255,255,.96)', tarjetaSolida: '#FFFFFF',
     resplandor: false,
   },
@@ -295,7 +309,7 @@ const TEMAS = {
     burbujaAdmin: '#14273c',
     burbujaWarn:  '#2b2008', burbujaWarnInk: '#FFE6B8', warnEdge: '#FFB300',
     burbujaSos:   '#2b0812', burbujaSosInk:  '#FFD9E0',
-    tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    tiles: tilesUrl('dark-matter'),
     tarjeta: 'rgba(3,6,10,.8)', tarjetaSolida: 'rgba(3,6,10,.9)',
     resplandor: true,
   },
@@ -607,11 +621,15 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
       center: JULIACA_CENTER,
       zoom: 16,
       zoomControl: false,
-      attributionControl: false,
+      // La atribución VA: OSM la exige (ODbL) y esto se reparte a una
+      // flota entera. Es chiquita y no compite con la brecha.
+      attributionControl: true,
     });
+    map.attributionControl.setPrefix(false);
 
     tilesRef.current = L.tileLayer(HUD.tiles, {
       maxZoom: 19,
+      attribution: TILES_ATRIB,
     }).addTo(map);
 
     const youIcon = L.divIcon({ html: youPinHtml(), className: '', iconSize: [24,24], iconAnchor: [12,12] });

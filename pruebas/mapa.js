@@ -211,11 +211,17 @@ console.log('\nLA PÁGINA DEL WEBVIEW');
   // mapa de calles a todo color tiene cientos de nombres, íconos y manchas de
   // parque compitiendo con tres puntos y una línea.
   ok('el fondo es el mapa oscuro, no el de calles a color',
-     p.includes(TILES.replace(/\{s\}/, '{s}')) && /dark_all/.test(p), TILES);
+     p.includes(TILES) && /dark-matter/.test(p), TILES);
   ok('y NO usa el de OpenStreetMap a color', !/tile\.openstreetmap\.org/.test(p));
 
-  // OSM y CARTO la piden en sus condiciones de uso, y esto se va a repartir.
+  // OSM la exige (ODbL) y Geoapify la pide en su plan gratuito.
   ok('la atribución se muestra', /attribution:/.test(p) && !/attributionControl:\s*false/.test(p));
+  ok('y nombra a OpenStreetMap con todas las letras', /OpenStreetMap contributors/.test(p));
+
+  // La clave NO va compilada: la página se arma sin ella y la recibe por
+  // mensaje, como los colores. Rotar la clave no puede costar repartir un APK.
+  ok('la página se arma sin ninguna clave adentro', !/apiKey=[A-Za-z0-9]/.test(p));
+  ok('y la clave entra por mensaje', /m\.tipo === 'tiles'/.test(p) && /m\.clave/.test(p) && /setUrl/.test(p));
 
   // Ida llena, vuelta punteada: una línea de un solo color no dice para qué
   // lado va ese trazo, que es lo que hay que saber para ubicar a la de adelante.
@@ -253,7 +259,8 @@ console.log('\nEL MAPA NO DEPENDE DE QUE HAYA INTERNET PARA EXISTIR');
   // Las tiles SÍ son de la red y no hay forma de que no lo sean: sin señal el
   // mapa queda gris, pero los puntos y el trazado —que es lo que el chofer
   // necesita— se dibujan igual. Eso es lo que se gana.
-  ok('las tiles siguen siendo de la red (no hay cómo evitarlo)', /cartocdn/.test(p));
+  ok('las tiles vienen del proveedor con licencia (Geoapify), no de CARTO',
+     /maps\.geoapify\.com/.test(p) && !/cartocdn/.test(p));
 
   // Leaflet lleva etiquetas HTML adentro de sus textos ("<span>+</span>" en
   // los botones de zoom). Sin escapar la barra, el parser del WebView cierra

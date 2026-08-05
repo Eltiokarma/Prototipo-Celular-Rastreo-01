@@ -72,6 +72,11 @@
 })();
 </script>
 
+<!-- La clave de las tiles del mapa (window.TILES_KEY). La genera el servidor
+     desde su variable de entorno GEOAPIFY_API_KEY: en este archivo nunca hay
+     una clave escrita. Ruta absoluta: este panel vive bajo CREATOR_PATH. -->
+<script src="/config.js"></script>
+
 <!-- Producción, no desarrollo: react-dom pasa de 1054 kB a 128. -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
@@ -753,7 +758,10 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
 //     apretada, que es como se usa en cualquier editor de dibujo
 
 const CENTRO_JULIACA = [-15.4904, -70.1333];
-const BALDOSAS = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+// Geoapify (mismo diseño que las tiles claras de antes). La clave viene de
+// /config.js — variable de entorno del servidor, nunca escrita acá.
+const BALDOSAS = `https://maps.geoapify.com/v1/tile/positron/{z}/{x}/{y}{r}.png?apiKey=${window.TILES_KEY || ''}`;
+const ATRIB_BALDOSAS = 'Powered by <a href="https://www.geoapify.com/">Geoapify</a> · © OpenMapTiles · © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 // Arriba de este tope los puntos dejan de ser arrastrables (miles de
 // marcadores hacen inusable el mapa): queda la línea, y Deshacer.
 const TOPE_ARRASTRABLES = 200;
@@ -923,7 +931,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
     if (mapRef.current) return;
     const map = L.map(node, { center: CENTRO_JULIACA, zoom: 14, zoomControl: true, attributionControl: true });
     map.attributionControl.setPrefix(false);
-    L.tileLayer(BALDOSAS, { maxZoom: 19, attribution: '© OpenStreetMap · © CARTO' }).addTo(map);
+    L.tileLayer(BALDOSAS, { maxZoom: 19, attribution: ATRIB_BALDOSAS }).addTo(map);
     capaRef.current = L.layerGroup().addTo(map);
 
     map.on('click', (e) => {

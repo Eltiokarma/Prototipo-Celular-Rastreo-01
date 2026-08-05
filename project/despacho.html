@@ -78,6 +78,16 @@ const SERVER_URL = window.REALTIME_SERVER_URL ||
   'wss://prototipo-celular-rastreo-01-production.up.railway.app';
 const HTTP_URL = SERVER_URL.replace(/^ws/, 'http');
 
+// El fondo del mapa: Geoapify, mismo diseño que las tiles de CARTO de antes
+// (`positron` = light_all, `dark-matter` = dark_all) pero con licencia que
+// permite uso comercial. La clave la pone el servidor en /config.js desde su
+// variable de entorno GEOAPIFY_API_KEY; acá nunca hay una clave escrita.
+const TILES_KEY = window.TILES_KEY || '';
+const tilesUrl = (estilo) =>
+  `https://maps.geoapify.com/v1/tile/${estilo}/{z}/{x}/{y}{r}.png?apiKey=${TILES_KEY}`;
+// OSM la exige (ODbL) y Geoapify la pide en su plan gratuito. Se muestra.
+const TILES_ATRIB = 'Powered by <a href="https://www.geoapify.com/">Geoapify</a> · © OpenMapTiles · © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
 // Tokens HUD compartidos con la app
 // Dos temas. DÍA es el de fábrica: el encargado puede estar en la calle o en
 // el paradero con el celular en la mano, no en una oficina con luz tenue.
@@ -111,7 +121,7 @@ const TEMAS = {
     tinta: '#0B2239',       // botón principal del creador, segmentado activo
     flotante: 'rgba(255,255,255,.94)', // tarjetas sobre el mapa
     velo: 'rgba(11,34,57,.42)',        // overlay de modal
-    tiles: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    tiles: tilesUrl('positron'),
     oscuro: false,
   },
   night: {
@@ -140,7 +150,7 @@ const TEMAS = {
     tinta: '#EAF4FF',
     flotante: 'rgba(13,17,22,.94)',
     velo: 'rgba(0,0,0,.6)',
-    tiles: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    tiles: tilesUrl('dark-matter'),
     oscuro: true,
   },
 };
@@ -629,8 +639,9 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
 
   const initMap = React.useCallback((node) => {
     if (!node || mapRef.current) return;
-    const map = L.map(node, { center: JULIACA_CENTER, zoom: 14, zoomControl: true, attributionControl: false });
-    L.tileLayer(HUD.tiles, { maxZoom: 19 }).addTo(map);
+    const map = L.map(node, { center: JULIACA_CENTER, zoom: 14, zoomControl: true, attributionControl: true });
+    map.attributionControl.setPrefix(false);
+    L.tileLayer(HUD.tiles, { maxZoom: 19, attribution: TILES_ATRIB }).addTo(map);
     capaRef.current = L.layerGroup().addTo(map);
     // Tocar el mapa agrega un punto al final del tramo que se esté dibujando
     map.on('click', (e) => {
@@ -2829,8 +2840,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // ─── Leaflet
   const initMap = React.useCallback((node) => {
     if (!node || mapRef.current) return;
-    const map = L.map(node, { center: JULIACA_CENTER, zoom: 14, zoomControl: true, attributionControl: false });
-    tilesRef.current = L.tileLayer(HUD.tiles, { maxZoom: 19 }).addTo(map);
+    const map = L.map(node, { center: JULIACA_CENTER, zoom: 14, zoomControl: true, attributionControl: true });
+    map.attributionControl.setPrefix(false);
+    tilesRef.current = L.tileLayer(HUD.tiles, { maxZoom: 19, attribution: TILES_ATRIB }).addTo(map);
     mapRef.current = map;
     setTimeout(() => map.invalidateSize(), 100);
   }, []);

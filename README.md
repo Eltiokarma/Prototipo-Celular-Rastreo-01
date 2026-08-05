@@ -172,6 +172,7 @@ Lo que falta construir, ordenado: ver **PENDIENTES.md**.
 | `DB_FILE` | Dónde vive la base. En Railway hay que montar un volumen y apuntarla ahí (`/data/r14.db`) o **un redeploy borra todo** |
 | `PORT` | Puerto (3001 por defecto) |
 | `DISPATCH_PASSWORD` | Crea o actualiza la cuenta `DESPACHO` al arrancar. Es la ruta de recuperación si esa clave se pierde |
+| `GEOAPIFY_API_KEY` | La clave del proveedor de tiles del mapa (gratis en [myprojects.geoapify.com](https://myprojects.geoapify.com); el plan gratuito permite uso comercial). El servidor se la pasa a las pantallas en el momento — por `/config.js` a las web, con el login a la app nativa. Sin ella el fondo del mapa sale gris; los puntos y el trazado se dibujan igual |
 | `DEFAULT_ROUTE` / `DEFAULT_COMPANY` / `DEFAULT_COMPANY_NAME` | Código de la ruta y de la cooperativa iniciales, y su nombre visible. Solo se usan la primera vez |
 | `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres |
 | `CREATOR_PATH` | Mueve el panel del creador a una ruta propia (por defecto `/creador`) |

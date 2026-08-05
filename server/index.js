@@ -1518,6 +1518,11 @@ app.post('/auth/login', (req, res) => {
     companyId: user.companyId || null,
     companyName: empresa ? empresa.name : null,
     supervisor: (user.role === 'dispatch' || user.role === 'manager') && !user.routeId,
+    // La clave de las tiles del mapa. Vive en la variable de entorno
+    // GEOAPIFY_API_KEY y llega a la app nativa por acá: la app no puede leer
+    // /config.js (no es una página) y la clave no puede ir compilada en el
+    // APK — rotarla obligaría a repartir una app nueva a toda la flota.
+    tilesKey: TILES_KEY || null,
     created,
   });
 });
@@ -3126,6 +3131,23 @@ const PROJECT_DIR = resolveProjectDir();
 // publica en un hosting estático aparte, esta URL sigue existiendo acá y las
 // páginas la encuentran igual (tienen, además, una caída al CDN por las
 // dudas). Se cachea un día: es código público de Leaflet, no datos de nadie.
+// ─── TILES DEL MAPA ──────────────────────────────────────────
+// La clave de Geoapify (el proveedor del fondo del mapa) vive ACÁ, en una
+// variable de entorno, y las pantallas la reciben en el momento: /config.js
+// para las web, la respuesta del login para la app nativa. Nunca va escrita
+// en el código ni al repositorio — rotarla es cambiar la variable en Railway
+// y redesplegar, sin tocar una línea.
+//
+// Por qué se fue CARTO: su CDN de tiles es solo para clientes enterprise y
+// proyectos sin fines de lucro. Una cooperativa que cobra pasaje es uso
+// comercial: estábamos fuera de licencia, y un corte llegaría sin aviso y a
+// las 2000 unidades a la vez.
+const TILES_KEY = String(process.env.GEOAPIFY_API_KEY || '').trim();
+if (!TILES_KEY) {
+  console.warn('GEOAPIFY_API_KEY no está configurada — el fondo del mapa va a salir gris.');
+  console.warn('La clave se crea gratis en https://myprojects.geoapify.com y se pone como variable de entorno.');
+}
+
 const VENDOR_LEAFLET = path.join(__dirname, 'vendor', 'leaflet');
 for (const [archivo, tipo] of [['leaflet.js', 'application/javascript'], ['leaflet.css', 'text/css']]) {
   app.get('/vendor/leaflet/' + archivo, (req, res) => {
@@ -3135,16 +3157,23 @@ for (const [archivo, tipo] of [['leaflet.js', 'application/javascript'], ['leafl
   });
 }
 
+// Cuando la app se sirve desde acá, habla con este mismo origen.
+// En hosting estático separado este archivo da 404 y la app cae al
+// default de realtime.js — nada se rompe.
+//
+// Registrado FUERA del `if (PROJECT_DIR)`, como Leaflet: el panel del
+// creador también lo carga (necesita la clave de las tiles) y existe aunque
+// el deploy no incluya la carpeta project/.
+app.get('/config.js', (req, res) => {
+  res.type('application/javascript').send(
+    "// Generado por el servidor: el tiempo real vive en este mismo origen\n" +
+    "window.REALTIME_SERVER_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;\n" +
+    "// La clave de las tiles del mapa (variable de entorno GEOAPIFY_API_KEY)\n" +
+    `window.TILES_KEY = ${JSON.stringify(TILES_KEY)};\n`
+  );
+});
+
 if (PROJECT_DIR) {
-  // Cuando la app se sirve desde acá, habla con este mismo origen.
-  // En hosting estático separado este archivo da 404 y la app cae al
-  // default de realtime.js — nada se rompe.
-  app.get('/config.js', (req, res) => {
-    res.type('application/javascript').send(
-      "// Generado por el servidor: el tiempo real vive en este mismo origen\n" +
-      "window.REALTIME_SERVER_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;\n"
-    );
-  });
   app.use(express.static(PROJECT_DIR));
   console.log('Sirviendo la app web desde', PROJECT_DIR);
 } else {

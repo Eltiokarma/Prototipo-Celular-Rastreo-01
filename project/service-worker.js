@@ -6,8 +6,10 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v37';       // app: HTML, JS propio, iconos
-const TILE_CACHE = 'coop-r14-tiles-v1';  // tiles del mapa
+const CACHE_NAME = 'coop-r14-v38';       // app: HTML, JS propio, iconos
+// tiles-v2: las tiles ahora vienen de Geoapify — las de CARTO guardadas con
+// la v1 tienen URLs que ya nadie pide y solo ocupan los ~15 MB del tope.
+const TILE_CACHE = 'coop-r14-tiles-v2';  // tiles del mapa
 const LIB_CACHE  = 'coop-r14-libs-v1';   // React, Babel, Leaflet, fuentes
 
 // Tope de tiles guardados: a ~25 KB cada uno son unos 15 MB, suficiente
@@ -31,7 +33,10 @@ const NUNCA_CACHEAR = [
   /\/config\.js$/,
 ];
 
-const ES_TILE = /basemaps\.cartocdn\.com|tile\.openstreetmap\.org/;
+// La URL de una tile lleva la clave (?apiKey=...) y entra en la clave del
+// caché: si la clave rota, las guardadas quedan huérfanas y se van podando
+// solas — no hace falta versionar la caché por eso.
+const ES_TILE = /maps\.geoapify\.com\/v1\/tile\//;
 // `/vendor/leaflet/` es de este mismo origen pero pertenece acá y no a la
 // caché de la app: Leaflet no cambia cuando publicamos una versión nueva, y
 // mandarlo a CACHE_NAME lo haría rebajar 160 kB en cada despliegue. Es
