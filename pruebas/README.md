@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Treinta y una suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Treinta y dos suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -39,7 +39,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp presencia foto marca respaldo
-# las que no necesitan servidor: trazador hud chat cola margenes gestos imagen tema mapa teclado nativas
+# las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema mapa teclado nativas
 node gerencia.js
 ```
 
@@ -72,6 +72,7 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `creador` | Las cuatro barreras del nivel de arriba, incluido que sin `CREATOR_PASSWORD` responda 404 y no 403 |
 | `gerencia` | La fusión de los dos paneles: el gerente entra a `/admin/*` y al tiempo real como un panel más, y puede lo que Despacho no — vehículos con placa, chofer-con-combi de una, datos de la empresa, logo. Despacho recibe 403 en todo eso (y el error dice quién sí), no le puede tocar la cuenta al gerente, y `/gerencia/*` sigue siendo solo del gerente |
 | `presencia` | Salir a ruta, ausente, fuera — y la CONFIRMACIÓN física. El caso tiene nombre: Ignacio marca "en ruta" desde su casa a las 5:30; Despacho lo ve "yendo", pero NO entra a la cadena de brechas hasta que el GPS lo ve **sobre el trazado** (el mismo umbral del desvío). AUSENTE (comer, un repuesto) lo saca de la cadena sin echarlo del mapa y los vecinos se recomponen; FUERA lo borra del mapa en el acto, sin esperar al olvido; y la presencia viaja pegada al `POST /gps`, así sobrevive a la pantalla apagada y a un reinicio del servidor. Sin declarar nada, todo sigue como siempre — la compatibilidad también se prueba |
+| `ausencia` | El vigía de la ausencia (`app/ausencia.js`): que el que arranca después de almorzar **vuelva a ruta solo** (dos posiciones seguidas lejos del ancla), que un salto de GPS de alguien sentado comiendo NO lo devuelva, que media hora de zigzag parado no dispare nada, y que pasadas 2 horas la ausencia se convierta en **fuera** — aunque se esté moviendo. Lógica pura: vive en la tarea de fondo y se prueba sin teléfono |
 | `senal` | Que una unidad que deja de reportar quede **sin señal** y no borrada: que la de atrás no salte a medirse contra la que sigue, que vuelva sola al reaparecer, que se olvide recién a los 3 min, y que ninguna brecha salga con los segundos en 60 |
 | `gpshttp` | `POST /gps`: que la posición pueda entrar **sin WebSocket vivo**, que un atraso entero se mida con la hora de cada posición y no la de llegada, y que el cobrador y los relojes mal puestos no pasen |
 | `hud` | Qué se le muestra al chofer en la app nativa: los tres estados de un lado, cuál es el dígito grande, los colores y el texto de la notificación. Sin servidor — es lógica pura |

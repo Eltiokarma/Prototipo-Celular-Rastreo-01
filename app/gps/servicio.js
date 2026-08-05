@@ -23,6 +23,7 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
+import { crearVigia } from '../ausencia.js';
 
 export const TAREA_GPS = 'coop-r14-gps';
 
@@ -51,6 +52,12 @@ export function cuandoLlegueUnaPosicion(fn) { alRecibir = fn; }
 // guardaba `ultimoError` y lo limpiaba al primer envío bueno, así que con
 // fallos intermitentes —que es el caso interesante— la causa se perdía justo
 // cuando había que verla.
+// El vigía de la ausencia (app/ausencia.js): vive ACÁ y no en React,
+// porque los dos olvidos que resuelve pasan con la pantalla apagada.
+// La pantalla se entera por `diagnostico.presenciaAuto` (la vigilancia de
+// App.js lo lee cada 2 s) y ajusta lo suyo.
+let vigia = null;
+
 export const diagnostico = {
   enviadas: 0, fallidas: 0, ultimoEnvio: null, ultimoError: null,
   enEspera: 0, motivos: {},
@@ -173,12 +180,50 @@ async function subir(nuevas) {
     sinSesionSeguidas = 0;
     const { token } = JSON.parse(crudo);
 
+    // ── El vigía de la ausencia ─────────────────────────────────
+    // Estando AUSENTE: si el GPS lo ve lejos del lugar donde se quedó,
+    // arrancó de nuevo → vuelve a ruta solo. Si la ausencia pasa el tope,
+    // ya no es un almuerzo → fuera, y este servicio se apaga.
+    let presenciaEfectiva = presencia;
+    if (presencia === 'ausente' && posiciones.length) {
+      if (!vigia) vigia = crearVigia();
+      const ultima = posiciones[posiciones.length - 1];
+      const accion = vigia.posicion(ultima.lat, ultima.lng, ultima.timestamp || Date.now());
+      if (accion === 'volver') {
+        vigia = null;
+        presenciaEfectiva = 'ruta';
+        await SecureStore.setItemAsync(LLAVE_PRESENCIA, 'ruta');
+        diagnostico.presenciaAuto = 'ruta';
+      } else if (accion === 'fuera') {
+        vigia = null;
+        await SecureStore.setItemAsync(LLAVE_PRESENCIA, 'fuera');
+        // El flag va ANTES de parar el servicio: así la vigilancia de la
+        // pantalla nunca ve "servicio caído" sin saber por qué (y no lo
+        // rearranca).
+        diagnostico.presenciaAuto = 'fuera';
+        try {
+          await fetch(servidor + '/presencia', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ estado: 'fuera' }),
+          });
+        } catch {}
+        diagnostico.servicio = 'detenido: ausente mucho tiempo';
+        try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        // Las posiciones de la casa no se mandan: irse es irse.
+        return;
+      }
+    } else if (presencia !== 'ausente') {
+      vigia = null;
+    }
+
     const r = await fetch(servidor + '/gps', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({
         posiciones,
-        ...(presencia === 'ruta' || presencia === 'ausente' ? { presencia } : {}),
+        ...(presenciaEfectiva === 'ruta' || presenciaEfectiva === 'ausente'
+          ? { presencia: presenciaEfectiva } : {}),
       }),
     });
     if (r.ok) {

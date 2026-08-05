@@ -84,7 +84,7 @@ herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
                       hace login y manda posiciones por el MISMO POST /gps que
                       el celular. Ver herramientas/README.md
 
-pruebas/            Treinta y una suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Treinta y dos suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -133,7 +133,7 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 
 ```bash
 cd pruebas && npm install    # solo la primera vez
-cd .. && npm test            # las treinta y una suites, ~7 minutos
+cd .. && npm test            # las treinta y dos suites, ~7 minutos
 ```
 
 Corren contra el servidor de verdad —levantan el proceso, abren WebSockets,
@@ -592,7 +592,7 @@ Tres estados, declarados desde la app:
 | Estado | Qué pasa |
 | --- | --- |
 | **En ruta** | Se emite posición. Pero declarar NO mete a la unidad en la cadena de brechas: eso lo **confirma el servidor** cuando el GPS la ve sobre el trazado (mismo umbral que el desvío). Hasta entonces está "yendo": visible para Despacho, invisible para las brechas — Ignacio marcando desde su casa a las 5:30 no le mueve la brecha a nadie que pase cerca |
-| **Ausente** | Comer, un repuesto, un descanso. Se sigue emitiendo (Despacho ve dónde está la combi, apagada en el mapa) pero fuera de la cadena: nadie se mide contra ella, su vuelta a medias se descarta, y los vecinos se recomponen. Volver exige reconfirmar sobre el trazado |
+| **Ausente** | Comer, un repuesto, un descanso. Se sigue emitiendo (Despacho ve dónde está la combi, apagada en el mapa) pero fuera de la cadena: nadie se mide contra ella, su vuelta a medias se descarta, y los vecinos se recomponen. Volver exige reconfirmar sobre el trazado. Y los dos olvidos humanos se resuelven solos (`app/ausencia.js`, en la tarea de fondo): si el GPS lo ve **alejarse** del lugar donde se quedó, vuelve a ruta solo; si la ausencia pasa las **2 horas**, ya no es un almuerzo y pasa a fuera — sin emitir la ubicación de la casa toda la noche |
 | **Fuera** | Terminó. Deja de emitir y se va del mapa EN EL ACTO, sin esperar al olvido de 3 minutos. La app sigue sirviendo para chatear |
 
 La presencia viaja por el WebSocket y **pegada a cada `POST /gps`**: con la

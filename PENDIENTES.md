@@ -74,6 +74,15 @@ saca de la cadena sin salir del mapa; FUERA borra del mapa en el acto. La
 flota fantasma declara igual que la app (los que almuerzan van AUSENTE) y
 Despacho muestra YENDO/AUSENTE en fila y mapa.
 
+Y los dos olvidos humanos se resuelven solos (`app/ausencia.js`, suite
+`ausencia`, corriendo en la tarea de fondo con la pantalla apagada): el que
+arranca después de almorzar vuelve a ruta al alejarse 300 m de donde se
+quedó (dos posiciones seguidas — un salto de GPS no cuenta), y una ausencia
+de más de 2 horas pasa a FUERA sola, apagando el GPS — sin emitir la
+ubicación de la casa toda la noche. Marcar AUSENTE automáticamente se
+descartó a conciencia: un embotellamiento parece un almuerzo, y esconderle
+a Despacho una combi trabada es esconder justo lo que tiene que ver.
+
 ### 3 · Producto — lo que pidieron los que lo usaron
 
 | # | Qué | Por qué | Tamaño |

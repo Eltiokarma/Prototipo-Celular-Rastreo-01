@@ -268,6 +268,18 @@ function Aplicacion() {
     if (!sesion || presencia === 'fuera') return;
     let vivo = true;
     const mirar = async () => {
+      // PRIMERO el cambio automático de presencia, antes de mirar el
+      // servicio: si el vigía de la ausencia lo apagó ('fuera'), hay que
+      // enterarse ANTES de la rama que rearranca servicios caídos.
+      if (gps.diagnostico.presenciaAuto) {
+        const auto = gps.diagnostico.presenciaAuto;
+        gps.diagnostico.presenciaAuto = null;
+        if (auto === 'fuera') saliendo.current = true;
+        setPresencia(auto === 'ruta' ? 'ruta' : 'fuera');
+        setAviso(auto === 'ruta'
+          ? 'Te vimos en movimiento: volviste a ruta'
+          : 'Ausente más de 2 horas: te sacamos de ruta');
+      }
       const corriendo = await gps.estaCorriendo();
       if (!vivo || saliendo.current) return;
       if (!corriendo) {
@@ -601,6 +613,8 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
           <Text style={[s.instruccion, { marginTop: 14 }]}>
             Estás fuera de la cadena: nadie se mide contra vos y tu vuelta
             quedó descartada. Despacho te sigue viendo en el mapa, quieto.
+            Si arrancás de nuevo, volvés a ruta solo. Pasadas 2 horas, te
+            sacamos de ruta.
           </Text>
           <Pressable onPress={() => onPresencia('ruta')} style={[s.botonAncho, { backgroundColor: C.verde }]}>
             <Text style={s.botonAnchoTexto}>VOLVER A RUTA</Text>
