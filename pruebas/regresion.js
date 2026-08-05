@@ -14,7 +14,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const COMPARTIDAS = ['tramos', 'objetivo', 'informes', 'desvio', 'turnos', 'privado', 'seguridad', 'empresas'];
 const PROPIAS = ['variantes', 'brecha', 'creador', 'gerencia', 'cliente', 'senal', 'gpshttp', 'presencia', 'foto', 'marca', 'respaldo',
-                 'trazador', 'ausencia', 'hud', 'chat', 'cola', 'margenes', 'gestos', 'imagen', 'tema', 'contraste', 'mapa', 'teclado', 'nativas'];
+                 'trazador', 'ausencia', 'hud', 'chat', 'cola', 'margenes', 'gestos', 'imagen', 'tema', 'contraste', 'mapa', 'teclado', 'nativas',
+                 'vendor', 'retencion'];
 
 const correr = (suite, env) => new Promise((resolve) => {
   let salida = '';

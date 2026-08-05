@@ -13,9 +13,23 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Conductor">
 
-<!-- Leaflet: mapa de calles reales -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Leaflet: mapa de calles reales. Lo sirve ESTE servidor, no un CDN.
+     Pasó en producción con el panel del creador: unpkg no entregó leaflet.js
+     y la página quedaba en blanco sin un solo error visible, porque el mapa
+     se inicializaba con `L` sin existir. Acá es peor: el que abre esta página
+     es un chofer en la calle, con la señal que hay. -->
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+<script src="vendor/leaflet/leaflet.js"></script>
+<!-- La caída al CDN es para el caso en que este HTML se publique en un
+     hosting estático sin el servidor Node al lado: ahí la copia local da 404.
+     El navegador ejecuta este bloque recién después del <script> de arriba,
+     así que `L` ya está definido o no lo estará nunca. -->
+<script>
+if (typeof L === 'undefined') {
+  document.write('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />');
+  document.write('<scr' + 'ipt src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/scr' + 'ipt>');
+}
+</script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

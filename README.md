@@ -53,6 +53,11 @@ server/             Servidor de tiempo real (Node + Express + ws)
   trazador.js         La lógica del trazador de la pestaña RUTAS (geometría,
                       insertar en el medio, selección, deshacer, GPX). Node
                       la prueba con require(); el panel la carga tal cual
+  vendor/leaflet/     Leaflet 1.9.4, la ÚNICA copia del repositorio. La sirve
+                      este servidor en /vendor/leaflet/ (Despacho y la app web)
+                      y en la ruta del panel del creador. Ninguna pantalla se
+                      lo baja de un CDN: unpkg ya falló una vez en producción
+                      y dejó el panel del creador en blanco, sin un solo error
 
 app/                La app del chofer, nativa (Expo). El servidor no cambia.
                     Ver app/README.md
@@ -69,6 +74,10 @@ app/                La app del chofer, nativa (Expo). El servidor no cambia.
   tema.js             Los colores, y cuándo pasan a los de noche
   mapa.js             Qué se dibuja en el mapa (Leaflet en un WebView, sin
                       clave de Google) y la página que lo dibuja
+  vendor/leaflet.js   Leaflet como texto, para que el WebView lo tenga adentro
+                      del APK: la primera apertura del mapa es en la calle.
+                      GENERADO desde server/vendor/leaflet/ por
+                      herramientas/vendor-leaflet.js — no se edita a mano
   voz.js / foto.js    Grabar audio y sacar fotos. Acá SÍ hay Expo
   gps/servicio.js     GPS en segundo plano: foreground service y cadencia
   App.js              Las pantallas. Solo dibujan
@@ -83,8 +92,11 @@ herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
                       veinte teléfonos. Entra por la puerta: crea usuarios,
                       hace login y manda posiciones por el MISMO POST /gps que
                       el celular. Ver herramientas/README.md
+  vendor-leaflet.js   Mete Leaflet adentro del bundle de la app nativa. Se
+                      corre a mano y SOLO al subir la versión de Leaflet; la
+                      suite `vendor` falla si alguien se olvida
 
-pruebas/            Treinta y tres suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Treinta y cuatro suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -133,7 +145,7 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 
 ```bash
 cd pruebas && npm install    # solo la primera vez
-cd .. && npm test            # las treinta y tres suites, ~7 minutos
+cd .. && npm test            # las treinta y cuatro suites, ~7 minutos
 ```
 
 Corren contra el servidor de verdad —levantan el proceso, abren WebSockets,
@@ -392,6 +404,25 @@ que mide si la rueda funciona.
 brecha se calcula contra dónde están las otras unidades en ese instante, y
 esas posiciones no se guardan. Ver `LIMITACIONES.md` para el resto de los
 bordes.
+
+### Y con qué objetivo se la juzga
+
+Una brecha sin objetivo al lado es un número sin vara. El cumplimiento se
+medía contra el objetivo de **hoy**, y con objetivo automático ese número se
+mueve solo: depende de cuántas unidades hay en ruta, así que un lunes con 12
+combis y un jueves con 6 no tienen la misma vara. El informe de la semana
+pasada juzgaba las vueltas del lunes con la vara del jueves, y **nadie podía
+notarlo mirando la pantalla** — que es lo que lo hacía caro.
+
+Ahora cada vuelta guarda en `laps.objetivoSec` el objetivo que regía cuando se
+cerró, tomado en ese momento porque es el único en que existe: dentro de un
+mes nadie puede reconstruir cuántas unidades había este martes a las 7. El
+cuadro del gerente y el CSV de vueltas se miden contra ése.
+
+Las vueltas anteriores a que esto existiera no lo tienen y no hay forma de
+reconstruirlo: se siguen midiendo contra el objetivo de hoy, pero **la
+pantalla dice cuántas son** en vez de mezclarlas callada. Con el tiempo ese
+número llega solo a cero y el aviso desaparece solo.
 
 ## Rutas alternas (variantes del recorrido)
 
@@ -797,6 +828,34 @@ unidades (cuál y a cuántos metros), y cada fila lleva su chip
 `FUERA DE RUTA · 150 m`. **Mientras la ruta no tenga recorrido cargado no se
 marca nada** — no hay con qué comparar.
 
+### Y quedan guardados
+
+El desvío se veía en vivo y se perdía: al día siguiente no había forma de
+contestar *"¿cuántas veces se salió M-17 la semana pasada, y por cuánto
+tiempo?"*. Un desvío aislado es una obra; el mismo desvío todos los días es
+otra cosa, y mientras no se guarden las dos se ven igual.
+
+Ahora cada salida queda en `deviations`, **una fila por episodio y no por
+posición**: cuándo empezó, cuándo volvió, a cuánto llegó como máximo, contra
+qué umbral se la midió —cambia por ruta y se puede editar, así que "340 m" no
+significa lo mismo en dos rutas— y si estaba silenciada.
+
+- **Silenciado se guarda igual**, marcado como silenciado. Silenciar es "ya lo
+  sé, no me avises más", no "esto no pasó": si el silencio borrara el
+  registro, la forma de que un desvío no apareciera en el informe sería
+  apretar el botón de silencio.
+- **Ningún episodio queda abierto.** Lo cierran los tres caminos posibles, y
+  cada uno queda anotado porque no significan lo mismo: *volvió al recorrido*,
+  *dejó de reportar* (se quedó sin señal o terminó el turno estando afuera) y
+  *le cambiaron el trazado* — de este último ni siquiera se puede afirmar
+  cuánto duró el desvío, porque a mitad de camino cambió contra qué se lo
+  medía. Los que quedaron abiertos por un apagón del servidor se cierran al
+  arrancar. Sin esto una fila crecería sola y el informe del mes diría que una
+  combi estuvo cuatro días fuera de ruta.
+
+Se ven en el cuadro del gerente (columna **Salidas**: cuántas y cuántos
+minutos en total) y en el informe `desvios.csv`.
+
 ## Turnos
 
 Quién manejó qué unidad y cuánto tiempo. Se registra **solo lo que el sistema
@@ -824,12 +883,13 @@ informe de horas trabajadas.
 ## Informes
 
 Panel → Gestión → **Informes**. Se elige un rango de fechas y se bajan los
-cuatro informes de ese período:
+cinco informes de ese período:
 
 | Informe | Qué trae |
 | --- | --- |
-| **Vueltas por unidad** | Cuántas vueltas hizo cada combi, cuánto tardó y a qué velocidad |
+| **Vueltas por unidad** | Cuántas vueltas hizo cada combi, cuánto tardó, a qué velocidad, y la brecha que mantuvo **con el objetivo de esa vuelta al lado** |
 | **Horas por persona** | Turnos: entrada, salida y horas de cada chofer y cobrador |
+| **Salidas del recorrido** | Cada desvío: cuándo salió, cuándo volvió, cuánto duró, a cuánto llegó y cómo terminó |
 | **Emergencias** | Cada SOS con quién lo disparó, desde qué unidad y dónde |
 | **Actividad de administración** | Altas, bajas, reseteos de clave y cambios de configuración |
 
@@ -843,7 +903,8 @@ las vueltas son estimaciones y no medidas. Un informe con números que parecen
 precisos y no lo son es peor que no tener informe.
 
 El período máximo son 90 días, y un despachador de ruta solo puede sacar los
-de la suya.
+de la suya. El gerente tiene los tres que más mira —vueltas, turnos y
+salidas— como botón directo arriba de sus números.
 
 ## Qué frena cada cosa
 

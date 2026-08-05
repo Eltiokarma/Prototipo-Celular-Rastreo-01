@@ -25,9 +25,10 @@ primero lo que impide vender, después lo que impide escalar, después producto.
 | # | Qué | Por qué | Tamaño |
 | --- | --- | --- | --- |
 | 2.1 | **Bajar el peso del arranque** | ~~2.1a: React de producción~~ **HECHO** en los cuatro paneles (−1 MB por carga, con SRI). Lo que queda son los ~3 MB de Babel compilando en el navegador, que es una decisión más grande (ver 4.1) | resto: ver 4.1 |
-| 2.2 | **Bajar Leaflet localmente** | A MEDIAS: el panel del creador ya se sirve su propio Leaflet (`server/vendor/`, tras la página en blanco de producción). Faltan: el WebView del chofer (144 kB incrustables en el APK — sin señal en la primera apertura el mapa queda en blanco, y la primera apertura suelee ser en la calle) y los paneles de Despacho/chofer web, que siguen en unpkg | 2 horas |
-| 2.3 | **Guardar el objetivo con cada vuelta** | El cumplimiento se mide contra el objetivo de HOY, no contra el que regía cuando se cerró la vuelta. Con objetivo automático eso cambia solo, así que los informes de la semana pasada mienten un poco. Una columna en `laps` | 2 horas |
-| 2.4 | **Guardar los desvíos de ruta** | Se detectan y se gestionan en vivo pero no se guardan: no se puede decir cuántas veces se salió una unidad la semana pasada. Es lo que le falta al panel del gerente para cerrar el cuadro | medio día |
+| 2.2 | ~~Bajar Leaflet localmente~~ | **HECHO** en las cuatro pantallas. `server/vendor/leaflet/` es la copia única: el servidor la sirve en `/vendor/leaflet/` para Despacho y la app web (con caída al CDN por si el HTML se publicara en un hosting estático aparte), el panel del creador sigue con la suya, y el WebView del APK la lleva **adentro del bundle** (`app/vendor/leaflet.js`, generado por `herramientas/vendor-leaflet.js`) — la primera apertura en la calle ya no depende de que unpkg conteste. Suite `vendor`, que además falla si la copia del APK se separa de la del servidor | ✔ |
+| 2.3 | ~~Guardar el objetivo con cada vuelta~~ | **HECHO.** Columna `laps.objetivoSec`, tomada al cerrar la vuelta. El cumplimiento del gerente y el CSV de vueltas se miden contra ella; las vueltas anteriores no la tienen y se siguen midiendo contra el objetivo de hoy, pero la pantalla **dice cuántas son** en vez de mezclarlas callada | ✔ |
+| 2.4 | ~~Guardar los desvíos de ruta~~ | **HECHO.** Tabla `deviations`: una fila por salida, con cuándo empezó, cuándo volvió, la distancia máxima, el umbral con el que se la midió y si estaba silenciada (silenciar es "ya lo sé", no "esto no pasó"). Todo camino de salida la cierra —regreso, corte de señal, cambio de trazado— así que ninguna queda creciendo sola. Columna *Salidas* en el cuadro del gerente e informe `desvios.csv` | ✔ |
+| 2.5 | ~~Retención del historial por tiempo~~ | **HECHO**, y era más grave de lo que parecía. Los topes eran de FILAS y globales: 2000 vueltas y 1000 mensajes. Con 6 combis son meses; **con 2000 unidades son 3 horas de vueltas**, y el chat se llevaba puestos los SOS —viven en la misma tabla—, así que el informe de emergencias salía vacío sin que nada lo dijera. Ahora: vueltas y desvíos 120 días, chat 30, **SOS 365**. Suite `retencion` | ✔ |
 
 ### 2bis · ~~El trazador se muda al panel del creador~~ — HECHO
 
@@ -92,9 +93,33 @@ confirmación, ausente y salir de ruta funcionando contra producción.
 | --- | --- | --- | --- |
 | 3.0 | **La puerta de presencia en la app web del chofer** | `Prototipo.html` no declara presencia: emite desde el login, como siempre (compatibilidad a propósito). Si alguien sigue usando la web en vez del APK, dejarla igual que la nativa — o decidir retirarla | medio día |
 | 3.1 | **Tipo de emergencia en el SOS** | "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide una grúa, otro una ambulancia, el tercero es otra llamada. El deslizar tiene que seguir siendo lo primero —en una emergencia real nadie elige de un menú—: el tipo se elige DESPUÉS de disparar, con la alerta ya enviada, y sin elegir queda como SOS genérico | medio día |
-| 3.2 | **La palabra al lado del color en Despacho** | Verde y ámbar son el mismo color para un daltónico rojo-verde (medido: ΔE 5,4). En gerencia ya está resuelto; en la fila de unidad de Despacho el juicio «va bien / se está yendo» todavía depende solo del color | 1 hora |
+| 3.2 | ~~La palabra al lado del color en Despacho~~ | **HECHO.** Cada brecha de la fila de unidad lleva debajo *EN OBJETIVO* / *AL LÍMITE* / *CRÍTICA*: las mismas tres bandas que ya usaba el color y los mismos términos de la leyenda del mapa. El juicio ya no depende del color en ninguna de las dos pantallas | ✔ |
 | 3.3 | **La brecha en vivo en la notificación** | Hoy se refresca solo al pasar la app a segundo plano. Para tenerla viva hace falta una notificación aparte con `expo-notifications`, sin tocar el servicio de ubicación — colgarla del servicio lo reiniciaba cada 3 s y quemaba la batería | medio día |
 | 3.4 | **Grabador de rutas** | Del prototipo viejo: subirse a una combi, grabar el recorrido manejando y exportar los puntos. Hoy el trazado se dibuja a ojo sobre el mapa, y manejarlo es más fiel. Guarda un punto cada 30 m recorridos, no cada N segundos, así parar en un semáforo no genera puntos repetidos | medio día |
+
+### 3bis · ~~Los bancos visuales fotografiaban pantallas vacías~~ — HECHO
+
+Salió de mirar las capturas antes de desplegar, y es la clase de rotura que
+**no se ve en la regresión**: los dos bancos terminaban en verde mostrando
+nada.
+
+- **`rediseno.js`** daba de alta choferes sin combi. Desde que la persona dejó
+  de ser la unidad, eso es un 403 de Despacho —crear la combi al vuelo es del
+  gerente— y el servidor descarta el GPS de un chofer sin vehículo. Las cinco
+  altas fallaban en silencio, nadie reportaba posición y las capturas salían
+  con el panel vacío, sin un solo error a la vista. Ahora crea los vehículos
+  primero, **grita si un alta falla**, verifica que la flota se vea en pantalla
+  y manda un latido de GPS mientras arranca el navegador (si no, las cinco
+  salían como SIN SEÑAL y sin brechas, que es lo contrario de lo que el banco
+  existe para mostrar).
+- **`gerencia-shot.js`** entraba por `gerencia.html`, que desde la fusión con
+  Despacho es una redirección con un cartel: el banco fotografiaba el cartel y
+  después se caía buscando un formulario que ya no existe. Ahora entra por
+  `despacho.html` → Gestión → Números, como el gerente de verdad.
+- **El botón «CSV turnos» del gerente devolvía 404.** Pedía `turnos.csv` y el
+  informe se llama `horas`. La pantalla decía "No se pudo descargar", que se
+  lee igual que un servidor caído. Los tres botones quedaron con el nombre del
+  servidor y con suite propia.
 
 ### 4 · Deuda conocida que NO es urgente
 
@@ -117,6 +142,22 @@ confirmación, ausente y salir de ruta funcionando contra producción.
 - [ ] Cargar el recorrido real con el trazador.
 - [x] Marca de cada cooperativa (logo y nombre) configurable desde el panel
       del creador y corregible desde Despacho.
+- [x] **Ninguna pantalla depende de un CDN para dibujar el mapa** (ver 2.2).
+      A 2000 unidades son 2000 navegadores contra un servicio gratuito que no
+      se comprometió a atendernos — y que ya falló una vez en producción.
+- [x] **El historial aguanta el tamaño de la flota** (ver 2.5): la retención
+      es por días y no por filas, así que significa lo mismo con 6 combis que
+      con 2000.
+
+### Lo que todavía no se midió, y no se arregla programando
+
+Para 2000 unidades quedan dos preguntas que solo contesta la calle, y las dos
+siguen abiertas (ver 1.3): **el turno de 8 horas** con el GPS y la pantalla
+bloqueada, y **las tiles del mapa**. Esta última tiene número: el CDN gratuito
+de CARTO no está pensado para 2000 usuarios diarios, y sin caché son 20–50 MB
+por turno y por chofer. El service worker ya las guarda —la segunda visita no
+gasta un byte—, pero la primera de cada dispositivo sí, y a esa escala conviene
+mirar el plan de `ESCALABILIDAD.md` antes de encender todo junto.
 
 ## Lo que queda por construir
 
@@ -124,25 +165,15 @@ confirmación, ausente y salir de ruta funcionando contra producción.
 hechos, el rediseño está hecho y el panel del gerente está hecho. Lo que sigue
 en esta lista ya no sale de mirar el código: sale de la calle.
 
-Hay dos cosas que **sí** aparecieron con el panel del gerente y valen la pena
-cuando haya datos reales:
+Las dos que aparecieron con el panel del gerente —**guardar el objetivo con
+cada vuelta** y **guardar los desvíos**— ya están hechas (2.3 y 2.4), y la que
+apareció midiendo —**la palabra al lado del color**— también (3.2).
 
-| Qué | Por qué | Tamaño |
-| --- | --- | --- |
-| **Guardar el objetivo con cada vuelta** | Hoy el cumplimiento se mide contra el objetivo de HOY, no contra el que regía cuando se cerró la vuelta. Con objetivo automático eso puede haber cambiado dentro del mismo período. Una columna en `laps`, y empieza a valer el día que se enciende | 2 horas |
-| **Guardar los desvíos de ruta** | Se detectan y se gestionan en vivo, pero no se guardan: no se puede decir cuántas veces se salió una unidad la semana pasada. Es lo que le falta al panel del gerente para cerrar el cuadro | medio día |
-
-Y una que salió de usar el SOS en un teléfono de verdad:
+Queda una, que salió de usar el SOS en un teléfono de verdad:
 
 | Qué | Por qué | Tamaño |
 | --- | --- | --- |
 | **Tipo de emergencia en el SOS** | Hoy el SOS es uno solo. "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide una grúa, otro una ambulancia, el tercero es otra llamada. Despacho podría priorizar y avisar distinto, y el informe de emergencias dejaría de ser una lista plana. El deslizar tiene que seguir siendo lo primero —en una emergencia real nadie elige de un menú—: elegir el tipo va DESPUÉS de disparar, con la alerta ya enviada, y si no elige queda como SOS genérico | medio día, tocando servidor, app y los dos paneles |
-
-Y una que apareció midiendo, no usando:
-
-| Qué | Por qué | Tamaño |
-| --- | --- | --- |
-| **La palabra al lado del color en Despacho** | Verde y ámbar son el mismo color para un daltónico rojo-verde (medido: ΔE 5,4). En gerencia ya está resuelto —número y palabra siempre—; en la fila de unidad de Despacho el juicio «va bien / se está yendo» todavía depende solo del color. Ver `LIMITACIONES.md`, sección *Accesibilidad* | 1 hora |
 
 ---
 

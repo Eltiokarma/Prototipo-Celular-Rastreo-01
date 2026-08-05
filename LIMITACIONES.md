@@ -302,11 +302,12 @@ limitación se resuelva o aparezca una nueva.
     cada cumplimiento lleva su número y su palabra (*cumple* / *al límite* /
     *fuera*), y la desviación de la brecha lleva una flecha ▾▴, que es forma y
     no color.
-  - **Dónde falta:** en el panel de Despacho, la fila de unidad muestra el
-    valor de la brecha en m:ss —o sea, el número está— pero *si esa brecha está
-    bien o se está yendo* lo dice solo el color. Un despachador daltónico ve el
-    número y no ve el juicio. Se arregla agregando la misma palabra que usa
-    gerencia; no se hizo en la vuelta del rediseño porque no se había medido.
+  - **Y en Despacho también**, desde ahora: cada brecha de la fila de unidad
+    lleva debajo del valor la palabra que la juzga — *EN OBJETIVO*, *AL
+    LÍMITE*, *CRÍTICA*—, las mismas tres bandas que ya usaba el color y los
+    mismos términos de la leyenda del mapa. Sin dato no hay palabra: el "—" del
+    valor ya dice todo lo que se sabe. Con esto el juicio no depende del color
+    en ninguna de las dos pantallas.
 - **El tema noche es peor todavía** para esto: verde `#39FF14` ↔ ámbar
   `#FFD400` quedan en ΔE 2,2 bajo deuteranopia, prácticamente idénticos, y dos
   de sus colores se salen de la banda de luminosidad. Por eso el panel del

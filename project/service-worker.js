@@ -6,7 +6,7 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v35';       // app: HTML, JS propio, iconos
+const CACHE_NAME = 'coop-r14-v36';       // app: HTML, JS propio, iconos
 const TILE_CACHE = 'coop-r14-tiles-v1';  // tiles del mapa
 const LIB_CACHE  = 'coop-r14-libs-v1';   // React, Babel, Leaflet, fuentes
 
@@ -32,7 +32,12 @@ const NUNCA_CACHEAR = [
 ];
 
 const ES_TILE = /basemaps\.cartocdn\.com|tile\.openstreetmap\.org/;
-const ES_LIB  = /unpkg\.com|fonts\.googleapis\.com|fonts\.gstatic\.com/;
+// `/vendor/leaflet/` es de este mismo origen pero pertenece acá y no a la
+// caché de la app: Leaflet no cambia cuando publicamos una versión nueva, y
+// mandarlo a CACHE_NAME lo haría rebajar 160 kB en cada despliegue. Es
+// exactamente la misma librería que antes venía de unpkg, solo que ahora la
+// sirve el servidor propio.
+const ES_LIB  = /unpkg\.com|fonts\.googleapis\.com|fonts\.gstatic\.com|\/vendor\/leaflet\//;
 
 // Los archivos NUESTROS (el HTML de las apps y realtime.js) van a la red
 // primero. Antes eran caché-primero y una versión nueva no aparecía hasta
