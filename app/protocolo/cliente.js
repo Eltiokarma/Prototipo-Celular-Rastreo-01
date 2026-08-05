@@ -100,6 +100,19 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   }
 
   function abrir() {
+    // El socket anterior queda mudo y cerrado ANTES de abrir el nuevo. Sin
+    // esto, un reintento que corre mientras el viejo sigue medio vivo deja
+    // DOS sockets de la misma app: se roban el rol de GPS entre sí, el
+    // `reportaGps` compartido queda en false por el mensaje del perdedor, y
+    // las posiciones salen por el socket que el servidor no escucha — la
+    // unidad desaparece del mapa mientras el chat y el SOS andan perfectos.
+    if (ws) {
+      try {
+        if (typeof ws.on === 'function') ws.removeAllListeners();
+        else ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+        ws.close();
+      } catch {}
+    }
     const url = servidor.replace(/^http/, 'ws');
     ws = new WebSocketImpl(url);
 

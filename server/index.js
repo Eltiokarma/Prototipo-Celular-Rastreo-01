@@ -3314,12 +3314,24 @@ wss.on('connection', (ws) => {
         if (user.role === 'driver') {
           const anterior = gpsOwner.get(vehicleId);
           if (anterior && anterior !== ws && anterior.readyState === 1) {
+            // ¿De verdad es OTRO chofer, o es la misma persona que volvió
+            // —una reconexión por corte de señal, otra pestaña—? El cartel
+            // de relevo asusta, y salía en cada reconexión propia: al
+            // socket viejo de la misma persona se le dice la verdad.
+            const mismaPersona = clients.get(anterior) === user.unitId;
             try {
               anterior.send(JSON.stringify({
                 type: 'gps_role', reporting: false,
-                reason: 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa.',
+                reason: mismaPersona
+                  ? 'Tu sesión siguió en otro dispositivo o pestaña; esta dejó de reportar el GPS.'
+                  : 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa.',
               }));
             } catch {}
+            // El relevo real queda en el log: es la pista para el mapa
+            // vacío con chat vivo — el GPS del relegado se descarta mudo.
+            if (!mismaPersona) {
+              console.log(`GPS de ${vehicleId}: lo toma ${user.unitId}, relevó a ${clients.get(anterior) || '¿?'}`);
+            }
           }
           gpsOwner.set(vehicleId, ws);
           ws.send(JSON.stringify({ type: 'gps_role', reporting: true }));

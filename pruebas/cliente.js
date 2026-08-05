@@ -118,6 +118,12 @@ async function hasta(cond, ms = 6000) {
   ok('el que entra después se lleva el reporte', await hasta(() => relevo.reportaGps === true));
   ok('y al anterior se le avisa con motivo', await hasta(() => perdido !== null) && !!perdido.motivo,
      perdido?.motivo);
+  // Acá las dos conexiones son de la MISMA cuenta: el motivo tiene que ser
+  // el calmo ("tu sesión siguió en otro lado"), no el del relevo real. El
+  // cartel de "otro chofer tomó la unidad" apareciéndole al propio chofer
+  // en cada reconexión fue un bug de campo, no un caso teórico.
+  ok('y como es la misma persona, el motivo no grita «otro chofer»',
+     /dispositivo|pestaña/i.test(perdido?.motivo || ''), perdido?.motivo);
   ok('el relevado deja de creer que reporta', c12.reportaGps === false);
   ok('y su mandarGps se niega en vez de mandar al vacío',
      c12.mandarGps({ lat: LAT0, lng: LNG0 }) === 'sin-rol');
