@@ -84,7 +84,7 @@ herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
                       hace login y manda posiciones por el MISMO POST /gps que
                       el celular. Ver herramientas/README.md
 
-pruebas/            Treinta y dos suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Treinta y tres suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -133,7 +133,7 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 
 ```bash
 cd pruebas && npm install    # solo la primera vez
-cd .. && npm test            # las treinta y dos suites, ~7 minutos
+cd .. && npm test            # las treinta y tres suites, ~7 minutos
 ```
 
 Corren contra el servidor de verdad —levantan el proceso, abren WebSockets,

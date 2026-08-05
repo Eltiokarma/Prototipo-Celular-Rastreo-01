@@ -6,6 +6,12 @@
 > qué está en `PENDIENTES.md`. El archivo se conserva porque su segunda
 > mitad —qué parece estético y no lo es— sigue valiendo para el próximo
 > rediseño, incluido el de la app del chofer, que quedó fuera de esta vuelta.
+>
+> **Las invariantes de la segunda mitad ahora viven, como reglas de trabajo,
+> en `.claude/skills/diseno-coop/SKILL.md`** — se cargan solas al tocar las
+> pantallas. La copia que se mantiene es esa; este archivo queda como el
+> encargo histórico. La parte medible es ejecutable: `pruebas/contraste.js`
+> (en la regresión) y la auditoría completa, `/auditoria-visual`.
 
 Este archivo es el encargo que se le pasa a quien vaya a rediseñar las
 pantallas. Está escrito para pegarse tal cual.
