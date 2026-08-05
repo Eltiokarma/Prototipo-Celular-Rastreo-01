@@ -105,6 +105,42 @@ transpirar (aguanta 10 000 WebSockets; 1 000 sockets son ~60 MB de RAM).
 | **3. Operación** | piloto real | Backups de la base, métricas de carga, 2ª instancia para redundancia (requiere Postgres + Redis pub/sub para estado compartido) | ~1 semana |
 | **4. Multi-ciudad / multi-cooperativa** | 2 000+ | Postgres, varias instancias, servidor de tiles propio, panel por cooperativa | mes+ |
 
+## Lo que se rompía a 2 000 y no era el servidor
+
+Tres cosas que funcionaban con seis combis y dejaban de funcionar con dos mil,
+las tres por el mismo motivo: un límite escrito en unidades que no escalan.
+
+- **El historial de vueltas se guardaba por filas, no por tiempo.** El tope
+  era global: las últimas 2 000 vueltas. Con seis combis eso son meses. Con
+  2 000 unidades, cada una cerrando unas ocho vueltas por turno, son **16 000
+  vueltas por día** — o sea que el tope cubría **tres horas**, y el informe de
+  la semana pasada habría salido vacío mientras el objetivo automático se
+  quedaba sin promedio del que salir. Ahora la retención es de **120 días**
+  (`LAPS_DIAS`), que cubre con margen los 90 del rango máximo de un informe.
+  Son ~2 millones de filas de unos 100 bytes: unos 200 MB, que SQLite mueve
+  sin despeinarse. El techo de filas quedó como cinturón, no como el límite de
+  todos los días. Y la poda pasó a correr cada 6 h en vez de en cada cierre de
+  vuelta: a 16 000 vueltas diarias eran 16 000 recorridas de tabla al día.
+- **El historial de mensajes también, y ahí viven los SOS.** El tope eran las
+  últimas 1000 filas de toda la base. Cada cliente recibe hasta 200 mensajes
+  **de su ruta** al conectarse, así que 40 rutas necesitan 8000 filas solo
+  para que nadie abra el chat en blanco. Y como el SOS se guarda en la misma
+  tabla que el chat, una tarde de conversación activa borraba las emergencias
+  del mes: el informe de emergencias y el contador del gerente salían vacíos
+  sin que nada lo dijera. Ahora la conversación se guarda **30 días**
+  (`CHAT_DIAS`) y el SOS **365** (`SOS_DIAS`) — no son la misma clase de dato:
+  un "¿espero en el paradero?" de hace dos meses no le importa a nadie, un
+  accidente sí. La poda de filas de texto pasó a la barrida de cada 6 h; lo
+  pesado (audio y fotos) se sigue podando en el acto, porque ocupa lugar de
+  verdad y no puede esperar.
+- **El mapa se bajaba de un CDN gratuito.** Leaflet venía de unpkg en tres de
+  las cuatro pantallas. A seis combis nadie lo nota; a 2 000 son 2 000
+  navegadores por día contra un servicio que no se comprometió a atendernos
+  —y ya falló una vez en producción, dejando el panel del creador en blanco—.
+  Ahora lo sirve el propio servidor (`/vendor/leaflet/`) y el APK lo lleva
+  adentro del bundle, así que la primera apertura del mapa, que es en la calle,
+  no depende de la red de nadie más.
+
 Nota sobre la base de datos: a 1 000 unidades **SQLite sigue alcanzando**,
 porque el GPS no se escribe en disco (vive en memoria) y las escrituras
 reales — chat, vueltas, auditoría — son de 1 a 5 por segundo, contra los

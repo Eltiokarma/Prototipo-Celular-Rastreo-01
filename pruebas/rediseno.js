@@ -50,6 +50,11 @@ const pedir = (ruta, opts = {}) =>
   fetch(`http://localhost:${P}${ruta}`, { ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) } })
     .then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
+// Todo lo que salió mal, para que quede listado al final en vez de perderse:
+// errores de JavaScript de la página, y también los del armado del escenario
+// —un alta que falla deja el panel vacío y la captura no lo dice.
+const errores = [];
+
 (async () => {
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   fs.mkdirSync(SALIDA, { recursive: true });
@@ -91,8 +96,6 @@ const pedir = (ruta, opts = {}) =>
     }),
   });
 
-  await pedir('/admin/users', { method: 'POST', headers: H, body: JSON.stringify({ unitId: 'X-01', name: 'Reserva', password: 'chofer1234' }) });
-
   // El progreso sobre el circuito sale casi igual al parámetro del anillo, y
   // la brecha es esa diferencia por los 50 min de recorrido. Con eso se
   // eligen a mano los tres colores: 0.04 = 2:00 (objetivo, verde),
@@ -104,8 +107,32 @@ const pedir = (ruta, opts = {}) =>
     ['M-17', 'Wilber Apaza', 0.115, true],   // pegada a M-03 y fuera del recorrido
     ['M-05', 'Nilda Arapa', 0.160, false],
   ];
+
+  // Los VEHÍCULOS primero, y después las personas arriba de ellos.
+  //
+  // Desde que la persona dejó de ser la unidad, el servidor descarta el GPS de
+  // un chofer que no tiene combi asignada (`if (!vehicleId) return`), y dar de
+  // alta un chofer sin combi existente es cosa del gerente, no de Despacho:
+  // con la cuenta de Despacho el alta devolvía 403. Este banco seguía pidiendo
+  // las altas como antes, así que las cinco fallaban, nadie reportaba posición
+  // y las capturas salían con el panel vacío — sin un solo error a la vista.
+  // Un banco visual que fotografía una pantalla vacía no verifica nada.
+  const db2 = new Database(DB);
+  const altaVehiculo = db2.prepare(
+    'INSERT OR IGNORE INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES (?, ?, ?, ?, ?)');
+  const empresaDeR14 = db2.prepare("SELECT companyId FROM routes WHERE routeId = 'R-14'").get().companyId;
+  for (const [u] of [...gente, ['X-01']]) altaVehiculo.run(u, 'Placa ' + u, 'R-14', empresaDeR14, Date.now());
+  db2.close();
+
+  await pedir('/admin/users', { method: 'POST', headers: H, body: JSON.stringify({ unitId: 'X-01', name: 'Reserva', vehicleId: 'X-01', password: 'chofer1234' }) });
   for (const [u, nombre] of gente) {
-    await pedir('/admin/users', { method: 'POST', headers: H, body: JSON.stringify({ unitId: u, name: nombre, password: 'chofer1234' }) });
+    const alta = await pedir('/admin/users', {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ unitId: u, name: nombre, vehicleId: u, password: 'chofer1234' }),
+    });
+    // Que un alta falle en silencio es exactamente lo que dejó este banco
+    // fotografiando una pantalla vacía. Que se oiga.
+    if (alta.status !== 200) errores.push(`no se pudo dar de alta a ${u}: ${JSON.stringify(alta.body)}`);
   }
 
   const conectados = [];
@@ -133,8 +160,30 @@ const pedir = (ruta, opts = {}) =>
   conectados[3].ws.send(JSON.stringify({ type: 'sos', lat: anillo(0.30).lat, lng: anillo(0.30).lng, timestamp: Date.now() }));
   await sleep(1200);
 
+  // Latido mientras el navegador arranca.
+  //
+  // Acá a una unidad se la da por callada a los 3 s (`SIN_SENAL_MS`, corto a
+  // propósito para poder fotografiar una sin señal sin esperar los 30 s de
+  // producción), y levantar Chromium, cargar la página y entrar lleva mucho
+  // más que eso. Sin latido las cinco combis salían en la captura como SIN
+  // SEÑAL y con las brechas en "—" — justo lo contrario de lo que este banco
+  // existe para mostrar, que son los tres colores de brecha.
+  //
+  // Cada 2 s: por debajo del umbral de silencio y a 30 mensajes por minuto,
+  // dentro del cupo de 40. Avanzan todas lo mismo, así que las distancias
+  // entre ellas —o sea las brechas, o sea los colores— no cambian: la flota
+  // se mueve y la foto sigue siendo la que se eligió.
+  let avance = 12;
+  const latido = setInterval(() => {
+    avance++;
+    for (const c of conectados) {
+      const q = anillo(c.t + avance * 0.0004);
+      const d = c.fuera ? { lat: q.lat + g * 420, lng: q.lng } : q;
+      try { c.ws.send(JSON.stringify({ type: 'gps', ...d, speed: 18 })); } catch {}
+    }
+  }, 2000);
+
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-  const errores = [];
   const abrir = async (ancho, alto) => {
     const ctx = await browser.newContext({ viewport: { width: ancho, height: alto }, deviceScaleFactor: 2 });
     await interceptarHttps(ctx);
@@ -151,6 +200,18 @@ const pedir = (ruta, opts = {}) =>
 
   const p = await abrir(1400, 900);
   await p.screenshot({ path: SALIDA + '/01-despacho.png' });
+
+  // Que la flota SE VEA. Es lo primero que este banco tiene que garantizar y
+  // era justo lo que no verificaba: con el panel vacío las capturas salían
+  // perfectas y no mostraban nada. Un mapa sin combis se fotografía igual de
+  // bien que uno con combis.
+  {
+    const txt = await p.evaluate(() => document.body.innerText);
+    const enPantalla = gente.filter(([u]) => txt.includes(u)).map(([u]) => u);
+    if (enPantalla.length !== gente.length) {
+      errores.push(`Despacho muestra ${enPantalla.length} de ${gente.length} unidades (${enPantalla.join(', ') || 'ninguna'})`);
+    }
+  }
 
   const pasos = (process.env.PASOS || '').split(',').filter(Boolean);
   for (const paso of pasos) {
@@ -174,6 +235,9 @@ const pedir = (ruta, opts = {}) =>
   // de su última posición, y sus brechas en "—". Las otras SIGUEN
   // reportando durante la espera; si no, se quedan calladas todas y la
   // captura no muestra la diferencia, que es lo único que se quiere ver.
+  // Se corta el latido: de acá en adelante manda esta sección, que tiene su
+  // propio ritmo. Los dos juntos pasarían el cupo de mensajes por minuto.
+  clearInterval(latido);
   const apagada = conectados.find(c => c.u === 'M-05');
   apagada.ws.close();
   for (let ronda = 0; ronda < 9; ronda++) {

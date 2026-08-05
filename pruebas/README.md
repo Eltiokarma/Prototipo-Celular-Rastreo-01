@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Treinta y dos suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Treinta y tres suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -39,6 +39,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp presencia foto marca respaldo
+# las que se arman solas (cont.): vendor retencion
 # las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema mapa teclado nativas
 node gerencia.js
 ```
@@ -89,6 +90,8 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `respaldo` | El respaldo de la base, juzgado por lo único que importa: **la restauración**. Respalda una base real en caliente, la abre de vuelta y lee las filas; rechaza la basura y la base equivocada; rota borrando los más viejos; y por el panel del creador crea, lista y **descarga** — y lo descargado se abre y tiene el DESPACHO adentro. Un `../` en el nombre no es un nombre |
 | `teclado` | Cuánto levantar la pantalla cuando sale el teclado de Android. Existe porque el campo de escribir quedaba DEBAJO del teclado: `KeyboardAvoidingView` sin `behavior` no hace nada en Android, y lo que sí resolvía el sistema —achicar la ventana— no ocurre con edge-to-edge. La cuenta fina es no contar dos veces la barra de navegación, que la pantalla ya reservó |
 | `nativas` | Las versiones de los módulos nativos de la app: que ningún `expo-*` venga de otro SDK, que no haya un módulo duplicado, que el lockfile no quede viejo, y que no se use una API que Expo dejó como stub que revienta. Lee el lockfile: sin teléfono, sin red, un segundo. Existe porque un `expo-asset` del SDK 57 al lado de un `expo-modules-core` del 54 dejó la app sin abrir, y eso solo se veía con el APK ya instalado, veinte minutos de build después |
+| `vendor` | Que **ninguna pantalla dependa de un CDN para poder dibujar el mapa**. No es una precaución teórica: unpkg no le entregó `leaflet.js` al navegador del creador y elegir una ruta dejaba la página en blanco, sin un solo error a la vista — `L` no existía y el script se cortaba en la primera línea. Verifica que el servidor entregue Leaflet de verdad (y no un 404 con forma de página), que los tres HTML lo pidan a su propio origen, que el WebView del APK lo lleve adentro del bundle, y que **la copia del APK y la del servidor sigan siendo la misma**: si alguien sube la versión en `server/vendor/` y se olvida de correr `herramientas/vendor-leaflet.js`, la app se queda con la vieja y nadie se entera hasta ver algo raro en el teléfono |
+| `retencion` | Cuánto historial se guarda, y que **el tamaño de la flota no lo decida**. Los topes eran de filas y globales —2000 vueltas, 1000 mensajes—: con seis combis son meses, con 2000 unidades son tres horas de vueltas, y como el SOS vive en la misma tabla que el chat, una tarde de conversación activa borraba las emergencias del mes y el informe salía vacío sin que nada lo dijera. Siembra filas con fecha puesta a mano —para no esperar cuatro meses—, reinicia el servidor y mira qué sobrevivió: la vuelta de hace 119 días sí y la de 200 no, la charla de hace dos meses no y **el SOS de ese mismo día sí** | 
 | `cliente` | El cliente del protocolo que va a usar la app nativa (`app/protocolo/`): el rol de GPS cuando hay relevo, las brechas que respetan el null, el freno de cadencia y el privado que no se filtra |
 
 ## Sintaxis de las pantallas
@@ -117,7 +120,8 @@ porque listan cualquier error de JavaScript al final.
 
 ```bash
 node rediseno.js        # Despacho, Gestión y el trazador
-node gerencia-shot.js   # el panel del gerente, con tres semanas de historial
+node gerencia-shot.js   # los números del gerente, con tres semanas de historial
+                        # (entra por despacho.html: gerencia se fusionó con Despacho)
 node creador-ui-run.js  # el panel del creador (esta sí verifica, no solo mira)
 node chofer-shot.js     # la app del chofer (esta también verifica)
 ```

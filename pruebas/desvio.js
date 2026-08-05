@@ -135,5 +135,51 @@ const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
   await sleep(500);
   ok('13. Se puede quitar el silencio', rec.states.at(-1).desvio.mudoHasta === null);
 
+  // ─── Y ADEMÁS QUEDA GUARDADO ────────────────────────────────────────────
+  //
+  // Hasta ahora el desvío se veía en vivo y se perdía: al día siguiente no
+  // había forma de contestar "¿cuántas veces se salió M-01 y por cuánto
+  // tiempo?". Un desvío aislado es una obra; el mismo desvío todos los días es
+  // otra cosa, y mientras no se guarden las dos se ven igual.
+  const Database = require(RAIZ + '/server/node_modules/better-sqlite3');
+  const base = new Database(process.env.DBFILE || process.env.DB_FILE, { readonly: true });
+  const guardados = base.prepare(
+    'SELECT * FROM deviations WHERE vehicleId = ? ORDER BY id').all('M-01');
+
+  ok('14. El desvío que pasó quedó guardado', guardados.length >= 1,
+     `${guardados.length} episodio(s)`);
+
+  const vuelto = guardados.find(d => d.cierre === 'regreso');
+  ok('15. El que volvió al recorrido está cerrado',
+     !!vuelto && vuelto.endedAt > vuelto.startedAt && vuelto.durationSec >= 0,
+     vuelto && `${vuelto.durationSec} s`);
+  ok('16. Con la distancia máxima a la que llegó, no la última',
+     !!vuelto && vuelto.maxM >= 380, vuelto && `${vuelto.maxM} m`);
+  ok('17. Y contra qué umbral se lo midió — cambia por ruta y se puede editar',
+     !!vuelto && vuelto.umbralM === 300, vuelto && `${vuelto.umbralM} m`);
+
+  // Silenciar es "ya lo sé, no me avises más", NO "esto no pasó". Si el
+  // silencio borrara el registro, la forma de que un desvío no apareciera en
+  // el informe sería apretar el botón de silencio.
+  const mudo = guardados.find(d => d.silenciado === 1);
+  ok('18. Un desvío silenciado igual se guarda, marcado como silenciado',
+     !!mudo, guardados.map(d => `${d.cierre || 'abierto'}/${d.silenciado}`).join(' '));
+
+  // Ninguno puede quedar abierto para siempre: una fila sin cerrar crece sola
+  // y el informe del mes diría que una combi estuvo cuatro días fuera de ruta.
+  const abiertosViejos = base.prepare(
+    'SELECT COUNT(*) c FROM deviations WHERE endedAt IS NULL AND startedAt < ?').get(Date.now() - 60_000).c;
+  ok('19. No quedan episodios abiertos de hace rato', abiertosViejos === 0, abiertosViejos);
+  base.close();
+
+  // Y llega al informe, que es donde lo va a leer la cooperativa
+  const csv = await fetch(`${API}/admin/informe/desvios.csv?desde=${Date.now() - 3600e3}&hasta=${Date.now()}`,
+    { headers: H }).then(r => r.text());
+  ok('20. Hay un informe de salidas del recorrido', /Informe de desvios/i.test(csv),
+     csv.split('\r\n')[0]);
+  ok('21. Con una fila por episodio y su duración',
+     /M-01;R-14;/.test(csv) && /Máxima distancia/.test(csv),
+     csv.split('\r\n').find(l => l.startsWith('M-01')));
+
   ws.close(); process.exit(0);
 })();

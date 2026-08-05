@@ -102,6 +102,13 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
       r.body.totales.cumplimiento === 67, r.body.totales.cumplimiento);
     ok('compara unidad por unidad', r.body.porUnidad.length === 3,
       r.body.porUnidad.map(u => u.unitId));
+    // Las salidas del recorrido cierran el cuadro: cuántas vueltas dio cada
+    // unidad ya se sabía, cuántas veces se salió no. Sin desvíos en la base
+    // el número es cero, no un hueco — cero significa "no se salió".
+    ok('cada unidad trae sus salidas del recorrido',
+      r.body.porUnidad.every(u => u.desvios === 0 && u.desvioSec === 0),
+      r.body.porUnidad.map(u => `${u.unitId}:${u.desvios}`));
+    ok('y el total del período también', r.body.totales.desvios === 0, r.body.totales.desvios);
   }
 
   console.log('\nUN GERENTE DE RUTA NO VE LAS OTRAS RUTAS DE SU EMPRESA');
@@ -253,6 +260,43 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
     ok('y gerencia va aparte', emp.body.resumen.gerencia === 2, emp.body.resumen.gerencia);
   }
 
+  console.log('\nCADA VUELTA SE JUZGA CON LA VARA DE SU MOMENTO');
+  {
+    // Lo que esto evita: con objetivo automático el número se mueve solo —
+    // depende de cuántas unidades hay en ruta— así que el informe de la
+    // semana pasada juzgaba las vueltas del lunes con el objetivo del jueves.
+    // Nadie podía notarlo mirando la pantalla, que es lo que lo hace caro.
+    const db2 = new Database(DB);
+    const vari = (rt) => {
+      const v = db2.prepare('SELECT variantId FROM route_variants WHERE routeId = ? AND activa = 1').get(rt);
+      return v ? v.variantId : null;
+    };
+    // Dos vueltas idénticas (brecha 5:00) en la misma ruta, cuyo objetivo de
+    // HOY es 2:00. Una guardó SU objetivo de entonces —5:00, o sea que
+    // cumplió— y la otra no guardó ninguno.
+    db2.prepare(
+      `INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec)
+       VALUES (?, ?, ?, ?, ?, 3000, 22, 300, 300)`
+    ).run('M-90', 'R-14', vari('R-14'), Date.now() - 3000e3, Date.now() - 50e3);
+    db2.close();
+
+    const r = await pedir('/gerencia/resumen', G.token);
+    const m90 = r.body.porUnidad.find(u => u.unitId === 'M-90');
+    const m02 = r.body.porUnidad.find(u => u.unitId === 'M-02');
+    ok('la que guardó su objetivo se mide contra ÉSE y cumple',
+      m90 && m90.cumplimiento === 100, m90 && m90.cumplimiento);
+    ok('y la misma brecha sin objetivo guardado, contra el de hoy, no cumple',
+      m02 && m02.cumplimiento === 0, m02 && m02.cumplimiento);
+
+    // Y se dice cuántas son de cada clase: mientras queden vueltas viejas, el
+    // promedio tiene una parte medida con la vara equivocada y la pantalla
+    // tiene que poder decirlo en vez de presentarlo como exacto.
+    ok('el resumen cuenta las que traen su propio objetivo',
+      r.body.totales.conObjetivoPropio === 1, r.body.totales.conObjetivoPropio);
+    ok('y las que se miden contra el de hoy porque son anteriores',
+      r.body.totales.conObjetivoViejo === 3, r.body.totales.conObjetivoViejo);
+  }
+
   console.log('\nEL INFORME');
   {
     const csv = await fetch(`${API}/gerencia/informe/vueltas.csv?desde=${Date.now() - 86400e3}&hasta=${Date.now()}`,
@@ -260,6 +304,30 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
     ok('baja el mismo archivo que Despacho', /Informe de vueltas/.test(csv));
     ok('firmado por quien lo pidió', /GER-EMPRESA/.test(csv), csv.split('\r\n')[3]);
     ok('con el nombre de su cooperativa', /Cooperativa de Transportes Juliaca/.test(csv), csv.split('\r\n')[0]);
+
+    // La brecha sin el objetivo al lado es un número sin vara: el que abre el
+    // CSV el mes que viene no tiene forma de saber cuál regía ese martes.
+    ok('la brecha viene con el objetivo de ESA vuelta al lado',
+      /Objetivo de esa vuelta/.test(csv), csv.split('\r\n').find(l => /Brecha promedio/.test(l)));
+    const filaM90 = csv.split('\r\n').find(l => l.startsWith('M-90'));
+    ok('y la vuelta que lo guardó lo muestra', /;05:00\s*$/.test(filaM90 || ''), filaM90);
+    const filaM02 = csv.split('\r\n').find(l => l.startsWith('M-02'));
+    ok('la que no lo tiene deja la celda vacía, no un cero inventado',
+      /;$/.test(filaM02 || ''), filaM02);
+
+    // Los tres botones de descarga del panel, por su nombre REAL. El de horas
+    // decía "CSV turnos" y pedía `turnos.csv`, que no existe: devolvía 404 y
+    // la pantalla mostraba "No se pudo descargar", que no dice nada. Un nombre
+    // que no existe se ve igual que un servidor caído.
+    for (const tipo of ['vueltas', 'horas', 'desvios']) {
+      const r = await fetch(`${API}/gerencia/informe/${tipo}.csv?desde=${Date.now() - 86400e3}&hasta=${Date.now()}`,
+        { headers: { Authorization: 'Bearer ' + G.token } });
+      ok(`el informe ${tipo} existe y baja`, r.status === 200, r.status);
+    }
+    const inventado = await fetch(`${API}/gerencia/informe/turnos.csv`,
+      { headers: { Authorization: 'Bearer ' + G.token } });
+    ok('y uno inventado sigue siendo 404', inventado.status === 404, inventado.status);
+
     const ajeno = await fetch(`${API}/gerencia/informe/vueltas.csv?routeId=RB-1`,
       { headers: { Authorization: 'Bearer ' + G.token } });
     ok('y no puede pedir el de otra cooperativa', ajeno.status === 404, ajeno.status);
