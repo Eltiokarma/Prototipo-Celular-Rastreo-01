@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Treinta y cuatro suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Treinta y ocho suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -39,7 +39,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp presencia foto marca respaldo
-# las que se arman solas (cont.): vendor retencion
+# las que se arman solas (cont.): vendor retencion cascada mapa-shot compresion
 # las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema contraste mapa teclado nativas
 node gerencia.js
 ```
@@ -94,6 +94,10 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `vendor` | Que **ninguna pantalla dependa de un CDN para poder dibujar el mapa**. No es una precaución teórica: unpkg no le entregó `leaflet.js` al navegador del creador y elegir una ruta dejaba la página en blanco, sin un solo error a la vista — `L` no existía y el script se cortaba en la primera línea. Verifica que el servidor entregue Leaflet de verdad (y no un 404 con forma de página), que los tres HTML lo pidan a su propio origen, que el WebView del APK lo lleve adentro del bundle, y que **la copia del APK y la del servidor sigan siendo la misma**: si alguien sube la versión en `server/vendor/` y se olvida de correr `herramientas/vendor-leaflet.js`, la app se queda con la vieja y nadie se entera hasta ver algo raro en el teléfono |
 | `retencion` | Cuánto historial se guarda, y que **el tamaño de la flota no lo decida**. Los topes eran de filas y globales —2000 vueltas, 1000 mensajes—: con seis combis son meses, con 2000 unidades son tres horas de vueltas, y como el SOS vive en la misma tabla que el chat, una tarde de conversación activa borraba las emergencias del mes y el informe salía vacío sin que nada lo dijera. Siembra filas con fecha puesta a mano —para no esperar cuatro meses—, reinicia el servidor y mira qué sobrevivió: la vuelta de hace 119 días sí y la de 200 no, la charla de hace dos meses no y **el SOS de ese mismo día sí** | 
 | `cliente` | El cliente del protocolo que va a usar la app nativa (`app/protocolo/`): el rol de GPS cuando hay relevo, las brechas que respetan el null, el freno de cadencia y el privado que no se filtra |
+| `tiles` | De dónde vienen las tiles del mapa — y de dónde NO pueden venir. CARTO y el CDN de OSM quedaron fuera de licencia para uso comercial: la suite busca los hosts prohibidos como host completo (un comentario también falla) y exige que las URLs de tiles sean del propio origen o del proveedor con clave, con la clave fuera del código |
+| `cascada` | La cascada de tiles vista desde el navegador del chofer: en los zooms cubiertos, las tiles salen del mapa propio y el proveedor no recibe **ni un pedido**; la tile que el propio no tiene —y solo esa— cae al proveedor; y los contadores (`window.TILES_STATS`) cuentan la verdad, porque son la evidencia de que el proveedor es la excepción |
+| `mapa-shot` | Banco visual del MAPA en las cuatro pantallas, que **falla si el lienzo sale vacío**: la vara es tiles efectivamente cargadas (no pedidas) y algo dibujado encima. Un mapa en blanco no avisa — se descubre arriba de la combi |
+| `compresion` | Las dos palancas de ahorro con código (`COSTOS.md` §5). El índice de vueltas existe y el plan de consulta lo usa; y la compresión del WebSocket se mide en el cable: dos espectadores reciben los MISMOS estados y el que negoció permessage-deflate tiene que recibir menos de la mitad de los bytes (medido: −90 %). El que no ofrece la extensión —la app nativa— sigue funcionando sin comprimir, y un chat mandado comprimido llega intacto al que no comprime |
 
 ## Sintaxis de las pantallas
 

@@ -15,7 +15,9 @@ tres escenarios; `node modelo-costos.js bench` corre el benchmark del §3.
    de 2000 — el 88 % del costo total es variable y casi todo es eso.
 2. **El mismo estado les cuesta a los choferes ~89 MB de datos móviles por
    turno.** A escala, la palanca más rentable (comprimir el WS) arregla las
-   dos cosas a la vez.
+   dos cosas a la vez. **Implementada el 2026-08-06** con −90 % medido por
+   estado (ver §5): los números de egress de §2 y §4 son los de ANTES de la
+   compresión — el escenario 2000 real queda en ~$190-210/mes.
 3. **Costo marginal por cooperativa de 100 unidades: ~$26/mes.**
    Total del escenario 2000/20: **~$658/mes** ($0,33/unidad).
 
@@ -218,9 +220,9 @@ algo menos):
 | # | Palanca | Ahorro/mes | Horas | Qué se degrada |
 |---|---|---|---|---|
 | 1 | **`STATE_INTERVAL_MS` 3000→5000** (ya es env var, `server/index.js:4121`) | **~$207** (egress del estado −40 %) y −36 MB/turno al chofer | **0** (cambiar una variable) | el mapa y las brechas se refrescan cada 5 s en vez de 3. Para regular brechas de 8-10 min, probablemente nadie lo note |
-| 2 | **Compresión del WebSocket** (`permessage-deflate` en `ws`, servidor y clientes la negocian solos) | **~$350-440** (JSON repetitivo: 70-85 % menos) y el chofer baja de 89 a ~15-25 MB/turno | 2-4 h + prueba de CPU | +CPU por conexión (~centenas de µs/mensaje × 667 envíos/s — entra en el presupuesto de 2 vCPU; medir) |
+| 2 | ~~Compresión del WebSocket~~ | **HECHO** (2026-08-06). `permessage-deflate` en el servidor (`server/index.js`, creación del `WebSocketServer`); los navegadores la negocian solos y la app nativa (OkHttp) no la ofrece, así que sigue sin comprimir sin tocarla. Medido en la suite `compresion` con el servidor real: **−90 % de bytes por estado** (3 287 B → 335 B con 6 unidades) — mejor que el 70-85 % estimado, gracias al contexto entre mensajes (cada estado se comprime contra el anterior, que es casi idéntico). Config acotada en memoria: ventana de 4 KB y `level: 1` (~50-100 KB por conexión; ~100-200 MB a 2000, dentro de los 2 GB presupuestados) | ✔ | el CPU por conexión queda por medir con ~500 conexiones reales (supuesto 9) |
 | 3 | **Adelgazar el estado** (455 B/unidad: 17 campos con nombres largos; mandar solo lo que cambió o acortar claves) | ~$250-350 solo, menos si ya está la #2 | 8-20 h | riesgo de bugs de sincronización (el estado completo es lo que hace simple la reconexión) |
-| 4 | **Índice `laps(finishedAt)`** | $0 directo; elimina bloqueos de 142 ms del hilo único en cada carga de panel (4×) | 0,25 h | +unos MB de disco. Sin contras reales — **hacerla ya** |
+| 4 | ~~Índice `laps(finishedAt)`~~ | **HECHO** (2026-08-06). `idx_laps_cierre`, creado junto a las migraciones de `laps`; la suite `compresion` verifica que existe y que la consulta del panel lo usa (`EXPLAIN QUERY PLAN`) | ✔ | +unos MB de disco |
 | 5 | **Cadencia GPS 3→5 s** (pantalla encendida) | ~$9 (las respuestas de /gps) − escrituras −40 % (que sobran) | 1 h | brecha se recalcula más lento; el ahorro real es batería y datos del chofer |
 | 6 | **Batching de escrituras** (agrupar UPDATEs de turno en transacción periódica) | ~$0 (SQLite usa 0,8 % del segundo) | 4-8 h | **no vale la pena hoy** — solo si el deploy queda sin WAL, y ahí lo correcto es arreglar el WAL |
 | 7 | **Polling → WebSocket/SSE** | $0 — **ya es todo push**; no hay polling que matar | — | — |
@@ -228,10 +230,14 @@ algo menos):
 | 9 | **Comprimir responses HTTP (gzip)** | ~$0,05 (los paneles casi no pesan) | 1 h | no vale la pena |
 | 10 | **Bajar Vercel** (el backend ya sirve los mismos HTML) | $20 | 0,5 h | un solo origen para todo (menos redundancia) |
 
-**Recomendación de secuencia** (no implementada, como pediste): #4 hoy mismo,
-#1 como experimento reversible en el piloto, #2 antes de pasar de ~300
-unidades, #3 solo si después de #1+#2 el egress sigue doliendo. Con #1+#2 el
-escenario 2000 queda en ~**$250-300/mes** y el chofer en ~10-15 MB/turno.
+**Estado de la secuencia** (2026-08-06): **#4 y #2 están hechas** — el índice
+y la compresión, las dos con la suite `compresion` vigilándolas. Con el −90 %
+medido en el estado, el egress del WS a 2000 unidades baja de ~$512 a ~$50-60
+y el chofer de ~89 a ~10-15 MB/turno — **el escenario 2000 queda en
+~$190-210/mes** sin tocar nada más. #1 sigue siendo una variable de entorno
+(`STATE_INTERVAL_MS`) para probar en el piloto si hiciera falta; #3 pierde
+casi todo el sentido con la compresión puesta (los nombres repetidos ya no
+viajan); #10 (bajar Vercel) sigue siendo una decisión operativa de $20.
 
 ---
 

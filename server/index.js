@@ -1238,6 +1238,14 @@ if (variantesMigradas.size) {
   variantesMigradas = new Map();
 }
 
+// Todo lo que lee vueltas filtra u ordena por finishedAt: la pestaña del
+// panel, los informes, el promedio del objetivo automático y la poda. Sin
+// índice, cada carga de la pestaña recorría la tabla entera — a base de
+// régimen (120 días de 2000 unidades) son 142 ms midiendo, y esos 142 ms
+// bloquean el MISMO hilo que atiende los POST /gps de toda la flota
+// (`COSTOS.md` §3). Con el índice: 33 ms. Cuesta unos MB de disco.
+db.exec('CREATE INDEX IF NOT EXISTS idx_laps_cierre ON laps (finishedAt)');
+
 // Cuánto historial se guarda, y por qué se mide en DÍAS y no en filas.
 //
 // Antes el tope era global y fijo: las últimas 2000 vueltas, borradas en cada
@@ -3375,7 +3383,44 @@ const server = http.createServer(app);
 
 // ─── SERVIDOR WEBSOCKET ──────────────────────────────────────
 // Acá empieza lo interesante.
-const wss = new WebSocketServer({ server });
+//
+// Con compresión negociada (permessage-deflate). El estado que cada ruta
+// emite cada 3 s es la cuenta más grande del sistema entero —el 88 % del
+// costo a 2000 unidades es egress, y de eso el 90 % es ESTE mensaje
+// (`COSTOS.md` §4)— y es JSON repetitivo: 17 campos con los mismos nombres
+// por cada unidad. Deflate con contexto entre mensajes lo achica ~10×,
+// porque cada estado se parece muchísimo al anterior. Del otro lado del
+// mismo caño está el chofer: sus ~89 MB de datos móviles por turno bajan a
+// una fracción sin tocar una línea de los clientes.
+//
+// La negociación la hace cada cliente solo: los navegadores la ofrecen
+// siempre (paneles y app web), y el WebSocket de la app nativa (OkHttp) no
+// la ofrece — esa conexión sigue sin comprimir, exactamente como hasta hoy.
+// Por eso no hay caso "cliente viejo": quien no ofrece, no comprime.
+//
+// Los números de la configuración son memoria por conexión, y a 2000
+// conexiones eso multiplica: la ventana de 2^12 = 4 KB por dirección (los
+// 32 KB por defecto serían ~64 MB solo de ventanas) alcanza de sobra porque
+// lo que se repite —los nombres de campo y el estado anterior— cabe en
+// mucho menos. `level: 1` porque el JSON repetitivo se comprime casi igual
+// en nivel 1 que en 6, a una fracción del CPU (667 envíos/s en punta salen
+// del mismo hilo que todo lo demás). `threshold: 512` deja pasar sin
+// comprimir lo que no paga el viaje (un chat pesa 202 B).
+// El contexto entre mensajes —que `ws` conserva por defecto salvo que el
+// cliente pida lo contrario— es de donde sale casi todo el ahorro: cada
+// estado se comprime contra el anterior. Eso mantiene un par de streams
+// zlib vivos por conexión (~50-100 KB): a 2000 conexiones son ~100-200 MB,
+// contemplados en los 2 GB presupuestados para ese escenario.
+const wss = new WebSocketServer({
+  server,
+  perMessageDeflate: {
+    threshold: 512,
+    serverMaxWindowBits: 12,
+    zlibDeflateOptions: { level: 1, memLevel: 6 },
+    zlibInflateOptions: { chunkSize: 10 * 1024 },
+    concurrencyLimit: 10,
+  },
+});
 
 // Tope de mensajes por conexión. Una sesión válida podía mandar miles de
 // mensajes por segundo: cada chat se guarda en la base y se reparte a toda

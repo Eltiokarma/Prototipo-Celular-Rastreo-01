@@ -148,6 +148,13 @@ nada.
 - [x] **El historial aguanta el tamaño de la flota** (ver 2.5): la retención
       es por días y no por filas, así que significa lo mismo con 6 combis que
       con 2000.
+- [x] **El estado viaja comprimido** (`permessage-deflate`). El WebSocket de
+      estado era el 90 % del egress a 2000 unidades (~$518/mes, `COSTOS.md`)
+      y los ~89 MB de datos móviles que el chofer paga por turno: la suite
+      `compresion` mide **−90 % de bytes por estado** contra el servidor
+      real. La app nativa no ofrece la extensión y sigue exactamente igual.
+      Del mismo viaje: el índice `laps(finishedAt)`, que saca los 142 ms de
+      bloqueo del hilo único en cada carga de la pestaña de vueltas.
 
 ### Lo que todavía no se midió, y no se arregla programando
 
