@@ -3148,6 +3148,61 @@ if (!TILES_KEY) {
   console.warn('La clave se crea gratis en https://myprojects.geoapify.com y se pone como variable de entorno.');
 }
 
+// ─── MAPA PROPIO (PMTiles raster por zona) ───────────────────
+// Los archivos .pmtiles del área de operación (Juliaca hoy; cada ciudad
+// nueva es un archivo más). Los genera herramientas/mapa-propio/extraer.js
+// y viven donde diga TILES_DIR — en Railway, dentro del volumen, al lado de
+// la base. Se sirven con soporte de Range (el cliente pide pedazos, no el
+// archivo entero) y caché agresiva: el archivo es INMUTABLE — actualizar el
+// mapa es subir un archivo nuevo, no pisar este.
+const TILES_DIR = [
+  process.env.TILES_DIR,
+  path.join(__dirname, 'tiles'),
+  path.join(__dirname, '..', 'herramientas', 'mapa-propio', 'salida'),
+].filter(Boolean).find(d => fs.existsSync(d)) || null;
+if (TILES_DIR) console.log('Mapa propio:', TILES_DIR);
+else console.log('Mapa propio: sin carpeta de tiles (TILES_DIR) — solo proveedor externo.');
+
+// CORS: la app nativa vive en un WebView con otro origen, y un pedido con
+// Range dispara preflight. Sin esto, el mapa propio solo serviría a la web.
+function corsDeTiles(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'range,if-match,if-none-match');
+  res.setHeader('Access-Control-Expose-Headers', 'content-range,accept-ranges,content-length,etag');
+}
+app.options('/tiles/:archivo', (req, res) => { corsDeTiles(res); res.sendStatus(204); });
+
+// El índice: qué zonas hay y con qué bbox. La cascada del cliente decide
+// con esto si una tile sale de acá o del proveedor. Caché corta: cambia
+// solo cuando se agrega una ciudad.
+app.get('/tiles/zonas.json', (req, res) => {
+  corsDeTiles(res);
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  if (!TILES_DIR) return res.json({});
+  const idx = path.join(TILES_DIR, 'zonas.json');
+  if (!fs.existsSync(idx)) return res.json({});
+  // Solo las zonas cuyos archivos están de verdad en el disco
+  const zonas = JSON.parse(fs.readFileSync(idx, 'utf8'));
+  for (const [id, z] of Object.entries(zonas)) {
+    const ok = Object.values(z.archivos || {}).every(a => fs.existsSync(path.join(TILES_DIR, a)));
+    if (!ok) delete zonas[id];
+  }
+  res.json(zonas);
+});
+
+app.get('/tiles/:archivo', (req, res) => {
+  // Solo nombres sanos y solo .pmtiles: esta ruta no es un file server
+  const archivo = String(req.params.archivo || '');
+  if (!/^[a-z0-9-]+\.pmtiles$/.test(archivo) || !TILES_DIR) return res.sendStatus(404);
+  corsDeTiles(res);
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  // sendFile maneja Range y ETag solo; con esto el navegador pide los
+  // pedacitos que necesita y no vuelve a pedir los que ya tiene.
+  res.sendFile(path.join(TILES_DIR, archivo), (err) => {
+    if (err && !res.headersSent) res.sendStatus(404);
+  });
+});
+
 const VENDOR_LEAFLET = path.join(__dirname, 'vendor', 'leaflet');
 for (const [archivo, tipo] of [['leaflet.js', 'application/javascript'], ['leaflet.css', 'text/css']]) {
   app.get('/vendor/leaflet/' + archivo, (req, res) => {

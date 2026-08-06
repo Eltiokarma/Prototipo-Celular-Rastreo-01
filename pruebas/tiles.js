@@ -127,5 +127,67 @@ console.log('\nEL SERVICE WORKER CACHEA LAS TILES NUEVAS');
   ok('y ya no espera a CARTO', !/cartocdn/.test(sw));
 }
 
-console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
-process.exit(fallas ? 1 : 0);
+// ─── EL SERVIDOR SIRVE EL MAPA PROPIO ────────────────────────
+// Con un PMTiles de juguete (pruebas/tiles-fixture/): lo que se prueba es
+// el contrato del endpoint, no la cartografía. El de verdad pesa cientos
+// de MB y no vive en el repositorio.
+const { spawn } = require('child_process');
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+(async () => {
+  const PUERTO = 3171;
+  const API = `http://localhost:${PUERTO}`;
+  const DB = path.join(__dirname, 'tiles-test.db');
+  for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
+  const servidor = spawn('node', [path.join(RAIZ, 'server', 'index.js')], {
+    env: { ...process.env, PORT: String(PUERTO), DB_FILE: DB,
+           DISPATCH_PASSWORD: 'despacho99',
+           TILES_DIR: path.join(__dirname, 'tiles-fixture') },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  try {
+    let vivo = false;
+    for (let i = 0; i < 80 && !vivo; i++) {
+      await sleep(250);
+      try { await fetch(API + '/ping'); vivo = true; } catch {}
+    }
+    console.log('\nEL SERVIDOR SIRVE EL MAPA PROPIO');
+    ok('el servidor de prueba arrancó', vivo);
+
+    // El índice de zonas: dice qué hay, y no promete lo que no está
+    const zonas = await (await fetch(API + '/tiles/zonas.json')).json();
+    ok('zonas.json trae la zona con archivos presentes', !!zonas.juliaca);
+    ok('y OMITE la zona cuyos archivos faltan (nada de 404 en cadena)',
+       !('fantasma' in zonas), Object.keys(zonas));
+    ok('la zona dice su bbox (la cascada decide con esto)',
+       Array.isArray(zonas.juliaca?.bbox) && zonas.juliaca.bbox.length === 4);
+
+    // Range: el cliente pide PEDACITOS del archivo, nunca el archivo entero
+    const r = await fetch(API + '/tiles/juliaca-claro.pmtiles', { headers: { Range: 'bytes=0-13' } });
+    ok('un pedido con Range responde 206 (parcial)', r.status === 206, r.status);
+    const cuerpo = Buffer.from(await r.arrayBuffer());
+    ok('y trae exactamente los bytes pedidos', cuerpo.length === 14, cuerpo.length);
+    ok('que son un PMTiles de verdad (magia del formato)',
+       cuerpo.slice(0, 7).toString() === 'PMTiles', cuerpo.slice(0, 7).toString());
+    ok('con content-range para seguir pidiendo', /^bytes 0-13\//.test(r.headers.get('content-range') || ''));
+
+    // Inmutable: la actualización del mapa es OTRO archivo, no este cambiado
+    ok('la caché es agresiva e inmutable',
+       /max-age=31536000.*immutable/.test(r.headers.get('cache-control') || ''),
+       r.headers.get('cache-control'));
+    ok('y con CORS para el WebView de la app nativa',
+       r.headers.get('access-control-allow-origin') === '*');
+
+    // La ruta no es un file server
+    for (const malo of ['..%2F..%2Fpackage.json', 'r14.db', 'juliaca-claro.pmtiles.bak', 'MAYUS.pmtiles']) {
+      const rm = await fetch(API + '/tiles/' + malo);
+      ok(`no entrega ${malo}`, rm.status === 404, rm.status);
+    }
+  } finally {
+    servidor.kill();
+    for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
+  }
+
+  console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
+  process.exit(fallas ? 1 : 0);
+})();
