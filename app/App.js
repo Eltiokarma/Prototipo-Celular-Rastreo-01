@@ -27,7 +27,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import { crearCliente } from './protocolo/cliente';
 import { construirHud, textoNotificacion } from './hud';
-import { aMensaje, hilo, sinLeer } from './chat';
+import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
 import { margenes, margenBarra } from './margenes';
 import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL } from './gestos';
 import * as mapa from './mapa';
@@ -139,6 +139,14 @@ function Aplicacion() {
   // Se DECLARA acá; entrar a la cadena de brechas lo confirma el servidor
   // cuando el GPS pisa el trazado — ver `enRutaConfirmada` más abajo.
   const [presencia, setPresencia] = React.useState('fuera');
+  // El SOS recién disparado, esperando (si el chofer puede) que le ponga
+  // nombre. La alerta YA salió: esto es opcional y se va solo a los 5 min.
+  const [tipificarSos, setTipificarSos] = React.useState(false);
+  React.useEffect(() => {
+    if (!tipificarSos) return;
+    const t = setTimeout(() => setTipificarSos(false), 5 * 60_000);
+    return () => clearTimeout(t);
+  }, [tipificarSos]);
   const [canal, setCanal] = React.useState('grupo');        // 'grupo' | 'directo'
   const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0 });
   const cliente = React.useRef(null);
@@ -162,6 +170,10 @@ function Aplicacion() {
       c.on('historial', (items) => setMensajes(items.map(m => aMensaje(m, quienSoy(c))))),
       c.on('chat', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('sos',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
+      // El tipo llega después que el SOS y actualiza la burbuja YA dibujada
+      // en vez de sumar otra: en el hilo la emergencia es una sola.
+      c.on('sosTipo', (e) => setMensajes(v =>
+        v.map(m => (m.sosId != null && m.sosId === e.sosId) ? conTipoSos(m, e.tipo) : m))),
       c.on('voz',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('foto', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
     ];
@@ -401,7 +413,12 @@ function Aplicacion() {
       <Ruta {...comun} hud={hud} reporta={reporta}
         confirmada={enRutaConfirmada}
         onPresencia={cambiarPresencia}
-        onSos={() => cliente.current.mandarSos(ultimaPos.current)} />
+        onSos={() => { cliente.current.mandarSos(ultimaPos.current); setTipificarSos(true); }}
+        tipificarSos={tipificarSos}
+        onTipoSos={(tipo) => {
+          if (tipo) cliente.current.marcarTipoSos(tipo);
+          setTipificarSos(false);
+        }} />
       <Chat {...comun}
         mensajes={hilo(mensajes, canal)}
         canal={canal}
@@ -551,7 +568,8 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
 
 // ═══════════════════════════════════════════════════════════════
 function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
-                presencia, confirmada, onPresencia, onIr, onSalir, onSos }) {
+                presencia, confirmada, onPresencia, onIr, onSalir, onSos,
+                tipificarSos, onTipoSos }) {
   const { s, C } = usarTema();
   const p = hud.principal, sec = hud.secundario;
   const color = colorEstado(C)[p.estado];
@@ -625,6 +643,7 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
             Al volver, entrás a la cadena cuando el GPS te vea sobre el trazado.
           </Text>
         </View>
+        {tipificarSos && <TipoSos onElegir={onTipoSos} />}
         <SosDeslizable onDisparar={onSos} />
         <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
       </View>
@@ -712,8 +731,34 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
         </Pressable>
       </View>
 
+      {tipificarSos && <TipoSos onElegir={onTipoSos} />}
       <SosDeslizable onDisparar={onSos} />
       <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
+    </View>
+  );
+}
+
+// ¿Qué pasó? — aparece DESPUÉS de disparar el SOS, con la alerta ya
+// enviada. En una emergencia real nadie navega un menú antes de pedir
+// ayuda: deslizar manda, y esto es lo de después, si el chofer puede.
+// "Falla mecánica", "accidente" y "policía" movilizan cosas distintas
+// (una grúa, una ambulancia, otra llamada); sin tocar nada queda como SOS
+// genérico y se va solo a los 5 minutos.
+function TipoSos({ onElegir }) {
+  const { s, C } = usarTema();
+  return (
+    <View style={s.tipoSosCaja}>
+      <Text style={s.tipoSosTitulo}>ALERTA ENVIADA — ¿QUÉ PASÓ?</Text>
+      <View style={s.filaTipoSos}>
+        {Object.entries(TIPOS_SOS).map(([clave, etiqueta]) => (
+          <Pressable key={clave} onPress={() => onElegir(clave)} style={s.botonTipoSos}>
+            <Text style={s.botonTipoSosTexto}>{etiqueta.toUpperCase()}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Pressable onPress={() => onElegir(null)} style={s.tipoSosCerrar}>
+        <Text style={s.tipoSosCerrarTexto}>Cerrar — queda como SOS</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1391,6 +1436,28 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.rojo, alignItems: 'center', justifyContent: 'center',
   },
   sosBotonTexto: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+  // El "¿qué pasó?" de después del SOS. Botones grandes: se tocan con el
+  // pulgar, posiblemente arriba de la combi y con apuro.
+  tipoSosCaja: {
+    borderRadius: 16, borderWidth: 1, borderColor: C.rojo,
+    backgroundColor: C.panel, padding: 12, marginTop: 10,
+  },
+  tipoSosTitulo: {
+    color: C.rojo, fontSize: 13, fontWeight: '900', letterSpacing: 1,
+    textAlign: 'center',
+  },
+  filaTipoSos: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  botonTipoSos: {
+    flex: 1, minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
+    backgroundColor: C.fondo, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 4, paddingVertical: 8,
+  },
+  botonTipoSosTexto: {
+    color: C.brillante, fontSize: 12, fontWeight: '900', letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  tipoSosCerrar: { alignSelf: 'center', marginTop: 10, padding: 4 },
+  tipoSosCerrarTexto: { color: C.tenue, fontSize: 12 },
 
   // ── Presencia ────────────────────────────────────────────────
   filaPresencia: { flexDirection: 'row', gap: 10, marginTop: 12 },

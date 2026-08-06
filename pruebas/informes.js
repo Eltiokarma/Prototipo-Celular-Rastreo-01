@@ -94,8 +94,10 @@ const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
      /"Mamani; Raúl ""El Chino"""/.test(r.texto));
 
   r = await bajar('sos', RANGO);
-  ok('9. El informe de SOS trae la posición',
-     new RegExp(`El Chino;${PERSONA};${PERSONA};R-14;-15\\.49;-70\\.12`).test(r.texto));
+  // La columna Tipo va entre Ruta y la posición. Este SOS no eligió tipo,
+  // así que dice "SOS" a secas — el genérico, que es como nace cada uno.
+  ok('9. El informe de SOS trae el tipo y la posición',
+     new RegExp(`El Chino;${PERSONA};${PERSONA};R-14;SOS;-15\\.49;-70\\.12`).test(r.texto));
 
   r = await bajar('actividad', RANGO);
   ok('10. El de actividad trae la auditoría', r.status === 200 && /alta/.test(r.texto));

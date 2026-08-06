@@ -879,6 +879,11 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
 // ═══════════════════════════════════════════════════════════════
 // CHAT
 // ═══════════════════════════════════════════════════════════════
+// Los tipos de emergencia. Se eligen DESPUÉS de deslizar el SOS —la alerta
+// ya salió— desde la barra "¿qué pasó?"; sin elegir queda el SOS genérico.
+// Las claves son las que viajan por el cable; los textos, lo que se dibuja.
+const TIPOS_SOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
+
 const CHAT_SEED = [
   { from: 'Chofer 08', role: 'driver', text: 'Voy lleno, paso directo',    time: '14:05', tone: 'normal' },
   { from: 'Despacho',  role: 'admin',  text: 'Desvío por Jr. Lambayeque',  time: '14:06', tone: 'info' },
@@ -2467,6 +2472,14 @@ function Root() {
   const [routeId, setRouteId] = React.useState(null); // ruta del chofer, la manda el servidor
   const [messages, setMessages] = React.useState(CHAT_SEED);
   const [incomingSos, setIncomingSos] = React.useState(null);
+  // El id de MI último SOS, esperando (si puedo) que le ponga nombre. La
+  // alerta ya salió: elegir es opcional y la barra se va sola a los 5 min.
+  const [sosPropio, setSosPropio] = React.useState(null);
+  React.useEffect(() => {
+    if (sosPropio == null) return;
+    const t = setTimeout(() => setSosPropio(null), 5 * 60_000);
+    return () => clearTimeout(t);
+  }, [sosPropio]);
   const [authNotice, setAuthNotice] = React.useState(null);
   // { reporting, reason } — si reporting es false, este celular va de
   // acompañante: ve todo, pero la posición de la unidad la manda otro.
@@ -2595,7 +2608,10 @@ function Root() {
         const unit = it.vehicleId && it.vehicleId !== myVehicleId ? it.vehicleId : null;
         const privado = !!it.toVehicleId;
         if (it.kind === 'sos') {
-          return { from: it.driverName || it.unitId || 'Conductor', role: 'driver', unit, text: 'SOS — pide ayuda', time, tone: 'sos' };
+          return { from: it.driverName || it.unitId || 'Conductor', role: 'driver', unit,
+                   sosId: it.sosId ?? null,
+                   text: 'SOS — pide ayuda' + (TIPOS_SOS[it.sosTipo] ? ` (${TIPOS_SOS[it.sosTipo].toLowerCase()})` : ''),
+                   time, tone: 'sos' };
         }
         if (it.kind === 'voice') {
           // las notas viejas pierden el audio en el servidor: quedan expiradas
@@ -2639,16 +2655,31 @@ function Root() {
 
     // SOS de otra unidad: entra al hilo y dispara el aviso a pantalla completa
     window.RealtimeClient.on('sos', (a) => {
-      if (a.unitId === myUnitId) return; // el propio ya tiene su flash local
+      if (a.unitId === myUnitId) {
+        // El eco de MI disparo trae el id: es el ancla para ponerle nombre
+        // ("¿qué pasó?") con la alerta ya enviada. El flash ya es local.
+        if (a.sosId != null) setSosPropio(a.sosId);
+        return;
+      }
       pushMsg({
         from: a.driverName || a.unitId || 'Conductor',
         role: 'driver',
         unit: a.vehicleId && a.vehicleId !== myVehicleId ? a.vehicleId : null,
+        sosId: a.sosId ?? null,
         text: 'SOS — pide ayuda',
         time: nowTime(a.timestamp),
         tone: 'sos',
       });
       setIncomingSos(a);
+    });
+
+    // El tipo llega después que el SOS y actualiza la burbuja ya dibujada:
+    // en el hilo la emergencia es una sola, ahora con nombre.
+    window.RealtimeClient.on('sostipo', (e) => {
+      if (!TIPOS_SOS[e.tipo]) return;
+      setMessages(ms => ms.map(m => (m.sosId != null && m.sosId === e.sosId)
+        ? { ...m, text: m.text.replace(/ \([^)]*\)$/, '') + ` (${TIPOS_SOS[e.tipo].toLowerCase()})` }
+        : m));
     });
 
     // El servidor decide quién reporta la posición de la unidad: uno solo por
@@ -2742,6 +2773,39 @@ function Root() {
     <>
       <AndroidDevice width={380} height={780} dark={HUD.resplandor}>
         {content}
+        {/* ¿Qué pasó? — DESPUÉS de disparar mi SOS, con la alerta ya
+            enviada. En una emergencia nadie navega un menú antes de pedir
+            ayuda: esto es lo de después, si el chofer puede. Sin tocar
+            nada queda como SOS genérico y la barra se va sola. */}
+        {sosPropio != null && (
+          <div style={{
+            position: 'absolute', left: 10, right: 10, bottom: 84, zIndex: 98,
+            background: HUD.surface, border: `2px solid ${HUD.red}`,
+            borderRadius: 14, padding: 12,
+          }}>
+            <div style={{
+              color: HUD.red, fontSize: 12, fontWeight: 900, letterSpacing: 1,
+              textAlign: 'center', marginBottom: 10,
+            }}>ALERTA ENVIADA — ¿QUÉ PASÓ?</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {Object.entries(TIPOS_SOS).map(([clave, etiqueta]) => (
+                <button key={clave} onClick={() => {
+                  window.RealtimeClient.sendSosTipo(sosPropio, clave);
+                  setSosPropio(null);
+                }} style={{
+                  flex: 1, minHeight: 48, borderRadius: 10, cursor: 'pointer',
+                  border: `1px solid ${HUD.divider}`, background: HUD.bg,
+                  color: HUD.fg, fontSize: 12, fontWeight: 800, fontFamily: 'inherit',
+                }}>{etiqueta.toUpperCase()}</button>
+              ))}
+            </div>
+            <button onClick={() => setSosPropio(null)} style={{
+              display: 'block', margin: '10px auto 0', padding: 4,
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: HUD.dim2, fontSize: 12, fontFamily: 'inherit',
+            }}>Cerrar — queda como SOS</button>
+          </div>
+        )}
         {/* SOS entrante de otra unidad — aviso a pantalla completa */}
         {incomingSos && (
           <div style={{

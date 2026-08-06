@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Treinta y ocho suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Treinta y nueve suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -39,7 +39,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp presencia foto marca respaldo
-# las que se arman solas (cont.): vendor retencion cascada mapa-shot compresion
+# las que se arman solas (cont.): vendor retencion cascada mapa-shot compresion sos
 # las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema contraste mapa teclado nativas
 node gerencia.js
 ```
@@ -98,6 +98,7 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `cascada` | La cascada de tiles vista desde el navegador del chofer: en los zooms cubiertos, las tiles salen del mapa propio y el proveedor no recibe **ni un pedido**; la tile que el propio no tiene —y solo esa— cae al proveedor; y los contadores (`window.TILES_STATS`) cuentan la verdad, porque son la evidencia de que el proveedor es la excepción |
 | `mapa-shot` | Banco visual del MAPA en las cuatro pantallas, que **falla si el lienzo sale vacío**: la vara es tiles efectivamente cargadas (no pedidas) y algo dibujado encima. Un mapa en blanco no avisa — se descubre arriba de la combi |
 | `compresion` | Las dos palancas de ahorro con código (`COSTOS.md` §5). El índice de vueltas existe y el plan de consulta lo usa; y la compresión del WebSocket se mide en el cable: dos espectadores reciben los MISMOS estados y el que negoció permessage-deflate tiene que recibir menos de la mitad de los bytes (medido: −90 %). El que no ofrece la extensión —la app nativa— sigue funcionando sin comprimir, y un chat mandado comprimido llega intacto al que no comprime |
+| `sos` | El tipo de emergencia y el orden de las cosas: **deslizar manda la alerta YA**, sin preguntar nada; el tipo ("falla mecánica", "accidente", "policía") va después, con la emergencia ya sonando en Despacho. Los bordes: solo quien disparó puede calificar la suya, solo mientras la ventana está abierta, un tipo inventado no entra, y el historial y el CSV cuentan lo mismo que se vio en vivo — sin elegir queda "SOS" a secas, que es como nace cada uno |
 
 ## Sintaxis de las pantallas
 

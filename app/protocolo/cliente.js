@@ -219,7 +219,13 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       case 'chat_msg':     emitir('chat', m); break;
       case 'voice_msg':    emitir('voz', m); break;
       case 'photo_msg':    emitir('foto', m); break;
-      case 'sos_alert':    emitir('sos', m); break;
+      case 'sos_alert':
+        // Si el SOS es MÍO, el id queda anotado: es el ancla con la que la
+        // pantalla puede ponerle nombre a la emergencia YA enviada.
+        if (sesion && m.unitId === sesion.unitId) miUltimoSos = m.sosId ?? null;
+        emitir('sos', m);
+        break;
+      case 'sos_tipo':     emitir('sosTipo', m); break;
       case 'unit_joined':  emitir('unidadEntro', m.unitId); break;
       case 'unit_left':    emitir('unidadSalio', m.unitId); break;
       case 'routes':       emitir('rutas', m); break;
@@ -378,6 +384,16 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     return enviar({ type: 'sos', lat, lng, timestamp: ahora() });
   }
 
+  // Ponerle nombre a la emergencia YA disparada. El deslizar mandó la alerta
+  // sin preguntar nada; esto va después, cuando el chofer puede. El id del
+  // disparo lo anotó `sos_alert` al rebotar — si no hay ninguno anotado, no
+  // hay SOS propio que calificar.
+  let miUltimoSos = null;
+  function marcarTipoSos(tipo) {
+    if (miUltimoSos == null) return 'sin-sos';
+    return enviar({ type: 'sos_tipo', sosId: miUltimoSos, tipo }) ? null : 'sin-conexion';
+  }
+
   function salir() {
     cerradoAdrede = true;
     clearTimeout(reintento);
@@ -385,6 +401,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     ws = null;
     conectado = false;
     reportaGps = false;
+    miUltimoSos = null;   // el SOS calificable no sobrevive a la sesión
   }
 
   // Declarar el estado: en ruta, ausente, fuera. Por el WebSocket si está
@@ -409,7 +426,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   return {
     entrar, conectar, salir,
     mandarGps, subirPosiciones, mandarChat, mandarVoz, mandarFoto, mandarSos,
-    pedirMarca, marcarPresencia,
+    marcarTipoSos, pedirMarca, marcarPresencia,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {
       if (!oyentes.has(evento)) oyentes.set(evento, new Set());

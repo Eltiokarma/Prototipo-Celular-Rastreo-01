@@ -20,7 +20,7 @@
   let authFailed = false;
 
   // Callbacks — la app los registra para recibir actualizaciones
-  const listeners = { state: [], status: [], chat: [], voice: [], sos: [], history: [], autherror: [], gpsrole: [], geometry: [] };
+  const listeners = { state: [], status: [], chat: [], voice: [], sos: [], sostipo: [], history: [], autherror: [], gpsrole: [], geometry: [] };
 
   // ¿Este celular es el que reporta la posición de la unidad? El servidor lo
   // decide (uno solo por vehículo: el chofer). El cobrador, o el chofer al
@@ -91,6 +91,10 @@
           emit('voice', msg);
         } else if (msg.type === 'sos_alert') {
           emit('sos', msg);
+        } else if (msg.type === 'sos_tipo') {
+          // El tipo elegido después del disparo: actualiza el SOS ya
+          // mostrado, no agrega otro.
+          emit('sostipo', msg);
         } else if (msg.type === 'chat_history') {
           emit('history', msg.items || []);
         } else if (msg.type === 'route_geometry') {
@@ -306,6 +310,13 @@
     });
   }
 
+  // Ponerle nombre al SOS YA disparado ('mecanica' | 'accidente' |
+  // 'policia'). El id del disparo viene en el eco del sos_alert; solo el
+  // que disparó puede — el servidor lo verifica igual.
+  function sendSosTipo(sosId, tipo) {
+    send({ type: 'sos_tipo', sosId, tipo });
+  }
+
   function isConnected() {
     return !!ws && ws.readyState === WebSocket.OPEN;
   }
@@ -321,6 +332,7 @@
     sendChat,
     sendVoice,
     sendSos,
+    sendSosTipo,
     isConnected,
     isReportingGps,
     on: (event, fn) => { listeners[event] = [fn]; }, // reemplaza — un handler por evento

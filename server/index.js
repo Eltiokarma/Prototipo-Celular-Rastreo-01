@@ -593,6 +593,19 @@ if (addColumnIfMissing('messages', 'vehicleId', 'TEXT')) {
 // su cobrador. NULL = mensaje del grupo, lo ve toda la ruta.
 addColumnIfMissing('messages', 'toVehicleId', 'TEXT');
 
+// Qué clase de emergencia fue el SOS. Se elige DESPUÉS de disparar —en una
+// emergencia real nadie navega un menú, así que deslizar manda la alerta ya—
+// y por eso vive como UPDATE sobre la fila que el disparo dejó: NULL es el
+// SOS genérico, que es como nace cada uno y como queda si nadie eligió.
+// "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide
+// una grúa, otro una ambulancia, el tercero es otra llamada.
+addColumnIfMissing('messages', 'sosTipo', 'TEXT');
+const SOS_TIPOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
+// Cuánto tiempo después de disparar se puede elegir (o corregir) el tipo. La
+// emergencia se atiende en minutos: pasado esto, cambiar el tipo ya no ayuda
+// a nadie y solo edita la historia. Configurable para poder probarlo.
+const SOS_TIPO_VENTANA_MS = Number(process.env.SOS_TIPO_VENTANA_MS || 15 * 60_000);
+
 // El logo de la cooperativa, como data-URL. Va en la fila de la empresa y no
 // en un archivo: son ~100 kB, se piden una vez por sesión, y guardarlos en
 // disco obligaría a montar un volumen aparte y a resolver el respaldo de otra
@@ -655,16 +668,20 @@ const pruneMediaStmt = db.prepare(`
     AND id NOT IN (SELECT id FROM messages WHERE kind = @kind AND data IS NOT NULL ORDER BY id DESC LIMIT @conservar)
 `);
 
+// Devuelve el id de la fila guardada: el SOS lo necesita para que el tipo
+// elegido después encuentre A QUÉ disparo pertenece. null si no se pudo.
 function remember(item) {
   try {
-    insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null,
+    const info = insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null,
       vehicleId: null, toVehicleId: null, ...item });
     // Lo pesado sí se poda en el acto: una foto ocupa lugar de verdad y no
     // puede esperar seis horas. Las filas de texto se podan en la barrida.
     pruneMediaStmt.run({ kind: 'voice', conservar: VOICE_KEEP });
     pruneMediaStmt.run({ kind: 'photo', conservar: PHOTO_KEEP });
+    return info.lastInsertRowid;
   } catch (e) {
     console.error('No se pudo guardar el mensaje:', e.message);
+    return null;
   }
 }
 
@@ -677,6 +694,7 @@ function recentHistory(routeId, verPrivadosDe = null) {
   return db.prepare(`
     SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.toVehicleId, m.text,
            m.duration, m.data, m.lat, m.lng, m.timestamp,
+           m.id AS sosId, m.sosTipo,
            COALESCE(u.role, 'driver') AS role
     FROM (
       SELECT * FROM messages
@@ -2525,7 +2543,7 @@ const INFORMES = {
   // Emergencias
   sos: (filtro) => {
     const filas = db.prepare(`
-      SELECT unitId, driverName, vehicleId, routeId, lat, lng, timestamp
+      SELECT unitId, driverName, vehicleId, routeId, lat, lng, sosTipo, timestamp
       FROM messages
       WHERE kind = 'sos' AND timestamp BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -2534,9 +2552,14 @@ const INFORMES = {
     `).all(filtro);
     return {
       nombre: 'sos',
-      cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Latitud', 'Longitud'],
+      // El tipo lo eligió el chofer DESPUÉS de disparar; sin elegir queda
+      // "SOS" a secas. Con la columna, el informe deja de ser una lista
+      // plana: tres fallas mecánicas y un accidente son conversaciones
+      // distintas en la reunión.
+      cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Tipo', 'Latitud', 'Longitud'],
       filas: filas.map(m => [
         fechaHora(m.timestamp), m.driverName, m.unitId, m.vehicleId, m.routeId,
+        SOS_TIPOS[m.sosTipo] || 'SOS',
         m.lat ?? '', m.lng ?? '',
       ]),
     };
@@ -3016,7 +3039,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   // Emergencias del período. Se cuentan y se listan: en una reunión "hubo tres
   // SOS" abre una conversación que "hubo SOS" no abre.
   const sos = db.prepare(`
-    SELECT unitId, driverName, vehicleId, routeId, timestamp FROM messages
+    SELECT unitId, driverName, vehicleId, routeId, sosTipo, timestamp FROM messages
     WHERE kind = 'sos' AND timestamp BETWEEN @desde AND @hasta
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
@@ -3669,10 +3692,40 @@ wss.on('connection', (ws) => {
         lng: msg.lng ?? null,
         timestamp: msg.timestamp || Date.now(),
       };
-      remember({ kind: 'sos', ...alert });
+      // El id viaja en la alerta: es el ancla para que el tipo elegido
+      // después (sos_tipo) encuentre este disparo y no otro.
+      const sosId = remember({ kind: 'sos', ...alert });
       audit(unitId, 'sos', null, alert.lat ? `${alert.lat.toFixed(4)}, ${alert.lng.toFixed(4)}` : null, routeId);
-      broadcastToRoute(routeId, { type: 'sos_alert', ...alert });
-      broadcastToSupervisors({ type: 'sos_alert', ...alert }, routeId);
+      broadcastToRoute(routeId, { type: 'sos_alert', sosId, ...alert });
+      broadcastToSupervisors({ type: 'sos_alert', sosId, ...alert }, routeId);
+    }
+
+    // TIPO: sos_tipo — el chofer le pone nombre a la emergencia YA ENVIADA.
+    // Deslizar sigue siendo lo primero y lo único obligatorio: la alerta ya
+    // salió, ya sonó en Despacho, ya quedó guardada. Esto la califica
+    // ("falla mecánica", "accidente", "policía") para que quien moviliza
+    // sepa si busca una grúa, una ambulancia o hace otra llamada. Sin
+    // elegir, queda como SOS genérico — que es mejor que un menú antes de
+    // pedir ayuda.
+    if (msg.type === 'sos_tipo') {
+      const unitId = clients.get(ws);
+      if (!unitId) return;
+      if (!SOS_TIPOS[msg.tipo]) return;        // tipo inventado: se ignora
+      const fila = db.prepare(
+        "SELECT id, unitId, routeId, vehicleId, timestamp FROM messages WHERE id = ? AND kind = 'sos'")
+        .get(Number(msg.sosId) || -1);
+      if (!fila) return;
+      // Solo quien disparó puede calificar SU emergencia. Sin este borde,
+      // cualquiera de la ruta podía reescribir la emergencia de otro.
+      if (fila.unitId !== unitId) return;
+      // Y solo mientras la emergencia está viva. Después es editar historia.
+      if (Date.now() - fila.timestamp > SOS_TIPO_VENTANA_MS) return;
+      db.prepare('UPDATE messages SET sosTipo = ? WHERE id = ?').run(msg.tipo, fila.id);
+      console.log(`🚨 SOS de ${unitId}: ${SOS_TIPOS[msg.tipo]}`);
+      const aviso = { type: 'sos_tipo', sosId: fila.id, unitId,
+                      vehicleId: fila.vehicleId, routeId: fila.routeId, tipo: msg.tipo };
+      broadcastToRoute(fila.routeId, aviso);
+      broadcastToSupervisors(aviso, fila.routeId);
     }
 
     // TIPO: chat — mensaje de texto entre choferes de la MISMA ruta

@@ -182,6 +182,11 @@ const JULIACA_CENTER = [-15.4904, -70.1333];
 // Objetivo de brecha por defecto; cada ruta manda el suyo en el estado
 const TARGET_GAP_DEFAULT = 2;
 
+// Los tipos de emergencia. El chofer los elige DESPUÉS de deslizar el SOS
+// —la alerta ya llegó acá—; llegan como mensaje `sos_tipo` y actualizan la
+// emergencia ya mostrada. Sin tipo, es el SOS genérico de siempre.
+const TIPOS_SOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
+
 function parseMin(s) {
   if (!s) return null;
   const [m, sec] = String(s).split(':').map(Number);
@@ -2739,8 +2744,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     const own = m.unitId === session.unitId;
     if (kind === 'sos') {
       return {
+        // El ancla para cuando llegue el tipo (`sos_tipo`): la emergencia
+        // del hilo se actualiza en el lugar, no se duplica.
+        sosId: m.sosId ?? null,
         from: m.driverName || m.unitId, unit: m.vehicleId || null, tone: 'sos',
-        text: `SOS — ${m.driverName || m.unitId} pide ayuda${m.vehicleId ? ' desde ' + m.vehicleId : ''}`,
+        text: `SOS — ${m.driverName || m.unitId} pide ayuda${m.vehicleId ? ' desde ' + m.vehicleId : ''}` +
+          (TIPOS_SOS[m.sosTipo] ? ` · ${TIPOS_SOS[m.sosTipo].toUpperCase()}` : ''),
         time: nowTime(m.timestamp),
       };
     }
@@ -2818,6 +2827,19 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         } else if (msg.type === 'sos_alert') {
           pushMsg(mapMsg(msg, 'sos'));
           setSos({ ...msg, receivedAt: Date.now() });
+        } else if (msg.type === 'sos_tipo') {
+          // El chofer le puso nombre a la emergencia ya disparada: "falla
+          // mecánica" pide una grúa, "accidente" una ambulancia, "policía"
+          // otra llamada. Se actualizan el cartel y la línea del hilo — la
+          // emergencia sigue siendo UNA, ahora con más información.
+          if (TIPOS_SOS[msg.tipo]) {
+            setSos(actual => (actual && actual.sosId === msg.sosId)
+              ? { ...actual, sosTipo: msg.tipo } : actual);
+            setMessages(ms => ms.map(x => (x.sosId != null && x.sosId === msg.sosId)
+              ? { ...x, text: x.text.replace(/ · (FALLA MECÁNICA|ACCIDENTE|POLICÍA)$/, '') +
+                              ` · ${TIPOS_SOS[msg.tipo].toUpperCase()}` }
+              : x));
+          }
         } else if (msg.type === 'chat_history') {
           setMessages((msg.items || []).map(it => mapMsg(
             { ...it, expired: (it.kind === 'voice' || it.kind === 'photo') && !it.data },
@@ -3102,7 +3124,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 3 }}>SOS</span>
           <span style={{ fontSize: 15, fontWeight: 700 }}>
             {(sos.driverName || sos.unitId || 'Unidad').toUpperCase()}
-            {sos.vehicleId ? ` · ${sos.vehicleId.toUpperCase()}` : ''} pide ayuda · {nowTime(sos.timestamp)}
+            {sos.vehicleId ? ` · ${sos.vehicleId.toUpperCase()}` : ''} pide ayuda
+            {TIPOS_SOS[sos.sosTipo] ? ` — ${TIPOS_SOS[sos.sosTipo].toUpperCase()}` : ''} · {nowTime(sos.timestamp)}
             {sos.routeId && sos.routeId !== routeInfo.routeId ? ` · RUTA ${sos.routeId}` : ''}
             {sos.lat ? ` · ${sos.lat.toFixed(4)}, ${sos.lng.toFixed(4)}` : ''}
           </span>

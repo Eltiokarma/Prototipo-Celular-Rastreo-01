@@ -92,7 +92,7 @@ confirmación, ausente y salir de ruta funcionando contra producción.
 | # | Qué | Por qué | Tamaño |
 | --- | --- | --- | --- |
 | 3.0 | **La puerta de presencia en la app web del chofer** | `Prototipo.html` no declara presencia: emite desde el login, como siempre (compatibilidad a propósito). Si alguien sigue usando la web en vez del APK, dejarla igual que la nativa — o decidir retirarla | medio día |
-| 3.1 | **Tipo de emergencia en el SOS** | "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide una grúa, otro una ambulancia, el tercero es otra llamada. El deslizar tiene que seguir siendo lo primero —en una emergencia real nadie elige de un menú—: el tipo se elige DESPUÉS de disparar, con la alerta ya enviada, y sin elegir queda como SOS genérico | medio día |
+| 3.1 | ~~Tipo de emergencia en el SOS~~ | **HECHO** (6/8). El deslizar quedó intacto y primero: la alerta sale YA, genérica. Después aparece "¿qué pasó?" —tres botones grandes en la app (y en la web)— y el tipo elegido actualiza la MISMA emergencia en Despacho (cartel e hilo), la base y el CSV; sin elegir, o pasados 5 min de barra (15 de ventana del servidor), queda "SOS" a secas. Solo quien disparó puede calificar la suya, y solo mientras la emergencia está viva. Suite `sos` | ✔ |
 | 3.2 | ~~La palabra al lado del color en Despacho~~ | **HECHO.** Cada brecha de la fila de unidad lleva debajo *EN OBJETIVO* / *AL LÍMITE* / *CRÍTICA*: las mismas tres bandas que ya usaba el color y los mismos términos de la leyenda del mapa. El juicio ya no depende del color en ninguna de las dos pantallas | ✔ |
 | 3.3 | **La brecha en vivo en la notificación** | Hoy se refresca solo al pasar la app a segundo plano. Para tenerla viva hace falta una notificación aparte con `expo-notifications`, sin tocar el servicio de ubicación — colgarla del servicio lo reiniciaba cada 3 s y quemaba la batería | medio día |
 | 3.4 | **Grabador de rutas** | Del prototipo viejo: subirse a una combi, grabar el recorrido manejando y exportar los puntos. Hoy el trazado se dibuja a ojo sobre el mapa, y manejarlo es más fiel. Guarda un punto cada 30 m recorridos, no cada N segundos, así parar en un semáforo no genera puntos repetidos | medio día |
@@ -193,14 +193,10 @@ hechos, el rediseño está hecho y el panel del gerente está hecho. Lo que sigu
 en esta lista ya no sale de mirar el código: sale de la calle.
 
 Las dos que aparecieron con el panel del gerente —**guardar el objetivo con
-cada vuelta** y **guardar los desvíos**— ya están hechas (2.3 y 2.4), y la que
-apareció midiendo —**la palabra al lado del color**— también (3.2).
-
-Queda una, que salió de usar el SOS en un teléfono de verdad:
-
-| Qué | Por qué | Tamaño |
-| --- | --- | --- |
-| **Tipo de emergencia en el SOS** | Hoy el SOS es uno solo. "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide una grúa, otro una ambulancia, el tercero es otra llamada. Despacho podría priorizar y avisar distinto, y el informe de emergencias dejaría de ser una lista plana. El deslizar tiene que seguir siendo lo primero —en una emergencia real nadie elige de un menú—: elegir el tipo va DESPUÉS de disparar, con la alerta ya enviada, y si no elige queda como SOS genérico | medio día, tocando servidor, app y los dos paneles |
+cada vuelta** y **guardar los desvíos**— ya están hechas (2.3 y 2.4), la que
+apareció midiendo —**la palabra al lado del color**— también (3.2), y la que
+salió de usar el SOS en un teléfono de verdad —**el tipo de emergencia**—
+quedó cerrada el 6/8 (ver 3.1).
 
 ---
 

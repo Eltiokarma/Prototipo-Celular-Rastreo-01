@@ -62,11 +62,30 @@ console.log('\nEL HILO');
 
 console.log('\nEL SOS');
 {
-  const sos = aMensaje({ type: 'sos_alert', unitId: 'M-08', driverName: 'Rufino Quispe',
+  const sos = aMensaje({ type: 'sos_alert', sosId: 7, unitId: 'M-08', driverName: 'Rufino Quispe',
                          vehicleId: 'M-08', lat: -15.48, lng: -70.13, timestamp: T }, YO);
   ok('se lee como pedido de ayuda, no como un texto vacío',
      /pide ayuda/.test(sos.texto) && /Rufino/.test(sos.texto), sos.texto);
   ok('y lleva su propio tono para poder destacarlo', sos.tono === 'sos', sos.tono);
+  ok('recién disparado no dice tipo: nace genérico', !/\(/.test(sos.texto), sos.texto);
+  ok('y lleva el ancla para cuando el tipo llegue', sos.sosId === 7, sos.sosId);
+
+  // El tipo llega DESPUÉS, como mensaje aparte, y actualiza la burbuja ya
+  // dibujada — la emergencia del hilo es una sola, no dos.
+  const { conTipoSos } = require(RAIZ + '/app/chat.js');
+  const con = conTipoSos(sos, 'accidente');
+  ok('el tipo se suma a la misma burbuja', /pide ayuda \(accidente\)/.test(con.texto), con.texto);
+  const corregido = conTipoSos(con, 'mecanica');
+  ok('corregir reemplaza, no acumula', /\(falla mecánica\)$/.test(corregido.texto) &&
+     !/accidente/.test(corregido.texto), corregido.texto);
+  ok('un tipo inventado deja el mensaje como está', conTipoSos(sos, 'ovni') === sos);
+  ok('y un chat común ni se inmuta',
+     conTipoSos(aMensaje(crudo({ unitId: 'M-08', text: 'hola' }), YO), 'accidente').texto === 'hola');
+
+  // Del historial ya viene calificado: el que reconecta ve lo mismo.
+  const delHistorial = aMensaje({ kind: 'sos', sosId: 7, sosTipo: 'policia', unitId: 'M-08',
+                                  driverName: 'Rufino Quispe', timestamp: T }, YO);
+  ok('el historial trae el tipo puesto', /\(policía\)$/.test(delHistorial.texto), delHistorial.texto);
 }
 
 console.log('\nLAS NOTAS DE VOZ');

@@ -14,6 +14,11 @@
 
 'use strict';
 
+// Los tipos de emergencia. El chofer los elige DESPUÉS de deslizar —la
+// alerta ya salió— y el mensaje del hilo se actualiza en el lugar. Las
+// claves son las que viajan por el cable; los textos, lo que se dibuja.
+const TIPOS_SOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
+
 // De lo que llega por el cable a lo que se dibuja. `miVehiculo` y `miPersona`
 // definen qué es "mío": la persona firma el mensaje, el vehículo define el
 // canal privado — no son lo mismo y confundirlos rompe las dos cosas.
@@ -36,7 +41,8 @@ function aMensaje(crudo, { miPersona, miVehiculo }) {
     // Una foto puede llevar pie o no. Si no lleva, el texto igual dice algo:
     // una burbuja vacía cuando la imagen ya expiró no se distingue de un bug.
     texto: esSos
-      ? `SOS — ${crudo.driverName || crudo.unitId} pide ayuda`
+      ? `SOS — ${crudo.driverName || crudo.unitId} pide ayuda` +
+        (TIPOS_SOS[crudo.sosTipo] ? ` (${TIPOS_SOS[crudo.sosTipo].toLowerCase()})` : '')
       : esVoz ? `Nota de voz · ${crudo.duration || 0}s`
       : esFoto ? String(crudo.text || 'Foto')
       : String(crudo.text || ''),
@@ -49,9 +55,23 @@ function aMensaje(crudo, { miPersona, miVehiculo }) {
     segundos: esVoz ? (crudo.duration || 0) : null,
     tono: esSos ? 'sos' : esVoz ? 'voz' : esFoto ? 'foto'
       : crudo.role === 'dispatch' ? 'despacho' : 'normal',
+    // El ancla del tipo elegido después: cuando llega `sos_tipo`, se busca
+    // el mensaje por este id y se lo actualiza (ver conTipoSos).
+    sosId: esSos ? (crudo.sosId ?? null) : null,
+    tipoSos: esSos ? (crudo.sosTipo || null) : null,
     timestamp: crudo.timestamp || 0,
     hora: hora(crudo.timestamp),
   };
+}
+
+// El tipo llega DESPUÉS que el SOS, como mensaje aparte: esta función
+// actualiza la burbuja ya dibujada en vez de agregar otra. Un tipo inválido
+// o un mensaje que no es SOS devuelven el mensaje intacto — el hilo nunca
+// se rompe por un dato raro del cable.
+function conTipoSos(mensaje, tipo) {
+  if (!mensaje || mensaje.tono !== 'sos' || !TIPOS_SOS[tipo]) return mensaje;
+  const base = mensaje.texto.replace(/ \([^)]*\)$/, '');
+  return { ...mensaje, tipoSos: tipo, texto: `${base} (${TIPOS_SOS[tipo].toLowerCase()})` };
 }
 
 function hora(ms) {
@@ -77,4 +97,4 @@ function sinLeer(mensajes, canal, vistoHasta = 0) {
   return mensajes.filter(m => m.canal === canal && !m.propio && m.timestamp > vistoHasta).length;
 }
 
-module.exports = { aMensaje, hilo, sinLeer, hora };
+module.exports = { aMensaje, hilo, sinLeer, hora, conTipoSos, TIPOS_SOS };
