@@ -1745,7 +1745,9 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
           fontFamily: '"Helvetica Neue", system-ui', fontSize: 15, color: P.mute,
           textAlign: 'center', lineHeight: 1.4, maxWidth: 280,
         }}>
-          Despacho asignará tu posición en la rueda según tu salida.
+          Al salir, tu combi aparece en el mapa y empieza a emitir tu
+          posición. Tu vuelta y tu brecha arrancan recién cuando pises el
+          trazado — marcar desde tu casa no confunde a nadie.
         </div>
       </div>
 
@@ -1786,6 +1788,9 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
         SALIR A RUTA →
       </button>
 
+      {/* Entrar AUSENTE: el que está por comer o buscando un repuesto no
+          cruza la puerta mintiendo "en ruta" — declara lo que es. Despacho
+          lo ve en el mapa, quieto, fuera de la cadena de brechas. */}
       <button onClick={onRest} disabled={countdown > 0} style={{
         width: '100%', padding: '12px',
         fontSize: 13, fontWeight: 700, letterSpacing: 1,
@@ -1795,7 +1800,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
         border: `1px solid ${countdown > 0 ? P.line : P.deep}`,
         borderRadius: 10, cursor: countdown > 0 ? 'not-allowed' : 'pointer',
       }}>
-        {countdown > 0 ? `Descansar 10 min · disponible en ${countdown}s` : 'Descansar 10 min'}
+        {countdown > 0 ? `Entrar AUSENTE (comer, un repuesto) · en ${countdown}s` : 'Entrar AUSENTE (comer, un repuesto)'}
       </button>
     </div>
   );
@@ -1877,9 +1882,18 @@ function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) 
 // Pantalla RUTA — propuesta 2a "Temporizador".
 // Un solo dato dominante: la unidad más desviada del objetivo. El color de
 // estado tiñe el halo, la barra superior y el lavado de fondo.
-function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFireSos }) {
+function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFireSos, presencia, onPresencia }) {
   const hud = buildHudModel(tweaks, gapMeta);
   const { hero, sec, target } = hud;
+
+  // "Salir de ruta" pide un segundo toque, y el pedido caduca solo: quedar
+  // armado para siempre convierte el próximo toque distraído en una salida.
+  const [confirmarSalida, setConfirmarSalida] = React.useState(false);
+  React.useEffect(() => {
+    if (!confirmarSalida) return;
+    const t = setTimeout(() => setConfirmarSalida(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmarSalida]);
 
   // Sobre fondo claro (día y sol extremo) el halo no funciona: el dígito va
   // sólido, con el color de estado como tinta. Los tokens ya vienen del tema.
@@ -2075,6 +2089,33 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         </div>
       )}
 
+      {/* La presencia, igual que en la app nativa: AUSENTE saca de la
+          cadena sin salir del mapa; SALIR DE RUTA borra del mapa en el
+          acto — y por eso pide un segundo toque: apretarlo sin querer a
+          mitad de vuelta te saca del mapa de todos. */}
+      {onPresencia && (
+        <div style={{ padding: '0 18px 10px', position: 'relative', display: 'flex', gap: 8 }}>
+          <button data-noswipe="presencia" onClick={() => onPresencia('ausente')} style={{
+            flex: 1, height: 42, borderRadius: 12, cursor: 'pointer',
+            border: `1px solid ${HUD.amber}`, background: 'transparent',
+            color: HUD.amber, fontSize: 12, fontWeight: 800, letterSpacing: 1,
+            fontFamily: 'system-ui, sans-serif',
+          }}>AUSENTE</button>
+          <button data-noswipe="presencia" onClick={() => {
+            if (!confirmarSalida) { setConfirmarSalida(true); return; }
+            setConfirmarSalida(false);
+            onPresencia('fuera');
+          }} style={{
+            flex: 1.4, height: 42, borderRadius: 12, cursor: 'pointer',
+            border: `1px solid ${confirmarSalida ? HUD.red : HUD.line}`,
+            background: confirmarSalida ? HUD.red : 'transparent',
+            color: confirmarSalida ? '#fff' : HUD.dim2,
+            fontSize: 12, fontWeight: 800, letterSpacing: 1,
+            fontFamily: 'system-ui, sans-serif',
+          }}>{confirmarSalida ? '¿SEGURO? TOCÁ DE NUEVO' : 'SALIR DE RUTA'}</button>
+        </div>
+      )}
+
       {/* SOS */}
       <div style={{ padding: '0 18px 26px', position: 'relative' }}>
         <SosSlider status={hero.status} enableAnim={tweaks.microAnims} onFire={onFireSos} />
@@ -2083,7 +2124,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   );
 }
 
-function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos }) {
+function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -2218,6 +2259,8 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
             unitsOnRoute={unitsOnRoute}
             gpsRole={gpsRole}
             onFireSos={() => { setEmergencyFired(true); onSos && onSos(); }}
+            presencia={presencia}
+            onPresencia={onPresencia}
           />
         </div>
         <div style={{ width: `${w}px`, height: '100%', flexShrink: 0, background: HUD.bg }} />
@@ -2491,13 +2534,36 @@ function Root() {
 
   const pushMsg = (m) => setMessages(ms => [...ms.slice(-99), m]);
 
-  // Restaurar la sesión guardada: el chofer no tipea su clave cada día
+  // La presencia declarada, igual que en la app nativa: 'fuera' (la puerta),
+  // 'ruta', 'ausente'. Cambiarla toca tres mundos y el orden importa: el
+  // estado de React (la pantalla), el disco (para retomar tras un recargo) y
+  // el servidor (la declaración — RealtimeClient la re-manda al reconectar).
+  const [presencia, setPresencia] = React.useState('fuera');
+  const declararPresencia = (nueva) => {
+    setPresencia(nueva);
+    try {
+      if (nueva === 'fuera') localStorage.removeItem('r14_presencia');
+      else localStorage.setItem('r14_presencia', nueva);
+    } catch {}
+    if (window.RealtimeClient) window.RealtimeClient.setPresencia(nueva);
+  };
+
+  // Restaurar la sesión guardada: el chofer no tipea su clave cada día.
+  // Y si la página murió a mitad de turno (recargo, batería), la presencia
+  // guardada retoma sola: nadie vuelve a cruzar la puerta sin haber salido.
   React.useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('r14_session') || 'null');
       if (saved?.unitId && saved?.token) {
         setUser(saved);
-        setScreen('start');
+        const previa = localStorage.getItem('r14_presencia');
+        if (previa === 'ruta' || previa === 'ausente') {
+          setPresencia(previa);
+          if (window.RealtimeClient) window.RealtimeClient.setPresencia(previa);
+          setScreen('app');
+        } else {
+          setScreen('start');
+        }
       }
     } catch {}
   }, []);
@@ -2512,6 +2578,9 @@ function Root() {
   };
 
   const logout = () => {
+    // Salir es irse: la unidad se borra del mapa en el acto, no a los 3
+    // minutos del olvido. La declaración va ANTES de cortar el socket.
+    declararPresencia('fuera');
     try { localStorage.removeItem('r14_session'); } catch {}
     if (window.RealtimeClient) window.RealtimeClient.disconnect();
     setUser(null);
@@ -2749,8 +2818,8 @@ function Root() {
       ruta={user?.routeName || user?.routeId || null}
       rutaId={user?.routeId || null}
       lapNumber={lap}
-      onStart={() => setScreen('app')}
-      onRest={() => setScreen('app')}
+      onStart={() => { declararPresencia('ruta'); setScreen('app'); }}
+      onRest={() => { declararPresencia('ausente'); setScreen('app'); }}
       onLogout={logout}
     />;
   } else {
@@ -2766,6 +2835,13 @@ function Root() {
       onSendText={sendText}
       onSendVoice={sendVoice}
       onSos={fireSos}
+      presencia={presencia}
+      onPresencia={(nueva) => {
+        declararPresencia(nueva);
+        // Salir de ruta devuelve a la puerta; el efecto de conexión corta
+        // el socket al salir de 'app' — la declaración ya viajó.
+        if (nueva === 'fuera') setScreen('start');
+      }}
     />;
   }
 
@@ -2773,6 +2849,31 @@ function Root() {
     <>
       <AndroidDevice width={380} height={780} dark={HUD.resplandor}>
         {content}
+        {/* AUSENTE, dicho todo el tiempo: fuera de la cadena, la vuelta
+            descartada, Despacho lo sigue viendo quieto. La barra vive
+            arriba de todas las páginas porque el estado no es de una
+            pantalla — es de la persona. */}
+        {screen === 'app' && presencia === 'ausente' && (
+          <div style={{
+            position: 'absolute', left: 10, right: 10, top: 40, zIndex: 97,
+            background: HUD.surface, border: `2px solid ${HUD.amber}`,
+            borderRadius: 12, padding: '10px 12px',
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: HUD.amber, fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>AUSENTE</div>
+              <div style={{ color: HUD.dim2, fontSize: 11, lineHeight: 1.35 }}>
+                Fuera de la cadena; tu vuelta quedó descartada. Despacho te ve quieto.
+              </div>
+            </div>
+            <button onClick={() => declararPresencia('ruta')} style={{
+              flexShrink: 0, height: 40, padding: '0 14px', borderRadius: 10,
+              border: 'none', background: HUD.green, color: '#fff',
+              fontSize: 12, fontWeight: 900, letterSpacing: 0.5,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}>VOLVER A RUTA</button>
+          </div>
+        )}
         {/* ¿Qué pasó? — DESPUÉS de disparar mi SOS, con la alerta ya
             enviada. En una emergencia nadie navega un menú antes de pedir
             ayuda: esto es lo de después, si el chofer puede. Sin tocar

@@ -29,6 +29,12 @@
   // ahorran datos. Arranca en true por si el servidor es viejo y no lo dice.
   let reportaGps = true;
 
+  // La presencia declarada ('ruta' | 'ausente' | 'fuera'), igual que en la
+  // app nativa. Se guarda acá para RE-DECLARARLA en cada reconexión: el
+  // servidor la tiene en memoria, y un reinicio suyo (o un corte de señal)
+  // no puede convertir a alguien que declaró en alguien que nunca declaró.
+  let presenciaDeclarada = null;
+
   function emit(event, data) {
     (listeners[event] || []).forEach(fn => fn(data));
   }
@@ -75,6 +81,12 @@
 
       // Presentar el token de sesión al servidor
       send({ type: 'identify', token: authToken });
+
+      // Y re-declarar la presencia: la conexión nueva no hereda nada, y un
+      // reinicio del servidor tampoco. Sin declarar (la puerta todavía no
+      // se cruzó, o un cliente viejo), no se manda nada — el servidor trata
+      // la ausencia de declaración como 'ruta', la compatibilidad de siempre.
+      if (presenciaDeclarada) send({ type: 'presencia', estado: presenciaDeclarada });
 
       // Arrancar el envío de GPS
       startGps();
@@ -317,6 +329,25 @@
     send({ type: 'sos_tipo', sosId, tipo });
   }
 
+  // Declarar el estado: en ruta, ausente, fuera — el mismo protocolo que la
+  // app nativa. Por el WebSocket si está vivo; si no, por HTTP: "salir de
+  // ruta" tiene que funcionar hasta con mala señal. Declarar 'ruta' NO mete
+  // a la unidad en la cadena de brechas: eso lo confirma el servidor cuando
+  // el GPS pisa el trazado.
+  function setPresencia(estado) {
+    presenciaDeclarada = estado;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'presencia', estado })); return; } catch {}
+    }
+    if (authToken) {
+      fetch(HTTP_URL + '/presencia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
+        body: JSON.stringify({ estado }),
+      }).catch(() => {});
+    }
+  }
+
   function isConnected() {
     return !!ws && ws.readyState === WebSocket.OPEN;
   }
@@ -333,6 +364,7 @@
     sendVoice,
     sendSos,
     sendSosTipo,
+    setPresencia,
     isConnected,
     isReportingGps,
     on: (event, fn) => { listeners[event] = [fn]; }, // reemplaza — un handler por evento
