@@ -1,0 +1,5 @@
+datos/
+salida/
+node_modules/
+pmtiles
+package*.json

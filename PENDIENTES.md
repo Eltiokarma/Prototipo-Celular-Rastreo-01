@@ -153,11 +153,31 @@ nada.
 
 Para 2000 unidades quedan dos preguntas que solo contesta la calle, y las dos
 siguen abiertas (ver 1.3): **el turno de 8 horas** con el GPS y la pantalla
-bloqueada, y **las tiles del mapa**. Esta última tiene número: el CDN gratuito
-de CARTO no está pensado para 2000 usuarios diarios, y sin caché son 20–50 MB
-por turno y por chofer. El service worker ya las guarda —la segunda visita no
-gasta un byte—, pero la primera de cada dispositivo sí, y a esa escala conviene
-mirar el plan de `ESCALABILIDAD.md` antes de encender todo junto.
+bloqueada. La otra —**las tiles del mapa**— quedó resuelta en tres capas:
+
+1. **Licencia**: las cuatro pantallas dejaron CARTO (su CDN es solo
+   enterprise y sin fines de lucro — cobrando pasaje estábamos fuera de
+   licencia). El proveedor con clave es Geoapify (`GEOAPIFY_API_KEY`), cuyo
+   plan gratuito sí permite uso comercial. La suite `tiles` vigila que
+   ningún host sin licencia vuelva a entrar al código.
+2. **Mapa propio**: el área de operación se dibuja de datos de OSM
+   (`herramientas/mapa-propio/`, una entrada por ciudad en `zonas.js`) y se
+   publica como PMTiles raster en el release `mapa-propio` (workflow de
+   Actions). El servidor la baja a su volumen al arrancar
+   (`TILES_RELEASE_URL`) y la sirve tile por tile.
+3. **La cascada** (pantallas del chofer, web y nativa): caché del service
+   worker → mapa propio → Geoapify de excepción, con rescate por tile si el
+   propio falla y contadores (`window.TILES_STATS`) para verificar que el
+   proveedor es la excepción. Despacho y el creador usan Geoapify directo a
+   propósito: el mapa propio v1 no tiene nombres de calles y ahí se trazan
+   rutas; son ~30 pantallas contra 2000.
+
+Lo que queda pendiente de esto, en orden de urgencia: **renovar el mapa en
+servidores ya poblados** (hoy: vaciar la carpeta `tiles/` del volumen y
+redesplegar — automatizarlo con nombres versionados cuando duela),
+**nombres de calles** en el mapa propio si Despacho los extraña, y correr el
+workflow al agregar cada ciudad nueva (Cusco, Arequipa, La Paz: una línea en
+`zonas.js` + Run workflow).
 
 ## Lo que queda por construir
 

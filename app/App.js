@@ -753,11 +753,11 @@ function Deslizable({ texto, textoBoton, colorListo, onDisparar }) {
 // El mapa: un Leaflet adentro de un WebView.
 //
 // NO es `react-native-maps`. Ese usa Google Maps y en Android **exige una
-// clave de Google Cloud** —cuenta, tarjeta, consola—, o sea un trámite que
-// hay que hacer antes de poder ver un solo punto. Leaflet sobre
-// OpenStreetMap no pide nada y usa las MISMAS tiles que los tres paneles web
-// de este proyecto, así que la ruta se ve igual en el celular del chofer que
-// en la pantalla de Despacho.
+// clave de Google Cloud compilada en el APK** —cuenta, tarjeta, consola—, o
+// sea un trámite antes de poder ver un solo punto y una app nueva para toda
+// la flota si la clave rota. Leaflet usa las MISMAS tiles que los tres
+// paneles web de este proyecto (la clave viene del servidor, con el login),
+// así que la ruta se ve igual en el celular del chofer que en Despacho.
 //
 // Tres decisiones que sostienen el resto:
 //
@@ -846,6 +846,17 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
     mandar({ tipo: 'tema', oscuro, colores: mapa.coloresDe(C) });
   }, [listo, oscuro, C, mandar]);
 
+  // La clave de las tiles y las zonas con mapa propio vienen del login (el
+  // servidor tiene la clave en una variable de entorno; en la app no hay
+  // ninguna compilada). Con las zonas y el servidor, el WebView arma la
+  // cascada: mapa propio adentro del bbox, proveedor solo de excepción.
+  // Sin nada de esto el fondo queda liso — puntos y trazado se dibujan igual.
+  const tilesKey = yo?.tilesKey || null;
+  React.useEffect(() => {
+    if (!listo || !tilesKey) return;
+    mandar({ tipo: 'tiles', clave: tilesKey, zonas: yo?.tilesZonas || {}, servidor: SERVIDOR });
+  }, [listo, tilesKey, mandar]);
+
   React.useEffect(() => {
     if (!listo || !activo) return;
     mandar({ tipo: 'vista', vista: vistaAhora() });
@@ -899,6 +910,9 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
               const m = JSON.parse(e.nativeEvent.data);
               if (m.listo) setListo(true);
               if ('seguir' in m) setSiguiendo(!!m.seguir);
+              // La página reporta cada 25 tiles de dónde salió cada una:
+              // es la evidencia de que el proveedor es la excepción.
+              if (m.estadisticaTiles) console.log('[tiles]', m.estadisticaTiles);
             } catch {}
           }}
           startInLoadingState

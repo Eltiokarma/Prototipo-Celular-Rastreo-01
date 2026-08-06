@@ -42,10 +42,21 @@ async function bajar(url) {
   throw new Error('no se pudo bajar ' + url);
 }
 
+// Una tile de 1×1 gris. Las tiles de verdad piden clave (GEOAPIFY_API_KEY) y
+// los tests no tienen ni necesitan una: sin esto, cada tile respondería 401 y
+// se reintentaría cuatro veces — cientos de bajadas fallidas por corrida para
+// dibujar un fondo que ninguna aserción mira.
+const TILE_GRIS = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNsaGj4DwAFhAKAkNMOfAAAAABJRU5ErkJggg==',
+  'base64');
+
 module.exports = async function interceptarHttps(ctx) {
   const mem = new Map();
   await ctx.route(/^https:\/\//, async (route) => {
     const url = route.request().url();
+    if (/maps\.geoapify\.com\/v1\/tile\//.test(url)) {
+      return route.fulfill({ status: 200, contentType: 'image/png', body: TILE_GRIS });
+    }
     const clave = crypto.createHash('sha1').update(url).digest('hex');
     const cuerpo = path.join(DIR, clave);
     const meta = cuerpo + '.json';

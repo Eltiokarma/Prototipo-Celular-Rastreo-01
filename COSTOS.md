@@ -1,0 +1,270 @@
+# COSTOS.md — Auditoría de costos y capacidad para 2000 unidades
+
+**Fecha:** 2026-08-05 · **Precios consultados:** 2026-08-05 (fuentes en §4)
+**Método:** todo lo afirmado sale de leer el código (con archivo:línea) o de
+medir contra el servidor real levantado en local. Los payloads en bytes se
+midieron con clientes de verdad (login + WebSocket + POST), no se estimaron.
+El modelo es `modelo-costos.js` (raíz): `node modelo-costos.js` imprime los
+tres escenarios; `node modelo-costos.js bench` corre el benchmark del §3.
+
+**El resumen en tres líneas:**
+
+1. **La base de datos NO es el cuello de botella.** Con WAL, la carga de
+   escritura de 2000 unidades usa el 0,8 % del segundo. El costo dominante es
+   **egress del WebSocket de estado: ~10 TB/mes ≈ $518/mes** en el escenario
+   de 2000 — el 88 % del costo total es variable y casi todo es eso.
+2. **El mismo estado les cuesta a los choferes ~89 MB de datos móviles por
+   turno.** A escala, la palanca más rentable (comprimir el WS) arregla las
+   dos cosas a la vez.
+3. **Costo marginal por cooperativa de 100 unidades: ~$26/mes.**
+   Total del escenario 2000/20: **~$658/mes** ($0,33/unidad).
+
+---
+
+## 1. Inventario del gasto real (leído del código)
+
+### 1.1 Lo que escribe a base de datos
+
+No existe tabla de posiciones GPS: las posiciones viven en un `Map` en
+memoria (decisión explícita, `server/index.js:1200` — *"serían millones de
+filas"*). Las tablas son 12: `messages, routes, companies, route_variants,
+route_points, users, sessions, vehicles, audit, deviations, shifts, laps`.
+
+| # | Escritura | Tabla | Disparo | Frecuencia a 2000 unidades | ¿Escala con unidades × tiempo? |
+|---|---|---|---|---|---|
+| **P3** | `abrirTurno` (`server/index.js:1615` vía `POST /gps`) | `shifts` 2 SELECT + 1 UPDATE | **cada POST /gps** — la app nativa postea cada 3 s (pantalla encendida) o 10 s (apagada) | **~500 UPDATE/s** promedio, 1500/s en punta | **SÍ — la peor del sistema** |
+| P1 | `marcarVivo` (`:1173`) | `shifts` UPDATE | cada posición, con freno de 60 s (`:1170`) | ~33/s | SÍ (mitigada por el freno) |
+| P2 | `trackLap` (`:1382`) | `laps` INSERT | cierre de vuelta | ~16 000/día ≈ 0,3/s | SÍ (lenta) |
+| P7+P8 | `remember` (`:632` + `:652`) | `messages` 1 INSERT + **2 UPDATE de poda** | cada mensaje (texto, voz, foto, SOS) | ~2,5/s | con el volumen de chat |
+| P9 | `audit` (`:908-914`) | `audit` INSERT + **1 DELETE con subconsulta** | cada login, desvío, acción admin | ~4,4/s | con reconexiones |
+| P4-P6 | desvíos (`:1009,1021,1074`) | `deviations` | desvío sostenido / regreso | esporádico | mitigado a propósito |
+| — | acciones humanas (altas, claves, trazados, logos) | varias | clicks de admin | despreciable | no |
+
+> P8 y P9 son **escrituras ocultas**: un chat de texto dispara 3 escrituras;
+> un login auditado, 2. No dominan hoy, pero son barridos de tabla que corren
+> en línea con cada evento.
+
+### 1.2 Polling de los frontends: NO HAY
+
+Verificado por búsqueda exhaustiva de `setInterval`/`setTimeout` en los
+cuatro HTML y `realtime.js`: **ningún frontend hace polling HTTP periódico**.
+Los paneles cargan al montar y al cambiar de pestaña
+(`project/despacho.html:1232-1240`, `server/creador.html:1635-1641`); todo lo
+vivo llega por **WebSocket push**. `project/gerencia.html` es un redirect de
+40 líneas a despacho.html. Los únicos `setInterval` de los clientes son:
+
+| Cliente | Qué | Cadencia | Red |
+|---|---|---|---|
+| Chofer web (`project/realtime.js:193`) | WS `{type:'gps'}` | 3 s | 82 B/envío |
+| App nativa (`app/gps/servicio.js:299,324`) | `POST /gps` (lote de 1, tope 150) | 3 s pantalla encendida / 10 s apagada | 81 B + 59 B resp. |
+| Ambos | reconexión WS | 3 s fijo (web) / backoff 3→30 s (nativa) | login 334 B |
+
+### 1.3 Payloads medidos (servidor real, 2026-08-05)
+
+| Mensaje / endpoint | Request | Response | Nota |
+|---|---|---|---|
+| `POST /auth/login` | 38 B | 334 B | |
+| WS `gps` (cliente→srv, cada 3 s) | 82 B | — | ingress: Railway no lo cobra |
+| **WS `state` (srv→cada cliente, cada 3 s)** | — | **765 B con 1 unidad · 2 580 con 5 · 4 861 con 10 · 9 410 con 20** | ≈ 310 B de sobre + **455 B por unidad** (17 campos, `server/index.js:3964`) |
+| `POST /gps` (1 posición) | 81 B | 59 B | lote de 20: 1 494 B req |
+| WS `chat` (40 chars) → rebote | 107 B | 202 B × cada miembro de la ruta | |
+| WS `voice` 12 s (opus→base64) | 27 105 B | ídem × miembros | tope 2 MB (`:3654`) |
+| `GET /admin/users` (21 cuentas) | — | 3 855 B | por cambio de pestaña |
+| `GET /admin/shifts` (21 turnos) | — | 6 358 B | ídem |
+| `GET /admin/vueltas` | — | 225 B + ~90 B/vuelta (tope 300) | ídem |
+| `GET /config.js` | — | 266 B | |
+| `GET /ping` | — | 108 B | |
+
+**El que explota** (escala con unidades × tiempo × destinatarios): el WS
+`state`. Cada ruta lo emite cada 3 s a **todos** sus clientes (choferes +
+panel mirándola, `broadcastToRoute`, `server/index.js:4090`), y cada cliente
+recibe el estado **completo** de la ruta. Con rutas de 20 unidades: 9,4 KB ×
+21 clientes cada 3 s por ruta. Un panel mira UNA ruta a la vez (`watching`,
+`:4074`); el único broadcast a supervisores es el SOS, acotado a su empresa.
+
+### 1.4 Terceros con cuota o costo
+
+| Servicio | Uso | Cuota/costo |
+|---|---|---|
+| **Geoapify** (tiles del mapa, desde hoy) | 4 pantallas | free 3 000 créditos/día = 12 000 tiles; API 10 $59/mes = 40 000/día |
+| unpkg (React/Babel), Google Fonts | runtime paneles | gratis, sin cuota — pero dependencia en caliente |
+| ~~CARTO~~ | — | eliminado (fuera de licencia para uso comercial) |
+
+No hay geocoding, ni push notifications, ni SMS/email, ni analytics
+(verificado en `package.json` y por grep).
+
+---
+
+## 2. Modelo de carga (`modelo-costos.js`)
+
+Parámetros: unidades, coops, unidades/ruta (20), horas de operación (16),
+cadencia GPS (mezcla 4 s), cadencia de estado (3 s), paneles/coop (1,5),
+retenciones actuales (vueltas y desvíos 120 d, chat 30 d, SOS 365 d).
+Punta = 3× promedio.
+
+| | **Piloto (20 u / 1 coop)** | **500 u / 5 coops** | **2000 u / 20 coops** |
+|---|---|---|---|
+| Rutas / paneles | 1 / 2 | 25 / 8 | 100 / 30 |
+| Requests/s (prom → punta) | 5 → 15 | 126 → 378 | **503 → 1 510** |
+| Escrituras SQLite/s (prom → punta) | 5 → 15 | 127 → 381 | **508 → 1 523** |
+| Base: crecimiento bruto | +0,04 GB/mes | +0,97 GB/mes | +3,9 GB/mes |
+| Base: régimen con retención | 0,03 GB | 0,21 GB | **0,76 GB** |
+| **Egress/mes** | **112 GB** | **2 594 GB** | **10 364 GB** |
+| — WS state | 111 | 2 564 | 10 247 |
+| — chat + voz (rebotes) | 0,7 | 16,5 | 66 |
+| — respuestas /gps | 0,5 | 11,9 | 47 |
+| — paneles + logins + app | 0,1 | 0,9 | 3,5 |
+| Datos móviles del chofer | ~89 MB/turno 8 h | ídem | ídem |
+| Tiles Geoapify/día | ~130 | ~3 300 | **~13 200** (supera el free) |
+
+Notas:
+- La base es **diminuta** gracias a que el GPS no se persiste y a las
+  retenciones: 0,76 GB de régimen a 2000 unidades. El disco no es tema.
+  (`shifts` no se poda nunca — hoy irrelevante, ~35 MB/año a 2000.)
+- El egress es **lineal en unidades** (más unidades = más rutas emitiendo ×
+  más clientes escuchando) y no depende de cuántos paneles haya: los
+  choferes son el 98 % de los destinatarios del estado.
+- Los ~89 MB/turno de datos móviles del chofer salen del mismo estado: no es
+  un costo de Railway, pero es un costo del sistema (recarga prepago) y una
+  amenaza de adopción.
+
+---
+
+## 3. Cuello de botella: ¿aguanta la base?
+
+**Motor:** SQLite vía better-sqlite3 (sincrónico, un solo proceso Node), en
+**WAL si el disco lo permite, con caída silenciosa a `journal=delete` si no**
+(`server/base.js:34-39`). El servidor real intercala escrituras y lecturas en
+un único hilo, así que la pregunta correcta es: ¿cuánto del segundo se come
+un segundo de carga?
+
+**Benchmark** (`node modelo-costos.js bench`, esquema real, base poblada con
+1,92 M de vueltas = 120 días de régimen a 2000 unidades, índices idénticos a
+producción; corrido en este sandbox — el vCPU de Railway rendirá parecido u
+algo menos):
+
+| Carga | En WAL | Sin WAL (journal=delete) |
+|---|---|---|
+| 1× (2000 u, 508 esc/s) | **7,7 ms → 0,8 % del segundo** | 347 ms → 35 % |
+| 3× punta (1 523 esc/s) | 31,7 ms → 3,2 % | **>100 % — SE ROMPE** |
+| 10× (20 000 u eq.) | 96 ms → 9,6 % | — |
+| 100× (200 000 u eq.) | 1 016 ms → **saturación** | — |
+
+**Respuesta:**
+- **En WAL, la base aguanta 2000 unidades con margen ~30×.** El umbral de
+  quiebre por escritura está en ~60 000-200 000 unidades equivalentes —
+  no lo vamos a tocar.
+- **Sin WAL, el umbral es ~1 400 escrituras/s ≈ 1 900 unidades en hora
+  punta**: el escenario de 2000 **ya no entra**, y en un volumen de red más
+  lento que este disco, menos todavía. Como la caída a journal es silenciosa
+  (un `console.warn`), el primer paso operativo es **verificar en el deploy
+  real de Railway que el volumen quedó en WAL** — es un `PRAGMA
+  journal_mode` de un minuto.
+- La lectura pesada del panel (pestaña de vueltas) cuesta **142 ms por carga
+  a base de régimen** porque `laps` no tiene índice por `finishedAt` (los
+  únicos índices reales: `deviations(routeId,startedAt)` en `:991` y
+  `shifts(personId,startedAt)` en `:1117`). Con el índice: 33 ms (4×). Esos
+  142 ms **bloquean el hilo** que también atiende los 500 POST/s.
+- **No hace falta migrar de motor.** El cuello real del sistema no es la
+  base: es (a) el egress del estado y (b) el CPU de serializar+emitir por
+  WS a 2000 conexiones — presupuestado con 2 vCPU en §4. Si algún día se
+  migra (Postgres en Railway), estimo 2-3 semanas de trabajo (reescribir la
+  capa sincrónica de better-sqlite3 a async, transacciones, deploy) y
+  +$10-30/mes de servicio — **no lo recomiendo con estos números**.
+
+---
+
+## 4. Costo en dinero
+
+**Fuentes de precios (consultadas 2026-08-05):**
+- Railway — [railway.com/pricing](https://railway.com/pricing): vCPU
+  $20/mes, RAM $10/GB/mes, volumen $0,15/GB/mes, **egress $0,05/GB**. (Hay
+  fuentes secundarias que citan hasta $0,10/GB; usé el oficial. Si Railway
+  cobrara $0,10, duplicá la línea de egress: el escenario 2000 pasa de $658
+  a ~$1 176.)
+- Vercel — [vercel.com/pricing](https://vercel.com/pricing): Pro
+  $20/asiento/mes con 1 TB de transferencia incluido. El plan Hobby prohíbe
+  uso comercial. Los HTML pesan ~100 KB: el egress de Vercel queda dentro de
+  lo incluido, y hoy el propio backend sirve las mismas páginas — Vercel es
+  prescindible si se quiere ahorrar el asiento.
+- Geoapify — [geoapify.com/pricing](https://www.geoapify.com/pricing).
+
+| $/mes | Piloto | 500 / 5 | 2000 / 20 |
+|---|---|---|---|
+| vCPU (0,5 / 1 / 2) | 10 | 20 | 40 |
+| RAM (0,5 / 1 / 2 GB) | 5 | 10 | 20 |
+| Volumen | 0,15 | 0,15 | 0,30 |
+| **Egress** | **5,61** | **129,68** | **518,21** |
+| Vercel Pro | 20 | 20 | 20 |
+| Geoapify | 0 | 0 | 59 |
+| **TOTAL** | **$41** | **$180** | **$658** |
+| Fijo / variable | 86 % / 14 % | 28 % / 72 % | **12 % / 88 %** |
+
+**Los números que pediste:**
+
+- **Costo marginal por cooperativa de 100 unidades: $26/mes** (egress de sus
+  5 rutas + su tajada de Geoapify; el panel agrega centavos).
+- **Costo marginal por unidad: ~$0,26/mes** dentro de una ruta existente.
+  Una unidad que inaugura ruta cuesta más (su ruta emite estado propio);
+  una que se suma a una ruta llena cuesta menos. $0,26 es el promedio.
+- **A 2000 unidades el 88 % del costo escala con el uso** — y de ese 88 %,
+  el 90 % es una sola cosa: el WebSocket de estado. Toda optimización que no
+  toque eso es decorativa.
+
+---
+
+## 5. Palancas, ordenadas por ahorro ÷ esfuerzo (escenario 2000)
+
+| # | Palanca | Ahorro/mes | Horas | Qué se degrada |
+|---|---|---|---|---|
+| 1 | **`STATE_INTERVAL_MS` 3000→5000** (ya es env var, `server/index.js:4121`) | **~$207** (egress del estado −40 %) y −36 MB/turno al chofer | **0** (cambiar una variable) | el mapa y las brechas se refrescan cada 5 s en vez de 3. Para regular brechas de 8-10 min, probablemente nadie lo note |
+| 2 | **Compresión del WebSocket** (`permessage-deflate` en `ws`, servidor y clientes la negocian solos) | **~$350-440** (JSON repetitivo: 70-85 % menos) y el chofer baja de 89 a ~15-25 MB/turno | 2-4 h + prueba de CPU | +CPU por conexión (~centenas de µs/mensaje × 667 envíos/s — entra en el presupuesto de 2 vCPU; medir) |
+| 3 | **Adelgazar el estado** (455 B/unidad: 17 campos con nombres largos; mandar solo lo que cambió o acortar claves) | ~$250-350 solo, menos si ya está la #2 | 8-20 h | riesgo de bugs de sincronización (el estado completo es lo que hace simple la reconexión) |
+| 4 | **Índice `laps(finishedAt)`** | $0 directo; elimina bloqueos de 142 ms del hilo único en cada carga de panel (4×) | 0,25 h | +unos MB de disco. Sin contras reales — **hacerla ya** |
+| 5 | **Cadencia GPS 3→5 s** (pantalla encendida) | ~$9 (las respuestas de /gps) − escrituras −40 % (que sobran) | 1 h | brecha se recalcula más lento; el ahorro real es batería y datos del chofer |
+| 6 | **Batching de escrituras** (agrupar UPDATEs de turno en transacción periódica) | ~$0 (SQLite usa 0,8 % del segundo) | 4-8 h | **no vale la pena hoy** — solo si el deploy queda sin WAL, y ahí lo correcto es arreglar el WAL |
+| 7 | **Polling → WebSocket/SSE** | $0 — **ya es todo push**; no hay polling que matar | — | — |
+| 8 | **Recortar retención** (120→60 d vueltas, etc.) | ~$0,10 (la base entera es 0,76 GB) | 0 | perder historial. **No vale nada: no tocar** |
+| 9 | **Comprimir responses HTTP (gzip)** | ~$0,05 (los paneles casi no pesan) | 1 h | no vale la pena |
+| 10 | **Bajar Vercel** (el backend ya sirve los mismos HTML) | $20 | 0,5 h | un solo origen para todo (menos redundancia) |
+
+**Recomendación de secuencia** (no implementada, como pediste): #4 hoy mismo,
+#1 como experimento reversible en el piloto, #2 antes de pasar de ~300
+unidades, #3 solo si después de #1+#2 el egress sigue doliendo. Con #1+#2 el
+escenario 2000 queda en ~**$250-300/mes** y el chofer en ~10-15 MB/turno.
+
+---
+
+## Supuestos a validar con Gerson
+
+Los medibles están medidos; esto es lo que tuve que inventar. Cada uno es una
+línea de `modelo-costos.js` (objeto `P`):
+
+1. **Horas de operación: 16 h/día** (5:00-21:00), 30 días/mes, y **punta =
+   3× promedio**. Si la flota entera opera en dos turnos solapados, la punta
+   real puede ser más chata (mejor) o más aguda.
+2. **Unidades por ruta: 20.** Gobierna el tamaño del estado (455 B/unidad) y
+   cuánta gente recibe cada rebote de chat. Si tus rutas son de 40, el
+   egress del estado casi se duplica; si son de 10, baja a la mitad.
+3. **Mezcla de cadencia GPS: 4 s** (3 s pantalla encendida / 10 s apagada —
+   ¿cuánto tiempo va la pantalla apagada de verdad?).
+4. **Chat: 1,5 textos/unidad/hora · 2 notas de voz/unidad/día · 0,3
+   fotos/unidad/día.** La voz pesa 27 KB y rebota a los ~20 de la ruta: si
+   el grupo es charlatán, esta línea crece rápido.
+5. **Reconexiones: 4/unidad/hora** (cortes de señal en ruta). Afecta logins,
+   audit y el reenvío de historial (200 mensajes) al reconectar — ese
+   reenvío NO está en el modelo y con mala señal podría pesar.
+6. **Paneles: 1,5 por coop** (Despacho fijo + gerencia a ratos) y **6
+   cambios de pestaña/hora** por panel.
+7. **3 % de choferes por día** reinstalan la app o limpian caché (vuelven a
+   bajar HTML + librerías + tiles).
+8. **Tiles: 120 por primera carga, 25 KB promedio**, 10 % de choferes/día
+   mirando zonas no cacheadas. Gobierna la cuota Geoapify (13 200/día ≈
+   apenas arriba del free). Con la Fase 2 (PMTiles propio) esta línea de
+   $59 baja a ~$0 y aparece ~3 GB/mes de egress propio (~$0,17).
+9. **vCPU/RAM presupuestados a mano** (0,5/1/2 vCPU por escenario): el
+   benchmark cubre SQLite, no el costo de serializar y emitir por WS a 2000
+   conexiones. Antes de 2000 hay que medir CPU real con ~500 conexiones
+   (el piloto de 500 lo va a decir solo).
+10. **Egress a $0,05/GB** (oficial Railway). Si tu factura dice $0,10,
+    todos los números de egress se duplican.

@@ -57,7 +57,11 @@ function extraerTemas(archivo) {
   }
   if (prof !== 0) throw new Error('llaves sin cerrar en ' + archivo);
   const literal = src.slice(src.indexOf('{', inicio), i + 1);
-  return { temas: new Function('return (' + literal + ')')(), src };
+  // El literal usa `tilesUrl(...)` (la URL de las tiles se arma con la clave
+  // que entrega el servidor). Acá solo se miden colores: se le da una
+  // función de mentira para que el literal evalúe.
+  const tilesUrl = (estilo) => 'https://tiles-de-prueba/' + estilo;
+  return { temas: new Function('tilesUrl', 'return (' + literal + ')')(tilesUrl), src };
 }
 
 // El creador no usa TEMAS: un solo tema claro en variables CSS.

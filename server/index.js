@@ -1518,6 +1518,14 @@ app.post('/auth/login', (req, res) => {
     companyId: user.companyId || null,
     companyName: empresa ? empresa.name : null,
     supervisor: (user.role === 'dispatch' || user.role === 'manager') && !user.routeId,
+    // La clave de las tiles del mapa. Vive en la variable de entorno
+    // GEOAPIFY_API_KEY y llega a la app nativa por acá: la app no puede leer
+    // /config.js (no es una página) y la clave no puede ir compilada en el
+    // APK — rotarla obligaría a repartir una app nueva a toda la flota.
+    tilesKey: TILES_KEY || null,
+    // Y las zonas con mapa propio, por la misma razón: el WebView del mapa
+    // decide con esto qué tiles pedir acá y cuáles al proveedor.
+    tilesZonas: zonasDisponibles(),
     created,
   });
 });
@@ -3126,6 +3134,167 @@ const PROJECT_DIR = resolveProjectDir();
 // publica en un hosting estático aparte, esta URL sigue existiendo acá y las
 // páginas la encuentran igual (tienen, además, una caída al CDN por las
 // dudas). Se cachea un día: es código público de Leaflet, no datos de nadie.
+// ─── TILES DEL MAPA ──────────────────────────────────────────
+// La clave de Geoapify (el proveedor del fondo del mapa) vive ACÁ, en una
+// variable de entorno, y las pantallas la reciben en el momento: /config.js
+// para las web, la respuesta del login para la app nativa. Nunca va escrita
+// en el código ni al repositorio — rotarla es cambiar la variable en Railway
+// y redesplegar, sin tocar una línea.
+//
+// Por qué se fue CARTO: su CDN de tiles es solo para clientes enterprise y
+// proyectos sin fines de lucro. Una cooperativa que cobra pasaje es uso
+// comercial: estábamos fuera de licencia, y un corte llegaría sin aviso y a
+// las 2000 unidades a la vez.
+const TILES_KEY = String(process.env.GEOAPIFY_API_KEY || '').trim();
+if (!TILES_KEY) {
+  console.warn('GEOAPIFY_API_KEY no está configurada — el fondo del mapa va a salir gris.');
+  console.warn('La clave se crea gratis en https://myprojects.geoapify.com y se pone como variable de entorno.');
+}
+
+// ─── MAPA PROPIO (PMTiles raster por zona) ───────────────────
+// Los archivos .pmtiles del área de operación (Juliaca hoy; cada ciudad
+// nueva es un archivo más). Los genera herramientas/mapa-propio/extraer.js
+// y viven donde diga TILES_DIR — en Railway, dentro del volumen, al lado de
+// la base. Se sirven con soporte de Range (el cliente pide pedazos, no el
+// archivo entero) y caché agresiva: el archivo es INMUTABLE — actualizar el
+// mapa es subir un archivo nuevo, no pisar este.
+// Dónde viven: TILES_DIR manda; si no, junto a la base (en Railway eso es
+// el volumen: DB_FILE=/data/r14.db → /data/tiles); en desarrollo, la salida
+// del extractor si existe. La carpeta se crea: la descarga de abajo escribe.
+const TILES_DIR = (() => {
+  if (process.env.TILES_DIR) return process.env.TILES_DIR;
+  const salidaDev = path.join(__dirname, '..', 'herramientas', 'mapa-propio', 'salida');
+  if (fs.existsSync(path.join(salidaDev, 'zonas.json'))) return salidaDev;
+  return path.join(path.dirname(process.env.DB_FILE || path.join(__dirname, 'r14.db')), 'tiles');
+})();
+try { fs.mkdirSync(TILES_DIR, { recursive: true }); } catch {}
+console.log('Mapa propio:', TILES_DIR);
+
+// ── Descarga al arrancar (los .pmtiles NO viajan en el repositorio) ──
+// Pesan cientos de MB: viven como assets de un Release de GitHub y cada
+// servidor se los baja UNA vez a su volumen. TILES_RELEASE_URL apunta a la
+// carpeta de descargas del release, p. ej.:
+//   https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01/releases/download/mapa-2026-08
+// Mientras bajan (o si la variable falta), /tiles/zonas.json anuncia solo
+// lo que ya está en disco y las pantallas siguen con el proveedor: el mapa
+// nunca queda en blanco por esto.
+async function bajarMapaPropio() {
+  const base = String(process.env.TILES_RELEASE_URL || '').replace(/\/+$/, '');
+  if (!base) { console.log('TILES_RELEASE_URL sin configurar — mapa propio solo si ya está en disco.'); return; }
+  const aDisco = async (nombre, validar, guardarComo) => {
+    const destino = path.join(TILES_DIR, guardarComo || nombre);
+    const res = await fetch(base + '/' + nombre, { redirect: 'follow' });
+    if (!res.ok) throw new Error(nombre + ': HTTP ' + res.status);
+    const cuerpo = Buffer.from(await res.arrayBuffer());
+    if (validar && !validar(cuerpo)) throw new Error(nombre + ': contenido inválido');
+    // A un temporal y recién entonces al nombre real: un corte a mitad de
+    // descarga no puede dejar un archivo trunco con nombre bueno.
+    fs.writeFileSync(destino + '.tmp', cuerpo);
+    fs.renameSync(destino + '.tmp', destino);
+    return cuerpo;
+  };
+  for (let intento = 1; intento <= 5; intento++) {
+    try {
+      const zonas = JSON.parse((await aDisco('zonas.json', b => b[0] === 0x7b, 'zonas.json.nuevo')).toString());
+      let bajados = 0;
+      for (const z of Object.values(zonas)) {
+        for (const archivo of Object.values(z.archivos || {})) {
+          if (fs.existsSync(path.join(TILES_DIR, archivo))) continue;
+          console.log('bajando', archivo, '…');
+          await aDisco(archivo, b => b.slice(0, 7).toString('latin1') === 'PMTiles');
+          lectorPmtiles.cerrar(path.join(TILES_DIR, archivo));
+          bajados++;
+        }
+      }
+      // El índice se publica al final: nunca anuncia archivos que no están
+      fs.renameSync(path.join(TILES_DIR, 'zonas.json.nuevo'), path.join(TILES_DIR, 'zonas.json'));
+      console.log(bajados ? `Mapa propio: ${bajados} archivo(s) bajados del release.` : 'Mapa propio: al día.');
+      return;
+    } catch (e) {
+      console.warn(`Mapa propio: descarga falló (${e.message}) — reintento ${intento}/5`);
+      await new Promise(r => setTimeout(r, 15000 * intento));
+    }
+  }
+  console.warn('Mapa propio: no se pudo bajar; las pantallas siguen con el proveedor.');
+}
+
+// CORS: la app nativa vive en un WebView con otro origen, y un pedido con
+// Range dispara preflight. Sin esto, el mapa propio solo serviría a la web.
+function corsDeTiles(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'range,if-match,if-none-match');
+  res.setHeader('Access-Control-Expose-Headers', 'content-range,accept-ranges,content-length,etag');
+}
+app.options('/tiles/:archivo', (req, res) => { corsDeTiles(res); res.sendStatus(204); });
+
+// El índice: qué zonas hay y con qué bbox. La cascada del cliente decide
+// con esto si una tile sale de acá o del proveedor. Solo anuncia zonas
+// cuyos archivos están DE VERDAD en el disco: prometer una zona a medio
+// bajar sería un mapa entero de 404 en cadena.
+function zonasDisponibles() {
+  const idx = path.join(TILES_DIR, 'zonas.json');
+  if (!fs.existsSync(idx)) return {};
+  let zonas;
+  try { zonas = JSON.parse(fs.readFileSync(idx, 'utf8')); } catch { return {}; }
+  for (const [id, z] of Object.entries(zonas)) {
+    const ok = Object.values(z.archivos || {}).every(a => fs.existsSync(path.join(TILES_DIR, a)));
+    if (!ok) delete zonas[id];
+  }
+  return zonas;
+}
+app.get('/tiles/zonas.json', (req, res) => {
+  corsDeTiles(res);
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.json(zonasDisponibles());
+});
+
+app.get('/tiles/:archivo', (req, res) => {
+  // Solo nombres sanos y solo .pmtiles: esta ruta no es un file server
+  const archivo = String(req.params.archivo || '');
+  if (!/^[a-z0-9-]+\.pmtiles$/.test(archivo) || !TILES_DIR) return res.sendStatus(404);
+  corsDeTiles(res);
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  // sendFile maneja Range y ETag solo; con esto el navegador pide los
+  // pedacitos que necesita y no vuelve a pedir los que ya tiene.
+  res.sendFile(path.join(TILES_DIR, archivo), (err) => {
+    if (err && !res.headersSent) res.sendStatus(404);
+  });
+});
+
+// La tile suelta: /tiles/xyz/juliaca/claro/15/10000/17812.png → un PNG de
+// unos 3-8 KB. Es lo que piden las pantallas con un L.tileLayer común — el
+// celular NUNCA baja el archivo grande, solo las tiles que mira, y el
+// service worker las guarda como cualquier otra. El lector (server/
+// pmtiles.js) tiene el índice en memoria; encontrar una tile no toca la red.
+//
+// 404 cuando la tile no está (fuera del bbox, zoom fuera de rango, archivo
+// todavía no descargado): la cascada del cliente lo toma como "probá con el
+// proveedor". Caché de 30 días, no un año: el mapa se re-extrae cada tanto
+// (OSM cambia despacio) y las tiles conservan su URL.
+const lectorPmtiles = require('./pmtiles');
+app.get('/tiles/xyz/:zona/:estilo/:z/:x/:y.png', (req, res) => {
+  corsDeTiles(res);
+  if (!TILES_DIR) return res.sendStatus(404);
+  const { zona, estilo } = req.params;
+  const z = Number(req.params.z), x = Number(req.params.x), y = Number(req.params.y);
+  if (!/^[a-z0-9-]+$/.test(zona) || !/^(claro|oscuro)$/.test(estilo) ||
+      !Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) ||
+      z < 0 || z > 22 || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z) {
+    return res.sendStatus(404);
+  }
+  const ruta = path.join(TILES_DIR, `${zona}-${estilo}.pmtiles`);
+  if (!fs.existsSync(ruta)) return res.sendStatus(404);
+  try {
+    const png = lectorPmtiles.abrir(ruta).tile(z, x, y);
+    if (!png) return res.sendStatus(404);
+    res.setHeader('Cache-Control', 'public, max-age=2592000');
+    res.type('image/png').send(png);
+  } catch (e) {
+    console.error('tile rota', zona, estilo, z, x, y, e.message);
+    res.sendStatus(500);
+  }
+});
+
 const VENDOR_LEAFLET = path.join(__dirname, 'vendor', 'leaflet');
 for (const [archivo, tipo] of [['leaflet.js', 'application/javascript'], ['leaflet.css', 'text/css']]) {
   app.get('/vendor/leaflet/' + archivo, (req, res) => {
@@ -3135,16 +3304,26 @@ for (const [archivo, tipo] of [['leaflet.js', 'application/javascript'], ['leafl
   });
 }
 
+// Cuando la app se sirve desde acá, habla con este mismo origen.
+// En hosting estático separado este archivo da 404 y la app cae al
+// default de realtime.js — nada se rompe.
+//
+// Registrado FUERA del `if (PROJECT_DIR)`, como Leaflet: el panel del
+// creador también lo carga (necesita la clave de las tiles) y existe aunque
+// el deploy no incluya la carpeta project/.
+app.get('/config.js', (req, res) => {
+  res.type('application/javascript').send(
+    "// Generado por el servidor: el tiempo real vive en este mismo origen\n" +
+    "window.REALTIME_SERVER_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;\n" +
+    "// La clave de las tiles del mapa (variable de entorno GEOAPIFY_API_KEY)\n" +
+    `window.TILES_KEY = ${JSON.stringify(TILES_KEY)};\n` +
+    "// Zonas con mapa PROPIO: adentro de estos bbox las tiles salen de este\n" +
+    "// servidor y el proveedor queda de excepción. Vacío = todo al proveedor.\n" +
+    `window.TILES_ZONAS = ${JSON.stringify(zonasDisponibles())};\n`
+  );
+});
+
 if (PROJECT_DIR) {
-  // Cuando la app se sirve desde acá, habla con este mismo origen.
-  // En hosting estático separado este archivo da 404 y la app cae al
-  // default de realtime.js — nada se rompe.
-  app.get('/config.js', (req, res) => {
-    res.type('application/javascript').send(
-      "// Generado por el servidor: el tiempo real vive en este mismo origen\n" +
-      "window.REALTIME_SERVER_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;\n"
-    );
-  });
   app.use(express.static(PROJECT_DIR));
   console.log('Sirviendo la app web desde', PROJECT_DIR);
 } else {
@@ -4183,4 +4362,7 @@ server.listen(PORT, () => {
   // Si el servidor estuvo apagado el día que empezaba o vencía una obra, la
   // vigencia programada se aplica al encenderlo y no un minuto después.
   revisarVigencias();
+  // El mapa propio se baja del release DESPUÉS de estar escuchando: servir
+  // ya, completarse en el fondo. Si falla, el proveedor cubre todo.
+  bajarMapaPropio().catch(e => console.warn('Mapa propio:', e.message));
 });

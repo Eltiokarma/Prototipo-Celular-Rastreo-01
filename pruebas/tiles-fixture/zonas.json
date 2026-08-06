@@ -1,0 +1,36 @@
+{
+  "juliaca": {
+    "nombre": "Juliaca",
+    "bbox": [
+      -70.21,
+      -15.56,
+      -70.04,
+      -15.41
+    ],
+    "zooms": [
+      11,
+      18
+    ],
+    "archivos": {
+      "claro": "juliaca-claro.pmtiles",
+      "oscuro": "juliaca-oscuro.pmtiles"
+    },
+    "extraido": "fixture: tiles reales solo z14-16 — z17+ da 404 a propósito para probar el rescate"
+  },
+  "fantasma": {
+    "nombre": "Sin archivos",
+    "bbox": [
+      0,
+      0,
+      1,
+      1
+    ],
+    "zooms": [
+      11,
+      12
+    ],
+    "archivos": {
+      "claro": "no-existe.pmtiles"
+    }
+  }
+}
