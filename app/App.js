@@ -197,6 +197,7 @@ function Aplicacion() {
       cliente.current.marcarPresencia(previa);
       const permisos = await gps.pedirPermisos();
       if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
+      setAviso(null);   // el aviso de permisos viejo no sobrevive al permiso dado
       await gps.arrancar({ textoNotificacion: 'Turno en curso' });
     }
   };
@@ -217,6 +218,7 @@ function Aplicacion() {
       saliendo.current = false;
       const permisos = await gps.pedirPermisos();
       if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
+      setAviso(null);   // ídem: al dar el permiso, el cartel viejo se va
       await gps.arrancar({ textoNotificacion: textoRef.current });
     }
   };
@@ -634,7 +636,12 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
       <StatusBar style="light" />
       {cabecera}
 
-      {!reporta && aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
+      {/* El aviso se muestra HAYA O NO rol de GPS. Antes era `!reporta &&
+          aviso`, y el de permisos quedaba oculto justo en el peor caso: el
+          servidor te da el rol por el WebSocket (reporta=true) mientras el
+          servicio de ubicación ni arrancó por falta de permiso — la única
+          pista visible era la línea roja del servicio. */}
+      {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
 
       {/* Declarado en ruta pero el GPS todavía no lo vio sobre el trazado:
           se dice, para que "no tengo brecha" no parezca una falla. */}

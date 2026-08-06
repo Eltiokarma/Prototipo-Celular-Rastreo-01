@@ -148,7 +148,39 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
 // Cuántas están esperando, para verlo en pantalla
 export function enEspera() { return pendientes.length; }
 
+// `fetch` en React Native NO tiene timeout: un socket que Doze dejó a medias
+// puede quedar esperando PARA SIEMPRE. Y ese silencio era invisible de las
+// dos puntas: el envío colgado no cuenta como fallo —no hay error, no hay
+// nada—, sus posiciones no vuelven a la cola (solo vuelven en el catch), y
+// todo lo que llega después se apila detrás. Medido en un teléfono real:
+// "enviadas 300 · fallidas 0 · 523 esperando · último hace 2123 s" — 35
+// minutos sin un solo envío y ni un error a la vista. El corte convierte el
+// cuelgue en un error común y corriente: se re-encola y se cuenta.
+const FETCH_CORTE_MS = 15_000;
+function fetchConCorte(url, opciones) {
+  const control = new AbortController();
+  const corte = setTimeout(() => control.abort(), FETCH_CORTE_MS);
+  return fetch(url, { ...opciones, signal: control.signal })
+    .finally(() => clearTimeout(corte));
+}
+
+// Un solo envío en vuelo. La tarea dispara de nuevo mientras el anterior
+// espera la red —con la pantalla apagada Android entrega las posiciones en
+// lotes cuando le conviene, y justo ahí la red está peor—, y dos `subir` a
+// la vez leen y escriben `pendientes` sin ningún orden: posiciones contadas
+// dos veces o perdidas, y colas por encima de su propio tope (los 523 sobre
+// un tope de 500 del mismo teléfono). El que llega mientras otro está
+// enviando deja lo suyo en la cola y se va; el próximo envío se lo lleva.
+let subiendo = false;
+
 async function subir(nuevas) {
+  if (subiendo) { guardar(nuevas); return; }
+  subiendo = true;
+  try { await subirAhora(nuevas); }
+  finally { subiendo = false; }
+}
+
+async function subirAhora(nuevas) {
   // Lo atrasado va primero y ordenado: el servidor mide las vueltas con la
   // hora de cada posición, así que el orden importa. Se manda como mucho una
   // tanda; lo que sobra espera al próximo envío y así la cola se drena de a
@@ -202,7 +234,7 @@ async function subir(nuevas) {
         // rearranca).
         diagnostico.presenciaAuto = 'fuera';
         try {
-          await fetch(servidor + '/presencia', {
+          await fetchConCorte(servidor + '/presencia', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
             body: JSON.stringify({ estado: 'fuera' }),
@@ -217,7 +249,7 @@ async function subir(nuevas) {
       vigia = null;
     }
 
-    const r = await fetch(servidor + '/gps', {
+    const r = await fetchConCorte(servidor + '/gps', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({
@@ -242,9 +274,11 @@ async function subir(nuevas) {
     }
   } catch (e) {
     // Sin datos: en segundo plano es lo normal, Doze le corta la red a la app.
-    // NO se pierden — esperan al próximo envío que salga.
+    // NO se pierden — esperan al próximo envío que salga. El envío colgado
+    // llega acá por el corte de 15 s, con su propio nombre: "sin red" dice
+    // que no hay datos, esto dice que los hay pero el socket quedó muerto.
     guardar(posiciones);
-    anotarFallo('sin red', posiciones);
+    anotarFallo(e?.name === 'AbortError' ? 'envío colgado (corte a los 15 s)' : 'sin red', posiciones);
   }
 }
 
