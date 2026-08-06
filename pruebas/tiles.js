@@ -183,6 +183,27 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
       const rm = await fetch(API + '/tiles/' + malo);
       ok(`no entrega ${malo}`, rm.status === 404, rm.status);
     }
+
+    // La tile suelta (/tiles/xyz/...): lo que piden las pantallas. El
+    // fixture tiene tiles reales SOLO en z14-16: z17 da 404 y ese 404 es el
+    // contrato con la cascada del cliente — "probá con el proveedor".
+    const t15 = await fetch(API + '/tiles/xyz/juliaca/claro/15/10000/17812.png');
+    ok('una tile que existe llega como PNG', t15.status === 200 &&
+       (t15.headers.get('content-type') || '').includes('image/png'), t15.status);
+    const png = Buffer.from(await t15.arrayBuffer());
+    ok('con firma PNG de verdad', png.slice(1, 4).toString() === 'PNG');
+    ok('y caché larga (30 días)', /max-age=2592000/.test(t15.headers.get('cache-control') || ''));
+    const t17 = await fetch(API + '/tiles/xyz/juliaca/claro/17/40001/71249.png');
+    ok('una tile que NO está da 404 (la cascada cae al proveedor)', t17.status === 404, t17.status);
+    for (const mala of ['xyz/otra/claro/15/1/1.png', 'xyz/juliaca/violeta/15/1/1.png',
+                        'xyz/juliaca/claro/15/99999999/1.png', 'xyz/juliaca/claro/-1/0/0.png']) {
+      const rm = await fetch(API + '/tiles/' + mala);
+      ok(`rechaza ${mala}`, rm.status === 404, rm.status);
+    }
+
+    // Y el config.js le cuenta las zonas a las pantallas web
+    const cfg = await (await fetch(API + '/config.js')).text();
+    ok('config.js publica TILES_ZONAS con la zona', /TILES_ZONAS/.test(cfg) && /juliaca/.test(cfg));
   } finally {
     servidor.kill();
     for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }

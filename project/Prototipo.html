@@ -223,6 +223,84 @@ const tilesUrl = (estilo) =>
 // OSM la exige (ODbL) y Geoapify la pide en su plan gratuito. Se muestra.
 const TILES_ATRIB = 'Powered by <a href="https://www.geoapify.com/">Geoapify</a> · © OpenMapTiles · © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
+// ─── LA CASCADA DE TILES ───────────────────────────────────────
+// Tres niveles, en orden: (1) la caché del service worker — transparente,
+// las tiles ya vistas no tocan la red—; (2) el MAPA PROPIO, que este mismo
+// servidor sirve para las zonas extraídas (window.TILES_ZONAS, de
+// config.js); (3) Geoapify, SOLO fuera de esas zonas o si el nivel 2 falla.
+// El proveedor es la excepción, no la ruta normal: es cuota ajena y con
+// límite de pedidos por segundo.
+const TILES_ZONAS = window.TILES_ZONAS || {};
+// El origen del mapa propio: el mismo servidor del tiempo real. Vacío =
+// este mismo origen (cuando el servidor Node sirve esta página, lo normal).
+const TILES_ORIGEN = (window.REALTIME_SERVER_URL || '')
+  .replace(/^ws(s?):\/\//, 'http$1://').replace(/\/$/, '');
+
+// Contadores para VERIFICAR que el proveedor es la excepción: se loggean
+// cada 25 tiles y quedan en window.TILES_STATS para mirarlos en consola.
+const TILES_STATS = window.TILES_STATS = { propias: 0, proveedor: 0, rescatadas: 0 };
+function logTiles() {
+  const total = TILES_STATS.propias + TILES_STATS.proveedor;
+  if (!total || total % 25) return;
+  // transferSize 0 en un recurso propio = salió de la caché local (nivel 1)
+  let deCache = 0, vistas = 0;
+  try {
+    for (const r of performance.getEntriesByType('resource')) {
+      if (!/\/tiles\/xyz\//.test(r.name)) continue;
+      vistas++;
+      if (r.transferSize === 0) deCache++;
+    }
+  } catch {}
+  const pct = (n) => Math.round(n / total * 100) + '%';
+  console.log(`[tiles] propias ${pct(TILES_STATS.propias - TILES_STATS.rescatadas)} · ` +
+    `proveedor ${pct(TILES_STATS.proveedor + TILES_STATS.rescatadas)} ` +
+    `(${TILES_STATS.rescatadas} rescatadas) · caché local ${deCache}/${vistas}`);
+}
+
+// ¿El centro de esta tile cae en una zona con mapa propio?
+function zonaDeTile(coords) {
+  const n = Math.pow(2, coords.z);
+  const lon = (coords.x + 0.5) / n * 360 - 180;
+  const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (coords.y + 0.5) / n))) * 180 / Math.PI;
+  for (const id in TILES_ZONAS) {
+    const zo = TILES_ZONAS[id];
+    if (coords.z >= zo.zooms[0] && coords.z <= zo.zooms[1] &&
+        lon >= zo.bbox[0] && lon <= zo.bbox[2] &&
+        lat >= zo.bbox[1] && lat <= zo.bbox[3]) return id;
+  }
+  return null;
+}
+
+// La capa: un L.TileLayer cuyo `_url` es el del PROVEEDOR (así {r} y el
+// tema siguen funcionando con setUrl), que redirige al mapa propio cuando
+// la tile cae en zona, y que ante un fallo del propio VUELVE al proveedor
+// para esa tile — el mapa nunca queda con un hueco por culpa nuestra.
+const CapaCascada = L.TileLayer.extend({
+  getTileUrl(coords) {
+    const zona = zonaDeTile(coords);
+    if (!zona) return L.TileLayer.prototype.getTileUrl.call(this, coords);
+    return `${TILES_ORIGEN}/tiles/xyz/${zona}/${this.options.estiloPropio}/${coords.z}/${coords.x}/${coords.y}.png`;
+  },
+  createTile(coords, listo) {
+    const capa = this;
+    const tile = L.TileLayer.prototype.createTile.call(this, coords, listo);
+    if (zonaDeTile(coords)) {
+      TILES_STATS.propias++;
+      const socorro = L.TileLayer.prototype.getTileUrl.call(capa, coords);
+      const errorOriginal = tile.onerror;
+      tile.onerror = function (e) {
+        if (tile.src === socorro) return errorOriginal && errorOriginal.call(this, e);
+        TILES_STATS.rescatadas++;   // nivel 2 falló: nivel 3 al rescate
+        tile.src = socorro;
+      };
+    } else {
+      TILES_STATS.proveedor++;
+    }
+    tile.addEventListener('load', logTiles);
+    return tile;
+  },
+});
+
 // Tokens HUD (rediseño 2a/3a/3b) — se suman a PALETTE sin tocarla.
 // Regla: el rojo #FF2D55 queda reservado a emergencia/brecha crítica.
 // Tres juegos de tokens. El de DÍA es el de fábrica: el celular va en
@@ -627,9 +705,12 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
     });
     map.attributionControl.setPrefix(false);
 
-    tilesRef.current = L.tileLayer(HUD.tiles, {
+    tilesRef.current = new CapaCascada(HUD.tiles, {
       maxZoom: 19,
       attribution: TILES_ATRIB,
+      // El estilo del mapa propio acompaña al tema (claro de día, oscuro de
+      // noche), igual que la URL del proveedor
+      estiloPropio: HUD.resplandor ? 'oscuro' : 'claro',
     }).addTo(map);
 
     const youIcon = L.divIcon({ html: youPinHtml(), className: '', iconSize: [24,24], iconAnchor: [12,12] });
@@ -671,6 +752,8 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
   // pines redibujados. Sin esto habría que reabrir la app para verlo.
   React.useEffect(() => {
     if (!tilesRef.current) return;
+    // El estilo del mapa propio acompaña; setUrl ya redibuja la capa entera
+    tilesRef.current.options.estiloPropio = HUD.resplandor ? 'oscuro' : 'claro';
     tilesRef.current.setUrl(HUD.tiles);
     if (youMarkerRef.current) {
       youMarkerRef.current.setIcon(

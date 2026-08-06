@@ -846,13 +846,15 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
     mandar({ tipo: 'tema', oscuro, colores: mapa.coloresDe(C) });
   }, [listo, oscuro, C, mandar]);
 
-  // La clave de las tiles viene del login (el servidor la tiene en una
-  // variable de entorno; en la app no hay ninguna clave compilada). Sin ella
-  // el fondo queda liso — los puntos y el trazado se dibujan igual.
+  // La clave de las tiles y las zonas con mapa propio vienen del login (el
+  // servidor tiene la clave en una variable de entorno; en la app no hay
+  // ninguna compilada). Con las zonas y el servidor, el WebView arma la
+  // cascada: mapa propio adentro del bbox, proveedor solo de excepción.
+  // Sin nada de esto el fondo queda liso — puntos y trazado se dibujan igual.
   const tilesKey = yo?.tilesKey || null;
   React.useEffect(() => {
     if (!listo || !tilesKey) return;
-    mandar({ tipo: 'tiles', clave: tilesKey });
+    mandar({ tipo: 'tiles', clave: tilesKey, zonas: yo?.tilesZonas || {}, servidor: SERVIDOR });
   }, [listo, tilesKey, mandar]);
 
   React.useEffect(() => {
@@ -908,6 +910,9 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
               const m = JSON.parse(e.nativeEvent.data);
               if (m.listo) setListo(true);
               if ('seguir' in m) setSiguiendo(!!m.seguir);
+              // La página reporta cada 25 tiles de dónde salió cada una:
+              // es la evidencia de que el proveedor es la excepción.
+              if (m.estadisticaTiles) console.log('[tiles]', m.estadisticaTiles);
             } catch {}
           }}
           startInLoadingState

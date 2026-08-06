@@ -173,6 +173,8 @@ Lo que falta construir, ordenado: ver **PENDIENTES.md**.
 | `PORT` | Puerto (3001 por defecto) |
 | `DISPATCH_PASSWORD` | Crea o actualiza la cuenta `DESPACHO` al arrancar. Es la ruta de recuperación si esa clave se pierde |
 | `GEOAPIFY_API_KEY` | La clave del proveedor de tiles del mapa (gratis en [myprojects.geoapify.com](https://myprojects.geoapify.com); el plan gratuito permite uso comercial). El servidor se la pasa a las pantallas en el momento — por `/config.js` a las web, con el login a la app nativa. Sin ella el fondo del mapa sale gris; los puntos y el trazado se dibujan igual |
+| `TILES_RELEASE_URL` | De dónde bajar el **mapa propio** (PMTiles raster por ciudad) al arrancar: la URL de descargas del release `mapa-propio`, p. ej. `https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01/releases/download/mapa-propio`. Con esto, las tiles de la zona de operación salen de NUESTRO servidor y Geoapify queda de excepción (fuera de zona o falla). El release lo genera el workflow **mapa propio** (Actions) |
+| `TILES_DIR` | Dónde guardar/leer esos archivos. Por defecto, `tiles/` junto a la base — en Railway eso cae dentro del volumen, que es donde deben vivir |
 | `DEFAULT_ROUTE` / `DEFAULT_COMPANY` / `DEFAULT_COMPANY_NAME` | Código de la ruta y de la cooperativa iniciales, y su nombre visible. Solo se usan la primera vez |
 | `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres |
 | `CREATOR_PATH` | Mueve el panel del creador a una ruta propia (por defecto `/creador`) |

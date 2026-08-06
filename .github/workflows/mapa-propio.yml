@@ -1,0 +1,68 @@
+# Extrae el mapa propio de una zona y lo publica como Release.
+#
+# Los .pmtiles pesan cientos de MB y NO viven en el repositorio: viven como
+# assets del release `mapa-propio`, y cada servidor se los baja una vez a su
+# volumen al arrancar (TILES_RELEASE_URL, ver server/index.js).
+#
+# Correrlo: pestaña Actions → "mapa propio" → Run workflow → zona.
+# Agregar una ciudad: sumarla a herramientas/mapa-propio/zonas.js y correr
+# esto con su nombre. Re-extraer (OSM cambia despacio): correrlo de nuevo —
+# cada 3 a 6 meses alcanza. Ojo: los servidores que ya tienen los archivos
+# en su volumen no se los vuelven a bajar; para renovarlos hay que vaciar la
+# carpeta de tiles del volumen y redesplegar.
+name: mapa propio
+
+on:
+  workflow_dispatch:
+    inputs:
+      zona:
+        description: 'Zona a extraer (de herramientas/mapa-propio/zonas.js)'
+        default: 'juliaca'
+        required: true
+
+permissions:
+  contents: write   # crear/actualizar el release y su tag
+
+jobs:
+  extraer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Dependencias (better-sqlite3 del servidor, canvas del extractor)
+        run: |
+          cd server && npm ci
+          cd ../herramientas/mapa-propio && npm install @napi-rs/canvas
+
+      - name: Traer el índice ya publicado (una zona nueva se SUMA, no pisa)
+        run: |
+          mkdir -p herramientas/mapa-propio/salida
+          curl -sfL -o herramientas/mapa-propio/salida/zonas.json \
+            "https://github.com/${{ github.repository }}/releases/download/mapa-propio/zonas.json" \
+            || echo "todavía no hay release — primera vez"
+
+      - name: Extraer (OSM → tiles dibujadas → PMTiles)
+        run: |
+          cd herramientas/mapa-propio
+          node extraer.js "${{ github.event.inputs.zona }}"
+          ls -la salida/
+
+      - name: Publicar en el release mapa-propio
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mapa-propio
+          name: Mapa propio (PMTiles raster)
+          body: |
+            Tiles raster del mapa de operación, dibujadas desde datos de
+            OpenStreetMap (© OpenStreetMap contributors, ODbL) por
+            `herramientas/mapa-propio/extraer.js`. El servidor las baja de
+            acá al arrancar si `TILES_RELEASE_URL` apunta a este release:
+            `https://github.com/${{ github.repository }}/releases/download/mapa-propio`
+          files: |
+            herramientas/mapa-propio/salida/*.pmtiles
+            herramientas/mapa-propio/salida/zonas.json

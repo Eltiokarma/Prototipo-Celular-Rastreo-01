@@ -82,6 +82,12 @@ const HTTP_URL = SERVER_URL.replace(/^ws/, 'http');
 // (`positron` = light_all, `dark-matter` = dark_all) pero con licencia que
 // permite uso comercial. La clave la pone el servidor en /config.js desde su
 // variable de entorno GEOAPIFY_API_KEY; acá nunca hay una clave escrita.
+//
+// Este panel usa el proveedor DIRECTO, a propósito, y no la cascada del mapa
+// propio que usan las pantallas del chofer: el mapa propio (v1) no tiene
+// nombres de calles, y acá se trazan rutas — los nombres valen. Son ~30
+// paneles contra 2000 choferes: la cuota del proveedor ni se entera.
+// Decisión de Gerson, 2026-08.
 const TILES_KEY = window.TILES_KEY || '';
 const tilesUrl = (estilo) =>
   `https://maps.geoapify.com/v1/tile/${estilo}/{z}/{x}/{y}{r}.png?apiKey=${TILES_KEY}`;

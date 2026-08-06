@@ -9,13 +9,13 @@
     ],
     "zooms": [
       11,
-      12
+      18
     ],
     "archivos": {
       "claro": "juliaca-claro.pmtiles",
       "oscuro": "juliaca-oscuro.pmtiles"
     },
-    "extraido": "fixture"
+    "extraido": "fixture: tiles reales solo z14-16 — z17+ da 404 a propósito para probar el rescate"
   },
   "fantasma": {
     "nombre": "Sin archivos",

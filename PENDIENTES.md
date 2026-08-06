@@ -153,16 +153,31 @@ nada.
 
 Para 2000 unidades quedan dos preguntas que solo contesta la calle, y las dos
 siguen abiertas (ver 1.3): **el turno de 8 horas** con el GPS y la pantalla
-bloqueada, y **las tiles del mapa**. De esta última, la parte de licencia ya
-está resuelta: las cuatro pantallas dejaron CARTO (su CDN es solo enterprise y
-sin fines de lucro — cobrando pasaje estábamos fuera de licencia) y usan
-Geoapify, cuyo plan gratuito sí permite uso comercial, con la clave en la
-variable de entorno `GEOAPIFY_API_KEY` y la suite `tiles` vigilando que ningún
-host sin licencia vuelva a entrar. Queda la parte de volumen: sin caché son
-20–50 MB por turno y por chofer, y el tier gratuito (~12 000 tiles/día) no
-aguanta 2000 primeras cargas. El plan es servir el área de Juliaca desde
-nuestro propio backend (PMTiles raster) y dejar el proveedor externo solo
-para lo que caiga fuera — fases 2 y 3, todavía no implementadas.
+bloqueada. La otra —**las tiles del mapa**— quedó resuelta en tres capas:
+
+1. **Licencia**: las cuatro pantallas dejaron CARTO (su CDN es solo
+   enterprise y sin fines de lucro — cobrando pasaje estábamos fuera de
+   licencia). El proveedor con clave es Geoapify (`GEOAPIFY_API_KEY`), cuyo
+   plan gratuito sí permite uso comercial. La suite `tiles` vigila que
+   ningún host sin licencia vuelva a entrar al código.
+2. **Mapa propio**: el área de operación se dibuja de datos de OSM
+   (`herramientas/mapa-propio/`, una entrada por ciudad en `zonas.js`) y se
+   publica como PMTiles raster en el release `mapa-propio` (workflow de
+   Actions). El servidor la baja a su volumen al arrancar
+   (`TILES_RELEASE_URL`) y la sirve tile por tile.
+3. **La cascada** (pantallas del chofer, web y nativa): caché del service
+   worker → mapa propio → Geoapify de excepción, con rescate por tile si el
+   propio falla y contadores (`window.TILES_STATS`) para verificar que el
+   proveedor es la excepción. Despacho y el creador usan Geoapify directo a
+   propósito: el mapa propio v1 no tiene nombres de calles y ahí se trazan
+   rutas; son ~30 pantallas contra 2000.
+
+Lo que queda pendiente de esto, en orden de urgencia: **renovar el mapa en
+servidores ya poblados** (hoy: vaciar la carpeta `tiles/` del volumen y
+redesplegar — automatizarlo con nombres versionados cuando duela),
+**nombres de calles** en el mapa propio si Despacho los extraña, y correr el
+workflow al agregar cada ciudad nueva (Cusco, Arequipa, La Paz: una línea en
+`zonas.js` + Run workflow).
 
 ## Lo que queda por construir
 
