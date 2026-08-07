@@ -1244,6 +1244,38 @@ addColumnIfMissing('laps', 'brechaProm', 'INTEGER');
 // vez de mezclarlas en silencio.
 addColumnIfMissing('laps', 'objetivoSec', 'INTEGER');
 
+// ─── LA VUELTA QUE NO EMPEZÓ EN EL PRINCIPIO ─────────────────
+// El chofer que no sale del paradero inicial y "se mete" en la mitad de la
+// ruta pisa el trazado ahí, y desde ese momento el servidor lo trata igual
+// que a cualquiera: entra a la cadena de brechas y se le empieza a medir una
+// vuelta. Que entre no es el problema —puede tener mil motivos, y el sistema
+// no está para juzgarlos—: el problema es que esa PRIMERA vuelta no es una
+// vuelta. Es el pedazo que le faltaba al circuito. Se cerraba igual (llega
+// al final, cruza el inicio) con una duración que es una fracción de la
+// real, y esa fila entraba a los promedios como si fuera entera: bajaba la
+// duración promedio de la ruta, movía el objetivo automático hacia abajo y
+// le sumaba una vuelta al conteo del chofer.
+//
+// Y no se notaba mirando la pantalla, que es lo que lo hacía caro: la fila
+// era idéntica a las demás.
+//
+// La vuelta parcial NO se descarta. Que la unidad se metió a la ruta es un
+// hecho, y borrarlo sería perder justo el dato que se está buscando. Se
+// guarda MARCADA: `parcial = 1` y el progreso del circuito por el que entró.
+// Todo lo que promedia filtra las parciales; todo lo que lista las muestra
+// diciendo lo que son.
+addColumnIfMissing('laps', 'parcial', 'INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('laps', 'progresoInicial', 'REAL');
+
+// Cuánto se le perdona a una salida normal antes de llamarla "se metió".
+//
+// El progreso al confirmar nunca es exactamente 0: la confirmación ocurre
+// cuando el GPS pisa el trazado, y entre encender la app y arrancar ya se
+// avanzaron unas cuadras. En un circuito de 20 km, 0,15 son 3 km — más que
+// suficiente para cubrir el ruido, y bastante menos que "se metió por la
+// mitad", que es lo que se quiere ver.
+const VUELTA_DESDE_INICIO = 0.15;
+
 // Las vueltas que ya estaban guardadas cuando el recorrido pasó a colgar de
 // una variante se midieron con ESE trazado: es el mismo, solo que ahora tiene
 // un nombre. Se las ata a él, porque si no el objetivo automático de cada
@@ -1268,6 +1300,48 @@ if (variantesMigradas.size) {
 // bloquean el MISMO hilo que atiende los POST /gps de toda la flota
 // (`COSTOS.md` §3). Con el índice: 33 ms. Cuesta unos MB de disco.
 db.exec('CREATE INDEX IF NOT EXISTS idx_laps_cierre ON laps (finishedAt)');
+
+// ─── MEDIAS VUELTAS ──────────────────────────────────────────
+// "Vuelta" quiere decir dos cosas distintas en este sistema y conviene tener
+// las dos escritas, porque la palabra sola no alcanza:
+//
+//   - el TRAMO `vuelta` es la mitad geométrica del circuito, la que se opone
+//     a la `ida` (`route_points.leg`);
+//   - una VUELTA de `laps` es el circuito ENTERO: salir y volver, que es lo
+//     que la cooperativa llama una vuelta.
+//
+// De ahí salía un agujero: el chofer que hace la ida y se va —termina el
+// turno, se le rompe algo, lo mandan a otro lado— no completa el circuito,
+// así que no cerraba ninguna fila en `laps`. En vivo Despacho lo veía (la
+// unidad dice IDA o VUELTA), pero al día siguiente esa media rutina no
+// existía en ningún lado: ni en el informe, ni en el perfil del chofer, ni
+// en el cuadro del gerente. Quedaban sus HORAS y ningún dato que dijera qué
+// hizo con ellas.
+//
+// Ahora cada tramo terminado se guarda por su cuenta. Una vuelta entera son
+// dos filas acá (una ida y una vuelta) más una en `laps`: no se reemplazan,
+// cuentan cosas distintas. En una ruta cargada SOLO con ida el circuito es
+// ese tramo y las dos tablas dan el mismo número, que es lo correcto — ahí
+// una ida sí es una vuelta.
+//
+// La tabla se crea acá, pegada a `laps`, porque la poda del histórico corre
+// al arrancar y las poda a las dos. La lógica que la llena vive más abajo,
+// junto a la de vueltas (`trackTramo`).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS legs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unitId TEXT NOT NULL,       -- el VEHÍCULO, mismo criterio que laps
+    routeId TEXT NOT NULL,
+    variantId INTEGER,          -- con qué trazado se lo midió
+    leg TEXT NOT NULL,          -- 'ida' | 'vuelta'
+    startedAt INTEGER NOT NULL,
+    finishedAt INTEGER NOT NULL,
+    durationSec INTEGER NOT NULL,
+    parcial INTEGER NOT NULL DEFAULT 0   -- se enganchó con el tramo empezado
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_legs_cierre ON legs (finishedAt)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_legs_unidad ON legs (unitId, finishedAt)');
 
 // Cuánto historial se guarda, y por qué se mide en DÍAS y no en filas.
 //
@@ -1297,14 +1371,18 @@ function podarHistorico() {
   const viejas = db.prepare('DELETE FROM laps WHERE finishedAt < ?').run(corte).changes;
   const sobrantes = db.prepare(
     'DELETE FROM laps WHERE id NOT IN (SELECT id FROM laps ORDER BY id DESC LIMIT ?)').run(LAPS_MAX_FILAS).changes;
+  // Los tramos se podan con la misma vara que las vueltas: son el mismo dato
+  // partido al medio, y que uno sobreviviera al otro daría informes donde las
+  // medias vueltas no suman las vueltas.
+  const tramosViejos = db.prepare('DELETE FROM legs WHERE finishedAt < ?').run(corte).changes;
   const desviosViejos = db.prepare(
     'DELETE FROM deviations WHERE startedAt < ?').run(Date.now() - DESVIOS_DIAS * 86400_000).changes;
   const chat = pruneChatStmt.run({ corte: Date.now() - CHAT_DIAS * 86400_000 }).changes;
   const sos = pruneSosStmt.run({ corte: Date.now() - SOS_DIAS * 86400_000 }).changes;
   const mensajesDeMas = pruneRowsStmt.run({ tope: MENSAJES_MAX_FILAS }).changes;
-  if (viejas || sobrantes || desviosViejos || chat || sos || mensajesDeMas) {
-    console.log(`Historial podado: ${viejas + sobrantes} vuelta(s), ${desviosViejos} desvío(s), ` +
-      `${chat + mensajesDeMas} mensaje(s), ${sos} SOS` +
+  if (viejas || sobrantes || tramosViejos || desviosViejos || chat || sos || mensajesDeMas) {
+    console.log(`Historial podado: ${viejas + sobrantes} vuelta(s), ${tramosViejos} tramo(s), ` +
+      `${desviosViejos} desvío(s), ${chat + mensajesDeMas} mensaje(s), ${sos} SOS` +
       (sobrantes ? ` — ${sobrantes} vuelta(s) por el techo de ${LAPS_MAX_FILAS} filas` : ''));
   }
 }
@@ -1342,6 +1420,10 @@ function fijarPresencia(vehicleId, routeId, estado) {
     // Se va del mapa EN EL ACTO, no a los 3 minutos del olvido: lo pidió él.
     presencias.delete(vehicleId);
     lapState.delete(vehicleId);
+    // El tramo, en cambio, NO se descarta sin mirarlo: si venía de terminar
+    // la ida y se va, esa media vuelta es trabajo hecho y es justo lo que
+    // antes se perdía. `olvidarTramo` la guarda si estaba completa.
+    olvidarTramo(vehicleId);
     // Terminó el turno estando fuera del trazado: el episodio se cierra acá.
     // Dejarlo abierto lo haría durar hasta que alguien lo mire.
     olvidarDesvio(vehicleId, 'corte');
@@ -1360,6 +1442,8 @@ function fijarPresencia(vehicleId, routeId, estado) {
   // y volver de ausente es volver a entrar a la ruta.
   presencias.set(vehicleId, { estado, enRuta: false });
   lapState.delete(vehicleId);
+  // Irse a almorzar después de la ida no borra la ida.
+  olvidarTramo(vehicleId);
   const u = units.get(vehicleId);
   if (u) units.set(vehicleId, { ...u, presencia: estado, enRuta: false });
   scheduleStateBroadcast((u && u.routeId) || routeId);
@@ -1367,7 +1451,7 @@ function fijarPresencia(vehicleId, routeId, estado) {
 
 const lapState = new Map();
 // lapState = { vehicleId → { lapStart, speedSum, speedCount, samples,
-//                          lastProgress, brechaSum, brechaCount } }
+//                          lastProgress, progresoInicial, brechaSum, brechaCount } }
 
 // `cuando` es la hora en que se tomó la posición. Con el atraso de un túnel
 // llegando de golpe, medir con la hora de llegada inflaría la vuelta por todo
@@ -1377,6 +1461,9 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
   if (!st) {
     lapState.set(unitId, {
       lapStart: cuando, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
+      // Por dónde arrancó esta medición. Es lo que después decide si la
+      // vuelta que se cierre es entera o es el pedazo del que se metió.
+      progresoInicial: progress,
       brechaSum: 0, brechaCount: 0,
     });
     return;
@@ -1410,17 +1497,142 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
     // reconstruir cuántas había este martes a las 7. Sin ruta no hay objetivo
     // que valga —el progreso vino estimado por el cliente—, y queda NULL.
     const objetivoSec = routeId ? Math.round(objetivoDe(routeId).min * 60) : null;
-    db.prepare('INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(unitId, routeId || null, geo ? geo.variantId : null, st.lapStart, now, durationSec, avgSpeed, brechaProm, objetivoSec);
-    console.log(`Vuelta completada: ${unitId} en ${Math.round(durationSec / 60)} min`);
-    objetivoCache.delete(routeId);   // hay un dato nuevo: que se recalcule
+    // ¿Es una vuelta o es el pedazo del que se metió a mitad de ruta? Se
+    // decide por dónde EMPEZÓ a medirse, que es lo único que lo distingue:
+    // el final es idéntico en los dos casos.
+    const parcial = st.progresoInicial > VUELTA_DESDE_INICIO;
+    db.prepare('INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec, parcial, progresoInicial) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(unitId, routeId || null, geo ? geo.variantId : null, st.lapStart, now, durationSec, avgSpeed,
+           brechaProm, objetivoSec, parcial ? 1 : 0, st.progresoInicial);
+    if (parcial) {
+      // Se registra como aviso y no como una vuelta más: es el rastro de que
+      // esta unidad entró a la ruta empezada, y es lo que después contesta
+      // "¿cuántas veces esta semana?" sin que nadie lo haya estado mirando.
+      console.log(`Vuelta PARCIAL: ${unitId} entró al ${Math.round(st.progresoInicial * 100)} % ` +
+        `del circuito y cerró en ${Math.round(durationSec / 60)} min — no cuenta para los promedios`);
+      audit('sistema', 'vuelta_parcial', unitId,
+        `entró al ${Math.round(st.progresoInicial * 100)} % del circuito`, routeId);
+    } else {
+      console.log(`Vuelta completada: ${unitId} en ${Math.round(durationSec / 60)} min`);
+      objetivoCache.delete(routeId);   // hay un dato nuevo: que se recalcule
+    }
     lapState.set(unitId, {
       lapStart: now, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
+      // La que arranca ahora SÍ empieza donde termina la anterior: cruzó el
+      // inicio del circuito recién, así que nace entera.
+      progresoInicial: progress,
       brechaSum: 0, brechaCount: 0,
     });
     return;
   }
   st.lastProgress = progress;
+}
+
+// ─── MEDIAS VUELTAS: LOS TRAMOS ──────────────────────────────
+// La tabla `legs` se crea más arriba, junto a `laps`: la poda del histórico
+// corre al arrancar y necesita que exista. Acá vive la lógica.
+
+// El cambio de tramo tiene que SOSTENERSE. Cuando la ida y la vuelta van por
+// la misma calle, la proyección las desempata por el rumbo (ver
+// `proyectarEnRuta`) y en una esquina puede dudar un par de posiciones. Sin
+// esta confirmación, esas dudas se guardarían como medias vueltas.
+const TRAMO_MUESTRAS = 4;
+// Y hay que haber RECORRIDO el tramo para decir que se terminó: el que se
+// mete a la ruta y a las tres cuadras la proyección lo pasa al otro tramo no
+// hizo ninguna ida.
+const TRAMO_COMPLETO = 0.8;
+// Mismo criterio que la vuelta parcial, sobre el tramo en vez del circuito.
+const TRAMO_DESDE_INICIO = 0.2;
+
+// vehicleId → { routeId, leg, desde, progresoInicial, maxProgreso,
+//               candidato, seguidas }
+// El routeId va adentro del estado a propósito: el tramo también se cierra
+// cuando la unidad se BAJA (declaró fuera, o dejó de reportar), y ahí la
+// unidad ya no está en `units` para preguntarle en qué ruta andaba.
+const tramoState = new Map();
+
+const nuevoTramo = (routeId, leg, progresoTramo, cuando) => ({
+  routeId, leg, desde: cuando, progresoInicial: progresoTramo,
+  maxProgreso: progresoTramo, candidato: null, seguidas: 0,
+});
+
+function cerrarTramo(unitId, st, cuando) {
+  // Solo se guarda lo que de verdad se recorrió. Un tramo que nunca llegó
+  // cerca del final no es una media vuelta: es un pedazo, y un pedazo suelto
+  // no le sirve a nadie para contar.
+  if (st.maxProgreso < TRAMO_COMPLETO) return false;
+  const geo = st.routeId ? geometriaDe(st.routeId) : null;
+  const durationSec = Math.max(0, Math.round((cuando - st.desde) / 1000));
+  const parcial = st.progresoInicial > TRAMO_DESDE_INICIO;
+  db.prepare(`INSERT INTO legs (unitId, routeId, variantId, leg, startedAt, finishedAt, durationSec, parcial)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(unitId, st.routeId, geo ? geo.variantId : null, st.leg, st.desde, cuando, durationSec, parcial ? 1 : 0);
+  console.log(`Tramo ${st.leg} completado: ${unitId} en ${Math.round(durationSec / 60)} min` +
+    (parcial ? ' (parcial: se enganchó empezado)' : ''));
+  return true;
+}
+
+// La unidad deja de ser medida: terminó el turno, se declaró ausente, dejó
+// de reportar, o le cambiaron el trazado abajo. Si el tramo que venía
+// haciendo YA ESTABA TERMINADO, se guarda — es exactamente el caso que este
+// registro existe para no perder: el que hizo la ida y se fue. Si estaba a
+// medias, se descarta como siempre.
+function olvidarTramo(vehicleId, cuando = Date.now()) {
+  const st = tramoState.get(vehicleId);
+  if (st) cerrarTramo(vehicleId, st, cuando);
+  tramoState.delete(vehicleId);
+}
+
+// `proy` es lo que devolvió proyectarEnRuta. Sin geometría cargada no hay
+// tramos que contar y esto no hace nada: el progreso vino estimado por el
+// cliente y no distingue ida de vuelta.
+function trackTramo(unitId, routeId, proy, cuando = Date.now()) {
+  if (!proy || !proy.tramo) return;
+  let st = tramoState.get(unitId);
+  if (!st || st.routeId !== routeId) {
+    tramoState.set(unitId, nuevoTramo(routeId, proy.tramo, proy.progresoTramo, cuando));
+    return;
+  }
+
+  if (proy.tramo === st.leg) {
+    // Sigue en el mismo tramo: se cancela cualquier cambio a medio confirmar.
+    st.candidato = null;
+    st.seguidas = 0;
+    // Vuelta del progreso DENTRO del mismo tramo: es una ruta cargada solo
+    // con ida, donde el circuito es ese tramo y volver a empezarlo es haber
+    // terminado uno. En una ruta con los dos tramos esto no pasa — ahí el
+    // final de la ida es el principio de la vuelta y cambia el `leg`.
+    if (st.maxProgreso > TRAMO_COMPLETO && st.maxProgreso - proy.progresoTramo > 0.5) {
+      cerrarTramo(unitId, st, cuando);
+      tramoState.set(unitId, nuevoTramo(routeId, st.leg, proy.progresoTramo, cuando));
+      return;
+    }
+    st.maxProgreso = Math.max(st.maxProgreso, proy.progresoTramo);
+    return;
+  }
+
+  // Cambió de tramo. Todavía no cuenta: hay que verlo sostenido. Se guarda
+  // CUÁNDO y DÓNDE se lo vio por primera vez, que es el cambio real — las
+  // muestras que vienen después son sólo la confirmación.
+  if (st.candidato === proy.tramo) st.seguidas++;
+  else {
+    st.candidato = proy.tramo;
+    st.seguidas = 1;
+    st.cambioDesde = cuando;
+    st.cambioProgreso = proy.progresoTramo;
+  }
+  if (st.seguidas < TRAMO_MUESTRAS) return;
+
+  // El tramo nuevo arranca en la PRIMERA posición que lo vio, no en la de
+  // ahora. Los dos datos importan y por el mismo motivo: con la hora de
+  // ahora, el tramo anterior se alargaría por el tiempo que costó estar
+  // seguros; con el progreso de ahora, el tramo nuevo nacería ya avanzado y
+  // TODOS saldrían marcados como parciales — que es exactamente lo que
+  // pasaba antes de esta línea.
+  const desde = st.cambioDesde ?? cuando;
+  const progreso = st.cambioProgreso ?? proy.progresoTramo;
+  cerrarTramo(unitId, st, desde);
+  tramoState.set(unitId, nuevoTramo(routeId, proy.tramo, progreso, desde));
 }
 
 // Intentos fallidos por unidad: 5 seguidos → bloqueo de 5 minutos
@@ -1630,18 +1842,35 @@ app.get('/perfil', (req, res) => {
   // quien la maneje); las horas son de la PERSONA. Mismo criterio que el
   // panel del gerente — si acá dijera otra cosa, alguien tendría razón y
   // alguien no, y no habría forma de saber quién.
+  // Las parciales se cuentan APARTE y no entran en ningún promedio: son el
+  // pedazo del que se metió a mitad de ruta, y sumarlas al conteo le regala
+  // una vuelta que no hizo mientras le baja la duración promedio.
   const vueltas = db.prepare(`
-    SELECT COUNT(*) n,
-           SUM(CASE WHEN finishedAt >= @hoy THEN 1 ELSE 0 END) hoy,
-           AVG(durationSec) durProm,
-           AVG(brechaProm) brechaProm,
-           SUM(CASE WHEN brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
+    SELECT SUM(CASE WHEN parcial = 0 THEN 1 ELSE 0 END) n,
+           SUM(CASE WHEN parcial = 0 AND finishedAt >= @hoy THEN 1 ELSE 0 END) hoy,
+           SUM(CASE WHEN parcial = 1 THEN 1 ELSE 0 END) parciales,
+           AVG(CASE WHEN parcial = 0 THEN durationSec END) durProm,
+           AVG(CASE WHEN parcial = 0 THEN brechaProm END) brechaProm,
+           SUM(CASE WHEN parcial = 0 AND brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
                      AND ABS(brechaProm - objetivoSec) <= objetivoSec * @tol
                THEN 1 ELSE 0 END) enObjetivo,
-           SUM(CASE WHEN brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
+           SUM(CASE WHEN parcial = 0 AND brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
                THEN 1 ELSE 0 END) juzgables
     FROM laps WHERE unitId = @veh AND finishedAt >= @desde
   `).get({ veh: vehicleId, desde, hoy: hoy0.getTime(), tol: TOLERANCIA_CUMPLE });
+
+  // Las medias vueltas. Es lo que contesta "hice la ida y me fui": trabajo
+  // que existió, que hasta ahora no aparecía en ninguna pantalla, y que el
+  // chofer tiene tanto derecho a ver como el gerente.
+  const tramos = db.prepare(`
+    SELECT leg,
+           SUM(CASE WHEN parcial = 0 THEN 1 ELSE 0 END) n,
+           SUM(CASE WHEN parcial = 0 AND finishedAt >= @hoy THEN 1 ELSE 0 END) hoy,
+           AVG(CASE WHEN parcial = 0 THEN durationSec END) durProm
+    FROM legs WHERE unitId = @veh AND finishedAt >= @desde
+    GROUP BY leg
+  `).all({ veh: vehicleId, desde, hoy: hoy0.getTime() });
+  const tramoDe = (leg) => tramos.find(t => t.leg === leg) || {};
 
   const turnos = db.prepare(`
     SELECT startedAt, endedAt, lastSeenAt FROM shifts
@@ -1661,6 +1890,18 @@ app.get('/perfil', (req, res) => {
       dias: 7,
       vueltas: vueltas.n || 0,
       vueltasHoy: vueltas.hoy || 0,
+      // Las vueltas que arrancaron con la ruta empezada. Se muestran porque
+      // esconderlas sería la versión amable de mentir: el chofer ve el mismo
+      // número que ve Despacho, y así puede explicarlo si hay algo que
+      // explicar.
+      parciales: vueltas.parciales || 0,
+      // Medias vueltas: ida y vuelta por separado. En una ruta cargada solo
+      // con ida estos números coinciden con `vueltas`, que es lo correcto —
+      // ahí el circuito ES la ida.
+      idas: tramoDe('ida').n || 0,
+      idasHoy: tramoDe('ida').hoy || 0,
+      retornos: tramoDe('vuelta').n || 0,
+      retornosHoy: tramoDe('vuelta').hoy || 0,
       duracionProm: vueltas.durProm ? Math.round(vueltas.durProm) : null,
       brechaProm: vueltas.brechaProm ? Math.round(vueltas.brechaProm) : null,
       // Cumplimiento contra el objetivo que REGÍA en cada vuelta (2.3).
@@ -2293,6 +2534,11 @@ function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
   let descartadas = 0;
   for (const [vehicleId, unidad] of units) {
     if (unidad.routeId === routeId && lapState.delete(vehicleId)) descartadas++;
+    // El tramo en curso se descarta SIN guardarlo, al revés que cuando el
+    // chofer se baja: ahí la media vuelta estaba bien medida y sólo faltaba
+    // la otra mitad; acá cambió contra qué se la medía a mitad de camino, y
+    // de ésa no se puede afirmar ni que se completó.
+    if (unidad.routeId === routeId) tramoState.delete(vehicleId);
   }
 
   // El estado de desvío también: lo que estaba fuera con el trazado viejo
@@ -2856,7 +3102,8 @@ const INFORMES = {
   // Vueltas por unidad: cuántas, cuánto tardaron, a qué velocidad
   vueltas: (filtro) => {
     const filas = db.prepare(`
-      SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
+      SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm,
+             objetivoSec, parcial, progresoInicial
       FROM laps
       WHERE finishedAt BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -2869,8 +3116,14 @@ const INFORMES = {
       // promedio" es un número sin vara. Y tiene que ser el de esa vuelta y no
       // el de hoy, porque el que abre el CSV el mes que viene no tiene forma
       // de saber cuál regía ese martes.
+      //
+      // Las parciales van EN LA MISMA LISTA, con su columna: sacarlas dejaría
+      // un CSV que no cuadra con lo que se vio en pantalla, y ponerlas sin
+      // marcar es lo que hacía el sistema antes. La columna dice por qué esa
+      // fila dura la mitad que las otras.
       cabecera: ['Unidad', 'Ruta', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos',
-        'Velocidad media (km/h)', 'Brecha promedio (m:ss)', 'Objetivo de esa vuelta (m:ss)'],
+        'Velocidad media (km/h)', 'Brecha promedio (m:ss)', 'Objetivo de esa vuelta (m:ss)',
+        'Vuelta entera', 'Entró al % del circuito'],
       filas: filas.map(l => [
         l.unitId, l.routeId, fechaHora(l.startedAt), fechaHora(l.finishedAt),
         duracionHm(l.durationSec), Math.round(l.durationSec / 60), l.avgSpeed,
@@ -2878,6 +3131,35 @@ const INFORMES = {
         // no tuvieron con quién compararse. Vacío es más honesto que un cero.
         l.brechaProm === null ? '' : formatMinutes(l.brechaProm / 60),
         l.objetivoSec ? formatMinutes(l.objetivoSec / 60) : '',
+        l.parcial ? 'no — se metió a mitad de ruta' : 'sí',
+        l.progresoInicial === null || l.progresoInicial === undefined
+          ? '' : `${Math.round(l.progresoInicial * 100)} %`,
+      ]),
+    };
+  },
+
+  // Medias vueltas: cada ida y cada retorno que se completó. Es el informe que
+  // contesta "hizo la ida y se fue" — un día con muchas más idas que retornos
+  // tiene una explicación, y hasta ahora ni siquiera se podía formular la
+  // pregunta porque el dato no se guardaba.
+  tramos: (filtro) => {
+    const filas = db.prepare(`
+      SELECT unitId, routeId, leg, startedAt, finishedAt, durationSec, parcial
+      FROM legs
+      WHERE finishedAt BETWEEN @desde AND @hasta
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY finishedAt
+    `).all(filtro);
+    return {
+      nombre: 'tramos',
+      cabecera: ['Unidad', 'Ruta', 'Tramo', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos',
+        'Tramo entero'],
+      filas: filas.map(t => [
+        t.unitId, t.routeId, t.leg === 'vuelta' ? 'vuelta (retorno)' : 'ida',
+        fechaHora(t.startedAt), fechaHora(t.finishedAt),
+        duracionHm(t.durationSec), Math.round(t.durationSec / 60),
+        t.parcial ? 'no — se enganchó empezado' : 'sí',
       ]),
     };
   },
@@ -3116,7 +3398,8 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
   // del mismo día — la lista es de las últimas 24 h, más que suficiente para
   // que se mueva. Cada fila se pinta contra la vara con la que se corrió.
   const filas = db.prepare(`
-    SELECT id, unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
+    SELECT id, unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm,
+           objetivoSec, parcial, progresoInicial
     FROM laps
     WHERE finishedAt >= @inicio
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -3124,10 +3407,15 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
     ORDER BY finishedAt DESC LIMIT 300
   `).all({ inicio, empresa: req.empresa, ruta });
 
+  // Las parciales SE LISTAN —son el rastro de que alguien entró a la ruta
+  // empezada, y es información— pero no entran en ningún promedio: duran una
+  // fracción de una vuelta y mezclarlas daría un número que no describe a
+  // nadie.
+  const enteras = filas.filter(l => !l.parcial);
   // Los promedios se sacan solo de las vueltas que TIENEN el dato: mezclar
   // las viejas (sin brecha guardada) como si fueran cero daría un número
   // bonito y falso.
-  const conBrecha = filas.filter(l => l.brechaProm !== null);
+  const conBrecha = enteras.filter(l => l.brechaProm !== null);
   const promedio = (lista, campo) => lista.length
     ? Math.round(lista.reduce((a, l) => a + l[campo], 0) / lista.length)
     : null;
@@ -3137,10 +3425,23 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
   const inicioAyer = inicio - 86400_000;
   const ayer = db.prepare(`
     SELECT durationSec FROM laps
-    WHERE finishedAt >= @inicioAyer AND finishedAt < @finAyer
+    WHERE finishedAt >= @inicioAyer AND finishedAt < @finAyer AND parcial = 0
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
   `).all({ inicioAyer, finAyer, empresa: req.empresa, ruta });
+
+  // Las medias vueltas del mismo período: cuántas idas y cuántos retornos se
+  // completaron. En un día normal son parecidas; que haya muchas más idas que
+  // retornos es exactamente el dato que antes no existía.
+  const tramos = db.prepare(`
+    SELECT leg, COUNT(*) n, AVG(durationSec) durProm
+    FROM legs
+    WHERE finishedAt >= @inicio AND parcial = 0
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    GROUP BY leg
+  `).all({ inicio, empresa: req.empresa, ruta });
+  const tramoDe = (leg) => tramos.find(t => t.leg === leg) || {};
 
   const objetivo = ruta ? objetivoDe(ruta) : null;
   // "Pelotón" es lo que el sistema existe para evitar: dos unidades pegadas.
@@ -3155,9 +3456,9 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
     objetivoSec: objetivo ? Math.round(objetivo.min * 60) : null,
     vueltas: filas,
     resumen: {
-      cerradas: filas.length,
-      unidades: new Set(filas.map(l => l.unitId)).size,
-      duracionProm: promedio(filas, 'durationSec'),
+      cerradas: enteras.length,
+      unidades: new Set(enteras.map(l => l.unitId)).size,
+      duracionProm: promedio(enteras, 'durationSec'),
       duracionPromAyer: promedio(ayer, 'durationSec'),
       brechaProm: promedio(conBrecha, 'brechaProm'),
       // Cuántas de las que tienen dato se hicieron pegadas a la de adelante
@@ -3166,7 +3467,16 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
       umbralPelotonSec: umbralPeloton === null ? null : Math.round(umbralPeloton),
       // Cuántas todavía no tienen el dato: si son muchas, los promedios de
       // arriba se calcularon sobre pocas y hay que decirlo.
-      sinBrecha: filas.length - conBrecha.length,
+      sinBrecha: enteras.length - conBrecha.length,
+      // Las que arrancaron con la ruta empezada. Van aparte del conteo, no
+      // adentro: si sumaran, el número de "vueltas de hoy" incluiría medias
+      // vueltas de gente que se metió, y nadie podría notarlo.
+      parciales: filas.length - enteras.length,
+      // Medias vueltas completadas en el período
+      idas: tramoDe('ida').n || 0,
+      idaDurProm: tramoDe('ida').durProm ? Math.round(tramoDe('ida').durProm) : null,
+      retornos: tramoDe('vuelta').n || 0,
+      retornoDurProm: tramoDe('vuelta').durProm ? Math.round(tramoDe('vuelta').durProm) : null,
     },
   });
 });
@@ -3182,22 +3492,70 @@ app.get('/admin/metrics', requireDispatch, (req, res) => {
     return res.status(404).json({ error: 'Esa ruta no existe' });
   }
   const filtro = req.scope || pedida || null;
+  // Todos los agregados miran solo las vueltas ENTERAS: una parcial dura una
+  // fracción y arrastraría el promedio y el "mejor tiempo" de la unidad hacia
+  // un número que nunca corrió. Las parciales viajan contadas aparte, para
+  // que el panel pueda decir "esta unidad se metió a mitad de ruta 3 veces"
+  // en vez de esconderlo.
   const rows = db.prepare(`
     SELECT unitId, routeId,
-      COUNT(*) AS lapsTotal,
-      SUM(CASE WHEN finishedAt >= @dayStart THEN 1 ELSE 0 END) AS lapsToday,
-      ROUND(AVG(durationSec)) AS avgSec,
-      MIN(durationSec) AS bestSec,
-      ROUND(AVG(avgSpeed)) AS avgSpeed,
-      (SELECT durationSec FROM laps l2 WHERE l2.unitId = laps.unitId ORDER BY l2.id DESC LIMIT 1) AS lastSec,
-      MAX(finishedAt) AS lastFinish
+      SUM(CASE WHEN parcial = 0 THEN 1 ELSE 0 END) AS lapsTotal,
+      SUM(CASE WHEN parcial = 0 AND finishedAt >= @dayStart THEN 1 ELSE 0 END) AS lapsToday,
+      SUM(CASE WHEN parcial = 1 THEN 1 ELSE 0 END) AS parciales,
+      SUM(CASE WHEN parcial = 1 AND finishedAt >= @dayStart THEN 1 ELSE 0 END) AS parcialesHoy,
+      ROUND(AVG(CASE WHEN parcial = 0 THEN durationSec END)) AS avgSec,
+      MIN(CASE WHEN parcial = 0 THEN durationSec END) AS bestSec,
+      ROUND(AVG(CASE WHEN parcial = 0 THEN avgSpeed END)) AS avgSpeed,
+      (SELECT durationSec FROM laps l2 WHERE l2.unitId = laps.unitId AND l2.parcial = 0
+        ORDER BY l2.id DESC LIMIT 1) AS lastSec,
+      MAX(CASE WHEN parcial = 0 THEN finishedAt END) AS lastFinish
     FROM laps
     WHERE routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@filtro IS NULL OR routeId = @filtro)
     GROUP BY unitId
     ORDER BY lapsToday DESC, lapsTotal DESC
   `).all({ dayStart: dayStart.getTime(), empresa: req.empresa, filtro });
-  res.json({ metrics: rows, routeId: filtro });
+
+  // Y las medias vueltas por unidad, que es donde se ve el que hizo la ida y
+  // no volvió: `idas` bastante mayor que `retornos`, sostenido en el tiempo.
+  const porTramo = db.prepare(`
+    SELECT unitId, leg, routeId,
+      COUNT(*) AS n,
+      SUM(CASE WHEN finishedAt >= @dayStart THEN 1 ELSE 0 END) AS hoy
+    FROM legs
+    WHERE parcial = 0
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@filtro IS NULL OR routeId = @filtro)
+    GROUP BY unitId, leg
+  `).all({ dayStart: dayStart.getTime(), empresa: req.empresa, filtro });
+  const buscar = (unitId, leg) => porTramo.find(t => t.unitId === unitId && t.leg === leg) || {};
+
+  // La unidad que hizo SOLO idas no cierra ninguna vuelta, así que no sale de
+  // la consulta de arriba —que agrupa `laps`— y desaparecía del cuadro: se
+  // veía una combi menos, no una combi que salió y no volvió. Justo el caso
+  // que este panel tiene que mostrar. Se agregan con los promedios en null,
+  // que es lo que corresponde: no hay vuelta que promediar.
+  const conVueltas = new Set(rows.map(r => r.unitId));
+  const soloTramos = porTramo
+    .filter(t => !conVueltas.has(t.unitId))
+    .map(t => ({ unitId: t.unitId, routeId: t.routeId }));
+  const vacias = new Map(soloTramos.map(t => [t.unitId, t]));
+  const completas = [...rows, ...Array.from(vacias.values()).map(t => ({
+    unitId: t.unitId, routeId: t.routeId,
+    lapsTotal: 0, lapsToday: 0, parciales: 0, parcialesHoy: 0,
+    avgSec: null, bestSec: null, avgSpeed: null, lastSec: null, lastFinish: null,
+  }))];
+
+  res.json({
+    metrics: completas.map(r => ({
+      ...r,
+      idas: buscar(r.unitId, 'ida').n || 0,
+      idasHoy: buscar(r.unitId, 'ida').hoy || 0,
+      retornos: buscar(r.unitId, 'vuelta').n || 0,
+      retornosHoy: buscar(r.unitId, 'vuelta').hoy || 0,
+    })),
+    routeId: filtro,
+  });
 });
 
 // ─── GERENCIA (solo lectura) ─────────────────────────────────
@@ -3268,14 +3626,41 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     });
   const objetivoDeRuta = new Map(rutas.map(r => [r.routeId, r.objetivoSec]));
 
+  // Solo las vueltas ENTERAS. Las parciales —las del que se metió a mitad de
+  // ruta— duran una fracción, y acá alimentan cumplimiento, tendencia y
+  // comparación entre unidades: mezclarlas premiaría a la unidad que se metió
+  // tarde con "más vueltas y más rápidas". Se cuentan aparte, abajo.
   const vueltas = db.prepare(`
     SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
     FROM laps
-    WHERE finishedAt BETWEEN @desde AND @hasta
+    WHERE finishedAt BETWEEN @desde AND @hasta AND parcial = 0
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
     ORDER BY finishedAt
   `).all(filtro);
+
+  // Cuántas veces entró cada unidad a la ruta empezada. Un caso aislado es un
+  // día raro; el mismo chofer todas las semanas es una conversación, y sin
+  // esta columna las dos se veían igual: no se veían.
+  const parcialesPorUnidad = new Map(db.prepare(`
+    SELECT unitId, COUNT(*) n FROM laps
+    WHERE finishedAt BETWEEN @desde AND @hasta AND parcial = 1
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    GROUP BY unitId
+  `).all(filtro).map(r => [r.unitId, r.n]));
+
+  // Medias vueltas por unidad. `idas` muy por encima de `retornos` es el
+  // chofer que sale y no vuelve — el caso que antes no dejaba rastro.
+  const tramosPorUnidad = db.prepare(`
+    SELECT unitId, leg, routeId, COUNT(*) n FROM legs
+    WHERE finishedAt BETWEEN @desde AND @hasta AND parcial = 0
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    GROUP BY unitId, leg
+  `).all(filtro);
+  const tramoDeUnidad = (unitId, leg) =>
+    (tramosPorUnidad.find(t => t.unitId === unitId && t.leg === leg) || {}).n || 0;
 
   // Contra qué se juzga cada vuelta: el objetivo que regía cuando se cerró y,
   // solo si esa vuelta es anterior a que lo guardáramos, el de hoy.
@@ -3362,23 +3747,40 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     if (!unidades.has(l.unitId)) unidades.set(l.unitId, []);
     unidades.get(l.unitId).push(l);
   }
+  // La unidad que hizo SOLO idas no cierra ninguna vuelta entera, y armando
+  // el cuadro únicamente con `vueltas` desaparecía del listado: el gerente
+  // veía una combi menos, no una combi que no volvió. Se agregan también las
+  // que solo dejaron medias vueltas o parciales, con la lista de vueltas
+  // vacía — los promedios les quedan en null, que es lo que corresponde.
+  for (const t of tramosPorUnidad) if (!unidades.has(t.unitId)) unidades.set(t.unitId, []);
+  for (const unitId of parcialesPorUnidad.keys()) if (!unidades.has(unitId)) unidades.set(unitId, []);
+
+  const rutaDeUnidad = (unitId, ls) => ls.length ? ls[0].routeId
+    : (tramosPorUnidad.find(t => t.unitId === unitId) || {}).routeId
+      || (vehicleOf(unitId) || {}).routeId || null;
+
   const porUnidad = Array.from(unidades.entries()).map(([unitId, ls]) => {
     const conB = ls.filter(l => l.brechaProm !== null);
     return {
       unitId,
-      routeId: ls[0].routeId,
+      routeId: rutaDeUnidad(unitId, ls),
       vueltas: ls.length,
       duracionProm: prom(ls, 'durationSec'),
-      duracionMejor: Math.min(...ls.map(l => l.durationSec)),
+      duracionMejor: ls.length ? Math.min(...ls.map(l => l.durationSec)) : null,
       velocidadProm: prom(ls, 'avgSpeed'),
       brechaProm: prom(conB, 'brechaProm'),
       cumplimiento: porcentaje(ls.map(juzgar)),
       sinBrecha: ls.length - conB.length,
+      // Medias vueltas y entradas a mitad de ruta: las dos cosas que antes no
+      // se veían, al lado de las vueltas para poder compararlas de un vistazo.
+      idas: tramoDeUnidad(unitId, 'ida'),
+      retornos: tramoDeUnidad(unitId, 'vuelta'),
+      parciales: parcialesPorUnidad.get(unitId) || 0,
       horasSec: horasDe.get(unitId) || 0,
       desvios: (desviosDe.get(unitId) || { veces: 0 }).veces,
       desvioSec: (desviosDe.get(unitId) || { segundos: 0 }).segundos,
     };
-  }).sort((a, b) => b.vueltas - a.vueltas);
+  }).sort((a, b) => b.vueltas - a.vueltas || b.idas - a.idas);
 
   // Horas por persona: lo mismo que ve Despacho en TURNOS, agregado al rango
   const personas = db.prepare(`
@@ -3442,6 +3844,13 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       conObjetivoViejo: vueltas.filter(l => l.brechaProm !== null && !l.objetivoSec).length,
       desvios: desviosPeriodo.length,
       desvioSec: desviosPeriodo.reduce((a, d) => a + (d.durationSec || 0), 0),
+      // Medias vueltas del período y entradas a mitad de ruta. Van en los
+      // totales y no sólo por unidad porque la pregunta primero es de la
+      // cooperativa: si las idas superan a los retornos todos los días, no es
+      // un chofer, es la última salida del turno y hay que mirarla entera.
+      idas: tramosPorUnidad.filter(t => t.leg === 'ida').reduce((a, t) => a + t.n, 0),
+      retornos: tramosPorUnidad.filter(t => t.leg === 'vuelta').reduce((a, t) => a + t.n, 0),
+      parciales: Array.from(parcialesPorUnidad.values()).reduce((a, n) => a + n, 0),
     },
     porDia,
     porUnidad,
@@ -4513,9 +4922,13 @@ function promedioVuelta(routeId, diaSemana) {
   const variante = geo ? geo.variantId : null;
   const mismaVariante = variante === null ? 'variantId IS NULL' : 'variantId = @variante';
 
+  // Y solo las vueltas ENTERAS. Una parcial es el pedazo que hizo el que se
+  // metió a mitad de ruta: dura una fracción, y promediarla arrastra el
+  // objetivo hacia abajo — o sea, exige una brecha más chica de la que la
+  // ruta puede sostener, castigando a todos por lo que hizo uno.
   const delDia = db.prepare(`
     SELECT durationSec FROM laps
-    WHERE routeId = @routeId AND ${mismaVariante}
+    WHERE routeId = @routeId AND ${mismaVariante} AND parcial = 0
       AND CAST(strftime('%w', finishedAt / 1000, 'unixepoch', 'localtime') AS INTEGER) = @dia
     ORDER BY id DESC LIMIT ${VUELTAS_MUESTRA}
   `).all({ routeId, dia: diaSemana, variante });
@@ -4526,7 +4939,7 @@ function promedioVuelta(routeId, diaSemana) {
   }
 
   const todas = db.prepare(`
-    SELECT durationSec FROM laps WHERE routeId = @routeId AND ${mismaVariante}
+    SELECT durationSec FROM laps WHERE routeId = @routeId AND ${mismaVariante} AND parcial = 0
     ORDER BY id DESC LIMIT ${VUELTAS_MUESTRA}
   `).all({ routeId, variante });
 
@@ -4706,7 +5119,26 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     if (!proy || proy.desvioM <= umbral) {
       enRuta = true;
       decl.enRuta = true;
-      console.log(`Presencia: ${vehicleId} pisó el trazado — entra a la cadena de brechas`);
+      // POR DÓNDE entró. La confirmación sólo exige pisar el trazado, y el
+      // trazado son 20 km: pisarlo en el paradero inicial y pisarlo a mitad
+      // de ruta son la misma cuenta y hasta ahora daban el mismo resultado.
+      // El progreso del circuito en este instante es lo único que los separa,
+      // y es un número que ya está calculado — sólo faltaba mirarlo.
+      decl.entroEn = proy ? proy.progreso : null;
+      decl.entradaTardia = !!(proy && proy.progreso > VUELTA_DESDE_INICIO);
+      decl.entroA = cuando;
+      if (decl.entradaTardia) {
+        // Queda en la auditoría, que es donde se puede contestar "¿cuántas
+        // veces esta semana?" sin haber estado mirando la pantalla en el
+        // momento. Al chofer no se le dice nada: mismo criterio que el
+        // desvío — puede tener un motivo, y esto es gestión, no alarma.
+        console.log(`Entrada tardía: ${vehicleId} entró a la ruta al ` +
+          `${Math.round(proy.progreso * 100)} % del circuito, no desde el inicio`);
+        audit('sistema', 'entrada_tardia', vehicleId,
+          `entró al ${Math.round(proy.progreso * 100)} % del circuito`, routeId);
+      } else {
+        console.log(`Presencia: ${vehicleId} pisó el trazado — entra a la cadena de brechas`);
+      }
     }
   }
 
@@ -4744,6 +5176,11 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     // Sin declaración: 'ruta' confirmada, como fue siempre.
     presencia: decl ? decl.estado : 'ruta',
     enRuta,
+    // Por dónde entró a la ruta, para que Despacho lo vea EN EL MOMENTO y no
+    // al día siguiente en un informe. `null` cuando no hubo declaración
+    // (clientes viejos) o cuando la ruta no tiene trazado cargado.
+    entroEn: decl && decl.entroEn !== undefined ? decl.entroEn : null,
+    entradaTardia: !!(decl && decl.entradaTardia),
     timestamp: cuando,
     // La última vez que se OYÓ al teléfono — no confundir con `timestamp`,
     // que es de la POSICIÓN. El olvido juzga por esta: al que está vaciando
@@ -4756,6 +5193,10 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   // una vuelta, y el almuerzo estacionado cerca del terminal tampoco.
   if (enRuta && (!decl || decl.estado === 'ruta')) {
     trackLap(vehicleId, routeId, progreso, pos.speed || 0, cuando);
+    // Y las medias vueltas, que es lo que queda cuando el circuito entero no
+    // se completa. Necesita la proyección —el tramo sale de la geometría—,
+    // así que en una ruta sin trazado no cuenta nada.
+    trackTramo(vehicleId, routeId, proy, cuando);
   }
 
   // Y que la persona sigue arriba, para poder cerrar bien el turno si el
@@ -4960,6 +5401,11 @@ setInterval(() => {
     if (sinOir > OLVIDAR_MS) {
       units.delete(unitId);
       lapState.delete(unitId); // la vuelta a medias no cuenta
+      // El tramo sí, si estaba terminado: apagar la app al llegar al final
+      // de la ida es la forma más común de "hice la ida y me fui". Se cierra
+      // con la hora de la ÚLTIMA posición conocida, no con la de ahora — los
+      // tres minutos del olvido no los manejó nadie.
+      olvidarTramo(unitId, unit.timestamp || ahora);
       // Y el desvío abierto se cierra: de una unidad que dejó de reportar no
       // se puede decir que "siguió fuera de ruta" — no se sabe dónde está.
       olvidarDesvio(unitId, 'corte');

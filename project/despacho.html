@@ -2107,6 +2107,15 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     obj ? `objetivo ${fmtSeg(obj)}` : 'mirando todas las rutas'],
                   ['Vueltas en pelotón', R.enPeloton === null ? '—' : R.enPeloton,
                     R.umbralPelotonSec ? `brecha bajo ${fmtSeg(R.umbralPelotonSec)}` : 'hace falta elegir una ruta'],
+                  // Medias vueltas. Van al lado de las enteras porque el dato
+                  // que importa es la DIFERENCIA: idas muy por encima de
+                  // retornos es gente que salió y no volvió, y ese número no
+                  // existía en ninguna pantalla.
+                  ['Idas completadas', R.idas,
+                    R.idaDurProm ? `${fmtSeg(R.idaDurProm)} promedio` : 'sin dato'],
+                  ['Retornos completados', R.retornos,
+                    R.idas > R.retornos ? `${R.idas - R.retornos} ida${R.idas - R.retornos === 1 ? '' : 's'} sin retorno`
+                      : (R.retornoDurProm ? `${fmtSeg(R.retornoDurProm)} promedio` : 'sin dato')],
                 ];
                 const cols = '110px 130px 130px 1fr 120px';
                 return (
@@ -2134,6 +2143,25 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                         {R.sinBrecha} de {R.cerradas} vueltas no tienen brecha guardada
                         —{' '}son de antes de que existiera el dato, o se dieron con una
                         sola unidad en ruta. No entran en el promedio: no cuentan como cero.
+                      </div>
+                    )}
+
+                    {/* Las vueltas de unidades que entraron a la ruta empezada.
+                        Se dicen en vez de esconderse: duran una fracción, no
+                        entran en ningún promedio de arriba, y aparecen en la
+                        lista marcadas para que nadie las lea como vueltas. */}
+                    {R.parciales > 0 && (
+                      <div style={{
+                        background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`,
+                        borderLeft: `3px solid ${HUD.amber}`, borderRadius: 11,
+                        padding: '11px 13px', marginBottom: 16,
+                        fontSize: 13, lineHeight: 1.55, color: HUD.ambarTinta,
+                      }}>
+                        {R.parciales} {R.parciales === 1 ? 'vuelta empezó' : 'vueltas empezaron'} con
+                        la ruta ya avanzada: esa unidad no salió del paradero inicial, se metió
+                        en el medio. Están abajo marcadas como <strong>PARCIAL</strong> y no
+                        entran en ninguno de los promedios de arriba — duran una fracción de
+                        una vuelta y la bajarían sin que se note.
                       </div>
                     )}
 
@@ -2182,6 +2210,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                               </span>
                               <span style={{ fontFamily: black, fontSize: 14, textAlign: 'right' }}>
                                 {fmtSeg(l.durationSec)}
+                                {l.parcial && (
+                                  <span title={`Entró a la ruta al ${Math.round((l.progresoInicial || 0) * 100)} % del circuito: esto no es una vuelta entera`}
+                                    style={{
+                                      display: 'block', fontFamily: mono, fontSize: 9,
+                                      fontWeight: 700, color: HUD.amber, marginTop: 2,
+                                    }}>PARCIAL · {Math.round((l.progresoInicial || 0) * 100)}%</span>
+                                )}
                               </span>
                             </FilaTabla>
                           );
@@ -2195,20 +2230,43 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               {/* El acumulado por unidad sigue estando: es lo que se mira para
                   comparar entre combis, no vuelta por vuelta. */}
               {metrics && metrics.length > 0 && (() => {
-                const cols = '110px 80px 80px 1fr 110px 110px';
+                const cols = '110px 70px 70px 90px 90px 1fr 100px 100px';
                 return (
                   <div style={{ marginTop: 26 }}>
                     <div style={{ ...rotulo(9), marginBottom: 10 }}>Acumulado por unidad</div>
-                    <Tabla cols={cols} ancho={700}
-                      cabeceras={['Unidad', 'Hoy', 'Total', 'Última', 'Promedio', 'Mejor']}>
+                    {/* IDAS y RETORNOS al lado de las vueltas enteras: son las
+                        medias vueltas, y la comparación entre las dos columnas
+                        es la que muestra al que sale y no vuelve. Una unidad
+                        puede tener 0 vueltas y 6 idas, y antes de esto se veía
+                        como una combi que no trabajó. */}
+                    <Tabla cols={cols} ancho={860}
+                      cabeceras={['Unidad', 'Hoy', 'Total', 'Idas', 'Retornos', 'Última', 'Promedio', 'Mejor']}>
                       {metrics.map(m => (
                         <FilaTabla key={m.unitId} cols={cols}>
-                          <span style={{ fontFamily: black, fontSize: 14 }}>{m.unitId}</span>
+                          <span style={{ fontFamily: black, fontSize: 14 }}>
+                            {m.unitId}
+                            {m.parciales > 0 && (
+                              <span title={`${m.parciales} vuelta(s) empezadas con la ruta ya avanzada`}
+                                style={{
+                                  display: 'block', fontFamily: mono, fontSize: 9,
+                                  fontWeight: 700, color: HUD.amber, marginTop: 2,
+                                }}>{m.parciales} PARCIAL{m.parciales === 1 ? '' : 'ES'}</span>
+                            )}
+                          </span>
                           <span style={{
                             fontFamily: mono, fontSize: 13, fontWeight: 700,
                             color: m.lapsToday > 0 ? HUD.green : HUD.dim3,
                           }}>{m.lapsToday}</span>
                           <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.dim }}>{m.lapsTotal}</span>
+                          <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.dim }}>{m.idas}</span>
+                          <span style={{
+                            fontFamily: mono, fontSize: 13, fontWeight: 700,
+                            // Menos retornos que idas es el dato: salió y no
+                            // volvió. Se pinta en ámbar, no en rojo — no es una
+                            // emergencia, es algo para preguntar.
+                            color: m.idas > m.retornos ? HUD.amber : HUD.dim,
+                          }} title={m.idas > m.retornos
+                            ? `${m.idas - m.retornos} ida(s) sin su retorno` : undefined}>{m.retornos}</span>
                           <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>{fmtSeg(m.lastSec)}</span>
                           <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>{fmtSeg(m.avgSec)}</span>
                           <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.bright, textAlign: 'right' }}>{fmtSeg(m.bestSec)}</span>
@@ -2224,6 +2282,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 mantuvo contra la de adelante durante toda la vuelta. Empieza a
                 existir el día que se enciende: las vueltas viejas quedan sin el dato
                 y no se puede reconstruir. La base retiene 120 días de vueltas.
+                Una <strong>vuelta</strong> es el circuito entero (ida y retorno);
+                las columnas <strong>Idas</strong> y <strong>Retornos</strong> cuentan
+                las mitades por separado, que es lo que queda cuando el chofer hace la
+                ida y no vuelve. En una ruta cargada solo con ida, las tres columnas
+                dicen lo mismo.
               </Pie>
             </div>)}
 
@@ -2231,6 +2294,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
             {tab === 'informes' && (() => {
               const informes = [
                 ['vueltas', 'Vueltas y brechas (CSV)', true],
+                ['tramos', 'Medias vueltas: idas y retornos (CSV)', false],
                 ['horas', 'Turnos por persona (CSV)', false],
                 ['desvios', 'Salidas del recorrido (CSV)', false],
                 ['sos', 'Emergencias (CSV)', false],
@@ -2411,7 +2475,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     pantalla: "turnos" no existe y el botón devolvía 404 con un
                     "No se pudo descargar" que no decía nada. El de horas se
                     llama `horas`. */}
-                {[['vueltas', 'vueltas'], ['horas', 'turnos'], ['desvios', 'salidas']].map(([tipo, rotulo]) => (
+                {[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas']].map(([tipo, rotulo]) => (
                   <button key={tipo} style={btnSecundario(36)} onClick={async () => {
                     try {
                       const hasta = Date.now(), desde = hasta - diasGer * 86400000;
@@ -2437,6 +2501,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 }}>
                   {[
                     ['Vueltas', resumenGer.totales.vueltas],
+                    // Idas y retornos del período. La resta entre las dos es
+                    // el número que antes no existía: cuántas salidas no
+                    // tuvieron su regreso.
+                    ['Idas', resumenGer.totales.idas ?? 0],
+                    ['Retornos', resumenGer.totales.retornos ?? 0],
                     ['Cumplimiento', resumenGer.totales.cumplimiento === null ? '—' : `${resumenGer.totales.cumplimiento}%`],
                     ['Brecha promedio', resumenGer.totales.brechaProm === null ? '—' : `${Math.floor(resumenGer.totales.brechaProm / 60)}:${String(resumenGer.totales.brechaProm % 60).padStart(2, '0')}`],
                     ['Horas trabajadas', `${(resumenGer.totales.horasSec / 3600).toFixed(1)} h`],
@@ -2455,17 +2524,35 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   <Vacio>Sin vueltas cerradas en el período.</Vacio>
                 )}
                 {resumenGer.porUnidad.length > 0 && (
-                  <Tabla cols="110px 90px 1fr 1fr 1fr 1fr 1fr" ancho={720}
-                    cabeceras={['Unidad', 'Ruta', 'Vueltas', 'Cumple', 'Brecha prom.', 'Horas', 'Salidas']}>
+                  <Tabla cols="110px 90px 1fr 1fr 1fr 1fr 1fr 1fr 1fr" ancho={860}
+                    cabeceras={['Unidad', 'Ruta', 'Vueltas', 'Idas', 'Retornos', 'Cumple', 'Brecha prom.', 'Horas', 'Salidas']}>
                     {resumenGer.porUnidad.map(u => (
                       <div key={u.unitId} style={{
-                        display: 'grid', gridTemplateColumns: '110px 90px 1fr 1fr 1fr 1fr 1fr',
+                        display: 'grid', gridTemplateColumns: '110px 90px 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
                         gap: 12, alignItems: 'center', padding: '11px 14px',
                         borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
                       }}>
-                        <div style={{ fontFamily: mono, fontWeight: 800 }}>{u.unitId}</div>
+                        <div style={{ fontFamily: mono, fontWeight: 800 }}>
+                          {u.unitId}
+                          {/* Cuántas veces entró a la ruta empezada. Es el
+                              contador del "se metió en el medio": una vez es
+                              un día raro, todas las semanas es otra cosa. */}
+                          {u.parciales > 0 && (
+                            <div title={`${u.parciales} vuelta(s) empezadas con la ruta ya avanzada`}
+                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, color: HUD.amber }}>
+                              {u.parciales} PARCIAL{u.parciales === 1 ? '' : 'ES'}
+                            </div>
+                          )}
+                        </div>
                         <div style={{ fontFamily: mono, color: HUD.dim }}>{u.routeId}</div>
                         <div>{u.vueltas}</div>
+                        <div style={{ fontFamily: mono }}>{u.idas ?? 0}</div>
+                        <div title={(u.idas ?? 0) > (u.retornos ?? 0)
+                          ? `${(u.idas ?? 0) - (u.retornos ?? 0)} ida(s) sin su retorno` : undefined}
+                          style={{
+                            fontFamily: mono,
+                            color: (u.idas ?? 0) > (u.retornos ?? 0) ? HUD.amber : HUD.fg,
+                          }}>{u.retornos ?? 0}</div>
                         <div style={{
                           fontWeight: 700,
                           color: u.cumplimiento === null ? HUD.dim3
@@ -2495,6 +2582,16 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   el mismo criterio que pinta de verde el mapa. Cada vuelta se
                   juzga contra el objetivo que regía cuando se cerró, no contra
                   el de hoy.
+                  {' '}<strong>Vueltas</strong> son circuitos enteros;
+                  {' '}<strong>Idas</strong> y <strong>Retornos</strong> son las mitades,
+                  y una unidad puede tener idas sin vueltas si hizo la salida y no volvió.
+                  {resumenGer.totales.parciales > 0 && (
+                    <span style={{ color: HUD.amber }}>
+                      {' '}{resumenGer.totales.parciales} vuelta(s) del período empezaron con la
+                      ruta ya avanzada (la unidad se metió en el medio) y quedan fuera de
+                      los promedios y del cumplimiento.
+                    </span>
+                  )}
                   {/* Mientras queden vueltas anteriores a que el objetivo se
                       guardara, una parte del número está medida con la vara de
                       hoy. Se dice cuántas son: callarlo es presentar como
@@ -3323,6 +3420,16 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     {u.speed || 0} KM/H
                   </span>
                   <div style={{ flex: 1 }} />
+                  {/* Entró a la ruta empezada: no salió del paradero inicial,
+                      se metió en el medio. No es una alarma —puede tener un
+                      motivo— pero tiene que verse EN EL MOMENTO: si aparece al
+                      día siguiente en un informe ya no sirve para preguntar. */}
+                  {u.entradaTardia && (
+                    <span title={`Entró a la ruta al ${Math.round((u.entroEn || 0) * 100)} % del circuito, no desde el inicio`}
+                      style={{
+                        fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.amber,
+                      }}>↳ ENTRÓ {Math.round((u.entroEn || 0) * 100)}%</span>
+                  )}
                   {u.tramo && (
                     <span title="Tramo del circuito en el que va" style={{
                       fontFamily: mono, fontSize: 10, fontWeight: 700,

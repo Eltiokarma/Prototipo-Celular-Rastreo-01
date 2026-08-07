@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Cuarenta y tres suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Cuarenta y cuatro suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -39,7 +39,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp presencia foto marca respaldo
-# las que se arman solas (cont.): vendor retencion renovacion cascada mapa-shot compresion sos perfil grabador cobradores
+# las que se arman solas (cont.): vendor retencion renovacion cascada mapa-shot compresion sos perfil grabador cobradores metidos
 # las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema contraste mapa teclado nativas
 node gerencia.js
 ```
@@ -102,6 +102,7 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `compresion` | Las dos palancas de ahorro con código (`COSTOS.md` §5). El índice de vueltas existe y el plan de consulta lo usa; y la compresión del WebSocket se mide en el cable: dos espectadores reciben los MISMOS estados y el que negoció permessage-deflate tiene que recibir menos de la mitad de los bytes (medido: −90 %). El que no ofrece la extensión —la app nativa— sigue funcionando sin comprimir, y un chat mandado comprimido llega intacto al que no comprime |
 | `sos` | El tipo de emergencia y el orden de las cosas: **deslizar manda la alerta YA**, sin preguntar nada; el tipo ("falla mecánica", "accidente", "policía") va después, con la emergencia ya sonando en Despacho. Los bordes: solo quien disparó puede calificar la suya, solo mientras la ventana está abierta, un tipo inventado no entra, y el historial y el CSV cuentan lo mismo que se vio en vivo — sin elegir queda "SOS" a secas, que es como nace cada uno |
 | `perfil` | El perfil del conductor: **lo SUYO y nada más** (no hay parámetro de unidad: todo sale de la sesión). El espejo usa el mismo criterio que el gerente —vueltas del vehículo, horas de la persona, cumplimiento contra la vara que regía—, el alias que se edita llega **en vivo** al mapa de Despacho sin que nadie vuelva a entrar, y la contraseña se cambia con la actual en la mano, auditando QUE la cambió y nunca cuál es |
+| `metidos` | El que **se mete a la ruta empezada** y el que hace **media vuelta**, sobre el circuito duro (ida y vuelta por la misma calle). Del primero: se lo confirma en ruta igual, pero marcado (`entradaTardia` con el punto por el que entró) y auditado; su primera vuelta se guarda con `parcial = 1` y queda fuera de todo promedio —resumen, acumulado por unidad, objetivo— **sin desaparecer de la lista**, y la siguiente, ya desde el inicio, sí cuenta. Del segundo: hace la ida, declara "fuera" arriba, y la ida **queda guardada** en `legs` aunque no haya cerrado ninguna vuelta; Despacho la ve con 1 ida y 0 retornos, y el perfil del chofer dice lo mismo. Más el informe `tramos.csv` y la columna que dice cuál vuelta no es entera |
 | `grabador` | El grabador de recorridos, en sus dos mitades. La pura: **un punto cada 30 m RECORRIDOS** (el semáforo no genera un nudo de puntos), el paso medido desde el último guardado, retomar tras un proceso muerto, y el GeoJSON con las coordenadas [lng, lat] que el formato exige. La del servidor: la grabación sube por POST /grabacion (el largo lo calcula el servidor, no se le cree al teléfono), el panel la lista y la baja como GeoJSON —la puerta que el trazador ya importa—, un chofer no lista las ajenas, y las viejas se podan solas al tope de 25 por empresa |
 
 ## Sintaxis de las pantallas

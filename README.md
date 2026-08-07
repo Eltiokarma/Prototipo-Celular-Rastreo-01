@@ -294,7 +294,10 @@ un desplegable. Todo contra los endpoints `/admin/*` del servidor
 - **Vueltas** — cada vuelta cerrada con su duración y su brecha promedio, más
   el acumulado por unidad. El servidor detecta cada vuelta solo —cuando el
   `routeProgress` llega cerca del final y vuelve al inicio— y la guarda en la
-  tabla `laps` (últimas 2000).
+  tabla `laps`. Al lado van las **medias vueltas** (idas y retornos, tabla
+  `legs`), que es lo que queda del chofer que hizo la ida y no volvió, y las
+  vueltas **parciales**, que son las del que se metió a mitad de ruta: se
+  listan marcadas y no entran en ningún promedio.
 - **Actividad** — la auditoría: quién inició sesión, quién dio de alta/baja o
   reseteó claves, bloqueos por intentos fallidos y SOS.
 
@@ -414,6 +417,76 @@ que es la base para detectar que una combi se salió de la ruta.
   grabada manejando. Se simplifica con Douglas-Peucker (tolerancia 10 m): un
   GPX de 600 puntos queda en unas decenas **sin cambiar la forma**. Tope:
   2000 puntos por tramo.
+
+### Medias vueltas: la ida que no tuvo retorno
+
+"Vuelta" quiere decir dos cosas y conviene tener las dos escritas: el **tramo
+`vuelta`** es la mitad geométrica del circuito, la que se opone a la ida; una
+**vuelta de `laps`** es el circuito entero.
+
+De ahí salía un agujero. El chofer que hace la ida y se va —termina el turno,
+se le rompe algo, lo mandan a otro lado— no completa el circuito, así que no
+cerraba **ninguna** fila. En vivo Despacho lo veía (la unidad dice `↪ IDA` o
+`↩ VUELTA`), pero al día siguiente esa media rutina no existía en ningún
+lado: ni en el informe, ni en el perfil del chofer, ni en el cuadro del
+gerente. Quedaban sus horas y nada que dijera qué hizo con ellas.
+
+Ahora **cada tramo terminado se guarda por su cuenta** (tabla `legs`):
+
+- Una vuelta entera son dos filas de tramo (una ida y un retorno) más una en
+  `laps`. No se reemplazan: cuentan cosas distintas.
+- El cambio de tramo tiene que **sostenerse** cuatro posiciones, y hay que
+  haber recorrido el tramo (>80 %) para decir que se terminó. Cuando la ida y
+  la vuelta comparten calle la proyección puede dudar en una esquina, y sin
+  esto esas dudas se guardarían como medias vueltas.
+- El tramo se cierra **también cuando la unidad se baja**: declarar "fuera",
+  irse a almorzar o dejar de reportar no borra la ida que ya estaba hecha.
+  Ése es exactamente el caso que esto existe para no perder.
+- Si el trazado cambia abajo (otra variante) el tramo en curso **se descarta**
+  sin guardarlo: cambió contra qué se lo medía a mitad de camino, y de ése no
+  se puede afirmar ni que se completó.
+- En una ruta cargada **solo con ida** el circuito es ese tramo y las dos
+  tablas dan el mismo número, que es lo correcto: ahí una ida sí es una
+  vuelta.
+
+Se ve en el acumulado por unidad de Despacho (columnas **Idas** y
+**Retornos**, el retorno en ámbar cuando queda por debajo de las idas), en el
+cuadro del gerente, en el perfil del chofer y en el informe `tramos.csv`.
+
+### El que no sale del paradero inicial
+
+La confirmación de presencia sólo exige **pisar el trazado**, y el trazado son
+veinte kilómetros: pisarlo en el paradero inicial y pisarlo a mitad de ruta
+eran la misma cuenta y daban el mismo resultado. El chofer que se "mete" en el
+medio entraba a la cadena de brechas como cualquiera.
+
+Que entre no es el problema —puede tener mil motivos, y el sistema no está
+para juzgarlos—. El problema era que esa **primera vuelta no es una vuelta**:
+es el pedazo que le faltaba al circuito. Se cerraba igual (llega al final,
+cruza el inicio) con una duración que es una fracción de la real, y entraba a
+los promedios como entera: bajaba la duración promedio de la ruta, movía el
+objetivo automático y le sumaba una vuelta que no dio. **Y no se notaba
+mirando la pantalla**, que es lo que lo hacía caro: la fila era idéntica a las
+demás.
+
+Ahora, en el momento en que la unidad pisa el trazado, se mira **por dónde**:
+
+- Si entró más allá del 15 % del circuito, la unidad queda marcada en vivo en
+  Despacho (`↳ ENTRÓ 62%`, en ámbar) y el hecho se **audita**, para poder
+  contestar "¿cuántas veces esta semana?" sin haber estado mirando la pantalla
+  en el momento.
+- La vuelta que cierre se guarda con `parcial = 1` y el progreso por el que
+  entró. **No se descarta**: borrarla sería perder justo el dato que se busca.
+- Todo lo que promedia la filtra —resumen de Despacho, acumulado por unidad,
+  objetivo automático, cumplimiento del gerente y del perfil— y todo lo que
+  lista la muestra **marcada como PARCIAL**, con el porcentaje por el que
+  entró. Al chofer se le dice lo mismo que ve Despacho: esconderlo sería la
+  versión amable de mentir, y además le saca la posibilidad de explicarlo.
+- Al chofer **no se le avisa mientras maneja**: mismo criterio que el desvío
+  —esto es gestión, no alarma—.
+
+Al chofer no se le pide nada nuevo y la app no cambió: todo sale de datos que
+el servidor ya calculaba y tiraba.
 
 Una ruta sin recorrido cargado sigue funcionando con la estimación lineal de
 siempre, así que se puede ir cargando ruta por ruta. El trazado se dibuja en
@@ -944,11 +1017,12 @@ informe de horas trabajadas.
 ## Informes
 
 Panel → Gestión → **Informes**. Se elige un rango de fechas y se bajan los
-cinco informes de ese período:
+seis informes de ese período:
 
 | Informe | Qué trae |
 | --- | --- |
-| **Vueltas por unidad** | Cuántas vueltas hizo cada combi, cuánto tardó, a qué velocidad, y la brecha que mantuvo **con el objetivo de esa vuelta al lado** |
+| **Vueltas por unidad** | Cuántas vueltas hizo cada combi, cuánto tardó, a qué velocidad, y la brecha que mantuvo **con el objetivo de esa vuelta al lado**. Dos columnas dicen si la vuelta es entera y, si no, por qué punto del circuito entró esa unidad |
+| **Medias vueltas** | Cada ida y cada retorno que se completó. Es el informe que contesta "hizo la ida y se fue": un día con muchas más idas que retornos tiene una explicación |
 | **Horas por persona** | Turnos: entrada, salida y horas de cada chofer y cobrador |
 | **Salidas del recorrido** | Cada desvío: cuándo salió, cuándo volvió, cuánto duró, a cuánto llegó y cómo terminó |
 | **Emergencias** | Cada SOS con quién lo disparó, desde qué unidad y dónde |
@@ -964,8 +1038,8 @@ las vueltas son estimaciones y no medidas. Un informe con números que parecen
 precisos y no lo son es peor que no tener informe.
 
 El período máximo son 90 días, y un despachador de ruta solo puede sacar los
-de la suya. El gerente tiene los tres que más mira —vueltas, turnos y
-salidas— como botón directo arriba de sus números.
+de la suya. El gerente tiene los cuatro que más mira —vueltas, medias vueltas,
+turnos y salidas— como botón directo arriba de sus números.
 
 ## Qué frena cada cosa
 

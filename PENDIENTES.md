@@ -121,6 +121,47 @@ lo verifica pegándole al endpoint, no mirando la pantalla. Todo auditado
 —del cambio de clave queda QUE la cambió y nunca cuál— y Despacho y la
 gerencia los siguen viendo enteros. Suite `cobradores`.
 
+### 3.7 · ~~El que se mete a mitad de ruta y el que hace media vuelta~~ — HECHO (8/8)
+
+Dos preguntas del dueño, y las dos apuntaban al mismo lugar: cosas que el
+servidor **veía en vivo y tiraba**.
+
+**«Si un chofer no inicia en el paradero inicial y se mete en la ruta, cómo
+lo detectamos?»** — No se detectaba. La confirmación de presencia sólo exige
+pisar el trazado, y el trazado son veinte kilómetros: pisarlo en el paradero
+y pisarlo a mitad de ruta daban el mismo resultado. Y el daño no era el hueco
+de detección sino lo que hacía callado: su **primera vuelta** —que es el
+pedazo que le faltaba al circuito— se cerraba como una vuelta entera con una
+duración que es una fracción, bajaba la duración promedio de la ruta, movía
+el objetivo automático y le sumaba una vuelta que no dio. La fila era
+idéntica a las demás y **nadie podía notarlo mirando la pantalla**, que es lo
+que lo hacía caro.
+
+Ahora, al confirmar, se mira por dónde entró (el progreso ya estaba
+calculado, sólo faltaba mirarlo): más allá del 15 % del circuito la unidad
+queda marcada en vivo en Despacho (`↳ ENTRÓ 62%`) y el hecho se audita, para
+poder contestar «¿cuántas veces esta semana?» sin haber estado mirando. La
+vuelta se guarda con `parcial = 1` y el progreso de entrada — **no se
+descarta**, borrarla sería perder justo el dato que se busca —, queda fuera de
+todos los promedios (resumen, acumulado por unidad, objetivo automático,
+cumplimiento) y se lista marcada. Al chofer se le dice lo mismo que ve
+Despacho; mientras maneja no se le avisa nada, mismo criterio que el desvío.
+
+**«A veces un chofer sólo hace la ida, cómo se ve eso?»** — No se veía. Una
+vuelta de `laps` es el circuito entero, así que el que hacía la ida y se iba
+no cerraba **ninguna** fila: quedaban sus horas y ningún dato que dijera qué
+hizo con ellas. Ahora cada tramo terminado se guarda por su cuenta (tabla
+`legs`), con dos guardas contra el ruido —el cambio de tramo se confirma en
+cuatro posiciones y hay que haber recorrido más del 80 % del tramo— y, sobre
+todo, **cerrando el tramo también cuando la unidad se baja**: declarar
+«fuera» o dejar de reportar no borra la ida que ya estaba hecha. Se ve como
+columnas *Idas* y *Retornos* en Despacho y en el cuadro del gerente (el
+retorno en ámbar cuando queda por debajo), en el perfil del chofer, y en el
+informe nuevo `tramos.csv`.
+
+Ni la app ni el chofer cambian: todo sale de datos que el servidor ya
+calculaba. Suite `metidos`.
+
 ### 3bis · ~~Los bancos visuales fotografiaban pantallas vacías~~ — HECHO
 
 Salió de mirar las capturas antes de desplegar, y es la clase de rotura que
@@ -177,6 +218,7 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
 | 4.2 | **Una sola instancia, SQLite compartido** | Alcanza de sobra para decenas de cooperativas. El día que no alcance, `ESCALABILIDAD.md` tiene el plan con números |
 | 4.3 | **iPhone** | Todo el desarrollo asume Android, que es lo que usan los choferes. Nada está probado en iOS |
 | 4.4 | **Nombres cosméticos con "R-14"** | "Servidor COOP-R14", títulos de páginas, la descripción del `package.json`. El modelo de datos ya es multi-cooperativa; esto es solo texto que suena a un solo cliente |
+| 4.5 | **Despacho no puede PEDIR una grabación de recorrido** | Preguntado por el dueño (8/8). Grabar sale sólo de la app del que va arriba (Perfil → GRABAR RECORRIDO) y come del GPS de ese teléfono; Despacho únicamente **consume** —lista las grabaciones de su empresa y las importa al trazador—. Que Despacho apriete "grabar" en su panel no puede existir: no tiene GPS en la calle. Lo que sí sería implementable es que **pida** una: un flag que la app levanta en su próximo POST y arranca sola, con aviso al chofer. Chico, y sin nada que lo bloquee |
 
 ---
 

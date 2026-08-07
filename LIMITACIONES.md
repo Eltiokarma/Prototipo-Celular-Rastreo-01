@@ -152,6 +152,25 @@ limitación se resuelva o aparezca una nueva.
 - La **detección de vueltas** sigue siendo una heurística (llegar cerca del
   final y volver al inicio): un desvío grande o GPS muy errático puede
   perder o duplicar una vuelta.
+- La **detección de medias vueltas** (idas y retornos, tabla `legs`) es la
+  misma heurística sobre el tramo, con dos guardas: el cambio de tramo tiene
+  que sostenerse cuatro posiciones y hay que haber recorrido más del 80 % del
+  tramo para darlo por terminado. Los dos números son fijos y no se pueden
+  ajustar por ruta; en un circuito muy corto, o con un teléfono que reporta
+  muy espaciado, la confirmación puede llegar tarde.
+- **Un tramo que no se completó no queda en ningún lado.** Si la combi hizo
+  media ida y se bajó, no hay fila: sólo sus horas. Es a propósito —un pedazo
+  suelto no le sirve a nadie para contar— pero significa que las horas y las
+  medias vueltas no cuadran siempre.
+- **El umbral de "se metió a mitad de ruta" es el 15 % del circuito**, fijo
+  para todas las rutas. Está elegido para cubrir el ruido normal (entre
+  encender la app y arrancar ya se avanzaron unas cuadras); en una ruta muy
+  corta puede quedar generoso, y una entrada real al 12 % no se marcaría.
+- **La entrada tardía se juzga una sola vez**, cuando la unidad pisa el
+  trazado. Si el chofer marca "en ruta" desde el paradero inicial, apaga la
+  app y la vuelve a prender a mitad de camino, esa reconfirmación sí cuenta
+  como entrada tardía — que es lo correcto, pero significa que un teléfono
+  que se queda sin batería genera una parcial que no describe al chofer.
 - El GPS urbano tiene error típico de 5–30 m, y algunos equipos no
   reportan velocidad (se muestra 0).
 
