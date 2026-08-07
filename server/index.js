@@ -3553,6 +3553,7 @@ wss.on('connection', (ws) => {
             : (previo?.driverName || vehicleId),
           routeId: user.routeId || veh?.routeId || DEFAULT_ROUTE,
           timestamp: Date.now(),
+          oidoEn: Date.now(),
         });
 
         // Solo UNA conexión reporta la posición de cada vehículo. El
@@ -4204,6 +4205,13 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     }
   }
 
+  // ¿Esta posición dice dónde está la unidad AHORA, o es atraso que la app
+  // está vaciando? El gris de "sin señal" se limpia solo con una fresca: la
+  // cola de un corte llega con posiciones de hace minutos, y limpiarlo con
+  // esas dibujaba en color firme una unidad que en realidad no se sabe
+  // dónde está — y el barrido lo volvía a marcar 10 s después, en bucle.
+  const fresca = Date.now() - cuando <= SIN_SENAL_MS;
+
   units.set(vehicleId, {
     ...unit,
     unitId: vehicleId,
@@ -4222,16 +4230,20 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     // del estado que ya se emite: no hace falta mensaje aparte.
     fueraDeRuta: !!(desvio && desvio.fuera),
     fueraDesde: desvio && desvio.fuera ? desvio.desde : null,
-    // Volvió la señal. Se limpia explícitamente porque el spread de arriba
-    // arrastra el `sinSenal` de la vuelta anterior, y una unidad que
-    // reapareció seguiría dibujada en gris para siempre.
-    sinSenal: false,
-    sinSenalDesde: null,
+    // Volvió la señal (si la posición es de ahora). Se limpia explícitamente
+    // porque el spread de arriba arrastra el `sinSenal` de la vuelta
+    // anterior, y una unidad que reapareció seguiría en gris para siempre.
+    sinSenal: fresca ? false : (unit.sinSenal || false),
+    sinSenalDesde: fresca ? null : (unit.sinSenalDesde ?? null),
     // La presencia declarada y si ya está confirmada sobre el trazado.
     // Sin declaración: 'ruta' confirmada, como fue siempre.
     presencia: decl ? decl.estado : 'ruta',
     enRuta,
     timestamp: cuando,
+    // La última vez que se OYÓ al teléfono — no confundir con `timestamp`,
+    // que es de la POSICIÓN. El olvido juzga por esta: al que está vaciando
+    // atraso se lo oye perfectamente.
+    oidoEn: Date.now(),
   });
 
   // Detección de vuelta completa a partir del progreso (del vehículo).
@@ -4414,9 +4426,24 @@ setInterval(() => {
   const ahora = Date.now();
   const rutasAfectadas = new Set();
   for (const [unitId, unit] of units) {
-    const callada = ahora - unit.timestamp;
+    // Dos edades distintas, y confundirlas se midió en producción:
+    //
+    //   muda   — qué tan VIEJA es la última posición conocida. Gobierna el
+    //            gris de "sin señal": contra una posición de hace un minuto
+    //            no se mide nadie, esté el teléfono vivo o no.
+    //   sinOir — hace cuánto no LLEGA nada del teléfono. Gobierna el
+    //            OLVIDO: borrar es para el que se fue, no para el que habla.
+    //
+    // El caso que las separa es el vaciado de atraso: la app manda su cola
+    // tras un corte —posiciones viejas con su hora real, que el servidor
+    // acepta a propósito para las vueltas— y con una sola edad la unidad
+    // renacía con timestamp viejo y el barrido la olvidaba EN BUCLE, cada
+    // 10 segundos, mientras el teléfono seguía llegando: una noche entera
+    // de «Unidad olvidada tras 400…992 s» con la señal perfecta.
+    const muda = ahora - unit.timestamp;
+    const sinOir = ahora - (unit.oidoEn ?? unit.timestamp);
 
-    if (callada > OLVIDAR_MS) {
+    if (sinOir > OLVIDAR_MS) {
       units.delete(unitId);
       lapState.delete(unitId); // la vuelta a medias no cuenta
       // Y el desvío abierto se cierra: de una unidad que dejó de reportar no
@@ -4427,7 +4454,7 @@ setInterval(() => {
       // a pisar el trazado — no entrar a la cadena por un true de ayer.
       const decl = presencias.get(unitId);
       if (decl) decl.enRuta = false;
-      console.log(`Unidad olvidada tras ${Math.round(callada / 1000)} s sin señal: ${unitId}`);
+      console.log(`Unidad olvidada tras ${Math.round(sinOir / 1000)} s sin oírse: ${unitId}`);
       broadcastToRoute(unit.routeId, { type: 'unit_left', unitId });
       rutasAfectadas.add(unit.routeId);
       continue;
@@ -4435,7 +4462,7 @@ setInterval(() => {
 
     // Entra en "sin señal". Se marca una sola vez: sin este chequeo se
     // reemitiría el estado cada diez segundos durante los tres minutos.
-    if (callada > SIN_SENAL_MS && !unit.sinSenal) {
+    if (muda > SIN_SENAL_MS && !unit.sinSenal) {
       units.set(unitId, { ...unit, sinSenal: true, sinSenalDesde: unit.timestamp });
       console.log(`Unidad sin señal: ${unitId}`);
       rutasAfectadas.add(unit.routeId);
