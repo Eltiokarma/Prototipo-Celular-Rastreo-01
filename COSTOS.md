@@ -189,10 +189,29 @@ algo menos):
   congelaba el mapa de todos**, y no aparecía en ninguna métrica porque el
   endpoint se llama al abrir la pestaña y no en bucle.
 
-  Queda como deuda, no resuelto: a 20 000 unidades la base son ~5,7 GB y esa
-  consulta vuelve a crecer con el padrón. Cuando llegue el momento, la salida
-  es acotar el acumulado a un rango (que es lo que ya hace el resto del panel)
-  y no seguir agregando índices.
+  **El costo es CUADRÁTICO con la flota**, no lineal, y eso es lo que hay que
+  entender antes de crecer. La subconsulta corre una vez por unidad sobre las
+  filas de la empresa: al multiplicar la flota por 10, las unidades y las
+  filas se multiplican por 10 cada una, y el producto por 100. Medido con la
+  misma base sintética a 20 000 unidades (19,2 M de vueltas, 38,4 M de
+  tramos, 5,7 GB):
+
+  | | 2000 unidades | 20 000 unidades | factor |
+  | --- | --- | --- | --- |
+  | como estaba | 9 580 ms | **996 954 ms** (16,6 min) | 104× |
+  | con los tres índices | 288 ms | 1 089 ms | 3,8× |
+
+  Sin los índices, a 20 000 el servidor **parece muerto durante diecisiete
+  minutos** cuando alguien abre esa pestaña. Con ellos, el crecimiento vuelve
+  a ser casi lineal.
+
+  Queda como deuda, medida y no resuelta: **a 20 000 unidades el acumulado
+  sigue costando ~3,7 s** entre las dos consultas (1089 + 2654), y eso es
+  tiempo con la ingesta de GPS parada. La salida NO es seguir agregando
+  índices —ya no compran nada— sino **acotar el acumulado a un rango**, que
+  es lo que ya hace el resto del panel; el "total histórico" sin fecha es la
+  única lectura del sistema que no lo hace. Con la base en 7,6 GB de índices
+  incluidos, también hay que mirar el volumen contratado antes de llegar ahí.
 - **No hace falta migrar de motor.** El cuello real del sistema no es la
   base: es (a) el egress del estado y (b) el CPU de serializar+emitir por
   WS a 2000 conexiones — presupuestado con 2 vCPU en §4. Si algún día se
