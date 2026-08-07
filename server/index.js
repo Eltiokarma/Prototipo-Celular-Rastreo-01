@@ -788,6 +788,11 @@ db.exec(`
 `);
 
 ligarAEmpresa('vehicles', true);
+// El estado de tiempo real cuenta la flota de la ruta en cada emisión (cada
+// STATE_INTERVAL_MS, por ruta) para poder decir "7 de 9". Sin índice eso es
+// recorrer la tabla entera cada vez; con 2000 unidades el barrido es corto,
+// pero cae en el hilo único de SQLite y ahí lo corto vale.
+db.exec('CREATE INDEX IF NOT EXISTS idx_vehicles_ruta ON vehicles (routeId)');
 
 // name es OBLIGATORIO (el nombre real, para los registros de la empresa)
 // y alias es OPCIONAL (como lo llaman en la ruta: "el Chino", "Pocho").
@@ -1666,6 +1671,19 @@ app.get('/perfil', (req, res) => {
       horasSec: horasSec(desde),
       horasHoySec: horasSec(hoy0.getTime()),
     },
+    // Quiénes van arriba de esta combi además de él. Al chofer le sirve
+    // para administrarlos; al cobrador, para saber con quién anda — y que
+    // la pantalla no le ofrezca botones que el servidor le va a negar.
+    cobradores: cobradoresDe(vehicleId, desde),
+    puedeGestionar: user.role === 'driver',
+    chofer: user.role === 'collector'
+      ? (() => {
+          const ch = db.prepare(
+            "SELECT name, alias FROM users WHERE vehicleId = ? AND role = 'driver' ORDER BY createdAt LIMIT 1"
+          ).get(vehicleId);
+          return ch ? { name: ch.name, alias: ch.alias || null } : null;
+        })()
+      : null,
     toleranciaCumple: TOLERANCIA_CUMPLE,
   });
 });
@@ -1716,6 +1734,122 @@ app.post('/perfil/clave', (req, res) => {
   // En la auditoría queda QUE la cambió, nunca cuál es.
   audit(user.unitId, 'clave_propia', user.unitId, null, user.routeId);
   console.log(`Contraseña cambiada por su dueño: ${user.unitId}`);
+  res.json({ ok: true });
+});
+
+// ─── LOS COBRADORES DE SU COMBI ──────────────────────────────
+// (pedido usándolo) El chofer VE a los cobradores que van arriba de su
+// combi, les cambia la clave y los saca. Es lo del día a día: el cobrador
+// se olvidó la contraseña o cambió de teléfono, o directamente ya no sube
+// más — y en las dos, esperar a que Despacho atienda es lo que termina en
+// que los dos entren con la misma cuenta.
+//
+// **El alta NO está acá, y es a propósito** (decisión del dueño del
+// producto, 7/8): crear una cuenta es dar acceso al sistema, y eso se
+// queda arriba, en Despacho o en la gerencia — que además son los que
+// cargan el nombre real con el que se liquidan las horas. El chofer
+// administra a los que ya están cargados; no fabrica cuentas nuevas.
+//
+// El borde de lo que sí puede, escrito corto y probado a contrapelo en la
+// suite `cobradores`:
+//
+//   · solo sobre SU vehículo — sale de la sesión, nunca del pedido;
+//   · solo sobre gente con rol cobrador: al chofer de al lado no lo toca;
+//   · el cobrador de otra combi se responde como inexistente;
+//   · un cobrador no gestiona cobradores;
+//   · todo auditado, y Despacho y el gerente los siguen viendo enteros en
+//     su panel — esto no esconde a nadie.
+//
+// Y lo que NO puede aunque sea suyo: cambiarle el NOMBRE. Con ese se
+// liquidan las horas; es de Despacho, igual que el suyo.
+function choferPropio(req, res) {
+  const user = usuarioPropio(req, res);
+  if (!user) return null;
+  if (user.role !== 'driver') {
+    res.status(403).json({ error: 'Los cobradores los maneja el chofer de la combi' });
+    return null;
+  }
+  return user;
+}
+
+// Las horas de una persona en una ventana, con el MISMO criterio que el
+// perfil y que el panel del gerente: un turno abierto cuenta hasta ahora.
+function horasDe(personId, desde) {
+  const ahora = Date.now();
+  return db.prepare('SELECT startedAt, endedAt, lastSeenAt FROM shifts WHERE personId = ? AND startedAt >= ?')
+    .all(personId, desde)
+    .reduce((a, t) => {
+      const fin = t.endedAt || t.lastSeenAt || ahora;
+      const ini = Math.max(t.startedAt, desde);
+      return fin > ini ? a + Math.round((fin - ini) / 1000) : a;
+    }, 0);
+}
+
+function cobradoresDe(vehicleId, desde) {
+  const enLinea = new Set(clients.values());
+  return db.prepare(`
+    SELECT unitId, name, alias, createdAt, lastLogin FROM users
+    WHERE vehicleId = ? AND role = 'collector'
+    ORDER BY createdAt
+  `).all(vehicleId).map(c => ({
+    unitId: c.unitId,
+    name: c.name,
+    alias: c.alias || null,
+    desde: c.createdAt,
+    ultimoIngreso: c.lastLogin || null,
+    enLinea: enLinea.has(c.unitId),
+    horasSec: horasDe(c.unitId, desde),
+  }));
+}
+
+// NO hay alta de cobradores acá. Está escrito para que se note que falta a
+// propósito y no por olvido: crear una cuenta es dar acceso al sistema, y
+// eso se queda en Despacho o en la gerencia (`POST /admin/users`), que
+// además cargan el nombre real con el que se liquidan las horas. El chofer
+// administra a los que ya están arriba de su combi; no fabrica cuentas.
+
+// Que el cobrador sea de SU combi es la única llave de las dos operaciones
+// de abajo. Uno de otra combi se responde como inexistente, igual que en el
+// resto del servidor.
+function cobradorDeSuCombi(user, unitId, res) {
+  const vehicleId = user.vehicleId || user.unitId;
+  const c = db.prepare('SELECT unitId, role, vehicleId, routeId FROM users WHERE unitId = ?').get(String(unitId));
+  if (!c || c.role !== 'collector' || c.vehicleId !== vehicleId) {
+    res.status(404).json({ error: 'Ese cobrador no va en tu combi' });
+    return null;
+  }
+  return c;
+}
+
+app.delete('/perfil/cobradores/:unitId', (req, res) => {
+  const user = choferPropio(req, res);
+  if (!user) return;
+  const c = cobradorDeSuCombi(user, req.params.unitId, res);
+  if (!c) return;
+  db.prepare('DELETE FROM users WHERE unitId = ?').run(c.unitId);
+  kickUnit(c.unitId, 'Tu chofer te dio de baja de la combi.');
+  audit(user.unitId, 'baja_cobrador', c.unitId, null, user.routeId);
+  console.log(`Baja de cobrador por su chofer: ${c.unitId}`);
+  res.json({ ok: true });
+});
+
+// Resetear la clave del cobrador (se la olvidó, cambió de teléfono). El
+// chofer NO necesita la anterior —no es la suya— pero sí tiene que ser de
+// su combi, y el cobrador queda desconectado para que entre con la nueva.
+app.post('/perfil/cobradores/:unitId/clave', (req, res) => {
+  const user = choferPropio(req, res);
+  if (!user) return;
+  const nueva = String(req.body?.nueva || '');
+  if (nueva.length < CLAVE_MINIMA || nueva.length > 64) {
+    return res.status(400).json({ error: `La contraseña necesita entre ${CLAVE_MINIMA} y 64 caracteres` });
+  }
+  const c = cobradorDeSuCombi(user, req.params.unitId, res);
+  if (!c) return;
+  db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(nueva), c.unitId);
+  kickUnit(c.unitId, 'Tu chofer cambió tu contraseña. Ingresá con la nueva.');
+  // Queda QUE la cambió, nunca cuál: el mismo criterio que la clave propia.
+  audit(user.unitId, 'clave_cobrador', c.unitId, null, user.routeId);
+  console.log(`Clave de cobrador cambiada por su chofer: ${c.unitId}`);
   res.json({ ok: true });
 });
 
@@ -3440,10 +3574,29 @@ console.log('Mapa propio:', TILES_DIR);
 // Pesan cientos de MB: viven como assets de un Release de GitHub y cada
 // servidor se los baja UNA vez a su volumen. TILES_RELEASE_URL apunta a la
 // carpeta de descargas del release, p. ej.:
-//   https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01/releases/download/mapa-2026-08
+//   https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01/releases/download/mapa-propio
 // Mientras bajan (o si la variable falta), /tiles/zonas.json anuncia solo
 // lo que ya está en disco y las pantallas siguen con el proveedor: el mapa
 // nunca queda en blanco por esto.
+//
+// RENOVAR EL MAPA. Cada archivo lleva su versión en el nombre
+// (`juliaca-claro-3f9a1c02.pmtiles`, los primeros 8 hex del sha256 de su
+// contenido, puestos por el extractor). De ahí salen las tres propiedades
+// que antes había que conseguir a mano vaciando el volumen:
+//
+//   1. Un mapa re-extraído CAMBIA de nombre, así que el "¿ya lo tengo?" de
+//      abajo da que no y el archivo baja solo. Antes el nombre era fijo, el
+//      archivo ya estaba, y el mapa nuevo no llegaba nunca.
+//   2. Un mapa re-extraído que quedó IGUAL conserva su nombre y no se baja
+//      de nuevo: la renovación no cuesta ancho de banda si no cambió nada.
+//   3. La versión viaja en la URL de cada tile, así que la copia guardada
+//      en el celular del chofer tampoco se queda pegada (ver la ruta de la
+//      tile suelta, más abajo).
+//
+// Los archivos que el índice nuevo ya no nombra se BORRAN acá abajo. Sin
+// eso, cada renovación dejaría una copia entera del mapa anterior tirada en
+// el volumen —que se paga por GB (`COSTOS.md`)— y se irían acumulando: no
+// es que ocupe el doble, es que ocupa una copia más cada vez.
 async function bajarMapaPropio() {
   const base = String(process.env.TILES_RELEASE_URL || '').replace(/\/+$/, '');
   if (!base) { console.log('TILES_RELEASE_URL sin configurar — mapa propio solo si ya está en disco.'); return; }
@@ -3475,6 +3628,11 @@ async function bajarMapaPropio() {
       // El índice se publica al final: nunca anuncia archivos que no están
       fs.renameSync(path.join(TILES_DIR, 'zonas.json.nuevo'), path.join(TILES_DIR, 'zonas.json'));
       console.log(bajados ? `Mapa propio: ${bajados} archivo(s) bajados del release.` : 'Mapa propio: al día.');
+      // Y recién ahora, con el índice nuevo ya publicado, se van las
+      // versiones que reemplazó. El orden importa: si esto corriera antes,
+      // una caída entre el borrado y el rename dejaría el índice viejo
+      // apuntando a archivos que ya no están — un mapa entero de 404.
+      limpiarVersionesViejas(zonas);
       return;
     } catch (e) {
       console.warn(`Mapa propio: descarga falló (${e.message}) — reintento ${intento}/5`);
@@ -3482,6 +3640,42 @@ async function bajarMapaPropio() {
     }
   }
   console.warn('Mapa propio: no se pudo bajar; las pantallas siguen con el proveedor.');
+}
+
+// Todo .pmtiles del volumen que el índice recién publicado ya no nombra: es
+// la versión anterior del mapa, y son cientos de MB por zona. Se cierra el
+// lector antes de borrar (tiene el archivo abierto y el índice en memoria);
+// un pedido en vuelo sobrevive igual, porque en Linux el descriptor sigue
+// siendo válido después del unlink.
+//
+// Solo se llama con un índice que se acaba de bajar Y publicar: nunca borra
+// por su cuenta. Un archivo que está en disco y no en el índice pero que
+// TAMPOCO se pudo reemplazar no llega hasta acá — la descarga habría
+// fallado y la función vuelve antes.
+function limpiarVersionesViejas(zonas) {
+  const vigentes = new Set();
+  for (const z of Object.values(zonas || {})) {
+    for (const a of Object.values(z.archivos || {})) vigentes.add(a);
+  }
+  let borrados = 0, liberado = 0;
+  let entradas = [];
+  try { entradas = fs.readdirSync(TILES_DIR); } catch { return; }
+  for (const f of entradas) {
+    // Los .tmp son descargas cortadas a la mitad: no los nombra nadie
+    const esSobra = /\.pmtiles\.tmp$/.test(f);
+    if (!esSobra && (!/\.pmtiles$/.test(f) || vigentes.has(f))) continue;
+    const ruta = path.join(TILES_DIR, f);
+    try {
+      const bytes = fs.statSync(ruta).size;
+      lectorPmtiles.cerrar(ruta);
+      fs.unlinkSync(ruta);
+      borrados++; liberado += bytes;
+    } catch (e) { console.warn('Mapa propio: no se pudo borrar', f, '—', e.message); }
+  }
+  if (borrados) {
+    console.log(`Mapa propio: ${borrados} archivo(s) de la versión anterior borrados ` +
+                `(${(liberado / 1024 ** 2).toFixed(1)} MB libres en el volumen).`);
+  }
 }
 
 // CORS: la app nativa vive en un WebView con otro origen, y un pedido con
@@ -3493,20 +3687,50 @@ function corsDeTiles(res) {
 }
 app.options('/tiles/:archivo', (req, res) => { corsDeTiles(res); res.sendStatus(204); });
 
+// El índice crudo, releído solo cuando el archivo cambia de verdad. Antes
+// se parseaba en cada llamada, y desde que la ruta de la tile suelta lo
+// consulta —una vez por tile— eso serían miles de lecturas de disco y
+// JSON.parse por segundo con la flota entera mirando el mapa.
+let idxCache = { firma: null, zonas: {} };
+function indiceZonas() {
+  let firma = null;
+  try { const st = fs.statSync(path.join(TILES_DIR, 'zonas.json')); firma = st.mtimeMs + ':' + st.size; } catch {}
+  if (firma !== idxCache.firma) {
+    let zonas = {};
+    if (firma) {
+      try { zonas = JSON.parse(fs.readFileSync(path.join(TILES_DIR, 'zonas.json'), 'utf8')); } catch { zonas = {}; }
+    }
+    idxCache = { firma, zonas };
+  }
+  return idxCache.zonas;
+}
+
+// El archivo que le toca a esta zona y este estilo, según el índice. Con la
+// versión en el nombre ya no se puede deducir (`juliaca-claro-3f9a1c02`):
+// hay que preguntarle al índice, que es quien sabe cuál es la vigente.
+// El nombre viejo queda de respaldo para un volumen que todavía tenga un
+// mapa extraído antes de las versiones — ahí sí era `zona-estilo.pmtiles`.
+function archivoDeZona(zona, estilo) {
+  const declarado = indiceZonas()[zona]?.archivos?.[estilo];
+  const nombre = (typeof declarado === 'string' && /^[a-z0-9-]+\.pmtiles$/.test(declarado))
+    ? declarado
+    : `${zona}-${estilo}.pmtiles`;
+  return path.join(TILES_DIR, nombre);
+}
+
 // El índice: qué zonas hay y con qué bbox. La cascada del cliente decide
 // con esto si una tile sale de acá o del proveedor. Solo anuncia zonas
 // cuyos archivos están DE VERDAD en el disco: prometer una zona a medio
 // bajar sería un mapa entero de 404 en cadena.
 function zonasDisponibles() {
-  const idx = path.join(TILES_DIR, 'zonas.json');
-  if (!fs.existsSync(idx)) return {};
-  let zonas;
-  try { zonas = JSON.parse(fs.readFileSync(idx, 'utf8')); } catch { return {}; }
-  for (const [id, z] of Object.entries(zonas)) {
-    const ok = Object.values(z.archivos || {}).every(a => fs.existsSync(path.join(TILES_DIR, a)));
-    if (!ok) delete zonas[id];
+  // Se arma un objeto nuevo y no se filtra el del caché: sacarle una zona
+  // al del caché la borraría para siempre, hasta que zonas.json cambiara.
+  const salida = {};
+  for (const [id, z] of Object.entries(indiceZonas())) {
+    const archivos = Object.values(z.archivos || {});
+    if (archivos.length && archivos.every(a => fs.existsSync(path.join(TILES_DIR, a)))) salida[id] = z;
   }
-  return zonas;
+  return salida;
 }
 app.get('/tiles/zonas.json', (req, res) => {
   corsDeTiles(res);
@@ -3535,31 +3759,56 @@ app.get('/tiles/:archivo', (req, res) => {
 //
 // 404 cuando la tile no está (fuera del bbox, zoom fuera de rango, archivo
 // todavía no descargado): la cascada del cliente lo toma como "probá con el
-// proveedor". Caché de 30 días, no un año: el mapa se re-extrae cada tanto
-// (OSM cambia despacio) y las tiles conservan su URL.
+// proveedor".
+//
+// Hay DOS formas de la misma URL, y la diferencia es cuánto dura la copia
+// guardada en el celular:
+//
+//   …/juliaca/claro/v3f9a1c02/15/10000/17812.png   ← la que piden hoy
+//   …/juliaca/claro/15/10000/17812.png             ← sin versión
+//
+// La versionada es INMUTABLE: esos bytes son los de ese mapa y no van a
+// cambiar nunca, así que se guarda un año. La sin versión es la misma tile
+// del mapa vigente, pero su URL sí cambia de contenido cuando el mapa se
+// renueva, y por eso se guarda 30 días y no más.
+//
+// La forma sin versión NO es un resto: es el contrato con los APK que ya
+// están en la calle. Un teléfono con la app de antes de esto pide así, y
+// tiene que seguir viendo el mapa. Lo que ese teléfono no consigue es la
+// renovación instantánea — la copia guardada le dura hasta que la caché la
+// pode, que es exactamente el problema que la versión vino a resolver.
 const lectorPmtiles = require('./pmtiles');
-app.get('/tiles/xyz/:zona/:estilo/:z/:x/:y.png', (req, res) => {
+function servirTile(req, res, version) {
   corsDeTiles(res);
   if (!TILES_DIR) return res.sendStatus(404);
   const { zona, estilo } = req.params;
   const z = Number(req.params.z), x = Number(req.params.x), y = Number(req.params.y);
   if (!/^[a-z0-9-]+$/.test(zona) || !/^(claro|oscuro)$/.test(estilo) ||
+      (version !== null && !/^v[a-z0-9]{4,32}$/.test(version)) ||
       !Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) ||
       z < 0 || z > 22 || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z) {
     return res.sendStatus(404);
   }
-  const ruta = path.join(TILES_DIR, `${zona}-${estilo}.pmtiles`);
+  // La versión pedida no se usa para elegir el archivo: se sirve SIEMPRE el
+  // del mapa vigente. Es a propósito. La pantalla que quedó abierta desde
+  // antes de una renovación pide con la versión vieja, y lo que tiene que
+  // recibir es el mapa de ahora, no un 404 ni un mapa que ya se borró.
+  const ruta = archivoDeZona(zona, estilo);
   if (!fs.existsSync(ruta)) return res.sendStatus(404);
   try {
     const png = lectorPmtiles.abrir(ruta).tile(z, x, y);
     if (!png) return res.sendStatus(404);
-    res.setHeader('Cache-Control', 'public, max-age=2592000');
+    res.setHeader('Cache-Control', version
+      ? 'public, max-age=31536000, immutable'
+      : 'public, max-age=2592000');
     res.type('image/png').send(png);
   } catch (e) {
     console.error('tile rota', zona, estilo, z, x, y, e.message);
     res.sendStatus(500);
   }
-});
+}
+app.get('/tiles/xyz/:zona/:estilo/:version/:z/:x/:y.png', (req, res) => servirTile(req, res, req.params.version));
+app.get('/tiles/xyz/:zona/:estilo/:z/:x/:y.png', (req, res) => servirTile(req, res, null));
 
 const VENDOR_LEAFLET = path.join(__dirname, 'vendor', 'leaflet');
 for (const [archivo, tipo] of [['leaflet.js', 'application/javascript'], ['leaflet.css', 'text/css']]) {
@@ -4160,7 +4409,22 @@ function destinoPrivado(prof, msg) {
   if (prof.role === 'dispatch' || prof.role === 'manager') {
     const destino = idLimpio(msg.to);
     if (!destino) return { toVehicleId: null };
-    if (!units.has(destino) && !vehicleOf(destino)) return null;  // unidad inexistente
+    // La combi tiene que existir Y SER DE SU COOPERATIVA.
+    //
+    // Sin lo segundo esto era una puerta al otro lado del borde de empresa:
+    // el código de vehículo es único en todo el servidor, así que a un
+    // Despacho le alcanzaba con acertar el de una combi ajena para
+    // escribirle en privado al chofer de otra cooperativa — y le llegaba,
+    // porque el reparto solo miraba el vehículo. Medido con dos empresas y
+    // un mensaje que cruzó.
+    //
+    // Una combi de otra empresa se trata igual que una inexistente: el
+    // mismo criterio que ya usaba el alta de personas, y por la misma razón
+    // (si se distinguieran, este campo sería un buscador de flotas ajenas).
+    const veh = vehicleOf(destino);
+    if (!veh) return null;
+    const suya = prof.companyId || empresaBase();
+    if ((veh.companyId || empresaBase()) !== suya) return null;
     return { toVehicleId: destino };
   }
   if (msg.to || msg.privado) {
@@ -4383,6 +4647,12 @@ function buildState(routeId, acumular) {
     sinSenal: enCadena.filter(u => u.sinSenal).length,
     yendo: all.filter(u => u.presencia === 'ruta' && u.enRuta === false).length,
     ausentes: all.filter(u => u.presencia === 'ausente').length,
+    // La FLOTA de la ruta: cuántas combis hay dadas de alta, estén donde
+    // estén. Es el denominador del "7 de 9" de la cabecera de Despacho, y
+    // hasta ahora no viajaba: el panel podía decir cuántas veía, nunca
+    // cuántas faltaban. Que falten dos a las 6 de la mañana es justo el
+    // dato que hace levantar el teléfono.
+    flota: db.prepare('SELECT COUNT(*) AS c FROM vehicles WHERE routeId = ?').get(routeId).c,
     timestamp: Date.now(),
   };
 }

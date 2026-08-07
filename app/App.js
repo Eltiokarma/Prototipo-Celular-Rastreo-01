@@ -803,7 +803,9 @@ function Perfil({ sesion, marca, onCerrar }) {
   const [claveNueva, setClaveNueva] = React.useState('');
   const [aviso, setAviso] = React.useState(null);
 
-  React.useEffect(() => {
+  // Se recarga entero después de tocar un cobrador: el servidor es el que
+  // sabe cuántos quedan y cuántas horas llevan, no esta pantalla.
+  const cargar = React.useCallback(() => (
     fetch(SERVIDOR + '/perfil', { headers: { Authorization: 'Bearer ' + sesion.token } })
       .then(async r => {
         const cuerpo = await r.json();
@@ -811,8 +813,9 @@ function Perfil({ sesion, marca, onCerrar }) {
         setDatos(cuerpo);
         setAlias(cuerpo.persona.alias || '');
       })
-      .catch(e => setError('No se pudo cargar: ' + String(e.message || e)));
-  }, [sesion]);
+      .catch(e => setError('No se pudo cargar: ' + String(e.message || e)))
+  ), [sesion]);
+  React.useEffect(() => { cargar(); }, [cargar]);
 
   const post = async (ruta, body, hecho) => {
     setAviso(null);
@@ -828,6 +831,31 @@ function Perfil({ sesion, marca, onCerrar }) {
       return true;
     } catch { setAviso('Sin conexión — probá de nuevo'); return false; }
   };
+
+  const borrar = async (ruta, hecho) => {
+    setAviso(null);
+    try {
+      const r = await fetch(SERVIDOR + ruta, {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + sesion.token },
+      });
+      const cuerpo = await r.json().catch(() => ({}));
+      if (!r.ok) { setAviso(cuerpo.error || 'No se pudo'); return false; }
+      setAviso(hecho);
+      return true;
+    } catch { setAviso('Sin conexión — probá de nuevo'); return false; }
+  };
+
+  // ── Los cobradores de la combi ──────────────────────────────
+  // El chofer administra a los que ya van arriba: les cambia la clave y los
+  // saca. El ALTA no está acá a propósito — crear una cuenta es dar acceso
+  // al sistema y eso queda en Despacho o la gerencia.
+  //
+  // La baja pide SEGUNDO TOQUE, como salir de ruta: es una cuenta que deja
+  // de existir, y un dedo en un pozo no puede borrarle el acceso a nadie.
+  const [confirmarBaja, setConfirmarBaja] = React.useState(null);
+  const [claveDe, setClaveDe] = React.useState(null);
+  const [claveNuevaCob, setClaveNuevaCob] = React.useState('');
 
   // Segundos → lo que se lee: 14400 → "4h 00m", 130 → "2:10"
   const hm = (sec) => sec == null ? '—'
@@ -930,6 +958,82 @@ function Perfil({ sesion, marca, onCerrar }) {
               }}>
               <Text style={s.botonAnchoTexto}>GUARDAR ALIAS</Text>
             </Pressable>
+
+            {/* Los cobradores de la combi. Al chofer se los deja gestionar;
+                al cobrador se le muestra con quién anda y nada más — los
+                botones que el servidor le negaría no se dibujan. */}
+            <View style={s.divisor} />
+            <Text style={s.perfilSeccion}>
+              {datos.puedeGestionar ? 'COBRADORES DE TU COMBI' : 'ARRIBA DE ESTA COMBI'}
+            </Text>
+            {!datos.puedeGestionar && datos.chofer && (
+              <Text style={s.diagnostico}>
+                Vas con {datos.chofer.alias || datos.chofer.name}. Tus horas son
+                tuyas y se cuentan aparte de las de él.
+              </Text>
+            )}
+            {datos.puedeGestionar && (
+              <Text style={s.diagnostico}>
+                Cada uno entra con SU usuario: así las horas de cada uno son
+                suyas. Podés cambiarles la clave y sacarlos de tu combi.
+                Para AGREGAR uno nuevo, pedíselo a Despacho o a la gerencia:
+                el alta lleva el nombre real con el que se liquidan las horas.
+              </Text>
+            )}
+
+            {(datos.cobradores || []).length === 0 && (
+              <Text style={[s.diagnostico, { marginTop: 10 }]}>
+                {datos.puedeGestionar
+                  ? 'No hay ningún cobrador cargado en tu combi. Lo carga Despacho o la gerencia.'
+                  : 'No hay otro cobrador cargado en esta combi.'}
+              </Text>
+            )}
+
+            {(datos.cobradores || []).map(c => (
+              <View key={c.unitId} style={s.cobradorFila}>
+                <Text style={s.cobradorNombre}>
+                  {c.alias || c.name}{c.enLinea ? ' · en línea' : ''}
+                </Text>
+                <Text style={s.cobradorDato}>
+                  {c.name} · entra como {c.unitId} · {hm(c.horasSec)} en 7 días
+                </Text>
+
+                {datos.puedeGestionar && c.unitId !== datos.persona.unitId && (<>
+                  <View style={s.cobradorBotones}>
+                    <Pressable style={s.cobradorBoton}
+                      onPress={() => { setClaveDe(claveDe === c.unitId ? null : c.unitId); setClaveNuevaCob(''); }}>
+                      <Text style={[s.cobradorBotonTexto, { color: C.brillante }]}>CLAVE</Text>
+                    </Pressable>
+                    <Pressable style={s.cobradorBoton}
+                      onPress={async () => {
+                        if (confirmarBaja !== c.unitId) { setConfirmarBaja(c.unitId); return; }
+                        setConfirmarBaja(null);
+                        if (await borrar(`/perfil/cobradores/${encodeURIComponent(c.unitId)}`,
+                                         `${c.alias || c.name} ya no va en tu combi`)) cargar();
+                      }}>
+                      <Text style={[s.cobradorBotonTexto, { color: C.rojo }]}>
+                        {confirmarBaja === c.unitId ? '¿SEGURO? TOCÁ DE NUEVO' : 'DAR DE BAJA'}
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  {claveDe === c.unitId && (<>
+                    <TextInput style={[s.campo, { marginTop: 10 }]}
+                      value={claveNuevaCob} onChangeText={setClaveNuevaCob}
+                      placeholder="Contraseña nueva (mínimo 6)" placeholderTextColor={C.tenue} secureTextEntry />
+                    <Pressable style={[s.botonAncho, { backgroundColor: C.marca, marginTop: 10 }]}
+                      onPress={async () => {
+                        const fue = await post(`/perfil/cobradores/${encodeURIComponent(c.unitId)}/clave`,
+                          { nueva: claveNuevaCob },
+                          `Clave cambiada. ${c.alias || c.name} tiene que entrar de nuevo.`);
+                        if (fue) { setClaveDe(null); setClaveNuevaCob(''); }
+                      }}>
+                      <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>CAMBIAR SU CLAVE</Text>
+                    </Pressable>
+                  </>)}
+                </>)}
+              </View>
+            ))}
 
             {/* La contraseña: con la actual en la mano */}
             <View style={s.divisor} />
@@ -1693,6 +1797,19 @@ function crearEstilos(C) { return StyleSheet.create({
   perfilEtiqueta: { color: C.tenue, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   perfilValor: { color: C.brillante, fontSize: 22, fontWeight: '900', marginTop: 4 },
   perfilSeccion: { color: C.tenue, fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
+  // Un cobrador de la combi: quién es arriba, sus horas y sus botones abajo
+  cobradorFila: {
+    borderRadius: 12, padding: 12, marginTop: 10,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+  },
+  cobradorNombre: { color: C.brillante, fontSize: 15, fontWeight: '900' },
+  cobradorDato: { color: C.tenue, fontSize: 12, marginTop: 3 },
+  cobradorBotones: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  cobradorBoton: {
+    flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: C.linea,
+    backgroundColor: C.fondo, alignItems: 'center', justifyContent: 'center',
+  },
+  cobradorBotonTexto: { fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
 
   // ── Presencia ────────────────────────────────────────────────
   filaPresencia: { flexDirection: 'row', gap: 10, marginTop: 12 },

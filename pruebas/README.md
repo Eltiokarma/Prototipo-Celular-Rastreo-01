@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Cuarenta y una suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Cuarenta y tres suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -39,7 +39,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp presencia foto marca respaldo
-# las que se arman solas (cont.): vendor retencion cascada mapa-shot compresion sos perfil grabador
+# las que se arman solas (cont.): vendor retencion renovacion cascada mapa-shot compresion sos perfil grabador cobradores
 # las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema contraste mapa teclado nativas
 node gerencia.js
 ```
@@ -67,7 +67,8 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `turnos` | Que un corte de señal no parta el turno y que un reinicio no deje turnos abiertos para siempre |
 | `privado` | El mensaje directo Despacho ↔ unidad: que lo vean los dos y nadie más |
 | `seguridad` | Inyección por identificadores, fuerza bruta y cupo de mensajes por conexión |
-| `empresas` | Que dos cooperativas no se vean **nada**: ni panel, ni mapa, ni chat, ni SOS |
+| `empresas` | Que dos cooperativas no se vean **nada**: ni panel, ni mapa, ni chat, ni SOS. Incluido el privado de Despacho, que era la puerta que faltaba mirar: el código de vehículo es único en TODO el servidor y el envío solo comprobaba que existiera, así que acertar el código de una combi ajena alcanzaba para escribirle a su chofer — medido cruzando un mensaje de una empresa a otra, hoy cerrado y con la prueba puesta |
+| `cobradores` | Que el chofer administre a los cobradores de SU combi —clave y baja—, y que ahí termine. Lo que se prueba no es que funcione sino dónde corta: **el alta por esta puerta no existe** (se le pega al endpoint, no se mira la pantalla: que un botón no esté no prueba nada), el cobrador del de al lado no se toca (404, y el error no confirma que exista), un cobrador no administra cobradores ni a su compañero, y el vecino no ve lo que no es suyo. Más lo que queda escrito: clave y baja auditadas —del cambio de clave, QUE la cambió y nunca cuál—, ninguna alta a nombre de un chofer, y la gerencia siguiendo viendo a todos |
 | `variantes` | Rutas alternas: que cambiar el trazado descarte las vueltas en curso y no mezcle geometrías en el promedio |
 | `brecha` | Que la brecha promedio por vuelta se guarde, sea creíble, y quede vacía cuando no hay con qué compararse |
 | `creador` | Las cuatro barreras del nivel de arriba, incluido que sin `CREATOR_PASSWORD` responda 404 y no 403 |
@@ -95,7 +96,8 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `retencion` | Cuánto historial se guarda, y que **el tamaño de la flota no lo decida**. Los topes eran de filas y globales —2000 vueltas, 1000 mensajes—: con seis combis son meses, con 2000 unidades son tres horas de vueltas, y como el SOS vive en la misma tabla que el chat, una tarde de conversación activa borraba las emergencias del mes y el informe salía vacío sin que nada lo dijera. Siembra filas con fecha puesta a mano —para no esperar cuatro meses—, reinicia el servidor y mira qué sobrevivió: la vuelta de hace 119 días sí y la de 200 no, la charla de hace dos meses no y **el SOS de ese mismo día sí** | 
 | `cliente` | El cliente del protocolo que va a usar la app nativa (`app/protocolo/`): el rol de GPS cuando hay relevo, las brechas que respetan el null, el freno de cadencia y el privado que no se filtra |
 | `tiles` | De dónde vienen las tiles del mapa — y de dónde NO pueden venir. CARTO y el CDN de OSM quedaron fuera de licencia para uso comercial: la suite busca los hosts prohibidos como host completo (un comentario también falla) y exige que las URLs de tiles sean del propio origen o del proveedor con clave, con la clave fuera del código |
-| `cascada` | La cascada de tiles vista desde el navegador del chofer: en los zooms cubiertos, las tiles salen del mapa propio y el proveedor no recibe **ni un pedido**; la tile que el propio no tiene —y solo esa— cae al proveedor; y los contadores (`window.TILES_STATS`) cuentan la verdad, porque son la evidencia de que el proveedor es la excepción |
+| `renovacion` | **Renovar el mapa propio en un servidor que ya lo tiene.** Era un procedimiento manual —vaciar la carpeta del volumen y redesplegar— porque los archivos se llamaban siempre igual y el servidor solo bajaba lo que le faltaba: como no le faltaba nada, el mapa nuevo no llegaba nunca. Ahora la versión va en el nombre, y la suite lo corre entero contra el servidor real con un release de mentira: arranque en frío, mapa renovado que **baja solo y borra el que reemplazó** (si no, cada renovación deja tirada una copia entera del mapa viejo en un volumen que se paga por GB), el estilo que no cambió que no se vuelve a bajar, y un reinicio sin release nuevo que no mueve un byte. Más las dos URLs de tile (la versionada inmutable y la de siempre, que es la que piden los APK ya instalados) y la punta que no se ve corriendo: que el extractor ponga la versión en el nombre y las dos pantallas la pongan en la URL |
+| `cascada` | La cascada de tiles vista desde el navegador del chofer: en los zooms cubiertos, las tiles salen del mapa propio y el proveedor no recibe **ni un pedido**; la tile que el propio no tiene —y solo esa— cae al proveedor; los contadores (`window.TILES_STATS`) cuentan la verdad, porque son la evidencia de que el proveedor es la excepción; y cada tile propia se pide **con la versión del mapa adentro de la URL**, que es lo que hace que una renovación le llegue al celular en vez de quedarse con la copia guardada |
 | `mapa-shot` | Banco visual del MAPA en las cuatro pantallas, que **falla si el lienzo sale vacío**: la vara es tiles efectivamente cargadas (no pedidas) y algo dibujado encima. Un mapa en blanco no avisa — se descubre arriba de la combi |
 | `compresion` | Las dos palancas de ahorro con código (`COSTOS.md` §5). El índice de vueltas existe y el plan de consulta lo usa; y la compresión del WebSocket se mide en el cable: dos espectadores reciben los MISMOS estados y el que negoció permessage-deflate tiene que recibir menos de la mitad de los bytes (medido: −90 %). El que no ofrece la extensión —la app nativa— sigue funcionando sin comprimir, y un chat mandado comprimido llega intacto al que no comprime |
 | `sos` | El tipo de emergencia y el orden de las cosas: **deslizar manda la alerta YA**, sin preguntar nada; el tipo ("falla mecánica", "accidente", "policía") va después, con la emergencia ya sonando en Despacho. Los bordes: solo quien disparó puede calificar la suya, solo mientras la ventana está abierta, un tipo inventado no entra, y el historial y el CSV cuentan lo mismo que se vio en vivo — sin elegir queda "SOS" a secas, que es como nace cada uno |

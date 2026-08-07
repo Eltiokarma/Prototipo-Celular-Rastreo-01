@@ -279,7 +279,16 @@ const CapaCascada = L.TileLayer.extend({
   getTileUrl(coords) {
     const zona = zonaDeTile(coords);
     if (!zona) return L.TileLayer.prototype.getTileUrl.call(this, coords);
-    return `${TILES_ORIGEN}/tiles/xyz/${zona}/${this.options.estiloPropio}/${coords.z}/${coords.x}/${coords.y}.png`;
+    const estilo = this.options.estiloPropio;
+    // La versión del mapa va EN la URL. El service worker guarda las tiles
+    // caché-primero y sin expiración —es lo que ahorra los 20-50 MB de
+    // datos por turno—, así que sin esto un mapa renovado no llegaría nunca
+    // al celular: la copia vieja se serviría hasta que la poda la sacara.
+    // Con la versión adentro, el mapa nuevo son URLs nuevas, y las viejas
+    // se van solas por el tope de 600 tiles.
+    const v = TILES_ZONAS[zona]?.versiones?.[estilo];
+    return `${TILES_ORIGEN}/tiles/xyz/${zona}/${estilo}${v ? '/v' + v : ''}` +
+           `/${coords.z}/${coords.x}/${coords.y}.png`;
   },
   createTile(coords, listo) {
     const capa = this;

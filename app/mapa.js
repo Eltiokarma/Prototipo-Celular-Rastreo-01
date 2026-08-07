@@ -255,8 +255,15 @@ function html() {
     getTileUrl: function (coords) {
       var zona = zonaDeTile(coords);
       if (!zona || !origenPropio) return L.TileLayer.prototype.getTileUrl.call(this, coords);
-      // El mapa del chofer es oscuro siempre — es su rasgo de diseño
-      return origenPropio + '/tiles/xyz/' + zona + '/oscuro/' + coords.z + '/' + coords.x + '/' + coords.y + '.png';
+      // El mapa del chofer es oscuro siempre — es su rasgo de diseño.
+      // La versión va en la URL: el WebView cachea las tiles igual que el
+      // navegador, y sin versión un mapa renovado no le llegaría nunca al
+      // chofer que ya tiene guardado el viejo. Si el servidor todavía no
+      // declara versiones, la URL sale como salía y todo sigue andando.
+      var zo = zonasPropias[zona] || {};
+      var v = (zo.versiones || {}).oscuro;
+      return origenPropio + '/tiles/xyz/' + zona + '/oscuro' + (v ? '/v' + v : '') +
+             '/' + coords.z + '/' + coords.x + '/' + coords.y + '.png';
     },
     createTile: function (coords, listo) {
       var capa = this;

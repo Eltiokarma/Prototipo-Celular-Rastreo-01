@@ -195,6 +195,16 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     ok('y caché larga (30 días)', /max-age=2592000/.test(t15.headers.get('cache-control') || ''));
     const t17 = await fetch(API + '/tiles/xyz/juliaca/claro/17/40001/71249.png');
     ok('una tile que NO está da 404 (la cascada cae al proveedor)', t17.status === 404, t17.status);
+
+    // Este fixture es un mapa de ANTES de las versiones: su zonas.json no
+    // trae `versiones` y sus archivos se llaman `juliaca-claro.pmtiles` a
+    // secas. Es el volumen de un servidor que ya estaba desplegado, y tiene
+    // que seguir andando igual — por la URL vieja y por la nueva.
+    // (La renovación en sí la prueba la suite `renovacion`.)
+    ok('un mapa sin versiones (volumen ya desplegado) se sigue sirviendo', t15.status === 200);
+    const tv = await fetch(API + '/tiles/xyz/juliaca/claro/vabcd1234/15/10000/17812.png');
+    ok('y la URL versionada también contesta: la versión es un rótulo de caché, no una llave',
+       tv.status === 200, tv.status);
     for (const mala of ['xyz/otra/claro/15/1/1.png', 'xyz/juliaca/violeta/15/1/1.png',
                         'xyz/juliaca/claro/15/99999999/1.png', 'xyz/juliaca/claro/-1/0/0.png']) {
       const rm = await fetch(API + '/tiles/' + mala);

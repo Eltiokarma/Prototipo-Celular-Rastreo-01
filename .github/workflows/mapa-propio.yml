@@ -6,10 +6,20 @@
 #
 # Correrlo: pestaña Actions → "mapa propio" → Run workflow → zona.
 # Agregar una ciudad: sumarla a herramientas/mapa-propio/zonas.js y correr
-# esto con su nombre. Re-extraer (OSM cambia despacio): correrlo de nuevo —
-# cada 3 a 6 meses alcanza. Ojo: los servidores que ya tienen los archivos
-# en su volumen no se los vuelven a bajar; para renovarlos hay que vaciar la
-# carpeta de tiles del volumen y redesplegar.
+# esto con su nombre.
+#
+# RENOVAR el mapa (OSM cambia despacio: cada 3 a 6 meses alcanza) es correr
+# esto de nuevo con la misma zona, y ya no hay nada que hacer a mano. Cada
+# archivo lleva su versión en el nombre —los 8 primeros hex del sha256 de su
+# contenido—, así que:
+#   · si el mapa cambió, el nombre cambia, y cada servidor lo baja solo al
+#     reiniciar y borra el que reemplazó (antes: había que vaciar la carpeta
+#     de tiles del volumen y redesplegar, o el mapa nuevo no llegaba nunca);
+#   · si no cambió nada, el nombre es el mismo y nadie baja nada;
+#   · la versión viaja en la URL de cada tile, así que el mapa nuevo también
+#     le llega al celular del chofer, que tiene las tiles cacheadas.
+# Los assets viejos quedan en el release y no molestan: nadie los pide
+# porque zonas.json ya no los nombra, y sirven para volver atrás.
 name: mapa propio
 
 on:

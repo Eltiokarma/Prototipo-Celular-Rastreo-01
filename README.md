@@ -175,6 +175,21 @@ Lo que falta construir, ordenado: ver **PENDIENTES.md**.
 | `GEOAPIFY_API_KEY` | La clave del proveedor de tiles del mapa (gratis en [myprojects.geoapify.com](https://myprojects.geoapify.com); el plan gratuito permite uso comercial). El servidor se la pasa a las pantallas en el momento — por `/config.js` a las web, con el login a la app nativa. Sin ella el fondo del mapa sale gris; los puntos y el trazado se dibujan igual |
 | `TILES_RELEASE_URL` | De dónde bajar el **mapa propio** (PMTiles raster por ciudad) al arrancar: la URL de descargas del release `mapa-propio`, p. ej. `https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01/releases/download/mapa-propio`. Con esto, las tiles de la zona de operación salen de NUESTRO servidor y Geoapify queda de excepción (fuera de zona o falla). El release lo genera el workflow **mapa propio** (Actions) |
 | `TILES_DIR` | Dónde guardar/leer esos archivos. Por defecto, `tiles/` junto a la base — en Railway eso cae dentro del volumen, que es donde deben vivir |
+
+**Renovar el mapa** es correr el workflow **mapa propio** de nuevo con la
+misma zona, y nada más. Cada archivo lleva su versión en el nombre
+(`juliaca-claro-3f9a1c02.pmtiles`: los 8 primeros hex del sha256 de su
+contenido), y de ahí salen las tres cosas que antes había que hacer a mano:
+el servidor baja el mapa nuevo al reiniciar **y borra el que reemplazó**
+(sin eso, cada renovación deja tirada una copia entera del mapa anterior en
+un volumen que se paga por GB, y se acumulan); si el
+mapa no cambió, el nombre es el mismo y nadie baja nada; y como la versión
+viaja también en la URL de cada tile, el mapa nuevo le llega al celular del
+chofer, que tiene las tiles cacheadas sin expiración. Antes de esto la única
+forma era entrar al volumen, vaciar la carpeta `tiles/` y redesplegar —
+servidor por servidor, y sin que nada avisara si te lo olvidabas. La URL de
+tile sin versión sigue atendida: es la que piden los APK que ya están en la
+calle. Suite `renovacion`.
 | `DEFAULT_ROUTE` / `DEFAULT_COMPANY` / `DEFAULT_COMPANY_NAME` | Código de la ruta y de la cooperativa iniciales, y su nombre visible. Solo se usan la primera vez |
 | `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres |
 | `CREATOR_PATH` | Mueve el panel del creador a una ruta propia (por defecto `/creador`) |
@@ -243,7 +258,10 @@ caliente. El panel tiene su propio botón ☾/☀ en la cabecera.
 ## Panel de Despacho
 
 `project/despacho.html`: mapa de toda la flota en vivo, lista de
-unidades con brechas ±1 coloreadas, chat del grupo hablando como
+unidades con brechas ±1 coloreadas —encabezada por un **«N de M»**: cuántas
+están reportando sobre cuántas combis tiene la ruta dadas de alta, porque a
+las 6 de la mañana la pregunta no es cuántas se ven sino cuántas faltan—,
+chat del grupo hablando como
 **DESPACHO** (chip azul en la app del chofer) y recepción de SOS con banner
 persistente hasta marcarlo ATENDIDO. **Funciona en PC y en celular**: bajo
 900 px pasa a vista única (Unidades / Mapa / Chat) con navegación
@@ -316,6 +334,29 @@ su vehículo con el mismo código, conserva su contraseña y toma su propio
 código como nombre provisional. Despacho lo corrige después con el botón
 **Nombre** de la lista de personas, sin dar de baja a nadie — el cambio
 se ve en vivo, incluso con el chofer conectado.
+
+### El chofer administra a los cobradores de su combi
+
+Desde **PERFIL** en la app, el chofer ve a los cobradores que van arriba de
+su combi —con sus horas de 7 días y si están en línea—, **les cambia la
+clave y los saca**. Es lo del día a día: se olvidó la contraseña, cambió de
+teléfono, o ya no sube más. Esperar a que Despacho atienda para eso es lo
+que termina en que los dos entren con la misma cuenta — que es exactamente
+lo que rompe las horas por persona y el reportero único de GPS.
+
+**El alta NO es del chofer**, y es una decisión tomada, no un olvido: crear
+una cuenta es dar acceso al sistema, y eso se queda en Despacho o la
+gerencia (`POST /admin/users`), que además cargan el nombre real con el que
+se liquidan las horas. El chofer administra a los que ya están; no fabrica
+cuentas.
+
+El borde de lo que sí puede: solo sobre **su** vehículo (sale de la sesión,
+nunca del pedido), solo sobre gente con rol `collector`, y del cobrador de
+otra combi no puede ni saber si existe (404 que no lo confirma). El
+**nombre** tampoco lo edita. Todo queda auditado (`clave_cobrador`,
+`baja_cobrador` — del cambio de clave, QUE la cambió y nunca cuál) y
+**Despacho y la gerencia los siguen viendo enteros** en su panel. Suite
+`cobradores`.
 
 ## El recorrido de la ruta (ida y vuelta)
 
@@ -534,6 +575,12 @@ una.
   servidor, no por empresa: si dos cooperativas tuvieran una "R-14",
   cualquier consulta por `routeId` sería ambigua. Cuando un código está
   tomado, el error no dice de quién es.
+  **Y por eso mismo, todo endpoint que reciba uno de esos códigos tiene que
+  chequear la empresa aparte.** Se pagó una vez: el mensaje privado de
+  Despacho solo comprobaba que el vehículo *existiera*, así que acertar el
+  código de una combi ajena alcanzaba para escribirle a su chofer, y le
+  llegaba. Hoy una combi de otra empresa se trata como inexistente y la
+  suite `empresas` cruza un mensaje a propósito para que no vuelva.
 - Pedir algo de otra empresa responde **404, no 403**: distinguirlos
   convertiría los endpoints en un buscador de rutas y usuarios ajenos.
 - `activa = 0` suspende la cooperativa entera: nadie de esa empresa entra,
@@ -579,26 +626,37 @@ Adentro de la cooperativa hay a su vez dos niveles en el MISMO panel: el
 administrador del día (`dispatch`) y el gerente (`manager`) — ver *El
 gerente*, más abajo.
 
-| | Despacho (admin) | Gerente | Creador |
-| --- | :---: | :---: | :---: |
-| Personas: alta sobre vehículos existentes, baja, claves, identidad | ✅ | ✅ | — |
-| Vehículos (el activo, con su placa) | — | ✅ | — |
-| Objetivo de brecha (manual o automático) | ✅ | ✅ | — |
-| Umbral de desvío y silenciarlo | ✅ | ✅ | — |
-| Dibujar el recorrido (trazador) | ✅ | ✅ | ✅ |
-| **Elegir** con qué trazado se mide | ✅ | ✅ | — |
-| Turnos, vueltas, informes | ✅ | ✅ | — |
-| Datos de su cooperativa (nombre, RUC, contacto) y logo | — | ✅ | — |
-| Números del período (cumplimiento) | — | ✅ | — |
-| Actividad **de su cooperativa** | ✅ | ✅ | — |
-| | | | |
-| **Crear** una cooperativa | — | — | ✅ |
-| **Crear** una ruta | — | — | ✅ |
-| **Crear y borrar** trazados de una ruta | — | — | ✅ |
-| Suspender una cooperativa | — | — | ✅ |
-| Crear o restablecer cuentas de Despacho y de gerencia | — | — | ✅ |
-| Salud del servidor y de la base | — | — | ✅ |
-| Actividad de **todas** las cooperativas | — | — | ✅ |
+Y hay un tercer lugar donde se administra algo, chico y acotado a
+conciencia: **el chofer, sobre los cobradores de SU combi** (columna
+*Chofer*). Puede cambiarles la clave y sacarlos — lo del día a día, que
+esperando a Despacho termina en los dos usando la misma cuenta. **El alta
+no**: crear una cuenta es dar acceso al sistema y se queda arriba. Es la
+misma regla de siempre, no una excepción — la estructura la define el nivel
+de arriba, la operación del día es de abajo.
+
+| | Chofer | Despacho (admin) | Gerente | Creador |
+| --- | :---: | :---: | :---: | :---: |
+| Cobradores **de su propia combi**: baja y clave | ✅ | ✅ | ✅ | — |
+| **Alta** de un cobrador (crear la cuenta) | — | ✅ | ✅ | — |
+| Su **propio** alias y su **propia** contraseña, desde la app | ✅ | — | — | — |
+| Personas: alta sobre vehículos existentes, baja, claves, identidad | — | ✅ | ✅ | — |
+| Vehículos (el activo, con su placa) | — | — | ✅ | — |
+| Objetivo de brecha (manual o automático) | — | ✅ | ✅ | — |
+| Umbral de desvío y silenciarlo | — | ✅ | ✅ | — |
+| Dibujar el recorrido (trazador) | — | ✅ | ✅ | ✅ |
+| **Elegir** con qué trazado se mide | — | ✅ | ✅ | — |
+| Turnos, vueltas, informes | — | ✅ | ✅ | — |
+| Datos de su cooperativa (nombre, RUC, contacto) y logo | — | — | ✅ | — |
+| Números del período (cumplimiento) | — | — | ✅ | — |
+| Actividad **de su cooperativa** | — | ✅ | ✅ | — |
+| | | | | |
+| **Crear** una cooperativa | — | — | — | ✅ |
+| **Crear** una ruta | — | — | — | ✅ |
+| **Crear y borrar** trazados de una ruta | — | — | — | ✅ |
+| Suspender una cooperativa | — | — | — | ✅ |
+| Crear o restablecer cuentas de Despacho y de gerencia | — | — | — | ✅ |
+| Salud del servidor y de la base | — | — | — | ✅ |
+| Actividad de **todas** las cooperativas | — | — | — | ✅ |
 
 Tres detalles que explican los casos raros:
 

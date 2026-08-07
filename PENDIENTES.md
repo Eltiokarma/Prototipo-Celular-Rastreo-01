@@ -98,6 +98,29 @@ confirmación, ausente y salir de ruta funcionando contra producción.
 | 3.4 | ~~Grabador de rutas~~ | **HECHO** (7/8). App: Perfil → GRABAR RECORRIDO — la tarea de fondo come de las mismas posiciones que ya manda, guarda **un punto cada 30 m recorridos** (`app/grabador.js`, puro y con suite; el semáforo no genera un nudo) y sobrevive a que Android mate el proceso (puntos a disco, flag en SecureStore). TERMINAR la sube por `POST /grabacion`; si falla el envío, la vuelta manejada NO se pierde — queda en disco y se reintenta. Del otro lado: **Trazador de Despacho → "Grabaciones de la calle"** lista las de la empresa y las carga con un clic por el MISMO import (y su simplificación) que un GPX. Tope de 25 por empresa, las viejas se van solas. Suite `grabador`. Falta verlo en el teléfono con el APK nuevo | ✔ |
 | 3.5 | ~~Perfil del conductor en la app~~ | **HECHO** (7/8), con el alcance que definió el dueño: métricas, alias y contraseña. Pantalla PERFIL en la app (desde la cabecera): quién es, en qué anda, y sus números de 7 días con el MISMO criterio que el gerente — vueltas del vehículo, horas de la persona, cumplimiento contra la vara que regía en cada vuelta. `GET /perfil` contesta solo lo del que pregunta (no hay parámetro de unidad: no existe "pedir el de al lado"). El **alias** lo edita el dueño del alias y llega EN VIVO a Despacho (perfil en memoria + mapa + estado) — el nombre no, con ese se liquidan las horas. La **contraseña** se cambia con la actual en la mano, sin voltear la sesión propia, auditando QUE la cambió y nunca cuál. Suite `perfil`. Falta verlo en el teléfono con el APK nuevo | ✔ |
 
+### 3.6 · ~~El chofer administra a los cobradores de su combi~~ — HECHO (7/8)
+
+Pedido usándolo. El problema real no era quién carga al cobrador sino que,
+esperando a que Despacho atienda un olvido de contraseña, **el cobrador
+terminaba entrando con la cuenta del chofer** — que es justo lo que rompe
+las horas por persona, el reporte de turnos y el «un solo reportero de GPS
+por vehículo».
+
+Perfil ahora lista a los cobradores de la combi (nombre, alias, si están en
+línea y sus horas de 7 días), y el chofer **les cambia la clave y los
+saca**. El **alta quedó afuera por decisión del dueño del producto**: crear
+una cuenta es dar acceso al sistema y se queda en Despacho o la gerencia,
+que además cargan el nombre real con el que se liquidan las horas.
+
+Lo que se abrió igual es un permiso nuevo para el eslabón más bajo de la
+cadena, así que el borde está escrito y probado a contrapelo: solo sobre SU
+vehículo (sale de la sesión, nunca del pedido), solo sobre rol cobrador, al
+del de al lado no se lo toca (404 que no confirma que exista), un cobrador
+no administra cobradores, y el alta por esta puerta **no existe** — la suite
+lo verifica pegándole al endpoint, no mirando la pantalla. Todo auditado
+—del cambio de clave queda QUE la cambió y nunca cuál— y Despacho y la
+gerencia los siguen viendo enteros. Suite `cobradores`.
+
 ### 3bis · ~~Los bancos visuales fotografiaban pantallas vacías~~ — HECHO
 
 Salió de mirar las capturas antes de desplegar, y es la clase de rotura que
@@ -121,6 +144,30 @@ nada.
   informe se llama `horas`. La pantalla decía "No se pudo descargar", que se
   lee igual que un servidor caído. Los tres botones quedaron con el nombre del
   servidor y con suite propia.
+
+### 3ter · Dos bugs que salieron de mirar, no de usar — HECHO (7/8)
+
+Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
+
+- **El privado de Despacho cruzaba el borde de empresa.** El código de
+  vehículo es único en TODO el servidor, y el envío privado solo comprobaba
+  que el vehículo *existiera*. Con eso, al Despacho de una cooperativa le
+  alcanzaba con acertar el código de una combi ajena para escribirle a su
+  chofer — y le llegaba, porque el reparto solo miraba el vehículo, sin ruta
+  ni empresa. **Medido**: un mensaje cruzado de una cooperativa a otra, en
+  una base con las dos. Es la misma frontera que defiende la suite
+  `empresas` entera, por la única puerta que nadie había mirado. Ahora una
+  combi de otra empresa se trata como inexistente —el criterio que ya usaba
+  el alta de personas— y la prueba quedó puesta en esa suite.
+- **Cambiar de ruta no cerraba la conversación privada abierta.** El código
+  quería hacerlo y no podía: preguntaba por la ruta anterior desde adentro
+  de un `setRouteInfo(prev => …)` puesto DESPUÉS del `setRouteInfo(…)` que
+  ya la había pisado. React aplica la cola en orden, así que `prev` era
+  siempre el valor nuevo, la condición nunca daba verdadera y la
+  conversación quedaba abierta apuntando a una combi de la ruta anterior —
+  con sus no leídos. Sumado al bug de arriba, es la forma realista de
+  mandarle un privado a quien no era. Va contra un ref, que es lo que
+  guarda el valor viejo de verdad.
 
 ### 4 · Deuda conocida que NO es urgente
 
@@ -180,12 +227,32 @@ bloqueada. La otra —**las tiles del mapa**— quedó resuelta en tres capas:
    propósito: el mapa propio v1 no tiene nombres de calles y ahí se trazan
    rutas; son ~30 pantallas contra 2000.
 
-Lo que queda pendiente de esto, en orden de urgencia: **renovar el mapa en
-servidores ya poblados** (hoy: vaciar la carpeta `tiles/` del volumen y
-redesplegar — automatizarlo con nombres versionados cuando duela),
-**nombres de calles** en el mapa propio si Despacho los extraña, y correr el
-workflow al agregar cada ciudad nueva (Cusco, Arequipa, La Paz: una línea en
-`zonas.js` + Run workflow).
+**Renovar el mapa en servidores ya poblados** era lo más urgente de esta
+lista y quedó **HECHO** (7/8). Era un procedimiento manual disfrazado de
+pendiente menor: los archivos se llamaban siempre igual
+(`juliaca-claro.pmtiles`) y el servidor bajaba solo lo que le faltaba —
+como no le faltaba nada, el mapa nuevo **no llegaba nunca**. La única forma
+era entrar al volumen, vaciar `tiles/` y redesplegar, servidor por
+servidor, sin que nada avisara si te lo olvidabas. Y aun haciéndolo, el
+chofer seguía viendo el mapa viejo: el service worker guarda las tiles
+caché-primero y sin expiración.
+
+Ahora cada archivo lleva su versión en el nombre
+(`juliaca-claro-3f9a1c02.pmtiles`, los 8 primeros hex del sha256 de su
+contenido, que pone el extractor), y de ahí salen las cuatro propiedades
+solas: el mapa que cambió **baja solo** al reiniciar, el que reemplazó **se
+borra** (sin eso cada renovación deja tirada una copia entera del mapa
+anterior en un volumen que se paga por GB, y se acumulan),
+el que no cambió **no se vuelve a bajar**, y como la versión viaja también
+en la URL de cada tile, **el mapa nuevo le llega al celular**. La URL de
+tile sin versión sigue atendida a propósito: es la que piden los APK que ya
+están en la calle. Renovar es correr el workflow de nuevo y nada más. Suite
+`renovacion`, que lo corre entero contra el servidor real con un release de
+mentira — incluido el reinicio que no debe mover un byte.
+
+Lo que queda pendiente de esto: **nombres de calles** en el mapa propio si
+Despacho los extraña, y correr el workflow al agregar cada ciudad nueva
+(Cusco, Arequipa, La Paz: una línea en `zonas.js` + Run workflow).
 
 ## Lo que queda por construir
 
@@ -204,14 +271,24 @@ quedó cerrada el 6/8 (ver 3.1).
 ## Lo que quedó afuera del rediseño, y por qué
 
 Tres cosas de la propuesta de Design no se implementaron. Ninguna es una
-omisión: cada una pedía un dato o un comportamiento que no existe.
+omisión: cada una pedía un dato o un comportamiento que no existe. De las
+tres, **la primera ya está hecha** (7/8) y queda abajo tachada.
 
 - **«Último respaldo» y «errores en 24 h»** en el panel del creador. No hay
   respaldos automáticos ni registro de errores. Son features de operación, no
   de interfaz, y una tarjeta que muestre un número inventado es peor que no
   tenerla.
-- **«7 / 9 unidades»** en la cabecera de la lista de Despacho. El total de la
-  flota no viaja en el estado de tiempo real; traerlo es un endpoint nuevo.
+- ~~**«7 / 9 unidades»** en la cabecera de la lista de Despacho~~ **HECHO**
+  (7/8). No hizo falta el endpoint nuevo que se temía: el total viaja en el
+  mismo estado de tiempo real (`flota`), que ya sale cada 3 s por ruta, con
+  un índice sobre `vehicles(routeId)` para que contarlo no toque el hilo
+  único de SQLite. La cabecera dice **«N de M»**. El número solo nunca
+  contestaba la pregunta de las 6 de la mañana, que no es cuántas se ven
+  sino **cuántas faltan**. Un detalle que sí apareció construyéndolo: el
+  numerador cuenta por la ruta de la PERSONA y el denominador por la del
+  VEHÍCULO, y un supervisor puede dejar a alguien de una ruta arriba de una
+  combi de otra; si los números quedan incoherentes se muestra el de
+  siempre, antes que un «10 de 9» que se lee como pantalla rota.
 - **El segmentado «Dibujar | Mover | Borrar» y «Simplificar a 10 m»** del
   trazador. La herramienta no tiene modos —se dibuja tocando, se corrige
   arrastrando, se borra tocando el punto— y la simplificación pasa al
