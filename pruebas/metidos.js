@@ -244,15 +244,111 @@ let servidor = null;
 
     const rv = await fetch(`${API}/admin/informe/vueltas.csv?desde=${desde}&hasta=${hasta}`, { headers: HD });
     const csvv = await rv.text();
-    ok('y el de vueltas dice cuál no es entera',
-       csvv.includes('se metió a mitad de ruta'), csvv.includes('Vuelta entera'));
+    // El CSV dice el HECHO, no la causa: una vuelta arranca a mitad de
+    // circuito porque el chofer se enganchó ahí, pero también porque estuvo
+    // sin señal y la medición se cortó. Este archivo se imprime y se lleva a
+    // una reunión — no puede afirmar lo que no sabe.
+    ok('y el de vueltas dice cuál no es entera, sin acusar de la causa',
+       csvv.includes('la medición no arrancó en el inicio') &&
+       !/se metió a mitad de ruta/.test(csvv), csvv.includes('Arrancó al % del circuito'));
   }
 
   base.close();
   ws.close();
-  console.log(fallas ? `\n${fallas} FALLA(S)` : '\nTodo OK');
   servidor.kill();
+
+  // ── LA ZONA MUERTA NO ES UNA ENTRADA TARDÍA ──────────────────────────
+  //
+  // El caso que puede arruinar la detección entera: el olvido desconfirma a
+  // los 3 minutos sin oír al teléfono, y un cerro, un sótano o una batería
+  // agotada duran más que eso. Al reaparecer, el chofer que venía desde el
+  // paradero se ve EXACTAMENTE IGUAL que el que se acaba de meter — y si el
+  // sistema no los distingue, deja acusado en la auditoría a alguien que
+  // hizo su trabajo. Una acusación automática y falsa es peor que no tener
+  // la detección: se descubre discutiendo con un chofer que tiene razón.
+  //
+  // Servidor aparte con el olvido en 2 s: el barrido corre cada 10 s, así que
+  // reproducirlo con el valor real serían tres minutos de prueba.
+  await correrZonaMuerta();
+
+  console.log(fallas ? `\n${fallas} FALLA(S)` : '\nTodo OK');
   process.exit(fallas ? 1 : 0);
+
+  async function correrZonaMuerta() {
+    console.log('\nUNA ZONA MUERTA NO CONVIERTE AL CHOFER EN UNO QUE SE METIÓ');
+    const DB2 = S + '/metidos-muerta.db';
+    const P2 = 3185, API2 = `http://localhost:${P2}`;
+    for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
+    const srv = spawn('node', [RAIZ + '/server/index.js'], {
+      env: { ...process.env, PORT: String(P2), DB_FILE: DB2, DISPATCH_PASSWORD: 'despacho99',
+             STATE_INTERVAL_MS: '400', OLVIDAR_MS: '2000' },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    srv.stderr.on('data', x => process.stderr.write('[srv2] ' + x));
+    for (let i = 0; i < 80; i++) { await sleep(250); try { await fetch(API2 + '/ping'); break; } catch {} }
+    try {
+      const p2 = (ruta, opts = {}) => fetch(API2 + ruta, {
+        ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+      }).then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+      const log2 = async (u, c) =>
+        (await p2('/auth/login', { method: 'POST', body: JSON.stringify({ user: u, password: c }) })).body;
+
+      const d2 = await log2('DESPACHO', 'despacho99');
+      const H2 = { Authorization: 'Bearer ' + d2.token };
+      const HG2 = { Authorization: 'Bearer ' + await require('./gerente.js')(API2, DB2) };
+      await p2('/admin/routes/R-14/points', {
+        method: 'PUT', headers: H2, body: JSON.stringify({ tramos: { ida, vuelta } }) });
+      await p2('/admin/users', { method: 'POST', headers: HG2,
+        body: JSON.stringify({ unitId: 'M-09', name: 'Chofer nueve', personRole: 'driver', password: 'chofer1234' }) });
+      const s9 = await log2('M-09', 'chofer1234');
+      const gps2 = (frac) => p2('/gps', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + s9.token },
+        body: JSON.stringify({ posiciones: [{ lat: LAT0 + g * frac, lng: LNG, speed: 20, timestamp: Date.now() }] }),
+      });
+
+      const ws2 = new WebSocket(`ws://localhost:${P2}`);
+      let ult = null;
+      ws2.on('message', raw => { const m = JSON.parse(raw); if (m.type === 'state') ult = m; });
+      await new Promise(r => ws2.on('open', r));
+      ws2.send(JSON.stringify({ type: 'identify', token: d2.token }));
+      await sleep(600);
+      const u9 = async () => { await sleep(600); return ((ult || {}).units || []).find(u => u.unitId === 'M-09'); };
+
+      // Sale del principio, como corresponde
+      await p2('/presencia', { method: 'POST', headers: { Authorization: 'Bearer ' + s9.token },
+        body: JSON.stringify({ estado: 'ruta' }) });
+      await gps2(0.02);
+      let el = await u9();
+      ok('sale desde el inicio: entrada normal', !!el && el.enRuta === true && el.entradaTardia === false,
+         el && { enRuta: el.enRuta, tardia: el.entradaTardia });
+
+      // Maneja un rato y entra a la zona muerta a mitad de la ida
+      for (const f of [0.15, 0.3, 0.45]) { await gps2(f); await sleep(150); }
+      const antes = ((await p2('/admin/audit', { headers: H2 })).body.events || [])
+        .filter(e => e.action === 'entrada_tardia').length;
+
+      // Silencio: más que OLVIDAR_MS y que el barrido de 10 s
+      await sleep(13_000);
+      ok('el barrido la olvida, como siempre', !(await u9()), 'fuera del mapa');
+
+      // Y vuelve, más adelante en la ruta — como vuelve cualquiera que
+      // siguió manejando mientras no había señal
+      await gps2(0.62);
+      el = await u9();
+      ok('al volver entra de nuevo a la cadena', !!el && el.enRuta === true, el && el.enRuta);
+      ok('pero NO como entrada tardía: reanuda, no entra',
+         !!el && el.entradaTardia === false, el && { tardia: el.entradaTardia, entroEn: el.entroEn });
+
+      const despues = ((await p2('/admin/audit', { headers: H2 })).body.events || [])
+        .filter(e => e.action === 'entrada_tardia').length;
+      ok('y no queda acusado en la auditoría', despues === antes, { antes, despues });
+
+      ws2.close();
+    } finally {
+      srv.kill();
+      for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
+    }
+  }
 })().catch(e => {
   console.error('FALLA (excepción):', e);
   if (servidor) servidor.kill();

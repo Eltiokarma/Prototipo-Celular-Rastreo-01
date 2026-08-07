@@ -2157,11 +2157,15 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                         padding: '11px 13px', marginBottom: 16,
                         fontSize: 13, lineHeight: 1.55, color: HUD.ambarTinta,
                       }}>
-                        {R.parciales} {R.parciales === 1 ? 'vuelta empezó' : 'vueltas empezaron'} con
-                        la ruta ya avanzada: esa unidad no salió del paradero inicial, se metió
-                        en el medio. Están abajo marcadas como <strong>PARCIAL</strong> y no
-                        entran en ninguno de los promedios de arriba — duran una fracción de
-                        una vuelta y la bajarían sin que se note.
+                        {R.parciales} {R.parciales === 1 ? 'vuelta no se midió entera' : 'vueltas no se midieron enteras'}:
+                        la medición arrancó con la ruta ya avanzada. Puede ser que la unidad
+                        se haya metido en el medio en vez de salir del paradero inicial, o que
+                        haya estado sin señal más de tres minutos y la vuelta se partiera.
+                        Están abajo marcadas como <strong>PARCIAL</strong> y no entran en
+                        ninguno de los promedios de arriba — duran una fracción de una vuelta
+                        y la bajarían sin que se note. Las que el sistema sí puede atribuir a
+                        una entrada por el medio llevan <strong>↳ ENTRÓ</strong> en la unidad,
+                        en vivo, y quedan en Actividad.
                       </div>
                     )}
 
@@ -2588,8 +2592,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   {resumenGer.totales.parciales > 0 && (
                     <span style={{ color: HUD.amber }}>
                       {' '}{resumenGer.totales.parciales} vuelta(s) del período empezaron con la
-                      ruta ya avanzada (la unidad se metió en el medio) y quedan fuera de
-                      los promedios y del cumplimiento.
+                      ruta ya avanzada —la unidad se metió en el medio, o estuvo sin señal y
+                      la vuelta se partió— y quedan fuera de los promedios y del cumplimiento.
                     </span>
                   )}
                   {/* Mientras queden vueltas anteriores a que el objetivo se

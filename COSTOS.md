@@ -167,6 +167,32 @@ algo menos):
   únicos índices reales: `deviations(routeId,startedAt)` en `:991` y
   `shifts(personId,startedAt)` en `:1117`). Con el índice: 33 ms (4×). Esos
   142 ms **bloquean el hilo** que también atiende los 500 POST/s.
+- **Y había una lectura peor que no estaba medida: el acumulado por unidad**
+  (`/admin/metrics`, la tabla de abajo de esa misma pestaña). A diferencia de
+  la lista de vueltas, **no tiene corte por fecha** —el acumulado es de todo
+  lo retenido—, así que agrupa las vueltas de la empresa entera, y adentro
+  lleva una subconsulta correlacionada (la última vuelta de cada unidad) que
+  sin índice recorre la tabla **una vez por unidad**. Medido sobre una base
+  sintética con la retención real (2000 unidades × 120 días × 8 vueltas =
+  1,92 M de vueltas y 3,84 M de tramos, 538 MB):
+
+  | | vueltas | tramos | base |
+  | --- | --- | --- | --- |
+  | como estaba | **10 368 ms** | 1125 ms | 538 MB |
+  | + `laps(unitId,parcial,id)` | 303 ms | 1118 ms | 576 MB |
+  | + `legs(routeId,parcial)` | 306 ms | 208 ms | 629 MB |
+  | + `laps(routeId,parcial)` | **88 ms** | **205 ms** | 655 MB |
+
+  De 11,5 s a 293 ms — **39×** por +117 MB (+22 % de base). Los tres índices
+  están puestos. Diez segundos de agrupamiento son diez segundos en los que
+  2000 combis no reportan posición: **un despachador abriendo una pestaña
+  congelaba el mapa de todos**, y no aparecía en ninguna métrica porque el
+  endpoint se llama al abrir la pestaña y no en bucle.
+
+  Queda como deuda, no resuelto: a 20 000 unidades la base son ~5,7 GB y esa
+  consulta vuelve a crecer con el padrón. Cuando llegue el momento, la salida
+  es acotar el acumulado a un rango (que es lo que ya hace el resto del panel)
+  y no seguir agregando índices.
 - **No hace falta migrar de motor.** El cuello real del sistema no es la
   base: es (a) el egress del estado y (b) el CPU de serializar+emitir por
   WS a 2000 conexiones — presupuestado con 2 vCPU en §4. Si algún día se

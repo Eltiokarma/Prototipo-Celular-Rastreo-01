@@ -166,11 +166,18 @@ limitación se resuelva o aparezca una nueva.
   para todas las rutas. Está elegido para cubrir el ruido normal (entre
   encender la app y arrancar ya se avanzaron unas cuadras); en una ruta muy
   corta puede quedar generoso, y una entrada real al 12 % no se marcaría.
-- **La entrada tardía se juzga una sola vez**, cuando la unidad pisa el
-  trazado. Si el chofer marca "en ruta" desde el paradero inicial, apaga la
-  app y la vuelve a prender a mitad de camino, esa reconfirmación sí cuenta
-  como entrada tardía — que es lo correcto, pero significa que un teléfono
-  que se queda sin batería genera una parcial que no describe al chofer.
+- **Una zona muerta larga corta la medición igual.** El olvido desconfirma a
+  los 3 minutos sin oír al teléfono, así que un cerro o un sótano parten la
+  vuelta en dos y la que se cierre queda `parcial`. Eso **no** se traduce en
+  una acusación: si la unidad estaba confirmada y vuelve dentro de las 2 h
+  (`REANUDA_MS`), se la trata como reanudación — no se audita ni se la marca
+  en el mapa. Pero la vuelta sí queda fuera de los promedios, así que un
+  chofer con mala cobertura suma menos vueltas juzgables que uno con buena.
+- **La ventana de reanudación es de tiempo, no de recorrido.** Vuelve a
+  contar como entrada tardía recién pasadas las 2 h. Un chofer que corta el
+  turno una hora y retoma a mitad de ruta pasa por reanudación. Está elegido
+  a propósito: el error barato es no marcar una entrada real (la parcial
+  queda en los números igual), el caro es marcar una falsa.
 - El GPS urbano tiene error típico de 5–30 m, y algunos equipos no
   reportan velocidad (se muestra 0).
 

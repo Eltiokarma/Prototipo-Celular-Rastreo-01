@@ -1276,6 +1276,20 @@ addColumnIfMissing('laps', 'progresoInicial', 'REAL');
 // mitad", que es lo que se quiere ver.
 const VUELTA_DESDE_INICIO = 0.15;
 
+// Cuánto puede durar un corte de señal y seguir siendo LA MISMA corrida.
+//
+// El olvido desconfirma a los 3 minutos sin oír al teléfono, y una zona
+// muerta más larga que eso es común: un cerro, un sótano, la batería agotada
+// un rato, la app matada por Android. Al reaparecer, el chofer que venía
+// desde el paradero se ve igual que el que se acaba de meter — y sin esta
+// ventana el sistema lo acusaría en la auditoría de algo que no hizo.
+//
+// Dos horas es holgado a propósito: el error barato es NO marcar una entrada
+// tardía real (queda la parcial en los números igual, sin nombre y apellido),
+// y el caro es marcar una falsa. Más allá de eso ya no es un corte, es otro
+// turno, y ahí la entrada vuelve a ser una entrada.
+const REANUDA_MS = Number(process.env.REANUDA_MS || 2 * 3600_000);
+
 // Las vueltas que ya estaban guardadas cuando el recorrido pasó a colgar de
 // una variante se midieron con ESE trazado: es el mismo, solo que ahora tiene
 // un nombre. Se las ata a él, porque si no el objetivo automático de cada
@@ -1300,6 +1314,29 @@ if (variantesMigradas.size) {
 // bloquean el MISMO hilo que atiende los POST /gps de toda la flota
 // (`COSTOS.md` §3). Con el índice: 33 ms. Cuesta unos MB de disco.
 db.exec('CREATE INDEX IF NOT EXISTS idx_laps_cierre ON laps (finishedAt)');
+
+// Y los dos que le faltaban al ACUMULADO POR UNIDAD (`/admin/metrics`), que
+// es la otra lectura pesada del panel y la que no estaba medida.
+//
+// A diferencia de la pestaña de vueltas, esa consulta NO tiene corte por
+// fecha —el acumulado es de todo lo retenido— así que agrupa las vueltas de
+// la empresa entera, y adentro lleva una subconsulta correlacionada (la
+// última vuelta de cada unidad) que sin índice recorre la tabla una vez POR
+// UNIDAD. Medido con la base de régimen de 2000 unidades y 120 días
+// (1,92 M de vueltas, `COSTOS.md` §3):
+//
+//   sin estos índices ........ 10 368 ms
+//   + laps(unitId,parcial,id) .... 303 ms   ← mata la subconsulta correlacionada
+//   + laps(routeId,parcial) ....... 88 ms   ← acota el grupo a la empresa
+//
+// Son 118 veces, y no es un lujo de pantalla: SQLite es sincrónico y comparte
+// hilo con los POST /gps de toda la flota. Diez segundos de agrupamiento son
+// diez segundos en los que 2000 combis no reportan posición — un despachador
+// abriendo una pestaña congelaba el mapa de todos. Cuestan ~64 MB de base.
+//
+// El de unidad se puede crear acá; el de ruta NO, porque `laps.routeId` es una
+// columna de migración que se agrega más abajo — va pegado a ella.
+db.exec('CREATE INDEX IF NOT EXISTS idx_laps_unidad ON laps (unitId, parcial, id)');
 
 // ─── MEDIAS VUELTAS ──────────────────────────────────────────
 // "Vuelta" quiere decir dos cosas distintas en este sistema y conviene tener
@@ -1342,6 +1379,10 @@ db.exec(`
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_legs_cierre ON legs (finishedAt)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_legs_unidad ON legs (unitId, finishedAt)');
+// Por ruta, para el acumulado por unidad del panel — misma consulta sin corte
+// por fecha que la de vueltas, y misma razón. Medido a 2000 unidades y 120
+// días (3,84 M de tramos): 1125 ms sin él, 205 ms con él. Cuesta ~53 MB.
+db.exec('CREATE INDEX IF NOT EXISTS idx_legs_ruta ON legs (routeId, parcial)');
 
 // Cuánto historial se guarda, y por qué se mide en DÍAS y no en filas.
 //
@@ -1374,16 +1415,28 @@ function podarHistorico() {
   // Los tramos se podan con la misma vara que las vueltas: son el mismo dato
   // partido al medio, y que uno sobreviviera al otro daría informes donde las
   // medias vueltas no suman las vueltas.
+  //
+  // Incluido el TECHO DE FILAS, que es el que faltaba: es el cinturón por si
+  // el reloj o la carga se van a un lugar raro, y sin él `legs` era la única
+  // tabla del sistema sin tope duro — justo la que crece MÁS RÁPIDO, porque
+  // un circuito deja dos filas acá y una en `laps`. Por eso el tope es el
+  // doble: si fuera el mismo, el cinturón de `legs` se ajustaría antes que el
+  // de `laps` y los informes empezarían a decir que las medias vueltas no
+  // suman las vueltas, que es la contradicción que este bloque evita.
   const tramosViejos = db.prepare('DELETE FROM legs WHERE finishedAt < ?').run(corte).changes;
+  const tramosDeMas = db.prepare(
+    'DELETE FROM legs WHERE id NOT IN (SELECT id FROM legs ORDER BY id DESC LIMIT ?)')
+    .run(LAPS_MAX_FILAS * 2).changes;
   const desviosViejos = db.prepare(
     'DELETE FROM deviations WHERE startedAt < ?').run(Date.now() - DESVIOS_DIAS * 86400_000).changes;
   const chat = pruneChatStmt.run({ corte: Date.now() - CHAT_DIAS * 86400_000 }).changes;
   const sos = pruneSosStmt.run({ corte: Date.now() - SOS_DIAS * 86400_000 }).changes;
   const mensajesDeMas = pruneRowsStmt.run({ tope: MENSAJES_MAX_FILAS }).changes;
-  if (viejas || sobrantes || tramosViejos || desviosViejos || chat || sos || mensajesDeMas) {
-    console.log(`Historial podado: ${viejas + sobrantes} vuelta(s), ${tramosViejos} tramo(s), ` +
+  if (viejas || sobrantes || tramosViejos || tramosDeMas || desviosViejos || chat || sos || mensajesDeMas) {
+    console.log(`Historial podado: ${viejas + sobrantes} vuelta(s), ${tramosViejos + tramosDeMas} tramo(s), ` +
       `${desviosViejos} desvío(s), ${chat + mensajesDeMas} mensaje(s), ${sos} SOS` +
-      (sobrantes ? ` — ${sobrantes} vuelta(s) por el techo de ${LAPS_MAX_FILAS} filas` : ''));
+      (sobrantes ? ` — ${sobrantes} vuelta(s) por el techo de ${LAPS_MAX_FILAS} filas` : '') +
+      (tramosDeMas ? ` — ${tramosDeMas} tramo(s) por el techo de ${LAPS_MAX_FILAS * 2} filas` : ''));
   }
 }
 
@@ -1398,6 +1451,11 @@ addColumnIfMissing('laps', 'routeId', 'TEXT');
 if (db.prepare('SELECT COUNT(*) AS c FROM laps WHERE routeId IS NULL').get().c > 0) {
   db.prepare('UPDATE laps SET routeId = ? WHERE routeId IS NULL').run(DEFAULT_ROUTE);
 }
+// Acá y no arriba con los demás índices de `laps`: la columna que indexa es
+// de migración y hasta esta línea no existe. Acota el acumulado por unidad a
+// las rutas de la empresa — el último tramo de los 10 368 ms a 88 (ver el
+// bloque de índices más arriba).
+db.exec('CREATE INDEX IF NOT EXISTS idx_laps_ruta ON laps (routeId, parcial)');
 
 // ─── PRESENCIA ───────────────────────────────────────────────
 // El chofer DECLARA su estado desde la app — salir a ruta, ausente (comer,
@@ -1420,14 +1478,20 @@ function fijarPresencia(vehicleId, routeId, estado) {
     // Se va del mapa EN EL ACTO, no a los 3 minutos del olvido: lo pidió él.
     presencias.delete(vehicleId);
     lapState.delete(vehicleId);
+    const u = units.get(vehicleId);
     // El tramo, en cambio, NO se descarta sin mirarlo: si venía de terminar
     // la ida y se va, esa media vuelta es trabajo hecho y es justo lo que
     // antes se perdía. `olvidarTramo` la guarda si estaba completa.
-    olvidarTramo(vehicleId);
+    //
+    // Se cierra con la hora de la ÚLTIMA POSICIÓN y no con la de ahora, igual
+    // que hace el barrido: entre estacionar y acordarse de tocar SALIR DE RUTA
+    // pueden pasar veinte minutos, y cargárselos al tramo lo alarga por tiempo
+    // en que la combi estuvo detenida — un número que después promedia en
+    // `idaDurProm`, en el perfil del chofer y en el informe.
+    olvidarTramo(vehicleId, (u && u.timestamp) || Date.now());
     // Terminó el turno estando fuera del trazado: el episodio se cierra acá.
     // Dejarlo abierto lo haría durar hasta que alguien lo mire.
     olvidarDesvio(vehicleId, 'corte');
-    const u = units.get(vehicleId);
     units.delete(vehicleId);
     // El mismo aviso que manda el olvido: los mapas que borran por evento
     // no tienen por qué esperar al próximo estado completo.
@@ -1442,9 +1506,11 @@ function fijarPresencia(vehicleId, routeId, estado) {
   // y volver de ausente es volver a entrar a la ruta.
   presencias.set(vehicleId, { estado, enRuta: false });
   lapState.delete(vehicleId);
-  // Irse a almorzar después de la ida no borra la ida.
-  olvidarTramo(vehicleId);
   const u = units.get(vehicleId);
+  // Irse a almorzar después de la ida no borra la ida. Con la hora de la
+  // última posición, por lo mismo que arriba: el almuerzo no es parte del
+  // tramo aunque se declare a la media hora de haber estacionado.
+  olvidarTramo(vehicleId, (u && u.timestamp) || Date.now());
   if (u) units.set(vehicleId, { ...u, presencia: estado, enRuta: false });
   scheduleStateBroadcast((u && u.routeId) || routeId);
 }
@@ -1602,11 +1668,29 @@ function trackTramo(unitId, routeId, proy, cuando = Date.now()) {
     // con ida, donde el circuito es ese tramo y volver a empezarlo es haber
     // terminado uno. En una ruta con los dos tramos esto no pasa — ahí el
     // final de la ida es el principio de la vuelta y cambia el `leg`.
+    //
+    // Se confirma con las MISMAS muestras que el cambio de tramo, y por el
+    // mismo motivo. Un trazado que se cruza consigo mismo (una ida que pasa
+    // dos veces por la misma esquina, que en una ruta urbana es común)
+    // proyecta un salto de progreso hacia atrás en una sola posición: sin
+    // confirmar, esa única lectura mala parte una ida real en dos contadas.
     if (st.maxProgreso > TRAMO_COMPLETO && st.maxProgreso - proy.progresoTramo > 0.5) {
-      cerrarTramo(unitId, st, cuando);
-      tramoState.set(unitId, nuevoTramo(routeId, st.leg, proy.progresoTramo, cuando));
+      if (!st.vueltaSeguidas) {
+        st.vueltaSeguidas = 1;
+        st.vueltaDesde = cuando;
+        st.vueltaProgreso = proy.progresoTramo;
+      } else {
+        st.vueltaSeguidas++;
+      }
+      if (st.vueltaSeguidas < TRAMO_MUESTRAS) return;
+      // Igual que en el cambio de tramo: el nuevo arranca en la PRIMERA
+      // posición que lo vio, no en la que terminó de confirmarlo.
+      cerrarTramo(unitId, st, st.vueltaDesde);
+      tramoState.set(unitId, nuevoTramo(routeId, st.leg, st.vueltaProgreso, st.vueltaDesde));
       return;
     }
+    // No se cumple la condición: lo que hubiera sido un salto se descarta.
+    st.vueltaSeguidas = 0;
     st.maxProgreso = Math.max(st.maxProgreso, proy.progresoTramo);
     return;
   }
@@ -3121,9 +3205,16 @@ const INFORMES = {
       // un CSV que no cuadra con lo que se vio en pantalla, y ponerlas sin
       // marcar es lo que hacía el sistema antes. La columna dice por qué esa
       // fila dura la mitad que las otras.
+      //
+      // Y lo dice como un HECHO ("arrancó al 62 %"), no como una acusación
+      // ("se metió a mitad de ruta"): una vuelta arranca a mitad de circuito
+      // porque el chofer se enganchó ahí, pero TAMBIÉN porque estuvo sin
+      // señal más de tres minutos y la medición se cortó. Este CSV se
+      // imprime y se lleva a una reunión — no puede afirmar la causa cuando
+      // sólo conoce el efecto.
       cabecera: ['Unidad', 'Ruta', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos',
         'Velocidad media (km/h)', 'Brecha promedio (m:ss)', 'Objetivo de esa vuelta (m:ss)',
-        'Vuelta entera', 'Entró al % del circuito'],
+        'Vuelta entera', 'Arrancó al % del circuito'],
       filas: filas.map(l => [
         l.unitId, l.routeId, fechaHora(l.startedAt), fechaHora(l.finishedAt),
         duracionHm(l.durationSec), Math.round(l.durationSec / 60), l.avgSpeed,
@@ -3131,7 +3222,7 @@ const INFORMES = {
         // no tuvieron con quién compararse. Vacío es más honesto que un cero.
         l.brechaProm === null ? '' : formatMinutes(l.brechaProm / 60),
         l.objetivoSec ? formatMinutes(l.objetivoSec / 60) : '',
-        l.parcial ? 'no — se metió a mitad de ruta' : 'sí',
+        l.parcial ? 'no — la medición no arrancó en el inicio' : 'sí',
         l.progresoInicial === null || l.progresoInicial === undefined
           ? '' : `${Math.round(l.progresoInicial * 100)} %`,
       ]),
@@ -5124,9 +5215,25 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
       // de ruta son la misma cuenta y hasta ahora daban el mismo resultado.
       // El progreso del circuito en este instante es lo único que los separa,
       // y es un número que ya está calculado — sólo faltaba mirarlo.
+      //
+      // Pero "entró por el medio" y "venía de más atrás y estuvo sin señal"
+      // se ven EXACTAMENTE IGUAL desde acá, y confundirlos es lo caro: el
+      // olvido a los 3 minutos desconfirma, y una zona muerta de más de tres
+      // minutos —un cerro, un sótano, el celular sin batería un rato— haría
+      // que al reaparecer el chofer quede acusado en la auditoría de algo
+      // que no hizo. Una acusación automática y falsa es peor que no tener
+      // la detección: se descubre discutiendo con un chofer que tiene razón.
+      //
+      // Por eso la reaparición dentro de la ventana NO es una entrada: es la
+      // misma corrida, cortada. La vuelta que salga sigue siendo parcial —no
+      // se la midió entera, y eso es un hecho aritmético— pero no se audita
+      // a nadie ni se lo marca en el mapa.
+      const perdidaEn = decl.perdidaEn || null;
+      const reanuda = !!perdidaEn && (cuando - perdidaEn) <= REANUDA_MS;
       decl.entroEn = proy ? proy.progreso : null;
-      decl.entradaTardia = !!(proy && proy.progreso > VUELTA_DESDE_INICIO);
+      decl.entradaTardia = !reanuda && !!(proy && proy.progreso > VUELTA_DESDE_INICIO);
       decl.entroA = cuando;
+      decl.perdidaEn = null;
       if (decl.entradaTardia) {
         // Queda en la auditoría, que es donde se puede contestar "¿cuántas
         // veces esta semana?" sin haber estado mirando la pantalla en el
@@ -5136,6 +5243,9 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
           `${Math.round(proy.progreso * 100)} % del circuito, no desde el inicio`);
         audit('sistema', 'entrada_tardia', vehicleId,
           `entró al ${Math.round(proy.progreso * 100)} % del circuito`, routeId);
+      } else if (reanuda) {
+        console.log(`Presencia: ${vehicleId} volvió tras ${Math.round((cuando - perdidaEn) / 1000)} s ` +
+          `sin señal — reanuda la corrida, no es una entrada`);
       } else {
         console.log(`Presencia: ${vehicleId} pisó el trazado — entra a la cadena de brechas`);
       }
@@ -5412,8 +5522,18 @@ setInterval(() => {
       // Y la CONFIRMACIÓN se pierde con el olvido: si mató la app sin
       // "salir de ruta" y reaparece mañana desde su casa, tiene que volver
       // a pisar el trazado — no entrar a la cadena por un true de ayer.
+      //
+      // Se anota CUÁNDO se lo perdió, y eso no es un detalle: al reaparecer,
+      // "entró por el medio" y "venía de más atrás y estuvo sin señal" se ven
+      // idénticos. Sin esta marca, un cerro de tres minutos deja al chofer
+      // acusado de una entrada tardía que no hizo. Se usa en `anotarPosicion`.
       const decl = presencias.get(unitId);
-      if (decl) decl.enRuta = false;
+      if (decl) {
+        // Sólo cuenta como pérdida si estaba CONFIRMADO: al que nunca pisó el
+        // trazado no se le está cortando ninguna corrida.
+        if (decl.enRuta) decl.perdidaEn = unit.timestamp || ahora;
+        decl.enRuta = false;
+      }
       console.log(`Unidad olvidada tras ${Math.round(sinOir / 1000)} s sin oírse: ${unitId}`);
       broadcastToRoute(unit.routeId, { type: 'unit_left', unitId });
       rutasAfectadas.add(unit.routeId);

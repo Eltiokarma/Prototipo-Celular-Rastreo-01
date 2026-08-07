@@ -960,12 +960,18 @@ function Perfil({ sesion, marca, onCerrar }) {
             )}
             {/* Se le dice al chofer lo mismo que ve Despacho. Esconderlo sería
                 la versión amable de mentir, y además le saca la posibilidad de
-                explicarlo si hay algo que explicar. */}
+                explicarlo si hay algo que explicar.
+                Se nombra el HECHO y las dos causas posibles, no una sola: la
+                medición también se parte por quedarse sin señal, y acusar al
+                chofer de haberse metido cuando estuvo en un cerro es la clase
+                de error que se descubre cuando ya perdió la confianza. */}
             {m && m.parciales > 0 && (
               <Text style={s.diagnostico}>
-                {m.parciales} vuelta{m.parciales === 1 ? '' : 's'} empezaron con la ruta ya
-                avanzada (entraste en el medio, no desde el paradero inicial). No cuentan
-                para el promedio ni para el objetivo.
+                {m.parciales} vuelta{m.parciales === 1 ? '' : 's'} no se
+                midi{m.parciales === 1 ? 'ó' : 'eron'} entera{m.parciales === 1 ? '' : 's'}: la
+                medición arrancó con la ruta ya avanzada, sea porque entraste en el medio o
+                porque estuviste sin señal un rato largo. No cuentan para el promedio ni
+                para el objetivo.
               </Text>
             )}
 

@@ -475,6 +475,15 @@ Ahora, en el momento en que la unidad pisa el trazado, se mira **por dónde**:
   Despacho (`↳ ENTRÓ 62%`, en ámbar) y el hecho se **audita**, para poder
   contestar "¿cuántas veces esta semana?" sin haber estado mirando la pantalla
   en el momento.
+- **Salvo que esté reanudando.** El olvido desconfirma a los 3 minutos sin oír
+  al teléfono, y una zona muerta más larga que eso es común: un cerro, un
+  sótano, la batería agotada. Al reaparecer, el que venía desde el paradero se
+  ve idéntico al que se acaba de meter. Si la unidad estaba confirmada y
+  vuelve dentro de las 2 h, es la misma corrida cortada: la vuelta sigue
+  siendo parcial —no se la midió entera, y eso es aritmética— pero **no se
+  audita a nadie ni se lo marca en el mapa**. Una acusación automática y falsa
+  es peor que no tener la detección: se descubre discutiendo con un chofer que
+  tiene razón.
 - La vuelta que cierre se guarda con `parcial = 1` y el progreso por el que
   entró. **No se descarta**: borrarla sería perder justo el dato que se busca.
 - Todo lo que promedia la filtra —resumen de Despacho, acumulado por unidad,
