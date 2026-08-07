@@ -180,12 +180,32 @@ bloqueada. La otra —**las tiles del mapa**— quedó resuelta en tres capas:
    propósito: el mapa propio v1 no tiene nombres de calles y ahí se trazan
    rutas; son ~30 pantallas contra 2000.
 
-Lo que queda pendiente de esto, en orden de urgencia: **renovar el mapa en
-servidores ya poblados** (hoy: vaciar la carpeta `tiles/` del volumen y
-redesplegar — automatizarlo con nombres versionados cuando duela),
-**nombres de calles** en el mapa propio si Despacho los extraña, y correr el
-workflow al agregar cada ciudad nueva (Cusco, Arequipa, La Paz: una línea en
-`zonas.js` + Run workflow).
+**Renovar el mapa en servidores ya poblados** era lo más urgente de esta
+lista y quedó **HECHO** (7/8). Era un procedimiento manual disfrazado de
+pendiente menor: los archivos se llamaban siempre igual
+(`juliaca-claro.pmtiles`) y el servidor bajaba solo lo que le faltaba —
+como no le faltaba nada, el mapa nuevo **no llegaba nunca**. La única forma
+era entrar al volumen, vaciar `tiles/` y redesplegar, servidor por
+servidor, sin que nada avisara si te lo olvidabas. Y aun haciéndolo, el
+chofer seguía viendo el mapa viejo: el service worker guarda las tiles
+caché-primero y sin expiración.
+
+Ahora cada archivo lleva su versión en el nombre
+(`juliaca-claro-3f9a1c02.pmtiles`, los 8 primeros hex del sha256 de su
+contenido, que pone el extractor), y de ahí salen las cuatro propiedades
+solas: el mapa que cambió **baja solo** al reiniciar, el que reemplazó **se
+borra** (sin eso cada renovación deja tirada una copia entera del mapa
+anterior en un volumen que se paga por GB, y se acumulan),
+el que no cambió **no se vuelve a bajar**, y como la versión viaja también
+en la URL de cada tile, **el mapa nuevo le llega al celular**. La URL de
+tile sin versión sigue atendida a propósito: es la que piden los APK que ya
+están en la calle. Renovar es correr el workflow de nuevo y nada más. Suite
+`renovacion`, que lo corre entero contra el servidor real con un release de
+mentira — incluido el reinicio que no debe mover un byte.
+
+Lo que queda pendiente de esto: **nombres de calles** en el mapa propio si
+Despacho los extraña, y correr el workflow al agregar cada ciudad nueva
+(Cusco, Arequipa, La Paz: una línea en `zonas.js` + Run workflow).
 
 ## Lo que queda por construir
 

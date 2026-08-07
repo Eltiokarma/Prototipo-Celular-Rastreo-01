@@ -12,6 +12,13 @@
 //
 // El fixture (tiles-fixture/) tiene tiles reales solo en z14-16 y declara
 // z11-18: acercarse a z17 es pedir algo que no está — el rescate en vivo.
+//
+// Acá se lo copia con NOMBRES VERSIONADOS, que es como se ve un mapa
+// extraído desde que se puede renovar: `juliaca-oscuro-c0ffee01.pmtiles`,
+// y el índice declarando esa versión. Así este navegador pide las URLs que
+// pide el chofer de verdad —con la versión adentro—, que es lo que hace que
+// un mapa nuevo le llegue al celular en vez de quedarse con el cacheado.
+// (El caso contrario —un volumen viejo, sin versiones— lo cubre `tiles`.)
 const RAIZ = require('path').join(__dirname, '..');
 const S = __dirname;
 const { spawn } = require('child_process');
@@ -41,9 +48,28 @@ let servidor = null;
     await sleep(250);
   }
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
+
+  // El mismo fixture, con los nombres y el índice de un mapa versionado
+  const TILES = S + '/cascada-tiles';
+  fs.rmSync(TILES, { recursive: true, force: true });
+  fs.mkdirSync(TILES, { recursive: true });
+  const VERSIONES = { claro: 'c0ffee01', oscuro: 'c0ffee02' };
+  for (const [estilo, version] of Object.entries(VERSIONES)) {
+    fs.copyFileSync(`${S}/tiles-fixture/juliaca-${estilo}.pmtiles`,
+                    `${TILES}/juliaca-${estilo}-${version}.pmtiles`);
+  }
+  fs.writeFileSync(TILES + '/zonas.json', JSON.stringify({
+    juliaca: {
+      nombre: 'Juliaca', bbox: [-70.21, -15.56, -70.04, -15.41], zooms: [11, 18],
+      archivos: { claro: `juliaca-claro-${VERSIONES.claro}.pmtiles`,
+                  oscuro: `juliaca-oscuro-${VERSIONES.oscuro}.pmtiles` },
+      versiones: VERSIONES,
+    },
+  }));
+
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
-           TILES_DIR: S + '/tiles-fixture', STATE_INTERVAL_MS: '400' },
+           TILES_DIR: TILES, STATE_INTERVAL_MS: '400' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   for (let i = 0; i < 80; i++) {
@@ -136,6 +162,18 @@ let servidor = null;
   ok('los contadores lo confirman: propias > 0, rescatadas = 0',
      stats1 && stats1.propias > 0 && stats1.rescatadas === 0, stats1);
 
+  // La versión del mapa, en la URL de cada tile. Es lo que hace que una
+  // renovación le llegue al chofer: el service worker guarda las tiles
+  // caché-primero y sin expiración, así que con la URL de siempre seguiría
+  // viendo el mapa viejo hasta que la poda lo sacara. Y el `/v` no puede
+  // salir de una variable sin valor: `/vundefined/` daría 404 en cada tile.
+  const FORMA = /^\/tiles\/xyz\/juliaca\/(claro|oscuro)\/v(c0ffee01|c0ffee02)\/\d+\/\d+\/\d+\.png$/;
+  const rutas = propias().map(u => new URL(u).pathname);
+  ok('todas las tiles propias piden la versión que declara el índice',
+     rutas.length > 0 && rutas.every(r => FORMA.test(r)), rutas.filter(r => !FORMA.test(r)).slice(0, 3));
+  ok('y ninguna salió con una versión sin valor',
+     !rutas.some(r => /\/v(undefined|null|)\//.test(r)), rutas.filter(r => /\/v(undefined|null|)\//.test(r)).slice(0, 3));
+
   console.log('\nNIVEL 3: LA TILE QUE NO TENEMOS CAE AL PROVEEDOR');
   // Acercarse con la rueda hasta z17-18: el fixture no tiene esas tiles,
   // el servidor responde 404 y cada tile se rescata con el proveedor.
@@ -163,6 +201,7 @@ let servidor = null;
   await browser.close();
   servidor.kill();
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
+  fs.rmSync(TILES, { recursive: true, force: true });
   console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
   process.exit(fallas ? 1 : 0);
 })().catch(e => {

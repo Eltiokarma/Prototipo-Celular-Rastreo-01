@@ -6,7 +6,7 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v42';       // app: HTML, JS propio, iconos
+const CACHE_NAME = 'coop-r14-v43';       // app: HTML, JS propio, iconos
 // tiles-v2: las tiles ahora vienen de Geoapify — las de CARTO guardadas con
 // la v1 tienen URLs que ya nadie pide y solo ocupan los ~15 MB del tope.
 const TILE_CACHE = 'coop-r14-tiles-v2';  // tiles del mapa
@@ -43,6 +43,14 @@ const NUNCA_CACHEAR = [
 // `/tiles/xyz/` es el MAPA PROPIO servido por nuestro backend (la mayoría
 // del tráfico desde la fase 3): mismas reglas de caché que el proveedor —
 // cache primero, la segunda vista no gasta un byte.
+//
+// Y por la misma razón que la clave, su URL lleva la VERSIÓN del mapa
+// adentro (`/tiles/xyz/juliaca/oscuro/v3f9a1c02/…`). Acá una tile guardada
+// se sirve para siempre —no hay expiración, es el ahorro entero—, así que
+// sin la versión en la URL un mapa renovado no llegaría nunca a este
+// celular: el chofer seguiría viendo el trazado viejo hasta que la poda de
+// abajo lo sacara por antigüedad. Con la versión, el mapa nuevo son URLs
+// nuevas y las viejas se van solas al pasar el tope.
 const ES_TILE = /maps\.geoapify\.com\/v1\/tile\/|\/tiles\/xyz\//;
 // `/vendor/leaflet/` es de este mismo origen pero pertenece acá y no a la
 // caché de la app: Leaflet no cambia cuando publicamos una versión nueva, y

@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 // Extrae el mapa propio de una zona: PMTiles RASTER, claro y oscuro.
 //
-//   node extraer.js juliaca            → salida/juliaca-claro.pmtiles
-//                                        salida/juliaca-oscuro.pmtiles
+//   node extraer.js juliaca            → salida/juliaca-claro-3f9a1c02.pmtiles
+//                                        salida/juliaca-oscuro-7b2e4d10.pmtiles
+//                                        salida/zonas.json
 //   node extraer.js juliaca --solo-datos   (baja OSM y para)
+//
+// Los 8 hex del final son la VERSIÓN: el sha256 del propio archivo. Es lo
+// que hace que renovar el mapa funcione solo — ver `versionDe` más abajo.
 //
 // Pipeline: Overpass (datos OSM del bbox, cacheados en datos/) → dibujo de
 // cada tile z11-18 con dibujar.js → MBTiles (SQLite) → PMTiles (CLI de
@@ -21,9 +25,24 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const ZONAS = require('./zonas');
 const { dibujarTile, lonAX, latAY } = require('./dibujar');
+
+// La VERSIÓN de un archivo del mapa es su propio contenido: los primeros 8
+// hex del sha256. De ahí sale que renovar el mapa funcione solo —
+// re-extraer y que cambie algo produce un nombre nuevo, que ningún
+// servidor tiene y todos bajan; re-extraer y que no cambie nada produce el
+// mismo nombre, y nadie baja nada. Se lee de a pedazos y no de una: un
+// .pmtiles de una ciudad grande no entra cómodo en memoria.
+async function versionDe(ruta) {
+  const h = crypto.createHash('sha256');
+  await new Promise((listo, error) => {
+    fs.createReadStream(ruta).on('data', d => h.update(d)).on('end', listo).on('error', error);
+  });
+  return h.digest('hex').slice(0, 8);
+}
 
 const zonaId = process.argv[2];
 const zona = ZONAS[zonaId];
@@ -187,6 +206,7 @@ function pmtilesBin() {
   const elegir = (capa, bb) => buscar(indices[Object.keys(capas).find(k => capas[k] === capa)], bb);
   console.log('capas:', Object.entries(capas).map(([k, v]) => `${k}=${v.length}`).join(' · '));
 
+  const versiones = {};
   const { createCanvas } = require(fs.existsSync(path.join(__dirname, 'node_modules', '@napi-rs', 'canvas'))
     ? '@napi-rs/canvas'
     : process.env.CANVAS_DIR || '@napi-rs/canvas');
@@ -227,25 +247,54 @@ function pmtilesBin() {
     }
     db.close();
 
+    // Se convierte a un nombre de paso y recién con el archivo hecho se le
+    // pregunta su versión: el nombre definitivo la lleva adentro.
     const pm = path.join(SALIDA, `${zonaId}-${estilo}.pmtiles`);
     fs.rmSync(pm, { force: true });
     execFileSync(pmtilesBin(), ['convert', mb, pm]);
-    const mbSize = fs.statSync(mb).size, pmSize = fs.statSync(pm).size;
-    console.log(`  → ${path.basename(pm)}: ${(pmSize / 1024 ** 2).toFixed(1)} MB (mbtiles ${(mbSize / 1024 ** 2).toFixed(1)} MB, ${total} tiles)`);
+    const version = await versionDe(pm);
+    versiones[estilo] = version;
+    // Las versiones anteriores de ESTA zona y ESTE estilo se van de
+    // salida/: el workflow sube salida/*.pmtiles entero y no tiene por qué
+    // volver a subir un mapa que acaba de quedar viejo. Las de las OTRAS
+    // zonas no se tocan — el índice las sigue nombrando.
+    for (const viejo of fs.readdirSync(SALIDA)) {
+      if (new RegExp(`^${zonaId}-${estilo}-[0-9a-f]{8}\\.pmtiles$`).test(viejo)) {
+        fs.rmSync(path.join(SALIDA, viejo), { force: true });
+      }
+    }
+    const destino = path.join(SALIDA, `${zonaId}-${estilo}-${version}.pmtiles`);
+    fs.renameSync(pm, destino);
+    const mbSize = fs.statSync(mb).size, pmSize = fs.statSync(destino).size;
+    console.log(`  → ${path.basename(destino)}: ${(pmSize / 1024 ** 2).toFixed(1)} MB (mbtiles ${(mbSize / 1024 ** 2).toFixed(1)} MB, ${total} tiles)`);
   }
   // El índice que el servidor sirve en /tiles/zonas.json: qué zonas hay,
-  // su bbox y sus archivos. La cascada (fase 3) decide con esto si una tile
-  // sale del mapa propio o del proveedor. Se actualiza, no se pisa: una
-  // zona nueva se suma a las que ya estaban extraídas.
+  // su bbox, sus archivos y la versión de cada uno. La cascada (fase 3)
+  // decide con esto si una tile sale del mapa propio o del proveedor, y con
+  // `versiones` arma la URL de la tile — que es como una renovación llega
+  // al celular de un chofer que ya tenía el mapa viejo guardado. Se
+  // actualiza, no se pisa: una zona nueva se suma a las que ya estaban.
   const idxPath = path.join(SALIDA, 'zonas.json');
   const idx = fs.existsSync(idxPath) ? JSON.parse(fs.readFileSync(idxPath, 'utf8')) : {};
+  const anterior = idx[zonaId];
   idx[zonaId] = {
     nombre: zona.nombre, bbox: zona.bbox, zooms: zona.zooms,
-    archivos: { claro: `${zonaId}-claro.pmtiles`, oscuro: `${zonaId}-oscuro.pmtiles` },
+    archivos: {
+      claro: `${zonaId}-claro-${versiones.claro}.pmtiles`,
+      oscuro: `${zonaId}-oscuro-${versiones.oscuro}.pmtiles`,
+    },
+    versiones,
     extraido: new Date().toISOString().slice(0, 10),
   };
   fs.writeFileSync(idxPath, JSON.stringify(idx, null, 2));
 
+  // Decirlo en voz alta, porque decide si esta corrida sirvió de algo: si
+  // las dos versiones quedaron iguales, el mapa de OSM no cambió en esta
+  // zona y ningún servidor va a bajar nada. No es un error — es la
+  // respuesta a "¿hace falta re-extraer?".
+  const igual = anterior && JSON.stringify(anterior.versiones || {}) === JSON.stringify(versiones);
   console.log('\nListo. Los .pmtiles y zonas.json están en herramientas/mapa-propio/salida/');
+  console.log(`Versiones: claro ${versiones.claro} · oscuro ${versiones.oscuro}` +
+              (igual ? '  (IGUALES a las publicadas: nadie va a bajar nada)' : ''));
   console.log('El tamaño decide dónde viven — ver PENDIENTES.md / COSTOS.md.');
 })().catch(e => { console.error(e); process.exit(1); });

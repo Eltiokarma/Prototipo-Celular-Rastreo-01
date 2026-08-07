@@ -175,6 +175,21 @@ Lo que falta construir, ordenado: ver **PENDIENTES.md**.
 | `GEOAPIFY_API_KEY` | La clave del proveedor de tiles del mapa (gratis en [myprojects.geoapify.com](https://myprojects.geoapify.com); el plan gratuito permite uso comercial). El servidor se la pasa a las pantallas en el momento — por `/config.js` a las web, con el login a la app nativa. Sin ella el fondo del mapa sale gris; los puntos y el trazado se dibujan igual |
 | `TILES_RELEASE_URL` | De dónde bajar el **mapa propio** (PMTiles raster por ciudad) al arrancar: la URL de descargas del release `mapa-propio`, p. ej. `https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01/releases/download/mapa-propio`. Con esto, las tiles de la zona de operación salen de NUESTRO servidor y Geoapify queda de excepción (fuera de zona o falla). El release lo genera el workflow **mapa propio** (Actions) |
 | `TILES_DIR` | Dónde guardar/leer esos archivos. Por defecto, `tiles/` junto a la base — en Railway eso cae dentro del volumen, que es donde deben vivir |
+
+**Renovar el mapa** es correr el workflow **mapa propio** de nuevo con la
+misma zona, y nada más. Cada archivo lleva su versión en el nombre
+(`juliaca-claro-3f9a1c02.pmtiles`: los 8 primeros hex del sha256 de su
+contenido), y de ahí salen las tres cosas que antes había que hacer a mano:
+el servidor baja el mapa nuevo al reiniciar **y borra el que reemplazó**
+(sin eso, cada renovación deja tirada una copia entera del mapa anterior en
+un volumen que se paga por GB, y se acumulan); si el
+mapa no cambió, el nombre es el mismo y nadie baja nada; y como la versión
+viaja también en la URL de cada tile, el mapa nuevo le llega al celular del
+chofer, que tiene las tiles cacheadas sin expiración. Antes de esto la única
+forma era entrar al volumen, vaciar la carpeta `tiles/` y redesplegar —
+servidor por servidor, y sin que nada avisara si te lo olvidabas. La URL de
+tile sin versión sigue atendida: es la que piden los APK que ya están en la
+calle. Suite `renovacion`.
 | `DEFAULT_ROUTE` / `DEFAULT_COMPANY` / `DEFAULT_COMPANY_NAME` | Código de la ruta y de la cooperativa iniciales, y su nombre visible. Solo se usan la primera vez |
 | `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres |
 | `CREATOR_PATH` | Mueve el panel del creador a una ruta propia (por defecto `/creador`) |

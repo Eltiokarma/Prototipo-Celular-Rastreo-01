@@ -18,3 +18,8 @@ pruebas/cdn/
 # creador-ui.js saca las suyas al lado del script, no en shots/
 pruebas/*.png
 pruebas/respaldos/
+# Los volúmenes de mentira que arman `renovacion` y `cascada` a partir de
+# tiles-fixture/. El fixture SÍ va al repo; estas copias no.
+pruebas/renovacion-tiles/
+pruebas/renovacion-release/
+pruebas/cascada-tiles/

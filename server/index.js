@@ -3440,10 +3440,29 @@ console.log('Mapa propio:', TILES_DIR);
 // Pesan cientos de MB: viven como assets de un Release de GitHub y cada
 // servidor se los baja UNA vez a su volumen. TILES_RELEASE_URL apunta a la
 // carpeta de descargas del release, p. ej.:
-//   https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01/releases/download/mapa-2026-08
+//   https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01/releases/download/mapa-propio
 // Mientras bajan (o si la variable falta), /tiles/zonas.json anuncia solo
 // lo que ya está en disco y las pantallas siguen con el proveedor: el mapa
 // nunca queda en blanco por esto.
+//
+// RENOVAR EL MAPA. Cada archivo lleva su versión en el nombre
+// (`juliaca-claro-3f9a1c02.pmtiles`, los primeros 8 hex del sha256 de su
+// contenido, puestos por el extractor). De ahí salen las tres propiedades
+// que antes había que conseguir a mano vaciando el volumen:
+//
+//   1. Un mapa re-extraído CAMBIA de nombre, así que el "¿ya lo tengo?" de
+//      abajo da que no y el archivo baja solo. Antes el nombre era fijo, el
+//      archivo ya estaba, y el mapa nuevo no llegaba nunca.
+//   2. Un mapa re-extraído que quedó IGUAL conserva su nombre y no se baja
+//      de nuevo: la renovación no cuesta ancho de banda si no cambió nada.
+//   3. La versión viaja en la URL de cada tile, así que la copia guardada
+//      en el celular del chofer tampoco se queda pegada (ver la ruta de la
+//      tile suelta, más abajo).
+//
+// Los archivos que el índice nuevo ya no nombra se BORRAN acá abajo. Sin
+// eso, cada renovación dejaría una copia entera del mapa anterior tirada en
+// el volumen —que se paga por GB (`COSTOS.md`)— y se irían acumulando: no
+// es que ocupe el doble, es que ocupa una copia más cada vez.
 async function bajarMapaPropio() {
   const base = String(process.env.TILES_RELEASE_URL || '').replace(/\/+$/, '');
   if (!base) { console.log('TILES_RELEASE_URL sin configurar — mapa propio solo si ya está en disco.'); return; }
@@ -3475,6 +3494,11 @@ async function bajarMapaPropio() {
       // El índice se publica al final: nunca anuncia archivos que no están
       fs.renameSync(path.join(TILES_DIR, 'zonas.json.nuevo'), path.join(TILES_DIR, 'zonas.json'));
       console.log(bajados ? `Mapa propio: ${bajados} archivo(s) bajados del release.` : 'Mapa propio: al día.');
+      // Y recién ahora, con el índice nuevo ya publicado, se van las
+      // versiones que reemplazó. El orden importa: si esto corriera antes,
+      // una caída entre el borrado y el rename dejaría el índice viejo
+      // apuntando a archivos que ya no están — un mapa entero de 404.
+      limpiarVersionesViejas(zonas);
       return;
     } catch (e) {
       console.warn(`Mapa propio: descarga falló (${e.message}) — reintento ${intento}/5`);
@@ -3482,6 +3506,42 @@ async function bajarMapaPropio() {
     }
   }
   console.warn('Mapa propio: no se pudo bajar; las pantallas siguen con el proveedor.');
+}
+
+// Todo .pmtiles del volumen que el índice recién publicado ya no nombra: es
+// la versión anterior del mapa, y son cientos de MB por zona. Se cierra el
+// lector antes de borrar (tiene el archivo abierto y el índice en memoria);
+// un pedido en vuelo sobrevive igual, porque en Linux el descriptor sigue
+// siendo válido después del unlink.
+//
+// Solo se llama con un índice que se acaba de bajar Y publicar: nunca borra
+// por su cuenta. Un archivo que está en disco y no en el índice pero que
+// TAMPOCO se pudo reemplazar no llega hasta acá — la descarga habría
+// fallado y la función vuelve antes.
+function limpiarVersionesViejas(zonas) {
+  const vigentes = new Set();
+  for (const z of Object.values(zonas || {})) {
+    for (const a of Object.values(z.archivos || {})) vigentes.add(a);
+  }
+  let borrados = 0, liberado = 0;
+  let entradas = [];
+  try { entradas = fs.readdirSync(TILES_DIR); } catch { return; }
+  for (const f of entradas) {
+    // Los .tmp son descargas cortadas a la mitad: no los nombra nadie
+    const esSobra = /\.pmtiles\.tmp$/.test(f);
+    if (!esSobra && (!/\.pmtiles$/.test(f) || vigentes.has(f))) continue;
+    const ruta = path.join(TILES_DIR, f);
+    try {
+      const bytes = fs.statSync(ruta).size;
+      lectorPmtiles.cerrar(ruta);
+      fs.unlinkSync(ruta);
+      borrados++; liberado += bytes;
+    } catch (e) { console.warn('Mapa propio: no se pudo borrar', f, '—', e.message); }
+  }
+  if (borrados) {
+    console.log(`Mapa propio: ${borrados} archivo(s) de la versión anterior borrados ` +
+                `(${(liberado / 1024 ** 2).toFixed(1)} MB libres en el volumen).`);
+  }
 }
 
 // CORS: la app nativa vive en un WebView con otro origen, y un pedido con
@@ -3493,20 +3553,50 @@ function corsDeTiles(res) {
 }
 app.options('/tiles/:archivo', (req, res) => { corsDeTiles(res); res.sendStatus(204); });
 
+// El índice crudo, releído solo cuando el archivo cambia de verdad. Antes
+// se parseaba en cada llamada, y desde que la ruta de la tile suelta lo
+// consulta —una vez por tile— eso serían miles de lecturas de disco y
+// JSON.parse por segundo con la flota entera mirando el mapa.
+let idxCache = { firma: null, zonas: {} };
+function indiceZonas() {
+  let firma = null;
+  try { const st = fs.statSync(path.join(TILES_DIR, 'zonas.json')); firma = st.mtimeMs + ':' + st.size; } catch {}
+  if (firma !== idxCache.firma) {
+    let zonas = {};
+    if (firma) {
+      try { zonas = JSON.parse(fs.readFileSync(path.join(TILES_DIR, 'zonas.json'), 'utf8')); } catch { zonas = {}; }
+    }
+    idxCache = { firma, zonas };
+  }
+  return idxCache.zonas;
+}
+
+// El archivo que le toca a esta zona y este estilo, según el índice. Con la
+// versión en el nombre ya no se puede deducir (`juliaca-claro-3f9a1c02`):
+// hay que preguntarle al índice, que es quien sabe cuál es la vigente.
+// El nombre viejo queda de respaldo para un volumen que todavía tenga un
+// mapa extraído antes de las versiones — ahí sí era `zona-estilo.pmtiles`.
+function archivoDeZona(zona, estilo) {
+  const declarado = indiceZonas()[zona]?.archivos?.[estilo];
+  const nombre = (typeof declarado === 'string' && /^[a-z0-9-]+\.pmtiles$/.test(declarado))
+    ? declarado
+    : `${zona}-${estilo}.pmtiles`;
+  return path.join(TILES_DIR, nombre);
+}
+
 // El índice: qué zonas hay y con qué bbox. La cascada del cliente decide
 // con esto si una tile sale de acá o del proveedor. Solo anuncia zonas
 // cuyos archivos están DE VERDAD en el disco: prometer una zona a medio
 // bajar sería un mapa entero de 404 en cadena.
 function zonasDisponibles() {
-  const idx = path.join(TILES_DIR, 'zonas.json');
-  if (!fs.existsSync(idx)) return {};
-  let zonas;
-  try { zonas = JSON.parse(fs.readFileSync(idx, 'utf8')); } catch { return {}; }
-  for (const [id, z] of Object.entries(zonas)) {
-    const ok = Object.values(z.archivos || {}).every(a => fs.existsSync(path.join(TILES_DIR, a)));
-    if (!ok) delete zonas[id];
+  // Se arma un objeto nuevo y no se filtra el del caché: sacarle una zona
+  // al del caché la borraría para siempre, hasta que zonas.json cambiara.
+  const salida = {};
+  for (const [id, z] of Object.entries(indiceZonas())) {
+    const archivos = Object.values(z.archivos || {});
+    if (archivos.length && archivos.every(a => fs.existsSync(path.join(TILES_DIR, a)))) salida[id] = z;
   }
-  return zonas;
+  return salida;
 }
 app.get('/tiles/zonas.json', (req, res) => {
   corsDeTiles(res);
@@ -3535,31 +3625,56 @@ app.get('/tiles/:archivo', (req, res) => {
 //
 // 404 cuando la tile no está (fuera del bbox, zoom fuera de rango, archivo
 // todavía no descargado): la cascada del cliente lo toma como "probá con el
-// proveedor". Caché de 30 días, no un año: el mapa se re-extrae cada tanto
-// (OSM cambia despacio) y las tiles conservan su URL.
+// proveedor".
+//
+// Hay DOS formas de la misma URL, y la diferencia es cuánto dura la copia
+// guardada en el celular:
+//
+//   …/juliaca/claro/v3f9a1c02/15/10000/17812.png   ← la que piden hoy
+//   …/juliaca/claro/15/10000/17812.png             ← sin versión
+//
+// La versionada es INMUTABLE: esos bytes son los de ese mapa y no van a
+// cambiar nunca, así que se guarda un año. La sin versión es la misma tile
+// del mapa vigente, pero su URL sí cambia de contenido cuando el mapa se
+// renueva, y por eso se guarda 30 días y no más.
+//
+// La forma sin versión NO es un resto: es el contrato con los APK que ya
+// están en la calle. Un teléfono con la app de antes de esto pide así, y
+// tiene que seguir viendo el mapa. Lo que ese teléfono no consigue es la
+// renovación instantánea — la copia guardada le dura hasta que la caché la
+// pode, que es exactamente el problema que la versión vino a resolver.
 const lectorPmtiles = require('./pmtiles');
-app.get('/tiles/xyz/:zona/:estilo/:z/:x/:y.png', (req, res) => {
+function servirTile(req, res, version) {
   corsDeTiles(res);
   if (!TILES_DIR) return res.sendStatus(404);
   const { zona, estilo } = req.params;
   const z = Number(req.params.z), x = Number(req.params.x), y = Number(req.params.y);
   if (!/^[a-z0-9-]+$/.test(zona) || !/^(claro|oscuro)$/.test(estilo) ||
+      (version !== null && !/^v[a-z0-9]{4,32}$/.test(version)) ||
       !Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) ||
       z < 0 || z > 22 || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z) {
     return res.sendStatus(404);
   }
-  const ruta = path.join(TILES_DIR, `${zona}-${estilo}.pmtiles`);
+  // La versión pedida no se usa para elegir el archivo: se sirve SIEMPRE el
+  // del mapa vigente. Es a propósito. La pantalla que quedó abierta desde
+  // antes de una renovación pide con la versión vieja, y lo que tiene que
+  // recibir es el mapa de ahora, no un 404 ni un mapa que ya se borró.
+  const ruta = archivoDeZona(zona, estilo);
   if (!fs.existsSync(ruta)) return res.sendStatus(404);
   try {
     const png = lectorPmtiles.abrir(ruta).tile(z, x, y);
     if (!png) return res.sendStatus(404);
-    res.setHeader('Cache-Control', 'public, max-age=2592000');
+    res.setHeader('Cache-Control', version
+      ? 'public, max-age=31536000, immutable'
+      : 'public, max-age=2592000');
     res.type('image/png').send(png);
   } catch (e) {
     console.error('tile rota', zona, estilo, z, x, y, e.message);
     res.sendStatus(500);
   }
-});
+}
+app.get('/tiles/xyz/:zona/:estilo/:version/:z/:x/:y.png', (req, res) => servirTile(req, res, req.params.version));
+app.get('/tiles/xyz/:zona/:estilo/:z/:x/:y.png', (req, res) => servirTile(req, res, null));
 
 const VENDOR_LEAFLET = path.join(__dirname, 'vendor', 'leaflet');
 for (const [archivo, tipo] of [['leaflet.js', 'application/javascript'], ['leaflet.css', 'text/css']]) {
