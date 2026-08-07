@@ -125,8 +125,35 @@ function textoNotificacion(hud, reportaGps) {
   return `${p.etiqueta} ${p.rotulo.replace(/^.{2} · /, '')} · ${p.display}`;
 }
 
+// La brecha que vuelve en la respuesta del POST /gps → la notificación viva.
+//
+// Con la pantalla apagada no hay WebSocket ni estado: el único dato que
+// llega es el `brecha` que el servidor pega en la respuesta del POST (los
+// mismos campos que gaps[unidad] del estado). Esto lo convierte en las dos
+// líneas de la notificación, pasando por el MISMO construirHud que dibuja
+// la pantalla — la notificación no puede decir una cosa y el HUD otra.
+//
+// Devuelve null cuando no hay nada que decir (sin brecha en la respuesta):
+// null significa "no toques la notificación", no "mostrá vacío".
+function avisoDesdeRespuesta(brecha) {
+  if (!brecha) return null;
+  // Los tres estados de un lado, como en cliente.js: nadie / alguien a
+  // tanto / alguien sin señal. Ver PROTOCOLO.md.
+  const lado = (tiempo, unidad, sinSenal) => {
+    if (!unidad) return null;
+    if (sinSenal || !tiempo) return { tiempo: null, unidad, sinSenal: true };
+    return { tiempo, unidad, sinSenal: false };
+  };
+  const hud = construirHud({
+    adelante: lado(brecha.toAhead, brecha.aheadUnit, brecha.aheadSinSenal),
+    atras:    lado(brecha.toBehind, brecha.behindUnit, brecha.behindSinSenal),
+    objetivoMin: brecha.objetivoMin ?? null,
+  });
+  return { titulo: textoNotificacion(hud, true), detalle: hud.instruccion };
+}
+
 module.exports = {
-  construirHud, textoNotificacion,
+  construirHud, textoNotificacion, avisoDesdeRespuesta,
   // Se exportan para las pruebas y para que las pantallas no las repitan
   aMinutos, estadoDe, objetivoLegible, sinCeroInicial,
 };

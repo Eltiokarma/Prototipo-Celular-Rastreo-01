@@ -23,7 +23,10 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
+import * as FileSystem from 'expo-file-system/legacy';
 import { crearVigia } from '../ausencia.js';
+import { notificarBrecha, limpiarNotificacion } from '../notificacion.js';
+import { crearGrabador } from '../grabador.js';
 
 export const TAREA_GPS = 'coop-r14-gps';
 
@@ -65,6 +68,8 @@ export const diagnostico = {
   // enviadas y 0 fallidas" es indistinguible de "todavía no llegó ninguna
   // posición", y esa ambigüedad ya costó una sesión entera de diagnóstico.
   servicio: 'sin arrancar',
+  // La grabación de recorrido en curso ({puntos, largoM}) o null
+  grabacion: null,
 };
 
 // Lo que no se pudo mandar. Vive en el módulo del SERVICIO y no en la
@@ -142,13 +147,110 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
   }));
 
   for (const p of posiciones) alRecibir?.(p);   // solo para la pantalla
+  // El grabador de recorridos come de las MISMAS posiciones que se mandan:
+  // mejor esfuerzo, jamás puede frenar el envío — la posición es el producto.
+  try { await grabar(posiciones); } catch {}
   await subir(posiciones);
 });
+
+// ─── EL GRABADOR DE RECORRIDOS (PENDIENTES 3.4) ──────────────
+// La lógica (un punto cada 30 m) vive en `app/grabador.js`, puro y con
+// suite. Acá va lo que necesita el teléfono: que la grabación sobreviva a
+// que Android mate el proceso. El flag vive en disco (la tarea revive sin
+// memoria) y los puntos se escriben a un archivo con cada punto nuevo —
+// a 30 m por punto es una escritura cada pocos segundos, no cada 3 s.
+export const LLAVE_GRABANDO = 'grabando';
+const ARCHIVO_GRABACION = () => FileSystem.documentDirectory + 'grabacion.json';
+let grabador = null;
+
+async function grabar(posiciones) {
+  const flag = await SecureStore.getItemAsync(LLAVE_GRABANDO).catch(() => null);
+  if (flag !== '1') { grabador = null; return; }
+  if (!grabador) {
+    // El proceso es nuevo (o recién se empezó): retomar lo que haya en disco
+    let previos = [];
+    try { previos = JSON.parse(await FileSystem.readAsStringAsync(ARCHIVO_GRABACION())) || []; }
+    catch {}
+    grabador = crearGrabador(previos);
+  }
+  let huboNuevos = false;
+  for (const p of posiciones) {
+    if (grabador.posicion(p.lat, p.lng)) huboNuevos = true;
+  }
+  diagnostico.grabacion = { puntos: grabador.cantidad, largoM: grabador.largoM };
+  if (huboNuevos) {
+    await FileSystem.writeAsStringAsync(ARCHIVO_GRABACION(), JSON.stringify(grabador.puntos));
+  }
+}
+
+// Lo que usa la pantalla del perfil. Todo pasa por el disco porque la
+// pantalla y la tarea pueden estar en procesos distintos.
+export async function empezarGrabacion() {
+  grabador = crearGrabador();
+  try { await FileSystem.deleteAsync(ARCHIVO_GRABACION(), { idempotent: true }); } catch {}
+  await SecureStore.setItemAsync(LLAVE_GRABANDO, '1');
+  diagnostico.grabacion = { puntos: 0, largoM: 0 };
+}
+
+// Para de grabar y devuelve los puntos — pero NO borra el archivo: una
+// vuelta grabada es una hora de manejo, y perderla por un corte de señal
+// en el momento de mandarla sería carísimo. El archivo se va recién con
+// `descartarGrabacion()`, cuando el envío salió bien (o el chofer descarta).
+export async function pararGrabacion() {
+  let puntos = grabador ? grabador.puntos : [];
+  grabador = null;
+  try { await SecureStore.deleteItemAsync(LLAVE_GRABANDO); } catch {}
+  if (!puntos.length) {
+    try { puntos = JSON.parse(await FileSystem.readAsStringAsync(ARCHIVO_GRABACION())) || []; }
+    catch {}
+  }
+  if (diagnostico.grabacion) diagnostico.grabacion = { ...diagnostico.grabacion, parada: true };
+  return puntos;
+}
+
+export async function descartarGrabacion() {
+  grabador = null;
+  diagnostico.grabacion = null;
+  try { await SecureStore.deleteItemAsync(LLAVE_GRABANDO); } catch {}
+  try { await FileSystem.deleteAsync(ARCHIVO_GRABACION(), { idempotent: true }); } catch {}
+}
 
 // Cuántas están esperando, para verlo en pantalla
 export function enEspera() { return pendientes.length; }
 
+// `fetch` en React Native NO tiene timeout: un socket que Doze dejó a medias
+// puede quedar esperando PARA SIEMPRE. Y ese silencio era invisible de las
+// dos puntas: el envío colgado no cuenta como fallo —no hay error, no hay
+// nada—, sus posiciones no vuelven a la cola (solo vuelven en el catch), y
+// todo lo que llega después se apila detrás. Medido en un teléfono real:
+// "enviadas 300 · fallidas 0 · 523 esperando · último hace 2123 s" — 35
+// minutos sin un solo envío y ni un error a la vista. El corte convierte el
+// cuelgue en un error común y corriente: se re-encola y se cuenta.
+const FETCH_CORTE_MS = 15_000;
+function fetchConCorte(url, opciones) {
+  const control = new AbortController();
+  const corte = setTimeout(() => control.abort(), FETCH_CORTE_MS);
+  return fetch(url, { ...opciones, signal: control.signal })
+    .finally(() => clearTimeout(corte));
+}
+
+// Un solo envío en vuelo. La tarea dispara de nuevo mientras el anterior
+// espera la red —con la pantalla apagada Android entrega las posiciones en
+// lotes cuando le conviene, y justo ahí la red está peor—, y dos `subir` a
+// la vez leen y escriben `pendientes` sin ningún orden: posiciones contadas
+// dos veces o perdidas, y colas por encima de su propio tope (los 523 sobre
+// un tope de 500 del mismo teléfono). El que llega mientras otro está
+// enviando deja lo suyo en la cola y se va; el próximo envío se lo lleva.
+let subiendo = false;
+
 async function subir(nuevas) {
+  if (subiendo) { guardar(nuevas); return; }
+  subiendo = true;
+  try { await subirAhora(nuevas); }
+  finally { subiendo = false; }
+}
+
+async function subirAhora(nuevas) {
   // Lo atrasado va primero y ordenado: el servidor mide las vueltas con la
   // hora de cada posición, así que el orden importa. Se manda como mucho una
   // tanda; lo que sobra espera al próximo envío y así la cola se drena de a
@@ -202,7 +304,7 @@ async function subir(nuevas) {
         // rearranca).
         diagnostico.presenciaAuto = 'fuera';
         try {
-          await fetch(servidor + '/presencia', {
+          await fetchConCorte(servidor + '/presencia', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
             body: JSON.stringify({ estado: 'fuera' }),
@@ -210,6 +312,8 @@ async function subir(nuevas) {
         } catch {}
         diagnostico.servicio = 'detenido: ausente mucho tiempo';
         try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        // Y la brecha vieja no queda colgada en la bandeja
+        limpiarNotificacion().catch(() => {});
         // Las posiciones de la casa no se mandan: irse es irse.
         return;
       }
@@ -217,7 +321,7 @@ async function subir(nuevas) {
       vigia = null;
     }
 
-    const r = await fetch(servidor + '/gps', {
+    const r = await fetchConCorte(servidor + '/gps', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({
@@ -230,6 +334,11 @@ async function subir(nuevas) {
       diagnostico.enviadas += posiciones.length;
       diagnostico.ultimoEnvio = Date.now();
       diagnostico.ultimoError = null;
+      // La brecha vuelve en la misma respuesta: es lo que mantiene VIVA la
+      // notificación con la pantalla apagada — el WebSocket ya murió y este
+      // POST es el único canal. Mejor esfuerzo: si falla, el GPS ni se entera.
+      const cuerpo = await r.json().catch(() => null);
+      if (cuerpo?.brecha) notificarBrecha(cuerpo.brecha).catch(() => {});
     } else {
       // El cuerpo del error dice bastante más que el número: 403 del cobrador,
       // 409 del relevo y 400 del reloj mal puesto se ven igual desde afuera.
@@ -242,9 +351,11 @@ async function subir(nuevas) {
     }
   } catch (e) {
     // Sin datos: en segundo plano es lo normal, Doze le corta la red a la app.
-    // NO se pierden — esperan al próximo envío que salga.
+    // NO se pierden — esperan al próximo envío que salga. El envío colgado
+    // llega acá por el corte de 15 s, con su propio nombre: "sin red" dice
+    // que no hay datos, esto dice que los hay pero el socket quedó muerto.
     guardar(posiciones);
-    anotarFallo('sin red', posiciones);
+    anotarFallo(e?.name === 'AbortError' ? 'envío colgado (corte a los 15 s)' : 'sin red', posiciones);
   }
 }
 
@@ -342,6 +453,9 @@ export async function parar() {
     // próxima sesión. Es la basura que causó el bug de arriba.
     try { await TaskManager.unregisterTaskAsync(TAREA_GPS); } catch {}
   }
+  // La brecha vieja no puede quedar en la bandeja diciendo un número de
+  // hace una hora: el que salió de ruta no tiene brecha.
+  limpiarNotificacion().catch(() => {});
   diagnostico.servicio = 'detenido';
 }
 

@@ -91,11 +91,12 @@ confirmación, ausente y salir de ruta funcionando contra producción.
 
 | # | Qué | Por qué | Tamaño |
 | --- | --- | --- | --- |
-| 3.0 | **La puerta de presencia en la app web del chofer** | `Prototipo.html` no declara presencia: emite desde el login, como siempre (compatibilidad a propósito). Si alguien sigue usando la web en vez del APK, dejarla igual que la nativa — o decidir retirarla | medio día |
-| 3.1 | **Tipo de emergencia en el SOS** | "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide una grúa, otro una ambulancia, el tercero es otra llamada. El deslizar tiene que seguir siendo lo primero —en una emergencia real nadie elige de un menú—: el tipo se elige DESPUÉS de disparar, con la alerta ya enviada, y sin elegir queda como SOS genérico | medio día |
+| 3.0 | ~~La puerta de presencia en la app web del chofer~~ | **HECHO** (6/8). La web ya tenía la puerta visual ("¿Salir a ruta ahora?") — lo que no hacía era DECLARAR. Ahora habla el mismo protocolo que la nativa: SALIR A RUTA declara `ruta` (la cadena espera igual a que el GPS pise el trazado), el botón de descanso entra AUSENTE, en el HUD están AUSENTE y SALIR DE RUTA (con segundo toque), salir o cerrar sesión declara `fuera` —la combi se va del mapa en el acto, no a los 3 min del olvido—, la presencia se re-declara en cada reconexión y un recargo de página retoma sola la guardada. Verificado de punta a punta con `chofer-shot` | ✔ |
+| 3.1 | ~~Tipo de emergencia en el SOS~~ | **HECHO** (6/8). El deslizar quedó intacto y primero: la alerta sale YA, genérica. Después aparece "¿qué pasó?" —tres botones grandes en la app (y en la web)— y el tipo elegido actualiza la MISMA emergencia en Despacho (cartel e hilo), la base y el CSV; sin elegir, o pasados 5 min de barra (15 de ventana del servidor), queda "SOS" a secas. Solo quien disparó puede calificar la suya, y solo mientras la emergencia está viva. Suite `sos` | ✔ |
 | 3.2 | ~~La palabra al lado del color en Despacho~~ | **HECHO.** Cada brecha de la fila de unidad lleva debajo *EN OBJETIVO* / *AL LÍMITE* / *CRÍTICA*: las mismas tres bandas que ya usaba el color y los mismos términos de la leyenda del mapa. El juicio ya no depende del color en ninguna de las dos pantallas | ✔ |
-| 3.3 | **La brecha en vivo en la notificación** | Hoy se refresca solo al pasar la app a segundo plano. Para tenerla viva hace falta una notificación aparte con `expo-notifications`, sin tocar el servicio de ubicación — colgarla del servicio lo reiniciaba cada 3 s y quemaba la batería | medio día |
-| 3.4 | **Grabador de rutas** | Del prototipo viejo: subirse a una combi, grabar el recorrido manejando y exportar los puntos. Hoy el trazado se dibuja a ojo sobre el mapa, y manejarlo es más fiel. Guarda un punto cada 30 m recorridos, no cada N segundos, así parar en un semáforo no genera puntos repetidos | medio día |
+| 3.3 | ~~La brecha en vivo en la notificación~~ | **HECHO** (7/8). Notificación aparte con `expo-notifications` (canal de importancia baja, sin sonido, se reemplaza por identidad) — el servicio de ubicación no se toca. El dato viaja por el único canal que sobrevive a la pantalla apagada: **la respuesta del POST /gps** ahora trae la brecha (del cache del último estado emitido, ~80 B más, cero cálculo por pedido). El texto lo arma el MISMO `hud.js` de la pantalla (`avisoDesdeRespuesta`), se re-emite solo cuando cambia, y al salir de ruta se limpia — nada de un número de hace una hora colgado en la bandeja. Suites: `hud` (el aviso), `gpshttp` (la respuesta), `nativas` (el módulo del SDK). Falta verlo en el teléfono con el APK nuevo | ✔ |
+| 3.4 | ~~Grabador de rutas~~ | **HECHO** (7/8). App: Perfil → GRABAR RECORRIDO — la tarea de fondo come de las mismas posiciones que ya manda, guarda **un punto cada 30 m recorridos** (`app/grabador.js`, puro y con suite; el semáforo no genera un nudo) y sobrevive a que Android mate el proceso (puntos a disco, flag en SecureStore). TERMINAR la sube por `POST /grabacion`; si falla el envío, la vuelta manejada NO se pierde — queda en disco y se reintenta. Del otro lado: **Trazador de Despacho → "Grabaciones de la calle"** lista las de la empresa y las carga con un clic por el MISMO import (y su simplificación) que un GPX. Tope de 25 por empresa, las viejas se van solas. Suite `grabador`. Falta verlo en el teléfono con el APK nuevo | ✔ |
+| 3.5 | ~~Perfil del conductor en la app~~ | **HECHO** (7/8), con el alcance que definió el dueño: métricas, alias y contraseña. Pantalla PERFIL en la app (desde la cabecera): quién es, en qué anda, y sus números de 7 días con el MISMO criterio que el gerente — vueltas del vehículo, horas de la persona, cumplimiento contra la vara que regía en cada vuelta. `GET /perfil` contesta solo lo del que pregunta (no hay parámetro de unidad: no existe "pedir el de al lado"). El **alias** lo edita el dueño del alias y llega EN VIVO a Despacho (perfil en memoria + mapa + estado) — el nombre no, con ese se liquidan las horas. La **contraseña** se cambia con la actual en la mano, sin voltear la sesión propia, auditando QUE la cambió y nunca cuál. Suite `perfil`. Falta verlo en el teléfono con el APK nuevo | ✔ |
 
 ### 3bis · ~~Los bancos visuales fotografiaban pantallas vacías~~ — HECHO
 
@@ -148,6 +149,13 @@ nada.
 - [x] **El historial aguanta el tamaño de la flota** (ver 2.5): la retención
       es por días y no por filas, así que significa lo mismo con 6 combis que
       con 2000.
+- [x] **El estado viaja comprimido** (`permessage-deflate`). El WebSocket de
+      estado era el 90 % del egress a 2000 unidades (~$518/mes, `COSTOS.md`)
+      y los ~89 MB de datos móviles que el chofer paga por turno: la suite
+      `compresion` mide **−90 % de bytes por estado** contra el servidor
+      real. La app nativa no ofrece la extensión y sigue exactamente igual.
+      Del mismo viaje: el índice `laps(finishedAt)`, que saca los 142 ms de
+      bloqueo del hilo único en cada carga de la pestaña de vueltas.
 
 ### Lo que todavía no se midió, y no se arregla programando
 
@@ -186,14 +194,10 @@ hechos, el rediseño está hecho y el panel del gerente está hecho. Lo que sigu
 en esta lista ya no sale de mirar el código: sale de la calle.
 
 Las dos que aparecieron con el panel del gerente —**guardar el objetivo con
-cada vuelta** y **guardar los desvíos**— ya están hechas (2.3 y 2.4), y la que
-apareció midiendo —**la palabra al lado del color**— también (3.2).
-
-Queda una, que salió de usar el SOS en un teléfono de verdad:
-
-| Qué | Por qué | Tamaño |
-| --- | --- | --- |
-| **Tipo de emergencia en el SOS** | Hoy el SOS es uno solo. "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide una grúa, otro una ambulancia, el tercero es otra llamada. Despacho podría priorizar y avisar distinto, y el informe de emergencias dejaría de ser una lista plana. El deslizar tiene que seguir siendo lo primero —en una emergencia real nadie elige de un menú—: elegir el tipo va DESPUÉS de disparar, con la alerta ya enviada, y si no elige queda como SOS genérico | medio día, tocando servidor, app y los dos paneles |
+cada vuelta** y **guardar los desvíos**— ya están hechas (2.3 y 2.4), la que
+apareció midiendo —**la palabra al lado del color**— también (3.2), y la que
+salió de usar el SOS en un teléfono de verdad —**el tipo de emergencia**—
+quedó cerrada el 6/8 (ver 3.1).
 
 ---
 

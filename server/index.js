@@ -593,6 +593,19 @@ if (addColumnIfMissing('messages', 'vehicleId', 'TEXT')) {
 // su cobrador. NULL = mensaje del grupo, lo ve toda la ruta.
 addColumnIfMissing('messages', 'toVehicleId', 'TEXT');
 
+// Qué clase de emergencia fue el SOS. Se elige DESPUÉS de disparar —en una
+// emergencia real nadie navega un menú, así que deslizar manda la alerta ya—
+// y por eso vive como UPDATE sobre la fila que el disparo dejó: NULL es el
+// SOS genérico, que es como nace cada uno y como queda si nadie eligió.
+// "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide
+// una grúa, otro una ambulancia, el tercero es otra llamada.
+addColumnIfMissing('messages', 'sosTipo', 'TEXT');
+const SOS_TIPOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
+// Cuánto tiempo después de disparar se puede elegir (o corregir) el tipo. La
+// emergencia se atiende en minutos: pasado esto, cambiar el tipo ya no ayuda
+// a nadie y solo edita la historia. Configurable para poder probarlo.
+const SOS_TIPO_VENTANA_MS = Number(process.env.SOS_TIPO_VENTANA_MS || 15 * 60_000);
+
 // El logo de la cooperativa, como data-URL. Va en la fila de la empresa y no
 // en un archivo: son ~100 kB, se piden una vez por sesión, y guardarlos en
 // disco obligaría a montar un volumen aparte y a resolver el respaldo de otra
@@ -655,16 +668,20 @@ const pruneMediaStmt = db.prepare(`
     AND id NOT IN (SELECT id FROM messages WHERE kind = @kind AND data IS NOT NULL ORDER BY id DESC LIMIT @conservar)
 `);
 
+// Devuelve el id de la fila guardada: el SOS lo necesita para que el tipo
+// elegido después encuentre A QUÉ disparo pertenece. null si no se pudo.
 function remember(item) {
   try {
-    insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null,
+    const info = insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null,
       vehicleId: null, toVehicleId: null, ...item });
     // Lo pesado sí se poda en el acto: una foto ocupa lugar de verdad y no
     // puede esperar seis horas. Las filas de texto se podan en la barrida.
     pruneMediaStmt.run({ kind: 'voice', conservar: VOICE_KEEP });
     pruneMediaStmt.run({ kind: 'photo', conservar: PHOTO_KEEP });
+    return info.lastInsertRowid;
   } catch (e) {
     console.error('No se pudo guardar el mensaje:', e.message);
+    return null;
   }
 }
 
@@ -677,6 +694,7 @@ function recentHistory(routeId, verPrivadosDe = null) {
   return db.prepare(`
     SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.toVehicleId, m.text,
            m.duration, m.data, m.lat, m.lng, m.timestamp,
+           m.id AS sosId, m.sosTipo,
            COALESCE(u.role, 'driver') AS role
     FROM (
       SELECT * FROM messages
@@ -1238,6 +1256,14 @@ if (variantesMigradas.size) {
   variantesMigradas = new Map();
 }
 
+// Todo lo que lee vueltas filtra u ordena por finishedAt: la pestaña del
+// panel, los informes, el promedio del objetivo automático y la poda. Sin
+// índice, cada carga de la pestaña recorría la tabla entera — a base de
+// régimen (120 días de 2000 unidades) son 142 ms midiendo, y esos 142 ms
+// bloquean el MISMO hilo que atiende los POST /gps de toda la flota
+// (`COSTOS.md` §3). Con el índice: 33 ms. Cuesta unos MB de disco.
+db.exec('CREATE INDEX IF NOT EXISTS idx_laps_cierre ON laps (finishedAt)');
+
 // Cuánto historial se guarda, y por qué se mide en DÍAS y no en filas.
 //
 // Antes el tope era global y fijo: las últimas 2000 vueltas, borradas en cada
@@ -1566,6 +1592,230 @@ app.post('/presencia', (req, res) => {
   res.json({ ok: true, estado });
 });
 
+// ─── EL PERFIL DEL CONDUCTOR ─────────────────────────────────
+// (PENDIENTES 3.5) La pantalla del chofer sobre SÍ MISMO: quién es, en qué
+// anda, y cómo le fue — las horas y vueltas que hasta ahora solo veía el
+// gerente. El borde es duro: lo SUYO y nada más. No hay parámetro de unidad
+// ni de persona: todo sale de la sesión, así que no existe la pregunta "¿y
+// si pide el de al lado?".
+function usuarioPropio(req, res) {
+  const auth = String(req.headers.authorization || '');
+  const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
+  if (!user) { res.status(401).json({ error: 'Sesión inválida o expirada' }); return null; }
+  // Despacho y gerencia tienen sus paneles: este espejo es del que va en la
+  // combi (el cobrador también — sus horas son suyas).
+  if (user.role !== 'driver' && user.role !== 'collector') {
+    res.status(403).json({ error: 'El perfil es del que va en la combi' });
+    return null;
+  }
+  return user;
+}
+
+app.get('/perfil', (req, res) => {
+  const user = usuarioPropio(req, res);
+  if (!user) return;
+  const vehicleId = user.vehicleId || user.unitId;
+  const ruta = routeOf(user.routeId || DEFAULT_ROUTE);
+  const veh = vehicleOf(vehicleId);
+  const ahora = Date.now();
+  const desde = ahora - 7 * 86400_000;
+  const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+
+  // Las vueltas son del VEHÍCULO (la vuelta es de la combi, la maneje
+  // quien la maneje); las horas son de la PERSONA. Mismo criterio que el
+  // panel del gerente — si acá dijera otra cosa, alguien tendría razón y
+  // alguien no, y no habría forma de saber quién.
+  const vueltas = db.prepare(`
+    SELECT COUNT(*) n,
+           SUM(CASE WHEN finishedAt >= @hoy THEN 1 ELSE 0 END) hoy,
+           AVG(durationSec) durProm,
+           AVG(brechaProm) brechaProm,
+           SUM(CASE WHEN brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
+                     AND ABS(brechaProm - objetivoSec) <= objetivoSec * @tol
+               THEN 1 ELSE 0 END) enObjetivo,
+           SUM(CASE WHEN brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
+               THEN 1 ELSE 0 END) juzgables
+    FROM laps WHERE unitId = @veh AND finishedAt >= @desde
+  `).get({ veh: vehicleId, desde, hoy: hoy0.getTime(), tol: TOLERANCIA_CUMPLE });
+
+  const turnos = db.prepare(`
+    SELECT startedAt, endedAt, lastSeenAt FROM shifts
+    WHERE personId = @p AND startedAt >= @desde
+  `).all({ p: user.unitId, desde });
+  const horasSec = (corte) => turnos.reduce((a, t) => {
+    const fin = t.endedAt || t.lastSeenAt || ahora;
+    const ini = Math.max(t.startedAt, corte);
+    return fin > ini ? a + Math.round((fin - ini) / 1000) : a;
+  }, 0);
+
+  res.json({
+    persona: { unitId: user.unitId, name: user.name, alias: user.alias || null, role: user.role },
+    vehiculo: { vehicleId, label: veh?.label || null },
+    ruta: { routeId: ruta?.routeId || null, name: ruta?.name || null },
+    metricas: {
+      dias: 7,
+      vueltas: vueltas.n || 0,
+      vueltasHoy: vueltas.hoy || 0,
+      duracionProm: vueltas.durProm ? Math.round(vueltas.durProm) : null,
+      brechaProm: vueltas.brechaProm ? Math.round(vueltas.brechaProm) : null,
+      // Cumplimiento contra el objetivo que REGÍA en cada vuelta (2.3).
+      // Las vueltas sin vara guardada no se juzgan — ni a favor ni en contra.
+      cumplimiento: vueltas.juzgables
+        ? Math.round((vueltas.enObjetivo / vueltas.juzgables) * 100) : null,
+      juzgables: vueltas.juzgables || 0,
+      horasSec: horasSec(desde),
+      horasHoySec: horasSec(hoy0.getTime()),
+    },
+    toleranciaCumple: TOLERANCIA_CUMPLE,
+  });
+});
+
+// El alias lo edita el dueño del alias: es cómo lo llaman en la ruta, no un
+// dato administrativo. El NOMBRE no — ese lo corrige Despacho (identity),
+// porque es con el que se liquidan las horas.
+app.post('/perfil/alias', (req, res) => {
+  const user = usuarioPropio(req, res);
+  if (!user) return;
+  const alias = String(req.body?.alias || '').trim().slice(0, 30) || null;
+  db.prepare('UPDATE users SET alias = ?, driverName = ? WHERE unitId = ?')
+    .run(alias, alias || user.name, user.unitId);
+
+  // En vivo, igual que cuando lo corrige Despacho: el perfil en memoria, la
+  // unidad del mapa y el próximo estado. Si no, seguiría firmando el chat
+  // como antes hasta el próximo login — y Despacho vería dos nombres.
+  const prof = profiles.get(user.unitId);
+  if (prof) {
+    prof.alias = alias;
+    prof.driverName = alias || user.name;
+    const unidad = prof.vehicleId ? units.get(prof.vehicleId) : null;
+    if (unidad && prof.role === 'driver') {
+      unidad.driverName = alias || user.name;
+      scheduleStateBroadcast(unidad.routeId, true);
+    }
+  }
+  audit(user.unitId, 'alias_propio', user.unitId, alias || '(sin alias)', user.routeId);
+  res.json({ ok: true, alias });
+});
+
+// Cambiar SU contraseña exige la actual: un teléfono desbloqueado en el
+// paradero no puede convertirse en la cuenta robada de nadie. Las sesiones
+// abiertas del propio usuario siguen valiendo — el que cambió fue él.
+app.post('/perfil/clave', (req, res) => {
+  const user = usuarioPropio(req, res);
+  if (!user) return;
+  const actual = String(req.body?.actual || '');
+  const nueva = String(req.body?.nueva || '');
+  if (nueva.length < CLAVE_MINIMA || nueva.length > 64) {
+    return res.status(400).json({ error: `La contraseña nueva necesita mínimo ${CLAVE_MINIMA} caracteres` });
+  }
+  const fila = db.prepare('SELECT passHash FROM users WHERE unitId = ?').get(user.unitId);
+  if (!fila || !verifyPassword(actual, fila.passHash)) {
+    return res.status(403).json({ error: 'La contraseña actual no es esa' });
+  }
+  db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(nueva), user.unitId);
+  // En la auditoría queda QUE la cambió, nunca cuál es.
+  audit(user.unitId, 'clave_propia', user.unitId, null, user.routeId);
+  console.log(`Contraseña cambiada por su dueño: ${user.unitId}`);
+  res.json({ ok: true });
+});
+
+// ─── GRABACIONES DE RECORRIDO ────────────────────────────────
+// (PENDIENTES 3.4) Subirse a la combi, manejar la vuelta y que el trazado
+// salga de la calle. La app graba un punto cada 30 m (`app/grabador.js`) y
+// lo sube acá; el trazador de Despacho lo baja como GeoJSON y lo importa
+// por la puerta que ya existía. No reemplaza al trazador: lo alimenta.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recordings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    personId TEXT NOT NULL,
+    companyId TEXT,
+    routeId TEXT,
+    nombre TEXT,
+    puntos TEXT NOT NULL,      -- JSON [{lat,lng}, ...], ya filtrado a 30 m
+    cantidad INTEGER NOT NULL,
+    largoM INTEGER NOT NULL,
+    createdAt INTEGER NOT NULL
+  )
+`);
+const GRABACIONES_MAX = 25;   // por empresa: las viejas se van solas
+
+app.post('/grabacion', (req, res) => {
+  const user = usuarioPropio(req, res);   // chofer o cobrador: el que grabó iba arriba
+  if (!user) return;
+  const crudos = Array.isArray(req.body?.puntos) ? req.body.puntos : [];
+  const puntos = crudos
+    .filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
+    .map(p => ({ lat: p.lat, lng: p.lng }));
+  if (puntos.length < 2) {
+    return res.status(400).json({ error: 'Una grabación necesita al menos dos puntos' });
+  }
+  if (puntos.length > 8000) {
+    // 8000 puntos a 30 m son 240 km: más que eso no es una vuelta, es un error
+    return res.status(413).json({ error: 'Demasiados puntos para una grabación' });
+  }
+  // El largo se calcula ACÁ, no se le cree al cliente: es lo que se muestra
+  // en la lista para elegir cuál importar.
+  let largoM = 0;
+  for (let i = 1; i < puntos.length; i++) {
+    largoM += metrosEntre(puntos[i - 1].lat, puntos[i - 1].lng, puntos[i].lat, puntos[i].lng);
+  }
+  const nombre = String(req.body?.nombre || '').trim().slice(0, 60) || null;
+  const routeId = user.routeId || null;
+  db.prepare(`INSERT INTO recordings (personId, companyId, routeId, nombre, puntos, cantidad, largoM, createdAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(user.unitId, user.companyId || null, routeId, nombre,
+         JSON.stringify(puntos), puntos.length, Math.round(largoM), Date.now());
+  // Las viejas se podan por empresa: 25 grabaciones son semanas de trabajo
+  // de campo, y cada una pesa cientos de KB — esto no es historial, es
+  // materia prima del trazador.
+  db.prepare(`DELETE FROM recordings WHERE companyId IS ? AND id NOT IN
+              (SELECT id FROM recordings WHERE companyId IS ? ORDER BY id DESC LIMIT ?)`)
+    .run(user.companyId || null, user.companyId || null, GRABACIONES_MAX);
+  audit(user.unitId, 'grabacion', null,
+    `${puntos.length} puntos · ${(largoM / 1000).toFixed(1)} km`, routeId);
+  console.log(`Recorrido grabado por ${user.unitId}: ${puntos.length} puntos, ${(largoM / 1000).toFixed(1)} km`);
+  res.json({ ok: true, puntos: puntos.length, largoM: Math.round(largoM) });
+});
+
+// La lista y la descarga son del panel (Despacho o gerencia), con el borde
+// de siempre: cada empresa ve SUS grabaciones y ninguna otra.
+app.get('/admin/grabaciones', requireDispatch, (req, res) => {
+  const filas = db.prepare(`
+    SELECT r.id, r.personId, r.nombre, r.routeId, r.cantidad, r.largoM, r.createdAt,
+           COALESCE(u.driverName, r.personId) AS quien
+    FROM recordings r LEFT JOIN users u ON u.unitId = r.personId
+    WHERE r.companyId IS ?
+    ORDER BY r.id DESC LIMIT ?
+  `).all(req.empresa, GRABACIONES_MAX);
+  res.json({
+    grabaciones: filas.map(f => ({
+      id: f.id, nombre: f.nombre, quien: f.quien, routeId: f.routeId,
+      largoM: f.largoM, puntos: f.cantidad, createdAt: f.createdAt,
+    })),
+  });
+});
+
+app.get('/admin/grabaciones/:id.geojson', requireDispatch, (req, res) => {
+  const fila = db.prepare('SELECT * FROM recordings WHERE id = ? AND companyId IS ?')
+    .get(Number(req.params.id) || -1, req.empresa);
+  if (!fila) return res.status(404).json({ error: 'Esa grabación no existe' });
+  const puntos = JSON.parse(fila.puntos);
+  res.setHeader('Content-Type', 'application/geo+json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="grabacion-${fila.id}.geojson"`);
+  res.send(JSON.stringify({
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: {
+        name: fila.nombre || `Recorrido de ${fila.personId}`,
+        grabadoPor: fila.personId, largoM: fila.largoM, createdAt: fila.createdAt,
+      },
+      // GeoJSON va [lng, lat] — al revés que todo el resto del sistema
+      geometry: { type: 'LineString', coordinates: puntos.map(p => [p.lng, p.lat]) },
+    }],
+  }));
+});
+
 app.post('/gps', (req, res) => {
   const auth = String(req.headers.authorization || '');
   const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
@@ -1621,7 +1871,18 @@ app.post('/gps', (req, res) => {
   for (const p of buenas) {
     routeId = anotarPosicion(vehicleId, user.unitId, prof, p, p.cuando);
   }
-  res.json({ ok: true, aceptadas: buenas.length, descartadas: crudas.length - buenas.length, routeId });
+
+  // La brecha va de vuelta en la MISMA respuesta. Con la pantalla apagada
+  // este POST es el único canal del teléfono (el WebSocket murió con la
+  // pantalla), y sin esto la notificación del chofer mostraba la brecha
+  // congelada del momento en que bloqueó. Sale del cache del último estado
+  // emitido — cero cálculo por pedido — y son ~80 bytes más por respuesta.
+  const estado = routeId ? ultimoEstado.get(routeId) : null;
+  const g = estado?.gaps?.[vehicleId] || null;
+  res.json({
+    ok: true, aceptadas: buenas.length, descartadas: crudas.length - buenas.length, routeId,
+    ...(g ? { brecha: { ...g, objetivoMin: estado.targetGapMin ?? null } } : {}),
+  });
 });
 
 // ─── ADMINISTRACIÓN (solo Despacho) ──────────────────────────
@@ -2517,7 +2778,7 @@ const INFORMES = {
   // Emergencias
   sos: (filtro) => {
     const filas = db.prepare(`
-      SELECT unitId, driverName, vehicleId, routeId, lat, lng, timestamp
+      SELECT unitId, driverName, vehicleId, routeId, lat, lng, sosTipo, timestamp
       FROM messages
       WHERE kind = 'sos' AND timestamp BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -2526,9 +2787,14 @@ const INFORMES = {
     `).all(filtro);
     return {
       nombre: 'sos',
-      cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Latitud', 'Longitud'],
+      // El tipo lo eligió el chofer DESPUÉS de disparar; sin elegir queda
+      // "SOS" a secas. Con la columna, el informe deja de ser una lista
+      // plana: tres fallas mecánicas y un accidente son conversaciones
+      // distintas en la reunión.
+      cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Tipo', 'Latitud', 'Longitud'],
       filas: filas.map(m => [
         fechaHora(m.timestamp), m.driverName, m.unitId, m.vehicleId, m.routeId,
+        SOS_TIPOS[m.sosTipo] || 'SOS',
         m.lat ?? '', m.lng ?? '',
       ]),
     };
@@ -3008,7 +3274,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   // Emergencias del período. Se cuentan y se listan: en una reunión "hubo tres
   // SOS" abre una conversación que "hubo SOS" no abre.
   const sos = db.prepare(`
-    SELECT unitId, driverName, vehicleId, routeId, timestamp FROM messages
+    SELECT unitId, driverName, vehicleId, routeId, sosTipo, timestamp FROM messages
     WHERE kind = 'sos' AND timestamp BETWEEN @desde AND @hasta
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
@@ -3375,7 +3641,44 @@ const server = http.createServer(app);
 
 // ─── SERVIDOR WEBSOCKET ──────────────────────────────────────
 // Acá empieza lo interesante.
-const wss = new WebSocketServer({ server });
+//
+// Con compresión negociada (permessage-deflate). El estado que cada ruta
+// emite cada 3 s es la cuenta más grande del sistema entero —el 88 % del
+// costo a 2000 unidades es egress, y de eso el 90 % es ESTE mensaje
+// (`COSTOS.md` §4)— y es JSON repetitivo: 17 campos con los mismos nombres
+// por cada unidad. Deflate con contexto entre mensajes lo achica ~10×,
+// porque cada estado se parece muchísimo al anterior. Del otro lado del
+// mismo caño está el chofer: sus ~89 MB de datos móviles por turno bajan a
+// una fracción sin tocar una línea de los clientes.
+//
+// La negociación la hace cada cliente solo: los navegadores la ofrecen
+// siempre (paneles y app web), y el WebSocket de la app nativa (OkHttp) no
+// la ofrece — esa conexión sigue sin comprimir, exactamente como hasta hoy.
+// Por eso no hay caso "cliente viejo": quien no ofrece, no comprime.
+//
+// Los números de la configuración son memoria por conexión, y a 2000
+// conexiones eso multiplica: la ventana de 2^12 = 4 KB por dirección (los
+// 32 KB por defecto serían ~64 MB solo de ventanas) alcanza de sobra porque
+// lo que se repite —los nombres de campo y el estado anterior— cabe en
+// mucho menos. `level: 1` porque el JSON repetitivo se comprime casi igual
+// en nivel 1 que en 6, a una fracción del CPU (667 envíos/s en punta salen
+// del mismo hilo que todo lo demás). `threshold: 512` deja pasar sin
+// comprimir lo que no paga el viaje (un chat pesa 202 B).
+// El contexto entre mensajes —que `ws` conserva por defecto salvo que el
+// cliente pida lo contrario— es de donde sale casi todo el ahorro: cada
+// estado se comprime contra el anterior. Eso mantiene un par de streams
+// zlib vivos por conexión (~50-100 KB): a 2000 conexiones son ~100-200 MB,
+// contemplados en los 2 GB presupuestados para ese escenario.
+const wss = new WebSocketServer({
+  server,
+  perMessageDeflate: {
+    threshold: 512,
+    serverMaxWindowBits: 12,
+    zlibDeflateOptions: { level: 1, memLevel: 6 },
+    zlibInflateOptions: { chunkSize: 10 * 1024 },
+    concurrencyLimit: 10,
+  },
+});
 
 // Tope de mensajes por conexión. Una sesión válida podía mandar miles de
 // mensajes por segundo: cada chat se guarda en la base y se reparte a toda
@@ -3485,6 +3788,7 @@ wss.on('connection', (ws) => {
             : (previo?.driverName || vehicleId),
           routeId: user.routeId || veh?.routeId || DEFAULT_ROUTE,
           timestamp: Date.now(),
+          oidoEn: Date.now(),
         });
 
         // Solo UNA conexión reporta la posición de cada vehículo. El
@@ -3624,10 +3928,40 @@ wss.on('connection', (ws) => {
         lng: msg.lng ?? null,
         timestamp: msg.timestamp || Date.now(),
       };
-      remember({ kind: 'sos', ...alert });
+      // El id viaja en la alerta: es el ancla para que el tipo elegido
+      // después (sos_tipo) encuentre este disparo y no otro.
+      const sosId = remember({ kind: 'sos', ...alert });
       audit(unitId, 'sos', null, alert.lat ? `${alert.lat.toFixed(4)}, ${alert.lng.toFixed(4)}` : null, routeId);
-      broadcastToRoute(routeId, { type: 'sos_alert', ...alert });
-      broadcastToSupervisors({ type: 'sos_alert', ...alert }, routeId);
+      broadcastToRoute(routeId, { type: 'sos_alert', sosId, ...alert });
+      broadcastToSupervisors({ type: 'sos_alert', sosId, ...alert }, routeId);
+    }
+
+    // TIPO: sos_tipo — el chofer le pone nombre a la emergencia YA ENVIADA.
+    // Deslizar sigue siendo lo primero y lo único obligatorio: la alerta ya
+    // salió, ya sonó en Despacho, ya quedó guardada. Esto la califica
+    // ("falla mecánica", "accidente", "policía") para que quien moviliza
+    // sepa si busca una grúa, una ambulancia o hace otra llamada. Sin
+    // elegir, queda como SOS genérico — que es mejor que un menú antes de
+    // pedir ayuda.
+    if (msg.type === 'sos_tipo') {
+      const unitId = clients.get(ws);
+      if (!unitId) return;
+      if (!SOS_TIPOS[msg.tipo]) return;        // tipo inventado: se ignora
+      const fila = db.prepare(
+        "SELECT id, unitId, routeId, vehicleId, timestamp FROM messages WHERE id = ? AND kind = 'sos'")
+        .get(Number(msg.sosId) || -1);
+      if (!fila) return;
+      // Solo quien disparó puede calificar SU emergencia. Sin este borde,
+      // cualquiera de la ruta podía reescribir la emergencia de otro.
+      if (fila.unitId !== unitId) return;
+      // Y solo mientras la emergencia está viva. Después es editar historia.
+      if (Date.now() - fila.timestamp > SOS_TIPO_VENTANA_MS) return;
+      db.prepare('UPDATE messages SET sosTipo = ? WHERE id = ?').run(msg.tipo, fila.id);
+      console.log(`🚨 SOS de ${unitId}: ${SOS_TIPOS[msg.tipo]}`);
+      const aviso = { type: 'sos_tipo', sosId: fila.id, unitId,
+                      vehicleId: fila.vehicleId, routeId: fila.routeId, tipo: msg.tipo };
+      broadcastToRoute(fila.routeId, aviso);
+      broadcastToSupervisors(aviso, fila.routeId);
     }
 
     // TIPO: chat — mensaje de texto entre choferes de la MISMA ruta
@@ -4106,6 +4440,13 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     }
   }
 
+  // ¿Esta posición dice dónde está la unidad AHORA, o es atraso que la app
+  // está vaciando? El gris de "sin señal" se limpia solo con una fresca: la
+  // cola de un corte llega con posiciones de hace minutos, y limpiarlo con
+  // esas dibujaba en color firme una unidad que en realidad no se sabe
+  // dónde está — y el barrido lo volvía a marcar 10 s después, en bucle.
+  const fresca = Date.now() - cuando <= SIN_SENAL_MS;
+
   units.set(vehicleId, {
     ...unit,
     unitId: vehicleId,
@@ -4124,16 +4465,20 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     // del estado que ya se emite: no hace falta mensaje aparte.
     fueraDeRuta: !!(desvio && desvio.fuera),
     fueraDesde: desvio && desvio.fuera ? desvio.desde : null,
-    // Volvió la señal. Se limpia explícitamente porque el spread de arriba
-    // arrastra el `sinSenal` de la vuelta anterior, y una unidad que
-    // reapareció seguiría dibujada en gris para siempre.
-    sinSenal: false,
-    sinSenalDesde: null,
+    // Volvió la señal (si la posición es de ahora). Se limpia explícitamente
+    // porque el spread de arriba arrastra el `sinSenal` de la vuelta
+    // anterior, y una unidad que reapareció seguiría en gris para siempre.
+    sinSenal: fresca ? false : (unit.sinSenal || false),
+    sinSenalDesde: fresca ? null : (unit.sinSenalDesde ?? null),
     // La presencia declarada y si ya está confirmada sobre el trazado.
     // Sin declaración: 'ruta' confirmada, como fue siempre.
     presencia: decl ? decl.estado : 'ruta',
     enRuta,
     timestamp: cuando,
+    // La última vez que se OYÓ al teléfono — no confundir con `timestamp`,
+    // que es de la POSICIÓN. El olvido juzga por esta: al que está vaciando
+    // atraso se lo oye perfectamente.
+    oidoEn: Date.now(),
   });
 
   // Detección de vuelta completa a partir del progreso (del vehículo).
@@ -4272,12 +4617,21 @@ const STATE_INTERVAL_MS = Number(process.env.STATE_INTERVAL_MS || 3000);
 const stateTimers = new Map();  // routeId → timeout
 const lastStateAt = new Map();  // routeId → cuándo se emitió por última vez
 
+// El último estado emitido de cada ruta. Existe para el POST /gps: con la
+// pantalla apagada no hay WebSocket, y este cache es lo que permite
+// contestarle al teléfono su brecha en la MISMA respuesta que ya recibe —
+// sin calcular nada por pedido (a 2000 unidades son 500 POST/s) y a lo sumo
+// STATE_INTERVAL_MS de viejo, que para una notificación da lo mismo.
+const ultimoEstado = new Map();  // routeId → estado armado por buildState
+
 function flushState(routeId) {
   clearTimeout(stateTimers.get(routeId));
   stateTimers.delete(routeId);
   lastStateAt.set(routeId, Date.now());
   // Con `true`: esta pasada es la que cuenta para la brecha promedio
-  broadcastToRoute(routeId, { type: 'state', ...buildState(routeId, true) });
+  const estado = buildState(routeId, true);
+  ultimoEstado.set(routeId, estado);
+  broadcastToRoute(routeId, { type: 'state', ...estado });
 }
 
 // Agenda el envío del estado de UNA ruta respetando la cadencia. Con
@@ -4316,9 +4670,24 @@ setInterval(() => {
   const ahora = Date.now();
   const rutasAfectadas = new Set();
   for (const [unitId, unit] of units) {
-    const callada = ahora - unit.timestamp;
+    // Dos edades distintas, y confundirlas se midió en producción:
+    //
+    //   muda   — qué tan VIEJA es la última posición conocida. Gobierna el
+    //            gris de "sin señal": contra una posición de hace un minuto
+    //            no se mide nadie, esté el teléfono vivo o no.
+    //   sinOir — hace cuánto no LLEGA nada del teléfono. Gobierna el
+    //            OLVIDO: borrar es para el que se fue, no para el que habla.
+    //
+    // El caso que las separa es el vaciado de atraso: la app manda su cola
+    // tras un corte —posiciones viejas con su hora real, que el servidor
+    // acepta a propósito para las vueltas— y con una sola edad la unidad
+    // renacía con timestamp viejo y el barrido la olvidaba EN BUCLE, cada
+    // 10 segundos, mientras el teléfono seguía llegando: una noche entera
+    // de «Unidad olvidada tras 400…992 s» con la señal perfecta.
+    const muda = ahora - unit.timestamp;
+    const sinOir = ahora - (unit.oidoEn ?? unit.timestamp);
 
-    if (callada > OLVIDAR_MS) {
+    if (sinOir > OLVIDAR_MS) {
       units.delete(unitId);
       lapState.delete(unitId); // la vuelta a medias no cuenta
       // Y el desvío abierto se cierra: de una unidad que dejó de reportar no
@@ -4329,7 +4698,7 @@ setInterval(() => {
       // a pisar el trazado — no entrar a la cadena por un true de ayer.
       const decl = presencias.get(unitId);
       if (decl) decl.enRuta = false;
-      console.log(`Unidad olvidada tras ${Math.round(callada / 1000)} s sin señal: ${unitId}`);
+      console.log(`Unidad olvidada tras ${Math.round(sinOir / 1000)} s sin oírse: ${unitId}`);
       broadcastToRoute(unit.routeId, { type: 'unit_left', unitId });
       rutasAfectadas.add(unit.routeId);
       continue;
@@ -4337,7 +4706,7 @@ setInterval(() => {
 
     // Entra en "sin señal". Se marca una sola vez: sin este chequeo se
     // reemitiría el estado cada diez segundos durante los tres minutos.
-    if (callada > SIN_SENAL_MS && !unit.sinSenal) {
+    if (muda > SIN_SENAL_MS && !unit.sinSenal) {
       units.set(unitId, { ...unit, sinSenal: true, sinSenalDesde: unit.timestamp });
       console.log(`Unidad sin señal: ${unitId}`);
       rutasAfectadas.add(unit.routeId);

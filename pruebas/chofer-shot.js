@@ -64,6 +64,14 @@ const pedir = (ruta, opts = {}) =>
   const db0 = new Database(DB);
   db0.prepare("UPDATE companies SET name = 'Señor de Huayllani' WHERE companyId = (SELECT companyId FROM routes WHERE routeId = 'R-14')").run();
   db0.prepare("UPDATE routes SET name = 'Cerro Colorado ⇄ Centro', durationMin = 50, targetGapMin = 2, autoTarget = 0 WHERE routeId = 'R-14'").run();
+  // Los VEHÍCULOS primero — la misma lección que `rediseno.js` (3bis):
+  // desde la fusión con Gerencia, el chofer-con-combi de una es del gerente
+  // y el alta de Despacho devolvía 403 EN SILENCIO. Este banco quedó
+  // esperando la pantalla de turno de un chofer que nunca existió.
+  const empresaR14 = db0.prepare("SELECT companyId FROM routes WHERE routeId = 'R-14'").get().companyId;
+  const altaVehiculo = db0.prepare(
+    'INSERT OR IGNORE INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES (?, ?, ?, ?, ?)');
+  for (const u of ['M-08', 'M-12']) altaVehiculo.run(u, 'Placa ' + u, 'R-14', empresaR14, Date.now());
   db0.close();
 
   const ida = Array.from({ length: 40 }, (_, i) => anillo(i / 78));
@@ -73,7 +81,11 @@ const pedir = (ruta, opts = {}) =>
   });
 
   for (const [u, nombre] of [['M-08', 'Rufino Quispe'], ['M-12', 'Elmer Ccama']]) {
-    await pedir('/admin/users', { method: 'POST', headers: H, body: JSON.stringify({ unitId: u, name: nombre, password: 'chofer1234' }) });
+    const alta = await pedir('/admin/users', { method: 'POST', headers: H,
+      body: JSON.stringify({ unitId: u, name: nombre, vehicleId: u, password: 'chofer1234' }) });
+    // Que un alta falle en silencio es exactamente lo que dejó a este banco
+    // esperando un botón que nunca iba a aparecer. Que se caiga acá y diga.
+    if (alta.status !== 200) throw new Error(`el alta de ${u} falló: HTTP ${alta.status} ${JSON.stringify(alta.body)}`);
   }
 
   // M-08 va adelante por WebSocket: así el chofer que miramos (M-12) tiene

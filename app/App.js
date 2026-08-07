@@ -19,7 +19,7 @@ import React from 'react';
 import {
   View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
   FlatList, PanResponder, Animated, Vibration,
-  Image, Modal, Dimensions, Keyboard, BackHandler,
+  Image, Modal, Dimensions, Keyboard, BackHandler, ScrollView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,7 +27,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import { crearCliente } from './protocolo/cliente';
 import { construirHud, textoNotificacion } from './hud';
-import { aMensaje, hilo, sinLeer } from './chat';
+import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
 import { margenes, margenBarra } from './margenes';
 import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL } from './gestos';
 import * as mapa from './mapa';
@@ -139,6 +139,16 @@ function Aplicacion() {
   // Se DECLARA acá; entrar a la cadena de brechas lo confirma el servidor
   // cuando el GPS pisa el trazado — ver `enRutaConfirmada` más abajo.
   const [presencia, setPresencia] = React.useState('fuera');
+  // El perfil: quién soy, cómo me fue, mi alias y mi contraseña (3.5)
+  const [verPerfil, setVerPerfil] = React.useState(false);
+  // El SOS recién disparado, esperando (si el chofer puede) que le ponga
+  // nombre. La alerta YA salió: esto es opcional y se va solo a los 5 min.
+  const [tipificarSos, setTipificarSos] = React.useState(false);
+  React.useEffect(() => {
+    if (!tipificarSos) return;
+    const t = setTimeout(() => setTipificarSos(false), 5 * 60_000);
+    return () => clearTimeout(t);
+  }, [tipificarSos]);
   const [canal, setCanal] = React.useState('grupo');        // 'grupo' | 'directo'
   const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0 });
   const cliente = React.useRef(null);
@@ -162,6 +172,10 @@ function Aplicacion() {
       c.on('historial', (items) => setMensajes(items.map(m => aMensaje(m, quienSoy(c))))),
       c.on('chat', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('sos',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
+      // El tipo llega después que el SOS y actualiza la burbuja YA dibujada
+      // en vez de sumar otra: en el hilo la emergencia es una sola.
+      c.on('sosTipo', (e) => setMensajes(v =>
+        v.map(m => (m.sosId != null && m.sosId === e.sosId) ? conTipoSos(m, e.tipo) : m))),
       c.on('voz',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('foto', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
     ];
@@ -197,6 +211,7 @@ function Aplicacion() {
       cliente.current.marcarPresencia(previa);
       const permisos = await gps.pedirPermisos();
       if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
+      setAviso(null);   // el aviso de permisos viejo no sobrevive al permiso dado
       await gps.arrancar({ textoNotificacion: 'Turno en curso' });
     }
   };
@@ -217,6 +232,7 @@ function Aplicacion() {
       saliendo.current = false;
       const permisos = await gps.pedirPermisos();
       if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
+      setAviso(null);   // ídem: al dar el permiso, el cartel viejo se va
       await gps.arrancar({ textoNotificacion: textoRef.current });
     }
   };
@@ -393,13 +409,20 @@ function Aplicacion() {
   // montadas las dos, el chat no pierde el scroll ni el texto a medio
   // escribir cada vez que el chofer mira la brecha.
   return (
+    <>
     <Carrusel pantalla={pantalla} onIr={irA}>
       <Mapa {...comun} estado={estado} geometria={geometria}
         yo={cliente.current?.sesion} activo={pantalla === 'mapa'} />
       <Ruta {...comun} hud={hud} reporta={reporta}
         confirmada={enRutaConfirmada}
         onPresencia={cambiarPresencia}
-        onSos={() => cliente.current.mandarSos(ultimaPos.current)} />
+        onSos={() => { cliente.current.mandarSos(ultimaPos.current); setTipificarSos(true); }}
+        tipificarSos={tipificarSos}
+        onTipoSos={(tipo) => {
+          if (tipo) cliente.current.marcarTipoSos(tipo);
+          setTipificarSos(false);
+        }}
+        onPerfil={() => setVerPerfil(true)} />
       <Chat {...comun}
         mensajes={hilo(mensajes, canal)}
         canal={canal}
@@ -408,6 +431,11 @@ function Aplicacion() {
         onVoz={(data, duration) => cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' })}
         onFoto={(data) => cliente.current.mandarFoto({ data, privado: canal === 'directo' })} />
     </Carrusel>
+    {/* Fuera del carrusel: el perfil no es una página más, es un alto */}
+    {verPerfil && (
+      <Perfil sesion={sesion} marca={marca} onCerrar={() => setVerPerfil(false)} />
+    )}
+    </>
   );
 }
 
@@ -549,7 +577,8 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
 
 // ═══════════════════════════════════════════════════════════════
 function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
-                presencia, confirmada, onPresencia, onIr, onSalir, onSos }) {
+                presencia, confirmada, onPresencia, onIr, onSalir, onSos,
+                tipificarSos, onTipoSos, onPerfil }) {
   const { s, C } = usarTema();
   const p = hud.principal, sec = hud.secundario;
   const color = colorEstado(C)[p.estado];
@@ -571,6 +600,7 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
       <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
         {conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
       </Text>
+      {onPerfil && <Pressable onPress={onPerfil}><Text style={s.salir}>Perfil</Text></Pressable>}
       <Pressable onPress={onSalir}><Text style={s.salir}>Salir</Text></Pressable>
     </View>
   );
@@ -623,6 +653,7 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
             Al volver, entrás a la cadena cuando el GPS te vea sobre el trazado.
           </Text>
         </View>
+        {tipificarSos && <TipoSos onElegir={onTipoSos} />}
         <SosDeslizable onDisparar={onSos} />
         <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
       </View>
@@ -634,7 +665,12 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
       <StatusBar style="light" />
       {cabecera}
 
-      {!reporta && aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
+      {/* El aviso se muestra HAYA O NO rol de GPS. Antes era `!reporta &&
+          aviso`, y el de permisos quedaba oculto justo en el peor caso: el
+          servidor te da el rol por el WebSocket (reporta=true) mientras el
+          servicio de ubicación ni arrancó por falta de permiso — la única
+          pista visible era la línea roja del servicio. */}
+      {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
 
       {/* Declarado en ruta pero el GPS todavía no lo vio sobre el trazado:
           se dice, para que "no tengo brecha" no parezca una falla. */}
@@ -705,9 +741,236 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
         </Pressable>
       </View>
 
+      {tipificarSos && <TipoSos onElegir={onTipoSos} />}
       <SosDeslizable onDisparar={onSos} />
       <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
     </View>
+  );
+}
+
+// ¿Qué pasó? — aparece DESPUÉS de disparar el SOS, con la alerta ya
+// enviada. En una emergencia real nadie navega un menú antes de pedir
+// ayuda: deslizar manda, y esto es lo de después, si el chofer puede.
+// "Falla mecánica", "accidente" y "policía" movilizan cosas distintas
+// (una grúa, una ambulancia, otra llamada); sin tocar nada queda como SOS
+// genérico y se va solo a los 5 minutos.
+function TipoSos({ onElegir }) {
+  const { s, C } = usarTema();
+  return (
+    <View style={s.tipoSosCaja}>
+      <Text style={s.tipoSosTitulo}>ALERTA ENVIADA — ¿QUÉ PASÓ?</Text>
+      <View style={s.filaTipoSos}>
+        {Object.entries(TIPOS_SOS).map(([clave, etiqueta]) => (
+          <Pressable key={clave} onPress={() => onElegir(clave)} style={s.botonTipoSos}>
+            <Text style={s.botonTipoSosTexto}>{etiqueta.toUpperCase()}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Pressable onPress={() => onElegir(null)} style={s.tipoSosCerrar}>
+        <Text style={s.tipoSosCerrarTexto}>Cerrar — queda como SOS</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// El perfil del conductor (PENDIENTES 3.5): quién soy, cómo me fue, mi
+// alias y mi contraseña. Es un ESPEJO de lo que el gerente ya ve —mismas
+// vueltas, mismas horas, misma vara— pedido a /perfil, que solo contesta
+// lo del que pregunta. El alias se edita acá porque es cómo lo llaman en
+// la ruta; el nombre no, porque con ese se liquidan las horas.
+function Perfil({ sesion, marca, onCerrar }) {
+  const { s, C } = usarTema();
+  const margen = margenes(useSafeAreaInsets(), { conBarra: false });
+  const [datos, setDatos] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [alias, setAlias] = React.useState('');
+  const [claveActual, setClaveActual] = React.useState('');
+  const [claveNueva, setClaveNueva] = React.useState('');
+  const [aviso, setAviso] = React.useState(null);
+
+  React.useEffect(() => {
+    fetch(SERVIDOR + '/perfil', { headers: { Authorization: 'Bearer ' + sesion.token } })
+      .then(async r => {
+        const cuerpo = await r.json();
+        if (!r.ok) throw new Error(cuerpo.error || 'HTTP ' + r.status);
+        setDatos(cuerpo);
+        setAlias(cuerpo.persona.alias || '');
+      })
+      .catch(e => setError('No se pudo cargar: ' + String(e.message || e)));
+  }, [sesion]);
+
+  const post = async (ruta, body, hecho) => {
+    setAviso(null);
+    try {
+      const r = await fetch(SERVIDOR + ruta, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + sesion.token },
+        body: JSON.stringify(body),
+      });
+      const cuerpo = await r.json().catch(() => ({}));
+      if (!r.ok) { setAviso(cuerpo.error || 'No se pudo guardar'); return false; }
+      setAviso(hecho);
+      return true;
+    } catch { setAviso('Sin conexión — probá de nuevo'); return false; }
+  };
+
+  // Segundos → lo que se lee: 14400 → "4h 00m", 130 → "2:10"
+  const hm = (sec) => sec == null ? '—'
+    : `${Math.floor(sec / 3600)}h ${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}m`;
+  const mmss = (sec) => sec == null ? '—'
+    : `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
+
+  // ── El grabador de recorridos (3.4) ─────────────────────────
+  // La grabación corre en la tarea de fondo (come de las mismas posiciones
+  // que se mandan); acá solo se mira cada 2 s y se dan las órdenes.
+  const [grabacion, setGrabacion] = React.useState(gps.diagnostico.grabacion);
+  React.useEffect(() => {
+    const t = setInterval(() => setGrabacion(
+      gps.diagnostico.grabacion ? { ...gps.diagnostico.grabacion } : null), 2000);
+    return () => clearInterval(t);
+  }, []);
+  const [mandandoGrabacion, setMandandoGrabacion] = React.useState(false);
+  const terminarYMandar = async () => {
+    setMandandoGrabacion(true);
+    try {
+      // Parar NO borra el archivo: si el envío falla, el botón reintenta
+      // con lo grabado — una vuelta manejada no se pierde por mala señal.
+      const puntos = await gps.pararGrabacion();
+      if (puntos.length < 2) {
+        setAviso('La grabación quedó vacía: no hubo recorrido');
+        await gps.descartarGrabacion();
+        return;
+      }
+      const fue = await post('/grabacion', {
+        puntos,
+        nombre: `Recorrido ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString().slice(0, 5)}`,
+      }, `Recorrido enviado (${puntos.length} puntos) — se importa desde el trazador de Despacho`);
+      if (fue) await gps.descartarGrabacion();
+      else setAviso('No salió — la grabación quedó guardada. Probá ENVIAR de nuevo con señal.');
+    } finally { setMandandoGrabacion(false); }
+  };
+
+  const m = datos?.metricas;
+  const tarjetas = m ? [
+    ['VUELTAS · 7 DÍAS', String(m.vueltas)],
+    ['HOY', String(m.vueltasHoy)],
+    ['HORAS · 7 DÍAS', hm(m.horasSec)],
+    ['HORAS HOY', hm(m.horasHoySec)],
+    ['BRECHA PROM.', mmss(m.brechaProm)],
+    // Sin vueltas con vara guardada no hay porcentaje que inventar
+    ['EN OBJETIVO', m.cumplimiento == null ? '—' : `${m.cumplimiento} %`],
+  ] : [];
+
+  return (
+    <Modal animationType="slide" onRequestClose={onCerrar}>
+      <View style={[s.pantalla, margen]}>
+        <View style={s.barra}>
+          <Marca marca={marca} />
+          <View style={{ flex: 1 }} />
+          <Pressable onPress={onCerrar}><Text style={s.salir}>Cerrar</Text></Pressable>
+        </View>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 30 }}>
+          {error && <Text style={s.avisoBarra}>{error}</Text>}
+          {!datos && !error && <ActivityIndicator style={{ marginTop: 40 }} />}
+          {datos && (<>
+            <Text style={[s.ladoEtiqueta, { color: C.brillante, marginTop: 16 }]}>
+              {(datos.persona.alias || datos.persona.name).toUpperCase()}
+            </Text>
+            <Text style={s.diagnostico}>
+              {datos.persona.name}
+              {datos.persona.role === 'collector' ? ' · cobrador' : ''}
+              {datos.vehiculo.vehicleId ? ` · ${datos.vehiculo.vehicleId}` : ''}
+              {datos.vehiculo.label ? ` (${datos.vehiculo.label})` : ''}
+              {datos.ruta.name ? ` · ${datos.ruta.name}` : ''}
+            </Text>
+
+            {/* Cómo me fue: los mismos números que mira el gerente */}
+            <View style={s.perfilGrilla}>
+              {tarjetas.map(([etiqueta, valor]) => (
+                <View key={etiqueta} style={s.perfilTarjeta}>
+                  <Text style={s.perfilEtiqueta}>{etiqueta}</Text>
+                  <Text style={s.perfilValor}>{valor}</Text>
+                </View>
+              ))}
+            </View>
+            {m && m.cumplimiento != null && (
+              <Text style={s.diagnostico}>
+                En objetivo: dentro del ±{Math.round((datos.toleranciaCumple || 0.15) * 100)} % de la
+                vara que regía en cada vuelta ({m.juzgables} juzgable{m.juzgables === 1 ? '' : 's'}).
+              </Text>
+            )}
+
+            {aviso && <Text style={[s.avisoBarra, { marginTop: 14 }]}>{aviso}</Text>}
+
+            {/* El alias: cómo te llaman en la ruta. Vacío = tu nombre. */}
+            <View style={s.divisor} />
+            <Text style={s.perfilSeccion}>ALIAS</Text>
+            <Text style={s.diagnostico}>Como te llaman en la ruta. Vacío, se muestra tu nombre.</Text>
+            <TextInput style={s.campo} value={alias} onChangeText={setAlias}
+              placeholder={datos.persona.name} placeholderTextColor={C.tenue} maxLength={30} />
+            <Pressable style={[s.botonAncho, { backgroundColor: C.verde, marginTop: 12 }]}
+              onPress={async () => {
+                const fue = await post('/perfil/alias', { alias }, 'Alias guardado — Despacho ya te ve así');
+                if (fue) setDatos(d => ({ ...d, persona: { ...d.persona, alias: alias.trim() || null } }));
+              }}>
+              <Text style={s.botonAnchoTexto}>GUARDAR ALIAS</Text>
+            </Pressable>
+
+            {/* La contraseña: con la actual en la mano */}
+            <View style={s.divisor} />
+            <Text style={s.perfilSeccion}>CAMBIAR CONTRASEÑA</Text>
+            <TextInput style={s.campo} value={claveActual} onChangeText={setClaveActual}
+              placeholder="Contraseña actual" placeholderTextColor={C.tenue} secureTextEntry />
+            <TextInput style={[s.campo, { marginTop: 10 }]} value={claveNueva} onChangeText={setClaveNueva}
+              placeholder="Contraseña nueva (mínimo 6)" placeholderTextColor={C.tenue} secureTextEntry />
+            <Pressable style={[s.botonAncho, { backgroundColor: C.marca, marginTop: 12 }]}
+              onPress={async () => {
+                const fue = await post('/perfil/clave', { actual: claveActual, nueva: claveNueva },
+                  'Contraseña cambiada. Esta sesión sigue abierta.');
+                if (fue) { setClaveActual(''); setClaveNueva(''); }
+              }}>
+              <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>CAMBIAR</Text>
+            </Pressable>
+
+            {/* El grabador de recorridos (3.4): manejar la vuelta y que el
+                trazado salga de la calle, no del ojo sobre el mapa */}
+            <View style={s.divisor} />
+            <Text style={s.perfilSeccion}>GRABADOR DE RECORRIDO</Text>
+            <Text style={s.diagnostico}>
+              Con la salida a ruta activa, manejá la vuelta entera: se guarda
+              un punto cada 30 metros (parar en un semáforo no ensucia). Al
+              terminar se envía, y Despacho lo importa desde su trazador.
+            </Text>
+            {!grabacion && (
+              <Pressable style={[s.botonAncho, {
+                backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, marginTop: 12,
+              }]} onPress={() => gps.empezarGrabacion().then(() => setGrabacion({ puntos: 0, largoM: 0 }))}>
+                <Text style={[s.botonAnchoTexto, { color: C.brillante }]}>GRABAR RECORRIDO</Text>
+              </Pressable>
+            )}
+            {grabacion && (<>
+              <Text style={[s.diagnostico, { marginTop: 12 }]}>
+                {grabacion.parada ? 'Grabación parada (sin enviar)' : '● Grabando'}
+                {` · ${grabacion.puntos} punto${grabacion.puntos === 1 ? '' : 's'}`}
+                {` · ${((grabacion.largoM || 0) / 1000).toFixed(1)} km`}
+              </Text>
+              <Pressable disabled={mandandoGrabacion}
+                style={[s.botonAncho, { backgroundColor: C.verde, marginTop: 10 }]}
+                onPress={terminarYMandar}>
+                <Text style={s.botonAnchoTexto}>
+                  {mandandoGrabacion ? 'ENVIANDO…' : grabacion.parada ? 'ENVIAR' : 'TERMINAR Y ENVIAR'}
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => gps.descartarGrabacion().then(() => setGrabacion(null))}
+                style={s.tipoSosCerrar}>
+                <Text style={s.tipoSosCerrarTexto}>Descartar la grabación</Text>
+              </Pressable>
+            </>)}
+          </>)}
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -1384,6 +1647,38 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.rojo, alignItems: 'center', justifyContent: 'center',
   },
   sosBotonTexto: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+  // El "¿qué pasó?" de después del SOS. Botones grandes: se tocan con el
+  // pulgar, posiblemente arriba de la combi y con apuro.
+  tipoSosCaja: {
+    borderRadius: 16, borderWidth: 1, borderColor: C.rojo,
+    backgroundColor: C.panel, padding: 12, marginTop: 10,
+  },
+  tipoSosTitulo: {
+    color: C.rojo, fontSize: 13, fontWeight: '900', letterSpacing: 1,
+    textAlign: 'center',
+  },
+  filaTipoSos: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  botonTipoSos: {
+    flex: 1, minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
+    backgroundColor: C.fondo, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 4, paddingVertical: 8,
+  },
+  botonTipoSosTexto: {
+    color: C.brillante, fontSize: 12, fontWeight: '900', letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  tipoSosCerrar: { alignSelf: 'center', marginTop: 10, padding: 4 },
+  tipoSosCerrarTexto: { color: C.tenue, fontSize: 12 },
+
+  // ── Perfil ───────────────────────────────────────────────────
+  perfilGrilla: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 18 },
+  perfilTarjeta: {
+    flexBasis: '30%', flexGrow: 1, borderRadius: 12, padding: 12,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+  },
+  perfilEtiqueta: { color: C.tenue, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  perfilValor: { color: C.brillante, fontSize: 22, fontWeight: '900', marginTop: 4 },
+  perfilSeccion: { color: C.tenue, fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
 
   // ── Presencia ────────────────────────────────────────────────
   filaPresencia: { flexDirection: 'row', gap: 10, marginTop: 12 },

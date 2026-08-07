@@ -35,7 +35,11 @@ let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: String(P), DB_FILE: DB,
-           DISPATCH_PASSWORD: 'despacho99', STATE_INTERVAL_MS: '400' },
+           DISPATCH_PASSWORD: 'despacho99', STATE_INTERVAL_MS: '400',
+           // Acortados para "VACIAR ATRASO NO ES ESTAR MUERTO": el barrido
+           // corre cada 10 s fijos, y con los plazos de producción (30 s /
+           // 3 min) verlo actuar sería una suite de cinco minutos.
+           SIN_SENAL_MS: '2000', OLVIDAR_MS: '15000' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   servidor.stderr.on('data', d => process.stderr.write('[srv] ' + d));
@@ -121,6 +125,21 @@ const mandar = (token, posiciones) => fetch(API + '/gps', {
      Math.abs(vista().timestamp - (ahora - 10_000)) < 2000,
      { guardada: vista().timestamp, esperada: ahora - 10_000 });
 
+  console.log('\nLA BRECHA VUELVE EN LA RESPUESTA');
+  // Con la pantalla apagada este POST es el único canal del teléfono: la
+  // brecha viaja de vuelta en la misma respuesta (del cache del último
+  // estado emitido) y es lo que mantiene viva la notificación del chofer.
+  // M-08 se pone adelante por WebSocket, como una combi de verdad.
+  const delante = anillo(0.16);
+  ws.send(JSON.stringify({ type: 'gps', lat: delante.lat, lng: delante.lng, speed: 20 }));
+  await sleep(900);   // que el estado se emita y el cache exista
+  const q2 = anillo(0.14);
+  r = await mandar(s12.token, [{ lat: q2.lat, lng: q2.lng, speed: 22, timestamp: Date.now() }]);
+  ok('la respuesta trae contra quién y a cuánto',
+     r.body.brecha?.aheadUnit === 'M-08' && /^\d{2}:\d{2}$/.test(r.body.brecha?.toAhead || ''),
+     r.body.brecha);
+  ok('y el objetivo vigente, para poder juzgarla', r.body.brecha?.objetivoMin === 2, r.body.brecha);
+
   console.log('\nLO QUE NO SE ACEPTA');
   r = await mandar('token-que-no-existe', [{ lat: LAT0, lng: LNG0, timestamp: ahora }]);
   ok('sin token válido, 401', r.status === 401, r.status);
@@ -157,6 +176,32 @@ const mandar = (token, posiciones) => fetch(API + '/gps', {
   await sleep(500);
   r = await mandar(s12.token, [{ lat: q.lat, lng: q.lng, speed: 10, timestamp: Date.now() }]);
   ok('la misma persona con otra sesión sí puede seguir mandando', r.status === 200, r.status);
+
+  console.log('\nVACIAR ATRASO NO ES ESTAR MUERTO');
+  // Salió de los logs de producción: la app vaciaba su cola tras un corte
+  // —posiciones viejas con su hora real, que el servidor acepta a propósito
+  // para las vueltas— y el barrido de frescura, que juzgaba por la hora de
+  // la POSICIÓN, la olvidaba en bucle cada 10 s mientras el teléfono seguía
+  // llegando perfectamente. Son dos edades: la de la posición (gobierna el
+  // gris) y la del enlace (gobierna el olvido).
+  //
+  // Acá el teléfono llega cada 2 s durante ~24 s (dos barridos enteros),
+  // pero SOLO con posiciones de hace un minuto. Antes del arreglo, la
+  // unidad moría en el primer barrido.
+  for (let i = 0; i < 12; i++) {
+    const p = anillo(0.2 + i * 0.001);
+    await mandar(s12.token, [{ lat: p.lat, lng: p.lng, speed: 15, timestamp: Date.now() - 60_000 }]);
+    await sleep(2000);
+  }
+  ok('la unidad sigue en el estado: se la OYE, aunque su posición sea vieja',
+     !!vista(), (estado?.units || []).map(u => u.unitId));
+  ok('dibujada en gris — dónde está AHORA no se sabe, y eso se dice',
+     vista()?.sinSenal === true, vista());
+  // Y con la cola vaciada llega la posición de ahora: vuelve al color.
+  const fresca = anillo(0.25);
+  await mandar(s12.token, [{ lat: fresca.lat, lng: fresca.lng, speed: 20, timestamp: Date.now() }]);
+  await sleep(700);
+  ok('una posición fresca la saca del gris al instante', vista()?.sinSenal === false, vista()?.sinSenal);
 
   ws.close(); ws2.close();
   console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

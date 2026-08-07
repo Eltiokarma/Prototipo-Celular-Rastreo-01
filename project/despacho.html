@@ -182,6 +182,11 @@ const JULIACA_CENTER = [-15.4904, -70.1333];
 // Objetivo de brecha por defecto; cada ruta manda el suyo en el estado
 const TARGET_GAP_DEFAULT = 2;
 
+// Los tipos de emergencia. El chofer los elige DESPUÉS de deslizar el SOS
+// —la alerta ya llegó acá—; llegan como mensaje `sos_tipo` y actualizan la
+// emergencia ya mostrada. Sin tipo, es el SOS genérico de siempre.
+const TIPOS_SOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
+
 function parseMin(s) {
   if (!s) return null;
   const [m, sec] = String(s).split(':').map(Number);
@@ -608,6 +613,9 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   const [error, setError] = React.useState(null);
   const [aviso, setAviso] = React.useState(null);
   const [guardando, setGuardando] = React.useState(false);
+  // Las grabaciones de la calle (3.4): null = todavía no se pidieron
+  const [grabaciones, setGrabaciones] = React.useState(null);
+  const [verGrabaciones, setVerGrabaciones] = React.useState(false);
   const mapRef = React.useRef(null);
   const capaRef = React.useRef(null);
   const archivoRef = React.useRef(null);
@@ -934,6 +942,55 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
               style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2 }}>
               Importar GPX o GeoJSON
             </button>
+            {/* Las grabaciones de la calle (3.4): un chofer manejó la vuelta
+                con el grabador de la app y el recorrido quedó en el servidor.
+                Cargarlo acá lo pone como los puntos del tramo elegido — entra
+                por el MISMO import (y su misma simplificación) que un GPX. */}
+            <button onClick={() => {
+              setVerGrabaciones(v => !v);
+              if (!grabaciones) {
+                api('/admin/grabaciones')
+                  .then(d => setGrabaciones(d.grabaciones || []))
+                  .catch(e => { setGrabaciones([]); setError(e.message); });
+              }
+            }} style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2 }}>
+              {verGrabaciones ? 'Ocultar grabaciones' : 'Grabaciones de la calle'}
+            </button>
+            {verGrabaciones && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {!grabaciones && <span style={{ fontSize: 12, color: HUD.dim3 }}>Cargando…</span>}
+                {grabaciones && grabaciones.length === 0 && (
+                  <span style={{ fontSize: 12, color: HUD.dim3 }}>
+                    No hay ninguna. Se graban desde la app del chofer: Perfil → Grabador de recorrido.
+                  </span>
+                )}
+                {(grabaciones || []).map(g => (
+                  <div key={g.id} style={{
+                    ...tarjeta('8px 10px'), borderRadius: 8, display: 'flex',
+                    alignItems: 'center', gap: 8,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 12, fontWeight: 700, overflow: 'hidden',
+                        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>{g.nombre || `Recorrido de ${g.quien}`}</div>
+                      <div style={{ fontFamily: mono, fontSize: 10, color: HUD.dim3 }}>
+                        {g.quien} · {(g.largoM / 1000).toFixed(1)} km · {g.puntos} pts
+                        · {new Date(g.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <button onClick={() => {
+                      api(`/admin/grabaciones/${g.id}.geojson`)
+                        .then(geo => { importar(JSON.stringify(geo)); setVerGrabaciones(false); })
+                        .catch(e => setError(e.message));
+                    }} style={{ ...btnChico(HUD.fg2), flexShrink: 0 }}
+                      title={`Cargar estos puntos como la ${tramo} (después ajustás y guardás como siempre)`}>
+                      Usar en la {tramo}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <button onClick={() => setPuntos(p => p.slice(0, -1))}
               disabled={!puntos || !puntos.length}
               style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2, opacity: puntos && puntos.length ? 1 : .5 }}>
@@ -2469,6 +2526,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
                   baja: { label: 'dio de baja a', color: HUD.red },
                   sos: { label: 'disparó un SOS', color: HUD.red },
+                  // Las dos del perfil del chofer (se edita él, desde la app)
+                  alias_propio: { label: 'se puso el alias', color: HUD.bright },
+                  clave_propia: { label: 'cambió su propia contraseña', color: HUD.amber },
                 };
                 const cols = '120px 150px 1fr';
                 return (
@@ -2739,8 +2799,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     const own = m.unitId === session.unitId;
     if (kind === 'sos') {
       return {
+        // El ancla para cuando llegue el tipo (`sos_tipo`): la emergencia
+        // del hilo se actualiza en el lugar, no se duplica.
+        sosId: m.sosId ?? null,
         from: m.driverName || m.unitId, unit: m.vehicleId || null, tone: 'sos',
-        text: `SOS — ${m.driverName || m.unitId} pide ayuda${m.vehicleId ? ' desde ' + m.vehicleId : ''}`,
+        text: `SOS — ${m.driverName || m.unitId} pide ayuda${m.vehicleId ? ' desde ' + m.vehicleId : ''}` +
+          (TIPOS_SOS[m.sosTipo] ? ` · ${TIPOS_SOS[m.sosTipo].toUpperCase()}` : ''),
         time: nowTime(m.timestamp),
       };
     }
@@ -2818,6 +2882,19 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         } else if (msg.type === 'sos_alert') {
           pushMsg(mapMsg(msg, 'sos'));
           setSos({ ...msg, receivedAt: Date.now() });
+        } else if (msg.type === 'sos_tipo') {
+          // El chofer le puso nombre a la emergencia ya disparada: "falla
+          // mecánica" pide una grúa, "accidente" una ambulancia, "policía"
+          // otra llamada. Se actualizan el cartel y la línea del hilo — la
+          // emergencia sigue siendo UNA, ahora con más información.
+          if (TIPOS_SOS[msg.tipo]) {
+            setSos(actual => (actual && actual.sosId === msg.sosId)
+              ? { ...actual, sosTipo: msg.tipo } : actual);
+            setMessages(ms => ms.map(x => (x.sosId != null && x.sosId === msg.sosId)
+              ? { ...x, text: x.text.replace(/ · (FALLA MECÁNICA|ACCIDENTE|POLICÍA)$/, '') +
+                              ` · ${TIPOS_SOS[msg.tipo].toUpperCase()}` }
+              : x));
+          }
         } else if (msg.type === 'chat_history') {
           setMessages((msg.items || []).map(it => mapMsg(
             { ...it, expired: (it.kind === 'voice' || it.kind === 'photo') && !it.data },
@@ -3102,7 +3179,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 3 }}>SOS</span>
           <span style={{ fontSize: 15, fontWeight: 700 }}>
             {(sos.driverName || sos.unitId || 'Unidad').toUpperCase()}
-            {sos.vehicleId ? ` · ${sos.vehicleId.toUpperCase()}` : ''} pide ayuda · {nowTime(sos.timestamp)}
+            {sos.vehicleId ? ` · ${sos.vehicleId.toUpperCase()}` : ''} pide ayuda
+            {TIPOS_SOS[sos.sosTipo] ? ` — ${TIPOS_SOS[sos.sosTipo].toUpperCase()}` : ''} · {nowTime(sos.timestamp)}
             {sos.routeId && sos.routeId !== routeInfo.routeId ? ` · RUTA ${sos.routeId}` : ''}
             {sos.lat ? ` · ${sos.lat.toFixed(4)}, ${sos.lng.toFixed(4)}` : ''}
           </span>
