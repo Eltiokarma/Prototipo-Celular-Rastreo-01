@@ -26,6 +26,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import * as SecureStore from 'expo-secure-store';
 
 import { crearCliente } from './protocolo/cliente';
+import { limpiarNotificacion } from './notificacion.js';
 import { construirHud, textoNotificacion } from './hud';
 import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
 import { margenes, margenBarra } from './margenes';
@@ -176,6 +177,14 @@ function Aplicacion() {
       // en vez de sumar otra: en el hilo la emergencia es una sola.
       c.on('sosTipo', (e) => setMensajes(v =>
         v.map(m => (m.sosId != null && m.sosId === e.sosId) ? conTipoSos(m, e.tipo) : m))),
+      // El "¿qué pasó?" se abre recién con el ECO del propio SOS: es la
+      // prueba de que la alerta LLEGÓ (y trae el id que el tipo necesita).
+      // Abrirlo al deslizar mentía dos veces: sin señal decía "ALERTA
+      // ENVIADA" de una alerta que nunca salió, y un tipo tocado antes del
+      // eco se perdía en silencio (marcarTipoSos sin id no manda nada).
+      c.on('sos', (m) => {
+        if (c.sesion && m.unitId === c.sesion.unitId) setTipificarSos(true);
+      }),
       c.on('voz',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('foto', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
     ];
@@ -229,6 +238,11 @@ function Aplicacion() {
       saliendo.current = true;
       await gps.parar();
     } else {
+      // AUSENTE sale de la cadena: el servidor deja de contestar brecha y
+      // la notificación viva no se actualiza más — sin esto, la bandeja
+      // mostraba una brecha de hace una hora como si fuera de ahora,
+      // durante todo el almuerzo.
+      if (nueva === 'ausente') limpiarNotificacion().catch(() => {});
       saliendo.current = false;
       const permisos = await gps.pedirPermisos();
       if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
@@ -416,7 +430,7 @@ function Aplicacion() {
       <Ruta {...comun} hud={hud} reporta={reporta}
         confirmada={enRutaConfirmada}
         onPresencia={cambiarPresencia}
-        onSos={() => { cliente.current.mandarSos(ultimaPos.current); setTipificarSos(true); }}
+        onSos={() => cliente.current.mandarSos(ultimaPos.current)}
         tipificarSos={tipificarSos}
         onTipoSos={(tipo) => {
           if (tipo) cliente.current.marcarTipoSos(tipo);

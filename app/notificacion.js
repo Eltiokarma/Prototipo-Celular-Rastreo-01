@@ -67,10 +67,13 @@ export async function notificarBrecha(brecha) {
         title: aviso.titulo,
         body: aviso.detalle,
         sound: false,
-        // En Android el canal decide la importancia; esto lo ata al nuestro
-        ...(Notifications.AndroidImportance ? { channelId: CANAL } : {}),
       },
-      trigger: null,   // ahora — y con el mismo identifier, REEMPLAZA
+      // El canal va EN EL TRIGGER, no en content — ahí expo-notifications lo
+      // ignora en silencio y la notificación sale por el canal por defecto,
+      // que sí suena y salta: lo contrario de lo que este canal BAJO existe
+      // para evitar. Con solo channelId es "ahora, por este canal", y con el
+      // mismo identifier, REEMPLAZA.
+      trigger: { channelId: CANAL },
     });
     ultimo = aviso.titulo;
   } catch {}
