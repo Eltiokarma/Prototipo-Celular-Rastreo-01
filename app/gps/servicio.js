@@ -162,6 +162,7 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
 export const LLAVE_GRABANDO = 'grabando';
 const ARCHIVO_GRABACION = () => FileSystem.documentDirectory + 'grabacion.json';
 let grabador = null;
+let grabadoEnDisco = 0;   // hasta qué punto está persistido (ver abajo)
 
 async function grabar(posiciones) {
   const flag = await SecureStore.getItemAsync(LLAVE_GRABANDO).catch(() => null);
@@ -172,14 +173,22 @@ async function grabar(posiciones) {
     try { previos = JSON.parse(await FileSystem.readAsStringAsync(ARCHIVO_GRABACION())) || []; }
     catch {}
     grabador = crearGrabador(previos);
+    grabadoEnDisco = grabador.cantidad;   // lo retomado YA está en disco
   }
   let huboNuevos = false;
   for (const p of posiciones) {
     if (grabador.posicion(p.lat, p.lng)) huboNuevos = true;
   }
   diagnostico.grabacion = { puntos: grabador.cantidad, largoM: grabador.largoM };
-  if (huboNuevos) {
+  // Se persiste cada 10 puntos y no en cada uno: el archivo se reescribe
+  // ENTERO en cada guardado, y punto a punto la escritura acumulada crece
+  // al cuadrado del recorrido — flash quemado en el teléfono que además
+  // corre el GPS todo el día. Lo que se arriesga si Android mata el proceso
+  // son ~10 puntos: 300 metros de una vuelta de kilómetros. (Al TERMINAR no
+  // hace falta escribir: los puntos completos salen de la memoria viva.)
+  if (huboNuevos && grabador.cantidad - grabadoEnDisco >= 10) {
     await FileSystem.writeAsStringAsync(ARCHIVO_GRABACION(), JSON.stringify(grabador.puntos));
+    grabadoEnDisco = grabador.cantidad;
   }
 }
 
@@ -187,6 +196,7 @@ async function grabar(posiciones) {
 // pantalla y la tarea pueden estar en procesos distintos.
 export async function empezarGrabacion() {
   grabador = crearGrabador();
+  grabadoEnDisco = 0;
   try { await FileSystem.deleteAsync(ARCHIVO_GRABACION(), { idempotent: true }); } catch {}
   await SecureStore.setItemAsync(LLAVE_GRABANDO, '1');
   diagnostico.grabacion = { puntos: 0, largoM: 0 };

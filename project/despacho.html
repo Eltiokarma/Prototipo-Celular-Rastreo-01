@@ -2890,8 +2890,14 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           if (TIPOS_SOS[msg.tipo]) {
             setSos(actual => (actual && actual.sosId === msg.sosId)
               ? { ...actual, sosTipo: msg.tipo } : actual);
+            // El sufijo viejo se quita con un patrón DERIVADO de TIPOS_SOS:
+            // una copia a mano de las etiquetas era una segunda lista que se
+            // separaba sola al agregar un tipo — y las correcciones del
+            // chofer acumulaban etiquetas en vez de reemplazarlas.
+            const sufijos = new RegExp(' · (' +
+              Object.values(TIPOS_SOS).map(t => t.toUpperCase()).join('|') + ')$');
             setMessages(ms => ms.map(x => (x.sosId != null && x.sosId === msg.sosId)
-              ? { ...x, text: x.text.replace(/ · (FALLA MECÁNICA|ACCIDENTE|POLICÍA)$/, '') +
+              ? { ...x, text: x.text.replace(sufijos, '') +
                               ` · ${TIPOS_SOS[msg.tipo].toUpperCase()}` }
               : x));
           }
