@@ -2743,6 +2743,10 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     routeName: session.routeName || null,
     targetGapMin: TARGET_GAP_DEFAULT,
   });
+  // La ruta del estado ANTERIOR. Va en un ref y no se lee del estado porque
+  // el estado se acaba de pisar unas líneas más arriba: ver el comentario
+  // del cierre de la conversación privada, abajo.
+  const rutaPreviaRef = React.useRef(session.routeId || null);
   const esSupervisor = !!session.supervisor;
 
   // El mismo panel sirve en PC y en celular: bajo 900px pasa a vista
@@ -2841,6 +2845,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         let msg;
         try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.type === 'state') {
+          // Cambió la ruta: la conversación privada abierta era de la OTRA,
+          // y los no leídos también. Se compara contra un ref y NO desde
+          // adentro de un `setRouteInfo(prev => …)`: ahí `prev` ya es el
+          // valor que se acaba de poner en la línea de abajo —React aplica
+          // la cola en orden—, así que `prev.routeId` era siempre igual a
+          // `msg.routeId`, la condición nunca daba verdadera y el privado
+          // quedaba abierto apuntando a una combi de la ruta anterior.
+          if (rutaPreviaRef.current && rutaPreviaRef.current !== msg.routeId) {
+            setPrivadoCon(null);
+            setNoLeidos({});
+          }
+          rutaPreviaRef.current = msg.routeId;
           setUnits(msg.units || []);
           setGaps(msg.gaps || {});
           setRouteInfo({
@@ -2848,16 +2864,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             routeName: msg.routeName,
             targetGapMin: msg.targetGapMin || TARGET_GAP_DEFAULT,
             desvio: msg.desvio || null,
+            // Cuántas combis tiene la ruta dadas de alta: el denominador
+            // del "N de M" de la cabecera de la lista.
+            flota: msg.flota ?? null,
           });
           fittedRef.current = false; // reencuadrar el mapa al cambiar de ruta
-          setRouteInfo(prev => {
-            // Cambió la ruta: la conversación privada abierta era de la otra
-            if (prev.routeId && prev.routeId !== msg.routeId) {
-              setPrivadoCon(null);
-              setNoLeidos({});
-            }
-            return prev;
-          });
         } else if (msg.type === 'routes') {
           setRoutes(msg.routes || []);
         } else if (msg.type === 'route_geometry') {
@@ -3219,7 +3230,23 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           <div style={{ padding: '14px 16px 10px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
             <span style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6 }}>Unidades en ruta</span>
             <div style={{ flex: 1 }} />
+            {/* «7 de 9»: lo que se ve sobre lo que la ruta TIENE dado de alta.
+                El número solo nunca decía cuántas faltaban, y a las 6 de la
+                mañana esa es la pregunta. El total llega en el estado
+                (`flota`); si un servidor viejo no lo manda, queda el número
+                de siempre y no un «de —» que no significa nada. */}
             <span style={{ fontFamily: black, fontSize: 14 }}>{units.length}</span>
+            {/* El numerador cuenta por la ruta de la PERSONA y el denominador
+                por la del VEHÍCULO, y un supervisor puede dejar a alguien de
+                una ruta arriba de una combi de otra. En ese caso el total
+                queda corto: antes que mostrar «10 de 9», que se lee como una
+                pantalla rota, se muestra el número solo. */}
+            {routeInfo.flota >= units.length && routeInfo.flota > 0 && (
+              <span
+                style={{ ...rotulo(10, HUD.dim3), letterSpacing: 1.2 }}
+                title={`${units.length} de las ${routeInfo.flota} unidades de la ruta están reportando`}
+              >de {routeInfo.flota}</span>
+            )}
           </div>
 
           {/* Desvíos: se agrupan acá en vez de gritar uno por uno. En una

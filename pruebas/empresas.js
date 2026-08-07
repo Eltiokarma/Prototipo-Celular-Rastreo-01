@@ -180,7 +180,41 @@ const cli = (...args) => execFileSync('node', [RAIZ + '/server/empresa.js', ...a
   ok('y no llega al despacho de A', !supA.recibido.some(m => m.type === 'sos_alert'),
     supA.recibido.map(m => m.type));
 
-  [supA.ws, supB.ws, conB.ws].forEach(w => { try { w.close(); } catch {} });
+  // ── El privado NO cruza el borde ────────────────────────────
+  // Bug medido: el código de vehículo es único en TODO el servidor, y el
+  // privado de Despacho solo comprobaba que el vehículo existiera. Con eso,
+  // al despacho de Alfa le alcanzaba con acertar el código de una combi de
+  // Beta para escribirle a su chofer — y le llegaba, porque el reparto solo
+  // miraba el vehículo. Es la misma frontera que defiende toda esta suite,
+  // por la puerta que nadie había mirado.
+  supA.recibido.length = 0;
+  conB.recibido.length = 0;
+  supA.ws.send(JSON.stringify({
+    type: 'chat', to: 'CH-B', text: 'privado cruzado entre cooperativas', timestamp: Date.now(),
+  }));
+  await sleep(900);
+  const cruzado = (c) => c.recibido.filter(m => m.type === 'chat_msg' && m.text === 'privado cruzado entre cooperativas');
+  ok('el privado del despacho de A NO le llega a la combi de B',
+     cruzado(conB).length === 0, cruzado(conB).map(m => m.toVehicleId));
+  const guardado = (() => {
+    const b = new Database(DB);
+    const fila = b.prepare('SELECT 1 FROM messages WHERE text = ?').get('privado cruzado entre cooperativas');
+    b.close();
+    return !!fila;
+  })();
+  ok('y ni siquiera queda guardado', guardado === false);
+  // Y el mismo mensaje a una combi PROPIA tiene que seguir andando: esto
+  // cerró una puerta, no rompió el privado.
+  const chA = (await login('CH-A', 'chofer1234')).body;
+  const conA = await abrir(chA.token);
+  supA.ws.send(JSON.stringify({
+    type: 'chat', to: 'CH-A', text: 'privado de la casa', timestamp: Date.now(),
+  }));
+  await sleep(900);
+  ok('el privado a una combi PROPIA sigue llegando',
+     conA.recibido.some(m => m.type === 'chat_msg' && m.text === 'privado de la casa'));
+
+  [supA.ws, supB.ws, conB.ws, conA.ws].forEach(w => { try { w.close(); } catch {} });
   await sleep(300);
 
   console.log('\nSUSPENDER UNA COOPERATIVA');

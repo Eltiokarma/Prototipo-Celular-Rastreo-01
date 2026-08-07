@@ -788,6 +788,11 @@ db.exec(`
 `);
 
 ligarAEmpresa('vehicles', true);
+// El estado de tiempo real cuenta la flota de la ruta en cada emisión (cada
+// STATE_INTERVAL_MS, por ruta) para poder decir "7 de 9". Sin índice eso es
+// recorrer la tabla entera cada vez; con 2000 unidades el barrido es corto,
+// pero cae en el hilo único de SQLite y ahí lo corto vale.
+db.exec('CREATE INDEX IF NOT EXISTS idx_vehicles_ruta ON vehicles (routeId)');
 
 // name es OBLIGATORIO (el nombre real, para los registros de la empresa)
 // y alias es OPCIONAL (como lo llaman en la ruta: "el Chino", "Pocho").
@@ -1666,6 +1671,20 @@ app.get('/perfil', (req, res) => {
       horasSec: horasSec(desde),
       horasHoySec: horasSec(hoy0.getTime()),
     },
+    // Quiénes van arriba de esta combi además de él. Al chofer le sirve
+    // para gestionarlos; al cobrador, para saber con quién anda — y que la
+    // pantalla no le ofrezca botones que el servidor le va a negar.
+    cobradores: cobradoresDe(vehicleId, desde),
+    topeCobradores: COBRADORES_POR_COMBI,
+    puedeGestionar: user.role === 'driver',
+    chofer: user.role === 'collector'
+      ? (() => {
+          const ch = db.prepare(
+            "SELECT name, alias FROM users WHERE vehicleId = ? AND role = 'driver' ORDER BY createdAt LIMIT 1"
+          ).get(vehicleId);
+          return ch ? { name: ch.name, alias: ch.alias || null } : null;
+        })()
+      : null,
     toleranciaCumple: TOLERANCIA_CUMPLE,
   });
 });
@@ -1716,6 +1735,162 @@ app.post('/perfil/clave', (req, res) => {
   // En la auditoría queda QUE la cambió, nunca cuál es.
   audit(user.unitId, 'clave_propia', user.unitId, null, user.routeId);
   console.log(`Contraseña cambiada por su dueño: ${user.unitId}`);
+  res.json({ ok: true });
+});
+
+// ─── LOS COBRADORES DE SU COMBI ──────────────────────────────
+// (pedido usándolo) El cobrador lo pone el chofer: sube con él, cobra en su
+// combi y cambia seguido. Que cada alta tuviera que pasar por Despacho
+// metía a un tercero en el medio de una decisión que no es suya, y en la
+// práctica terminaba en que el cobrador entraba con la cuenta del chofer —
+// que es exactamente lo que rompe las horas por persona.
+//
+// Así que el chofer los gestiona, con el borde escrito y corto:
+//
+//   · solo sobre SU vehículo — sale de la sesión, nunca del pedido;
+//   · solo rol cobrador: no puede crear un chofer ni tocar ningún rol;
+//   · con tope, para que esto no sea una fábrica de cuentas;
+//   · todo auditado, y Despacho y el gerente los siguen viendo enteros en
+//     su panel. Esto SUMA quién puede dar de alta; no esconde a nadie.
+//
+// Lo que el chofer NO puede: cambiarle el nombre a un cobrador ya cargado
+// (con ese se liquidan las horas — es de Despacho, igual que el suyo), ni
+// tocar a nadie que no vaya arriba de su combi.
+const COBRADORES_POR_COMBI = 2;
+
+function choferPropio(req, res) {
+  const user = usuarioPropio(req, res);
+  if (!user) return null;
+  if (user.role !== 'driver') {
+    res.status(403).json({ error: 'Los cobradores los maneja el chofer de la combi' });
+    return null;
+  }
+  return user;
+}
+
+// Las horas de una persona en una ventana, con el MISMO criterio que el
+// perfil y que el panel del gerente: un turno abierto cuenta hasta ahora.
+function horasDe(personId, desde) {
+  const ahora = Date.now();
+  return db.prepare('SELECT startedAt, endedAt, lastSeenAt FROM shifts WHERE personId = ? AND startedAt >= ?')
+    .all(personId, desde)
+    .reduce((a, t) => {
+      const fin = t.endedAt || t.lastSeenAt || ahora;
+      const ini = Math.max(t.startedAt, desde);
+      return fin > ini ? a + Math.round((fin - ini) / 1000) : a;
+    }, 0);
+}
+
+function cobradoresDe(vehicleId, desde) {
+  const enLinea = new Set(clients.values());
+  return db.prepare(`
+    SELECT unitId, name, alias, createdAt, lastLogin FROM users
+    WHERE vehicleId = ? AND role = 'collector'
+    ORDER BY createdAt
+  `).all(vehicleId).map(c => ({
+    unitId: c.unitId,
+    name: c.name,
+    alias: c.alias || null,
+    desde: c.createdAt,
+    ultimoIngreso: c.lastLogin || null,
+    enLinea: enLinea.has(c.unitId),
+    horasSec: horasDe(c.unitId, desde),
+  }));
+}
+
+// Alta de un cobrador SOBRE SU COMBI. Todo lo que decide permisos —el
+// vehículo, la ruta, la empresa y el rol— sale de la sesión del chofer; del
+// cuerpo del pedido solo salen el usuario, el nombre y la clave.
+app.post('/perfil/cobradores', (req, res) => {
+  const user = choferPropio(req, res);
+  if (!user) return;
+  const vehicleId = user.vehicleId || user.unitId;
+  const veh = vehicleOf(vehicleId);
+  if (!veh) return res.status(400).json({ error: 'Tu combi todavía no está dada de alta' });
+
+  const unitId = idLimpio(req.body?.unitId);
+  if (req.body?.unitId && !unitId) {
+    return res.status(400).json({ error: 'El usuario solo admite letras, números, punto, guion y guion bajo' });
+  }
+  const name = String(req.body?.name || '').trim().slice(0, 60);
+  const alias = String(req.body?.alias || '').trim().slice(0, 30) || null;
+  const password = String(req.body?.password || '');
+  if (!unitId) return res.status(400).json({ error: 'Falta el usuario con el que va a entrar' });
+  if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  if (password.length < CLAVE_MINIMA || password.length > 64) {
+    return res.status(400).json({ error: `La contraseña necesita entre ${CLAVE_MINIMA} y 64 caracteres` });
+  }
+  // El tope se cuenta ANTES de mirar si el usuario está tomado: si no, el
+  // error diría "ya está tomado" cuando el problema es otro.
+  const cuantos = db.prepare("SELECT COUNT(*) AS c FROM users WHERE vehicleId = ? AND role = 'collector'")
+    .get(vehicleId).c;
+  if (cuantos >= COBRADORES_POR_COMBI) {
+    return res.status(409).json({
+      error: `Tu combi ya tiene ${cuantos} cobrador${cuantos === 1 ? '' : 'es'}. Dá de baja a uno para agregar otro.`,
+    });
+  }
+  // Único en todo el servidor: el mismo 409 que da el alta de Despacho. No
+  // se distingue de quién es el usuario tomado — si no, esto serviría para
+  // averiguar los usuarios de las demás cooperativas.
+  if (db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
+    return res.status(409).json({ error: 'Ese usuario ya está tomado' });
+  }
+
+  db.prepare(`
+    INSERT INTO users (unitId, driverName, name, alias, role, routeId, vehicleId, companyId, passHash, createdAt)
+    VALUES (?, ?, ?, ?, 'collector', ?, ?, ?, ?, ?)
+  `).run(unitId, alias || name, name, alias,
+         user.routeId || DEFAULT_ROUTE, vehicleId, veh.companyId,
+         hashPassword(password), Date.now());
+
+  audit(user.unitId, 'alta_cobrador', unitId,
+        `${alias ? `${name} (${alias})` : name} · ${vehicleId}`, user.routeId);
+  console.log(`Alta de cobrador por su chofer: ${unitId} en ${vehicleId}`);
+  res.json({ ok: true, unitId });
+});
+
+// Que el cobrador sea de SU combi es la única llave de las dos operaciones
+// de abajo. Uno de otra combi se responde como inexistente, igual que en el
+// resto del servidor.
+function cobradorDeSuCombi(user, unitId, res) {
+  const vehicleId = user.vehicleId || user.unitId;
+  const c = db.prepare('SELECT unitId, role, vehicleId, routeId FROM users WHERE unitId = ?').get(String(unitId));
+  if (!c || c.role !== 'collector' || c.vehicleId !== vehicleId) {
+    res.status(404).json({ error: 'Ese cobrador no va en tu combi' });
+    return null;
+  }
+  return c;
+}
+
+app.delete('/perfil/cobradores/:unitId', (req, res) => {
+  const user = choferPropio(req, res);
+  if (!user) return;
+  const c = cobradorDeSuCombi(user, req.params.unitId, res);
+  if (!c) return;
+  db.prepare('DELETE FROM users WHERE unitId = ?').run(c.unitId);
+  kickUnit(c.unitId, 'Tu chofer te dio de baja de la combi.');
+  audit(user.unitId, 'baja_cobrador', c.unitId, null, user.routeId);
+  console.log(`Baja de cobrador por su chofer: ${c.unitId}`);
+  res.json({ ok: true });
+});
+
+// Resetear la clave del cobrador (se la olvidó, cambió de teléfono). El
+// chofer NO necesita la anterior —no es la suya— pero sí tiene que ser de
+// su combi, y el cobrador queda desconectado para que entre con la nueva.
+app.post('/perfil/cobradores/:unitId/clave', (req, res) => {
+  const user = choferPropio(req, res);
+  if (!user) return;
+  const nueva = String(req.body?.nueva || '');
+  if (nueva.length < CLAVE_MINIMA || nueva.length > 64) {
+    return res.status(400).json({ error: `La contraseña necesita entre ${CLAVE_MINIMA} y 64 caracteres` });
+  }
+  const c = cobradorDeSuCombi(user, req.params.unitId, res);
+  if (!c) return;
+  db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(nueva), c.unitId);
+  kickUnit(c.unitId, 'Tu chofer cambió tu contraseña. Ingresá con la nueva.');
+  // Queda QUE la cambió, nunca cuál: el mismo criterio que la clave propia.
+  audit(user.unitId, 'clave_cobrador', c.unitId, null, user.routeId);
+  console.log(`Clave de cobrador cambiada por su chofer: ${c.unitId}`);
   res.json({ ok: true });
 });
 
@@ -4275,7 +4450,22 @@ function destinoPrivado(prof, msg) {
   if (prof.role === 'dispatch' || prof.role === 'manager') {
     const destino = idLimpio(msg.to);
     if (!destino) return { toVehicleId: null };
-    if (!units.has(destino) && !vehicleOf(destino)) return null;  // unidad inexistente
+    // La combi tiene que existir Y SER DE SU COOPERATIVA.
+    //
+    // Sin lo segundo esto era una puerta al otro lado del borde de empresa:
+    // el código de vehículo es único en todo el servidor, así que a un
+    // Despacho le alcanzaba con acertar el de una combi ajena para
+    // escribirle en privado al chofer de otra cooperativa — y le llegaba,
+    // porque el reparto solo miraba el vehículo. Medido con dos empresas y
+    // un mensaje que cruzó.
+    //
+    // Una combi de otra empresa se trata igual que una inexistente: el
+    // mismo criterio que ya usaba el alta de personas, y por la misma razón
+    // (si se distinguieran, este campo sería un buscador de flotas ajenas).
+    const veh = vehicleOf(destino);
+    if (!veh) return null;
+    const suya = prof.companyId || empresaBase();
+    if ((veh.companyId || empresaBase()) !== suya) return null;
     return { toVehicleId: destino };
   }
   if (msg.to || msg.privado) {
@@ -4498,6 +4688,12 @@ function buildState(routeId, acumular) {
     sinSenal: enCadena.filter(u => u.sinSenal).length,
     yendo: all.filter(u => u.presencia === 'ruta' && u.enRuta === false).length,
     ausentes: all.filter(u => u.presencia === 'ausente').length,
+    // La FLOTA de la ruta: cuántas combis hay dadas de alta, estén donde
+    // estén. Es el denominador del "7 de 9" de la cabecera de Despacho, y
+    // hasta ahora no viajaba: el panel podía decir cuántas veía, nunca
+    // cuántas faltaban. Que falten dos a las 6 de la mañana es justo el
+    // dato que hace levantar el teléfono.
+    flota: db.prepare('SELECT COUNT(*) AS c FROM vehicles WHERE routeId = ?').get(routeId).c,
     timestamp: Date.now(),
   };
 }

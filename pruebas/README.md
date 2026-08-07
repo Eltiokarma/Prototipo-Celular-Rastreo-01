@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Cuarenta y dos suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Cuarenta y tres suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -39,7 +39,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp presencia foto marca respaldo
-# las que se arman solas (cont.): vendor retencion renovacion cascada mapa-shot compresion sos perfil grabador
+# las que se arman solas (cont.): vendor retencion renovacion cascada mapa-shot compresion sos perfil grabador cobradores
 # las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema contraste mapa teclado nativas
 node gerencia.js
 ```
@@ -67,7 +67,8 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `turnos` | Que un corte de señal no parta el turno y que un reinicio no deje turnos abiertos para siempre |
 | `privado` | El mensaje directo Despacho ↔ unidad: que lo vean los dos y nadie más |
 | `seguridad` | Inyección por identificadores, fuerza bruta y cupo de mensajes por conexión |
-| `empresas` | Que dos cooperativas no se vean **nada**: ni panel, ni mapa, ni chat, ni SOS |
+| `empresas` | Que dos cooperativas no se vean **nada**: ni panel, ni mapa, ni chat, ni SOS. Incluido el privado de Despacho, que era la puerta que faltaba mirar: el código de vehículo es único en TODO el servidor y el envío solo comprobaba que existiera, así que acertar el código de una combi ajena alcanzaba para escribirle a su chofer — medido cruzando un mensaje de una empresa a otra, hoy cerrado y con la prueba puesta |
+| `cobradores` | Que el chofer gestione a los cobradores de SU combi, y que ahí termine. Lo que se prueba no es que funcione sino dónde corta: pedir el alta de un chofer igual da un cobrador, mandar la combi del vecino no lo cuelga de ahí, el cobrador del de al lado no se toca (404, y el error no confirma que exista), un cobrador no gestiona cobradores, y hay tope por combi. Más lo que queda escrito: alta, clave y baja auditadas —del cambio de clave, QUE la cambió y nunca cuál—, y la gerencia siguiendo viendo a todos |
 | `variantes` | Rutas alternas: que cambiar el trazado descarte las vueltas en curso y no mezcle geometrías en el promedio |
 | `brecha` | Que la brecha promedio por vuelta se guarde, sea creíble, y quede vacía cuando no hay con qué compararse |
 | `creador` | Las cuatro barreras del nivel de arriba, incluido que sin `CREATOR_PASSWORD` responda 404 y no 403 |
