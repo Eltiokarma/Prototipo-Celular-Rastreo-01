@@ -1719,6 +1719,103 @@ app.post('/perfil/clave', (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── GRABACIONES DE RECORRIDO ────────────────────────────────
+// (PENDIENTES 3.4) Subirse a la combi, manejar la vuelta y que el trazado
+// salga de la calle. La app graba un punto cada 30 m (`app/grabador.js`) y
+// lo sube acá; el trazador de Despacho lo baja como GeoJSON y lo importa
+// por la puerta que ya existía. No reemplaza al trazador: lo alimenta.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recordings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    personId TEXT NOT NULL,
+    companyId TEXT,
+    routeId TEXT,
+    nombre TEXT,
+    puntos TEXT NOT NULL,      -- JSON [{lat,lng}, ...], ya filtrado a 30 m
+    cantidad INTEGER NOT NULL,
+    largoM INTEGER NOT NULL,
+    createdAt INTEGER NOT NULL
+  )
+`);
+const GRABACIONES_MAX = 25;   // por empresa: las viejas se van solas
+
+app.post('/grabacion', (req, res) => {
+  const user = usuarioPropio(req, res);   // chofer o cobrador: el que grabó iba arriba
+  if (!user) return;
+  const crudos = Array.isArray(req.body?.puntos) ? req.body.puntos : [];
+  const puntos = crudos
+    .filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
+    .map(p => ({ lat: p.lat, lng: p.lng }));
+  if (puntos.length < 2) {
+    return res.status(400).json({ error: 'Una grabación necesita al menos dos puntos' });
+  }
+  if (puntos.length > 8000) {
+    // 8000 puntos a 30 m son 240 km: más que eso no es una vuelta, es un error
+    return res.status(413).json({ error: 'Demasiados puntos para una grabación' });
+  }
+  // El largo se calcula ACÁ, no se le cree al cliente: es lo que se muestra
+  // en la lista para elegir cuál importar.
+  let largoM = 0;
+  for (let i = 1; i < puntos.length; i++) {
+    largoM += metrosEntre(puntos[i - 1].lat, puntos[i - 1].lng, puntos[i].lat, puntos[i].lng);
+  }
+  const nombre = String(req.body?.nombre || '').trim().slice(0, 60) || null;
+  const routeId = user.routeId || null;
+  db.prepare(`INSERT INTO recordings (personId, companyId, routeId, nombre, puntos, cantidad, largoM, createdAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(user.unitId, user.companyId || null, routeId, nombre,
+         JSON.stringify(puntos), puntos.length, Math.round(largoM), Date.now());
+  // Las viejas se podan por empresa: 25 grabaciones son semanas de trabajo
+  // de campo, y cada una pesa cientos de KB — esto no es historial, es
+  // materia prima del trazador.
+  db.prepare(`DELETE FROM recordings WHERE companyId IS ? AND id NOT IN
+              (SELECT id FROM recordings WHERE companyId IS ? ORDER BY id DESC LIMIT ?)`)
+    .run(user.companyId || null, user.companyId || null, GRABACIONES_MAX);
+  audit(user.unitId, 'grabacion', null,
+    `${puntos.length} puntos · ${(largoM / 1000).toFixed(1)} km`, routeId);
+  console.log(`Recorrido grabado por ${user.unitId}: ${puntos.length} puntos, ${(largoM / 1000).toFixed(1)} km`);
+  res.json({ ok: true, puntos: puntos.length, largoM: Math.round(largoM) });
+});
+
+// La lista y la descarga son del panel (Despacho o gerencia), con el borde
+// de siempre: cada empresa ve SUS grabaciones y ninguna otra.
+app.get('/admin/grabaciones', requireDispatch, (req, res) => {
+  const filas = db.prepare(`
+    SELECT r.id, r.personId, r.nombre, r.routeId, r.cantidad, r.largoM, r.createdAt,
+           COALESCE(u.driverName, r.personId) AS quien
+    FROM recordings r LEFT JOIN users u ON u.unitId = r.personId
+    WHERE r.companyId IS ?
+    ORDER BY r.id DESC LIMIT ?
+  `).all(req.empresa, GRABACIONES_MAX);
+  res.json({
+    grabaciones: filas.map(f => ({
+      id: f.id, nombre: f.nombre, quien: f.quien, routeId: f.routeId,
+      largoM: f.largoM, puntos: f.cantidad, createdAt: f.createdAt,
+    })),
+  });
+});
+
+app.get('/admin/grabaciones/:id.geojson', requireDispatch, (req, res) => {
+  const fila = db.prepare('SELECT * FROM recordings WHERE id = ? AND companyId IS ?')
+    .get(Number(req.params.id) || -1, req.empresa);
+  if (!fila) return res.status(404).json({ error: 'Esa grabación no existe' });
+  const puntos = JSON.parse(fila.puntos);
+  res.setHeader('Content-Type', 'application/geo+json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="grabacion-${fila.id}.geojson"`);
+  res.send(JSON.stringify({
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: {
+        name: fila.nombre || `Recorrido de ${fila.personId}`,
+        grabadoPor: fila.personId, largoM: fila.largoM, createdAt: fila.createdAt,
+      },
+      // GeoJSON va [lng, lat] — al revés que todo el resto del sistema
+      geometry: { type: 'LineString', coordinates: puntos.map(p => [p.lng, p.lat]) },
+    }],
+  }));
+});
+
 app.post('/gps', (req, res) => {
   const auth = String(req.headers.authorization || '');
   const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);

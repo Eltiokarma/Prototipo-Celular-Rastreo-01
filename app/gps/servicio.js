@@ -23,8 +23,10 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
+import * as FileSystem from 'expo-file-system/legacy';
 import { crearVigia } from '../ausencia.js';
 import { notificarBrecha, limpiarNotificacion } from '../notificacion.js';
+import { crearGrabador } from '../grabador.js';
 
 export const TAREA_GPS = 'coop-r14-gps';
 
@@ -66,6 +68,8 @@ export const diagnostico = {
   // enviadas y 0 fallidas" es indistinguible de "todavía no llegó ninguna
   // posición", y esa ambigüedad ya costó una sesión entera de diagnóstico.
   servicio: 'sin arrancar',
+  // La grabación de recorrido en curso ({puntos, largoM}) o null
+  grabacion: null,
 };
 
 // Lo que no se pudo mandar. Vive en el módulo del SERVICIO y no en la
@@ -143,8 +147,73 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
   }));
 
   for (const p of posiciones) alRecibir?.(p);   // solo para la pantalla
+  // El grabador de recorridos come de las MISMAS posiciones que se mandan:
+  // mejor esfuerzo, jamás puede frenar el envío — la posición es el producto.
+  try { await grabar(posiciones); } catch {}
   await subir(posiciones);
 });
+
+// ─── EL GRABADOR DE RECORRIDOS (PENDIENTES 3.4) ──────────────
+// La lógica (un punto cada 30 m) vive en `app/grabador.js`, puro y con
+// suite. Acá va lo que necesita el teléfono: que la grabación sobreviva a
+// que Android mate el proceso. El flag vive en disco (la tarea revive sin
+// memoria) y los puntos se escriben a un archivo con cada punto nuevo —
+// a 30 m por punto es una escritura cada pocos segundos, no cada 3 s.
+export const LLAVE_GRABANDO = 'grabando';
+const ARCHIVO_GRABACION = () => FileSystem.documentDirectory + 'grabacion.json';
+let grabador = null;
+
+async function grabar(posiciones) {
+  const flag = await SecureStore.getItemAsync(LLAVE_GRABANDO).catch(() => null);
+  if (flag !== '1') { grabador = null; return; }
+  if (!grabador) {
+    // El proceso es nuevo (o recién se empezó): retomar lo que haya en disco
+    let previos = [];
+    try { previos = JSON.parse(await FileSystem.readAsStringAsync(ARCHIVO_GRABACION())) || []; }
+    catch {}
+    grabador = crearGrabador(previos);
+  }
+  let huboNuevos = false;
+  for (const p of posiciones) {
+    if (grabador.posicion(p.lat, p.lng)) huboNuevos = true;
+  }
+  diagnostico.grabacion = { puntos: grabador.cantidad, largoM: grabador.largoM };
+  if (huboNuevos) {
+    await FileSystem.writeAsStringAsync(ARCHIVO_GRABACION(), JSON.stringify(grabador.puntos));
+  }
+}
+
+// Lo que usa la pantalla del perfil. Todo pasa por el disco porque la
+// pantalla y la tarea pueden estar en procesos distintos.
+export async function empezarGrabacion() {
+  grabador = crearGrabador();
+  try { await FileSystem.deleteAsync(ARCHIVO_GRABACION(), { idempotent: true }); } catch {}
+  await SecureStore.setItemAsync(LLAVE_GRABANDO, '1');
+  diagnostico.grabacion = { puntos: 0, largoM: 0 };
+}
+
+// Para de grabar y devuelve los puntos — pero NO borra el archivo: una
+// vuelta grabada es una hora de manejo, y perderla por un corte de señal
+// en el momento de mandarla sería carísimo. El archivo se va recién con
+// `descartarGrabacion()`, cuando el envío salió bien (o el chofer descarta).
+export async function pararGrabacion() {
+  let puntos = grabador ? grabador.puntos : [];
+  grabador = null;
+  try { await SecureStore.deleteItemAsync(LLAVE_GRABANDO); } catch {}
+  if (!puntos.length) {
+    try { puntos = JSON.parse(await FileSystem.readAsStringAsync(ARCHIVO_GRABACION())) || []; }
+    catch {}
+  }
+  if (diagnostico.grabacion) diagnostico.grabacion = { ...diagnostico.grabacion, parada: true };
+  return puntos;
+}
+
+export async function descartarGrabacion() {
+  grabador = null;
+  diagnostico.grabacion = null;
+  try { await SecureStore.deleteItemAsync(LLAVE_GRABANDO); } catch {}
+  try { await FileSystem.deleteAsync(ARCHIVO_GRABACION(), { idempotent: true }); } catch {}
+}
 
 // Cuántas están esperando, para verlo en pantalla
 export function enEspera() { return pendientes.length; }

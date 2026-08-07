@@ -821,6 +821,36 @@ function Perfil({ sesion, marca, onCerrar }) {
   const mmss = (sec) => sec == null ? '—'
     : `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
 
+  // ── El grabador de recorridos (3.4) ─────────────────────────
+  // La grabación corre en la tarea de fondo (come de las mismas posiciones
+  // que se mandan); acá solo se mira cada 2 s y se dan las órdenes.
+  const [grabacion, setGrabacion] = React.useState(gps.diagnostico.grabacion);
+  React.useEffect(() => {
+    const t = setInterval(() => setGrabacion(
+      gps.diagnostico.grabacion ? { ...gps.diagnostico.grabacion } : null), 2000);
+    return () => clearInterval(t);
+  }, []);
+  const [mandandoGrabacion, setMandandoGrabacion] = React.useState(false);
+  const terminarYMandar = async () => {
+    setMandandoGrabacion(true);
+    try {
+      // Parar NO borra el archivo: si el envío falla, el botón reintenta
+      // con lo grabado — una vuelta manejada no se pierde por mala señal.
+      const puntos = await gps.pararGrabacion();
+      if (puntos.length < 2) {
+        setAviso('La grabación quedó vacía: no hubo recorrido');
+        await gps.descartarGrabacion();
+        return;
+      }
+      const fue = await post('/grabacion', {
+        puntos,
+        nombre: `Recorrido ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString().slice(0, 5)}`,
+      }, `Recorrido enviado (${puntos.length} puntos) — se importa desde el trazador de Despacho`);
+      if (fue) await gps.descartarGrabacion();
+      else setAviso('No salió — la grabación quedó guardada. Probá ENVIAR de nuevo con señal.');
+    } finally { setMandandoGrabacion(false); }
+  };
+
   const m = datos?.metricas;
   const tarjetas = m ? [
     ['VUELTAS · 7 DÍAS', String(m.vueltas)],
@@ -902,6 +932,41 @@ function Perfil({ sesion, marca, onCerrar }) {
               }}>
               <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>CAMBIAR</Text>
             </Pressable>
+
+            {/* El grabador de recorridos (3.4): manejar la vuelta y que el
+                trazado salga de la calle, no del ojo sobre el mapa */}
+            <View style={s.divisor} />
+            <Text style={s.perfilSeccion}>GRABADOR DE RECORRIDO</Text>
+            <Text style={s.diagnostico}>
+              Con la salida a ruta activa, manejá la vuelta entera: se guarda
+              un punto cada 30 metros (parar en un semáforo no ensucia). Al
+              terminar se envía, y Despacho lo importa desde su trazador.
+            </Text>
+            {!grabacion && (
+              <Pressable style={[s.botonAncho, {
+                backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, marginTop: 12,
+              }]} onPress={() => gps.empezarGrabacion().then(() => setGrabacion({ puntos: 0, largoM: 0 }))}>
+                <Text style={[s.botonAnchoTexto, { color: C.brillante }]}>GRABAR RECORRIDO</Text>
+              </Pressable>
+            )}
+            {grabacion && (<>
+              <Text style={[s.diagnostico, { marginTop: 12 }]}>
+                {grabacion.parada ? 'Grabación parada (sin enviar)' : '● Grabando'}
+                {` · ${grabacion.puntos} punto${grabacion.puntos === 1 ? '' : 's'}`}
+                {` · ${((grabacion.largoM || 0) / 1000).toFixed(1)} km`}
+              </Text>
+              <Pressable disabled={mandandoGrabacion}
+                style={[s.botonAncho, { backgroundColor: C.verde, marginTop: 10 }]}
+                onPress={terminarYMandar}>
+                <Text style={s.botonAnchoTexto}>
+                  {mandandoGrabacion ? 'ENVIANDO…' : grabacion.parada ? 'ENVIAR' : 'TERMINAR Y ENVIAR'}
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => gps.descartarGrabacion().then(() => setGrabacion(null))}
+                style={s.tipoSosCerrar}>
+                <Text style={s.tipoSosCerrarTexto}>Descartar la grabación</Text>
+              </Pressable>
+            </>)}
           </>)}
         </ScrollView>
       </View>
