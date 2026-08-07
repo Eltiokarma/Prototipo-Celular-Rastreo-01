@@ -24,6 +24,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
 import { crearVigia } from '../ausencia.js';
+import { notificarBrecha, limpiarNotificacion } from '../notificacion.js';
 
 export const TAREA_GPS = 'coop-r14-gps';
 
@@ -242,6 +243,8 @@ async function subirAhora(nuevas) {
         } catch {}
         diagnostico.servicio = 'detenido: ausente mucho tiempo';
         try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        // Y la brecha vieja no queda colgada en la bandeja
+        limpiarNotificacion().catch(() => {});
         // Las posiciones de la casa no se mandan: irse es irse.
         return;
       }
@@ -262,6 +265,11 @@ async function subirAhora(nuevas) {
       diagnostico.enviadas += posiciones.length;
       diagnostico.ultimoEnvio = Date.now();
       diagnostico.ultimoError = null;
+      // La brecha vuelve en la misma respuesta: es lo que mantiene VIVA la
+      // notificación con la pantalla apagada — el WebSocket ya murió y este
+      // POST es el único canal. Mejor esfuerzo: si falla, el GPS ni se entera.
+      const cuerpo = await r.json().catch(() => null);
+      if (cuerpo?.brecha) notificarBrecha(cuerpo.brecha).catch(() => {});
     } else {
       // El cuerpo del error dice bastante más que el número: 403 del cobrador,
       // 409 del relevo y 400 del reloj mal puesto se ven igual desde afuera.
@@ -376,6 +384,9 @@ export async function parar() {
     // próxima sesión. Es la basura que causó el bug de arriba.
     try { await TaskManager.unregisterTaskAsync(TAREA_GPS); } catch {}
   }
+  // La brecha vieja no puede quedar en la bandeja diciendo un número de
+  // hace una hora: el que salió de ruta no tiene brecha.
+  limpiarNotificacion().catch(() => {});
   diagnostico.servicio = 'detenido';
 }
 

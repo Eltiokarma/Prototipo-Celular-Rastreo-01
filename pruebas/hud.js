@@ -5,7 +5,7 @@
 // probar sin un teléfono, y es justo donde estuvieron todos los bugs de esta
 // pantalla. Cada caso de acá corresponde a algo que salió mal de verdad.
 const RAIZ = require('path').join(__dirname, '..');
-const { construirHud, textoNotificacion } = require(RAIZ + '/app/hud.js');
+const { construirHud, textoNotificacion, avisoDesdeRespuesta } = require(RAIZ + '/app/hud.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -90,6 +90,32 @@ ok('avisa cuando el de adelante está sin señal',
 ok('y el acompañante sabe que su GPS no se usa',
    /acompañante/.test(textoNotificacion(conBrecha(unidad('02:00', 'M-08'), null), false)),
    textoNotificacion(conBrecha(unidad('02:00', 'M-08'), null), false));
+
+console.log('\nLA NOTIFICACIÓN VIVA (la brecha que vuelve en el POST /gps)');
+// Con la pantalla apagada no hay WebSocket: el único dato es el `brecha`
+// que el servidor pega en la respuesta del POST. Este adaptador lo pasa por
+// el MISMO construirHud de la pantalla — no puede decir otra cosa que el HUD.
+{
+  const resp = { toAhead: '02:24', aheadUnit: 'M-08', aheadSinSenal: false,
+                 toBehind: null, behindUnit: null, behindSinSenal: false, objetivoMin: 2 };
+  const a = avisoDesdeRespuesta(resp);
+  ok('el título lleva la brecha y contra quién',
+     /M-08/.test(a.titulo) && /2:24/.test(a.titulo), a.titulo);
+  ok('y el detalle da la instrucción, con el objetivo',
+     /(Apurá|Aflojá|Mantené)/.test(a.detalle) && /2:00/.test(a.detalle), a.detalle);
+
+  const sinSenal = avisoDesdeRespuesta({ ...resp, toAhead: null, aheadSinSenal: true });
+  ok('el de adelante sin señal se dice igual que en pantalla',
+     /sin señal/.test(sinSenal.titulo), sinSenal.titulo);
+
+  const solo = avisoDesdeRespuesta({ toAhead: null, aheadUnit: null, aheadSinSenal: false,
+                                     toBehind: null, behindUnit: null, behindSinSenal: false, objetivoMin: 2 });
+  ok('solo en la ruta: sin brecha que mostrar, pero no revienta',
+     /Sin brecha/.test(solo.titulo), solo.titulo);
+
+  // null significa "no toques la notificación", no "mostrá vacío"
+  ok('sin brecha en la respuesta, no hay aviso', avisoDesdeRespuesta(undefined) === null);
+}
 
 console.log('\nBORDES');
 ok('sin brechas todavía, no revienta',

@@ -1647,7 +1647,18 @@ app.post('/gps', (req, res) => {
   for (const p of buenas) {
     routeId = anotarPosicion(vehicleId, user.unitId, prof, p, p.cuando);
   }
-  res.json({ ok: true, aceptadas: buenas.length, descartadas: crudas.length - buenas.length, routeId });
+
+  // La brecha va de vuelta en la MISMA respuesta. Con la pantalla apagada
+  // este POST es el único canal del teléfono (el WebSocket murió con la
+  // pantalla), y sin esto la notificación del chofer mostraba la brecha
+  // congelada del momento en que bloqueó. Sale del cache del último estado
+  // emitido — cero cálculo por pedido — y son ~80 bytes más por respuesta.
+  const estado = routeId ? ultimoEstado.get(routeId) : null;
+  const g = estado?.gaps?.[vehicleId] || null;
+  res.json({
+    ok: true, aceptadas: buenas.length, descartadas: crudas.length - buenas.length, routeId,
+    ...(g ? { brecha: { ...g, objetivoMin: estado.targetGapMin ?? null } } : {}),
+  });
 });
 
 // ─── ADMINISTRACIÓN (solo Despacho) ──────────────────────────
@@ -4382,12 +4393,21 @@ const STATE_INTERVAL_MS = Number(process.env.STATE_INTERVAL_MS || 3000);
 const stateTimers = new Map();  // routeId → timeout
 const lastStateAt = new Map();  // routeId → cuándo se emitió por última vez
 
+// El último estado emitido de cada ruta. Existe para el POST /gps: con la
+// pantalla apagada no hay WebSocket, y este cache es lo que permite
+// contestarle al teléfono su brecha en la MISMA respuesta que ya recibe —
+// sin calcular nada por pedido (a 2000 unidades son 500 POST/s) y a lo sumo
+// STATE_INTERVAL_MS de viejo, que para una notificación da lo mismo.
+const ultimoEstado = new Map();  // routeId → estado armado por buildState
+
 function flushState(routeId) {
   clearTimeout(stateTimers.get(routeId));
   stateTimers.delete(routeId);
   lastStateAt.set(routeId, Date.now());
   // Con `true`: esta pasada es la que cuenta para la brecha promedio
-  broadcastToRoute(routeId, { type: 'state', ...buildState(routeId, true) });
+  const estado = buildState(routeId, true);
+  ultimoEstado.set(routeId, estado);
+  broadcastToRoute(routeId, { type: 'state', ...estado });
 }
 
 // Agenda el envío del estado de UNA ruta respetando la cadencia. Con

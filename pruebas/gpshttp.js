@@ -125,6 +125,21 @@ const mandar = (token, posiciones) => fetch(API + '/gps', {
      Math.abs(vista().timestamp - (ahora - 10_000)) < 2000,
      { guardada: vista().timestamp, esperada: ahora - 10_000 });
 
+  console.log('\nLA BRECHA VUELVE EN LA RESPUESTA');
+  // Con la pantalla apagada este POST es el único canal del teléfono: la
+  // brecha viaja de vuelta en la misma respuesta (del cache del último
+  // estado emitido) y es lo que mantiene viva la notificación del chofer.
+  // M-08 se pone adelante por WebSocket, como una combi de verdad.
+  const delante = anillo(0.16);
+  ws.send(JSON.stringify({ type: 'gps', lat: delante.lat, lng: delante.lng, speed: 20 }));
+  await sleep(900);   // que el estado se emita y el cache exista
+  const q2 = anillo(0.14);
+  r = await mandar(s12.token, [{ lat: q2.lat, lng: q2.lng, speed: 22, timestamp: Date.now() }]);
+  ok('la respuesta trae contra quién y a cuánto',
+     r.body.brecha?.aheadUnit === 'M-08' && /^\d{2}:\d{2}$/.test(r.body.brecha?.toAhead || ''),
+     r.body.brecha);
+  ok('y el objetivo vigente, para poder juzgarla', r.body.brecha?.objetivoMin === 2, r.body.brecha);
+
   console.log('\nLO QUE NO SE ACEPTA');
   r = await mandar('token-que-no-existe', [{ lat: LAT0, lng: LNG0, timestamp: ahora }]);
   ok('sin token válido, 401', r.status === 401, r.status);
