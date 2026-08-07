@@ -259,14 +259,29 @@ let release = null, servidor = null;
   console.log('\nSIN RELEASE NUEVO: NO SE MUEVE UN BYTE');
   const indiceTras2 = marcaDe('zonas.json');
   servidor = await arrancarYEsperar('33333333');
-  ok('reiniciar no re-bajó ni un .pmtiles (renovar no cuesta si no cambió nada)',
+
+  // OJO con la espera: acá el índice YA dice 33333333 desde la ronda
+  // anterior, así que `arrancarYEsperar` vuelve apenas el servidor contesta
+  // — puede ser ANTES de que la descarga de arranque haya corrido. Esperar
+  // a que el índice se reescriba es lo que da la señal de que la pasada
+  // terminó de verdad; sin esto, la aserción de abajo pasaba por no haber
+  // pasado nada todavía, que es la peor forma de estar en verde.
+  let indiceNuevo = false;
+  for (let i = 0; i < 80 && !indiceNuevo; i++) {
+    await sleep(250);
+    indiceNuevo = marcaDe('zonas.json') !== indiceTras2;
+  }
+  // Que el índice se vuelva a pedir en cada arranque no es un detalle: son
+  // unos cientos de bytes y es la ÚNICA forma que tiene el servidor de
+  // enterarse de que hay un mapa nuevo. Uno que no lo relee no se renueva
+  // nunca.
+  ok('el índice se vuelve a pedir (es como se entera de una renovación)',
+     indiceNuevo, { antes: indiceTras2, ahora: marcaDe('zonas.json') });
+  // Y recién ahora la pregunta que importa: con la pasada ya hecha, los
+  // archivos pesados siguen intactos.
+  ok('y con la pasada hecha, no se re-bajó ni un .pmtiles (renovar no cuesta si no cambió nada)',
      JSON.stringify(pesados()) === JSON.stringify(marcasTras2),
      { antes: marcasTras2, ahora: pesados() });
-  // Y esto SÍ tiene que pasar en cada arranque: el índice son unos cientos
-  // de bytes y es la única forma de enterarse de que hay un mapa nuevo. Un
-  // índice que no se re-baja es un servidor que no se renueva nunca.
-  ok('pero el índice sí se vuelve a pedir (es como se entera de una renovación)',
-     marcaDe('zonas.json') !== indiceTras2, { antes: indiceTras2, ahora: marcaDe('zonas.json') });
 
   // ── Y lo que NO puede pasar: la ruta no es un file server ───
   console.log('\nLA VERSIÓN NO ABRE PUERTAS');
