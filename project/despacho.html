@@ -2474,6 +2474,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
                   baja: { label: 'dio de baja a', color: HUD.red },
                   sos: { label: 'disparó un SOS', color: HUD.red },
+                  // Las dos del perfil del chofer (se edita él, desde la app)
+                  alias_propio: { label: 'se puso el alias', color: HUD.bright },
+                  clave_propia: { label: 'cambió su propia contraseña', color: HUD.amber },
                 };
                 const cols = '120px 150px 1fr';
                 return (

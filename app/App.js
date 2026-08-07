@@ -19,7 +19,7 @@ import React from 'react';
 import {
   View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
   FlatList, PanResponder, Animated, Vibration,
-  Image, Modal, Dimensions, Keyboard, BackHandler,
+  Image, Modal, Dimensions, Keyboard, BackHandler, ScrollView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -139,6 +139,8 @@ function Aplicacion() {
   // Se DECLARA acá; entrar a la cadena de brechas lo confirma el servidor
   // cuando el GPS pisa el trazado — ver `enRutaConfirmada` más abajo.
   const [presencia, setPresencia] = React.useState('fuera');
+  // El perfil: quién soy, cómo me fue, mi alias y mi contraseña (3.5)
+  const [verPerfil, setVerPerfil] = React.useState(false);
   // El SOS recién disparado, esperando (si el chofer puede) que le ponga
   // nombre. La alerta YA salió: esto es opcional y se va solo a los 5 min.
   const [tipificarSos, setTipificarSos] = React.useState(false);
@@ -407,6 +409,7 @@ function Aplicacion() {
   // montadas las dos, el chat no pierde el scroll ni el texto a medio
   // escribir cada vez que el chofer mira la brecha.
   return (
+    <>
     <Carrusel pantalla={pantalla} onIr={irA}>
       <Mapa {...comun} estado={estado} geometria={geometria}
         yo={cliente.current?.sesion} activo={pantalla === 'mapa'} />
@@ -418,7 +421,8 @@ function Aplicacion() {
         onTipoSos={(tipo) => {
           if (tipo) cliente.current.marcarTipoSos(tipo);
           setTipificarSos(false);
-        }} />
+        }}
+        onPerfil={() => setVerPerfil(true)} />
       <Chat {...comun}
         mensajes={hilo(mensajes, canal)}
         canal={canal}
@@ -427,6 +431,11 @@ function Aplicacion() {
         onVoz={(data, duration) => cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' })}
         onFoto={(data) => cliente.current.mandarFoto({ data, privado: canal === 'directo' })} />
     </Carrusel>
+    {/* Fuera del carrusel: el perfil no es una página más, es un alto */}
+    {verPerfil && (
+      <Perfil sesion={sesion} marca={marca} onCerrar={() => setVerPerfil(false)} />
+    )}
+    </>
   );
 }
 
@@ -569,7 +578,7 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
 // ═══════════════════════════════════════════════════════════════
 function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
-                tipificarSos, onTipoSos }) {
+                tipificarSos, onTipoSos, onPerfil }) {
   const { s, C } = usarTema();
   const p = hud.principal, sec = hud.secundario;
   const color = colorEstado(C)[p.estado];
@@ -591,6 +600,7 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
       <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
         {conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
       </Text>
+      {onPerfil && <Pressable onPress={onPerfil}><Text style={s.salir}>Perfil</Text></Pressable>}
       <Pressable onPress={onSalir}><Text style={s.salir}>Salir</Text></Pressable>
     </View>
   );
@@ -760,6 +770,142 @@ function TipoSos({ onElegir }) {
         <Text style={s.tipoSosCerrarTexto}>Cerrar — queda como SOS</Text>
       </Pressable>
     </View>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// El perfil del conductor (PENDIENTES 3.5): quién soy, cómo me fue, mi
+// alias y mi contraseña. Es un ESPEJO de lo que el gerente ya ve —mismas
+// vueltas, mismas horas, misma vara— pedido a /perfil, que solo contesta
+// lo del que pregunta. El alias se edita acá porque es cómo lo llaman en
+// la ruta; el nombre no, porque con ese se liquidan las horas.
+function Perfil({ sesion, marca, onCerrar }) {
+  const { s, C } = usarTema();
+  const margen = margenes(useSafeAreaInsets(), { conBarra: false });
+  const [datos, setDatos] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [alias, setAlias] = React.useState('');
+  const [claveActual, setClaveActual] = React.useState('');
+  const [claveNueva, setClaveNueva] = React.useState('');
+  const [aviso, setAviso] = React.useState(null);
+
+  React.useEffect(() => {
+    fetch(SERVIDOR + '/perfil', { headers: { Authorization: 'Bearer ' + sesion.token } })
+      .then(async r => {
+        const cuerpo = await r.json();
+        if (!r.ok) throw new Error(cuerpo.error || 'HTTP ' + r.status);
+        setDatos(cuerpo);
+        setAlias(cuerpo.persona.alias || '');
+      })
+      .catch(e => setError('No se pudo cargar: ' + String(e.message || e)));
+  }, [sesion]);
+
+  const post = async (ruta, body, hecho) => {
+    setAviso(null);
+    try {
+      const r = await fetch(SERVIDOR + ruta, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + sesion.token },
+        body: JSON.stringify(body),
+      });
+      const cuerpo = await r.json().catch(() => ({}));
+      if (!r.ok) { setAviso(cuerpo.error || 'No se pudo guardar'); return false; }
+      setAviso(hecho);
+      return true;
+    } catch { setAviso('Sin conexión — probá de nuevo'); return false; }
+  };
+
+  // Segundos → lo que se lee: 14400 → "4h 00m", 130 → "2:10"
+  const hm = (sec) => sec == null ? '—'
+    : `${Math.floor(sec / 3600)}h ${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}m`;
+  const mmss = (sec) => sec == null ? '—'
+    : `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
+
+  const m = datos?.metricas;
+  const tarjetas = m ? [
+    ['VUELTAS · 7 DÍAS', String(m.vueltas)],
+    ['HOY', String(m.vueltasHoy)],
+    ['HORAS · 7 DÍAS', hm(m.horasSec)],
+    ['HORAS HOY', hm(m.horasHoySec)],
+    ['BRECHA PROM.', mmss(m.brechaProm)],
+    // Sin vueltas con vara guardada no hay porcentaje que inventar
+    ['EN OBJETIVO', m.cumplimiento == null ? '—' : `${m.cumplimiento} %`],
+  ] : [];
+
+  return (
+    <Modal animationType="slide" onRequestClose={onCerrar}>
+      <View style={[s.pantalla, margen]}>
+        <View style={s.barra}>
+          <Marca marca={marca} />
+          <View style={{ flex: 1 }} />
+          <Pressable onPress={onCerrar}><Text style={s.salir}>Cerrar</Text></Pressable>
+        </View>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 30 }}>
+          {error && <Text style={s.avisoBarra}>{error}</Text>}
+          {!datos && !error && <ActivityIndicator style={{ marginTop: 40 }} />}
+          {datos && (<>
+            <Text style={[s.ladoEtiqueta, { color: C.brillante, marginTop: 16 }]}>
+              {(datos.persona.alias || datos.persona.name).toUpperCase()}
+            </Text>
+            <Text style={s.diagnostico}>
+              {datos.persona.name}
+              {datos.persona.role === 'collector' ? ' · cobrador' : ''}
+              {datos.vehiculo.vehicleId ? ` · ${datos.vehiculo.vehicleId}` : ''}
+              {datos.vehiculo.label ? ` (${datos.vehiculo.label})` : ''}
+              {datos.ruta.name ? ` · ${datos.ruta.name}` : ''}
+            </Text>
+
+            {/* Cómo me fue: los mismos números que mira el gerente */}
+            <View style={s.perfilGrilla}>
+              {tarjetas.map(([etiqueta, valor]) => (
+                <View key={etiqueta} style={s.perfilTarjeta}>
+                  <Text style={s.perfilEtiqueta}>{etiqueta}</Text>
+                  <Text style={s.perfilValor}>{valor}</Text>
+                </View>
+              ))}
+            </View>
+            {m && m.cumplimiento != null && (
+              <Text style={s.diagnostico}>
+                En objetivo: dentro del ±{Math.round((datos.toleranciaCumple || 0.15) * 100)} % de la
+                vara que regía en cada vuelta ({m.juzgables} juzgable{m.juzgables === 1 ? '' : 's'}).
+              </Text>
+            )}
+
+            {aviso && <Text style={[s.avisoBarra, { marginTop: 14 }]}>{aviso}</Text>}
+
+            {/* El alias: cómo te llaman en la ruta. Vacío = tu nombre. */}
+            <View style={s.divisor} />
+            <Text style={s.perfilSeccion}>ALIAS</Text>
+            <Text style={s.diagnostico}>Como te llaman en la ruta. Vacío, se muestra tu nombre.</Text>
+            <TextInput style={s.campo} value={alias} onChangeText={setAlias}
+              placeholder={datos.persona.name} placeholderTextColor={C.tenue} maxLength={30} />
+            <Pressable style={[s.botonAncho, { backgroundColor: C.verde, marginTop: 12 }]}
+              onPress={async () => {
+                const fue = await post('/perfil/alias', { alias }, 'Alias guardado — Despacho ya te ve así');
+                if (fue) setDatos(d => ({ ...d, persona: { ...d.persona, alias: alias.trim() || null } }));
+              }}>
+              <Text style={s.botonAnchoTexto}>GUARDAR ALIAS</Text>
+            </Pressable>
+
+            {/* La contraseña: con la actual en la mano */}
+            <View style={s.divisor} />
+            <Text style={s.perfilSeccion}>CAMBIAR CONTRASEÑA</Text>
+            <TextInput style={s.campo} value={claveActual} onChangeText={setClaveActual}
+              placeholder="Contraseña actual" placeholderTextColor={C.tenue} secureTextEntry />
+            <TextInput style={[s.campo, { marginTop: 10 }]} value={claveNueva} onChangeText={setClaveNueva}
+              placeholder="Contraseña nueva (mínimo 6)" placeholderTextColor={C.tenue} secureTextEntry />
+            <Pressable style={[s.botonAncho, { backgroundColor: C.marca, marginTop: 12 }]}
+              onPress={async () => {
+                const fue = await post('/perfil/clave', { actual: claveActual, nueva: claveNueva },
+                  'Contraseña cambiada. Esta sesión sigue abierta.');
+                if (fue) { setClaveActual(''); setClaveNueva(''); }
+              }}>
+              <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>CAMBIAR</Text>
+            </Pressable>
+          </>)}
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -1458,6 +1604,16 @@ function crearEstilos(C) { return StyleSheet.create({
   },
   tipoSosCerrar: { alignSelf: 'center', marginTop: 10, padding: 4 },
   tipoSosCerrarTexto: { color: C.tenue, fontSize: 12 },
+
+  // ── Perfil ───────────────────────────────────────────────────
+  perfilGrilla: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 18 },
+  perfilTarjeta: {
+    flexBasis: '30%', flexGrow: 1, borderRadius: 12, padding: 12,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+  },
+  perfilEtiqueta: { color: C.tenue, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  perfilValor: { color: C.brillante, fontSize: 22, fontWeight: '900', marginTop: 4 },
+  perfilSeccion: { color: C.tenue, fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
 
   // ── Presencia ────────────────────────────────────────────────
   filaPresencia: { flexDirection: 'row', gap: 10, marginTop: 12 },

@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Treinta y nueve suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Cuarenta suites. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -39,7 +39,7 @@ PORT=3001 DB_FILE=$DB DISPATCH_PASSWORD=despacho99 node ../server/index.js &
 DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp presencia foto marca respaldo
-# las que se arman solas (cont.): vendor retencion cascada mapa-shot compresion sos
+# las que se arman solas (cont.): vendor retencion cascada mapa-shot compresion sos perfil
 # las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema contraste mapa teclado nativas
 node gerencia.js
 ```
@@ -99,6 +99,7 @@ Dos detalles que cuestan una tarde si no están escritos:
 | `mapa-shot` | Banco visual del MAPA en las cuatro pantallas, que **falla si el lienzo sale vacío**: la vara es tiles efectivamente cargadas (no pedidas) y algo dibujado encima. Un mapa en blanco no avisa — se descubre arriba de la combi |
 | `compresion` | Las dos palancas de ahorro con código (`COSTOS.md` §5). El índice de vueltas existe y el plan de consulta lo usa; y la compresión del WebSocket se mide en el cable: dos espectadores reciben los MISMOS estados y el que negoció permessage-deflate tiene que recibir menos de la mitad de los bytes (medido: −90 %). El que no ofrece la extensión —la app nativa— sigue funcionando sin comprimir, y un chat mandado comprimido llega intacto al que no comprime |
 | `sos` | El tipo de emergencia y el orden de las cosas: **deslizar manda la alerta YA**, sin preguntar nada; el tipo ("falla mecánica", "accidente", "policía") va después, con la emergencia ya sonando en Despacho. Los bordes: solo quien disparó puede calificar la suya, solo mientras la ventana está abierta, un tipo inventado no entra, y el historial y el CSV cuentan lo mismo que se vio en vivo — sin elegir queda "SOS" a secas, que es como nace cada uno |
+| `perfil` | El perfil del conductor: **lo SUYO y nada más** (no hay parámetro de unidad: todo sale de la sesión). El espejo usa el mismo criterio que el gerente —vueltas del vehículo, horas de la persona, cumplimiento contra la vara que regía—, el alias que se edita llega **en vivo** al mapa de Despacho sin que nadie vuelva a entrar, y la contraseña se cambia con la actual en la mano, auditando QUE la cambió y nunca cuál es |
 
 ## Sintaxis de las pantallas
 

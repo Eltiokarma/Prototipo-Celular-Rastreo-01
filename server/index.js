@@ -1592,6 +1592,133 @@ app.post('/presencia', (req, res) => {
   res.json({ ok: true, estado });
 });
 
+// ─── EL PERFIL DEL CONDUCTOR ─────────────────────────────────
+// (PENDIENTES 3.5) La pantalla del chofer sobre SÍ MISMO: quién es, en qué
+// anda, y cómo le fue — las horas y vueltas que hasta ahora solo veía el
+// gerente. El borde es duro: lo SUYO y nada más. No hay parámetro de unidad
+// ni de persona: todo sale de la sesión, así que no existe la pregunta "¿y
+// si pide el de al lado?".
+function usuarioPropio(req, res) {
+  const auth = String(req.headers.authorization || '');
+  const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
+  if (!user) { res.status(401).json({ error: 'Sesión inválida o expirada' }); return null; }
+  // Despacho y gerencia tienen sus paneles: este espejo es del que va en la
+  // combi (el cobrador también — sus horas son suyas).
+  if (user.role !== 'driver' && user.role !== 'collector') {
+    res.status(403).json({ error: 'El perfil es del que va en la combi' });
+    return null;
+  }
+  return user;
+}
+
+app.get('/perfil', (req, res) => {
+  const user = usuarioPropio(req, res);
+  if (!user) return;
+  const vehicleId = user.vehicleId || user.unitId;
+  const ruta = routeOf(user.routeId || DEFAULT_ROUTE);
+  const veh = vehicleOf(vehicleId);
+  const ahora = Date.now();
+  const desde = ahora - 7 * 86400_000;
+  const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+
+  // Las vueltas son del VEHÍCULO (la vuelta es de la combi, la maneje
+  // quien la maneje); las horas son de la PERSONA. Mismo criterio que el
+  // panel del gerente — si acá dijera otra cosa, alguien tendría razón y
+  // alguien no, y no habría forma de saber quién.
+  const vueltas = db.prepare(`
+    SELECT COUNT(*) n,
+           SUM(CASE WHEN finishedAt >= @hoy THEN 1 ELSE 0 END) hoy,
+           AVG(durationSec) durProm,
+           AVG(brechaProm) brechaProm,
+           SUM(CASE WHEN brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
+                     AND ABS(brechaProm - objetivoSec) <= objetivoSec * @tol
+               THEN 1 ELSE 0 END) enObjetivo,
+           SUM(CASE WHEN brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
+               THEN 1 ELSE 0 END) juzgables
+    FROM laps WHERE unitId = @veh AND finishedAt >= @desde
+  `).get({ veh: vehicleId, desde, hoy: hoy0.getTime(), tol: TOLERANCIA_CUMPLE });
+
+  const turnos = db.prepare(`
+    SELECT startedAt, endedAt, lastSeenAt FROM shifts
+    WHERE personId = @p AND startedAt >= @desde
+  `).all({ p: user.unitId, desde });
+  const horasSec = (corte) => turnos.reduce((a, t) => {
+    const fin = t.endedAt || t.lastSeenAt || ahora;
+    const ini = Math.max(t.startedAt, corte);
+    return fin > ini ? a + Math.round((fin - ini) / 1000) : a;
+  }, 0);
+
+  res.json({
+    persona: { unitId: user.unitId, name: user.name, alias: user.alias || null, role: user.role },
+    vehiculo: { vehicleId, label: veh?.label || null },
+    ruta: { routeId: ruta?.routeId || null, name: ruta?.name || null },
+    metricas: {
+      dias: 7,
+      vueltas: vueltas.n || 0,
+      vueltasHoy: vueltas.hoy || 0,
+      duracionProm: vueltas.durProm ? Math.round(vueltas.durProm) : null,
+      brechaProm: vueltas.brechaProm ? Math.round(vueltas.brechaProm) : null,
+      // Cumplimiento contra el objetivo que REGÍA en cada vuelta (2.3).
+      // Las vueltas sin vara guardada no se juzgan — ni a favor ni en contra.
+      cumplimiento: vueltas.juzgables
+        ? Math.round((vueltas.enObjetivo / vueltas.juzgables) * 100) : null,
+      juzgables: vueltas.juzgables || 0,
+      horasSec: horasSec(desde),
+      horasHoySec: horasSec(hoy0.getTime()),
+    },
+    toleranciaCumple: TOLERANCIA_CUMPLE,
+  });
+});
+
+// El alias lo edita el dueño del alias: es cómo lo llaman en la ruta, no un
+// dato administrativo. El NOMBRE no — ese lo corrige Despacho (identity),
+// porque es con el que se liquidan las horas.
+app.post('/perfil/alias', (req, res) => {
+  const user = usuarioPropio(req, res);
+  if (!user) return;
+  const alias = String(req.body?.alias || '').trim().slice(0, 30) || null;
+  db.prepare('UPDATE users SET alias = ?, driverName = ? WHERE unitId = ?')
+    .run(alias, alias || user.name, user.unitId);
+
+  // En vivo, igual que cuando lo corrige Despacho: el perfil en memoria, la
+  // unidad del mapa y el próximo estado. Si no, seguiría firmando el chat
+  // como antes hasta el próximo login — y Despacho vería dos nombres.
+  const prof = profiles.get(user.unitId);
+  if (prof) {
+    prof.alias = alias;
+    prof.driverName = alias || user.name;
+    const unidad = prof.vehicleId ? units.get(prof.vehicleId) : null;
+    if (unidad && prof.role === 'driver') {
+      unidad.driverName = alias || user.name;
+      scheduleStateBroadcast(unidad.routeId, true);
+    }
+  }
+  audit(user.unitId, 'alias_propio', user.unitId, alias || '(sin alias)', user.routeId);
+  res.json({ ok: true, alias });
+});
+
+// Cambiar SU contraseña exige la actual: un teléfono desbloqueado en el
+// paradero no puede convertirse en la cuenta robada de nadie. Las sesiones
+// abiertas del propio usuario siguen valiendo — el que cambió fue él.
+app.post('/perfil/clave', (req, res) => {
+  const user = usuarioPropio(req, res);
+  if (!user) return;
+  const actual = String(req.body?.actual || '');
+  const nueva = String(req.body?.nueva || '');
+  if (nueva.length < CLAVE_MINIMA || nueva.length > 64) {
+    return res.status(400).json({ error: `La contraseña nueva necesita mínimo ${CLAVE_MINIMA} caracteres` });
+  }
+  const fila = db.prepare('SELECT passHash FROM users WHERE unitId = ?').get(user.unitId);
+  if (!fila || !verifyPassword(actual, fila.passHash)) {
+    return res.status(403).json({ error: 'La contraseña actual no es esa' });
+  }
+  db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(nueva), user.unitId);
+  // En la auditoría queda QUE la cambió, nunca cuál es.
+  audit(user.unitId, 'clave_propia', user.unitId, null, user.routeId);
+  console.log(`Contraseña cambiada por su dueño: ${user.unitId}`);
+  res.json({ ok: true });
+});
+
 app.post('/gps', (req, res) => {
   const auth = String(req.headers.authorization || '');
   const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
