@@ -1672,10 +1672,9 @@ app.get('/perfil', (req, res) => {
       horasHoySec: horasSec(hoy0.getTime()),
     },
     // Quiénes van arriba de esta combi además de él. Al chofer le sirve
-    // para gestionarlos; al cobrador, para saber con quién anda — y que la
-    // pantalla no le ofrezca botones que el servidor le va a negar.
+    // para administrarlos; al cobrador, para saber con quién anda — y que
+    // la pantalla no le ofrezca botones que el servidor le va a negar.
     cobradores: cobradoresDe(vehicleId, desde),
-    topeCobradores: COBRADORES_POR_COMBI,
     puedeGestionar: user.role === 'driver',
     chofer: user.role === 'collector'
       ? (() => {
@@ -1739,25 +1738,30 @@ app.post('/perfil/clave', (req, res) => {
 });
 
 // ─── LOS COBRADORES DE SU COMBI ──────────────────────────────
-// (pedido usándolo) El cobrador lo pone el chofer: sube con él, cobra en su
-// combi y cambia seguido. Que cada alta tuviera que pasar por Despacho
-// metía a un tercero en el medio de una decisión que no es suya, y en la
-// práctica terminaba en que el cobrador entraba con la cuenta del chofer —
-// que es exactamente lo que rompe las horas por persona.
+// (pedido usándolo) El chofer VE a los cobradores que van arriba de su
+// combi, les cambia la clave y los saca. Es lo del día a día: el cobrador
+// se olvidó la contraseña o cambió de teléfono, o directamente ya no sube
+// más — y en las dos, esperar a que Despacho atienda es lo que termina en
+// que los dos entren con la misma cuenta.
 //
-// Así que el chofer los gestiona, con el borde escrito y corto:
+// **El alta NO está acá, y es a propósito** (decisión del dueño del
+// producto, 7/8): crear una cuenta es dar acceso al sistema, y eso se
+// queda arriba, en Despacho o en la gerencia — que además son los que
+// cargan el nombre real con el que se liquidan las horas. El chofer
+// administra a los que ya están cargados; no fabrica cuentas nuevas.
+//
+// El borde de lo que sí puede, escrito corto y probado a contrapelo en la
+// suite `cobradores`:
 //
 //   · solo sobre SU vehículo — sale de la sesión, nunca del pedido;
-//   · solo rol cobrador: no puede crear un chofer ni tocar ningún rol;
-//   · con tope, para que esto no sea una fábrica de cuentas;
+//   · solo sobre gente con rol cobrador: al chofer de al lado no lo toca;
+//   · el cobrador de otra combi se responde como inexistente;
+//   · un cobrador no gestiona cobradores;
 //   · todo auditado, y Despacho y el gerente los siguen viendo enteros en
-//     su panel. Esto SUMA quién puede dar de alta; no esconde a nadie.
+//     su panel — esto no esconde a nadie.
 //
-// Lo que el chofer NO puede: cambiarle el nombre a un cobrador ya cargado
-// (con ese se liquidan las horas — es de Despacho, igual que el suyo), ni
-// tocar a nadie que no vaya arriba de su combi.
-const COBRADORES_POR_COMBI = 2;
-
+// Y lo que NO puede aunque sea suyo: cambiarle el NOMBRE. Con ese se
+// liquidan las horas; es de Despacho, igual que el suyo.
 function choferPropio(req, res) {
   const user = usuarioPropio(req, res);
   if (!user) return null;
@@ -1798,56 +1802,11 @@ function cobradoresDe(vehicleId, desde) {
   }));
 }
 
-// Alta de un cobrador SOBRE SU COMBI. Todo lo que decide permisos —el
-// vehículo, la ruta, la empresa y el rol— sale de la sesión del chofer; del
-// cuerpo del pedido solo salen el usuario, el nombre y la clave.
-app.post('/perfil/cobradores', (req, res) => {
-  const user = choferPropio(req, res);
-  if (!user) return;
-  const vehicleId = user.vehicleId || user.unitId;
-  const veh = vehicleOf(vehicleId);
-  if (!veh) return res.status(400).json({ error: 'Tu combi todavía no está dada de alta' });
-
-  const unitId = idLimpio(req.body?.unitId);
-  if (req.body?.unitId && !unitId) {
-    return res.status(400).json({ error: 'El usuario solo admite letras, números, punto, guion y guion bajo' });
-  }
-  const name = String(req.body?.name || '').trim().slice(0, 60);
-  const alias = String(req.body?.alias || '').trim().slice(0, 30) || null;
-  const password = String(req.body?.password || '');
-  if (!unitId) return res.status(400).json({ error: 'Falta el usuario con el que va a entrar' });
-  if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
-  if (password.length < CLAVE_MINIMA || password.length > 64) {
-    return res.status(400).json({ error: `La contraseña necesita entre ${CLAVE_MINIMA} y 64 caracteres` });
-  }
-  // El tope se cuenta ANTES de mirar si el usuario está tomado: si no, el
-  // error diría "ya está tomado" cuando el problema es otro.
-  const cuantos = db.prepare("SELECT COUNT(*) AS c FROM users WHERE vehicleId = ? AND role = 'collector'")
-    .get(vehicleId).c;
-  if (cuantos >= COBRADORES_POR_COMBI) {
-    return res.status(409).json({
-      error: `Tu combi ya tiene ${cuantos} cobrador${cuantos === 1 ? '' : 'es'}. Dá de baja a uno para agregar otro.`,
-    });
-  }
-  // Único en todo el servidor: el mismo 409 que da el alta de Despacho. No
-  // se distingue de quién es el usuario tomado — si no, esto serviría para
-  // averiguar los usuarios de las demás cooperativas.
-  if (db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
-    return res.status(409).json({ error: 'Ese usuario ya está tomado' });
-  }
-
-  db.prepare(`
-    INSERT INTO users (unitId, driverName, name, alias, role, routeId, vehicleId, companyId, passHash, createdAt)
-    VALUES (?, ?, ?, ?, 'collector', ?, ?, ?, ?, ?)
-  `).run(unitId, alias || name, name, alias,
-         user.routeId || DEFAULT_ROUTE, vehicleId, veh.companyId,
-         hashPassword(password), Date.now());
-
-  audit(user.unitId, 'alta_cobrador', unitId,
-        `${alias ? `${name} (${alias})` : name} · ${vehicleId}`, user.routeId);
-  console.log(`Alta de cobrador por su chofer: ${unitId} en ${vehicleId}`);
-  res.json({ ok: true, unitId });
-});
+// NO hay alta de cobradores acá. Está escrito para que se note que falta a
+// propósito y no por olvido: crear una cuenta es dar acceso al sistema, y
+// eso se queda en Despacho o en la gerencia (`POST /admin/users`), que
+// además cargan el nombre real con el que se liquidan las horas. El chofer
+// administra a los que ya están arriba de su combi; no fabrica cuentas.
 
 // Que el cobrador sea de SU combi es la única llave de las dos operaciones
 // de abajo. Uno de otra combi se responde como inexistente, igual que en el

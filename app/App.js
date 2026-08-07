@@ -847,11 +847,10 @@ function Perfil({ sesion, marca, onCerrar }) {
   };
 
   // ── Los cobradores de la combi ──────────────────────────────
-  // El alta y la baja las hace el chofer porque el cobrador es suyo: sube
-  // con él y cambia seguido. El servidor igual no le cree nada — el
-  // vehículo, la ruta y el rol los pone él desde la sesión.
-  const [nuevo, setNuevo] = React.useState({ unitId: '', name: '', alias: '', password: '' });
-  const [abrirAlta, setAbrirAlta] = React.useState(false);
+  // El chofer administra a los que ya van arriba: les cambia la clave y los
+  // saca. El ALTA no está acá a propósito — crear una cuenta es dar acceso
+  // al sistema y eso queda en Despacho o la gerencia.
+  //
   // La baja pide SEGUNDO TOQUE, como salir de ruta: es una cuenta que deja
   // de existir, y un dedo en un pozo no puede borrarle el acceso a nadie.
   const [confirmarBaja, setConfirmarBaja] = React.useState(null);
@@ -976,15 +975,16 @@ function Perfil({ sesion, marca, onCerrar }) {
             {datos.puedeGestionar && (
               <Text style={s.diagnostico}>
                 Cada uno entra con SU usuario: así las horas de cada uno son
-                suyas. Hasta {datos.topeCobradores} por combi. Despacho y la
-                gerencia los ven igual en su panel.
+                suyas. Podés cambiarles la clave y sacarlos de tu combi.
+                Para AGREGAR uno nuevo, pedíselo a Despacho o a la gerencia:
+                el alta lleva el nombre real con el que se liquidan las horas.
               </Text>
             )}
 
             {(datos.cobradores || []).length === 0 && (
               <Text style={[s.diagnostico, { marginTop: 10 }]}>
                 {datos.puedeGestionar
-                  ? 'Todavía no cargaste ningún cobrador.'
+                  ? 'No hay ningún cobrador cargado en tu combi. Lo carga Despacho o la gerencia.'
                   : 'No hay otro cobrador cargado en esta combi.'}
               </Text>
             )}
@@ -1034,47 +1034,6 @@ function Perfil({ sesion, marca, onCerrar }) {
                 </>)}
               </View>
             ))}
-
-            {datos.puedeGestionar && (datos.cobradores || []).length < datos.topeCobradores && (
-              !abrirAlta ? (
-                <Pressable style={[s.botonAncho, {
-                  backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, marginTop: 12,
-                }]} onPress={() => setAbrirAlta(true)}>
-                  <Text style={[s.botonAnchoTexto, { color: C.brillante }]}>AGREGAR COBRADOR</Text>
-                </Pressable>
-              ) : (<>
-                <TextInput style={[s.campo, { marginTop: 12 }]} value={nuevo.name}
-                  onChangeText={t => setNuevo(n => ({ ...n, name: t }))}
-                  placeholder="Nombre y apellido" placeholderTextColor={C.tenue} maxLength={60} />
-                <TextInput style={[s.campo, { marginTop: 10 }]} value={nuevo.alias}
-                  onChangeText={t => setNuevo(n => ({ ...n, alias: t }))}
-                  placeholder="Cómo lo llaman (opcional)" placeholderTextColor={C.tenue} maxLength={30} />
-                <TextInput style={[s.campo, { marginTop: 10 }]} value={nuevo.unitId}
-                  onChangeText={t => setNuevo(n => ({ ...n, unitId: t }))}
-                  placeholder="Usuario con el que va a entrar" placeholderTextColor={C.tenue}
-                  autoCapitalize="none" maxLength={30} />
-                <TextInput style={[s.campo, { marginTop: 10 }]} value={nuevo.password}
-                  onChangeText={t => setNuevo(n => ({ ...n, password: t }))}
-                  placeholder="Su contraseña (mínimo 6)" placeholderTextColor={C.tenue} secureTextEntry />
-                <View style={s.cobradorBotones}>
-                  <Pressable style={s.cobradorBoton} onPress={() => setAbrirAlta(false)}>
-                    <Text style={[s.cobradorBotonTexto, { color: C.tenue }]}>CANCELAR</Text>
-                  </Pressable>
-                  <Pressable style={[s.cobradorBoton, { backgroundColor: C.verde, borderColor: C.verde }]}
-                    onPress={async () => {
-                      const fue = await post('/perfil/cobradores', nuevo,
-                        `${nuevo.alias || nuevo.name} ya puede entrar con su usuario`);
-                      if (fue) {
-                        setNuevo({ unitId: '', name: '', alias: '', password: '' });
-                        setAbrirAlta(false);
-                        cargar();
-                      }
-                    }}>
-                    <Text style={[s.cobradorBotonTexto, { color: '#04220F' }]}>DAR DE ALTA</Text>
-                  </Pressable>
-                </View>
-              </>)
-            )}
 
             {/* La contraseña: con la actual en la mano */}
             <View style={s.divisor} />

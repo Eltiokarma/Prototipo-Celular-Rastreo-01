@@ -98,27 +98,28 @@ confirmación, ausente y salir de ruta funcionando contra producción.
 | 3.4 | ~~Grabador de rutas~~ | **HECHO** (7/8). App: Perfil → GRABAR RECORRIDO — la tarea de fondo come de las mismas posiciones que ya manda, guarda **un punto cada 30 m recorridos** (`app/grabador.js`, puro y con suite; el semáforo no genera un nudo) y sobrevive a que Android mate el proceso (puntos a disco, flag en SecureStore). TERMINAR la sube por `POST /grabacion`; si falla el envío, la vuelta manejada NO se pierde — queda en disco y se reintenta. Del otro lado: **Trazador de Despacho → "Grabaciones de la calle"** lista las de la empresa y las carga con un clic por el MISMO import (y su simplificación) que un GPX. Tope de 25 por empresa, las viejas se van solas. Suite `grabador`. Falta verlo en el teléfono con el APK nuevo | ✔ |
 | 3.5 | ~~Perfil del conductor en la app~~ | **HECHO** (7/8), con el alcance que definió el dueño: métricas, alias y contraseña. Pantalla PERFIL en la app (desde la cabecera): quién es, en qué anda, y sus números de 7 días con el MISMO criterio que el gerente — vueltas del vehículo, horas de la persona, cumplimiento contra la vara que regía en cada vuelta. `GET /perfil` contesta solo lo del que pregunta (no hay parámetro de unidad: no existe "pedir el de al lado"). El **alias** lo edita el dueño del alias y llega EN VIVO a Despacho (perfil en memoria + mapa + estado) — el nombre no, con ese se liquidan las horas. La **contraseña** se cambia con la actual en la mano, sin voltear la sesión propia, auditando QUE la cambió y nunca cuál. Suite `perfil`. Falta verlo en el teléfono con el APK nuevo | ✔ |
 
-### 3.6 · ~~El chofer gestiona a sus cobradores~~ — HECHO (7/8)
+### 3.6 · ~~El chofer administra a los cobradores de su combi~~ — HECHO (7/8)
 
-Pedido usándolo. El cobrador lo pone el chofer: sube con él, cobra en su
-combi y cambia seguido. Que cada alta tuviera que pasar por Despacho metía a
-un tercero en una decisión que no es suya, y terminaba en lo peor —**el
-cobrador entrando con la cuenta del chofer**—, que es justo lo que rompe las
-horas por persona, el reporte de turnos y el «un solo reportero de GPS por
-vehículo».
+Pedido usándolo. El problema real no era quién carga al cobrador sino que,
+esperando a que Despacho atienda un olvido de contraseña, **el cobrador
+terminaba entrando con la cuenta del chofer** — que es justo lo que rompe
+las horas por persona, el reporte de turnos y el «un solo reportero de GPS
+por vehículo».
 
 Perfil ahora lista a los cobradores de la combi (nombre, alias, si están en
-línea y sus horas de 7 días) y el chofer los da de alta, de baja y les
-cambia la clave. Lo que se abrió es un permiso nuevo para el eslabón más
-bajo de la cadena, así que el borde está escrito y probado: **todo lo que
-decide permisos sale de la sesión, nunca del cuerpo del pedido**. Pedir el
-alta de un chofer igual da un cobrador; mandar la combi del vecino no lo
-cuelga de ahí; al cobrador del de al lado no se lo toca (404, y el error no
-confirma que exista); un cobrador no gestiona cobradores; y hay tope de 2
-por combi. Todo auditado —del cambio de clave queda QUE la cambió y nunca
-cuál— y Despacho y la gerencia los siguen viendo enteros: esto **suma** quién
-puede dar el alta, no esconde a nadie. El nombre sigue siendo de Despacho:
-con ese se liquidan las horas. Suite `cobradores`.
+línea y sus horas de 7 días), y el chofer **les cambia la clave y los
+saca**. El **alta quedó afuera por decisión del dueño del producto**: crear
+una cuenta es dar acceso al sistema y se queda en Despacho o la gerencia,
+que además cargan el nombre real con el que se liquidan las horas.
+
+Lo que se abrió igual es un permiso nuevo para el eslabón más bajo de la
+cadena, así que el borde está escrito y probado a contrapelo: solo sobre SU
+vehículo (sale de la sesión, nunca del pedido), solo sobre rol cobrador, al
+del de al lado no se lo toca (404 que no confirma que exista), un cobrador
+no administra cobradores, y el alta por esta puerta **no existe** — la suite
+lo verifica pegándole al endpoint, no mirando la pantalla. Todo auditado
+—del cambio de clave queda QUE la cambió y nunca cuál— y Despacho y la
+gerencia los siguen viendo enteros. Suite `cobradores`.
 
 ### 3bis · ~~Los bancos visuales fotografiaban pantallas vacías~~ — HECHO
 

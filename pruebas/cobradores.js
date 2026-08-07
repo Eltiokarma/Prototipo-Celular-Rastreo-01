@@ -1,18 +1,24 @@
-// Los cobradores de la combi, gestionados por su chofer.
+// Los cobradores de la combi, administrados por su chofer.
 //
-// El cobrador lo pone el chofer: sube con él y cambia seguido. Que cada alta
-// pasara por Despacho terminaba en lo peor —el cobrador entrando con la
-// cuenta del chofer—, que es justo lo que rompe las horas por persona.
+// El chofer VE a los que van arriba de su combi, les cambia la clave y los
+// saca. Es lo del día a día: se olvidó la contraseña, cambió de teléfono, o
+// ya no sube más — y esperar a Despacho para eso es lo que termina en que
+// los dos entren con la misma cuenta.
 //
-// Lo que se abre es un permiso NUEVO para el eslabón más bajo de la cadena,
-// así que lo que esta suite prueba no es que funcione (eso es lo fácil): es
-// DÓNDE TERMINA. Todo lo que decide permisos sale de la sesión y no del
-// cuerpo del pedido, y acá se lo intenta torcer a propósito:
+// **El ALTA no es suya**, por decisión del dueño del producto: crear una
+// cuenta es dar acceso al sistema y se queda en Despacho o la gerencia, que
+// además cargan el nombre real con el que se liquidan las horas. Esta suite
+// lo verifica como cualquier otro borde — que el endpoint no exista no es
+// algo que se pueda dar por sentado desde el código.
 //
-//   · pedir el alta de un CHOFER en vez de un cobrador;
-//   · pedir que el cobrador quede colgado de la combi de otro;
+// Lo que se abre igual es un permiso NUEVO para el eslabón más bajo de la
+// cadena, así que lo que esta suite prueba no es que funcione (eso es lo
+// fácil): es DÓNDE TERMINA. Acá se lo intenta torcer a propósito:
+//
+//   · dar de alta un cobrador desde la app del chofer;
 //   · tocarle el cobrador al de al lado;
-//   · que un cobrador gestione cobradores.
+//   · que un cobrador administre cobradores;
+//   · que se dé de baja a sí mismo por esta puerta.
 //
 // Los cuatro tienen que rebotar. Y las horas de cada uno tienen que quedar
 // separadas, que es la razón por la que esto existe.
@@ -82,69 +88,61 @@ let servidor = null;
   console.log('\nEL CHOFER VE SU COMBI');
   {
     const p = await get(ch1, '/perfil');
-    ok('el perfil abre y dice que puede gestionar', p.body.puedeGestionar === true, p.status);
+    ok('el perfil abre y dice que puede administrar', p.body.puedeGestionar === true, p.status);
     ok('arranca sin cobradores', Array.isArray(p.body.cobradores) && p.body.cobradores.length === 0, p.body.cobradores);
-    ok('y dice cuántos entran por combi', p.body.topeCobradores >= 1, p.body.topeCobradores);
   }
 
-  console.log('\nDA DE ALTA AL SUYO');
+  console.log('\nEL ALTA NO ES DEL CHOFER');
   {
+    // La decisión del dueño del producto: crear una cuenta es dar acceso al
+    // sistema y se queda arriba. Se prueba que el endpoint NO exista, no que
+    // esté escondido en la pantalla — la pantalla no es la que manda.
     const r = await post(ch1, '/perfil/cobradores',
-      { unitId: 'cob-1', name: 'María Quispe', alias: 'Mari', password: 'cobrador12' });
-    ok('el alta pasa', r.status === 200, r.body);
+      { unitId: 'colado', name: 'Cuenta fabricada', password: 'cobrador12' });
+    ok('el chofer no puede crear cuentas de cobrador', r.status === 404, r.status);
+    const existe = await login('colado', 'cobrador12');
+    ok('y esa cuenta no quedó creada', !existe.body.token, existe.status);
+  }
+
+  console.log('\nLOS CARGA LA GERENCIA, Y AHÍ SÍ LOS VE');
+  {
+    const alta = await post(ger, '/admin/users',
+      { unitId: 'cob-1', name: 'María Quispe', alias: 'Mari', personRole: 'collector', vehicleId: 'CH-1', password: 'cobrador12' });
+    ok('la gerencia carga al cobrador sobre la combi', alta.status === 200, alta.body);
     const p = await get(ch1, '/perfil');
-    ok('y aparece en su perfil con nombre y usuario',
+    ok('y el chofer lo ve en su perfil con nombre y usuario',
        p.body.cobradores.length === 1 && p.body.cobradores[0].unitId === 'cob-1' &&
        p.body.cobradores[0].alias === 'Mari', p.body.cobradores);
+    ok('con sus horas contadas aparte', p.body.cobradores[0].horasSec === 0, p.body.cobradores[0]);
     const entra = await login('cob-1', 'cobrador12');
-    ok('el cobrador puede entrar con SU usuario (por eso sus horas son suyas)',
+    ok('el cobrador entra con SU usuario (por eso sus horas son suyas)',
        !!entra.body.token, entra.status);
     ok('y entra como cobrador, no como chofer', entra.body.role === 'collector', entra.body.role);
-    ok('colgado de la combi de quien lo dio de alta', entra.body.vehicleId === 'CH-1', entra.body.vehicleId);
+    ok('colgado de la combi en la que lo cargaron', entra.body.vehicleId === 'CH-1', entra.body.vehicleId);
+    // El segundo, para tener con qué probar que el del vecino no se toca
+    await post(ger, '/admin/users',
+      { unitId: 'cob-2', name: 'Pedro Mamani', personRole: 'collector', vehicleId: 'CH-1', password: 'cobrador12' });
   }
 
-  console.log('\nEL COBRADOR VE, NO GESTIONA');
+  console.log('\nEL COBRADOR VE, NO ADMINISTRA');
   {
     const cob = (await login('cob-1', 'cobrador12')).body.token;
     const p = await get(cob, '/perfil');
     ok('su perfil abre', p.status === 200, p.status);
-    ok('pero NO puede gestionar', p.body.puedeGestionar === false, p.body.puedeGestionar);
+    ok('pero NO puede administrar', p.body.puedeGestionar === false, p.body.puedeGestionar);
     ok('y ve con qué chofer anda', p.body.chofer?.name === 'Chofer CH-1', p.body.chofer);
-    const r = await post(cob, '/perfil/cobradores',
-      { unitId: 'cob-x', name: 'Colado', password: 'cobrador12' });
-    ok('un cobrador no puede dar de alta a otro', r.status === 403, r.status);
-    const b = await del(cob, '/perfil/cobradores/cob-1');
-    ok('ni darse de baja a sí mismo por esta puerta', b.status === 403, b.status);
+    const b = await del(cob, '/perfil/cobradores/cob-2');
+    ok('un cobrador no puede sacar a su compañero', b.status === 403, b.status);
+    const c = await post(cob, '/perfil/cobradores/cob-2/clave', { nueva: 'meloafano1' });
+    ok('ni cambiarle la clave', c.status === 403, c.status);
+    const sigue = await login('cob-2', 'cobrador12');
+    ok('el compañero sigue entrando igual', !!sigue.body.token);
   }
 
-  console.log('\nLO QUE NO PUEDE TORCER');
+  console.log('\nLA COMBI DEL VECINO NO SE TOCA');
   {
-    // El rol NO sale del pedido: pedir 'driver' igual da un cobrador. Si
-    // saliera del cuerpo, cualquier chofer se fabricaría choferes.
-    const r = await post(ch1, '/perfil/cobradores',
-      { unitId: 'cob-2', name: 'Pedro Mamani', password: 'cobrador12',
-        personRole: 'driver', role: 'driver' });
-    ok('pedir el alta de un CHOFER igual da un cobrador', r.status === 200, r.body);
-    const e = await login('cob-2', 'cobrador12');
-    ok('y entra como cobrador', e.body.role === 'collector', e.body.role);
-
-    // El vehículo tampoco: mandar la combi del vecino no lo cuelga de ahí
-    ok('el vehículo sale de la sesión, no del pedido', e.body.vehicleId === 'CH-1', e.body.vehicleId);
     const p2 = await get(ch2, '/perfil');
-    ok('la combi del vecino sigue sin cobradores', p2.body.cobradores.length === 0, p2.body.cobradores);
-  }
-
-  console.log('\nEL TOPE');
-  {
-    const r = await post(ch1, '/perfil/cobradores',
-      { unitId: 'cob-3', name: 'Uno de más', password: 'cobrador12' });
-    ok('pasado el tope, el alta rebota', r.status === 409, r.status);
-    ok('y el error dice qué hacer', /baja/i.test(r.body.error || ''), r.body.error);
-    const tomado = await post(ch1, '/perfil/cobradores',
-      { unitId: 'CH-2', name: 'Robo de usuario', password: 'cobrador12' });
-    ok('y un usuario ya tomado no se puede pisar', tomado.status === 409, tomado.status);
-    const sigue = await login('CH-2', 'chofer1234');
-    ok('el dueño de ese usuario sigue entrando igual', !!sigue.body.token);
+    ok('el vecino no ve cobradores que no son suyos', p2.body.cobradores.length === 0, p2.body.cobradores);
   }
 
   console.log('\nEL COBRADOR DEL DE AL LADO NO SE TOCA');
@@ -181,15 +179,18 @@ let servidor = null;
   {
     const audit = await get(ger, '/admin/audit');
     const acciones = (audit.body.events || []).map(e => e.action);
-    for (const a of ['alta_cobrador', 'clave_cobrador', 'baja_cobrador']) {
+    for (const a of ['clave_cobrador', 'baja_cobrador']) {
       ok(`la auditoría registra ${a}`, acciones.includes(a), acciones.slice(0, 8));
     }
+    // Y NO puede haber altas hechas por un chofer: el alta no es suya
+    ok('no hay ninguna alta de cobrador hecha por un chofer',
+       !acciones.includes('alta_cobrador'), acciones.slice(0, 8));
     const clave = (audit.body.events || []).find(e => e.action === 'clave_cobrador');
     ok('y del cambio de clave NO guarda cuál era', !clave?.detail, clave);
     // Despacho y la gerencia los siguen viendo: esto suma quién da el alta,
     // no esconde gente del panel de nadie.
     const users = await get(ger, '/admin/users');
-    ok('la gerencia sigue viendo al cobrador que cargó el chofer',
+    ok('la gerencia sigue viendo a los cobradores de la flota',
        users.body.users.some(u => u.unitId === 'cob-2' && u.role === 'collector'),
        users.body.users.map(u => u.unitId));
   }

@@ -335,23 +335,28 @@ código como nombre provisional. Despacho lo corrige después con el botón
 **Nombre** de la lista de personas, sin dar de baja a nadie — el cambio
 se ve en vivo, incluso con el chofer conectado.
 
-### El cobrador lo carga su chofer
+### El chofer administra a los cobradores de su combi
 
-Desde **PERFIL** en la app, el chofer ve a los cobradores de su combi —con
-sus horas de 7 días y si están en línea— y los **da de alta, los da de baja
-y les cambia la clave**. Es donde vive la decisión: el cobrador sube con él
-y cambia seguido, y pasar cada alta por Despacho terminaba en que el
-cobrador entrara con la cuenta del chofer — que es exactamente lo que rompe
-las horas por persona y el reportero único de GPS.
+Desde **PERFIL** en la app, el chofer ve a los cobradores que van arriba de
+su combi —con sus horas de 7 días y si están en línea—, **les cambia la
+clave y los saca**. Es lo del día a día: se olvidó la contraseña, cambió de
+teléfono, o ya no sube más. Esperar a que Despacho atienda para eso es lo
+que termina en que los dos entren con la misma cuenta — que es exactamente
+lo que rompe las horas por persona y el reportero único de GPS.
 
-El borde está donde tiene que estar: **lo que decide permisos sale de la
-sesión, no del pedido**. El rol es siempre `collector`, el vehículo y la
-ruta son los suyos, hay tope de 2 por combi, y del cobrador de otra combi no
-puede ni saber si existe. El **nombre** no lo edita: con ese se liquidan las
-horas, y es de Despacho, igual que el suyo. Todo queda auditado
-(`alta_cobrador`, `clave_cobrador`, `baja_cobrador`) y **Despacho y la
-gerencia los siguen viendo enteros** en su panel: esto suma quién puede dar
-el alta, no esconde a nadie. Suite `cobradores`.
+**El alta NO es del chofer**, y es una decisión tomada, no un olvido: crear
+una cuenta es dar acceso al sistema, y eso se queda en Despacho o la
+gerencia (`POST /admin/users`), que además cargan el nombre real con el que
+se liquidan las horas. El chofer administra a los que ya están; no fabrica
+cuentas.
+
+El borde de lo que sí puede: solo sobre **su** vehículo (sale de la sesión,
+nunca del pedido), solo sobre gente con rol `collector`, y del cobrador de
+otra combi no puede ni saber si existe (404 que no lo confirma). El
+**nombre** tampoco lo edita. Todo queda auditado (`clave_cobrador`,
+`baja_cobrador` — del cambio de clave, QUE la cambió y nunca cuál) y
+**Despacho y la gerencia los siguen viendo enteros** en su panel. Suite
+`cobradores`.
 
 ## El recorrido de la ruta (ida y vuelta)
 
@@ -621,15 +626,18 @@ Adentro de la cooperativa hay a su vez dos niveles en el MISMO panel: el
 administrador del día (`dispatch`) y el gerente (`manager`) — ver *El
 gerente*, más abajo.
 
-Y hay un tercer lugar donde se administra algo, chico y a propósito: **el
-chofer, sobre los cobradores de SU combi** (columna *Chofer*). No es una
-excepción a la regla sino la regla aplicada: el cobrador es de la operación
-del día de esa combi, y la decisión ya era suya en la calle — lo único que
-cambió es que ahora tiene una cuenta propia en vez de usar la del chofer.
+Y hay un tercer lugar donde se administra algo, chico y acotado a
+conciencia: **el chofer, sobre los cobradores de SU combi** (columna
+*Chofer*). Puede cambiarles la clave y sacarlos — lo del día a día, que
+esperando a Despacho termina en los dos usando la misma cuenta. **El alta
+no**: crear una cuenta es dar acceso al sistema y se queda arriba. Es la
+misma regla de siempre, no una excepción — la estructura la define el nivel
+de arriba, la operación del día es de abajo.
 
 | | Chofer | Despacho (admin) | Gerente | Creador |
 | --- | :---: | :---: | :---: | :---: |
-| Cobradores **de su propia combi**: alta, baja, clave | ✅ | ✅ | ✅ | — |
+| Cobradores **de su propia combi**: baja y clave | ✅ | ✅ | ✅ | — |
+| **Alta** de un cobrador (crear la cuenta) | — | ✅ | ✅ | — |
 | Su **propio** alias y su **propia** contraseña, desde la app | ✅ | — | — | — |
 | Personas: alta sobre vehículos existentes, baja, claves, identidad | — | ✅ | ✅ | — |
 | Vehículos (el activo, con su placa) | — | — | ✅ | — |
