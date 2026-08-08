@@ -91,6 +91,29 @@ async function apagar(srv) {
        VALUES (?, 'R-14', ?, ?, 600, 400, 300, 'regreso')`);
     desvio.run('M-VIEJA', dias(200), dias(200));
     desvio.run('M-NUEVA', dias(5), dias(5));
+
+    // Los TURNOS eran la única tabla de historial sin poda: crecían para
+    // siempre y nadie lo veía, porque su lectura filtra por fecha y sale
+    // rápida igual. Se guardan MÁS que las vueltas —un año— porque con
+    // ellos se liquidan horas, y un reclamo por una liquidación llega
+    // bastante después que una discusión por una vuelta.
+    const turno = b.prepare(
+      `INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, lastSeenAt, endedAt)
+       VALUES (?, ?, 'R-14', 'driver', ?, ?, ?)`);
+    turno.run('P-VIEJO', 'M-01', dias(400), dias(400), dias(400));
+    turno.run('P-LIMITE', 'M-01', dias(360), dias(360), dias(360));
+    turno.run('P-NUEVO', 'M-01', dias(2), dias(2), dias(2));
+    // Uno ABIERTO y reciente: alguien que está arriba de la combi ahora.
+    // La poda sólo toca los cerrados, así que su turno en curso sobrevive.
+    //
+    // (Uno abierto y VIEJO no se prueba acá porque no llega: el arranque
+    // cierra todos los turnos abiertos antes de que la poda corra, así que
+    // para cuando ésta mira ya tiene fecha de fin. La guarda de
+    // `endedAt IS NOT NULL` es para la poda de las 6 h con el servidor en
+    // marcha, que es cuando de verdad hay gente arriba.)
+    b.prepare(`INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, lastSeenAt, endedAt)
+               VALUES ('P-ABIERTO', 'M-01', 'R-14', 'driver', ?, ?, NULL)`)
+      .run(dias(0), dias(0));
     b.close();
   }
 
@@ -102,6 +125,7 @@ async function apagar(srv) {
   const vueltas = b.prepare('SELECT unitId FROM laps ORDER BY unitId').all().map(x => x.unitId);
   const mensajes = b.prepare('SELECT kind, text FROM messages ORDER BY timestamp').all();
   const desvios = b.prepare('SELECT vehicleId FROM deviations').all().map(x => x.vehicleId);
+  const turnos = b.prepare('SELECT personId FROM shifts').all().map(x => x.personId);
   b.close();
 
   console.log('\nLAS VUELTAS SE GUARDAN POR TIEMPO, NO POR CANTIDAD');
@@ -135,6 +159,19 @@ async function apagar(srv) {
   {
     ok('el de hace 200 días se fue', !desvios.includes('M-VIEJA'), desvios);
     ok('el de hace 5 se queda', desvios.includes('M-NUEVA'), desvios);
+  }
+
+  console.log('\nLOS TURNOS TAMBIÉN, PERO CON SU PROPIO PLAZO');
+  {
+    // Eran la ÚNICA tabla de historial sin poda. Con ellos se liquidan
+    // horas, así que se guardan un año y no 120 días.
+    ok('el turno de hace 400 días se fue', !turnos.includes('P-VIEJO'), turnos);
+    ok('el de hace 360 se queda — el corte es un año, no 120 días',
+       turnos.includes('P-LIMITE'), turnos);
+    ok('y el reciente por supuesto', turnos.includes('P-NUEVO'), turnos);
+    // El que sigue arriba de la combi conserva su turno en curso: la poda
+    // sólo toca los cerrados, para no partirle las horas del día.
+    ok('el turno EN CURSO no se toca', turnos.includes('P-ABIERTO'), turnos);
   }
 
   console.log(fallas ? `\n${fallas} FALLAS` : '\nTODO EN ORDEN');

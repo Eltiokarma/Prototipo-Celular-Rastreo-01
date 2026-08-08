@@ -16,7 +16,7 @@ const COMPARTIDAS = ['tramos', 'objetivo', 'informes', 'desvio', 'turnos', 'priv
 const PROPIAS = ['variantes', 'brecha', 'creador', 'gerencia', 'cliente', 'senal', 'gpshttp', 'presencia', 'foto', 'marca', 'respaldo',
                  'trazador', 'ausencia', 'hud', 'chat', 'cola', 'margenes', 'gestos', 'imagen', 'tema', 'contraste', 'mapa', 'teclado', 'nativas',
                  'vendor', 'retencion', 'tiles', 'renovacion', 'cascada', 'mapa-shot', 'compresion', 'sos', 'perfil', 'grabador',
-                 'cobradores', 'metidos'];
+                 'cobradores', 'metidos', 'puertas'];
 
 const correr = (suite, env) => new Promise((resolve) => {
   let salida = '';

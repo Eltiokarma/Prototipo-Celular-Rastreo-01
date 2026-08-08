@@ -51,6 +51,13 @@ const units = new Map();
 const clients = new Map();
 // clients = { websocket → unitId }
 
+const tokenDeSocket = new Map();
+// tokenDeSocket = { websocket → el token con el que se identificó }
+// Existe para poder RE-VALIDAR la sesión mientras la conexión sigue abierta.
+// Un WebSocket se autenticaba una sola vez, al conectar, y después vivía de
+// esa confianza: revocar una sesión —suspender la cooperativa, el
+// vencimiento a los 30 días— borraba la fila y no cortaba el socket.
+
 const profiles = new Map();
 // profiles = { unitId (persona) → { name, alias, role, routeId, vehicleId } }
 
@@ -839,6 +846,15 @@ function createSession(unitId) {
   return token;
 }
 
+// El token que trae el pedido, o null. Estaba escrito a mano en cada puerta
+// (`auth.startsWith('Bearer ') ? auth.slice(7) : null`); ahora que además hay
+// que CERRAR sesiones hace falta el token en sí y no sólo el usuario, así que
+// vive en un solo lugar.
+function tokenDe(req) {
+  const auth = String(req.headers?.authorization || '');
+  return auth.startsWith('Bearer ') ? auth.slice(7) : null;
+}
+
 // Devuelve el usuario dueño de un token vigente, o null
 function sessionUser(token) {
   if (typeof token !== 'string' || token.length < 20) return null;
@@ -854,6 +870,40 @@ function sessionUser(token) {
 setInterval(() => {
   db.prepare('DELETE FROM sessions WHERE expiresAt <= ?').run(Date.now());
 }, 3_600_000);
+
+// Y los WebSocket abiertos con una sesión que ya no vale se cierran.
+//
+// Por HTTP cada pedido revalida el token; un socket se autenticaba UNA vez y
+// después vivía de esa confianza para siempre. O sea que las revocaciones que
+// sólo borran filas —suspender una cooperativa por falta de pago
+// (`cooperativas.estado`), el vencimiento a los 30 días— no cortaban a nadie
+// que dejara la conexión abierta: seguía recibiendo el estado cada 3 s con la
+// posición de toda la flota, el chat con los privados, y podía seguir
+// mandando posiciones y SOS. Las revocaciones por persona sí cortaban
+// (`kickUnit` cierra el socket), lo que muestra que esto era un olvido y no
+// una decisión.
+//
+// Un minuto es el retardo máximo de una revocación, y cuesta una consulta por
+// conexión abierta cada minuto — a 2000 sockets, 2000 lecturas por índice
+// primario por minuto, nada al lado de las 40 000 posiciones que entran en
+// ese mismo minuto.
+const REVISAR_SESIONES_MS = Number(process.env.REVISAR_SESIONES_MS || 60_000);
+setInterval(() => {
+  const ahora = Date.now();
+  const vigente = db.prepare('SELECT 1 FROM sessions WHERE token = ? AND expiresAt > ?');
+  let cerrados = 0;
+  for (const [ws, token] of tokenDeSocket) {
+    if (vigente.get(token, ahora)) continue;
+    cerrados++;
+    try {
+      ws.send(JSON.stringify({ type: 'auth_error', error: 'Tu sesión terminó. Volvé a entrar.' }));
+      ws.close();
+    } catch {}
+    // El `close` del socket limpia los mapas; esto es por si nunca llega.
+    tokenDeSocket.delete(ws);
+  }
+  if (cerrados) console.log(`Sesiones revocadas: ${cerrados} conexión(es) cerradas`);
+}, REVISAR_SESIONES_MS).unref();
 
 // ─── CUENTA DE DESPACHO ──────────────────────────────────────
 // El nombre DESPACHO está reservado y siempre lleva rol 'dispatch'.
@@ -1407,6 +1457,22 @@ const LAPS_DIAS = Number(process.env.LAPS_DIAS || 120);
 const LAPS_MAX_FILAS = Number(process.env.LAPS_MAX_FILAS || 3_000_000);
 const DESVIOS_DIAS = Number(process.env.DESVIOS_DIAS || LAPS_DIAS);
 
+// Los TURNOS eran la única tabla de historial sin poda, y por eso crecían
+// para siempre: todo lo demás tiene retención —vueltas y tramos 120 días,
+// desvíos 120, chat 30, SOS 365, auditoría 1000 por empresa— y ésta se
+// escapó. Apareció midiendo la escala (`herramientas/escala.js`): a 2000
+// unidades son ~320 000 filas a los 120 días y siguen sumando.
+//
+// No dolía en la pantalla —la lectura filtra por fecha y sale en 20 ms— y
+// justamente por eso podía crecer años sin que nadie lo notara, hasta que
+// molestara en el disco de un volumen pago.
+//
+// Se guardan MÁS días que las vueltas, y a propósito: las horas de una
+// persona son lo que se liquida, y un reclamo por una liquidación llega
+// mucho después que una discusión sobre una vuelta. Un año cubre el ciclo
+// entero sin volver a pensarlo.
+const TURNOS_DIAS = Number(process.env.TURNOS_DIAS || 365);
+
 // Podar es barato pero no gratis (recorre por fecha), y no hay ningún apuro:
 // una fila de hace 120 días y 3 horas no molesta a nadie. Va cada 6 horas, y
 // una vez al arrancar para que un servidor que estuvo apagado se ponga al día.
@@ -1432,12 +1498,18 @@ function podarHistorico() {
     .run(LAPS_MAX_FILAS * 2).changes;
   const desviosViejos = db.prepare(
     'DELETE FROM deviations WHERE startedAt < ?').run(Date.now() - DESVIOS_DIAS * 86400_000).changes;
+  // Los turnos, con su propio plazo (más largo: se liquidan horas con ellos).
+  // Sólo los CERRADOS: un turno abierto es alguien que está arriba de la
+  // combi ahora mismo, y borrarlo le partiría las horas del día en curso.
+  const turnosViejos = db.prepare(
+    'DELETE FROM shifts WHERE endedAt IS NOT NULL AND startedAt < ?')
+    .run(Date.now() - TURNOS_DIAS * 86400_000).changes;
   const chat = pruneChatStmt.run({ corte: Date.now() - CHAT_DIAS * 86400_000 }).changes;
   const sos = pruneSosStmt.run({ corte: Date.now() - SOS_DIAS * 86400_000 }).changes;
   const mensajesDeMas = pruneRowsStmt.run({ tope: MENSAJES_MAX_FILAS }).changes;
-  if (viejas || sobrantes || tramosViejos || tramosDeMas || desviosViejos || chat || sos || mensajesDeMas) {
+  if (viejas || sobrantes || tramosViejos || tramosDeMas || desviosViejos || turnosViejos || chat || sos || mensajesDeMas) {
     console.log(`Historial podado: ${viejas + sobrantes} vuelta(s), ${tramosViejos + tramosDeMas} tramo(s), ` +
-      `${desviosViejos} desvío(s), ${chat + mensajesDeMas} mensaje(s), ${sos} SOS` +
+      `${desviosViejos} desvío(s), ${turnosViejos} turno(s), ${chat + mensajesDeMas} mensaje(s), ${sos} SOS` +
       (sobrantes ? ` — ${sobrantes} vuelta(s) por el techo de ${LAPS_MAX_FILAS} filas` : '') +
       (tramosDeMas ? ` — ${tramosDeMas} tramo(s) por el techo de ${LAPS_MAX_FILAS * 2} filas` : ''));
   }
@@ -1747,10 +1819,32 @@ const IP_MAX_FALLOS = 30;        // en la ventana
 const IP_VENTANA_MS = 600_000;   // 10 minutos
 const IP_BLOQUEO_MS = 600_000;
 
+// Cuántos proxies hay ADELANTE del servidor, y por qué es un número y no un
+// booleano. En Railway hay exactamente uno: él agrega la IP real al final de
+// `X-Forwarded-For`. Corriendo sin proxy hay que poner 0 — si no, la cabecera
+// entera la escribe el cliente y volvemos al problema de abajo.
+const PROXIES_CONFIABLES = Number(process.env.TRUST_PROXY ?? 1);
+
 function origenDe(req) {
   // Railway y cualquier proxy ponen la IP real acá; el socket vería la del proxy
-  const xf = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return xf || req.socket?.remoteAddress || 'desconocido';
+  const directa = req.socket?.remoteAddress || 'desconocido';
+  if (PROXIES_CONFIABLES <= 0) return directa;
+  // Se cuenta desde la DERECHA, y ahí está todo el asunto. `X-Forwarded-For`
+  // es una lista que cada proxy va AGREGANDO al final: el último elemento lo
+  // puso el proxy más cercano y es el único que nadie de afuera pudo elegir.
+  // Todo lo que está a la izquierda lo mandó el cliente y puede ser cualquier
+  // cosa — leer el PRIMER elemento, que es lo que se hacía, significaba usar
+  // como identidad justamente el pedazo que el atacante escribe.
+  //
+  // Con eso, el bloqueo por origen no bloqueaba nada: una cabecera distinta
+  // por pedido y cada intento estrenaba contador. Y ese bloqueo es el único
+  // que ve el ataque que el bloqueo por cuenta no puede ver —una contraseña
+  // probada contra las 2000 cuentas, cinco intentos en cada una—, además de
+  // ser el único freno del login del panel del creador.
+  const cadena = String(req.headers['x-forwarded-for'] || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  const i = cadena.length - PROXIES_CONFIABLES;
+  return (i >= 0 && cadena[i]) ? cadena[i] : directa;
 }
 
 function ipBloqueada(ip) {
@@ -1804,6 +1898,38 @@ app.post('/auth/login', (req, res) => {
     // Solo se auto-registran: DESPACHO (bootstrap del sistema) y, para
     // demos sin administración, cualquier unidad si OPEN_REGISTRATION=1.
     const openReg = process.env.OPEN_REGISTRATION === '1';
+
+    // EL BOOTSTRAP SOLO VALE EN UN SISTEMA QUE TODAVÍA NADIE ADMINISTRA.
+    //
+    // Sin esta condición, el bootstrap era una puerta abierta con nombre
+    // conocido: bastaba con que NO existiera la fila `DESPACHO` para que el
+    // primer POST anónimo del mundo —sin credencial ninguna— se creara la
+    // cuenta con rol `dispatch` y `routeId` nulo (o sea SUPERVISOR, que ve
+    // todas las rutas), con la contraseña que el atacante mandara.
+    //
+    // Y esa fila falta más seguido de lo que parece: `DISPATCH_PASSWORD` es
+    // opcional, y una cooperativa dada de alta desde el panel del creador
+    // recibe su supervisor con el nombre que le pusieron —nunca la palabra
+    // literal `DESPACHO`—. Ahí quedaba un sistema entero, con sus 2000
+    // choferes cargados, esperando a que alguien probara ese usuario.
+    //
+    // Bootstrap quiere decir "todavía no hay a quién pedirle el alta". Eso es
+    // exactamente "no existe ninguna cuenta capaz de administrar": si ya hay
+    // un despacho o una gerencia en cualquier empresa, el alta se le pide a
+    // esa persona y esta puerta no tiene por qué existir.
+    if (unitId === DISPATCH_ID && !openReg) {
+      const administradores = db.prepare(
+        "SELECT COUNT(*) AS c FROM users WHERE role IN ('dispatch', 'manager')").get().c;
+      if (administradores > 0) {
+        anotarFalloIp(ip);
+        console.warn(`Intento de bootstrap de ${DISPATCH_ID} con ${administradores} cuenta(s) ` +
+          'de administración ya existentes: rechazado');
+        return res.status(403).json({ error: 'Unidad no registrada. Pedí el alta a Despacho.' });
+      }
+      console.warn(`BOOTSTRAP: se creó ${DISPATCH_ID} desde un login porque no había ninguna ` +
+        'cuenta de administración en el sistema. Poné DISPATCH_PASSWORD para que no dependa de esto.');
+    }
+
     if (unitId !== DISPATCH_ID && !openReg) {
       // Cuenta como fallo: si no, probar usuarios sale gratis y sirve para
       // averiguar cuáles existen.
@@ -1889,6 +2015,47 @@ app.post('/auth/login', (req, res) => {
 // una zona sin datos — que era lo que `app/cola.js` no podía hacer.
 const MAX_POSICIONES_POR_ENVIO = 200;
 const ATRASO_MAXIMO_MS = 6 * 3600_000;   // 6 h: más viejo que eso no se mide
+
+// ─── LO QUE MANDA EL TELÉFONO NO ES UN DATO, ES UNA AFIRMACIÓN ───
+//
+// Estas tres funciones existen porque el POST validaba y el WebSocket no, y
+// eran la misma información entrando por dos puertas. El atacante más
+// probable de este sistema no es un desconocido: son los 2000 choferes, cada
+// uno con una sesión legítima y un teléfono que controlan. Sacar el token del
+// APK y hablarle al WebSocket a mano es media tarde de trabajo.
+//
+// Una coordenada de verdad. Además de finita tiene que estar en el planeta:
+// un `"x"` como latitud llegaba hasta Leaflet en el panel, que tira
+// `Invalid LatLng` adentro de un efecto de React y deja a TODOS los
+// despachadores de esa ruta con la pantalla en blanco hasta que la unidad se
+// olvide sola.
+const coordenadaValida = (lat, lng) =>
+  Number.isFinite(lat) && Number.isFinite(lng) &&
+  lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+
+// El progreso que estima el cliente se usa TAL CUAL cuando la ruta todavía no
+// tiene trazado cargado (un estado normal, no un error). Y el progreso ordena
+// la cadena de brechas, así que un `routeProgress: 999` no le arruina los
+// números al que lo manda: se los arruina AL DE ADELANTE, porque la brecha se
+// acumula en la vuelta del de atrás. Uno miente y el perjudicado es otro.
+const progresoValido = (p) => (Number.isFinite(p) && p >= 0 && p <= 1 ? p : 0);
+
+// La hora que declara el teléfono, acotada a la misma ventana que ya usan las
+// posiciones. Se conserva la declarada —sirve para el atraso de una zona sin
+// señal— pero no puede caer fuera de lo posible.
+//
+// Sin esto, un SOS con `timestamp: 1` sonaba en Despacho y quedaba guardado
+// con fecha de 1970: no aparecía en el informe de emergencias (que filtra por
+// rango), no aparecía en el conteo del gerente, y la poda de las 6 h lo
+// borraba por viejo. La emergencia ocurría y no dejaba rastro. Con una fecha
+// del futuro, el efecto espejo: la fila vive para siempre y no sale en ningún
+// informe fechado.
+function horaDeclarada(valor, ahora = Date.now()) {
+  const t = Number(valor);
+  if (!Number.isFinite(t)) return ahora;
+  if (t > ahora + 120_000 || t < ahora - ATRASO_MAXIMO_MS) return ahora;
+  return t;
+}
 
 // La presencia por HTTP: el mismo camino robusto que POST /gps, para que la
 // app pueda declarar aunque el WebSocket esté caído. 'fuera' acá también:
@@ -2058,8 +2225,19 @@ app.post('/perfil/alias', (req, res) => {
 });
 
 // Cambiar SU contraseña exige la actual: un teléfono desbloqueado en el
-// paradero no puede convertirse en la cuenta robada de nadie. Las sesiones
-// abiertas del propio usuario siguen valiendo — el que cambió fue él.
+// paradero no puede convertirse en la cuenta robada de nadie.
+//
+// Y por eso mismo el cambio CIERRA LAS DEMÁS SESIONES. Antes no lo hacía —el
+// razonamiento era "el que cambió fue él, no hay por qué echarlo"— y eso
+// dejaba el remedio sin efecto justo contra la amenaza que la línea de arriba
+// nombra: lo que da acceso no es la contraseña sino el TOKEN, que vive 30
+// días. Alguien que copió el token de un teléfono desbloqueado seguía
+// entrando después de que el dueño cambiara la clave, y el dueño no tenía
+// ninguna otra herramienta — no había forma de cerrar sesión, ni siquiera la
+// propia. Su única salida era pedirle a Despacho que le reseteara la clave.
+//
+// La sesión CON LA QUE PIDIÓ el cambio se conserva: si no, el chofer se queda
+// afuera de su propio teléfono en el mismo acto de cuidarlo.
 app.post('/perfil/clave', (req, res) => {
   const user = usuarioPropio(req, res);
   if (!user) return;
@@ -2073,10 +2251,50 @@ app.post('/perfil/clave', (req, res) => {
     return res.status(403).json({ error: 'La contraseña actual no es esa' });
   }
   db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(nueva), user.unitId);
+  const propio = tokenDe(req);
+  const otras = db.prepare('DELETE FROM sessions WHERE unitId = ? AND token IS NOT ?')
+    .run(user.unitId, propio).changes;
   // En la auditoría queda QUE la cambió, nunca cuál es.
-  audit(user.unitId, 'clave_propia', user.unitId, null, user.routeId);
-  console.log(`Contraseña cambiada por su dueño: ${user.unitId}`);
-  res.json({ ok: true });
+  audit(user.unitId, 'clave_propia', user.unitId,
+    otras ? `${otras} sesión(es) cerradas` : null, user.routeId);
+  console.log(`Contraseña cambiada por su dueño: ${user.unitId}` +
+    (otras ? ` — ${otras} sesión(es) de otros dispositivos cerradas` : ''));
+  res.json({ ok: true, sesionesCerradas: otras });
+});
+
+// ─── CERRAR SESIÓN ───────────────────────────────────────────
+// No existía, y su ausencia era más grave de lo que suena: el "salir" de las
+// pantallas sólo borraba el token del `localStorage` del navegador, así que
+// el token seguía siendo válido en el servidor hasta 30 días después. Un
+// teléfono prestado, uno robado o uno que se cambia dejaban una llave
+// funcionando, y no había manera de anularla salvo pedirle a Despacho un
+// reseteo de contraseña.
+//
+// Dos alcances, porque son dos situaciones distintas: cerrar ESTA sesión es
+// lo de todos los días (me bajo de la combi prestada), y cerrar TODAS es lo
+// que uno quiere cuando cree que perdió un teléfono.
+app.post('/auth/logout', (req, res) => {
+  const token = tokenDe(req);
+  const sesion = token && db.prepare('SELECT unitId FROM sessions WHERE token = ?').get(token);
+  // Un token que ya no vale se contesta igual que uno que valía: cerrar
+  // sesión no puede fallar, y tampoco tiene por qué decirle a nadie si el
+  // token que probó existía.
+  if (!sesion) return res.json({ ok: true, cerradas: 0 });
+  const todas = req.body?.todas === true;
+  const cerradas = todas
+    ? db.prepare('DELETE FROM sessions WHERE unitId = ?').run(sesion.unitId).changes
+    : db.prepare('DELETE FROM sessions WHERE token = ?').run(token).changes;
+  if (todas) {
+    // Los WebSocket abiertos con esos tokens también: si no, la pantalla del
+    // que se llevó el teléfono sigue recibiendo el mapa y el chat en vivo.
+    for (const [ws, id] of clients) {
+      if (id === sesion.unitId) {
+        try { ws.send(JSON.stringify({ type: 'auth_error', error: 'Sesión cerrada' })); ws.close(); } catch {}
+      }
+    }
+    audit(sesion.unitId, 'cerrar_todo', sesion.unitId, `${cerradas} sesión(es)`, null);
+  }
+  res.json({ ok: true, cerradas });
 });
 
 // ─── LOS COBRADORES DE SU COMBI ──────────────────────────────
@@ -2255,14 +2473,21 @@ app.post('/grabacion', (req, res) => {
 
 // La lista y la descarga son del panel (Despacho o gerencia), con el borde
 // de siempre: cada empresa ve SUS grabaciones y ninguna otra.
+// Las dos puertas filtran por empresa Y POR RUTA. Eran las únicas de todo
+// `/admin/*` que miraban sólo la empresa: un despachador o gerente atado a
+// una ruta (`req.scope`) recibía las grabaciones de TODAS las rutas de su
+// cooperativa —con el nombre de quién las grabó— y podía bajarse el trazado
+// punto a punto de un recorrido que no administra. Por cualquier otra puerta
+// esos mismos datos le dan 404.
 app.get('/admin/grabaciones', requireDispatch, (req, res) => {
   const filas = db.prepare(`
     SELECT r.id, r.personId, r.nombre, r.routeId, r.cantidad, r.largoM, r.createdAt,
            COALESCE(u.driverName, r.personId) AS quien
     FROM recordings r LEFT JOIN users u ON u.unitId = r.personId
-    WHERE r.companyId IS ?
-    ORDER BY r.id DESC LIMIT ?
-  `).all(req.empresa, GRABACIONES_MAX);
+    WHERE r.companyId IS @empresa
+      AND (@scope IS NULL OR r.routeId IS @scope)
+    ORDER BY r.id DESC LIMIT @tope
+  `).all({ empresa: req.empresa, scope: req.scope || null, tope: GRABACIONES_MAX });
   res.json({
     grabaciones: filas.map(f => ({
       id: f.id, nombre: f.nombre, quien: f.quien, routeId: f.routeId,
@@ -2272,8 +2497,14 @@ app.get('/admin/grabaciones', requireDispatch, (req, res) => {
 });
 
 app.get('/admin/grabaciones/:id.geojson', requireDispatch, (req, res) => {
-  const fila = db.prepare('SELECT * FROM recordings WHERE id = ? AND companyId IS ?')
-    .get(Number(req.params.id) || -1, req.empresa);
+  // 404 y no 403 cuando la grabación es de otra ruta o de otra empresa: el
+  // mismo criterio que `vetoDeRuta` — un error que distingue "no es tuya" de
+  // "no existe" convierte esta puerta en un directorio de lo ajeno.
+  const fila = db.prepare(`
+    SELECT * FROM recordings
+    WHERE id = @id AND companyId IS @empresa
+      AND (@scope IS NULL OR routeId IS @scope)
+  `).get({ id: Number(req.params.id) || -1, empresa: req.empresa, scope: req.scope || null });
   if (!fila) return res.status(404).json({ error: 'Esa grabación no existe' });
   const puntos = JSON.parse(fila.puntos);
   res.setHeader('Content-Type', 'application/geo+json; charset=utf-8');
@@ -2476,16 +2707,28 @@ app.get('/marca', (req, res) => {
 // cuerpo, cualquier cuenta podría pisarle el logo a la cooperativa de al
 // lado mandando el id ajeno. Está cubierto en la suite `marca`.
 app.put('/admin/company/logo', requireGerente, (req, res) => {
+  // El logo es de LA COOPERATIVA ENTERA: viaja por `GET /marca` a todas las
+  // pantallas de todas sus rutas. Faltaba el mismo corte que ya tiene el
+  // endpoint de los datos de la empresa acá abajo, así que una gerencia atada
+  // a una ruta podía cambiarle —o borrarle— la marca a las demás. No cruza de
+  // cooperativa; cruza de ruta adentro de una, y no debería.
+  if (req.scope) {
+    return res.status(403).json({ error: 'El logo lo cambia la gerencia de toda la cooperativa' });
+  }
   const crudo = req.body?.logo;
   // Sacarlo tiene que ser posible: un logo mal subido no puede quedar pegado
   // hasta que alguien toque la base a mano.
   if (crudo === null || crudo === '') {
     db.prepare('UPDATE companies SET logo = NULL WHERE companyId = ?').run(req.empresa);
+    // Auditado como cualquier otra edición de la empresa: era el único cambio
+    // de este nivel que no dejaba rastro de quién lo hizo.
+    audit(req.dispatchUser.unitId, 'logo', req.empresa, 'quitado', null);
     return res.json({ ok: true, logo: null });
   }
   const logo = marca.logoValido(crudo);
   if (!logo) return res.status(400).json({ error: marca.motivoRechazo(crudo) });
   db.prepare('UPDATE companies SET logo = ? WHERE companyId = ?').run(logo, req.empresa);
+  audit(req.dispatchUser.unitId, 'logo', req.empresa, 'cambiado', null);
   res.json({ ok: true, logo });
 });
 
@@ -4539,6 +4782,14 @@ wss.on('connection', (ws) => {
       // lo rechazaba acá y se lo mandaba a gerencia.html; ese panel ya no
       // existe como puerta aparte.
       clients.set(ws, user.unitId);
+      // El token queda guardado EN el socket. Sin esto, la sesión se
+      // verificaba una sola vez —acá— y nunca más: por HTTP cada pedido la
+      // revalida, pero un WebSocket abierto seguía valiendo para siempre.
+      // O sea que suspender una cooperativa por falta de pago, o el
+      // vencimiento del token a los 30 días, no cortaban a nadie que
+      // simplemente no cerrara la conexión: seguía recibiendo el mapa en
+      // vivo, el chat —privados incluidos— y podía seguir mandando posiciones.
+      tokenDeSocket.set(ws, msg.token);
       const vehicleId = user.vehicleId || (user.role === 'driver' ? user.unitId : null);
       profiles.set(user.unitId, {
         driverName: displayName(user),
@@ -4673,9 +4924,14 @@ wss.on('connection', (ws) => {
       // recibiendo todo, pero su GPS se ignora: así la unidad no salta.
       if (gpsOwner.get(vehicleId) !== ws) return;
 
+      // Se valida igual que en POST /gps: era la misma información entrando
+      // por dos puertas y sólo una miraba lo que le daban.
+      if (!coordenadaValida(msg.lat, msg.lng)) return;
+
       anotarPosicion(vehicleId, personId, prof, {
-        lat: msg.lat, lng: msg.lng, speed: msg.speed,
-        routeProgress: msg.routeProgress,
+        lat: msg.lat, lng: msg.lng,
+        speed: Number.isFinite(msg.speed) && msg.speed >= 0 ? msg.speed : 0,
+        routeProgress: progresoValido(msg.routeProgress),
       });
     }
 
@@ -4711,14 +4967,19 @@ wss.on('connection', (ws) => {
       const prof = profiles.get(unitId) || {};
       const routeId = rutaDelEmisor();
       console.log(`🚨 SOS de ${unitId} (${routeId})`);
+      // La emergencia sale IGUAL aunque el GPS no tenga fijo: lo que no puede
+      // pasar es que una coordenada inventada entre al registro —o rompa el
+      // `toFixed` de la auditoría dos líneas abajo, que no está en ningún
+      // try/catch y se lleva puesto el proceso entero—.
+      const conPosicion = coordenadaValida(msg.lat, msg.lng);
       const alert = {
         unitId,
         driverName: prof.driverName || 'Conductor',
         vehicleId: prof.vehicleId || null,
         routeId,
-        lat: msg.lat ?? null,
-        lng: msg.lng ?? null,
-        timestamp: msg.timestamp || Date.now(),
+        lat: conPosicion ? msg.lat : null,
+        lng: conPosicion ? msg.lng : null,
+        timestamp: horaDeclarada(msg.timestamp),
       };
       // El id viaja en la alerta: es el ancla para que el tipo elegido
       // después (sos_tipo) encuentre este disparo y no otro.
@@ -4775,7 +5036,7 @@ wss.on('connection', (ws) => {
         toVehicleId,
         routeId,
         text: String(msg.text || '').slice(0, 500),
-        timestamp: msg.timestamp || Date.now(),
+        timestamp: horaDeclarada(msg.timestamp),
       };
       remember({ kind: 'chat', ...entry });
       const payload = { type: 'chat_msg', role: prof.role || 'driver', ...entry };
@@ -4811,7 +5072,7 @@ wss.on('connection', (ws) => {
         routeId,
         duration: Math.max(1, Math.min(120, Math.round(msg.duration || 0))),
         data,
-        timestamp: msg.timestamp || Date.now(),
+        timestamp: horaDeclarada(msg.timestamp),
       };
       remember({ kind: 'voice', ...entry });
       const payload = { type: 'voice_msg', role: prof.role || 'driver', ...entry };
@@ -4849,7 +5110,7 @@ wss.on('connection', (ws) => {
         routeId,
         text: String(msg.text || '').slice(0, 200),   // pie de foto, opcional
         data,
-        timestamp: msg.timestamp || Date.now(),
+        timestamp: horaDeclarada(msg.timestamp),
       };
       remember({ kind: 'photo', ...entry });
       const payload = { type: 'photo_msg', role: prof.role || 'driver', ...entry };
@@ -4862,6 +5123,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     const personId = clients.get(ws);
     watching.delete(ws);
+    tokenDeSocket.delete(ws);
     if (!personId) return;
     const prof = profiles.get(personId);
     const vehicleId = prof?.vehicleId;

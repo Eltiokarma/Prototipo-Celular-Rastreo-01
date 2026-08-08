@@ -194,7 +194,10 @@ calle. Suite `renovacion`.
 | `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres |
 | `CREATOR_PATH` | Mueve el panel del creador a una ruta propia (por defecto `/creador`) |
 | `CREATOR_TOTP_SECRET` | Segundo factor del panel del creador (base32) |
-| `OPEN_REGISTRATION` | `1` deja que cualquiera se registre. **Solo para demos** |
+| `OPEN_REGISTRATION` | `1` deja que cualquiera se registre. **Solo para demos**: con esto encendido, un registro elegido a dedo puede terminar administrando cobradores de otra cooperativa |
+| `TRUST_PROXY` | Cuántos proxies hay adelante (**1** por defecto, que es Railway). El bloqueo por intentos fallidos cuenta la IP desde la derecha de `X-Forwarded-For`: si el servidor se expone **sin** proxy hay que poner `0`, o la cabecera la escribe el cliente y el bloqueo no bloquea |
+| `REVISAR_SESIONES_MS` | Cada cuánto se revalidan las sesiones de los WebSocket abiertos (60 000). Es el retardo máximo de una revocación |
+| `TURNOS_DIAS` | Cuántos días se guardan los turnos cerrados (365: con ellos se liquidan horas) |
 | `STATE_INTERVAL_MS` | Cada cuánto se emite el estado (3000 por defecto) |
 | `SIN_SENAL_MS` | A los cuántos ms sin GPS una unidad queda marcada **sin señal** (30 000). Sigue en la fila y en el mapa con su última posición, pero nadie se mide contra ella |
 | `RESPALDO_CADA_H` | Cada cuántas horas se respalda la base sola (6). `0` lo apaga |
@@ -215,8 +218,10 @@ token válido no hay estado, historial ni chat. Contraseñas con scrypt+salt
 en la tabla `users` (roles `driver`/`collector`/`dispatch`/`manager`); 5 intentos fallidos
 bloquean la unidad 5 minutos. **El alta de choferes la hace Despacho**
 (panel → Unidades): el login rechaza unidades no registradas. Solo se
-auto-registran DESPACHO (bootstrap del sistema) y, para demos sin
-administración, cualquier unidad si `OPEN_REGISTRATION=1`. La app guarda
+auto-registran DESPACHO —y **sólo mientras el sistema no tenga ninguna cuenta
+de administración**: en cuanto existe un despacho o una gerencia en cualquier
+cooperativa, esa puerta se cierra, porque ya hay a quién pedirle el alta— y,
+para demos sin administración, cualquier unidad si `OPEN_REGISTRATION=1`. La app guarda
 la sesión en el celular y la restaura al abrir; si el servidor no
 responde, ofrece un modo demo local.
 
@@ -1089,6 +1094,55 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
 4. **Operador (dueño de la infraestructura)** — está por encima de todo
    **sin clave ninguna**: controla el deploy, las variables de entorno y el
    archivo de la base. Es quien decide si el nivel 3 existe.
+
+### Lo que se cerró en la revisión del 8/8
+
+Una revisión de seguridad del sistema entero —no de un cambio— encontró ocho
+cosas. Ninguna se veía usando la app, y ésa es la parte que conviene recordar:
+
+- **El bootstrap de `DESPACHO` era una puerta abierta con nombre conocido.**
+  Si esa fila no existía —y `DISPATCH_PASSWORD` es opcional, y una cooperativa
+  provisionada desde el panel del creador recibe su supervisor con otro
+  nombre— el primer `POST /auth/login` anónimo del mundo se creaba la cuenta
+  que administra a todos, con la clave que el atacante mandara. Ahora el
+  bootstrap sólo corre si **no existe ninguna cuenta de administración**: si
+  ya hay a quién pedirle el alta, la puerta no tiene por qué existir.
+- **El bloqueo por origen no bloqueaba nada.** Leía el primer elemento de
+  `X-Forwarded-For`, que es justo el pedazo que escribe el cliente: una
+  cabecera distinta por pedido y cada intento estrenaba contador. Era el único
+  freno contra probar una contraseña en las 2000 cuentas, y el único del login
+  del panel del creador. Ahora se cuenta desde la derecha, con `TRUST_PROXY`
+  diciendo cuántos proxies hay adelante (**1 por defecto, Railway; poner 0 si
+  se corre sin proxy**).
+- **No existía cerrar sesión.** El "salir" de las pantallas borraba el token
+  del navegador y nada más: en el servidor seguía valiendo 30 días. Ahora hay
+  `POST /auth/logout`, con variante `{todas:true}` para el teléfono perdido.
+- **Cambiar la contraseña propia no cerraba las otras sesiones**, así que no
+  servía contra la amenaza que la justifica —un token copiado de un teléfono
+  desbloqueado—. Ahora las cierra, menos la del que la está cambiando.
+- **Las grabaciones y el logo se saltaban el alcance por ruta**: una gerencia
+  atada a una ruta bajaba los trazados de las otras y podía cambiarle la marca
+  a toda la cooperativa.
+- **El WebSocket se autenticaba una sola vez.** Suspender una cooperativa por
+  falta de pago borraba las filas de sesión y no cortaba a nadie que dejara la
+  conexión abierta: seguía recibiendo el mapa y el chat. Ahora se revalida cada
+  minuto y se cierra.
+- **Lo que manda el teléfono no se miraba** en el WebSocket, aunque el POST sí
+  lo mirara. Un `routeProgress: 999` no le arruinaba los números al que lo
+  mandaba sino **al de adelante** (la brecha se acumula en la vuelta del de
+  atrás); una latitud `"x"` llegaba hasta Leaflet y dejaba en blanco la
+  pantalla de todos los despachadores de esa ruta; y un SOS con coordenadas
+  basura mataba el proceso en el `toFixed` de la auditoría.
+- **La hora de los mensajes la ponía el cliente.** Un SOS con `timestamp: 1`
+  sonaba en Despacho y quedaba guardado en 1970: no salía en el informe de
+  emergencias, no salía en el conteo del gerente, y la poda lo borraba por
+  viejo. La emergencia ocurría y no dejaba rastro. Ahora la hora declarada se
+  acota a la misma ventana que las posiciones.
+
+Todo con prueba puesta: suite `puertas`. Lo que la revisión verificó como sano
+está en su informe — vale la pena saber que la parte más grande salió limpia:
+el aislamiento entre cooperativas, el hash de contraseñas, los tokens, los
+bordes de rol, el panel del creador y las rutas de archivos.
 
    **Rutas de recuperación**: si la clave de Despacho de la cooperativa
    inicial se pierde o filtra, setear/cambiar `DISPATCH_PASSWORD` y
