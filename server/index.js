@@ -1382,7 +1382,10 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_legs_unidad ON legs (unitId, finishedAt)
 // Por ruta, para el acumulado por unidad del panel — misma consulta sin corte
 // por fecha que la de vueltas, y misma razón. Medido a 2000 unidades y 120
 // días (3,84 M de tramos): 1125 ms sin él, 205 ms con él. Cuesta ~53 MB.
-db.exec('CREATE INDEX IF NOT EXISTS idx_legs_ruta ON legs (routeId, parcial)');
+// Con `finishedAt` segunda y `parcial` de cola, por lo mismo que en `laps`:
+// el cuadro del gerente y el CSV de tramos filtran por ruta y por rango a la
+// vez, y el CSV no filtra por `parcial`. Ver el comentario largo allá.
+db.exec('CREATE INDEX IF NOT EXISTS idx_legs_ruta ON legs (routeId, finishedAt, parcial)');
 
 // Cuánto historial se guarda, y por qué se mide en DÍAS y no en filas.
 //
@@ -1455,7 +1458,21 @@ if (db.prepare('SELECT COUNT(*) AS c FROM laps WHERE routeId IS NULL').get().c >
 // de migración y hasta esta línea no existe. Acota el acumulado por unidad a
 // las rutas de la empresa — el último tramo de los 10 368 ms a 88 (ver el
 // bloque de índices más arriba).
-db.exec('CREATE INDEX IF NOT EXISTS idx_laps_ruta ON laps (routeId, parcial)');
+//
+// Lleva además `finishedAt` porque las OTRAS lecturas pesadas —el cuadro del
+// gerente y los CSV— filtran por ruta Y por rango de fechas, y con las tres
+// columnas juntas el motor resuelve las dos cosas de un saque en vez de traer
+// el rango de TODAS las cooperativas y descartar el 98 % (ver `COSTOS.md` §3).
+//
+// EL ORDEN DE LAS DOS ÚLTIMAS IMPORTA, y de qué manera. Con
+// `(routeId, parcial, finishedAt)` la fecha queda tercera, así que una
+// consulta que NO filtra por `parcial` —los CSV los listan todos, marcados—
+// no puede acotar por rango y termina barriendo la ruta entera. Medido a 2000
+// unidades: el CSV de vueltas tardaba 484 ms y el de tramos 838. Con la fecha
+// segunda, 15 ms y 32 ms — y el cuadro del gerente, que sí filtra por
+// `parcial`, además mejora (67 → 38 ms) porque el filtro sale del índice sin
+// tocar la tabla.
+db.exec('CREATE INDEX IF NOT EXISTS idx_laps_ruta ON laps (routeId, finishedAt, parcial)');
 
 // ─── PRESENCIA ───────────────────────────────────────────────
 // El chofer DECLARA su estado desde la app — salir a ruta, ausente (comer,
@@ -3185,6 +3202,12 @@ const RUTAS_DE_LA_EMPRESA = '(SELECT routeId FROM routes WHERE companyId = @empr
 const INFORMES = {
   // Vueltas por unidad: cuántas, cuánto tardaron, a qué velocidad
   vueltas: (filtro) => {
+    // El informe SÍ va en orden cronológico —se lee de arriba abajo—, pero el
+    // orden se hace ACÁ y no en SQL. Pedírselo al motor lo empuja al índice
+    // por fecha, que le ahorra el sort a cambio de traerse el rango de todas
+    // las cooperativas y descartar el 98 %: es el mismo canje que hacía lenta
+    // la pantalla del gerente (ver ahí y `COSTOS.md` §3). Ordenar unas
+    // decenas de miles de filas en JS cuesta milisegundos.
     const filas = db.prepare(`
       SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm,
              objetivoSec, parcial, progresoInicial
@@ -3192,8 +3215,7 @@ const INFORMES = {
       WHERE finishedAt BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
         AND (@ruta IS NULL OR routeId = @ruta)
-      ORDER BY finishedAt
-    `).all(filtro);
+    `).all(filtro).sort((a, b) => a.finishedAt - b.finishedAt);
     return {
       nombre: 'vueltas',
       // El objetivo va AL LADO de la brecha: sin él, la columna "Brecha
@@ -3234,14 +3256,14 @@ const INFORMES = {
   // tiene una explicación, y hasta ahora ni siquiera se podía formular la
   // pregunta porque el dato no se guardaba.
   tramos: (filtro) => {
+    // Orden en JS, por lo mismo que el informe de vueltas
     const filas = db.prepare(`
       SELECT unitId, routeId, leg, startedAt, finishedAt, durationSec, parcial
       FROM legs
       WHERE finishedAt BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
         AND (@ruta IS NULL OR routeId = @ruta)
-      ORDER BY finishedAt
-    `).all(filtro);
+    `).all(filtro).sort((a, b) => a.finishedAt - b.finishedAt);
     return {
       nombre: 'tramos',
       cabecera: ['Unidad', 'Ruta', 'Tramo', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos',
@@ -3721,13 +3743,25 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   // ruta— duran una fracción, y acá alimentan cumplimiento, tendencia y
   // comparación entre unidades: mezclarlas premiaría a la unidad que se metió
   // tarde con "más vueltas y más rápidas". Se cuentan aparte, abajo.
+  // SIN `ORDER BY finishedAt`, y no es un detalle de estilo: era el ordenar
+  // lo que hacía lenta esta pantalla.
+  //
+  // Con el ORDER BY, el motor elegía el índice por fecha —que le da las filas
+  // ya ordenadas y le ahorra el sort— y con él se traía el rango de TODAS las
+  // cooperativas para después descartar el 98 % filtrando por ruta: 1,44 M de
+  // filas leídas para devolver 28 800. Sacándolo, elige el índice por ruta y
+  // fecha y busca sólo lo de esta empresa. Medido a 2000 unidades y 90 días:
+  // **1398 ms → 44 ms**.
+  //
+  // Y el orden no hacía falta: acá abajo todo reagrupa (por día, por unidad)
+  // y ordena sus propias claves al final. Se estaba pagando un barrido
+  // cincuenta veces más grande por un orden que nadie leía.
   const vueltas = db.prepare(`
     SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
     FROM laps
     WHERE finishedAt BETWEEN @desde AND @hasta AND parcial = 0
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
-    ORDER BY finishedAt
   `).all(filtro);
 
   // Cuántas veces entró cada unidad a la ruta empezada. Un caso aislado es un
@@ -3743,15 +3777,24 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
 
   // Medias vueltas por unidad. `idas` muy por encima de `retornos` es el
   // chofer que sale y no vuelve — el caso que antes no dejaba rastro.
+  // `GROUP BY routeId, unitId, leg` y no `unitId, leg`: mismo caso que el
+  // ORDER BY de arriba. Agrupando sólo por unidad, el motor usaba el índice
+  // por unidad —que le da los grupos armados— y barría 1,44 M de filas para
+  // devolver 80. Con la ruta adelante usa el índice por ruta y fecha:
+  // **1195 ms → 74 ms**.
+  //
+  // El precio es que una combi que cambió de ruta en el período aparece en
+  // dos filas en vez de una, así que la suma se hace acá y no con un `find`
+  // —que se quedaría con la primera y contaría de menos—.
   const tramosPorUnidad = db.prepare(`
     SELECT unitId, leg, routeId, COUNT(*) n FROM legs
     WHERE finishedAt BETWEEN @desde AND @hasta AND parcial = 0
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
-    GROUP BY unitId, leg
+    GROUP BY routeId, unitId, leg
   `).all(filtro);
-  const tramoDeUnidad = (unitId, leg) =>
-    (tramosPorUnidad.find(t => t.unitId === unitId && t.leg === leg) || {}).n || 0;
+  const tramoDeUnidad = (unitId, leg) => tramosPorUnidad
+    .reduce((a, t) => a + (t.unitId === unitId && t.leg === leg ? t.n : 0), 0);
 
   // Contra qué se juzga cada vuelta: el objetivo que regía cuando se cerró y,
   // solo si esa vuelta es anterior a que lo guardáramos, el de hoy.

@@ -205,6 +205,40 @@ algo menos):
   minutos** cuando alguien abre esa pestaña. Con ellos, el crecimiento vuelve
   a ser casi lineal.
 
+- **Y después se midieron TODAS las lecturas del panel, no sólo ésa**
+  (`node herramientas/escala.js`, que arranca el servidor de verdad y
+  pregunta por HTTP). El patrón resultó ser uno solo y estaba en cuatro
+  lugares: **el motor elegía el índice por fecha para ahorrarse un `ORDER BY`
+  o un `GROUP BY`, y con él se traía el rango de TODAS las cooperativas para
+  descartar el 98 % filtrando por ruta.** 1,44 M de filas leídas para
+  devolver 28 800.
+
+  | lectura (2000 unidades, base de 731 MB) | antes | después |
+  | --- | --- | --- |
+  | `/gerencia/resumen` · 90 días | 2 253 ms | **289 ms** |
+  | `/gerencia/resumen` · 30 días | 977 ms | 178 ms |
+  | CSV informe tramos · 30 días | 787 ms | **111 ms** |
+  | CSV informe vueltas · 30 días | 401 ms | **52 ms** |
+  | `/admin/vueltas` | 62 ms | 18 ms |
+  | el resto (users, vehicles, routes, audit, shifts, company…) | < 60 ms | igual |
+
+  Tres cambios, ninguno de arquitectura:
+
+  1. **Sacar el `ORDER BY finishedAt` del cuadro del gerente.** No lo usaba
+     nadie —abajo todo reagrupa por día y por unidad, y ordena sus claves al
+     final— y era lo que empujaba al motor al índice equivocado. 1398 → 44 ms.
+  2. **`GROUP BY routeId, unitId, leg`** en vez de `unitId, leg`, por lo
+     mismo: agrupando sólo por unidad, el motor usaba el índice por unidad y
+     barría todo. 1195 → 74 ms. La suma se hace en JS porque una combi que
+     cambió de ruta aparece en dos filas.
+  3. **Los CSV ordenan en JS**, no en SQL. Ordenar 28 000 filas en JS cuesta
+     **1 ms**; pedírselo al motor costaba cientos.
+
+  Y el orden de las columnas del índice, que no es cosmético:
+  `(routeId, finishedAt, parcial)` y no `(routeId, parcial, finishedAt)`.
+  Con la fecha tercera, una consulta que no filtra por `parcial` —los CSV los
+  listan todos, marcados— no puede acotar por rango: 484 ms contra 15.
+
   Queda como deuda, medida y no resuelta: **a 20 000 unidades el acumulado
   sigue costando ~3,7 s** entre las dos consultas (1089 + 2654), y eso es
   tiempo con la ingesta de GPS parada. La salida NO es seguir agregando
