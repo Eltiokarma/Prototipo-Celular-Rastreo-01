@@ -347,6 +347,107 @@ const entrar = (api, user, password, cab = {}) =>
 
   await matar(srv);
   limpiar(DB);
+
+  // ── EL MODO DEMO NO SE ENCIENDE SOLO EN PRODUCCIÓN ───────────────────
+  //
+  // `OPEN_REGISTRATION=1` es la última puerta cruzada entre cooperativas:
+  // quien se auto-registra elige su `unitId` y queda SIN vehículo, y "mi
+  // combi" se resuelve como `vehicleId || unitId` — así que con el código de
+  // una combi ajena administraba a los cobradores de otra cooperativa.
+  //
+  // Era un cartel en el log. Un cartel depende de que alguien lo lea, y las
+  // variables de un deploy se copian del deploy anterior sin mirarlas.
+  console.log('\nCON REGISTRO ABIERTO Y SIN DECLARAR DEMO, EL SERVIDOR NO ARRANCA');
+  {
+    // Arranca y se espera a que TERMINE, que es justo lo contrario de lo que
+    // hace `arrancar()`: acá lo que se mide es que se muera y con qué código.
+    const intentar = (env) => new Promise((resolve) => {
+      const DBX = S + '/puertas-demo.db';
+      limpiar(DBX);
+      const p = spawn('node', [RAIZ + '/server/index.js'], {
+        env: { ...process.env, PORT: '3190', DB_FILE: DBX, DISPATCH_PASSWORD: 'despacho99', ...env },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let salida = '';
+      p.stdout.on('data', d => { salida += d; });
+      p.stderr.on('data', d => { salida += d; });
+      const corte = setTimeout(() => { p.kill(); resolve({ codigo: null, salida }); }, 12_000);
+      p.on('exit', (codigo) => { clearTimeout(corte); limpiar(DBX); resolve({ codigo, salida }); });
+    });
+
+    let r = await intentar({ OPEN_REGISTRATION: '1' });
+    ok('con OPEN_REGISTRATION y sin MODO=demo, se niega a arrancar',
+       r.codigo === 1, { codigo: r.codigo });
+    ok('y el mensaje NOMBRA la variable que está mal',
+       /OPEN_REGISTRATION/.test(r.salida), r.salida.slice(0, 80));
+    ok('dice por qué es peligrosa, no sólo que lo es',
+       /otra cooperativa|cooperativa/i.test(r.salida));
+    ok('y dice cómo desactivarla',
+       /sacá OPEN_REGISTRATION/i.test(r.salida) && /MODO=demo/.test(r.salida));
+
+    // Que un valor cualquiera no valga como declaración de demo
+    r = await intentar({ OPEN_REGISTRATION: '1', MODO: 'produccion' });
+    ok('un MODO que no es "demo" tampoco lo habilita', r.codigo === 1, { codigo: r.codigo });
+
+    // Y que el servidor normal —sin la variable— no se vea afectado
+    r = await intentar({ MODO: '' });
+    ok('sin la variable, arranca como siempre (no muere solo)',
+       r.codigo === null, { codigo: r.codigo });
+  }
+
+  console.log('\nY LA DEMO SIGUE SIENDO UNA DEMO');
+  {
+    const DBD = S + '/puertas-demo2.db';
+    limpiar(DBD);
+    const srvD = await arrancar(DBD, 3190,
+      { DISPATCH_PASSWORD: 'despacho99', OPEN_REGISTRATION: '1', MODO: 'demo' });
+    const APID = 'http://localhost:3190';
+    ok('declarando MODO=demo arranca', (await pedir(APID, '/ping')).status === 200);
+
+    // Lo que la demo tiene que seguir haciendo: registrarse sola
+    const r = await entrar(APID, 'M-DEMO', 'demo12345');
+    ok('y el registro abierto sigue funcionando', r.status === 200 && !!r.body.token,
+       { status: r.status, created: r.body.created });
+
+    // El segundo cerrojo: aun EN demo, el auto-registrado no llega a los
+    // cobradores de otra cooperativa. El arranque ya lo impide en producción;
+    // esto es que la regla valga sola, sin depender de las variables.
+    {
+      const b = new Database(DBD);
+      const e = coop.alta(b, { companyId: 'COOP-Z', name: 'Cooperativa Z' });
+      if (e.error) throw new Error('alta: ' + e.error);
+      coop.altaRuta(b, { companyId: 'COOP-Z', routeId: 'R-Z', name: 'Ruta Z' });
+      // Una combi y su cobrador, en la OTRA cooperativa
+      b.prepare(`INSERT INTO vehicles (vehicleId, label, routeId, companyId, createdAt)
+                 VALUES ('M-AJENA', 'Placa', 'R-Z', 'COOP-Z', ?)`).run(Date.now());
+      b.prepare(`INSERT INTO users (unitId, passHash, role, routeId, companyId, name, driverName, vehicleId, createdAt)
+                 VALUES ('C-AJENO', 'x:x', 'collector', 'R-Z', 'COOP-Z', 'Cobrador ajeno', 'Cobrador ajeno', 'M-AJENA', ?)`)
+        .run(Date.now());
+      b.close();
+    }
+    // El atacante se registra eligiendo como usuario el CÓDIGO de esa combi
+    const atacante = await entrar(APID, 'M-AJENA', 'atacante123');
+    ok('el atacante se auto-registra con el código de una combi ajena',
+       atacante.status === 200, atacante.status);
+    const HA = { Authorization: 'Bearer ' + atacante.body.token };
+
+    let a = await pedir(APID, '/perfil/cobradores/C-AJENO/clave', { method: 'POST', headers: HA,
+      body: JSON.stringify({ nueva: 'meLaRobo123' }) });
+    ok('pero NO puede cambiarle la clave al cobrador de la otra cooperativa',
+       a.status === 404, { status: a.status, error: a.body.error });
+    a = await pedir(APID, '/perfil/cobradores/C-AJENO', { method: 'DELETE', headers: HA });
+    ok('ni darlo de baja', a.status === 404, a.status);
+    {
+      const b = new Database(DBD, { readonly: true });
+      ok('y el cobrador ajeno sigue existiendo',
+         !!b.prepare("SELECT 1 FROM users WHERE unitId = 'C-AJENO'").get());
+      b.close();
+    }
+
+    await matar(srvD);
+    limpiar(DBD);
+  }
+
   console.log(fallas ? `\n${fallas} FALLA(S)` : '\nTodo OK');
   process.exit(fallas ? 1 : 0);
 })().catch(e => {

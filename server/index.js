@@ -937,11 +937,73 @@ if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
   console.log('Cuenta DESPACHO lista (desde DISPATCH_PASSWORD)');
 }
 
-if (process.env.OPEN_REGISTRATION === '1') {
+// ─── EL MODO DEMO NO SE ENCIENDE SOLO EN PRODUCCIÓN ──────────
+//
+// `OPEN_REGISTRATION=1` deja que cualquiera que sepa la URL se cree una
+// unidad y entre. Para una demostración es exactamente lo que se quiere; en
+// producción es la última puerta cruzada entre cooperativas que queda en pie,
+// y no de una manera obvia:
+//
+//   Quien se auto-registra ELIGE su `unitId` y queda SIN vehículo. Y
+//   `cobradorDeSuCombi` resuelve "mi combi" como `user.vehicleId ||
+//   user.unitId`, buscando después por un `unitId` que es único en TODO el
+//   servidor, sin filtro de empresa. Así que registrarse con el código de una
+//   combi ajena —son cortos y predecibles: M-01, M-02…— alcanza para
+//   cambiarle la contraseña o dar de baja a los cobradores de OTRA
+//   cooperativa. Ver `PENDIENTES 1.4`.
+//
+// Hasta acá esto era un cartel en el log. Un cartel depende de que alguien lo
+// lea y se acuerde, y los deploys se copian de otro deploy: la variable viaja
+// pegada al que la tenía. Ahora es una condición que el programa hace cumplir.
+//
+// QUÉ CUENTA COMO PRODUCCIÓN. Este repo no tenía ningún criterio —no usa
+// `NODE_ENV` ni mira las variables de Railway— así que hubo que elegir uno, y
+// se eligió el conservador: **producción es todo lo que no esté marcado
+// explícitamente como demo**. Al revés (asumir desarrollo salvo que digan
+// producción) el olvido sale barato en la máquina del que programa y caro en
+// el servidor de la cooperativa, que es donde el olvido de verdad ocurre.
+//
+// Son DOS variables a propósito, y no una con otro valor: `OPEN_REGISTRATION`
+// conserva el significado que ya tenía —lo documentado y lo que la gente
+// escribió en sus notas sigue valiendo— y `MODO=demo` es la declaración
+// aparte de que esta instancia se puede tirar a la basura. Copiar dos
+// variables por accidente es bastante más difícil que copiar una.
+const ES_DEMO = String(process.env.MODO || '').trim().toLowerCase() === 'demo';
+const REGISTRO_ABIERTO = process.env.OPEN_REGISTRATION === '1';
+
+if (REGISTRO_ABIERTO && !ES_DEMO) {
+  console.error('');
+  console.error('╔════════════════════════════════════════════════════════════════╗');
+  console.error('║  EL SERVIDOR NO ARRANCA: configuración insegura                ║');
+  console.error('╚════════════════════════════════════════════════════════════════╝');
+  console.error('');
+  console.error('  Variable:  OPEN_REGISTRATION=1');
+  console.error('');
+  console.error('  Qué hace:  cualquiera que sepa la URL puede crearse una unidad y');
+  console.error('             entrar, eligiendo él mismo su código de usuario.');
+  console.error('');
+  console.error('  Por qué es peligrosa: registrándose con el código de una combi de');
+  console.error('             OTRA cooperativa, esa persona puede cambiarle la clave y');
+  console.error('             dar de baja a los cobradores de esa combi ajena.');
+  console.error('');
+  console.error('  Cómo se arregla, según lo que quieras:');
+  console.error('');
+  console.error('    · Es un servidor de verdad  →  sacá OPEN_REGISTRATION.');
+  console.error('    · Es una demo descartable   →  agregá MODO=demo. La demo sigue');
+  console.error('      funcionando igual; sólo hay que declarar que es una demo.');
+  console.error('');
+  console.error('  Esto era un cartel en el log y ahora frena el arranque: un cartel');
+  console.error('  depende de que alguien lo lea, y las variables de un deploy se');
+  console.error('  copian del deploy anterior sin mirarlas.');
+  console.error('');
+  process.exit(1);
+}
+
+if (REGISTRO_ABIERTO) {
   console.warn('╔══════════════════════════════════════════════════════════╗');
-  console.warn('║ OPEN_REGISTRATION=1: CUALQUIERA que sepa la URL puede    ║');
-  console.warn('║ crear una unidad y entrar. Es solo para demostraciones.  ║');
-  console.warn('║ En producción hay que sacar esta variable.               ║');
+  console.warn('║ MODO=demo con OPEN_REGISTRATION=1: CUALQUIERA que sepa   ║');
+  console.warn('║ la URL puede crear una unidad y entrar. Esta instancia    ║');
+  console.warn('║ es descartable — no le cargues datos de una cooperativa. ║');
   console.warn('╚══════════════════════════════════════════════════════════╝');
 }
 
@@ -1897,7 +1959,12 @@ app.post('/auth/login', (req, res) => {
     // El alta de choferes es tarea de Despacho (panel → Unidades).
     // Solo se auto-registran: DESPACHO (bootstrap del sistema) y, para
     // demos sin administración, cualquier unidad si OPEN_REGISTRATION=1.
-    const openReg = process.env.OPEN_REGISTRATION === '1';
+    //
+    // Se lee la CONSTANTE y no la variable de entorno de nuevo: es la misma
+    // que el arranque ya validó contra `MODO=demo`. Volver a leer
+    // `process.env` acá dejaría dos fuentes para la misma decisión, y la de
+    // acá se saltearía el control del arranque.
+    const openReg = REGISTRO_ABIERTO;
 
     // EL BOOTSTRAP SOLO VALE EN UN SISTEMA QUE TODAVÍA NADIE ADMINISTRA.
     //
@@ -2373,8 +2440,23 @@ function cobradoresDe(vehicleId, desde) {
 // resto del servidor.
 function cobradorDeSuCombi(user, unitId, res) {
   const vehicleId = user.vehicleId || user.unitId;
-  const c = db.prepare('SELECT unitId, role, vehicleId, routeId FROM users WHERE unitId = ?').get(String(unitId));
-  if (!c || c.role !== 'collector' || c.vehicleId !== vehicleId) {
+  // Se pide TAMBIÉN la empresa, y no es redundante. El código de combi es
+  // único en todo el servidor, así que sin este borde alcanza con que dos
+  // filas coincidan en `vehicleId` para que un chofer administre a un
+  // cobrador de otra cooperativa. No pasa con un chofer dado de alta por
+  // Despacho —siempre tiene su vehículo, y el vehículo es de su empresa—
+  // pero sí con uno auto-registrado, que queda sin vehículo y cae al
+  // `|| user.unitId` de arriba con el código que él eligió (ver
+  // `OPEN_REGISTRATION` en el arranque).
+  //
+  // El arranque ya impide que eso exista fuera de una demo. Esto es el
+  // segundo cerrojo: la regla "un chofer sólo toca a los suyos" tiene que
+  // valer por sí sola, sin depender de qué variables tenga el deploy.
+  const c = db.prepare(
+    'SELECT unitId, role, vehicleId, routeId, companyId FROM users WHERE unitId = ?'
+  ).get(String(unitId));
+  if (!c || c.role !== 'collector' || c.vehicleId !== vehicleId ||
+      !user.companyId || c.companyId !== user.companyId) {
     res.status(404).json({ error: 'Ese cobrador no va en tu combi' });
     return null;
   }

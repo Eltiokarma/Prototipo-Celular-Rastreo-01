@@ -194,7 +194,8 @@ calle. Suite `renovacion`.
 | `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres |
 | `CREATOR_PATH` | Mueve el panel del creador a una ruta propia (por defecto `/creador`) |
 | `CREATOR_TOTP_SECRET` | Segundo factor del panel del creador (base32) |
-| `OPEN_REGISTRATION` | `1` deja que cualquiera se registre. **Solo para demos**: con esto encendido, un registro elegido a dedo puede terminar administrando cobradores de otra cooperativa |
+| `OPEN_REGISTRATION` | `1` deja que cualquiera se registre. **Solo para demos**, y ahora el servidor lo hace cumplir: sin `MODO=demo` **se niega a arrancar** y explica por qué |
+| `MODO` | `demo` declara que la instancia es descartable. Es lo único que habilita `OPEN_REGISTRATION`. Cualquier otro valor —o ninguno— es producción |
 | `TRUST_PROXY` | Cuántos proxies hay adelante (**1** por defecto, que es Railway). El bloqueo por intentos fallidos cuenta la IP desde la derecha de `X-Forwarded-For`: si el servidor se expone **sin** proxy hay que poner `0`, o la cabecera la escribe el cliente y el bloqueo no bloquea |
 | `REVISAR_SESIONES_MS` | Cada cuánto se revalidan las sesiones de los WebSocket abiertos (60 000). Es el retardo máximo de una revocación |
 | `TURNOS_DIAS` | Cuántos días se guardan los turnos cerrados (365: con ellos se liquidan horas) |
@@ -1143,6 +1144,61 @@ Todo con prueba puesta: suite `puertas`. Lo que la revisión verificó como sano
 está en su informe — vale la pena saber que la parte más grande salió limpia:
 el aislamiento entre cooperativas, el hash de contraseñas, los tokens, los
 bordes de rol, el panel del creador y las rutas de archivos.
+
+### El registro abierto ya no depende de que alguien se acuerde
+
+Quedaba una puerta cruzada entre cooperativas, y la única que quedaba:
+`OPEN_REGISTRATION=1`. Quien se auto-registra **elige su código de usuario** y
+queda **sin vehículo**, y "mi combi" se resolvía como `vehicleId || unitId`
+buscando después por un `unitId` que es único en todo el servidor. Registrarse
+con el código de una combi ajena —son cortos y predecibles— alcanzaba para
+cambiarle la clave y dar de baja a los cobradores de **otra cooperativa**.
+Medido: sin el arreglo, el ataque devuelve 200 y el cobrador desaparece.
+
+Se cerró por los dos lados:
+
+- **El servidor se niega a arrancar** si encuentra `OPEN_REGISTRATION=1` sin
+  `MODO=demo`, con un mensaje que nombra la variable, explica el riesgo y dice
+  cómo seguir. Antes era un cartel en el log, y un cartel depende de que
+  alguien lo lea: las variables de un deploy se copian del deploy anterior.
+- **`cobradorDeSuCombi` compara también la empresa.** El arranque ya impide
+  que un auto-registrado exista en producción; esto hace que la regla "un
+  chofer sólo toca a los suyos" valga sola, sin depender de qué variables
+  tenga el deploy.
+
+**Qué cuenta como producción**: todo lo que no esté marcado explícitamente
+como demo. El repo no tenía ningún criterio —no usa `NODE_ENV` ni mira las
+variables de Railway— así que se eligió el conservador. Al revés (suponer
+desarrollo salvo que digan producción) el olvido sale barato en la máquina del
+que programa y caro en el servidor de la cooperativa, que es donde el olvido
+de verdad ocurre.
+
+### Qué viaja adentro del APK
+
+Un APK es un archivo comprimido: cualquiera de los 2000 choferes puede abrirlo
+y leerlo. Se revisó una sola pregunta —¿hay credenciales adentro?— y la
+respuesta es **no**. Lo que sí viaja, y por qué está bien:
+
+| Qué | Veredicto |
+| --- | --- |
+| `EXPO_PUBLIC_SERVIDOR` (la URL del servidor) | Público por necesidad: la app tiene que saber a dónde hablar. El prefijo `EXPO_PUBLIC_` es justamente la convención de Expo para "esto se incrusta en el paquete" |
+| `extra.eas.projectId` | Identificador del proyecto de compilación, no una credencial |
+| La URL de las tiles de Geoapify | Sólo el **host**; la clave no |
+| `https://localhost` en el WebView del mapa | Es la etiqueta de origen del HTML embebido, no un servidor |
+
+**La clave del mapa NO va compilada en el APK, a propósito** — rotarla
+obligaría a repartir una app nueva a toda la flota. Viaja en la respuesta del
+login, que exige autenticación (`server/index.js:2057-2062`). No hay keystore,
+ni `google-services.json`, ni claves de push o SMS, ni cadenas de conexión, ni
+la ruta del panel del creador (que sólo aparece en comentarios). El historial
+de git tampoco tiene ninguna clave de mapas commiteada.
+
+Queda **una cosa para decidir, y no es de código**: los paneles web reciben esa
+misma clave por `GET /config.js`, que es **público** — tiene que serlo, porque
+el navegador la necesita antes de que alguien inicie sesión. Es normal en
+cualquier mapa web y no expone datos de nadie, pero es una clave que se
+factura: conviene restringirla por dominio en el panel de Geoapify. Eso se
+hace allá, no acá.
 
    **Rutas de recuperación**: si la clave de Despacho de la cooperativa
    inicial se pierde o filtra, setear/cambiar `DISPATCH_PASSWORD` y
