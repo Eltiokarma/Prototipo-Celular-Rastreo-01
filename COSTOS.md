@@ -377,6 +377,35 @@ El barrido completo repetido con los dos arreglos puestos (500 / 2000 / 5000):
 rebote" lo hicieron por el índice de turnos: las dos leían `shifts` sin un
 índice que les sirviera.
 
+#### Barrido final (9/8), con el período de `/admin/metrics` puesto
+
+Las 22 lecturas —21 más la segunda punta del selector de período— medidas de
+punta a punta. **Es el primer barrido en el que la etapa de 5000 llega a
+correr**: hasta acá el arnés le daba 50 s al servidor para levantar y contra la
+base de 2,0 GB tarda **55 s**, así que 5000 no fallaba a veces, fallaba
+siempre. Los absolutos NO son comparables con la tabla de arriba: el equipo
+estaba ~1,5× más lento este día, y se ve en las lecturas que nadie tocó. Lo
+que sí es comparable —y es lo que importa— es la **forma**:
+
+| lectura | 2000 | 5000 | factor |
+| --- | --- | --- | --- |
+| `/gerencia/resumen` 90 d | 1075 ms | 1970 ms | 1,8× |
+| `/admin/metrics` **todo** (elección expresa) | 942 ms | 1621 ms | 1,7× |
+| CSV tramos 30 d | 719 ms | 1017 ms | 1,4× |
+| CSV vueltas 30 d | 385 ms | 830 ms | 2,2× |
+| `/gerencia/resumen` 30 d | 355 ms | 800 ms | 2,3× |
+| **`/admin/metrics` 7 d (el default)** | **219 ms** | **335 ms** | **1,5×** |
+| las otras 16 (vueltas, turnos, rutas, CSV, creador…) | ≤ 58 ms | ≤ 129 ms | ≤ 2,3× |
+
+**Ninguna crece peor que la flota** (2,5× entre esos dos tamaños). Base:
+804 MB a 2000, 2054 MB a 5000.
+
+Un dato operativo que apareció al arreglar el arnés y que no estaba escrito en
+ningún lado: **arrancar contra la base de 5000 unidades tarda 55 s**. Es el
+tiempo que el sistema está caído después de un reinicio o un despliegue, y
+crece con la base — a 2000 son 5 s. Conviene tenerlo en cuenta al planificar
+una ventana de mantenimiento.
+
 Con qué frecuencia pasa importa tanto como el número: la pestaña de Números
 **abre con 7 días por defecto** (`despacho.html:1194`), y ahí la consulta trae
 19 054 filas en 61 ms en vez de 244 980 en 404. Los 90 días son una elección
