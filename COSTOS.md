@@ -381,6 +381,53 @@ Con qué frecuencia pasa importa tanto como el número: la pestaña de Números
 **abre con 7 días por defecto** (`despacho.html:1194`), y ahí la consulta trae
 19 054 filas en 61 ms en vez de 244 980 en 404. Los 90 días son una elección
 deliberada y ocasional, no el camino de todos los días.
+
+### Agregar en SQL el cuadro del gerente: se hizo, se midió, se tiró
+
+`PENDIENTES` 4.8 decía que agregar en SQL bajaba la pantalla de 654 ms a
+182 ms. **Ese 182 estaba mal medido**: la prueba de la que salió agrupaba
+sumas y cuentas pero **no calculaba `cumplimiento`**, que es la columna cara —
+compara la brecha de CADA vuelta contra la vara de SU ruta. Es un error fácil
+de repetir: al escribir las variantes de abajo, dos de ellas volvieron a
+"ganar" por lo mismo, y sólo se notó al comparar cuántas columnas traían.
+
+Las dos implementaciones se corrieron **sobre la misma base y en el mismo
+proceso**, que es la única forma de no confundir "mi código es lento" con "la
+máquina está lenta hoy" — comparar contra una tabla medida otro día no
+distingue las dos cosas, y en este caso el equipo estaba ~1,5× más lento que
+cuando se escribió la tabla de arriba. A 5000 unidades, 245 252 vueltas, 90 d:
+
+| variante | 90 d | contra la de producción |
+| --- | --- | --- |
+| sólo LEER las filas, sin agrupar (el piso) | 423 ms | — |
+| **JS: leer + agrupar (la de producción)** | **832 ms** | — |
+| SQL en tres pasadas (la que se había escrito) | 2186 ms | **2,6× PEOR** |
+| SQL en una pasada, con `strftime` | 1483 ms | 1,8× peor |
+| SQL en una pasada, día por aritmética entera | **687 ms** | 1,21× mejor |
+
+**Por qué no se sube ninguna:**
+
+- **El techo no era la agregación, era leer las filas.** 423 de los 832 ms son
+  sólo traerlas a JavaScript. Agrupar cuesta 409 ms; aunque agrupar saliera
+  gratis, la pantalla no bajaría de la mitad. Toda la premisa de 4.8 —"el
+  problema es que agrupa en JavaScript"— era falsa, y eso no se veía sin medir.
+- **La única versión que gana lo hace con `strftime` afuera**, reemplazando el
+  día por `(finishedAt - offset) / 86400000`. Eso **asume que el huso horario
+  del servidor nunca cambia de offset**. Perú no tiene horario de verano hoy,
+  pero es una suposición sobre el despliegue escondida adentro de un número
+  que el gerente usa para hablar con un chofer. Con `strftime`, que es lo
+  correcto en cualquier huso, SQL **pierde** contra JS.
+- **Y lo que compra es poco y en el lugar equivocado**: 1,21× a 90 días
+  (145 ms), **0,96× a 30 días** —o sea que ahí es más lenta— y 11 ms a 7 días,
+  que es como la pantalla abre. Se pagaría una suposición de zona horaria y una
+  reescritura de la lógica de cumplimiento para acelerar el caso que casi nadie
+  pide.
+
+**Lo que queda escrito para el que vuelva a intentarlo:** la palanca de esta
+pantalla es **acotar el rango**, no reescribir la cuenta. Y si algún día hace
+falta bajar el piso de 423 ms, lo que hay que atacar es la lectura —un índice
+que cubra las columnas del `SELECT`, para que no haya que ir a la tabla fila
+por fila—, no el agrupado.
 - **No hace falta migrar de motor.** El cuello real del sistema no es la
   base: es (a) el egress del estado y (b) el CPU de serializar+emitir por
   WS a 2000 conexiones — presupuestado con 2 vCPU en §4. Si algún día se
