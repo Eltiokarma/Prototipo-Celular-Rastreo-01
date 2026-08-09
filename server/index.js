@@ -12,6 +12,9 @@ const { openDatabase, hashPassword, verifyPassword, idLimpio } = require('./base
 const { montarPanelDelCreador } = require('./creador');
 const marca = require('./marca');
 const respaldo = require('./respaldo');
+// Los agregados del cuadro del gerente, con su implementación vieja congelada
+// al lado para que `pruebas/resumen.js` pueda exigir que den lo mismo.
+const resumen = require('./resumen');
 
 const app = express();
 // El tope de cuerpo de `express.json()` viene en 100 kB, y eso era MÁS CHICO
@@ -4110,26 +4113,26 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   // ruta— duran una fracción, y acá alimentan cumplimiento, tendencia y
   // comparación entre unidades: mezclarlas premiaría a la unidad que se metió
   // tarde con "más vueltas y más rápidas". Se cuentan aparte, abajo.
-  // SIN `ORDER BY finishedAt`, y no es un detalle de estilo: era el ordenar
-  // lo que hacía lenta esta pantalla.
   //
-  // Con el ORDER BY, el motor elegía el índice por fecha —que le da las filas
-  // ya ordenadas y le ahorra el sort— y con él se traía el rango de TODAS las
-  // cooperativas para después descartar el 98 % filtrando por ruta: 1,44 M de
-  // filas leídas para devolver 28 800. Sacándolo, elige el índice por ruta y
-  // fecha y busca sólo lo de esta empresa. Medido a 2000 unidades y 90 días:
-  // **1398 ms → 44 ms**.
+  // LA CUENTA LA HACE EL MOTOR, no JavaScript. Antes esta pantalla se traía
+  // TODAS las vueltas del período a memoria —244 980 filas a 5000 unidades y
+  // 90 días— y las recorría tres veces para agrupar por día, por unidad y en
+  // total. Como SQLite es sincrónico y comparte hilo con los `POST /gps`, eso
+  // no era una pantalla lenta: era la ingesta de GPS de la flota entera parada
+  // (ver `COSTOS.md` §3).
   //
-  // Y el orden no hacía falta: acá abajo todo reagrupa (por día, por unidad)
-  // y ordena sus propias claves al final. Se estaba pagando un barrido
-  // cincuenta veces más grande por un orden que nadie leía.
-  const vueltas = db.prepare(`
-    SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
-    FROM laps
-    WHERE finishedAt BETWEEN @desde AND @hasta AND parcial = 0
-      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
-      AND (@ruta IS NULL OR routeId = @ruta)
-  `).all(filtro);
+  // La implementación vieja NO se borró: quedó congelada al lado de la nueva
+  // en `server/resumen.js`, y `pruebas/resumen.js` corre las dos sobre los
+  // mismos datos exigiendo que den EXACTAMENTE lo mismo, campo por campo.
+  // Estos son los números con los que se juzga a los choferes; moverle uno al
+  // gerente sin querer es peor que la lentitud, así que la reescritura viene
+  // con esa red y no sin ella.
+  const WHERE_VUELTAS = `l.finishedAt BETWEEN @desde AND @hasta AND l.parcial = 0
+      AND l.routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR l.routeId = @ruta)`;
+  const agregados = resumen.agregadosEnSQL(db, {
+    where: WHERE_VUELTAS, filtro, objetivoDeRuta, tolerancia: TOLERANCIA_CUMPLE,
+  });
 
   // Cuántas veces entró cada unidad a la ruta empezada. Un caso aislado es un
   // día raro; el mismo chofer todas las semanas es una conversación, y sin
@@ -4163,45 +4166,10 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   const tramoDeUnidad = (unitId, leg) => tramosPorUnidad
     .reduce((a, t) => a + (t.unitId === unitId && t.leg === leg ? t.n : 0), 0);
 
-  // Contra qué se juzga cada vuelta: el objetivo que regía cuando se cerró y,
-  // solo si esa vuelta es anterior a que lo guardáramos, el de hoy.
-  const varaDe = (l) => l.objetivoSec || objetivoDeRuta.get(l.routeId) || null;
-
-  // Cumple / no cumple, vuelta por vuelta. `null` cuando no hay con qué
-  // juzgarla: sin brecha guardada, o sin objetivo para su ruta.
-  const juzgar = (l) => {
-    const obj = varaDe(l);
-    if (l.brechaProm === null || !obj) return null;
-    return Math.abs(l.brechaProm - obj) / obj <= TOLERANCIA_CUMPLE;
-  };
-  const prom = (lista, campo) => lista.length
-    ? Math.round(lista.reduce((a, x) => a + x[campo], 0) / lista.length) : null;
-  const porcentaje = (juzgadas) => {
-    const con = juzgadas.filter(v => v !== null);
-    return con.length ? Math.round((con.filter(Boolean).length / con.length) * 100) : null;
-  };
-
-  const conBrecha = vueltas.filter(l => l.brechaProm !== null);
-
   // Tendencia: un punto por día del rango que tenga vueltas. Sin rellenar los
   // días vacíos con ceros — un feriado sin servicio no es un día de cero
   // cumplimiento, es un día sin datos, y la diferencia importa.
-  const dias = new Map();
-  for (const l of vueltas) {
-    const d = new Date(l.finishedAt);
-    const clave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    if (!dias.has(clave)) dias.set(clave, []);
-    dias.get(clave).push(l);
-  }
-  const porDia = Array.from(dias.entries()).sort((a, b) => a[0] < b[0] ? -1 : 1)
-    .map(([dia, ls]) => ({
-      dia,
-      vueltas: ls.length,
-      unidades: new Set(ls.map(l => l.unitId)).size,
-      duracionProm: prom(ls, 'durationSec'),
-      brechaProm: prom(ls.filter(l => l.brechaProm !== null), 'brechaProm'),
-      cumplimiento: porcentaje(ls.map(juzgar)),
-    }));
+  const porDia = agregados.porDia;
 
   // Horas por unidad, de los turnos. Van acá y no en una consulta aparte
   // porque la comparación entre unidades no se lee sin ellas: veinte vueltas
@@ -4243,45 +4211,42 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     x.maxM = Math.max(x.maxM, d.maxM);
   }
 
+  // Las unidades del cuadro: las que cerraron vueltas, MÁS las que sólo
+  // dejaron medias vueltas o parciales. La que hizo sólo idas no cierra
+  // ninguna vuelta entera y armando el cuadro con las vueltas solas
+  // desaparecía del listado: el gerente veía una combi menos, no una combi
+  // que no volvió. A ésas los promedios les quedan en null, que es lo que
+  // corresponde.
   const unidades = new Map();
-  for (const l of vueltas) {
-    if (!unidades.has(l.unitId)) unidades.set(l.unitId, []);
-    unidades.get(l.unitId).push(l);
-  }
-  // La unidad que hizo SOLO idas no cierra ninguna vuelta entera, y armando
-  // el cuadro únicamente con `vueltas` desaparecía del listado: el gerente
-  // veía una combi menos, no una combi que no volvió. Se agregan también las
-  // que solo dejaron medias vueltas o parciales, con la lista de vueltas
-  // vacía — los promedios les quedan en null, que es lo que corresponde.
-  for (const t of tramosPorUnidad) if (!unidades.has(t.unitId)) unidades.set(t.unitId, []);
-  for (const unitId of parcialesPorUnidad.keys()) if (!unidades.has(unitId)) unidades.set(unitId, []);
+  for (const [unitId, u] of agregados.porUnidad) unidades.set(unitId, u);
+  const vacia = { routeId: null, vueltas: 0, duracionProm: null, duracionMejor: null,
+    velocidadProm: null, brechaProm: null, cumplimiento: null, sinBrecha: 0 };
+  for (const t of tramosPorUnidad) if (!unidades.has(t.unitId)) unidades.set(t.unitId, vacia);
+  for (const unitId of parcialesPorUnidad.keys()) if (!unidades.has(unitId)) unidades.set(unitId, vacia);
 
-  const rutaDeUnidad = (unitId, ls) => ls.length ? ls[0].routeId
-    : (tramosPorUnidad.find(t => t.unitId === unitId) || {}).routeId
-      || (vehicleOf(unitId) || {}).routeId || null;
+  const rutaDeUnidad = (unitId, u) => u.routeId
+    || (tramosPorUnidad.find(t => t.unitId === unitId) || {}).routeId
+    || (vehicleOf(unitId) || {}).routeId || null;
 
-  const porUnidad = Array.from(unidades.entries()).map(([unitId, ls]) => {
-    const conB = ls.filter(l => l.brechaProm !== null);
-    return {
-      unitId,
-      routeId: rutaDeUnidad(unitId, ls),
-      vueltas: ls.length,
-      duracionProm: prom(ls, 'durationSec'),
-      duracionMejor: ls.length ? Math.min(...ls.map(l => l.durationSec)) : null,
-      velocidadProm: prom(ls, 'avgSpeed'),
-      brechaProm: prom(conB, 'brechaProm'),
-      cumplimiento: porcentaje(ls.map(juzgar)),
-      sinBrecha: ls.length - conB.length,
-      // Medias vueltas y entradas a mitad de ruta: las dos cosas que antes no
-      // se veían, al lado de las vueltas para poder compararlas de un vistazo.
-      idas: tramoDeUnidad(unitId, 'ida'),
-      retornos: tramoDeUnidad(unitId, 'vuelta'),
-      parciales: parcialesPorUnidad.get(unitId) || 0,
-      horasSec: horasDe.get(unitId) || 0,
-      desvios: (desviosDe.get(unitId) || { veces: 0 }).veces,
-      desvioSec: (desviosDe.get(unitId) || { segundos: 0 }).segundos,
-    };
-  }).sort((a, b) => b.vueltas - a.vueltas || b.idas - a.idas);
+  const porUnidad = Array.from(unidades.entries()).map(([unitId, u]) => ({
+    unitId,
+    routeId: rutaDeUnidad(unitId, u),
+    vueltas: u.vueltas,
+    duracionProm: u.duracionProm,
+    duracionMejor: u.duracionMejor,
+    velocidadProm: u.velocidadProm,
+    brechaProm: u.brechaProm,
+    cumplimiento: u.cumplimiento,
+    sinBrecha: u.sinBrecha,
+    // Medias vueltas y entradas a mitad de ruta: las dos cosas que antes no
+    // se veían, al lado de las vueltas para poder compararlas de un vistazo.
+    idas: tramoDeUnidad(unitId, 'ida'),
+    retornos: tramoDeUnidad(unitId, 'vuelta'),
+    parciales: parcialesPorUnidad.get(unitId) || 0,
+    horasSec: horasDe.get(unitId) || 0,
+    desvios: (desviosDe.get(unitId) || { veces: 0 }).veces,
+    desvioSec: (desviosDe.get(unitId) || { segundos: 0 }).segundos,
+  })).sort((a, b) => b.vueltas - a.vueltas || b.idas - a.idas);
 
   // Horas por persona: lo mismo que ve Despacho en TURNOS, agregado al rango
   const personas = db.prepare(`
@@ -4327,13 +4292,13 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     rango: { ...rango, dias: Math.max(1, Math.round((rango.hasta - rango.desde) / 86400_000)) },
     rutas,
     totales: {
-      vueltas: vueltas.length,
+      vueltas: agregados.totales.vueltas,
       unidades: unidades.size,
       personas: porPersona.size,
-      duracionProm: prom(vueltas, 'durationSec'),
-      brechaProm: prom(conBrecha, 'brechaProm'),
-      cumplimiento: porcentaje(vueltas.map(juzgar)),
-      sinBrecha: vueltas.length - conBrecha.length,
+      duracionProm: agregados.totales.duracionProm,
+      brechaProm: agregados.totales.brechaProm,
+      cumplimiento: agregados.totales.cumplimiento,
+      sinBrecha: agregados.totales.sinBrecha,
       horasSec: Array.from(horasDe.values()).reduce((a, x) => a + x, 0),
       sos: sos.length,
       // Cuántas de las vueltas juzgadas se midieron contra el objetivo de SU
@@ -4341,8 +4306,8 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       // guardara. Mientras `conObjetivoViejo` no sea cero el número de
       // cumplimiento tiene una parte medida con la vara equivocada, y la
       // pantalla tiene que poder decirlo. Con el tiempo llega solo a cero.
-      conObjetivoPropio: vueltas.filter(l => l.brechaProm !== null && l.objetivoSec).length,
-      conObjetivoViejo: vueltas.filter(l => l.brechaProm !== null && !l.objetivoSec).length,
+      conObjetivoPropio: agregados.totales.conObjetivoPropio,
+      conObjetivoViejo: agregados.totales.conObjetivoViejo,
       desvios: desviosPeriodo.length,
       desvioSec: desviosPeriodo.reduce((a, d) => a + (d.durationSec || 0), 0),
       // Medias vueltas del período y entradas a mitad de ruta. Van en los
