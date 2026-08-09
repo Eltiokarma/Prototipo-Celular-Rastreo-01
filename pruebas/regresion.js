@@ -78,7 +78,7 @@ async function conServidor(db, fn) {
 
   console.log('');
   for (const r of resultados) {
-    console.log(`${r.suite.padEnd(11)}${r.ok ? 'ok' : `FALLA (código ${r.code}, ${r.fallas} falla(s))`}`);
+    console.log(`${r.suite.padEnd(15)}${r.ok ? 'ok' : `FALLA (código ${r.code}, ${r.fallas} falla(s))`}`);
     if (!r.ok) console.log(r.salida.split('\n').filter(l => /FALLA|Error|error:/.test(l)).slice(0, 8).map(l => '    ' + l).join('\n'));
   }
   const rojas = resultados.filter(r => !r.ok).length;
