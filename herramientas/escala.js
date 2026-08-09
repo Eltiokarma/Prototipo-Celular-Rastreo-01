@@ -82,6 +82,23 @@ function arrancar(DB) {
   return srv;
 }
 
+// Que el puerto esté LIBRE antes de levantar nada, y que quede libre después.
+//
+// Sin esto el banco puede medir contra un servidor que no es el suyo: si una
+// corrida anterior dejó uno colgado en 3199, el nuevo no se ata al puerto, se
+// muere, y `esperar()` ve que "algo contesta" y sigue como si nada — midiendo
+// código viejo, o una base ya borrada. Pasó, y los números salieron 2,3 veces
+// peores sin ninguna razón real. Un banco que mide otra cosa es peor que no
+// tener banco: da confianza falsa en las dos direcciones.
+async function puertoLibre(quienLlama) {
+  for (let i = 0; i < 40; i++) {
+    try { await fetch(API + '/ping'); } catch { return; }   // no contesta nadie: libre
+    await sleep(250);
+  }
+  throw new Error(`el puerto ${PUERTO} sigue ocupado por otro servidor (${quienLlama}). ` +
+    'Cerralo antes de medir: `pkill -f server/index.js`.');
+}
+
 async function esperar() {
   for (let i = 0; i < 200; i++) {
     await sleep(250);
@@ -225,11 +242,14 @@ async function preparar(UNIDADES) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'escala-r14-'));
   const DB = path.join(dir, 'escala.db');
   console.log(`\n══ ${num(UNIDADES)} unidades ═══════════════════════════════════`);
+  await puertoLibre('antes de empezar');
   process.stdout.write('   creando el esquema con el servidor real… ');
   let srv = arrancar(DB);
   await esperar();
   srv.kill();
-  await sleep(800);
+  // Esperar a que SUELTE el puerto, no un rato fijo: si el siguiente arranca
+  // antes, no se ata y el banco termina midiendo contra el que quedó vivo.
+  await puertoLibre('el del esquema no se apagó');
   console.log('ok');
   const { mb } = sembrar(DB, UNIDADES);
   process.stdout.write('   arrancando contra la base sembrada… ');
@@ -407,7 +427,8 @@ async function pruebaDeCarga(DB, { empresa, HD, HG, HC }) {
       if (CARGA) cargaFilas = await pruebaDeCarga(DB, cred);
     } finally {
       srv.kill();
-      await sleep(400);
+      // Igual que arriba: el próximo tamaño no arranca hasta que éste soltó.
+      await puertoLibre('el del tamaño anterior no se apagó');
       if (GUARDAR) console.log(`\n   base guardada en ${DB}`);
       else fs.rmSync(dir, { recursive: true, force: true });
     }
