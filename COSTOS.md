@@ -353,6 +353,27 @@ El peor caso baja de 2,5 s a 1,5 s. **Lo que queda no se arregla con índices**:
 son las dos lecturas de `PENDIENTES 4.6` y `4.8`, y las dos esperan una
 decisión del dueño.
 
+**Repetida otra vez (9/8), ya con el período del cuadro por unidad puesto** y
+con la reescritura de Números revertida. El equipo estaba ~1,5× más lento este
+día, así que **las columnas no se comparan entre tablas** — lo que se compara
+es qué paga cada pantalla HOY, en la misma corrida:
+
+| al abrir… | el GPS espera | cuándo pasa |
+| --- | --- | --- |
+| Números a 90 días | 1883 ms | elección del gerente, ocasional |
+| el cuadro por unidad, **todo el historial** | 1514 ms | elección expresa |
+| el CSV de tramos | 1171 ms | descarga deliberada |
+| **el cuadro por unidad, como abre (7 d)** | **362 ms** | **en cada apertura** |
+| Gestión → Rutas | 41 ms | muy seguido |
+| línea de base del `POST /gps` | p50 9 ms · p95 30 ms | — |
+
+Lo que cambió no es el máximo sino **quién lo paga y cuándo**. Antes, el
+cuadro por unidad congelaba la flota **1211 ms cada vez que alguien abría la
+pestaña**, sin pedirlo nadie. Ahora esa apertura cuesta 362 ms, y el número
+grande sólo aparece cuando alguien elige "Todo" a propósito. El peor caso del
+sistema sigue siendo Números a 90 días, que también es una elección y no un
+camino diario.
+
 > **UNA ADVERTENCIA SOBRE ESTE NÚMERO.** La prueba usa **12 choferes**
 > reportando, no 5000. Mide correctamente cuánto bloquea una consulta al hilo
 > —eso no depende de cuántos escriban— pero la línea de base de 7 ms es la de
