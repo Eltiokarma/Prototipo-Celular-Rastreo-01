@@ -3972,6 +3972,31 @@ app.get('/admin/metrics', requireDispatch, (req, res) => {
     return res.status(404).json({ error: 'Esa ruta no existe' });
   }
   const filtro = req.scope || pedida || null;
+
+  // ─── EL PERÍODO ───────────────────────────────────────────────
+  // Esta pantalla era la única lectura del sistema que agrupaba TODO lo
+  // retenido en vez de un período: 120 días de vueltas de la empresa entera,
+  // cada vez que alguien abría la pestaña. A 5000 unidades eran 1003 ms, y
+  // como SQLite es sincrónico y comparte hilo con los `POST /gps`, eso no es
+  // una pantalla lenta: es la flota entera sin reportar posición 1211 ms
+  // (`COSTOS.md` §3, `PENDIENTES` 4.6).
+  //
+  // Ahora se acota, con el mismo criterio que el resto del panel: `?dias=N`,
+  // y `?todo=1` para pedir explícitamente todo el historial. **El default es
+  // 7 días** — el período más corto que sigue siendo útil para comparar
+  // combis— y no "todo", porque el default es lo que paga el 99 % de las
+  // aperturas.
+  //
+  // Lo que se ve CAMBIA, y por eso el panel cambió los rótulos junto con
+  // esto: la pantalla ya no puede decir "acumulado". Un despachador que lee
+  // "acumulado" y está mirando 7 días tiene un número mal, y con estos
+  // números se toman decisiones sobre personas.
+  const todo = req.query?.todo === '1' || req.query?.todo === 'true';
+  const dias = Math.min(Math.max(Math.round(Number(req.query?.dias) || 7), 1), 365);
+  // `desde = 0` es "desde el principio del tiempo": la condición queda
+  // verdadera para todas las filas y el SQL no necesita dos versiones.
+  const desde = todo ? 0 : Date.now() - dias * 86400_000;
+
   // Todos los agregados miran solo las vueltas ENTERAS: una parcial dura una
   // fracción y arrastraría el promedio y el "mejor tiempo" de la unidad hacia
   // un número que nunca corrió. Las parciales viajan contadas aparte, para
@@ -3986,15 +4011,20 @@ app.get('/admin/metrics', requireDispatch, (req, res) => {
       ROUND(AVG(CASE WHEN parcial = 0 THEN durationSec END)) AS avgSec,
       MIN(CASE WHEN parcial = 0 THEN durationSec END) AS bestSec,
       ROUND(AVG(CASE WHEN parcial = 0 THEN avgSpeed END)) AS avgSpeed,
+      -- "Última" es la última vuelta DEL PERÍODO, no la última de la historia.
+      -- Si no se acotara acá, una unidad sin vueltas en la semana mostraría
+      -- una duración de hace tres meses en una fila que dice "7 días".
       (SELECT durationSec FROM laps l2 WHERE l2.unitId = laps.unitId AND l2.parcial = 0
+        AND l2.finishedAt >= @desde
         ORDER BY l2.id DESC LIMIT 1) AS lastSec,
       MAX(CASE WHEN parcial = 0 THEN finishedAt END) AS lastFinish
     FROM laps
-    WHERE routeId IN ${RUTAS_DE_LA_EMPRESA}
+    WHERE finishedAt >= @desde
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@filtro IS NULL OR routeId = @filtro)
     GROUP BY unitId
     ORDER BY lapsToday DESC, lapsTotal DESC
-  `).all({ dayStart: dayStart.getTime(), empresa: req.empresa, filtro });
+  `).all({ dayStart: dayStart.getTime(), desde, empresa: req.empresa, filtro });
 
   // Y las medias vueltas por unidad, que es donde se ve el que hizo la ida y
   // no volvió: `idas` bastante mayor que `retornos`, sostenido en el tiempo.
@@ -4004,10 +4034,11 @@ app.get('/admin/metrics', requireDispatch, (req, res) => {
       SUM(CASE WHEN finishedAt >= @dayStart THEN 1 ELSE 0 END) AS hoy
     FROM legs
     WHERE parcial = 0
+      AND finishedAt >= @desde
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@filtro IS NULL OR routeId = @filtro)
     GROUP BY unitId, leg
-  `).all({ dayStart: dayStart.getTime(), empresa: req.empresa, filtro });
+  `).all({ dayStart: dayStart.getTime(), desde, empresa: req.empresa, filtro });
   const buscar = (unitId, leg) => porTramo.find(t => t.unitId === unitId && t.leg === leg) || {};
 
   // La unidad que hizo SOLO idas no cierra ninguna vuelta, así que no sale de
@@ -4035,6 +4066,11 @@ app.get('/admin/metrics', requireDispatch, (req, res) => {
       retornosHoy: buscar(r.unitId, 'vuelta').hoy || 0,
     })),
     routeId: filtro,
+    // Qué período se sirvió DE VERDAD, no el que se pidió. El `dias` viene
+    // recortado a [1, 365], así que un `?dias=9999` devuelve 365 y lo dice.
+    // La pantalla rotula con esto y no con lo que ella creía haber pedido:
+    // es la diferencia entre una etiqueta y una afirmación verificada.
+    periodo: todo ? { todo: true, dias: null } : { todo: false, dias },
   });
 });
 

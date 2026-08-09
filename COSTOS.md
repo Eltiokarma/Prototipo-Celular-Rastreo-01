@@ -382,6 +382,43 @@ Con qué frecuencia pasa importa tanto como el número: la pestaña de Números
 19 054 filas en 61 ms en vez de 244 980 en 404. Los 90 días son una elección
 deliberada y ocasional, no el camino de todos los días.
 
+### El cuadro por unidad ahora muestra un período (y lo dice)
+
+`/admin/metrics` era la única lectura del sistema que agrupaba **todo lo
+retenido** —120 días de la cooperativa entera— y lo cobraba en cada apertura
+de la pestaña. Acotarlo estaba medido y sin hacer desde el barrido anterior
+(`PENDIENTES` 4.6) porque **cambia lo que se ve**, y eso es decisión del dueño,
+no de quien optimiza. Con la decisión tomada, medido a 5000 unidades sobre el
+mismo servidor y la misma base:
+
+| lo que se pide | 5000 unidades |
+| --- | --- |
+| `?todo=1` — lo que costaba ANTES en cada apertura | 1627 ms |
+| `?dias=90` | 1173 ms |
+| `?dias=30` | 971 ms |
+| **sin parámetros: 7 días, el nuevo default** | **343 ms** → **4,7×** |
+
+Es la palanca que Números no tenía (ver la sección anterior): acá **acotar el
+alcance sí gana**, y gana casi cinco veces, sin reescribir ninguna cuenta ni
+agregar un índice. Es el orden de preferencia del proyecto funcionando —
+primero acotar, después reescribir, el índice último.
+
+El corte se aplica a las tres consultas de la pantalla, no sólo a la de
+vueltas: también a `legs` y a la subconsulta correlacionada de "Última". Si esa
+última no se acotara, una unidad sin vueltas en la semana mostraría la duración
+de una vuelta de hace tres meses en una fila que dice "últimos 7 días".
+
+**Y la parte que no es de rendimiento, que es la que importa más.** Una
+pantalla acotada que sigue diciendo "acumulado" es peor que una sin acotar: el
+despachador lee un total y está viendo una semana. Así que cambió el rótulo en
+todos lados —encabezado (`Por unidad · últimos 7 días`), la columna que decía
+`Total` y ahora dice `Vueltas`, el pie, el `README`— y el servidor devuelve un
+campo `periodo` con lo que sirvió **de verdad**: recorta el pedido a [1, 365],
+y la pantalla rotula con esa respuesta y no con lo que ella creyó pedir. La
+suite `periodo` verifica las dos mitades: que el recorte se aplique **a los
+datos** (una vuelta de hace 20 días no aparece a 7 días y sí a 30) y que lo que
+el servidor dice haber servido coincida con lo que sirvió.
+
 ### Agregar en SQL el cuadro del gerente: se hizo, se midió, se tiró
 
 `PENDIENTES` 4.8 decía que agregar en SQL bajaba la pantalla de 654 ms a

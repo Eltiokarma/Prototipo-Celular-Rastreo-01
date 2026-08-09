@@ -298,7 +298,9 @@ un desplegable. Todo contra los endpoints `/admin/*` del servidor
   cargado y con cuál de los trazados se está midiendo.
 - **Turnos** — entradas y salidas de la jornada, con hoy / ayer / esta semana.
 - **Vueltas** — cada vuelta cerrada con su duración y su brecha promedio, más
-  el acumulado por unidad. El servidor detecta cada vuelta solo —cuando el
+  el cuadro **por unidad**, que muestra el período elegido arriba (7, 30 o 90
+  días, o todo el historial retenido como elección explícita). El servidor
+  detecta cada vuelta solo —cuando el
   `routeProgress` llega cerca del final y vuelve al inicio— y la guarda en la
   tabla `laps`. Al lado van las **medias vueltas** (idas y retornos, tabla
   `legs`), que es lo que queda del chofer que hizo la ida y no volvió, y las
@@ -455,7 +457,7 @@ Ahora **cada tramo terminado se guarda por su cuenta** (tabla `legs`):
   tablas dan el mismo número, que es lo correcto: ahí una ida sí es una
   vuelta.
 
-Se ve en el acumulado por unidad de Despacho (columnas **Idas** y
+Se ve en el cuadro por unidad de Despacho (columnas **Idas** y
 **Retornos**, el retorno en ámbar cuando queda por debajo de las idas), en el
 cuadro del gerente, en el perfil del chofer y en el informe `tramos.csv`.
 
@@ -492,7 +494,7 @@ Ahora, en el momento en que la unidad pisa el trazado, se mira **por dónde**:
   tiene razón.
 - La vuelta que cierre se guarda con `parcial = 1` y el progreso por el que
   entró. **No se descarta**: borrarla sería perder justo el dato que se busca.
-- Todo lo que promedia la filtra —resumen de Despacho, acumulado por unidad,
+- Todo lo que promedia la filtra —resumen de Despacho, cuadro por unidad,
   objetivo automático, cumplimiento del gerente y del perfil— y todo lo que
   lista la muestra **marcada como PARCIAL**, con el porcentaje por el que
   entró. Al chofer se le dice lo mismo que ve Despacho: esconderlo sería la

@@ -149,7 +149,7 @@ let servidor = null;
 
     const m = await pedir('/admin/metrics', { headers: HD });
     const mm = (m.body.metrics || []).find(x => x.unitId === 'M-01');
-    ok('el acumulado por unidad tampoco la suma', !!mm && mm.lapsTotal === 0, mm && mm.lapsTotal);
+    ok('el cuadro por unidad tampoco la suma', !!mm && mm.lapsTotal === 0, mm && mm.lapsTotal);
     ok('pero dice cuántas parciales tiene', !!mm && mm.parciales === 1, mm && mm.parciales);
   }
 

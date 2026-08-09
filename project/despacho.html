@@ -1245,8 +1245,19 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     .then(d => { setEvents(d.events); })
     .catch(e => setError(e.message));
 
-  const loadMetrics = () => api('/admin/metrics')
-    .then(d => { setMetrics(d.metrics); })
+  // El período del cuadro por unidad. Abre en 7 días como el resto del panel:
+  // juntar todo el historial retenido costaba un segundo de servidor, y ese
+  // segundo es la ingesta de GPS de toda la flota parada (`COSTOS.md` §3).
+  // `null` = todo el historial, que sigue estando pero como elección expresa.
+  const [diasMetrics, setDiasMetrics] = React.useState(7);
+  // El período SERVIDO, que es con el que se rotula. No se rotula con
+  // `diasMetrics` —lo que el panel creyó pedir— porque el servidor recorta el
+  // pedido a [1, 365]: si alguna vez los dos no coinciden, gana el que trajo
+  // los datos. Un rótulo tiene que describir lo que hay en la tabla.
+  const [periodoMetrics, setPeriodoMetrics] = React.useState(null);
+  const loadMetrics = (dias = diasMetrics) => api(
+    '/admin/metrics' + (dias === null ? '?todo=1' : `?dias=${dias}`))
+    .then(d => { setMetrics(d.metrics); setPeriodoMetrics(d.periodo || null); })
     .catch(e => setError(e.message));
 
   const loadRoutes = () => api('/admin/routes')
@@ -2231,20 +2242,55 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 );
               })()}
 
-              {/* El acumulado por unidad sigue estando: es lo que se mira para
-                  comparar entre combis, no vuelta por vuelta. */}
-              {metrics && metrics.length > 0 && (() => {
+              {/* El cuadro por unidad sigue estando: es lo que se mira para
+                  comparar entre combis, no vuelta por vuelta. Lo que cambió es
+                  que ahora muestra UN PERÍODO y no todo el historial, y el
+                  rótulo lo dice — decía "Acumulado" y eso ya no sería cierto.
+                  Un despachador que lee "acumulado" y está viendo 7 días tiene
+                  un número mal, y con estos números se toman decisiones sobre
+                  personas. */}
+              {metrics && (() => {
                 const cols = '110px 70px 70px 90px 90px 1fr 100px 100px';
+                const PERIODOS = [[7, '7 días'], [30, '30 días'], [90, '90 días'], [null, 'Todo']];
+                // Del período que contestó el servidor; si todavía no
+                // contestó, del pedido, que es lo único que se sabe.
+                const p = periodoMetrics;
+                const nombrePeriodo = (p ? p.todo : diasMetrics === null)
+                  ? 'todo el historial retenido'
+                  : `últimos ${p ? p.dias : diasMetrics} días`;
                 return (
                   <div style={{ marginTop: 26 }}>
-                    <div style={{ ...rotulo(9), marginBottom: 10 }}>Acumulado por unidad</div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 10 }}>
+                      <div style={rotulo(9)}>Por unidad · {nombrePeriodo}</div>
+                      <div style={{ flex: 1 }} />
+                      {PERIODOS.map(([d, etiqueta]) => (
+                        <button key={etiqueta} disabled={busy}
+                          title={d === null
+                            ? 'Todo lo que la base retiene. Es la consulta más cara del panel: mientras se arma, las combis no reportan posición.'
+                            : undefined}
+                          onClick={() => { setDiasMetrics(d); setMetrics(null); loadMetrics(d); }}
+                          style={{
+                            ...btnSecundario(30),
+                            background: diasMetrics === d ? HUD.bright : 'transparent',
+                            color: diasMetrics === d ? '#fff' : HUD.dim,
+                          }}>{etiqueta}</button>
+                      ))}
+                    </div>
+                    {metrics.length === 0 && (
+                      <Vacio>Ninguna unidad cerró vueltas en {nombrePeriodo}.</Vacio>
+                    )}
                     {/* IDAS y RETORNOS al lado de las vueltas enteras: son las
                         medias vueltas, y la comparación entre las dos columnas
                         es la que muestra al que sale y no vuelve. Una unidad
                         puede tener 0 vueltas y 6 idas, y antes de esto se veía
-                        como una combi que no trabajó. */}
+                        como una combi que no trabajó.
+                        La columna decía "Total" cuando traía todo el historial;
+                        ahora dice "Vueltas" y el período está en el rótulo de
+                        arriba: nada afirma un período que no sea el que se
+                        está mostrando. */}
+                    {metrics.length > 0 && (
                     <Tabla cols={cols} ancho={860}
-                      cabeceras={['Unidad', 'Hoy', 'Total', 'Idas', 'Retornos', 'Última', 'Promedio', 'Mejor']}>
+                      cabeceras={['Unidad', 'Hoy', 'Vueltas', 'Idas', 'Retornos', 'Última', 'Promedio', 'Mejor']}>
                       {metrics.map(m => (
                         <FilaTabla key={m.unitId} cols={cols}>
                           <span style={{ fontFamily: black, fontSize: 14 }}>
@@ -2277,6 +2323,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                         </FilaTabla>
                       ))}
                     </Tabla>
+                    )}
                   </div>
                 );
               })()}
@@ -2291,6 +2338,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 las mitades por separado, que es lo que queda cuando el chofer hace la
                 ida y no vuelve. En una ruta cargada solo con ida, las tres columnas
                 dicen lo mismo.
+                {' '}El cuadro por unidad muestra <strong>el período elegido arriba</strong>,
+                no todo el historial: juntarlo entero es la consulta más cara del panel
+                y mientras se arma las combis no reportan posición. <em>Todo</em> sigue
+                estando, como elección.
               </Pie>
             </div>)}
 

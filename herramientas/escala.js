@@ -309,7 +309,11 @@ function listaDeCasos({ empresa, HD, HG, HC }, DB) {
   b.close();
   const casos = [
     // etiqueta, ruta, headers, cada cuánto se llama
-    ['/admin/metrics', '/admin/metrics', HD, 'al abrir la pestaña'],
+    // Las dos puntas del selector de período: lo que paga el que abre la
+    // pestaña, y lo que paga el que pide todo el historial a propósito. La
+    // segunda es la consulta que ANTES se cobraba en cada apertura.
+    ['/admin/metrics 7d', '/admin/metrics', HD, 'al abrir la pestaña'],
+    ['/admin/metrics todo', '/admin/metrics?todo=1', HD, 'elección expresa, ocasional'],
     ['/admin/vueltas', '/admin/vueltas', HD, 'al abrir la pestaña'],
     ['/admin/shifts', '/admin/shifts', HD, 'al abrir la pestaña'],
     ['/admin/routes', '/admin/routes', HD, 'al abrir Gestión (muy seguido)'],
