@@ -1251,6 +1251,24 @@ db.exec(`
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_persona ON shifts (personId, startedAt)');
 
+// Y por FECHA, que es como los lee la pestaña de turnos — el de arriba, por
+// persona, no le sirve para nada a esa consulta.
+//
+// Era la única lectura del panel que crecía peor que la flota, y crecía por
+// dos motivos a la vez: sin índice por fecha recorría las `shifts` enteras
+// (2,4 M de filas a 5000 unidades, porque acá la retención es de 365 días), y
+// por cada fila evaluaba `routeId IN (rutas de la empresa)`, lista que también
+// engorda con la flota. Filas × rutas: cuadrático. Medido a 5000 unidades con
+// una ventana de 7 días —lo que pide la pestaña— eran 54 ms; con el índice,
+// **5 ms**, y el plan pasa de barrer a buscar el rango y frenar en las 500
+// filas del `LIMIT`. Once veces, y sobre todo: deja de depender del tamaño de
+// la tabla.
+//
+// Cuesta 36,7 MB medidos sobre una tabla de 136,5 MB (`dbstat`). Es el peor
+// costo por byte de todos los índices del sistema y aun así entra sin
+// discusión: lo que compra no es velocidad, es que la curva deje de subir.
+db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_fecha ON shifts (startedAt)');
+
 // Un corte de señal no es un turno nuevo. Si la misma persona vuelve a la
 // misma unidad antes de esto, se retoma el turno que estaba en vez de
 // partirlo en pedazos — en la ruta se pierde la señal todo el tiempo.
@@ -2865,6 +2883,21 @@ app.post('/admin/company', requireGerente, (req, res) => {
 
 // ─── RUTAS (alta y listado) ──────────────────────────────────
 app.get('/admin/routes', requireDispatch, (req, res) => {
+  // Cuántos choferes tiene cada ruta, en UNA consulta y no en una por ruta.
+  //
+  // Estaba adentro del `.map()` de abajo, o sea una consulta por cada ruta de
+  // la cooperativa, y `users` no tiene ningún índice: cada una recorría la
+  // tabla entera. Rutas × personas, y las dos crecen con la flota — de las
+  // lecturas del panel era la que peor crecía después de los turnos, y ésta se
+  // abre todo el tiempo. Medido a 5000 unidades: 8 ms el N+1, **1 ms** la
+  // agrupada. No hace falta índice: agrupar ya lo arregla, y un índice sobre
+  // `users` costaría disco para siempre a cambio de este único milisegundo.
+  const choferesPorRuta = new Map(db.prepare(`
+    SELECT routeId, COUNT(*) AS c FROM users
+    WHERE role = 'driver' AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+    GROUP BY routeId
+  `).all({ empresa: req.empresa }).map(f => [f.routeId, f.c]));
+
   const rutas = routesOfCompany(req.empresa)
     .filter(r => !req.scope || r.routeId === req.scope)
     .map(r => {
@@ -2873,7 +2906,7 @@ app.get('/admin/routes', requireDispatch, (req, res) => {
       return {
         ...r,
         objetivo,
-        unidades: db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'driver' AND routeId = ?").get(r.routeId).c,
+        unidades: choferesPorRuta.get(r.routeId) || 0,
         enLinea: Array.from(units.values()).filter(u => u.routeId === r.routeId).length,
         // Recorrido cargado: cuántos puntos por tramo y cuántos metros
         puntos: geo ? geo.ida.puntos.length + (geo.vuelta ? geo.vuelta.puntos.length : 0) : 0,

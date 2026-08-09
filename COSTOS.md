@@ -246,6 +246,86 @@ algo menos):
   es lo que ya hace el resto del panel; el "total histórico" sin fecha es la
   única lectura del sistema que no lo hace. Con la base en 7,6 GB de índices
   incluidos, también hay que mirar el volumen contratado antes de llegar ahí.
+
+  > **CORRECCIÓN (9/8): los números de arriba están tomados sobre una base más
+  > chica de la que decían.** El sembrado del banco no pasaba
+  > `routes.createdAt`, que es `NOT NULL` sin valor por defecto, y como usaba
+  > `INSERT OR IGNORE` el fallo se tragaba en silencio: **no entraba ninguna
+  > ruta**. Todas las unidades quedaban asignadas a rutas inexistentes salvo
+  > las que caían en la única ruta real —la que crea el servidor al arrancar—,
+  > así que la cooperativa medida tenía 1 ruta y 40 unidades en vez de las
+  > decenas que se creían. Las **mejoras relativas siguen siendo válidas** (se
+  > midió la misma consulta antes y después contra los mismos datos), pero los
+  > absolutos estaban subestimados unas 5 veces. La tabla de abajo los rehace,
+  > y el sembrado ahora verifica sus propios conteos y falla ruidosamente.
+
+### El barrido completo: la forma de la curva, no el milisegundo
+
+`node herramientas/escala.js` mide ahora **500, 2000 y 5000 unidades** y
+reporta el factor de crecimiento. La regla: entre 2000 y 5000 la flota crece
+2,5×, así que **2,5× es lo lineal**; ~6× es cuadrático y >10× es peor.
+
+Una consulta de 400 ms que crece lineal es sana — al triple de flota tarda el
+triple y se ve venir. Una de 25 ms que crece 5,5× **no** se ve venir, y es la
+que hay que cazar.
+
+Medido con la retención real (turnos 365 días, el resto 120; base de 192 MB /
+782 MB / **2,0 GB**):
+
+| lectura | 500 | 2000 | 5000 | factor | forma |
+| --- | --- | --- | --- | --- | --- |
+| `/admin/shifts` | 2 ms | 5 ms | 25 ms | **5,5×** | **cuadrático** |
+| `/admin/routes` | 2 ms | 3 ms | 11 ms | **3,3×** | peor que lineal |
+| `/gerencia/resumen` 90 d | 349 | 1011 | **1746 ms** | 1,7× | lineal |
+| `/admin/metrics` | 364 | 661 | **1003 ms** | 1,5× | lineal |
+| CSV tramos 30 d | 222 | 557 | 827 ms | 1,5× | lineal |
+| `/gerencia/resumen` 30 d | 102 | 350 | 660 ms | 1,9× | lineal |
+| CSV vueltas 30 d | 94 | 264 | 431 ms | 1,6× | lineal |
+| el resto (users, vehicles, audit, creador…) | | | ≤ 28 ms | ~2× | lineal |
+
+**Las dos que crecían mal, y por qué.** `/admin/shifts` no tenía índice por
+fecha —el único de `shifts` es `(personId, startedAt)`, que a esa consulta no
+le sirve— así que recorría las 2,4 M de filas, y por cada una evaluaba
+`routeId IN (rutas de la empresa)`, lista que también engorda con la flota:
+filas × rutas. `/admin/routes` hacía una consulta `COUNT(*) FROM users` **por
+cada ruta**, y `users` no tiene ningún índice: rutas × personas.
+
+**Los arreglos, medidos uno por uno a 5000 unidades:**
+
+| | antes | después | qué se hizo | costo |
+| --- | --- | --- | --- | --- |
+| `/admin/shifts` (ventana de 7 d) | 54 ms | **5 ms** | índice `shifts(startedAt)` | 36,7 MB |
+| `/admin/routes` (el N+1) | 8 ms | **1 ms** | una consulta agrupada | 0 |
+
+En `/admin/routes` **no se agregó índice a propósito**: agrupar ya lo arregla,
+y `users(routeId, role)` compraba 1 ms → 0 ms. La regla de la casa es que un
+índice que no compra un orden de magnitud no se gana el disco.
+
+### El daño real: cuánto se frena la ingesta de GPS
+
+Los milisegundos de una consulta son el diagnóstico. El daño es otra cosa, y
+se mide poniendo las dos cargas a la vez (`escala.js --carga 5000`): 12
+choferes reales reportando sin parar mientras alguien abre una pantalla.
+
+Con 5000 unidades, la línea de base del `POST /gps` es **p50 9 ms**. Y:
+
+| al abrir… | la consulta tardó | **el GPS de toda la flota esperó** |
+| --- | --- | --- |
+| Números a 90 días | 2432 ms | **2493 ms** |
+| el acumulado por unidad | 1208 ms | **1211 ms** |
+| el CSV de tramos | 854 ms | 855 ms |
+| Gestión → Rutas | 20 ms | 43 ms |
+
+La correspondencia es casi exacta, y era la hipótesis: **el tiempo de la
+consulta ES el tiempo que la flota entera deja de reportar**, porque SQLite es
+sincrónico y comparte hilo con la ingesta. No es una pantalla lenta: es el
+mapa de 5000 combis congelado dos segundos y medio porque un gerente eligió
+90 días.
+
+Con qué frecuencia pasa importa tanto como el número: la pestaña de Números
+**abre con 7 días por defecto** (`despacho.html:1194`), y ahí la consulta trae
+19 054 filas en 61 ms en vez de 244 980 en 404. Los 90 días son una elección
+deliberada y ocasional, no el camino de todos los días.
 - **No hace falta migrar de motor.** El cuello real del sistema no es la
   base: es (a) el egress del estado y (b) el CPU de serializar+emitir por
   WS a 2000 conexiones — presupuestado con 2 vCPU en §4. Si algún día se
