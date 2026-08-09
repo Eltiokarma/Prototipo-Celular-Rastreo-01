@@ -1251,23 +1251,32 @@ db.exec(`
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_persona ON shifts (personId, startedAt)');
 
-// Y por FECHA, que es como los lee la pestaña de turnos — el de arriba, por
-// persona, no le sirve para nada a esa consulta.
+// Y por RUTA Y FECHA, que es como los leen las dos pantallas que los miran —
+// el de arriba, por persona, a ninguna de las dos le sirve.
 //
-// Era la única lectura del panel que crecía peor que la flota, y crecía por
-// dos motivos a la vez: sin índice por fecha recorría las `shifts` enteras
-// (2,4 M de filas a 5000 unidades, porque acá la retención es de 365 días), y
-// por cada fila evaluaba `routeId IN (rutas de la empresa)`, lista que también
-// engorda con la flota. Filas × rutas: cuadrático. Medido a 5000 unidades con
-// una ventana de 7 días —lo que pide la pestaña— eran 54 ms; con el índice,
-// **5 ms**, y el plan pasa de barrer a buscar el rango y frenar en las 500
-// filas del `LIMIT`. Once veces, y sobre todo: deja de depender del tamaño de
-// la tabla.
+// `/admin/shifts` era la única lectura del panel que crecía peor que la
+// flota, y crecía por dos motivos que se multiplican: sin índice útil recorría
+// las `shifts` enteras (2,4 M de filas a 5000 unidades, porque acá la
+// retención es de 365 días), y por cada fila evaluaba `routeId IN (rutas de la
+// empresa)`, lista que también engorda con la flota. Filas × rutas.
 //
-// Cuesta 36,7 MB medidos sobre una tabla de 136,5 MB (`dbstat`). Es el peor
-// costo por byte de todos los índices del sistema y aun así entra sin
-// discusión: lo que compra no es velocidad, es que la curva deje de subir.
-db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_fecha ON shifts (startedAt)');
+// EL ORDEN DE LAS COLUMNAS SE ELIGIÓ MIDIENDO, y la primera opción estaba
+// mal. Un índice por `startedAt` solo arregla la pestaña —que lleva
+// `LIMIT 500`, así que camina el índice por fecha y frena— pero **rompe el
+// informe de horas**, que trae las 22 410 filas del período sin límite: por
+// cada una hay que ir a buscar el resto de las columnas a la tabla. Medido a
+// 5000 unidades:
+//
+//                                  informe de horas   pestaña de turnos
+//   sin índice nuevo ....................  156 ms .......... 53 ms
+//   shifts(startedAt) ...................  393 ms ...........  5 ms   ← rompe uno
+//   shifts(routeId, startedAt) ..........   38 ms ...........  6 ms   ← sirve a los dos
+//
+// Con la ruta adelante las dos consultas buscan por lo mismo que filtran, y
+// ninguna paga el barrido. Cuesta 49,2 MB medidos con `dbstat`. Es el mismo
+// orden que ya usan `laps` y `legs` (ruta, fecha), y no es casualidad: todas
+// las lecturas de este panel preguntan por una empresa y un período.
+db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_ruta ON shifts (routeId, startedAt)');
 
 // Un corte de señal no es un turno nuevo. Si la misma persona vuelve a la
 // misma unidad antes de esto, se retoma el turno que estaba en vez de

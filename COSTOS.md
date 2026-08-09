@@ -294,12 +294,29 @@ cada ruta**, y `users` no tiene ningún índice: rutas × personas.
 
 | | antes | después | qué se hizo | costo |
 | --- | --- | --- | --- | --- |
-| `/admin/shifts` (ventana de 7 d) | 54 ms | **5 ms** | índice `shifts(startedAt)` | 36,7 MB |
+| `/admin/shifts` (ventana de 7 d) | 53 ms | **6 ms** | índice `shifts(routeId, startedAt)` | 49,2 MB |
+| informe de horas 30 d | 156 ms | **38 ms** | (el mismo índice) | — |
 | `/admin/routes` (el N+1) | 8 ms | **1 ms** | una consulta agrupada | 0 |
 
 En `/admin/routes` **no se agregó índice a propósito**: agrupar ya lo arregla,
 y `users(routeId, role)` compraba 1 ms → 0 ms. La regla de la casa es que un
 índice que no compra un orden de magnitud no se gana el disco.
+
+**Y el orden de las columnas del índice de turnos se eligió midiendo, porque
+la primera opción estaba mal.** Un índice por `startedAt` solo arregla la
+pestaña —que lleva `LIMIT 500`, así que camina el índice y frena— pero
+**empeora el informe de horas 2,6×**, que trae las 22 410 filas del período
+sin límite y con ese índice paga una búsqueda en la tabla por cada una:
+
+| | informe de horas | pestaña de turnos |
+| --- | --- | --- |
+| sin índice nuevo | 156 ms | 53 ms |
+| `shifts(startedAt)` | **393 ms** ← rompe uno | 5 ms |
+| `shifts(routeId, startedAt)` | **38 ms** | **6 ms** |
+
+Es exactamente para lo que sirve medir de a uno: el índice "obvio" arreglaba
+una pantalla y rompía otra, y el banco lo mostró antes de que llegara a
+producción.
 
 ### El daño real: cuánto se frena la ingesta de GPS
 
@@ -321,6 +338,22 @@ consulta ES el tiempo que la flota entera deja de reportar**, porque SQLite es
 sincrónico y comparte hilo con la ingesta. No es una pantalla lenta: es el
 mapa de 5000 combis congelado dos segundos y medio porque un gerente eligió
 90 días.
+
+### Después de los arreglos: ninguna crece peor que la flota
+
+El barrido completo repetido con los dos arreglos puestos (500 / 2000 / 5000):
+
+| lectura | 2000 | 5000 | factor | antes era |
+| --- | --- | --- | --- | --- |
+| `/admin/shifts` | 1 ms | **1 ms** | **1,0×** | 5,5× cuadrático |
+| `/admin/routes` | 3 ms | **6 ms** | **2,1×** | 3,3× |
+| CSV horas 30 d | 45 ms | **102 ms** | 2,3× | 195 ms (mejoró de rebote) |
+| `/gerencia/resumen` 90 d | 794 ms | **1244 ms** | 1,6× | 1746 ms (ídem) |
+| `/admin/metrics` | 673 ms | 1032 ms | 1,5× | sin cambios, a propósito |
+
+**Las 21 lecturas del panel quedaron lineales.** Las dos que mejoraron "de
+rebote" lo hicieron por el índice de turnos: las dos leían `shifts` sin un
+índice que les sirviera.
 
 Con qué frecuencia pasa importa tanto como el número: la pestaña de Números
 **abre con 7 días por defecto** (`despacho.html:1194`), y ahí la consulta trae
