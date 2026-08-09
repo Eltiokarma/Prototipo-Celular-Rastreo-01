@@ -339,6 +339,28 @@ sincrónico y comparte hilo con la ingesta. No es una pantalla lenta: es el
 mapa de 5000 combis congelado dos segundos y medio porque un gerente eligió
 90 días.
 
+Repetida con los arreglos puestos:
+
+| al abrir… | el GPS esperaba | **ahora espera** |
+| --- | --- | --- |
+| Números a 90 días | 2493 ms | **1467 ms** |
+| el acumulado por unidad | 1211 ms | **1017 ms** |
+| el CSV de tramos | 855 ms | 936 ms |
+| Gestión → Rutas | 43 ms | **29 ms** |
+| línea de base del `POST /gps` | p50 9 ms | p50 7 ms |
+
+El peor caso baja de 2,5 s a 1,5 s. **Lo que queda no se arregla con índices**:
+son las dos lecturas de `PENDIENTES 4.6` y `4.8`, y las dos esperan una
+decisión del dueño.
+
+> **UNA ADVERTENCIA SOBRE ESTE NÚMERO.** La prueba usa **12 choferes**
+> reportando, no 5000. Mide correctamente cuánto bloquea una consulta al hilo
+> —eso no depende de cuántos escriban— pero la línea de base de 7 ms es la de
+> un servidor casi ocioso. Con la flota entera encima (≈1250 req/s de promedio
+> a 5000, §2) la cola de escritura ya está cargada y **el atraso se acumula
+> sobre eso, no reemplaza a eso**. El número real de un despacho ocupado es
+> peor que 1467 ms; cuánto peor, no se midió.
+
 ### Después de los arreglos: ninguna crece peor que la flota
 
 El barrido completo repetido con los dos arreglos puestos (500 / 2000 / 5000):
