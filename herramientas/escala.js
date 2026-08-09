@@ -99,12 +99,23 @@ async function puertoLibre(quienLlama) {
     'Cerralo antes de medir: `pkill -f server/index.js`.');
 }
 
+// Cuánto se le da al servidor para levantar. CINCO MINUTOS, y no es holgura
+// de más: arrancar contra la base de 5000 unidades (2,0 GB, con 635 MB de WAL
+// sin consolidar que el sembrado deja atrás) tarda MÁS DE UN MINUTO. Con el
+// medio minuto que había antes, la etapa de 5000 no fallaba por lenta: fallaba
+// siempre, y el barrido nunca llegaba a medirla.
+//
+// Devuelve los segundos que tardó, y quien llama los imprime. Un arranque
+// largo no es ruido del banco: es el tiempo que el sistema real va a estar
+// caído después de un despliegue o un reinicio, y conviene verlo.
+const ESPERA_ARRANQUE_MS = 5 * 60_000;
 async function esperar() {
-  for (let i = 0; i < 200; i++) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ESPERA_ARRANQUE_MS) {
     await sleep(250);
-    try { await fetch(API + '/ping'); return true; } catch {}
+    try { await fetch(API + '/ping'); return (Date.now() - t0) / 1000; } catch {}
   }
-  throw new Error('el servidor no levantó');
+  throw new Error(`el servidor no levantó en ${ESPERA_ARRANQUE_MS / 1000} s`);
 }
 
 // ── Sembrar ───────────────────────────────────────────────────────────
@@ -254,8 +265,20 @@ async function preparar(UNIDADES) {
   const { mb } = sembrar(DB, UNIDADES);
   process.stdout.write('   arrancando contra la base sembrada… ');
   srv = arrancar(DB);
-  await esperar();
-  console.log('ok');
+  // Si NO levanta hay que matarlo igual. Sin este try, `esperar()` tiraba con
+  // el proceso vivo y nadie lo bajaba: seguía atado al 3199 después de que el
+  // banco terminara, y la corrida SIGUIENTE medía contra él —código viejo,
+  // base borrada—. Ése fue el origen real de la tanda de números falsos; el
+  // guardia de puerto sólo la detectaba, esto la evita.
+  let arranqueSeg;
+  try {
+    arranqueSeg = await esperar();
+  } catch (e) {
+    srv.kill();
+    await puertoLibre('el que no llegó a levantar').catch(() => {});
+    throw e;
+  }
+  console.log(`ok (${arranqueSeg.toFixed(0)} s en arrancar)`);
   return { dir, DB, srv, mb };
 }
 
