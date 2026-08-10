@@ -42,7 +42,7 @@ let servidor = null;
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   fs.mkdirSync(SALIDA, { recursive: true });
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
            CREATOR_PASSWORD: 'clave-larga-del-creador', CREATOR_PATH: '/creador',
            TILES_DIR: S + '/tiles-fixture', STATE_INTERVAL_MS: '400' },
     stdio: ['ignore', 'ignore', 'pipe'],

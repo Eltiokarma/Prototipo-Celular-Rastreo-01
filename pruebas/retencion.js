@@ -40,7 +40,7 @@ const dias = (n) => Date.now() - n * 86400_000;
 
 async function arrancar() {
   const srv = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99' },
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   let salida = '';

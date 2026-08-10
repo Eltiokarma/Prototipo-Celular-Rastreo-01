@@ -40,9 +40,22 @@ const ok = (n, c, e) => {
 };
 
 let vivos = [];
+// Una clave larga y que no está quemada, para las pruebas que necesitan
+// arrancar en modo PRODUCCIÓN. `despacho99` no sirve para eso: está en este
+// repositorio, o sea que es pública, y por eso el arranque la rechaza.
+const CLAVE_LIMPIA = 'clave-de-prueba-no-quemada-2026';
+
 async function arrancar(db, puerto, env = {}) {
   const srv = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(puerto), DB_FILE: db, STATE_INTERVAL_MS: '500', ...env },
+    // `MODO: 'demo'` va acá y no en cada llamada porque los servidores de las
+    // pruebas SON instancias descartables: eso es exactamente lo que declara
+    // esa variable. Sin ella cuentan como producción —el criterio es "todo lo
+    // que no se declare demo"— y las revisiones de llaves del arranque las
+    // frenan, empezando por la clave `despacho99` de este mismo archivo.
+    // Va ANTES de `...env` para que una prueba que quiera modo producción a
+    // propósito pueda pisarlo, que es lo que hace la sección de más abajo.
+    env: { ...process.env, PORT: String(puerto), DB_FILE: db, STATE_INTERVAL_MS: '500',
+           MODO: 'demo', ...env },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   srv.stderr.on('data', d => {
@@ -365,7 +378,11 @@ const entrar = (api, user, password, cab = {}) =>
       const DBX = S + '/puertas-demo.db';
       limpiar(DBX);
       const p = spawn('node', [RAIZ + '/server/index.js'], {
-        env: { ...process.env, PORT: '3190', DB_FILE: DBX, DISPATCH_PASSWORD: 'despacho99', ...env },
+        // Con una clave LIMPIA a propósito: acá se prueba OPEN_REGISTRATION, y
+        // con `despacho99` el servidor moriría por la clave quemada. Dos
+        // motivos de muerte distintos dando el mismo código de salida es una
+        // prueba que pasa por la razón equivocada.
+        env: { ...process.env, PORT: '3190', DB_FILE: DBX, DISPATCH_PASSWORD: CLAVE_LIMPIA, ...env },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let salida = '';
@@ -393,6 +410,104 @@ const entrar = (api, user, password, cab = {}) =>
     r = await intentar({ MODO: '' });
     ok('sin la variable, arranca como siempre (no muere solo)',
        r.codigo === null, { codigo: r.codigo });
+  }
+
+  // ── EN PRODUCCIÓN NO SE ARRANCA CON UNA LLAVE QUEMADA ────────────────
+  //
+  // `CREATOR_PASSWORD` abre TODAS las cooperativas y estuvo escrita en un chat
+  // en texto plano. `DISPATCH_PASSWORD` administra a todos los choferes de
+  // una. Las dos se rotan a mano, o sea que dependen de que alguien se acuerde
+  // el día del despliegue, entre otras veinte cosas.
+  //
+  // Antes de esto había un aviso en el log para la clave corta. No sirvió
+  // nunca: nadie mira el log de un servidor que arrancó bien. Lo único que se
+  // mira es un servidor que no arranca.
+  console.log('\nEN PRODUCCIÓN, UNA LLAVE QUEMADA NO DEJA ARRANCAR');
+  {
+    const DBK = S + '/puertas-claves.db';
+    const intentar = (env) => new Promise((resolve) => {
+      limpiar(DBK);
+      const p = spawn('node', [RAIZ + '/server/index.js'], {
+        env: { ...process.env, PORT: '3191', DB_FILE: DBK, ...env },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let salida = '';
+      p.stdout.on('data', d => { salida += d; });
+      p.stderr.on('data', d => { salida += d; });
+      const corte = setTimeout(() => { p.kill(); resolve({ codigo: null, salida }); }, 12_000);
+      p.on('exit', (codigo) => { clearTimeout(corte); resolve({ codigo, salida }); });
+    });
+    // El mensaje sale envuelto en líneas de 62 columnas para que se lea en una
+    // terminal angosta, así que una frase cualquiera puede estar partida al
+    // medio. Se compara contra el texto con los espacios aplanados: lo que se
+    // quiere probar es que la explicación ESTÉ, no dónde cayó el corte.
+    const plano = (r) => String(r.salida).replace(/\s+/g, ' ');
+
+    // `despacho99` está en 30 y pico de archivos de este repositorio, que es
+    // público. Es la que más chance tiene de terminar en un despliegue de
+    // verdad, porque copiar la configuración de las pruebas es exactamente lo
+    // que uno hace con apuro.
+    let r = await intentar({ DISPATCH_PASSWORD: 'despacho99' });
+    ok('la clave de las pruebas no arranca en producción', r.codigo === 1, { codigo: r.codigo });
+    ok('y el mensaje NOMBRA la variable', /DISPATCH_PASSWORD/.test(plano(r)));
+    ok('dice por qué importa, no sólo que está mal',
+       /administra a todos los choferes/i.test(plano(r)));
+    ok('y ofrece la salida de la demo', /MODO=demo/.test(plano(r)));
+
+    // LA PARTE QUE MÁS IMPORTA: que frene ANTES de escribir. Con la revisión
+    // puesta más abajo en el arranque, el servidor alcanzaba a grabar la
+    // cuenta DESPACHO con la clave quemada y recién después se negaba a
+    // arrancar — o sea que dejaba instalada justo la clave que rechazaba.
+    ok('y frena ANTES de grabar la cuenta con esa clave',
+       !/Cuenta DESPACHO lista/.test(r.salida),
+       r.salida.split('\n').filter(l => /Cuenta DESPACHO/.test(l)));
+
+    // Que falte es un problema en sí mismo, y es el menos evidente: sin la
+    // variable la fila DESPACHO no se crea, y mientras no exista ninguna
+    // cuenta de administración el primer login que use ese nombre se la queda.
+    r = await intentar({ DISPATCH_PASSWORD: '' });
+    ok('sin DISPATCH_PASSWORD tampoco arranca en producción', r.codigo === 1, { codigo: r.codigo });
+    ok('y explica que si no, alguien se queda con la cuenta',
+       /se la queda|primer login/i.test(plano(r)));
+
+    // La del creador: si está puesta, alguien la puso a propósito. Apagar el
+    // panel callados dejaría la clave filtrada en la configuración para
+    // siempre; sólo un servidor que no arranca obliga a mirarla.
+    r = await intentar({ DISPATCH_PASSWORD: CLAVE_LIMPIA, CREATOR_PASSWORD: 'clave-larga-del-creador' });
+    ok('la del creador quemada tampoco arranca', r.codigo === 1, { codigo: r.codigo });
+    ok('y dice que abre TODAS las cooperativas', /TODAS las cooperativas/.test(plano(r)));
+
+    // Un solo secreto haciendo dos trabajos: quien consigue el de la
+    // cooperativa consigue el de todas.
+    r = await intentar({ DISPATCH_PASSWORD: CLAVE_LIMPIA, CREATOR_PASSWORD: CLAVE_LIMPIA });
+    ok('las dos llaves iguales no arrancan', r.codigo === 1, { codigo: r.codigo });
+
+    // Y la puerta que el dueño usa para quemar la SUYA, la que nosotros no
+    // sabemos y que no puede estar escrita en este repositorio. Va como
+    // huella, que no se puede dar vuelta.
+    const { huella } = require(RAIZ + '/server/claves');
+    r = await intentar({
+      DISPATCH_PASSWORD: 'una-clave-que-el-dueno-quemo',
+      CLAVES_QUEMADAS: huella('una-clave-que-el-dueno-quemo'),
+    });
+    ok('una huella en CLAVES_QUEMADAS también frena', r.codigo === 1, { codigo: r.codigo });
+    ok('y dice de dónde salió el rechazo',
+       /CLAVES_QUEMADAS de este despliegue/.test(plano(r)));
+
+    // La huella NO es la clave: no aparece en ningún mensaje
+    ok('la clave rechazada no se imprime en ningún lado',
+       !/una-clave-que-el-dueno-quemo/.test(plano(r)));
+
+    // Y lo que tiene que seguir funcionando: una clave nueva y limpia arranca
+    r = await intentar({ DISPATCH_PASSWORD: CLAVE_LIMPIA });
+    ok('una clave nueva y limpia arranca normalmente', r.codigo === null, { codigo: r.codigo });
+
+    // En demo no se revisa nada: la demo tiene que seguir siendo usable
+    r = await intentar({ DISPATCH_PASSWORD: 'despacho99', MODO: 'demo' });
+    ok('en MODO=demo la clave de las pruebas sigue sirviendo',
+       r.codigo === null, { codigo: r.codigo });
+
+    limpiar(DBK);
   }
 
   console.log('\nY LA DEMO SIGUE SIENDO UNA DEMO');

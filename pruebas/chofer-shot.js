@@ -35,7 +35,7 @@ const anillo = (t) => {
 let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
       STATE_INTERVAL_MS: '400',
       // Cortos, para poder ver el "sin señal" sin esperar los 30 s de producción
       SIN_SENAL_MS: '3000', OLVIDAR_MS: '120000' },

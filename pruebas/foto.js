@@ -40,7 +40,7 @@ let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: String(P), DB_FILE: DB,
-           DISPATCH_PASSWORD: 'despacho99', STATE_INTERVAL_MS: '600',
+           DISPATCH_PASSWORD: 'despacho99', MODO: 'demo', STATE_INTERVAL_MS: '600',
            // Con los 20 de producción no se puede probar la poda: el cupo es
            // de 6 fotos por minuto, así que llegar a 20 lleva cuatro minutos.
            // Con 3 se prueba la MISMA regla en segundos.

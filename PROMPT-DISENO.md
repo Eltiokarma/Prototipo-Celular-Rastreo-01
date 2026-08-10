@@ -187,9 +187,14 @@ cd server && npm install && npm start
 ```
 
 La app del chofer abre en modo demo si no hay servidor. Para el panel de
-Despacho hace falta arrancar con `DISPATCH_PASSWORD=algo` y entrar con el
-usuario `DESPACHO`. Para el panel del creador, con `CREATOR_PASSWORD=` de al
-menos 12 caracteres, y se abre en `/creador`.
+Despacho hace falta arrancar con `DISPATCH_PASSWORD=algo MODO=demo` y entrar
+con el usuario `DESPACHO`. Para el panel del creador, con `CREATOR_PASSWORD=`
+de al menos 12 caracteres, y se abre en `/creador`.
+
+El `MODO=demo` no es decorativo: sin él el arranque cuenta como producción y
+revisa las llaves —no arranca sin `DISPATCH_PASSWORD`, ni con una que esté
+quemada, como las de las pruebas de este repositorio—. Para trabajar en el
+diseño, `MODO=demo` es lo que corresponde: la instancia es descartable.
 
 Más contexto: `README.md` explica qué hace cada cosa y por qué;
 `LIMITACIONES.md`, lo que el sistema **no** hace.

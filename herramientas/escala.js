@@ -67,7 +67,7 @@ function arrancar(DB) {
   const srv = spawn('node', [path.join(RAIZ, 'server', 'index.js')], {
     env: {
       ...process.env, PORT: String(PUERTO), DB_FILE: DB,
-      DISPATCH_PASSWORD: 'escala99',
+      DISPATCH_PASSWORD: 'escala99', MODO: 'demo',
       CREATOR_PASSWORD: CLAVE_CREADOR,
       // Sin emisión de estado en bucle: acá se mide la LECTURA del panel y un
       // broadcast cada 3 s metería ruido. En `--carga` se sube a propósito.

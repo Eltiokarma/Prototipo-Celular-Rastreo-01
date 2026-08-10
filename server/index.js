@@ -12,6 +12,8 @@ const { openDatabase, hashPassword, verifyPassword, idLimpio } = require('./base
 const { montarPanelDelCreador } = require('./creador');
 const marca = require('./marca');
 const respaldo = require('./respaldo');
+// Las llaves de arranque y la lista de las que ya no son secretas.
+const claves = require('./claves');
 
 const app = express();
 // El tope de cuerpo de `express.json()` viene en 100 kB, y eso era MÁS CHICO
@@ -905,18 +907,35 @@ setInterval(() => {
   if (cerrados) console.log(`Sesiones revocadas: ${cerrados} conexión(es) cerradas`);
 }, REVISAR_SESIONES_MS).unref();
 
+// Mínimo al FIJAR una contraseña. El login no lo exige a propósito: las
+// cuentas viejas con claves cortas tienen que poder entrar hasta que Despacho
+// se las resetee, si no quedarían afuera de golpe.
+const CLAVE_MINIMA = 6;
+const DISPATCH_ID = 'DESPACHO';
+
+// ─── LAS DOS PUERTAS QUE SE REVISAN ANTES DE TOCAR NADA ──────
+// Los dos guardias de producción viven acá arriba, juntos y ANTES de que el
+// arranque escriba una sola fila. El orden importa y se pagó aprendiéndolo:
+// con la revisión de llaves puesta más abajo, el servidor alcanzaba a grabar
+// la cuenta DESPACHO con la clave quemada y RECIÉN DESPUÉS se negaba a
+// arrancar. O sea que dejaba instalada justamente la clave que estaba
+// rechazando, y encima en una base que después arrancaría bien con otra
+// variable. Un guardia que corre tarde no es un guardia.
+// Las dos variables que definen el modo. Se declaran acá arriba y no junto a
+// su explicación —que está más abajo, en la sección del modo demo— porque
+// `GUARDIAS_DE_PRODUCCION()` las usa y un `const` no se iza: declaradas
+// después, la llamada muere con "Cannot access before initialization".
+const ES_DEMO = String(process.env.MODO || '').trim().toLowerCase() === 'demo';
+const REGISTRO_ABIERTO = process.env.OPEN_REGISTRATION === '1';
+
+GUARDIAS_DE_PRODUCCION();
+
 // ─── CUENTA DE DESPACHO ──────────────────────────────────────
 // El nombre DESPACHO está reservado y siempre lleva rol 'dispatch'.
 // En producción conviene fijar la clave por entorno: con
 // DISPATCH_PASSWORD seteada, la cuenta se crea o actualiza al arrancar.
 // Sin la variable, rige el registro en el primer uso como para
 // cualquier unidad.
-// Mínimo al FIJAR una contraseña. El login no lo exige a propósito: las
-// cuentas viejas con claves cortas tienen que poder entrar hasta que Despacho
-// se las resetee, si no quedarían afuera de golpe.
-const CLAVE_MINIMA = 6;
-
-const DISPATCH_ID = 'DESPACHO';
 if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
   // El login exige 4 caracteres: con una clave más corta la cuenta quedaría
   // creada pero imposible de usar. Mejor avisar y no tocar la que había.
@@ -968,9 +987,11 @@ if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
 // escribió en sus notas sigue valiendo— y `MODO=demo` es la declaración
 // aparte de que esta instancia se puede tirar a la basura. Copiar dos
 // variables por accidente es bastante más difícil que copiar una.
-const ES_DEMO = String(process.env.MODO || '').trim().toLowerCase() === 'demo';
-const REGISTRO_ABIERTO = process.env.OPEN_REGISTRATION === '1';
-
+// Los dos guardias, en una función para poder llamarlos ARRIBA del todo:
+// una declaración de función se iza, así que la llamada de más arriba ve
+// esto aunque el texto venga después. Se deja acá abajo, y no allá, para no
+// partir en dos el comentario que explica por qué existe cada uno.
+function GUARDIAS_DE_PRODUCCION() {
 if (REGISTRO_ABIERTO && !ES_DEMO) {
   console.error('');
   console.error('╔════════════════════════════════════════════════════════════════╗');
@@ -1005,6 +1026,70 @@ if (REGISTRO_ABIERTO) {
   console.warn('║ la URL puede crear una unidad y entrar. Esta instancia    ║');
   console.warn('║ es descartable — no le cargues datos de una cooperativa. ║');
   console.warn('╚══════════════════════════════════════════════════════════╝');
+}
+
+// Corta un párrafo en líneas de a lo sumo `ancho`, sin partir palabras. El
+// mensaje de abajo lo lee alguien que no programa en una terminal angosta, y
+// un párrafo de 300 caracteres en una sola línea no se lee.
+function envolver(texto, ancho) {
+  const lineas = [];
+  let actual = '';
+  for (const palabra of String(texto).split(/\s+/)) {
+    if (actual && (actual + ' ' + palabra).length > ancho) { lineas.push(actual); actual = palabra; }
+    else actual = actual ? actual + ' ' + palabra : palabra;
+  }
+  if (actual) lineas.push(actual);
+  return lineas;
+}
+
+// ─── LAS LLAVES DE ARRANQUE NO PUEDEN ESTAR QUEMADAS ─────────
+//
+// Mismo criterio de producción que el guardia de arriba —producción es todo lo
+// que no esté declarado `MODO=demo`— y a propósito el MISMO, no uno parecido.
+// Dos definiciones distintas de "producción" en el mismo archivo son la forma
+// exacta en que después se cuela una instancia por el hueco entre las dos.
+//
+// El porqué de cada regla está en `server/claves.js`, junto a la lista. Acá
+// sólo queda la decisión: en producción esto FRENA EL ARRANQUE, y en demo no
+// se revisa nada.
+//
+// Que frene y no avise es el punto entero. `DISPATCH_PASSWORD` corta ya tenía
+// un aviso en el log desde siempre, y el aviso no sirvió para nada: nadie mira
+// el log de un servidor que arrancó bien. Lo único que se mira es un servidor
+// que no arranca.
+//
+// AVISO PARA EL QUE VENGA. Las pruebas levantan servidores con `MODO=demo`
+// —son instancias descartables, que es literalmente lo que esa variable
+// declara— así que NO pasan por acá. Cualquier guardia nuevo que se cuelgue de
+// `!ES_DEMO` queda sin probar salvo que se le escriba su caso en `puertas`,
+// que es el único lugar que levanta servidores en modo producción a propósito.
+if (!ES_DEMO) {
+  const problemas = claves.revisarClaves(process.env, { claveMinimaDespacho: CLAVE_MINIMA });
+  if (problemas.length) {
+    console.error('');
+    console.error('╔════════════════════════════════════════════════════════════════╗');
+    console.error('║  EL SERVIDOR NO ARRANCA: hay una llave que no sirve            ║');
+    console.error('╚════════════════════════════════════════════════════════════════╝');
+    for (const p of problemas) {
+      console.error('');
+      console.error(`  Variable:  ${p.variable}  —  ${p.que}`);
+      console.error('');
+      console.error('  Por qué importa:');
+      for (const linea of envolver(p.porque, 62)) console.error(`             ${linea}`);
+      console.error('');
+      console.error('  Cómo se arregla:');
+      for (const linea of envolver(p.como, 62)) console.error(`             ${linea}`);
+    }
+    console.error('');
+    console.error('  Ninguna contraseña se guarda en el código: lo que se compara son');
+    console.error('  huellas, que van en un solo sentido. Ver server/claves.js.');
+    console.error('');
+    console.error('  Si esto es una demo descartable y no un servidor de verdad,');
+    console.error('  agregá MODO=demo y estas revisiones no corren.');
+    console.error('');
+    process.exit(1);
+  }
+}
 }
 
 // ─── AUDITORÍA ───────────────────────────────────────────────

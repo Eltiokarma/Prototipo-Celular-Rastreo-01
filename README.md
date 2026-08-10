@@ -171,7 +171,7 @@ Lo que falta construir, ordenado: ver **PENDIENTES.md**.
 | --- | --- |
 | `DB_FILE` | Dónde vive la base. En Railway hay que montar un volumen y apuntarla ahí (`/data/r14.db`) o **un redeploy borra todo** |
 | `PORT` | Puerto (3001 por defecto) |
-| `DISPATCH_PASSWORD` | Crea o actualiza la cuenta `DESPACHO` al arrancar. Es la ruta de recuperación si esa clave se pierde |
+| `DISPATCH_PASSWORD` | Crea o actualiza la cuenta `DESPACHO` al arrancar. Es la ruta de recuperación si esa clave se pierde. **En producción es obligatoria**: sin ella la fila `DESPACHO` no existe y, mientras no haya ninguna cuenta de administración, el primer login que use ese nombre se la queda |
 | `GEOAPIFY_API_KEY` | La clave del proveedor de tiles del mapa (gratis en [myprojects.geoapify.com](https://myprojects.geoapify.com); el plan gratuito permite uso comercial). El servidor se la pasa a las pantallas en el momento — por `/config.js` a las web, con el login a la app nativa. Sin ella el fondo del mapa sale gris; los puntos y el trazado se dibujan igual |
 | `TILES_RELEASE_URL` | De dónde bajar el **mapa propio** (PMTiles raster por ciudad) al arrancar: la URL de descargas del release `mapa-propio`, p. ej. `https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01/releases/download/mapa-propio`. Con esto, las tiles de la zona de operación salen de NUESTRO servidor y Geoapify queda de excepción (fuera de zona o falla). El release lo genera el workflow **mapa propio** (Actions) |
 | `TILES_DIR` | Dónde guardar/leer esos archivos. Por defecto, `tiles/` junto a la base — en Railway eso cae dentro del volumen, que es donde deben vivir |
@@ -191,11 +191,12 @@ servidor por servidor, y sin que nada avisara si te lo olvidabas. La URL de
 tile sin versión sigue atendida: es la que piden los APK que ya están en la
 calle. Suite `renovacion`.
 | `DEFAULT_ROUTE` / `DEFAULT_COMPANY` / `DEFAULT_COMPANY_NAME` | Código de la ruta y de la cooperativa iniciales, y su nombre visible. Solo se usan la primera vez |
-| `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres |
+| `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres, y distinta de `DISPATCH_PASSWORD` |
 | `CREATOR_PATH` | Mueve el panel del creador a una ruta propia (por defecto `/creador`) |
 | `CREATOR_TOTP_SECRET` | Segundo factor del panel del creador (base32) |
 | `OPEN_REGISTRATION` | `1` deja que cualquiera se registre. **Solo para demos**, y ahora el servidor lo hace cumplir: sin `MODO=demo` **se niega a arrancar** y explica por qué |
 | `MODO` | `demo` declara que la instancia es descartable. Es lo único que habilita `OPEN_REGISTRATION`. Cualquier otro valor —o ninguno— es producción |
+| `CLAVES_QUEMADAS` | Huellas —separadas por coma— de contraseñas que **ya no pueden volver a usarse**. Se generan con `node herramientas/quemar-clave.js`. Van acá y no en el repositorio: la huella de una clave filtrada vive al lado de la clave nueva que la reemplazó |
 | `TRUST_PROXY` | Cuántos proxies hay adelante (**1** por defecto, que es Railway). El bloqueo por intentos fallidos cuenta la IP desde la derecha de `X-Forwarded-For`: si el servidor se expone **sin** proxy hay que poner `0`, o la cabecera la escribe el cliente y el bloqueo no bloquea |
 | `REVISAR_SESIONES_MS` | Cada cuánto se revalidan las sesiones de los WebSocket abiertos (60 000). Es el retardo máximo de una revocación |
 | `TURNOS_DIAS` | Cuántos días se guardan los turnos cerrados (365: con ellos se liquidan horas) |
@@ -1174,6 +1175,47 @@ variables de Railway— así que se eligió el conservador. Al revés (suponer
 desarrollo salvo que digan producción) el olvido sale barato en la máquina del
 que programa y caro en el servidor de la cooperativa, que es donde el olvido
 de verdad ocurre.
+
+### Las llaves de arranque no pueden estar quemadas
+
+Mismo criterio de producción, aplicado a las dos contraseñas que se ponen por
+variable de entorno. En producción el servidor **no arranca** si:
+
+| situación | por qué frena |
+| --- | --- |
+| `DISPATCH_PASSWORD` no está | sin ella la fila `DESPACHO` no se crea, y mientras no exista ninguna cuenta de administración el primer login que use ese nombre se la queda, con la clave que mande y viendo todas las rutas |
+| `DISPATCH_PASSWORD` tiene menos de 6 caracteres | antes era un aviso en el log, y no sirvió nunca |
+| cualquiera de las dos es una clave **quemada** | ya no es secreta: alguien que no somos nosotros la puede escribir |
+| `CREATOR_PASSWORD` es igual a `DISPATCH_PASSWORD` | son dos niveles distintos y tienen que ser dos secretos distintos: así, quien consigue la clave de una cooperativa consigue la de todas |
+
+**Qué cuenta como quemada.** Tres familias: las que están en este repositorio
+—`despacho99` aparece en más de treinta archivos de pruebas, y el repositorio
+es público—, las obvias (`password`, `123456`, `admin`), y **las que quemó el
+dueño**: las que pasaron por un chat, un correo o una captura. Esas últimas no
+están en el código y no pueden estarlo — escribirlas acá sería publicarlas por
+segunda vez. Van por `CLAVES_QUEMADAS`, como huellas:
+
+```
+node herramientas/quemar-clave.js     # pide la clave, no la muestra, imprime la huella
+```
+
+**Nunca se guarda una contraseña, ni acá ni en el despliegue.** Lo que se
+compara son huellas `scrypt`, que van en un solo sentido. La sal es fija y
+está a la vista porque tiene que serlo: la huella se calcula en una máquina y
+se compara en otra. Eso tiene un costo, y conviene decirlo entero — con sal
+fija, la huella de una contraseña corta y común se puede adivinar probando
+candidatas. **La protección de verdad es que la clave nueva sea larga y
+aleatoria**; la huella sólo impide volver a la vieja por distracción.
+
+La herramienta se niega a recibir la clave por tubería o por argumento: ahí
+quedaría en el historial del shell, en la lista de procesos y en el log del
+sistema. Una herramienta para quemar un secreto que de paso lo publica en tres
+lados no sirve.
+
+**En demo no se revisa nada.** `MODO=demo` sigue arrancando con cualquier
+clave, que es lo que una demo necesita. Los servidores de las pruebas declaran
+`MODO=demo` por eso mismo: son instancias descartables, que es literalmente lo
+que esa variable significa. Suite `puertas`.
 
 ### Qué viaja adentro del APK
 

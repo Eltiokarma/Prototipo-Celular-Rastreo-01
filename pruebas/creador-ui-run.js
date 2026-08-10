@@ -9,7 +9,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const srv = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: '3034', DB_FILE: DB,
       CREATOR_PASSWORD: 'clave-larga-del-creador', CREATOR_PATH: '/creador',
-      DISPATCH_PASSWORD: 'despacho99' },
+      DISPATCH_PASSWORD: 'despacho99', MODO: 'demo' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   srv.stderr.on('data', d => process.stderr.write('[srv] ' + d));

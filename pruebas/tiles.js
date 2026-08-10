@@ -141,7 +141,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   const servidor = spawn('node', [path.join(RAIZ, 'server', 'index.js')], {
     env: { ...process.env, PORT: String(PUERTO), DB_FILE: DB,
-           DISPATCH_PASSWORD: 'despacho99',
+           DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
            TILES_DIR: path.join(__dirname, 'tiles-fixture') },
     stdio: ['ignore', 'ignore', 'pipe'],
   });

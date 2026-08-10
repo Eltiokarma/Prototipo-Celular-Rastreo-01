@@ -24,7 +24,7 @@ async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: {
       ...process.env, PORT: String(P), DB_FILE: DB,
-      DISPATCH_PASSWORD: 'despacho99', CREATOR_PASSWORD: CLAVE_CREADOR,
+      DISPATCH_PASSWORD: 'despacho99', MODO: 'demo', CREATOR_PASSWORD: CLAVE_CREADOR,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

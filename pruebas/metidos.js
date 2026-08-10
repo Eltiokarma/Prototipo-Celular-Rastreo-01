@@ -40,7 +40,7 @@ let servidor = null;
 (async () => {
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
            STATE_INTERVAL_MS: '400' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
@@ -280,7 +280,7 @@ let servidor = null;
     const P2 = 3185, API2 = `http://localhost:${P2}`;
     for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
     const srv = spawn('node', [RAIZ + '/server/index.js'], {
-      env: { ...process.env, PORT: String(P2), DB_FILE: DB2, DISPATCH_PASSWORD: 'despacho99',
+      env: { ...process.env, PORT: String(P2), DB_FILE: DB2, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
              STATE_INTERVAL_MS: '400', OLVIDAR_MS: '2000' },
       stdio: ['ignore', 'ignore', 'pipe'],
     });

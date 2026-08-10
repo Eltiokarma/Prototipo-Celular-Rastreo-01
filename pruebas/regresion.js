@@ -54,7 +54,7 @@ async function conServidor(db, fn) {
   await esperarLibre();
   for (const f of [db, db + '-wal', db + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   const srv = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: '3001', DB_FILE: db, DISPATCH_PASSWORD: 'despacho99' },
+    env: { ...process.env, PORT: '3001', DB_FILE: db, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   let arrancó = false;
