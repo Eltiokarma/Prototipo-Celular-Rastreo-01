@@ -107,6 +107,9 @@ PROMPT-DISENO.md    Encargo para rediseñar la interfaz: qué se puede tocar y,
                     sobre todo, qué parece estético y no lo es
 PROMPT-REACT-NATIVE.md  Encargo para la app nativa: por qué, qué mantener y
                     qué leer primero
+VALOR.md            Para qué le sirve esto al chofer y al cobrador: la
+                    evidencia con su fuente, el texto del flyer y lo que NO
+                    se puede prometer
 ```
 
 **Importante:** no hay archivos `.jsx` sueltos ni paso de build — todos los
@@ -164,6 +167,7 @@ arrancar. Nada más: el respaldo ES la base.
 Limitaciones conocidas del sistema: ver **LIMITACIONES.md**.
 Plan de crecimiento a 20+ rutas con números: ver **ESCALABILIDAD.md**.
 Lo que falta construir, ordenado: ver **PENDIENTES.md**.
+Qué le sirve de esto al chofer y al cobrador, con evidencia: ver **VALOR.md**.
 
 **Variables de entorno**, todas opcionales salvo donde se aclare:
 
