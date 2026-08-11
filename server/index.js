@@ -877,9 +877,20 @@ if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
     'Funciona, pero es la cuenta que administra a todos: conviene una más larga.');
 } else if (process.env.DISPATCH_PASSWORD) {
   const hash = hashPassword(process.env.DISPATCH_PASSWORD);
-  const exists = db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(DISPATCH_ID);
+  const exists = db.prepare('SELECT unitId, passHash FROM users WHERE unitId = ?').get(DISPATCH_ID);
   if (exists) {
+    // Rotar la clave por acá es la ruta de recuperación cuando la vieja se
+    // perdió o se filtró, así que tiene que cortar también lo que la vieja ya
+    // había abierto: un token de sesión dura SESSION_DAYS y hasta ahora
+    // sobrevivía al cambio, dejando la cuenta que administra a todos accesible
+    // un mes más con la clave que se estaba quemando.
+    // Solo si de verdad cambió: si no, cada redeploy echaría a Despacho.
+    const cambió = !verifyPassword(process.env.DISPATCH_PASSWORD, exists.passHash);
     db.prepare("UPDATE users SET passHash = ?, role = 'dispatch' WHERE unitId = ?").run(hash, DISPATCH_ID);
+    if (cambió) {
+      kickUnit(DISPATCH_ID, 'La contraseña de Despacho cambió. Ingresá con la nueva.');
+      console.log('DISPATCH_PASSWORD cambió: sesiones anteriores de DESPACHO revocadas');
+    }
   } else {
     db.prepare('INSERT INTO users (unitId, driverName, name, role, companyId, passHash, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(DISPATCH_ID, 'Despacho', 'Despacho', 'dispatch', empresaBase(), hash, Date.now());
