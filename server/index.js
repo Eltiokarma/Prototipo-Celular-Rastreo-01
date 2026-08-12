@@ -12,6 +12,8 @@ const { openDatabase, hashPassword, verifyPassword, idLimpio } = require('./base
 const { montarPanelDelCreador } = require('./creador');
 const marca = require('./marca');
 const respaldo = require('./respaldo');
+// Las llaves de arranque y la lista de las que ya no son secretas.
+const claves = require('./claves');
 
 const app = express();
 // El tope de cuerpo de `express.json()` viene en 100 kB, y eso era MÁS CHICO
@@ -50,6 +52,13 @@ const units = new Map();
 
 const clients = new Map();
 // clients = { websocket → unitId }
+
+const tokenDeSocket = new Map();
+// tokenDeSocket = { websocket → el token con el que se identificó }
+// Existe para poder RE-VALIDAR la sesión mientras la conexión sigue abierta.
+// Un WebSocket se autenticaba una sola vez, al conectar, y después vivía de
+// esa confianza: revocar una sesión —suspender la cooperativa, el
+// vencimiento a los 30 días— borraba la fila y no cortaba el socket.
 
 const profiles = new Map();
 // profiles = { unitId (persona) → { name, alias, role, routeId, vehicleId } }
@@ -839,6 +848,15 @@ function createSession(unitId) {
   return token;
 }
 
+// El token que trae el pedido, o null. Estaba escrito a mano en cada puerta
+// (`auth.startsWith('Bearer ') ? auth.slice(7) : null`); ahora que además hay
+// que CERRAR sesiones hace falta el token en sí y no sólo el usuario, así que
+// vive en un solo lugar.
+function tokenDe(req) {
+  const auth = String(req.headers?.authorization || '');
+  return auth.startsWith('Bearer ') ? auth.slice(7) : null;
+}
+
 // Devuelve el usuario dueño de un token vigente, o null
 function sessionUser(token) {
   if (typeof token !== 'string' || token.length < 20) return null;
@@ -855,18 +873,69 @@ setInterval(() => {
   db.prepare('DELETE FROM sessions WHERE expiresAt <= ?').run(Date.now());
 }, 3_600_000);
 
+// Y los WebSocket abiertos con una sesión que ya no vale se cierran.
+//
+// Por HTTP cada pedido revalida el token; un socket se autenticaba UNA vez y
+// después vivía de esa confianza para siempre. O sea que las revocaciones que
+// sólo borran filas —suspender una cooperativa por falta de pago
+// (`cooperativas.estado`), el vencimiento a los 30 días— no cortaban a nadie
+// que dejara la conexión abierta: seguía recibiendo el estado cada 3 s con la
+// posición de toda la flota, el chat con los privados, y podía seguir
+// mandando posiciones y SOS. Las revocaciones por persona sí cortaban
+// (`kickUnit` cierra el socket), lo que muestra que esto era un olvido y no
+// una decisión.
+//
+// Un minuto es el retardo máximo de una revocación, y cuesta una consulta por
+// conexión abierta cada minuto — a 2000 sockets, 2000 lecturas por índice
+// primario por minuto, nada al lado de las 40 000 posiciones que entran en
+// ese mismo minuto.
+const REVISAR_SESIONES_MS = Number(process.env.REVISAR_SESIONES_MS || 60_000);
+setInterval(() => {
+  const ahora = Date.now();
+  const vigente = db.prepare('SELECT 1 FROM sessions WHERE token = ? AND expiresAt > ?');
+  let cerrados = 0;
+  for (const [ws, token] of tokenDeSocket) {
+    if (vigente.get(token, ahora)) continue;
+    cerrados++;
+    try {
+      ws.send(JSON.stringify({ type: 'auth_error', error: 'Tu sesión terminó. Volvé a entrar.' }));
+      ws.close();
+    } catch {}
+    // El `close` del socket limpia los mapas; esto es por si nunca llega.
+    tokenDeSocket.delete(ws);
+  }
+  if (cerrados) console.log(`Sesiones revocadas: ${cerrados} conexión(es) cerradas`);
+}, REVISAR_SESIONES_MS).unref();
+
+// Mínimo al FIJAR una contraseña. El login no lo exige a propósito: las
+// cuentas viejas con claves cortas tienen que poder entrar hasta que Despacho
+// se las resetee, si no quedarían afuera de golpe.
+const CLAVE_MINIMA = 6;
+const DISPATCH_ID = 'DESPACHO';
+
+// ─── LAS DOS PUERTAS QUE SE REVISAN ANTES DE TOCAR NADA ──────
+// Los dos guardias de producción viven acá arriba, juntos y ANTES de que el
+// arranque escriba una sola fila. El orden importa y se pagó aprendiéndolo:
+// con la revisión de llaves puesta más abajo, el servidor alcanzaba a grabar
+// la cuenta DESPACHO con la clave quemada y RECIÉN DESPUÉS se negaba a
+// arrancar. O sea que dejaba instalada justamente la clave que estaba
+// rechazando, y encima en una base que después arrancaría bien con otra
+// variable. Un guardia que corre tarde no es un guardia.
+// Las dos variables que definen el modo. Se declaran acá arriba y no junto a
+// su explicación —que está más abajo, en la sección del modo demo— porque
+// `GUARDIAS_DE_PRODUCCION()` las usa y un `const` no se iza: declaradas
+// después, la llamada muere con "Cannot access before initialization".
+const ES_DEMO = String(process.env.MODO || '').trim().toLowerCase() === 'demo';
+const REGISTRO_ABIERTO = process.env.OPEN_REGISTRATION === '1';
+
+GUARDIAS_DE_PRODUCCION();
+
 // ─── CUENTA DE DESPACHO ──────────────────────────────────────
 // El nombre DESPACHO está reservado y siempre lleva rol 'dispatch'.
 // En producción conviene fijar la clave por entorno: con
 // DISPATCH_PASSWORD seteada, la cuenta se crea o actualiza al arrancar.
 // Sin la variable, rige el registro en el primer uso como para
 // cualquier unidad.
-// Mínimo al FIJAR una contraseña. El login no lo exige a propósito: las
-// cuentas viejas con claves cortas tienen que poder entrar hasta que Despacho
-// se las resetee, si no quedarían afuera de golpe.
-const CLAVE_MINIMA = 6;
-
-const DISPATCH_ID = 'DESPACHO';
 if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
   // El login exige 4 caracteres: con una clave más corta la cuenta quedaría
   // creada pero imposible de usar. Mejor avisar y no tocar la que había.
@@ -887,12 +956,140 @@ if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
   console.log('Cuenta DESPACHO lista (desde DISPATCH_PASSWORD)');
 }
 
-if (process.env.OPEN_REGISTRATION === '1') {
+// ─── EL MODO DEMO NO SE ENCIENDE SOLO EN PRODUCCIÓN ──────────
+//
+// `OPEN_REGISTRATION=1` deja que cualquiera que sepa la URL se cree una
+// unidad y entre. Para una demostración es exactamente lo que se quiere; en
+// producción es la última puerta cruzada entre cooperativas que queda en pie,
+// y no de una manera obvia:
+//
+//   Quien se auto-registra ELIGE su `unitId` y queda SIN vehículo. Y
+//   `cobradorDeSuCombi` resuelve "mi combi" como `user.vehicleId ||
+//   user.unitId`, buscando después por un `unitId` que es único en TODO el
+//   servidor, sin filtro de empresa. Así que registrarse con el código de una
+//   combi ajena —son cortos y predecibles: M-01, M-02…— alcanza para
+//   cambiarle la contraseña o dar de baja a los cobradores de OTRA
+//   cooperativa. Ver `PENDIENTES 1.4`.
+//
+// Hasta acá esto era un cartel en el log. Un cartel depende de que alguien lo
+// lea y se acuerde, y los deploys se copian de otro deploy: la variable viaja
+// pegada al que la tenía. Ahora es una condición que el programa hace cumplir.
+//
+// QUÉ CUENTA COMO PRODUCCIÓN. Este repo no tenía ningún criterio —no usa
+// `NODE_ENV` ni mira las variables de Railway— así que hubo que elegir uno, y
+// se eligió el conservador: **producción es todo lo que no esté marcado
+// explícitamente como demo**. Al revés (asumir desarrollo salvo que digan
+// producción) el olvido sale barato en la máquina del que programa y caro en
+// el servidor de la cooperativa, que es donde el olvido de verdad ocurre.
+//
+// Son DOS variables a propósito, y no una con otro valor: `OPEN_REGISTRATION`
+// conserva el significado que ya tenía —lo documentado y lo que la gente
+// escribió en sus notas sigue valiendo— y `MODO=demo` es la declaración
+// aparte de que esta instancia se puede tirar a la basura. Copiar dos
+// variables por accidente es bastante más difícil que copiar una.
+// Los dos guardias, en una función para poder llamarlos ARRIBA del todo:
+// una declaración de función se iza, así que la llamada de más arriba ve
+// esto aunque el texto venga después. Se deja acá abajo, y no allá, para no
+// partir en dos el comentario que explica por qué existe cada uno.
+function GUARDIAS_DE_PRODUCCION() {
+if (REGISTRO_ABIERTO && !ES_DEMO) {
+  console.error('');
+  console.error('╔════════════════════════════════════════════════════════════════╗');
+  console.error('║  EL SERVIDOR NO ARRANCA: configuración insegura                ║');
+  console.error('╚════════════════════════════════════════════════════════════════╝');
+  console.error('');
+  console.error('  Variable:  OPEN_REGISTRATION=1');
+  console.error('');
+  console.error('  Qué hace:  cualquiera que sepa la URL puede crearse una unidad y');
+  console.error('             entrar, eligiendo él mismo su código de usuario.');
+  console.error('');
+  console.error('  Por qué es peligrosa: registrándose con el código de una combi de');
+  console.error('             OTRA cooperativa, esa persona puede cambiarle la clave y');
+  console.error('             dar de baja a los cobradores de esa combi ajena.');
+  console.error('');
+  console.error('  Cómo se arregla, según lo que quieras:');
+  console.error('');
+  console.error('    · Es un servidor de verdad  →  sacá OPEN_REGISTRATION.');
+  console.error('    · Es una demo descartable   →  agregá MODO=demo. La demo sigue');
+  console.error('      funcionando igual; sólo hay que declarar que es una demo.');
+  console.error('');
+  console.error('  Esto era un cartel en el log y ahora frena el arranque: un cartel');
+  console.error('  depende de que alguien lo lea, y las variables de un deploy se');
+  console.error('  copian del deploy anterior sin mirarlas.');
+  console.error('');
+  process.exit(1);
+}
+
+if (REGISTRO_ABIERTO) {
   console.warn('╔══════════════════════════════════════════════════════════╗');
-  console.warn('║ OPEN_REGISTRATION=1: CUALQUIERA que sepa la URL puede    ║');
-  console.warn('║ crear una unidad y entrar. Es solo para demostraciones.  ║');
-  console.warn('║ En producción hay que sacar esta variable.               ║');
+  console.warn('║ MODO=demo con OPEN_REGISTRATION=1: CUALQUIERA que sepa   ║');
+  console.warn('║ la URL puede crear una unidad y entrar. Esta instancia    ║');
+  console.warn('║ es descartable — no le cargues datos de una cooperativa. ║');
   console.warn('╚══════════════════════════════════════════════════════════╝');
+}
+
+// Corta un párrafo en líneas de a lo sumo `ancho`, sin partir palabras. El
+// mensaje de abajo lo lee alguien que no programa en una terminal angosta, y
+// un párrafo de 300 caracteres en una sola línea no se lee.
+function envolver(texto, ancho) {
+  const lineas = [];
+  let actual = '';
+  for (const palabra of String(texto).split(/\s+/)) {
+    if (actual && (actual + ' ' + palabra).length > ancho) { lineas.push(actual); actual = palabra; }
+    else actual = actual ? actual + ' ' + palabra : palabra;
+  }
+  if (actual) lineas.push(actual);
+  return lineas;
+}
+
+// ─── LAS LLAVES DE ARRANQUE NO PUEDEN ESTAR QUEMADAS ─────────
+//
+// Mismo criterio de producción que el guardia de arriba —producción es todo lo
+// que no esté declarado `MODO=demo`— y a propósito el MISMO, no uno parecido.
+// Dos definiciones distintas de "producción" en el mismo archivo son la forma
+// exacta en que después se cuela una instancia por el hueco entre las dos.
+//
+// El porqué de cada regla está en `server/claves.js`, junto a la lista. Acá
+// sólo queda la decisión: en producción esto FRENA EL ARRANQUE, y en demo no
+// se revisa nada.
+//
+// Que frene y no avise es el punto entero. `DISPATCH_PASSWORD` corta ya tenía
+// un aviso en el log desde siempre, y el aviso no sirvió para nada: nadie mira
+// el log de un servidor que arrancó bien. Lo único que se mira es un servidor
+// que no arranca.
+//
+// AVISO PARA EL QUE VENGA. Las pruebas levantan servidores con `MODO=demo`
+// —son instancias descartables, que es literalmente lo que esa variable
+// declara— así que NO pasan por acá. Cualquier guardia nuevo que se cuelgue de
+// `!ES_DEMO` queda sin probar salvo que se le escriba su caso en `puertas`,
+// que es el único lugar que levanta servidores en modo producción a propósito.
+if (!ES_DEMO) {
+  const problemas = claves.revisarClaves(process.env, { claveMinimaDespacho: CLAVE_MINIMA });
+  if (problemas.length) {
+    console.error('');
+    console.error('╔════════════════════════════════════════════════════════════════╗');
+    console.error('║  EL SERVIDOR NO ARRANCA: hay una llave que no sirve            ║');
+    console.error('╚════════════════════════════════════════════════════════════════╝');
+    for (const p of problemas) {
+      console.error('');
+      console.error(`  Variable:  ${p.variable}  —  ${p.que}`);
+      console.error('');
+      console.error('  Por qué importa:');
+      for (const linea of envolver(p.porque, 62)) console.error(`             ${linea}`);
+      console.error('');
+      console.error('  Cómo se arregla:');
+      for (const linea of envolver(p.como, 62)) console.error(`             ${linea}`);
+    }
+    console.error('');
+    console.error('  Ninguna contraseña se guarda en el código: lo que se compara son');
+    console.error('  huellas, que van en un solo sentido. Ver server/claves.js.');
+    console.error('');
+    console.error('  Si esto es una demo descartable y no un servidor de verdad,');
+    console.error('  agregá MODO=demo y estas revisiones no corren.');
+    console.error('');
+    process.exit(1);
+  }
+}
 }
 
 // ─── AUDITORÍA ───────────────────────────────────────────────
@@ -1139,6 +1336,33 @@ db.exec(`
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_persona ON shifts (personId, startedAt)');
 
+// Y por RUTA Y FECHA, que es como los leen las dos pantallas que los miran —
+// el de arriba, por persona, a ninguna de las dos le sirve.
+//
+// `/admin/shifts` era la única lectura del panel que crecía peor que la
+// flota, y crecía por dos motivos que se multiplican: sin índice útil recorría
+// las `shifts` enteras (2,4 M de filas a 5000 unidades, porque acá la
+// retención es de 365 días), y por cada fila evaluaba `routeId IN (rutas de la
+// empresa)`, lista que también engorda con la flota. Filas × rutas.
+//
+// EL ORDEN DE LAS COLUMNAS SE ELIGIÓ MIDIENDO, y la primera opción estaba
+// mal. Un índice por `startedAt` solo arregla la pestaña —que lleva
+// `LIMIT 500`, así que camina el índice por fecha y frena— pero **rompe el
+// informe de horas**, que trae las 22 410 filas del período sin límite: por
+// cada una hay que ir a buscar el resto de las columnas a la tabla. Medido a
+// 5000 unidades:
+//
+//                                  informe de horas   pestaña de turnos
+//   sin índice nuevo ....................  156 ms .......... 53 ms
+//   shifts(startedAt) ...................  393 ms ...........  5 ms   ← rompe uno
+//   shifts(routeId, startedAt) ..........   38 ms ...........  6 ms   ← sirve a los dos
+//
+// Con la ruta adelante las dos consultas buscan por lo mismo que filtran, y
+// ninguna paga el barrido. Cuesta 49,2 MB medidos con `dbstat`. Es el mismo
+// orden que ya usan `laps` y `legs` (ruta, fecha), y no es casualidad: todas
+// las lecturas de este panel preguntan por una empresa y un período.
+db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_ruta ON shifts (routeId, startedAt)');
+
 // Un corte de señal no es un turno nuevo. Si la misma persona vuelve a la
 // misma unidad antes de esto, se retoma el turno que estaba en vez de
 // partirlo en pedazos — en la ruta se pierde la señal todo el tiempo.
@@ -1244,6 +1468,52 @@ addColumnIfMissing('laps', 'brechaProm', 'INTEGER');
 // vez de mezclarlas en silencio.
 addColumnIfMissing('laps', 'objetivoSec', 'INTEGER');
 
+// ─── LA VUELTA QUE NO EMPEZÓ EN EL PRINCIPIO ─────────────────
+// El chofer que no sale del paradero inicial y "se mete" en la mitad de la
+// ruta pisa el trazado ahí, y desde ese momento el servidor lo trata igual
+// que a cualquiera: entra a la cadena de brechas y se le empieza a medir una
+// vuelta. Que entre no es el problema —puede tener mil motivos, y el sistema
+// no está para juzgarlos—: el problema es que esa PRIMERA vuelta no es una
+// vuelta. Es el pedazo que le faltaba al circuito. Se cerraba igual (llega
+// al final, cruza el inicio) con una duración que es una fracción de la
+// real, y esa fila entraba a los promedios como si fuera entera: bajaba la
+// duración promedio de la ruta, movía el objetivo automático hacia abajo y
+// le sumaba una vuelta al conteo del chofer.
+//
+// Y no se notaba mirando la pantalla, que es lo que lo hacía caro: la fila
+// era idéntica a las demás.
+//
+// La vuelta parcial NO se descarta. Que la unidad se metió a la ruta es un
+// hecho, y borrarlo sería perder justo el dato que se está buscando. Se
+// guarda MARCADA: `parcial = 1` y el progreso del circuito por el que entró.
+// Todo lo que promedia filtra las parciales; todo lo que lista las muestra
+// diciendo lo que son.
+addColumnIfMissing('laps', 'parcial', 'INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('laps', 'progresoInicial', 'REAL');
+
+// Cuánto se le perdona a una salida normal antes de llamarla "se metió".
+//
+// El progreso al confirmar nunca es exactamente 0: la confirmación ocurre
+// cuando el GPS pisa el trazado, y entre encender la app y arrancar ya se
+// avanzaron unas cuadras. En un circuito de 20 km, 0,15 son 3 km — más que
+// suficiente para cubrir el ruido, y bastante menos que "se metió por la
+// mitad", que es lo que se quiere ver.
+const VUELTA_DESDE_INICIO = 0.15;
+
+// Cuánto puede durar un corte de señal y seguir siendo LA MISMA corrida.
+//
+// El olvido desconfirma a los 3 minutos sin oír al teléfono, y una zona
+// muerta más larga que eso es común: un cerro, un sótano, la batería agotada
+// un rato, la app matada por Android. Al reaparecer, el chofer que venía
+// desde el paradero se ve igual que el que se acaba de meter — y sin esta
+// ventana el sistema lo acusaría en la auditoría de algo que no hizo.
+//
+// Dos horas es holgado a propósito: el error barato es NO marcar una entrada
+// tardía real (queda la parcial en los números igual, sin nombre y apellido),
+// y el caro es marcar una falsa. Más allá de eso ya no es un corte, es otro
+// turno, y ahí la entrada vuelve a ser una entrada.
+const REANUDA_MS = Number(process.env.REANUDA_MS || 2 * 3600_000);
+
 // Las vueltas que ya estaban guardadas cuando el recorrido pasó a colgar de
 // una variante se midieron con ESE trazado: es el mismo, solo que ahora tiene
 // un nombre. Se las ata a él, porque si no el objetivo automático de cada
@@ -1269,6 +1539,78 @@ if (variantesMigradas.size) {
 // (`COSTOS.md` §3). Con el índice: 33 ms. Cuesta unos MB de disco.
 db.exec('CREATE INDEX IF NOT EXISTS idx_laps_cierre ON laps (finishedAt)');
 
+// Y los dos que le faltaban al ACUMULADO POR UNIDAD (`/admin/metrics`), que
+// es la otra lectura pesada del panel y la que no estaba medida.
+//
+// A diferencia de la pestaña de vueltas, esa consulta NO tiene corte por
+// fecha —el acumulado es de todo lo retenido— así que agrupa las vueltas de
+// la empresa entera, y adentro lleva una subconsulta correlacionada (la
+// última vuelta de cada unidad) que sin índice recorre la tabla una vez POR
+// UNIDAD. Medido con la base de régimen de 2000 unidades y 120 días
+// (1,92 M de vueltas, `COSTOS.md` §3):
+//
+//   sin estos índices ........ 10 368 ms
+//   + laps(unitId,parcial,id) .... 303 ms   ← mata la subconsulta correlacionada
+//   + laps(routeId,parcial) ....... 88 ms   ← acota el grupo a la empresa
+//
+// Son 118 veces, y no es un lujo de pantalla: SQLite es sincrónico y comparte
+// hilo con los POST /gps de toda la flota. Diez segundos de agrupamiento son
+// diez segundos en los que 2000 combis no reportan posición — un despachador
+// abriendo una pestaña congelaba el mapa de todos. Cuestan ~64 MB de base.
+//
+// El de unidad se puede crear acá; el de ruta NO, porque `laps.routeId` es una
+// columna de migración que se agrega más abajo — va pegado a ella.
+db.exec('CREATE INDEX IF NOT EXISTS idx_laps_unidad ON laps (unitId, parcial, id)');
+
+// ─── MEDIAS VUELTAS ──────────────────────────────────────────
+// "Vuelta" quiere decir dos cosas distintas en este sistema y conviene tener
+// las dos escritas, porque la palabra sola no alcanza:
+//
+//   - el TRAMO `vuelta` es la mitad geométrica del circuito, la que se opone
+//     a la `ida` (`route_points.leg`);
+//   - una VUELTA de `laps` es el circuito ENTERO: salir y volver, que es lo
+//     que la cooperativa llama una vuelta.
+//
+// De ahí salía un agujero: el chofer que hace la ida y se va —termina el
+// turno, se le rompe algo, lo mandan a otro lado— no completa el circuito,
+// así que no cerraba ninguna fila en `laps`. En vivo Despacho lo veía (la
+// unidad dice IDA o VUELTA), pero al día siguiente esa media rutina no
+// existía en ningún lado: ni en el informe, ni en el perfil del chofer, ni
+// en el cuadro del gerente. Quedaban sus HORAS y ningún dato que dijera qué
+// hizo con ellas.
+//
+// Ahora cada tramo terminado se guarda por su cuenta. Una vuelta entera son
+// dos filas acá (una ida y una vuelta) más una en `laps`: no se reemplazan,
+// cuentan cosas distintas. En una ruta cargada SOLO con ida el circuito es
+// ese tramo y las dos tablas dan el mismo número, que es lo correcto — ahí
+// una ida sí es una vuelta.
+//
+// La tabla se crea acá, pegada a `laps`, porque la poda del histórico corre
+// al arrancar y las poda a las dos. La lógica que la llena vive más abajo,
+// junto a la de vueltas (`trackTramo`).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS legs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unitId TEXT NOT NULL,       -- el VEHÍCULO, mismo criterio que laps
+    routeId TEXT NOT NULL,
+    variantId INTEGER,          -- con qué trazado se lo midió
+    leg TEXT NOT NULL,          -- 'ida' | 'vuelta'
+    startedAt INTEGER NOT NULL,
+    finishedAt INTEGER NOT NULL,
+    durationSec INTEGER NOT NULL,
+    parcial INTEGER NOT NULL DEFAULT 0   -- se enganchó con el tramo empezado
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_legs_cierre ON legs (finishedAt)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_legs_unidad ON legs (unitId, finishedAt)');
+// Por ruta, para el acumulado por unidad del panel — misma consulta sin corte
+// por fecha que la de vueltas, y misma razón. Medido a 2000 unidades y 120
+// días (3,84 M de tramos): 1125 ms sin él, 205 ms con él. Cuesta ~53 MB.
+// Con `finishedAt` segunda y `parcial` de cola, por lo mismo que en `laps`:
+// el cuadro del gerente y el CSV de tramos filtran por ruta y por rango a la
+// vez, y el CSV no filtra por `parcial`. Ver el comentario largo allá.
+db.exec('CREATE INDEX IF NOT EXISTS idx_legs_ruta ON legs (routeId, finishedAt, parcial)');
+
 // Cuánto historial se guarda, y por qué se mide en DÍAS y no en filas.
 //
 // Antes el tope era global y fijo: las últimas 2000 vueltas, borradas en cada
@@ -1289,6 +1631,22 @@ const LAPS_DIAS = Number(process.env.LAPS_DIAS || 120);
 const LAPS_MAX_FILAS = Number(process.env.LAPS_MAX_FILAS || 3_000_000);
 const DESVIOS_DIAS = Number(process.env.DESVIOS_DIAS || LAPS_DIAS);
 
+// Los TURNOS eran la única tabla de historial sin poda, y por eso crecían
+// para siempre: todo lo demás tiene retención —vueltas y tramos 120 días,
+// desvíos 120, chat 30, SOS 365, auditoría 1000 por empresa— y ésta se
+// escapó. Apareció midiendo la escala (`herramientas/escala.js`): a 2000
+// unidades son ~320 000 filas a los 120 días y siguen sumando.
+//
+// No dolía en la pantalla —la lectura filtra por fecha y sale en 20 ms— y
+// justamente por eso podía crecer años sin que nadie lo notara, hasta que
+// molestara en el disco de un volumen pago.
+//
+// Se guardan MÁS días que las vueltas, y a propósito: las horas de una
+// persona son lo que se liquida, y un reclamo por una liquidación llega
+// mucho después que una discusión sobre una vuelta. Un año cubre el ciclo
+// entero sin volver a pensarlo.
+const TURNOS_DIAS = Number(process.env.TURNOS_DIAS || 365);
+
 // Podar es barato pero no gratis (recorre por fecha), y no hay ningún apuro:
 // una fila de hace 120 días y 3 horas no molesta a nadie. Va cada 6 horas, y
 // una vez al arrancar para que un servidor que estuvo apagado se ponga al día.
@@ -1297,15 +1655,37 @@ function podarHistorico() {
   const viejas = db.prepare('DELETE FROM laps WHERE finishedAt < ?').run(corte).changes;
   const sobrantes = db.prepare(
     'DELETE FROM laps WHERE id NOT IN (SELECT id FROM laps ORDER BY id DESC LIMIT ?)').run(LAPS_MAX_FILAS).changes;
+  // Los tramos se podan con la misma vara que las vueltas: son el mismo dato
+  // partido al medio, y que uno sobreviviera al otro daría informes donde las
+  // medias vueltas no suman las vueltas.
+  //
+  // Incluido el TECHO DE FILAS, que es el que faltaba: es el cinturón por si
+  // el reloj o la carga se van a un lugar raro, y sin él `legs` era la única
+  // tabla del sistema sin tope duro — justo la que crece MÁS RÁPIDO, porque
+  // un circuito deja dos filas acá y una en `laps`. Por eso el tope es el
+  // doble: si fuera el mismo, el cinturón de `legs` se ajustaría antes que el
+  // de `laps` y los informes empezarían a decir que las medias vueltas no
+  // suman las vueltas, que es la contradicción que este bloque evita.
+  const tramosViejos = db.prepare('DELETE FROM legs WHERE finishedAt < ?').run(corte).changes;
+  const tramosDeMas = db.prepare(
+    'DELETE FROM legs WHERE id NOT IN (SELECT id FROM legs ORDER BY id DESC LIMIT ?)')
+    .run(LAPS_MAX_FILAS * 2).changes;
   const desviosViejos = db.prepare(
     'DELETE FROM deviations WHERE startedAt < ?').run(Date.now() - DESVIOS_DIAS * 86400_000).changes;
+  // Los turnos, con su propio plazo (más largo: se liquidan horas con ellos).
+  // Sólo los CERRADOS: un turno abierto es alguien que está arriba de la
+  // combi ahora mismo, y borrarlo le partiría las horas del día en curso.
+  const turnosViejos = db.prepare(
+    'DELETE FROM shifts WHERE endedAt IS NOT NULL AND startedAt < ?')
+    .run(Date.now() - TURNOS_DIAS * 86400_000).changes;
   const chat = pruneChatStmt.run({ corte: Date.now() - CHAT_DIAS * 86400_000 }).changes;
   const sos = pruneSosStmt.run({ corte: Date.now() - SOS_DIAS * 86400_000 }).changes;
   const mensajesDeMas = pruneRowsStmt.run({ tope: MENSAJES_MAX_FILAS }).changes;
-  if (viejas || sobrantes || desviosViejos || chat || sos || mensajesDeMas) {
-    console.log(`Historial podado: ${viejas + sobrantes} vuelta(s), ${desviosViejos} desvío(s), ` +
-      `${chat + mensajesDeMas} mensaje(s), ${sos} SOS` +
-      (sobrantes ? ` — ${sobrantes} vuelta(s) por el techo de ${LAPS_MAX_FILAS} filas` : ''));
+  if (viejas || sobrantes || tramosViejos || tramosDeMas || desviosViejos || turnosViejos || chat || sos || mensajesDeMas) {
+    console.log(`Historial podado: ${viejas + sobrantes} vuelta(s), ${tramosViejos + tramosDeMas} tramo(s), ` +
+      `${desviosViejos} desvío(s), ${turnosViejos} turno(s), ${chat + mensajesDeMas} mensaje(s), ${sos} SOS` +
+      (sobrantes ? ` — ${sobrantes} vuelta(s) por el techo de ${LAPS_MAX_FILAS} filas` : '') +
+      (tramosDeMas ? ` — ${tramosDeMas} tramo(s) por el techo de ${LAPS_MAX_FILAS * 2} filas` : ''));
   }
 }
 
@@ -1320,6 +1700,25 @@ addColumnIfMissing('laps', 'routeId', 'TEXT');
 if (db.prepare('SELECT COUNT(*) AS c FROM laps WHERE routeId IS NULL').get().c > 0) {
   db.prepare('UPDATE laps SET routeId = ? WHERE routeId IS NULL').run(DEFAULT_ROUTE);
 }
+// Acá y no arriba con los demás índices de `laps`: la columna que indexa es
+// de migración y hasta esta línea no existe. Acota el acumulado por unidad a
+// las rutas de la empresa — el último tramo de los 10 368 ms a 88 (ver el
+// bloque de índices más arriba).
+//
+// Lleva además `finishedAt` porque las OTRAS lecturas pesadas —el cuadro del
+// gerente y los CSV— filtran por ruta Y por rango de fechas, y con las tres
+// columnas juntas el motor resuelve las dos cosas de un saque en vez de traer
+// el rango de TODAS las cooperativas y descartar el 98 % (ver `COSTOS.md` §3).
+//
+// EL ORDEN DE LAS DOS ÚLTIMAS IMPORTA, y de qué manera. Con
+// `(routeId, parcial, finishedAt)` la fecha queda tercera, así que una
+// consulta que NO filtra por `parcial` —los CSV los listan todos, marcados—
+// no puede acotar por rango y termina barriendo la ruta entera. Medido a 2000
+// unidades: el CSV de vueltas tardaba 484 ms y el de tramos 838. Con la fecha
+// segunda, 15 ms y 32 ms — y el cuadro del gerente, que sí filtra por
+// `parcial`, además mejora (67 → 38 ms) porque el filtro sale del índice sin
+// tocar la tabla.
+db.exec('CREATE INDEX IF NOT EXISTS idx_laps_ruta ON laps (routeId, finishedAt, parcial)');
 
 // ─── PRESENCIA ───────────────────────────────────────────────
 // El chofer DECLARA su estado desde la app — salir a ruta, ausente (comer,
@@ -1342,10 +1741,20 @@ function fijarPresencia(vehicleId, routeId, estado) {
     // Se va del mapa EN EL ACTO, no a los 3 minutos del olvido: lo pidió él.
     presencias.delete(vehicleId);
     lapState.delete(vehicleId);
+    const u = units.get(vehicleId);
+    // El tramo, en cambio, NO se descarta sin mirarlo: si venía de terminar
+    // la ida y se va, esa media vuelta es trabajo hecho y es justo lo que
+    // antes se perdía. `olvidarTramo` la guarda si estaba completa.
+    //
+    // Se cierra con la hora de la ÚLTIMA POSICIÓN y no con la de ahora, igual
+    // que hace el barrido: entre estacionar y acordarse de tocar SALIR DE RUTA
+    // pueden pasar veinte minutos, y cargárselos al tramo lo alarga por tiempo
+    // en que la combi estuvo detenida — un número que después promedia en
+    // `idaDurProm`, en el perfil del chofer y en el informe.
+    olvidarTramo(vehicleId, (u && u.timestamp) || Date.now());
     // Terminó el turno estando fuera del trazado: el episodio se cierra acá.
     // Dejarlo abierto lo haría durar hasta que alguien lo mire.
     olvidarDesvio(vehicleId, 'corte');
-    const u = units.get(vehicleId);
     units.delete(vehicleId);
     // El mismo aviso que manda el olvido: los mapas que borran por evento
     // no tienen por qué esperar al próximo estado completo.
@@ -1361,13 +1770,17 @@ function fijarPresencia(vehicleId, routeId, estado) {
   presencias.set(vehicleId, { estado, enRuta: false });
   lapState.delete(vehicleId);
   const u = units.get(vehicleId);
+  // Irse a almorzar después de la ida no borra la ida. Con la hora de la
+  // última posición, por lo mismo que arriba: el almuerzo no es parte del
+  // tramo aunque se declare a la media hora de haber estacionado.
+  olvidarTramo(vehicleId, (u && u.timestamp) || Date.now());
   if (u) units.set(vehicleId, { ...u, presencia: estado, enRuta: false });
   scheduleStateBroadcast((u && u.routeId) || routeId);
 }
 
 const lapState = new Map();
 // lapState = { vehicleId → { lapStart, speedSum, speedCount, samples,
-//                          lastProgress, brechaSum, brechaCount } }
+//                          lastProgress, progresoInicial, brechaSum, brechaCount } }
 
 // `cuando` es la hora en que se tomó la posición. Con el atraso de un túnel
 // llegando de golpe, medir con la hora de llegada inflaría la vuelta por todo
@@ -1377,6 +1790,9 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
   if (!st) {
     lapState.set(unitId, {
       lapStart: cuando, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
+      // Por dónde arrancó esta medición. Es lo que después decide si la
+      // vuelta que se cierre es entera o es el pedazo del que se metió.
+      progresoInicial: progress,
       brechaSum: 0, brechaCount: 0,
     });
     return;
@@ -1410,17 +1826,160 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
     // reconstruir cuántas había este martes a las 7. Sin ruta no hay objetivo
     // que valga —el progreso vino estimado por el cliente—, y queda NULL.
     const objetivoSec = routeId ? Math.round(objetivoDe(routeId).min * 60) : null;
-    db.prepare('INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(unitId, routeId || null, geo ? geo.variantId : null, st.lapStart, now, durationSec, avgSpeed, brechaProm, objetivoSec);
-    console.log(`Vuelta completada: ${unitId} en ${Math.round(durationSec / 60)} min`);
-    objetivoCache.delete(routeId);   // hay un dato nuevo: que se recalcule
+    // ¿Es una vuelta o es el pedazo del que se metió a mitad de ruta? Se
+    // decide por dónde EMPEZÓ a medirse, que es lo único que lo distingue:
+    // el final es idéntico en los dos casos.
+    const parcial = st.progresoInicial > VUELTA_DESDE_INICIO;
+    db.prepare('INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec, parcial, progresoInicial) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(unitId, routeId || null, geo ? geo.variantId : null, st.lapStart, now, durationSec, avgSpeed,
+           brechaProm, objetivoSec, parcial ? 1 : 0, st.progresoInicial);
+    if (parcial) {
+      // Se registra como aviso y no como una vuelta más: es el rastro de que
+      // esta unidad entró a la ruta empezada, y es lo que después contesta
+      // "¿cuántas veces esta semana?" sin que nadie lo haya estado mirando.
+      console.log(`Vuelta PARCIAL: ${unitId} entró al ${Math.round(st.progresoInicial * 100)} % ` +
+        `del circuito y cerró en ${Math.round(durationSec / 60)} min — no cuenta para los promedios`);
+      audit('sistema', 'vuelta_parcial', unitId,
+        `entró al ${Math.round(st.progresoInicial * 100)} % del circuito`, routeId);
+    } else {
+      console.log(`Vuelta completada: ${unitId} en ${Math.round(durationSec / 60)} min`);
+      objetivoCache.delete(routeId);   // hay un dato nuevo: que se recalcule
+    }
     lapState.set(unitId, {
       lapStart: now, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
+      // La que arranca ahora SÍ empieza donde termina la anterior: cruzó el
+      // inicio del circuito recién, así que nace entera.
+      progresoInicial: progress,
       brechaSum: 0, brechaCount: 0,
     });
     return;
   }
   st.lastProgress = progress;
+}
+
+// ─── MEDIAS VUELTAS: LOS TRAMOS ──────────────────────────────
+// La tabla `legs` se crea más arriba, junto a `laps`: la poda del histórico
+// corre al arrancar y necesita que exista. Acá vive la lógica.
+
+// El cambio de tramo tiene que SOSTENERSE. Cuando la ida y la vuelta van por
+// la misma calle, la proyección las desempata por el rumbo (ver
+// `proyectarEnRuta`) y en una esquina puede dudar un par de posiciones. Sin
+// esta confirmación, esas dudas se guardarían como medias vueltas.
+const TRAMO_MUESTRAS = 4;
+// Y hay que haber RECORRIDO el tramo para decir que se terminó: el que se
+// mete a la ruta y a las tres cuadras la proyección lo pasa al otro tramo no
+// hizo ninguna ida.
+const TRAMO_COMPLETO = 0.8;
+// Mismo criterio que la vuelta parcial, sobre el tramo en vez del circuito.
+const TRAMO_DESDE_INICIO = 0.2;
+
+// vehicleId → { routeId, leg, desde, progresoInicial, maxProgreso,
+//               candidato, seguidas }
+// El routeId va adentro del estado a propósito: el tramo también se cierra
+// cuando la unidad se BAJA (declaró fuera, o dejó de reportar), y ahí la
+// unidad ya no está en `units` para preguntarle en qué ruta andaba.
+const tramoState = new Map();
+
+const nuevoTramo = (routeId, leg, progresoTramo, cuando) => ({
+  routeId, leg, desde: cuando, progresoInicial: progresoTramo,
+  maxProgreso: progresoTramo, candidato: null, seguidas: 0,
+});
+
+function cerrarTramo(unitId, st, cuando) {
+  // Solo se guarda lo que de verdad se recorrió. Un tramo que nunca llegó
+  // cerca del final no es una media vuelta: es un pedazo, y un pedazo suelto
+  // no le sirve a nadie para contar.
+  if (st.maxProgreso < TRAMO_COMPLETO) return false;
+  const geo = st.routeId ? geometriaDe(st.routeId) : null;
+  const durationSec = Math.max(0, Math.round((cuando - st.desde) / 1000));
+  const parcial = st.progresoInicial > TRAMO_DESDE_INICIO;
+  db.prepare(`INSERT INTO legs (unitId, routeId, variantId, leg, startedAt, finishedAt, durationSec, parcial)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(unitId, st.routeId, geo ? geo.variantId : null, st.leg, st.desde, cuando, durationSec, parcial ? 1 : 0);
+  console.log(`Tramo ${st.leg} completado: ${unitId} en ${Math.round(durationSec / 60)} min` +
+    (parcial ? ' (parcial: se enganchó empezado)' : ''));
+  return true;
+}
+
+// La unidad deja de ser medida: terminó el turno, se declaró ausente, dejó
+// de reportar, o le cambiaron el trazado abajo. Si el tramo que venía
+// haciendo YA ESTABA TERMINADO, se guarda — es exactamente el caso que este
+// registro existe para no perder: el que hizo la ida y se fue. Si estaba a
+// medias, se descarta como siempre.
+function olvidarTramo(vehicleId, cuando = Date.now()) {
+  const st = tramoState.get(vehicleId);
+  if (st) cerrarTramo(vehicleId, st, cuando);
+  tramoState.delete(vehicleId);
+}
+
+// `proy` es lo que devolvió proyectarEnRuta. Sin geometría cargada no hay
+// tramos que contar y esto no hace nada: el progreso vino estimado por el
+// cliente y no distingue ida de vuelta.
+function trackTramo(unitId, routeId, proy, cuando = Date.now()) {
+  if (!proy || !proy.tramo) return;
+  let st = tramoState.get(unitId);
+  if (!st || st.routeId !== routeId) {
+    tramoState.set(unitId, nuevoTramo(routeId, proy.tramo, proy.progresoTramo, cuando));
+    return;
+  }
+
+  if (proy.tramo === st.leg) {
+    // Sigue en el mismo tramo: se cancela cualquier cambio a medio confirmar.
+    st.candidato = null;
+    st.seguidas = 0;
+    // Vuelta del progreso DENTRO del mismo tramo: es una ruta cargada solo
+    // con ida, donde el circuito es ese tramo y volver a empezarlo es haber
+    // terminado uno. En una ruta con los dos tramos esto no pasa — ahí el
+    // final de la ida es el principio de la vuelta y cambia el `leg`.
+    //
+    // Se confirma con las MISMAS muestras que el cambio de tramo, y por el
+    // mismo motivo. Un trazado que se cruza consigo mismo (una ida que pasa
+    // dos veces por la misma esquina, que en una ruta urbana es común)
+    // proyecta un salto de progreso hacia atrás en una sola posición: sin
+    // confirmar, esa única lectura mala parte una ida real en dos contadas.
+    if (st.maxProgreso > TRAMO_COMPLETO && st.maxProgreso - proy.progresoTramo > 0.5) {
+      if (!st.vueltaSeguidas) {
+        st.vueltaSeguidas = 1;
+        st.vueltaDesde = cuando;
+        st.vueltaProgreso = proy.progresoTramo;
+      } else {
+        st.vueltaSeguidas++;
+      }
+      if (st.vueltaSeguidas < TRAMO_MUESTRAS) return;
+      // Igual que en el cambio de tramo: el nuevo arranca en la PRIMERA
+      // posición que lo vio, no en la que terminó de confirmarlo.
+      cerrarTramo(unitId, st, st.vueltaDesde);
+      tramoState.set(unitId, nuevoTramo(routeId, st.leg, st.vueltaProgreso, st.vueltaDesde));
+      return;
+    }
+    // No se cumple la condición: lo que hubiera sido un salto se descarta.
+    st.vueltaSeguidas = 0;
+    st.maxProgreso = Math.max(st.maxProgreso, proy.progresoTramo);
+    return;
+  }
+
+  // Cambió de tramo. Todavía no cuenta: hay que verlo sostenido. Se guarda
+  // CUÁNDO y DÓNDE se lo vio por primera vez, que es el cambio real — las
+  // muestras que vienen después son sólo la confirmación.
+  if (st.candidato === proy.tramo) st.seguidas++;
+  else {
+    st.candidato = proy.tramo;
+    st.seguidas = 1;
+    st.cambioDesde = cuando;
+    st.cambioProgreso = proy.progresoTramo;
+  }
+  if (st.seguidas < TRAMO_MUESTRAS) return;
+
+  // El tramo nuevo arranca en la PRIMERA posición que lo vio, no en la de
+  // ahora. Los dos datos importan y por el mismo motivo: con la hora de
+  // ahora, el tramo anterior se alargaría por el tiempo que costó estar
+  // seguros; con el progreso de ahora, el tramo nuevo nacería ya avanzado y
+  // TODOS saldrían marcados como parciales — que es exactamente lo que
+  // pasaba antes de esta línea.
+  const desde = st.cambioDesde ?? cuando;
+  const progreso = st.cambioProgreso ?? proy.progresoTramo;
+  cerrarTramo(unitId, st, desde);
+  tramoState.set(unitId, nuevoTramo(routeId, proy.tramo, progreso, desde));
 }
 
 // Intentos fallidos por unidad: 5 seguidos → bloqueo de 5 minutos
@@ -1434,10 +1993,32 @@ const IP_MAX_FALLOS = 30;        // en la ventana
 const IP_VENTANA_MS = 600_000;   // 10 minutos
 const IP_BLOQUEO_MS = 600_000;
 
+// Cuántos proxies hay ADELANTE del servidor, y por qué es un número y no un
+// booleano. En Railway hay exactamente uno: él agrega la IP real al final de
+// `X-Forwarded-For`. Corriendo sin proxy hay que poner 0 — si no, la cabecera
+// entera la escribe el cliente y volvemos al problema de abajo.
+const PROXIES_CONFIABLES = Number(process.env.TRUST_PROXY ?? 1);
+
 function origenDe(req) {
   // Railway y cualquier proxy ponen la IP real acá; el socket vería la del proxy
-  const xf = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return xf || req.socket?.remoteAddress || 'desconocido';
+  const directa = req.socket?.remoteAddress || 'desconocido';
+  if (PROXIES_CONFIABLES <= 0) return directa;
+  // Se cuenta desde la DERECHA, y ahí está todo el asunto. `X-Forwarded-For`
+  // es una lista que cada proxy va AGREGANDO al final: el último elemento lo
+  // puso el proxy más cercano y es el único que nadie de afuera pudo elegir.
+  // Todo lo que está a la izquierda lo mandó el cliente y puede ser cualquier
+  // cosa — leer el PRIMER elemento, que es lo que se hacía, significaba usar
+  // como identidad justamente el pedazo que el atacante escribe.
+  //
+  // Con eso, el bloqueo por origen no bloqueaba nada: una cabecera distinta
+  // por pedido y cada intento estrenaba contador. Y ese bloqueo es el único
+  // que ve el ataque que el bloqueo por cuenta no puede ver —una contraseña
+  // probada contra las 2000 cuentas, cinco intentos en cada una—, además de
+  // ser el único freno del login del panel del creador.
+  const cadena = String(req.headers['x-forwarded-for'] || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  const i = cadena.length - PROXIES_CONFIABLES;
+  return (i >= 0 && cadena[i]) ? cadena[i] : directa;
 }
 
 function ipBloqueada(ip) {
@@ -1490,7 +2071,44 @@ app.post('/auth/login', (req, res) => {
     // El alta de choferes es tarea de Despacho (panel → Unidades).
     // Solo se auto-registran: DESPACHO (bootstrap del sistema) y, para
     // demos sin administración, cualquier unidad si OPEN_REGISTRATION=1.
-    const openReg = process.env.OPEN_REGISTRATION === '1';
+    //
+    // Se lee la CONSTANTE y no la variable de entorno de nuevo: es la misma
+    // que el arranque ya validó contra `MODO=demo`. Volver a leer
+    // `process.env` acá dejaría dos fuentes para la misma decisión, y la de
+    // acá se saltearía el control del arranque.
+    const openReg = REGISTRO_ABIERTO;
+
+    // EL BOOTSTRAP SOLO VALE EN UN SISTEMA QUE TODAVÍA NADIE ADMINISTRA.
+    //
+    // Sin esta condición, el bootstrap era una puerta abierta con nombre
+    // conocido: bastaba con que NO existiera la fila `DESPACHO` para que el
+    // primer POST anónimo del mundo —sin credencial ninguna— se creara la
+    // cuenta con rol `dispatch` y `routeId` nulo (o sea SUPERVISOR, que ve
+    // todas las rutas), con la contraseña que el atacante mandara.
+    //
+    // Y esa fila falta más seguido de lo que parece: `DISPATCH_PASSWORD` es
+    // opcional, y una cooperativa dada de alta desde el panel del creador
+    // recibe su supervisor con el nombre que le pusieron —nunca la palabra
+    // literal `DESPACHO`—. Ahí quedaba un sistema entero, con sus 2000
+    // choferes cargados, esperando a que alguien probara ese usuario.
+    //
+    // Bootstrap quiere decir "todavía no hay a quién pedirle el alta". Eso es
+    // exactamente "no existe ninguna cuenta capaz de administrar": si ya hay
+    // un despacho o una gerencia en cualquier empresa, el alta se le pide a
+    // esa persona y esta puerta no tiene por qué existir.
+    if (unitId === DISPATCH_ID && !openReg) {
+      const administradores = db.prepare(
+        "SELECT COUNT(*) AS c FROM users WHERE role IN ('dispatch', 'manager')").get().c;
+      if (administradores > 0) {
+        anotarFalloIp(ip);
+        console.warn(`Intento de bootstrap de ${DISPATCH_ID} con ${administradores} cuenta(s) ` +
+          'de administración ya existentes: rechazado');
+        return res.status(403).json({ error: 'Unidad no registrada. Pedí el alta a Despacho.' });
+      }
+      console.warn(`BOOTSTRAP: se creó ${DISPATCH_ID} desde un login porque no había ninguna ` +
+        'cuenta de administración en el sistema. Poné DISPATCH_PASSWORD para que no dependa de esto.');
+    }
+
     if (unitId !== DISPATCH_ID && !openReg) {
       // Cuenta como fallo: si no, probar usuarios sale gratis y sirve para
       // averiguar cuáles existen.
@@ -1577,6 +2195,47 @@ app.post('/auth/login', (req, res) => {
 const MAX_POSICIONES_POR_ENVIO = 200;
 const ATRASO_MAXIMO_MS = 6 * 3600_000;   // 6 h: más viejo que eso no se mide
 
+// ─── LO QUE MANDA EL TELÉFONO NO ES UN DATO, ES UNA AFIRMACIÓN ───
+//
+// Estas tres funciones existen porque el POST validaba y el WebSocket no, y
+// eran la misma información entrando por dos puertas. El atacante más
+// probable de este sistema no es un desconocido: son los 2000 choferes, cada
+// uno con una sesión legítima y un teléfono que controlan. Sacar el token del
+// APK y hablarle al WebSocket a mano es media tarde de trabajo.
+//
+// Una coordenada de verdad. Además de finita tiene que estar en el planeta:
+// un `"x"` como latitud llegaba hasta Leaflet en el panel, que tira
+// `Invalid LatLng` adentro de un efecto de React y deja a TODOS los
+// despachadores de esa ruta con la pantalla en blanco hasta que la unidad se
+// olvide sola.
+const coordenadaValida = (lat, lng) =>
+  Number.isFinite(lat) && Number.isFinite(lng) &&
+  lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+
+// El progreso que estima el cliente se usa TAL CUAL cuando la ruta todavía no
+// tiene trazado cargado (un estado normal, no un error). Y el progreso ordena
+// la cadena de brechas, así que un `routeProgress: 999` no le arruina los
+// números al que lo manda: se los arruina AL DE ADELANTE, porque la brecha se
+// acumula en la vuelta del de atrás. Uno miente y el perjudicado es otro.
+const progresoValido = (p) => (Number.isFinite(p) && p >= 0 && p <= 1 ? p : 0);
+
+// La hora que declara el teléfono, acotada a la misma ventana que ya usan las
+// posiciones. Se conserva la declarada —sirve para el atraso de una zona sin
+// señal— pero no puede caer fuera de lo posible.
+//
+// Sin esto, un SOS con `timestamp: 1` sonaba en Despacho y quedaba guardado
+// con fecha de 1970: no aparecía en el informe de emergencias (que filtra por
+// rango), no aparecía en el conteo del gerente, y la poda de las 6 h lo
+// borraba por viejo. La emergencia ocurría y no dejaba rastro. Con una fecha
+// del futuro, el efecto espejo: la fila vive para siempre y no sale en ningún
+// informe fechado.
+function horaDeclarada(valor, ahora = Date.now()) {
+  const t = Number(valor);
+  if (!Number.isFinite(t)) return ahora;
+  if (t > ahora + 120_000 || t < ahora - ATRASO_MAXIMO_MS) return ahora;
+  return t;
+}
+
 // La presencia por HTTP: el mismo camino robusto que POST /gps, para que la
 // app pueda declarar aunque el WebSocket esté caído. 'fuera' acá también:
 // es el botón "salir de ruta" y tiene que funcionar hasta con mala señal.
@@ -1630,18 +2289,35 @@ app.get('/perfil', (req, res) => {
   // quien la maneje); las horas son de la PERSONA. Mismo criterio que el
   // panel del gerente — si acá dijera otra cosa, alguien tendría razón y
   // alguien no, y no habría forma de saber quién.
+  // Las parciales se cuentan APARTE y no entran en ningún promedio: son el
+  // pedazo del que se metió a mitad de ruta, y sumarlas al conteo le regala
+  // una vuelta que no hizo mientras le baja la duración promedio.
   const vueltas = db.prepare(`
-    SELECT COUNT(*) n,
-           SUM(CASE WHEN finishedAt >= @hoy THEN 1 ELSE 0 END) hoy,
-           AVG(durationSec) durProm,
-           AVG(brechaProm) brechaProm,
-           SUM(CASE WHEN brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
+    SELECT SUM(CASE WHEN parcial = 0 THEN 1 ELSE 0 END) n,
+           SUM(CASE WHEN parcial = 0 AND finishedAt >= @hoy THEN 1 ELSE 0 END) hoy,
+           SUM(CASE WHEN parcial = 1 THEN 1 ELSE 0 END) parciales,
+           AVG(CASE WHEN parcial = 0 THEN durationSec END) durProm,
+           AVG(CASE WHEN parcial = 0 THEN brechaProm END) brechaProm,
+           SUM(CASE WHEN parcial = 0 AND brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
                      AND ABS(brechaProm - objetivoSec) <= objetivoSec * @tol
                THEN 1 ELSE 0 END) enObjetivo,
-           SUM(CASE WHEN brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
+           SUM(CASE WHEN parcial = 0 AND brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
                THEN 1 ELSE 0 END) juzgables
     FROM laps WHERE unitId = @veh AND finishedAt >= @desde
   `).get({ veh: vehicleId, desde, hoy: hoy0.getTime(), tol: TOLERANCIA_CUMPLE });
+
+  // Las medias vueltas. Es lo que contesta "hice la ida y me fui": trabajo
+  // que existió, que hasta ahora no aparecía en ninguna pantalla, y que el
+  // chofer tiene tanto derecho a ver como el gerente.
+  const tramos = db.prepare(`
+    SELECT leg,
+           SUM(CASE WHEN parcial = 0 THEN 1 ELSE 0 END) n,
+           SUM(CASE WHEN parcial = 0 AND finishedAt >= @hoy THEN 1 ELSE 0 END) hoy,
+           AVG(CASE WHEN parcial = 0 THEN durationSec END) durProm
+    FROM legs WHERE unitId = @veh AND finishedAt >= @desde
+    GROUP BY leg
+  `).all({ veh: vehicleId, desde, hoy: hoy0.getTime() });
+  const tramoDe = (leg) => tramos.find(t => t.leg === leg) || {};
 
   const turnos = db.prepare(`
     SELECT startedAt, endedAt, lastSeenAt FROM shifts
@@ -1661,6 +2337,18 @@ app.get('/perfil', (req, res) => {
       dias: 7,
       vueltas: vueltas.n || 0,
       vueltasHoy: vueltas.hoy || 0,
+      // Las vueltas que arrancaron con la ruta empezada. Se muestran porque
+      // esconderlas sería la versión amable de mentir: el chofer ve el mismo
+      // número que ve Despacho, y así puede explicarlo si hay algo que
+      // explicar.
+      parciales: vueltas.parciales || 0,
+      // Medias vueltas: ida y vuelta por separado. En una ruta cargada solo
+      // con ida estos números coinciden con `vueltas`, que es lo correcto —
+      // ahí el circuito ES la ida.
+      idas: tramoDe('ida').n || 0,
+      idasHoy: tramoDe('ida').hoy || 0,
+      retornos: tramoDe('vuelta').n || 0,
+      retornosHoy: tramoDe('vuelta').hoy || 0,
       duracionProm: vueltas.durProm ? Math.round(vueltas.durProm) : null,
       brechaProm: vueltas.brechaProm ? Math.round(vueltas.brechaProm) : null,
       // Cumplimiento contra el objetivo que REGÍA en cada vuelta (2.3).
@@ -1716,8 +2404,19 @@ app.post('/perfil/alias', (req, res) => {
 });
 
 // Cambiar SU contraseña exige la actual: un teléfono desbloqueado en el
-// paradero no puede convertirse en la cuenta robada de nadie. Las sesiones
-// abiertas del propio usuario siguen valiendo — el que cambió fue él.
+// paradero no puede convertirse en la cuenta robada de nadie.
+//
+// Y por eso mismo el cambio CIERRA LAS DEMÁS SESIONES. Antes no lo hacía —el
+// razonamiento era "el que cambió fue él, no hay por qué echarlo"— y eso
+// dejaba el remedio sin efecto justo contra la amenaza que la línea de arriba
+// nombra: lo que da acceso no es la contraseña sino el TOKEN, que vive 30
+// días. Alguien que copió el token de un teléfono desbloqueado seguía
+// entrando después de que el dueño cambiara la clave, y el dueño no tenía
+// ninguna otra herramienta — no había forma de cerrar sesión, ni siquiera la
+// propia. Su única salida era pedirle a Despacho que le reseteara la clave.
+//
+// La sesión CON LA QUE PIDIÓ el cambio se conserva: si no, el chofer se queda
+// afuera de su propio teléfono en el mismo acto de cuidarlo.
 app.post('/perfil/clave', (req, res) => {
   const user = usuarioPropio(req, res);
   if (!user) return;
@@ -1731,10 +2430,50 @@ app.post('/perfil/clave', (req, res) => {
     return res.status(403).json({ error: 'La contraseña actual no es esa' });
   }
   db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(nueva), user.unitId);
+  const propio = tokenDe(req);
+  const otras = db.prepare('DELETE FROM sessions WHERE unitId = ? AND token IS NOT ?')
+    .run(user.unitId, propio).changes;
   // En la auditoría queda QUE la cambió, nunca cuál es.
-  audit(user.unitId, 'clave_propia', user.unitId, null, user.routeId);
-  console.log(`Contraseña cambiada por su dueño: ${user.unitId}`);
-  res.json({ ok: true });
+  audit(user.unitId, 'clave_propia', user.unitId,
+    otras ? `${otras} sesión(es) cerradas` : null, user.routeId);
+  console.log(`Contraseña cambiada por su dueño: ${user.unitId}` +
+    (otras ? ` — ${otras} sesión(es) de otros dispositivos cerradas` : ''));
+  res.json({ ok: true, sesionesCerradas: otras });
+});
+
+// ─── CERRAR SESIÓN ───────────────────────────────────────────
+// No existía, y su ausencia era más grave de lo que suena: el "salir" de las
+// pantallas sólo borraba el token del `localStorage` del navegador, así que
+// el token seguía siendo válido en el servidor hasta 30 días después. Un
+// teléfono prestado, uno robado o uno que se cambia dejaban una llave
+// funcionando, y no había manera de anularla salvo pedirle a Despacho un
+// reseteo de contraseña.
+//
+// Dos alcances, porque son dos situaciones distintas: cerrar ESTA sesión es
+// lo de todos los días (me bajo de la combi prestada), y cerrar TODAS es lo
+// que uno quiere cuando cree que perdió un teléfono.
+app.post('/auth/logout', (req, res) => {
+  const token = tokenDe(req);
+  const sesion = token && db.prepare('SELECT unitId FROM sessions WHERE token = ?').get(token);
+  // Un token que ya no vale se contesta igual que uno que valía: cerrar
+  // sesión no puede fallar, y tampoco tiene por qué decirle a nadie si el
+  // token que probó existía.
+  if (!sesion) return res.json({ ok: true, cerradas: 0 });
+  const todas = req.body?.todas === true;
+  const cerradas = todas
+    ? db.prepare('DELETE FROM sessions WHERE unitId = ?').run(sesion.unitId).changes
+    : db.prepare('DELETE FROM sessions WHERE token = ?').run(token).changes;
+  if (todas) {
+    // Los WebSocket abiertos con esos tokens también: si no, la pantalla del
+    // que se llevó el teléfono sigue recibiendo el mapa y el chat en vivo.
+    for (const [ws, id] of clients) {
+      if (id === sesion.unitId) {
+        try { ws.send(JSON.stringify({ type: 'auth_error', error: 'Sesión cerrada' })); ws.close(); } catch {}
+      }
+    }
+    audit(sesion.unitId, 'cerrar_todo', sesion.unitId, `${cerradas} sesión(es)`, null);
+  }
+  res.json({ ok: true, cerradas });
 });
 
 // ─── LOS COBRADORES DE SU COMBI ──────────────────────────────
@@ -1813,8 +2552,23 @@ function cobradoresDe(vehicleId, desde) {
 // resto del servidor.
 function cobradorDeSuCombi(user, unitId, res) {
   const vehicleId = user.vehicleId || user.unitId;
-  const c = db.prepare('SELECT unitId, role, vehicleId, routeId FROM users WHERE unitId = ?').get(String(unitId));
-  if (!c || c.role !== 'collector' || c.vehicleId !== vehicleId) {
+  // Se pide TAMBIÉN la empresa, y no es redundante. El código de combi es
+  // único en todo el servidor, así que sin este borde alcanza con que dos
+  // filas coincidan en `vehicleId` para que un chofer administre a un
+  // cobrador de otra cooperativa. No pasa con un chofer dado de alta por
+  // Despacho —siempre tiene su vehículo, y el vehículo es de su empresa—
+  // pero sí con uno auto-registrado, que queda sin vehículo y cae al
+  // `|| user.unitId` de arriba con el código que él eligió (ver
+  // `OPEN_REGISTRATION` en el arranque).
+  //
+  // El arranque ya impide que eso exista fuera de una demo. Esto es el
+  // segundo cerrojo: la regla "un chofer sólo toca a los suyos" tiene que
+  // valer por sí sola, sin depender de qué variables tenga el deploy.
+  const c = db.prepare(
+    'SELECT unitId, role, vehicleId, routeId, companyId FROM users WHERE unitId = ?'
+  ).get(String(unitId));
+  if (!c || c.role !== 'collector' || c.vehicleId !== vehicleId ||
+      !user.companyId || c.companyId !== user.companyId) {
     res.status(404).json({ error: 'Ese cobrador no va en tu combi' });
     return null;
   }
@@ -1913,14 +2667,21 @@ app.post('/grabacion', (req, res) => {
 
 // La lista y la descarga son del panel (Despacho o gerencia), con el borde
 // de siempre: cada empresa ve SUS grabaciones y ninguna otra.
+// Las dos puertas filtran por empresa Y POR RUTA. Eran las únicas de todo
+// `/admin/*` que miraban sólo la empresa: un despachador o gerente atado a
+// una ruta (`req.scope`) recibía las grabaciones de TODAS las rutas de su
+// cooperativa —con el nombre de quién las grabó— y podía bajarse el trazado
+// punto a punto de un recorrido que no administra. Por cualquier otra puerta
+// esos mismos datos le dan 404.
 app.get('/admin/grabaciones', requireDispatch, (req, res) => {
   const filas = db.prepare(`
     SELECT r.id, r.personId, r.nombre, r.routeId, r.cantidad, r.largoM, r.createdAt,
            COALESCE(u.driverName, r.personId) AS quien
     FROM recordings r LEFT JOIN users u ON u.unitId = r.personId
-    WHERE r.companyId IS ?
-    ORDER BY r.id DESC LIMIT ?
-  `).all(req.empresa, GRABACIONES_MAX);
+    WHERE r.companyId IS @empresa
+      AND (@scope IS NULL OR r.routeId IS @scope)
+    ORDER BY r.id DESC LIMIT @tope
+  `).all({ empresa: req.empresa, scope: req.scope || null, tope: GRABACIONES_MAX });
   res.json({
     grabaciones: filas.map(f => ({
       id: f.id, nombre: f.nombre, quien: f.quien, routeId: f.routeId,
@@ -1930,8 +2691,14 @@ app.get('/admin/grabaciones', requireDispatch, (req, res) => {
 });
 
 app.get('/admin/grabaciones/:id.geojson', requireDispatch, (req, res) => {
-  const fila = db.prepare('SELECT * FROM recordings WHERE id = ? AND companyId IS ?')
-    .get(Number(req.params.id) || -1, req.empresa);
+  // 404 y no 403 cuando la grabación es de otra ruta o de otra empresa: el
+  // mismo criterio que `vetoDeRuta` — un error que distingue "no es tuya" de
+  // "no existe" convierte esta puerta en un directorio de lo ajeno.
+  const fila = db.prepare(`
+    SELECT * FROM recordings
+    WHERE id = @id AND companyId IS @empresa
+      AND (@scope IS NULL OR routeId IS @scope)
+  `).get({ id: Number(req.params.id) || -1, empresa: req.empresa, scope: req.scope || null });
   if (!fila) return res.status(404).json({ error: 'Esa grabación no existe' });
   const puntos = JSON.parse(fila.puntos);
   res.setHeader('Content-Type', 'application/geo+json; charset=utf-8');
@@ -2134,16 +2901,28 @@ app.get('/marca', (req, res) => {
 // cuerpo, cualquier cuenta podría pisarle el logo a la cooperativa de al
 // lado mandando el id ajeno. Está cubierto en la suite `marca`.
 app.put('/admin/company/logo', requireGerente, (req, res) => {
+  // El logo es de LA COOPERATIVA ENTERA: viaja por `GET /marca` a todas las
+  // pantallas de todas sus rutas. Faltaba el mismo corte que ya tiene el
+  // endpoint de los datos de la empresa acá abajo, así que una gerencia atada
+  // a una ruta podía cambiarle —o borrarle— la marca a las demás. No cruza de
+  // cooperativa; cruza de ruta adentro de una, y no debería.
+  if (req.scope) {
+    return res.status(403).json({ error: 'El logo lo cambia la gerencia de toda la cooperativa' });
+  }
   const crudo = req.body?.logo;
   // Sacarlo tiene que ser posible: un logo mal subido no puede quedar pegado
   // hasta que alguien toque la base a mano.
   if (crudo === null || crudo === '') {
     db.prepare('UPDATE companies SET logo = NULL WHERE companyId = ?').run(req.empresa);
+    // Auditado como cualquier otra edición de la empresa: era el único cambio
+    // de este nivel que no dejaba rastro de quién lo hizo.
+    audit(req.dispatchUser.unitId, 'logo', req.empresa, 'quitado', null);
     return res.json({ ok: true, logo: null });
   }
   const logo = marca.logoValido(crudo);
   if (!logo) return res.status(400).json({ error: marca.motivoRechazo(crudo) });
   db.prepare('UPDATE companies SET logo = ? WHERE companyId = ?').run(logo, req.empresa);
+  audit(req.dispatchUser.unitId, 'logo', req.empresa, 'cambiado', null);
   res.json({ ok: true, logo });
 });
 
@@ -2198,6 +2977,21 @@ app.post('/admin/company', requireGerente, (req, res) => {
 
 // ─── RUTAS (alta y listado) ──────────────────────────────────
 app.get('/admin/routes', requireDispatch, (req, res) => {
+  // Cuántos choferes tiene cada ruta, en UNA consulta y no en una por ruta.
+  //
+  // Estaba adentro del `.map()` de abajo, o sea una consulta por cada ruta de
+  // la cooperativa, y `users` no tiene ningún índice: cada una recorría la
+  // tabla entera. Rutas × personas, y las dos crecen con la flota — de las
+  // lecturas del panel era la que peor crecía después de los turnos, y ésta se
+  // abre todo el tiempo. Medido a 5000 unidades: 8 ms el N+1, **1 ms** la
+  // agrupada. No hace falta índice: agrupar ya lo arregla, y un índice sobre
+  // `users` costaría disco para siempre a cambio de este único milisegundo.
+  const choferesPorRuta = new Map(db.prepare(`
+    SELECT routeId, COUNT(*) AS c FROM users
+    WHERE role = 'driver' AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+    GROUP BY routeId
+  `).all({ empresa: req.empresa }).map(f => [f.routeId, f.c]));
+
   const rutas = routesOfCompany(req.empresa)
     .filter(r => !req.scope || r.routeId === req.scope)
     .map(r => {
@@ -2206,7 +3000,7 @@ app.get('/admin/routes', requireDispatch, (req, res) => {
       return {
         ...r,
         objetivo,
-        unidades: db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'driver' AND routeId = ?").get(r.routeId).c,
+        unidades: choferesPorRuta.get(r.routeId) || 0,
         enLinea: Array.from(units.values()).filter(u => u.routeId === r.routeId).length,
         // Recorrido cargado: cuántos puntos por tramo y cuántos metros
         puntos: geo ? geo.ida.puntos.length + (geo.vuelta ? geo.vuelta.puntos.length : 0) : 0,
@@ -2293,6 +3087,11 @@ function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
   let descartadas = 0;
   for (const [vehicleId, unidad] of units) {
     if (unidad.routeId === routeId && lapState.delete(vehicleId)) descartadas++;
+    // El tramo en curso se descarta SIN guardarlo, al revés que cuando el
+    // chofer se baja: ahí la media vuelta estaba bien medida y sólo faltaba
+    // la otra mitad; acá cambió contra qué se la medía a mitad de camino, y
+    // de ésa no se puede afirmar ni que se completó.
+    if (unidad.routeId === routeId) tramoState.delete(vehicleId);
   }
 
   // El estado de desvío también: lo que estaba fuera con el trazado viejo
@@ -2855,22 +3654,41 @@ const RUTAS_DE_LA_EMPRESA = '(SELECT routeId FROM routes WHERE companyId = @empr
 const INFORMES = {
   // Vueltas por unidad: cuántas, cuánto tardaron, a qué velocidad
   vueltas: (filtro) => {
+    // El informe SÍ va en orden cronológico —se lee de arriba abajo—, pero el
+    // orden se hace ACÁ y no en SQL. Pedírselo al motor lo empuja al índice
+    // por fecha, que le ahorra el sort a cambio de traerse el rango de todas
+    // las cooperativas y descartar el 98 %: es el mismo canje que hacía lenta
+    // la pantalla del gerente (ver ahí y `COSTOS.md` §3). Ordenar unas
+    // decenas de miles de filas en JS cuesta milisegundos.
     const filas = db.prepare(`
-      SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
+      SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm,
+             objetivoSec, parcial, progresoInicial
       FROM laps
       WHERE finishedAt BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
         AND (@ruta IS NULL OR routeId = @ruta)
-      ORDER BY finishedAt
-    `).all(filtro);
+    `).all(filtro).sort((a, b) => a.finishedAt - b.finishedAt);
     return {
       nombre: 'vueltas',
       // El objetivo va AL LADO de la brecha: sin él, la columna "Brecha
       // promedio" es un número sin vara. Y tiene que ser el de esa vuelta y no
       // el de hoy, porque el que abre el CSV el mes que viene no tiene forma
       // de saber cuál regía ese martes.
+      //
+      // Las parciales van EN LA MISMA LISTA, con su columna: sacarlas dejaría
+      // un CSV que no cuadra con lo que se vio en pantalla, y ponerlas sin
+      // marcar es lo que hacía el sistema antes. La columna dice por qué esa
+      // fila dura la mitad que las otras.
+      //
+      // Y lo dice como un HECHO ("arrancó al 62 %"), no como una acusación
+      // ("se metió a mitad de ruta"): una vuelta arranca a mitad de circuito
+      // porque el chofer se enganchó ahí, pero TAMBIÉN porque estuvo sin
+      // señal más de tres minutos y la medición se cortó. Este CSV se
+      // imprime y se lleva a una reunión — no puede afirmar la causa cuando
+      // sólo conoce el efecto.
       cabecera: ['Unidad', 'Ruta', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos',
-        'Velocidad media (km/h)', 'Brecha promedio (m:ss)', 'Objetivo de esa vuelta (m:ss)'],
+        'Velocidad media (km/h)', 'Brecha promedio (m:ss)', 'Objetivo de esa vuelta (m:ss)',
+        'Vuelta entera', 'Arrancó al % del circuito'],
       filas: filas.map(l => [
         l.unitId, l.routeId, fechaHora(l.startedAt), fechaHora(l.finishedAt),
         duracionHm(l.durationSec), Math.round(l.durationSec / 60), l.avgSpeed,
@@ -2878,6 +3696,35 @@ const INFORMES = {
         // no tuvieron con quién compararse. Vacío es más honesto que un cero.
         l.brechaProm === null ? '' : formatMinutes(l.brechaProm / 60),
         l.objetivoSec ? formatMinutes(l.objetivoSec / 60) : '',
+        l.parcial ? 'no — la medición no arrancó en el inicio' : 'sí',
+        l.progresoInicial === null || l.progresoInicial === undefined
+          ? '' : `${Math.round(l.progresoInicial * 100)} %`,
+      ]),
+    };
+  },
+
+  // Medias vueltas: cada ida y cada retorno que se completó. Es el informe que
+  // contesta "hizo la ida y se fue" — un día con muchas más idas que retornos
+  // tiene una explicación, y hasta ahora ni siquiera se podía formular la
+  // pregunta porque el dato no se guardaba.
+  tramos: (filtro) => {
+    // Orden en JS, por lo mismo que el informe de vueltas
+    const filas = db.prepare(`
+      SELECT unitId, routeId, leg, startedAt, finishedAt, durationSec, parcial
+      FROM legs
+      WHERE finishedAt BETWEEN @desde AND @hasta
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+        AND (@ruta IS NULL OR routeId = @ruta)
+    `).all(filtro).sort((a, b) => a.finishedAt - b.finishedAt);
+    return {
+      nombre: 'tramos',
+      cabecera: ['Unidad', 'Ruta', 'Tramo', 'Inicio', 'Fin', 'Duración (h:mm)', 'Minutos',
+        'Tramo entero'],
+      filas: filas.map(t => [
+        t.unitId, t.routeId, t.leg === 'vuelta' ? 'vuelta (retorno)' : 'ida',
+        fechaHora(t.startedAt), fechaHora(t.finishedAt),
+        duracionHm(t.durationSec), Math.round(t.durationSec / 60),
+        t.parcial ? 'no — se enganchó empezado' : 'sí',
       ]),
     };
   },
@@ -3116,7 +3963,8 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
   // del mismo día — la lista es de las últimas 24 h, más que suficiente para
   // que se mueva. Cada fila se pinta contra la vara con la que se corrió.
   const filas = db.prepare(`
-    SELECT id, unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
+    SELECT id, unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm,
+           objetivoSec, parcial, progresoInicial
     FROM laps
     WHERE finishedAt >= @inicio
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -3124,10 +3972,15 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
     ORDER BY finishedAt DESC LIMIT 300
   `).all({ inicio, empresa: req.empresa, ruta });
 
+  // Las parciales SE LISTAN —son el rastro de que alguien entró a la ruta
+  // empezada, y es información— pero no entran en ningún promedio: duran una
+  // fracción de una vuelta y mezclarlas daría un número que no describe a
+  // nadie.
+  const enteras = filas.filter(l => !l.parcial);
   // Los promedios se sacan solo de las vueltas que TIENEN el dato: mezclar
   // las viejas (sin brecha guardada) como si fueran cero daría un número
   // bonito y falso.
-  const conBrecha = filas.filter(l => l.brechaProm !== null);
+  const conBrecha = enteras.filter(l => l.brechaProm !== null);
   const promedio = (lista, campo) => lista.length
     ? Math.round(lista.reduce((a, l) => a + l[campo], 0) / lista.length)
     : null;
@@ -3137,10 +3990,23 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
   const inicioAyer = inicio - 86400_000;
   const ayer = db.prepare(`
     SELECT durationSec FROM laps
-    WHERE finishedAt >= @inicioAyer AND finishedAt < @finAyer
+    WHERE finishedAt >= @inicioAyer AND finishedAt < @finAyer AND parcial = 0
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
   `).all({ inicioAyer, finAyer, empresa: req.empresa, ruta });
+
+  // Las medias vueltas del mismo período: cuántas idas y cuántos retornos se
+  // completaron. En un día normal son parecidas; que haya muchas más idas que
+  // retornos es exactamente el dato que antes no existía.
+  const tramos = db.prepare(`
+    SELECT leg, COUNT(*) n, AVG(durationSec) durProm
+    FROM legs
+    WHERE finishedAt >= @inicio AND parcial = 0
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    GROUP BY leg
+  `).all({ inicio, empresa: req.empresa, ruta });
+  const tramoDe = (leg) => tramos.find(t => t.leg === leg) || {};
 
   const objetivo = ruta ? objetivoDe(ruta) : null;
   // "Pelotón" es lo que el sistema existe para evitar: dos unidades pegadas.
@@ -3155,9 +4021,9 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
     objetivoSec: objetivo ? Math.round(objetivo.min * 60) : null,
     vueltas: filas,
     resumen: {
-      cerradas: filas.length,
-      unidades: new Set(filas.map(l => l.unitId)).size,
-      duracionProm: promedio(filas, 'durationSec'),
+      cerradas: enteras.length,
+      unidades: new Set(enteras.map(l => l.unitId)).size,
+      duracionProm: promedio(enteras, 'durationSec'),
       duracionPromAyer: promedio(ayer, 'durationSec'),
       brechaProm: promedio(conBrecha, 'brechaProm'),
       // Cuántas de las que tienen dato se hicieron pegadas a la de adelante
@@ -3166,7 +4032,16 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
       umbralPelotonSec: umbralPeloton === null ? null : Math.round(umbralPeloton),
       // Cuántas todavía no tienen el dato: si son muchas, los promedios de
       // arriba se calcularon sobre pocas y hay que decirlo.
-      sinBrecha: filas.length - conBrecha.length,
+      sinBrecha: enteras.length - conBrecha.length,
+      // Las que arrancaron con la ruta empezada. Van aparte del conteo, no
+      // adentro: si sumaran, el número de "vueltas de hoy" incluiría medias
+      // vueltas de gente que se metió, y nadie podría notarlo.
+      parciales: filas.length - enteras.length,
+      // Medias vueltas completadas en el período
+      idas: tramoDe('ida').n || 0,
+      idaDurProm: tramoDe('ida').durProm ? Math.round(tramoDe('ida').durProm) : null,
+      retornos: tramoDe('vuelta').n || 0,
+      retornoDurProm: tramoDe('vuelta').durProm ? Math.round(tramoDe('vuelta').durProm) : null,
     },
   });
 });
@@ -3182,22 +4057,106 @@ app.get('/admin/metrics', requireDispatch, (req, res) => {
     return res.status(404).json({ error: 'Esa ruta no existe' });
   }
   const filtro = req.scope || pedida || null;
+
+  // ─── EL PERÍODO ───────────────────────────────────────────────
+  // Esta pantalla era la única lectura del sistema que agrupaba TODO lo
+  // retenido en vez de un período: 120 días de vueltas de la empresa entera,
+  // cada vez que alguien abría la pestaña. A 5000 unidades eran 1003 ms, y
+  // como SQLite es sincrónico y comparte hilo con los `POST /gps`, eso no es
+  // una pantalla lenta: es la flota entera sin reportar posición 1211 ms
+  // (`COSTOS.md` §3, `PENDIENTES` 4.6).
+  //
+  // Ahora se acota, con el mismo criterio que el resto del panel: `?dias=N`,
+  // y `?todo=1` para pedir explícitamente todo el historial. **El default es
+  // 7 días** — el período más corto que sigue siendo útil para comparar
+  // combis— y no "todo", porque el default es lo que paga el 99 % de las
+  // aperturas.
+  //
+  // Lo que se ve CAMBIA, y por eso el panel cambió los rótulos junto con
+  // esto: la pantalla ya no puede decir "acumulado". Un despachador que lee
+  // "acumulado" y está mirando 7 días tiene un número mal, y con estos
+  // números se toman decisiones sobre personas.
+  const todo = req.query?.todo === '1' || req.query?.todo === 'true';
+  const dias = Math.min(Math.max(Math.round(Number(req.query?.dias) || 7), 1), 365);
+  // `desde = 0` es "desde el principio del tiempo": la condición queda
+  // verdadera para todas las filas y el SQL no necesita dos versiones.
+  const desde = todo ? 0 : Date.now() - dias * 86400_000;
+
+  // Todos los agregados miran solo las vueltas ENTERAS: una parcial dura una
+  // fracción y arrastraría el promedio y el "mejor tiempo" de la unidad hacia
+  // un número que nunca corrió. Las parciales viajan contadas aparte, para
+  // que el panel pueda decir "esta unidad se metió a mitad de ruta 3 veces"
+  // en vez de esconderlo.
   const rows = db.prepare(`
     SELECT unitId, routeId,
-      COUNT(*) AS lapsTotal,
-      SUM(CASE WHEN finishedAt >= @dayStart THEN 1 ELSE 0 END) AS lapsToday,
-      ROUND(AVG(durationSec)) AS avgSec,
-      MIN(durationSec) AS bestSec,
-      ROUND(AVG(avgSpeed)) AS avgSpeed,
-      (SELECT durationSec FROM laps l2 WHERE l2.unitId = laps.unitId ORDER BY l2.id DESC LIMIT 1) AS lastSec,
-      MAX(finishedAt) AS lastFinish
+      SUM(CASE WHEN parcial = 0 THEN 1 ELSE 0 END) AS lapsTotal,
+      SUM(CASE WHEN parcial = 0 AND finishedAt >= @dayStart THEN 1 ELSE 0 END) AS lapsToday,
+      SUM(CASE WHEN parcial = 1 THEN 1 ELSE 0 END) AS parciales,
+      SUM(CASE WHEN parcial = 1 AND finishedAt >= @dayStart THEN 1 ELSE 0 END) AS parcialesHoy,
+      ROUND(AVG(CASE WHEN parcial = 0 THEN durationSec END)) AS avgSec,
+      MIN(CASE WHEN parcial = 0 THEN durationSec END) AS bestSec,
+      ROUND(AVG(CASE WHEN parcial = 0 THEN avgSpeed END)) AS avgSpeed,
+      -- "Última" es la última vuelta DEL PERÍODO, no la última de la historia.
+      -- Si no se acotara acá, una unidad sin vueltas en la semana mostraría
+      -- una duración de hace tres meses en una fila que dice "7 días".
+      (SELECT durationSec FROM laps l2 WHERE l2.unitId = laps.unitId AND l2.parcial = 0
+        AND l2.finishedAt >= @desde
+        ORDER BY l2.id DESC LIMIT 1) AS lastSec,
+      MAX(CASE WHEN parcial = 0 THEN finishedAt END) AS lastFinish
     FROM laps
-    WHERE routeId IN ${RUTAS_DE_LA_EMPRESA}
+    WHERE finishedAt >= @desde
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@filtro IS NULL OR routeId = @filtro)
     GROUP BY unitId
     ORDER BY lapsToday DESC, lapsTotal DESC
-  `).all({ dayStart: dayStart.getTime(), empresa: req.empresa, filtro });
-  res.json({ metrics: rows, routeId: filtro });
+  `).all({ dayStart: dayStart.getTime(), desde, empresa: req.empresa, filtro });
+
+  // Y las medias vueltas por unidad, que es donde se ve el que hizo la ida y
+  // no volvió: `idas` bastante mayor que `retornos`, sostenido en el tiempo.
+  const porTramo = db.prepare(`
+    SELECT unitId, leg, routeId,
+      COUNT(*) AS n,
+      SUM(CASE WHEN finishedAt >= @dayStart THEN 1 ELSE 0 END) AS hoy
+    FROM legs
+    WHERE parcial = 0
+      AND finishedAt >= @desde
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@filtro IS NULL OR routeId = @filtro)
+    GROUP BY unitId, leg
+  `).all({ dayStart: dayStart.getTime(), desde, empresa: req.empresa, filtro });
+  const buscar = (unitId, leg) => porTramo.find(t => t.unitId === unitId && t.leg === leg) || {};
+
+  // La unidad que hizo SOLO idas no cierra ninguna vuelta, así que no sale de
+  // la consulta de arriba —que agrupa `laps`— y desaparecía del cuadro: se
+  // veía una combi menos, no una combi que salió y no volvió. Justo el caso
+  // que este panel tiene que mostrar. Se agregan con los promedios en null,
+  // que es lo que corresponde: no hay vuelta que promediar.
+  const conVueltas = new Set(rows.map(r => r.unitId));
+  const soloTramos = porTramo
+    .filter(t => !conVueltas.has(t.unitId))
+    .map(t => ({ unitId: t.unitId, routeId: t.routeId }));
+  const vacias = new Map(soloTramos.map(t => [t.unitId, t]));
+  const completas = [...rows, ...Array.from(vacias.values()).map(t => ({
+    unitId: t.unitId, routeId: t.routeId,
+    lapsTotal: 0, lapsToday: 0, parciales: 0, parcialesHoy: 0,
+    avgSec: null, bestSec: null, avgSpeed: null, lastSec: null, lastFinish: null,
+  }))];
+
+  res.json({
+    metrics: completas.map(r => ({
+      ...r,
+      idas: buscar(r.unitId, 'ida').n || 0,
+      idasHoy: buscar(r.unitId, 'ida').hoy || 0,
+      retornos: buscar(r.unitId, 'vuelta').n || 0,
+      retornosHoy: buscar(r.unitId, 'vuelta').hoy || 0,
+    })),
+    routeId: filtro,
+    // Qué período se sirvió DE VERDAD, no el que se pidió. El `dias` viene
+    // recortado a [1, 365], así que un `?dias=9999` devuelve 365 y lo dice.
+    // La pantalla rotula con esto y no con lo que ella creía haber pedido:
+    // es la diferencia entre una etiqueta y una afirmación verificada.
+    periodo: todo ? { todo: true, dias: null } : { todo: false, dias },
+  });
 });
 
 // ─── GERENCIA (solo lectura) ─────────────────────────────────
@@ -3268,14 +4227,62 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     });
   const objetivoDeRuta = new Map(rutas.map(r => [r.routeId, r.objetivoSec]));
 
+  // Solo las vueltas ENTERAS. Las parciales —las del que se metió a mitad de
+  // ruta— duran una fracción, y acá alimentan cumplimiento, tendencia y
+  // comparación entre unidades: mezclarlas premiaría a la unidad que se metió
+  // tarde con "más vueltas y más rápidas". Se cuentan aparte, abajo.
+  // SIN `ORDER BY finishedAt`, y no es un detalle de estilo: era el ordenar
+  // lo que hacía lenta esta pantalla.
+  //
+  // Con el ORDER BY, el motor elegía el índice por fecha —que le da las filas
+  // ya ordenadas y le ahorra el sort— y con él se traía el rango de TODAS las
+  // cooperativas para después descartar el 98 % filtrando por ruta: 1,44 M de
+  // filas leídas para devolver 28 800. Sacándolo, elige el índice por ruta y
+  // fecha y busca sólo lo de esta empresa. Medido a 2000 unidades y 90 días:
+  // **1398 ms → 44 ms**.
+  //
+  // Y el orden no hacía falta: acá abajo todo reagrupa (por día, por unidad)
+  // y ordena sus propias claves al final. Se estaba pagando un barrido
+  // cincuenta veces más grande por un orden que nadie leía.
   const vueltas = db.prepare(`
     SELECT unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, objetivoSec
     FROM laps
-    WHERE finishedAt BETWEEN @desde AND @hasta
+    WHERE finishedAt BETWEEN @desde AND @hasta AND parcial = 0
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
-    ORDER BY finishedAt
   `).all(filtro);
+
+  // Cuántas veces entró cada unidad a la ruta empezada. Un caso aislado es un
+  // día raro; el mismo chofer todas las semanas es una conversación, y sin
+  // esta columna las dos se veían igual: no se veían.
+  const parcialesPorUnidad = new Map(db.prepare(`
+    SELECT unitId, COUNT(*) n FROM laps
+    WHERE finishedAt BETWEEN @desde AND @hasta AND parcial = 1
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    GROUP BY unitId
+  `).all(filtro).map(r => [r.unitId, r.n]));
+
+  // Medias vueltas por unidad. `idas` muy por encima de `retornos` es el
+  // chofer que sale y no vuelve — el caso que antes no dejaba rastro.
+  // `GROUP BY routeId, unitId, leg` y no `unitId, leg`: mismo caso que el
+  // ORDER BY de arriba. Agrupando sólo por unidad, el motor usaba el índice
+  // por unidad —que le da los grupos armados— y barría 1,44 M de filas para
+  // devolver 80. Con la ruta adelante usa el índice por ruta y fecha:
+  // **1195 ms → 74 ms**.
+  //
+  // El precio es que una combi que cambió de ruta en el período aparece en
+  // dos filas en vez de una, así que la suma se hace acá y no con un `find`
+  // —que se quedaría con la primera y contaría de menos—.
+  const tramosPorUnidad = db.prepare(`
+    SELECT unitId, leg, routeId, COUNT(*) n FROM legs
+    WHERE finishedAt BETWEEN @desde AND @hasta AND parcial = 0
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    GROUP BY routeId, unitId, leg
+  `).all(filtro);
+  const tramoDeUnidad = (unitId, leg) => tramosPorUnidad
+    .reduce((a, t) => a + (t.unitId === unitId && t.leg === leg ? t.n : 0), 0);
 
   // Contra qué se juzga cada vuelta: el objetivo que regía cuando se cerró y,
   // solo si esa vuelta es anterior a que lo guardáramos, el de hoy.
@@ -3362,23 +4369,40 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     if (!unidades.has(l.unitId)) unidades.set(l.unitId, []);
     unidades.get(l.unitId).push(l);
   }
+  // La unidad que hizo SOLO idas no cierra ninguna vuelta entera, y armando
+  // el cuadro únicamente con `vueltas` desaparecía del listado: el gerente
+  // veía una combi menos, no una combi que no volvió. Se agregan también las
+  // que solo dejaron medias vueltas o parciales, con la lista de vueltas
+  // vacía — los promedios les quedan en null, que es lo que corresponde.
+  for (const t of tramosPorUnidad) if (!unidades.has(t.unitId)) unidades.set(t.unitId, []);
+  for (const unitId of parcialesPorUnidad.keys()) if (!unidades.has(unitId)) unidades.set(unitId, []);
+
+  const rutaDeUnidad = (unitId, ls) => ls.length ? ls[0].routeId
+    : (tramosPorUnidad.find(t => t.unitId === unitId) || {}).routeId
+      || (vehicleOf(unitId) || {}).routeId || null;
+
   const porUnidad = Array.from(unidades.entries()).map(([unitId, ls]) => {
     const conB = ls.filter(l => l.brechaProm !== null);
     return {
       unitId,
-      routeId: ls[0].routeId,
+      routeId: rutaDeUnidad(unitId, ls),
       vueltas: ls.length,
       duracionProm: prom(ls, 'durationSec'),
-      duracionMejor: Math.min(...ls.map(l => l.durationSec)),
+      duracionMejor: ls.length ? Math.min(...ls.map(l => l.durationSec)) : null,
       velocidadProm: prom(ls, 'avgSpeed'),
       brechaProm: prom(conB, 'brechaProm'),
       cumplimiento: porcentaje(ls.map(juzgar)),
       sinBrecha: ls.length - conB.length,
+      // Medias vueltas y entradas a mitad de ruta: las dos cosas que antes no
+      // se veían, al lado de las vueltas para poder compararlas de un vistazo.
+      idas: tramoDeUnidad(unitId, 'ida'),
+      retornos: tramoDeUnidad(unitId, 'vuelta'),
+      parciales: parcialesPorUnidad.get(unitId) || 0,
       horasSec: horasDe.get(unitId) || 0,
       desvios: (desviosDe.get(unitId) || { veces: 0 }).veces,
       desvioSec: (desviosDe.get(unitId) || { segundos: 0 }).segundos,
     };
-  }).sort((a, b) => b.vueltas - a.vueltas);
+  }).sort((a, b) => b.vueltas - a.vueltas || b.idas - a.idas);
 
   // Horas por persona: lo mismo que ve Despacho en TURNOS, agregado al rango
   const personas = db.prepare(`
@@ -3442,6 +4466,13 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       conObjetivoViejo: vueltas.filter(l => l.brechaProm !== null && !l.objetivoSec).length,
       desvios: desviosPeriodo.length,
       desvioSec: desviosPeriodo.reduce((a, d) => a + (d.durationSec || 0), 0),
+      // Medias vueltas del período y entradas a mitad de ruta. Van en los
+      // totales y no sólo por unidad porque la pregunta primero es de la
+      // cooperativa: si las idas superan a los retornos todos los días, no es
+      // un chofer, es la última salida del turno y hay que mirarla entera.
+      idas: tramosPorUnidad.filter(t => t.leg === 'ida').reduce((a, t) => a + t.n, 0),
+      retornos: tramosPorUnidad.filter(t => t.leg === 'vuelta').reduce((a, t) => a + t.n, 0),
+      parciales: Array.from(parcialesPorUnidad.values()).reduce((a, n) => a + n, 0),
     },
     porDia,
     porUnidad,
@@ -3996,6 +5027,14 @@ wss.on('connection', (ws) => {
       // lo rechazaba acá y se lo mandaba a gerencia.html; ese panel ya no
       // existe como puerta aparte.
       clients.set(ws, user.unitId);
+      // El token queda guardado EN el socket. Sin esto, la sesión se
+      // verificaba una sola vez —acá— y nunca más: por HTTP cada pedido la
+      // revalida, pero un WebSocket abierto seguía valiendo para siempre.
+      // O sea que suspender una cooperativa por falta de pago, o el
+      // vencimiento del token a los 30 días, no cortaban a nadie que
+      // simplemente no cerrara la conexión: seguía recibiendo el mapa en
+      // vivo, el chat —privados incluidos— y podía seguir mandando posiciones.
+      tokenDeSocket.set(ws, msg.token);
       const vehicleId = user.vehicleId || (user.role === 'driver' ? user.unitId : null);
       profiles.set(user.unitId, {
         driverName: displayName(user),
@@ -4130,9 +5169,14 @@ wss.on('connection', (ws) => {
       // recibiendo todo, pero su GPS se ignora: así la unidad no salta.
       if (gpsOwner.get(vehicleId) !== ws) return;
 
+      // Se valida igual que en POST /gps: era la misma información entrando
+      // por dos puertas y sólo una miraba lo que le daban.
+      if (!coordenadaValida(msg.lat, msg.lng)) return;
+
       anotarPosicion(vehicleId, personId, prof, {
-        lat: msg.lat, lng: msg.lng, speed: msg.speed,
-        routeProgress: msg.routeProgress,
+        lat: msg.lat, lng: msg.lng,
+        speed: Number.isFinite(msg.speed) && msg.speed >= 0 ? msg.speed : 0,
+        routeProgress: progresoValido(msg.routeProgress),
       });
     }
 
@@ -4168,14 +5212,19 @@ wss.on('connection', (ws) => {
       const prof = profiles.get(unitId) || {};
       const routeId = rutaDelEmisor();
       console.log(`🚨 SOS de ${unitId} (${routeId})`);
+      // La emergencia sale IGUAL aunque el GPS no tenga fijo: lo que no puede
+      // pasar es que una coordenada inventada entre al registro —o rompa el
+      // `toFixed` de la auditoría dos líneas abajo, que no está en ningún
+      // try/catch y se lleva puesto el proceso entero—.
+      const conPosicion = coordenadaValida(msg.lat, msg.lng);
       const alert = {
         unitId,
         driverName: prof.driverName || 'Conductor',
         vehicleId: prof.vehicleId || null,
         routeId,
-        lat: msg.lat ?? null,
-        lng: msg.lng ?? null,
-        timestamp: msg.timestamp || Date.now(),
+        lat: conPosicion ? msg.lat : null,
+        lng: conPosicion ? msg.lng : null,
+        timestamp: horaDeclarada(msg.timestamp),
       };
       // El id viaja en la alerta: es el ancla para que el tipo elegido
       // después (sos_tipo) encuentre este disparo y no otro.
@@ -4232,7 +5281,7 @@ wss.on('connection', (ws) => {
         toVehicleId,
         routeId,
         text: String(msg.text || '').slice(0, 500),
-        timestamp: msg.timestamp || Date.now(),
+        timestamp: horaDeclarada(msg.timestamp),
       };
       remember({ kind: 'chat', ...entry });
       const payload = { type: 'chat_msg', role: prof.role || 'driver', ...entry };
@@ -4268,7 +5317,7 @@ wss.on('connection', (ws) => {
         routeId,
         duration: Math.max(1, Math.min(120, Math.round(msg.duration || 0))),
         data,
-        timestamp: msg.timestamp || Date.now(),
+        timestamp: horaDeclarada(msg.timestamp),
       };
       remember({ kind: 'voice', ...entry });
       const payload = { type: 'voice_msg', role: prof.role || 'driver', ...entry };
@@ -4306,7 +5355,7 @@ wss.on('connection', (ws) => {
         routeId,
         text: String(msg.text || '').slice(0, 200),   // pie de foto, opcional
         data,
-        timestamp: msg.timestamp || Date.now(),
+        timestamp: horaDeclarada(msg.timestamp),
       };
       remember({ kind: 'photo', ...entry });
       const payload = { type: 'photo_msg', role: prof.role || 'driver', ...entry };
@@ -4319,6 +5368,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     const personId = clients.get(ws);
     watching.delete(ws);
+    tokenDeSocket.delete(ws);
     if (!personId) return;
     const prof = profiles.get(personId);
     const vehicleId = prof?.vehicleId;
@@ -4513,9 +5563,13 @@ function promedioVuelta(routeId, diaSemana) {
   const variante = geo ? geo.variantId : null;
   const mismaVariante = variante === null ? 'variantId IS NULL' : 'variantId = @variante';
 
+  // Y solo las vueltas ENTERAS. Una parcial es el pedazo que hizo el que se
+  // metió a mitad de ruta: dura una fracción, y promediarla arrastra el
+  // objetivo hacia abajo — o sea, exige una brecha más chica de la que la
+  // ruta puede sostener, castigando a todos por lo que hizo uno.
   const delDia = db.prepare(`
     SELECT durationSec FROM laps
-    WHERE routeId = @routeId AND ${mismaVariante}
+    WHERE routeId = @routeId AND ${mismaVariante} AND parcial = 0
       AND CAST(strftime('%w', finishedAt / 1000, 'unixepoch', 'localtime') AS INTEGER) = @dia
     ORDER BY id DESC LIMIT ${VUELTAS_MUESTRA}
   `).all({ routeId, dia: diaSemana, variante });
@@ -4526,7 +5580,7 @@ function promedioVuelta(routeId, diaSemana) {
   }
 
   const todas = db.prepare(`
-    SELECT durationSec FROM laps WHERE routeId = @routeId AND ${mismaVariante}
+    SELECT durationSec FROM laps WHERE routeId = @routeId AND ${mismaVariante} AND parcial = 0
     ORDER BY id DESC LIMIT ${VUELTAS_MUESTRA}
   `).all({ routeId, variante });
 
@@ -4706,7 +5760,45 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     if (!proy || proy.desvioM <= umbral) {
       enRuta = true;
       decl.enRuta = true;
-      console.log(`Presencia: ${vehicleId} pisó el trazado — entra a la cadena de brechas`);
+      // POR DÓNDE entró. La confirmación sólo exige pisar el trazado, y el
+      // trazado son 20 km: pisarlo en el paradero inicial y pisarlo a mitad
+      // de ruta son la misma cuenta y hasta ahora daban el mismo resultado.
+      // El progreso del circuito en este instante es lo único que los separa,
+      // y es un número que ya está calculado — sólo faltaba mirarlo.
+      //
+      // Pero "entró por el medio" y "venía de más atrás y estuvo sin señal"
+      // se ven EXACTAMENTE IGUAL desde acá, y confundirlos es lo caro: el
+      // olvido a los 3 minutos desconfirma, y una zona muerta de más de tres
+      // minutos —un cerro, un sótano, el celular sin batería un rato— haría
+      // que al reaparecer el chofer quede acusado en la auditoría de algo
+      // que no hizo. Una acusación automática y falsa es peor que no tener
+      // la detección: se descubre discutiendo con un chofer que tiene razón.
+      //
+      // Por eso la reaparición dentro de la ventana NO es una entrada: es la
+      // misma corrida, cortada. La vuelta que salga sigue siendo parcial —no
+      // se la midió entera, y eso es un hecho aritmético— pero no se audita
+      // a nadie ni se lo marca en el mapa.
+      const perdidaEn = decl.perdidaEn || null;
+      const reanuda = !!perdidaEn && (cuando - perdidaEn) <= REANUDA_MS;
+      decl.entroEn = proy ? proy.progreso : null;
+      decl.entradaTardia = !reanuda && !!(proy && proy.progreso > VUELTA_DESDE_INICIO);
+      decl.entroA = cuando;
+      decl.perdidaEn = null;
+      if (decl.entradaTardia) {
+        // Queda en la auditoría, que es donde se puede contestar "¿cuántas
+        // veces esta semana?" sin haber estado mirando la pantalla en el
+        // momento. Al chofer no se le dice nada: mismo criterio que el
+        // desvío — puede tener un motivo, y esto es gestión, no alarma.
+        console.log(`Entrada tardía: ${vehicleId} entró a la ruta al ` +
+          `${Math.round(proy.progreso * 100)} % del circuito, no desde el inicio`);
+        audit('sistema', 'entrada_tardia', vehicleId,
+          `entró al ${Math.round(proy.progreso * 100)} % del circuito`, routeId);
+      } else if (reanuda) {
+        console.log(`Presencia: ${vehicleId} volvió tras ${Math.round((cuando - perdidaEn) / 1000)} s ` +
+          `sin señal — reanuda la corrida, no es una entrada`);
+      } else {
+        console.log(`Presencia: ${vehicleId} pisó el trazado — entra a la cadena de brechas`);
+      }
     }
   }
 
@@ -4744,6 +5836,11 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     // Sin declaración: 'ruta' confirmada, como fue siempre.
     presencia: decl ? decl.estado : 'ruta',
     enRuta,
+    // Por dónde entró a la ruta, para que Despacho lo vea EN EL MOMENTO y no
+    // al día siguiente en un informe. `null` cuando no hubo declaración
+    // (clientes viejos) o cuando la ruta no tiene trazado cargado.
+    entroEn: decl && decl.entroEn !== undefined ? decl.entroEn : null,
+    entradaTardia: !!(decl && decl.entradaTardia),
     timestamp: cuando,
     // La última vez que se OYÓ al teléfono — no confundir con `timestamp`,
     // que es de la POSICIÓN. El olvido juzga por esta: al que está vaciando
@@ -4756,6 +5853,10 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   // una vuelta, y el almuerzo estacionado cerca del terminal tampoco.
   if (enRuta && (!decl || decl.estado === 'ruta')) {
     trackLap(vehicleId, routeId, progreso, pos.speed || 0, cuando);
+    // Y las medias vueltas, que es lo que queda cuando el circuito entero no
+    // se completa. Necesita la proyección —el tramo sale de la geometría—,
+    // así que en una ruta sin trazado no cuenta nada.
+    trackTramo(vehicleId, routeId, proy, cuando);
   }
 
   // Y que la persona sigue arriba, para poder cerrar bien el turno si el
@@ -4960,14 +6061,29 @@ setInterval(() => {
     if (sinOir > OLVIDAR_MS) {
       units.delete(unitId);
       lapState.delete(unitId); // la vuelta a medias no cuenta
+      // El tramo sí, si estaba terminado: apagar la app al llegar al final
+      // de la ida es la forma más común de "hice la ida y me fui". Se cierra
+      // con la hora de la ÚLTIMA posición conocida, no con la de ahora — los
+      // tres minutos del olvido no los manejó nadie.
+      olvidarTramo(unitId, unit.timestamp || ahora);
       // Y el desvío abierto se cierra: de una unidad que dejó de reportar no
       // se puede decir que "siguió fuera de ruta" — no se sabe dónde está.
       olvidarDesvio(unitId, 'corte');
       // Y la CONFIRMACIÓN se pierde con el olvido: si mató la app sin
       // "salir de ruta" y reaparece mañana desde su casa, tiene que volver
       // a pisar el trazado — no entrar a la cadena por un true de ayer.
+      //
+      // Se anota CUÁNDO se lo perdió, y eso no es un detalle: al reaparecer,
+      // "entró por el medio" y "venía de más atrás y estuvo sin señal" se ven
+      // idénticos. Sin esta marca, un cerro de tres minutos deja al chofer
+      // acusado de una entrada tardía que no hizo. Se usa en `anotarPosicion`.
       const decl = presencias.get(unitId);
-      if (decl) decl.enRuta = false;
+      if (decl) {
+        // Sólo cuenta como pérdida si estaba CONFIRMADO: al que nunca pisó el
+        // trazado no se le está cortando ninguna corrida.
+        if (decl.enRuta) decl.perdidaEn = unit.timestamp || ahora;
+        decl.enRuta = false;
+      }
       console.log(`Unidad olvidada tras ${Math.round(sinOir / 1000)} s sin oírse: ${unitId}`);
       broadcastToRoute(unit.routeId, { type: 'unit_left', unitId });
       rutasAfectadas.add(unit.routeId);

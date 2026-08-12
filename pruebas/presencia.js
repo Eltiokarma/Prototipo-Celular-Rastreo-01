@@ -29,7 +29,7 @@ let servidor = null;
 (async () => {
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
            STATE_INTERVAL_MS: '400' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
@@ -217,7 +217,7 @@ let servidor = null;
     const DB2 = S + '/presencia-olvido.db';
     for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
     const srv2 = spawn('node', [RAIZ + '/server/index.js'], {
-      env: { ...process.env, PORT: String(P2), DB_FILE: DB2, DISPATCH_PASSWORD: 'despacho99',
+      env: { ...process.env, PORT: String(P2), DB_FILE: DB2, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
              OLVIDAR_MS: '1500', SIN_SENAL_MS: '600', STATE_INTERVAL_MS: '300' },
       stdio: ['ignore', 'ignore', 'pipe'],
     });

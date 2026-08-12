@@ -39,7 +39,7 @@ const anillo = t => ({
 let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
            STATE_INTERVAL_MS: '500',
            SIN_SENAL_MS: String(SIN_SENAL_MS), OLVIDAR_MS: String(OLVIDAR_MS) },
     stdio: ['ignore', 'ignore', 'pipe'],

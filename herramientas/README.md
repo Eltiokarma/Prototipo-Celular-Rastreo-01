@@ -89,3 +89,45 @@ ahí — con la IP de tu máquina en la wifi, porque **el celular no resuelve
 ```bash
 cd app && EXPO_PUBLIC_SERVIDOR=http://192.168.1.X:3001 npm start
 ```
+
+## `escala.js` — cuánto tarda cada lectura del panel a tamaño de régimen
+
+```bash
+node herramientas/escala.js            # 2000 unidades: lo que se despliega
+node herramientas/escala.js 20000      # el objetivo
+node herramientas/escala.js 2000 --keep  # deja la base para inspeccionarla
+```
+
+Siembra una base con la retención real (120 días de vueltas, tramos, turnos,
+desvíos, chat y auditoría), arranca el servidor contra ella y **le pregunta
+por HTTP a cada endpoint del panel**, como preguntaría un despachador. Sale
+una tabla de milisegundos y kilobytes, con los que pasan de 250 ms marcados.
+
+### Por qué mide por HTTP y no las consultas sueltas
+
+Porque el número que importa incluye el JSON armado, la subconsulta del borde
+de empresa y el plan que el motor elige de verdad — y ese plan cambia con los
+datos. Midiendo la consulta a mano se mide la que uno cree que corre.
+
+### Por qué arranca el servidor para crear el esquema
+
+**No tiene esquema propio, a propósito.** El `bench` de `modelo-costos.js`
+—que mide otra cosa: la escritura— se arma las tablas a mano, y ya se separó
+del real: le faltan `legs`, `deviations`, las columnas de migración y todos
+los índices. Un banco con un esquema paralelo mide un sistema que no existe.
+Éste levanta `server/index.js`, lo deja crear tablas, migraciones e índices,
+y siembra encima.
+
+### Por qué los números importan más de lo que parecen
+
+SQLite es **sincrónico** y vive en el mismo hilo que atiende los `POST /gps`
+de toda la flota. Cada milisegundo de esa tabla es un milisegundo en el que
+nadie reporta posición. Un endpoint de 10 s no es una pantalla lenta: es el
+mapa de 2000 combis congelado diez segundos porque alguien abrió una pestaña.
+Así se encontró justamente eso — ver `COSTOS.md` §3.
+
+### Cuidado
+
+Usa el puerto **3199** y una base temporal propia; no toca nada tuyo. Sembrar
+2000 unidades tarda ~1,5 min y ocupa ~730 MB de disco; 20 000 tarda bastante
+más y ocupa ~7 GB. Con `--keep` la base **no se borra**: acordate de borrarla.

@@ -167,6 +167,354 @@ algo menos):
   únicos índices reales: `deviations(routeId,startedAt)` en `:991` y
   `shifts(personId,startedAt)` en `:1117`). Con el índice: 33 ms (4×). Esos
   142 ms **bloquean el hilo** que también atiende los 500 POST/s.
+- **Y había una lectura peor que no estaba medida: el acumulado por unidad**
+  (`/admin/metrics`, la tabla de abajo de esa misma pestaña). A diferencia de
+  la lista de vueltas, **no tiene corte por fecha** —el acumulado es de todo
+  lo retenido—, así que agrupa las vueltas de la empresa entera, y adentro
+  lleva una subconsulta correlacionada (la última vuelta de cada unidad) que
+  sin índice recorre la tabla **una vez por unidad**. Medido sobre una base
+  sintética con la retención real (2000 unidades × 120 días × 8 vueltas =
+  1,92 M de vueltas y 3,84 M de tramos, 538 MB):
+
+  | | vueltas | tramos | base |
+  | --- | --- | --- | --- |
+  | como estaba | **10 368 ms** | 1125 ms | 538 MB |
+  | + `laps(unitId,parcial,id)` | 303 ms | 1118 ms | 576 MB |
+  | + `legs(routeId,parcial)` | 306 ms | 208 ms | 629 MB |
+  | + `laps(routeId,parcial)` | **88 ms** | **205 ms** | 655 MB |
+
+  De 11,5 s a 293 ms — **39×** por +117 MB (+22 % de base). Los tres índices
+  están puestos. Diez segundos de agrupamiento son diez segundos en los que
+  2000 combis no reportan posición: **un despachador abriendo una pestaña
+  congelaba el mapa de todos**, y no aparecía en ninguna métrica porque el
+  endpoint se llama al abrir la pestaña y no en bucle.
+
+  **El costo es CUADRÁTICO con la flota**, no lineal, y eso es lo que hay que
+  entender antes de crecer. La subconsulta corre una vez por unidad sobre las
+  filas de la empresa: al multiplicar la flota por 10, las unidades y las
+  filas se multiplican por 10 cada una, y el producto por 100. Medido con la
+  misma base sintética a 20 000 unidades (19,2 M de vueltas, 38,4 M de
+  tramos, 5,7 GB):
+
+  | | 2000 unidades | 20 000 unidades | factor |
+  | --- | --- | --- | --- |
+  | como estaba | 9 580 ms | **996 954 ms** (16,6 min) | 104× |
+  | con los tres índices | 288 ms | 1 089 ms | 3,8× |
+
+  Sin los índices, a 20 000 el servidor **parece muerto durante diecisiete
+  minutos** cuando alguien abre esa pestaña. Con ellos, el crecimiento vuelve
+  a ser casi lineal.
+
+- **Y después se midieron TODAS las lecturas del panel, no sólo ésa**
+  (`node herramientas/escala.js`, que arranca el servidor de verdad y
+  pregunta por HTTP). El patrón resultó ser uno solo y estaba en cuatro
+  lugares: **el motor elegía el índice por fecha para ahorrarse un `ORDER BY`
+  o un `GROUP BY`, y con él se traía el rango de TODAS las cooperativas para
+  descartar el 98 % filtrando por ruta.** 1,44 M de filas leídas para
+  devolver 28 800.
+
+  | lectura (2000 unidades, base de 731 MB) | antes | después |
+  | --- | --- | --- |
+  | `/gerencia/resumen` · 90 días | 2 253 ms | **289 ms** |
+  | `/gerencia/resumen` · 30 días | 977 ms | 178 ms |
+  | CSV informe tramos · 30 días | 787 ms | **111 ms** |
+  | CSV informe vueltas · 30 días | 401 ms | **52 ms** |
+  | `/admin/vueltas` | 62 ms | 18 ms |
+  | el resto (users, vehicles, routes, audit, shifts, company…) | < 60 ms | igual |
+
+  Tres cambios, ninguno de arquitectura:
+
+  1. **Sacar el `ORDER BY finishedAt` del cuadro del gerente.** No lo usaba
+     nadie —abajo todo reagrupa por día y por unidad, y ordena sus claves al
+     final— y era lo que empujaba al motor al índice equivocado. 1398 → 44 ms.
+  2. **`GROUP BY routeId, unitId, leg`** en vez de `unitId, leg`, por lo
+     mismo: agrupando sólo por unidad, el motor usaba el índice por unidad y
+     barría todo. 1195 → 74 ms. La suma se hace en JS porque una combi que
+     cambió de ruta aparece en dos filas.
+  3. **Los CSV ordenan en JS**, no en SQL. Ordenar 28 000 filas en JS cuesta
+     **1 ms**; pedírselo al motor costaba cientos.
+
+  Y el orden de las columnas del índice, que no es cosmético:
+  `(routeId, finishedAt, parcial)` y no `(routeId, parcial, finishedAt)`.
+  Con la fecha tercera, una consulta que no filtra por `parcial` —los CSV los
+  listan todos, marcados— no puede acotar por rango: 484 ms contra 15.
+
+  Queda como deuda, medida y no resuelta: **a 20 000 unidades el acumulado
+  sigue costando ~3,7 s** entre las dos consultas (1089 + 2654), y eso es
+  tiempo con la ingesta de GPS parada. La salida NO es seguir agregando
+  índices —ya no compran nada— sino **acotar el acumulado a un rango**, que
+  es lo que ya hace el resto del panel; el "total histórico" sin fecha es la
+  única lectura del sistema que no lo hace. Con la base en 7,6 GB de índices
+  incluidos, también hay que mirar el volumen contratado antes de llegar ahí.
+
+  > **CORRECCIÓN (9/8): los números de arriba están tomados sobre una base más
+  > chica de la que decían.** El sembrado del banco no pasaba
+  > `routes.createdAt`, que es `NOT NULL` sin valor por defecto, y como usaba
+  > `INSERT OR IGNORE` el fallo se tragaba en silencio: **no entraba ninguna
+  > ruta**. Todas las unidades quedaban asignadas a rutas inexistentes salvo
+  > las que caían en la única ruta real —la que crea el servidor al arrancar—,
+  > así que la cooperativa medida tenía 1 ruta y 40 unidades en vez de las
+  > decenas que se creían. Las **mejoras relativas siguen siendo válidas** (se
+  > midió la misma consulta antes y después contra los mismos datos), pero los
+  > absolutos estaban subestimados unas 5 veces. La tabla de abajo los rehace,
+  > y el sembrado ahora verifica sus propios conteos y falla ruidosamente.
+
+### El barrido completo: la forma de la curva, no el milisegundo
+
+`node herramientas/escala.js` mide ahora **500, 2000 y 5000 unidades** y
+reporta el factor de crecimiento. La regla: entre 2000 y 5000 la flota crece
+2,5×, así que **2,5× es lo lineal**; ~6× es cuadrático y >10× es peor.
+
+Una consulta de 400 ms que crece lineal es sana — al triple de flota tarda el
+triple y se ve venir. Una de 25 ms que crece 5,5× **no** se ve venir, y es la
+que hay que cazar.
+
+Medido con la retención real (turnos 365 días, el resto 120; base de 192 MB /
+782 MB / **2,0 GB**):
+
+| lectura | 500 | 2000 | 5000 | factor | forma |
+| --- | --- | --- | --- | --- | --- |
+| `/admin/shifts` | 2 ms | 5 ms | 25 ms | **5,5×** | **cuadrático** |
+| `/admin/routes` | 2 ms | 3 ms | 11 ms | **3,3×** | peor que lineal |
+| `/gerencia/resumen` 90 d | 349 | 1011 | **1746 ms** | 1,7× | lineal |
+| `/admin/metrics` | 364 | 661 | **1003 ms** | 1,5× | lineal |
+| CSV tramos 30 d | 222 | 557 | 827 ms | 1,5× | lineal |
+| `/gerencia/resumen` 30 d | 102 | 350 | 660 ms | 1,9× | lineal |
+| CSV vueltas 30 d | 94 | 264 | 431 ms | 1,6× | lineal |
+| el resto (users, vehicles, audit, creador…) | | | ≤ 28 ms | ~2× | lineal |
+
+**Las dos que crecían mal, y por qué.** `/admin/shifts` no tenía índice por
+fecha —el único de `shifts` es `(personId, startedAt)`, que a esa consulta no
+le sirve— así que recorría las 2,4 M de filas, y por cada una evaluaba
+`routeId IN (rutas de la empresa)`, lista que también engorda con la flota:
+filas × rutas. `/admin/routes` hacía una consulta `COUNT(*) FROM users` **por
+cada ruta**, y `users` no tiene ningún índice: rutas × personas.
+
+**Los arreglos, medidos uno por uno a 5000 unidades:**
+
+| | antes | después | qué se hizo | costo |
+| --- | --- | --- | --- | --- |
+| `/admin/shifts` (ventana de 7 d) | 53 ms | **6 ms** | índice `shifts(routeId, startedAt)` | 49,2 MB |
+| informe de horas 30 d | 156 ms | **38 ms** | (el mismo índice) | — |
+| `/admin/routes` (el N+1) | 8 ms | **1 ms** | una consulta agrupada | 0 |
+
+En `/admin/routes` **no se agregó índice a propósito**: agrupar ya lo arregla,
+y `users(routeId, role)` compraba 1 ms → 0 ms. La regla de la casa es que un
+índice que no compra un orden de magnitud no se gana el disco.
+
+**Y el orden de las columnas del índice de turnos se eligió midiendo, porque
+la primera opción estaba mal.** Un índice por `startedAt` solo arregla la
+pestaña —que lleva `LIMIT 500`, así que camina el índice y frena— pero
+**empeora el informe de horas 2,6×**, que trae las 22 410 filas del período
+sin límite y con ese índice paga una búsqueda en la tabla por cada una:
+
+| | informe de horas | pestaña de turnos |
+| --- | --- | --- |
+| sin índice nuevo | 156 ms | 53 ms |
+| `shifts(startedAt)` | **393 ms** ← rompe uno | 5 ms |
+| `shifts(routeId, startedAt)` | **38 ms** | **6 ms** |
+
+Es exactamente para lo que sirve medir de a uno: el índice "obvio" arreglaba
+una pantalla y rompía otra, y el banco lo mostró antes de que llegara a
+producción.
+
+### El daño real: cuánto se frena la ingesta de GPS
+
+Los milisegundos de una consulta son el diagnóstico. El daño es otra cosa, y
+se mide poniendo las dos cargas a la vez (`escala.js --carga 5000`): 12
+choferes reales reportando sin parar mientras alguien abre una pantalla.
+
+Con 5000 unidades, la línea de base del `POST /gps` es **p50 9 ms**. Y:
+
+| al abrir… | la consulta tardó | **el GPS de toda la flota esperó** |
+| --- | --- | --- |
+| Números a 90 días | 2432 ms | **2493 ms** |
+| el acumulado por unidad | 1208 ms | **1211 ms** |
+| el CSV de tramos | 854 ms | 855 ms |
+| Gestión → Rutas | 20 ms | 43 ms |
+
+La correspondencia es casi exacta, y era la hipótesis: **el tiempo de la
+consulta ES el tiempo que la flota entera deja de reportar**, porque SQLite es
+sincrónico y comparte hilo con la ingesta. No es una pantalla lenta: es el
+mapa de 5000 combis congelado dos segundos y medio porque un gerente eligió
+90 días.
+
+Repetida con los arreglos puestos:
+
+| al abrir… | el GPS esperaba | **ahora espera** |
+| --- | --- | --- |
+| Números a 90 días | 2493 ms | **1467 ms** |
+| el acumulado por unidad | 1211 ms | **1017 ms** |
+| el CSV de tramos | 855 ms | 936 ms |
+| Gestión → Rutas | 43 ms | **29 ms** |
+| línea de base del `POST /gps` | p50 9 ms | p50 7 ms |
+
+El peor caso baja de 2,5 s a 1,5 s. **Lo que queda no se arregla con índices**:
+son las dos lecturas de `PENDIENTES 4.6` y `4.8`, y las dos esperan una
+decisión del dueño.
+
+**Repetida otra vez (9/8), ya con el período del cuadro por unidad puesto** y
+con la reescritura de Números revertida. El equipo estaba ~1,5× más lento este
+día, así que **las columnas no se comparan entre tablas** — lo que se compara
+es qué paga cada pantalla HOY, en la misma corrida:
+
+| al abrir… | el GPS espera | cuándo pasa |
+| --- | --- | --- |
+| Números a 90 días | 1883 ms | elección del gerente, ocasional |
+| el cuadro por unidad, **todo el historial** | 1514 ms | elección expresa |
+| el CSV de tramos | 1171 ms | descarga deliberada |
+| **el cuadro por unidad, como abre (7 d)** | **362 ms** | **en cada apertura** |
+| Gestión → Rutas | 41 ms | muy seguido |
+| línea de base del `POST /gps` | p50 9 ms · p95 30 ms | — |
+
+Lo que cambió no es el máximo sino **quién lo paga y cuándo**. Antes, el
+cuadro por unidad congelaba la flota **1211 ms cada vez que alguien abría la
+pestaña**, sin pedirlo nadie. Ahora esa apertura cuesta 362 ms, y el número
+grande sólo aparece cuando alguien elige "Todo" a propósito. El peor caso del
+sistema sigue siendo Números a 90 días, que también es una elección y no un
+camino diario.
+
+> **UNA ADVERTENCIA SOBRE ESTE NÚMERO.** La prueba usa **12 choferes**
+> reportando, no 5000. Mide correctamente cuánto bloquea una consulta al hilo
+> —eso no depende de cuántos escriban— pero la línea de base de 7 ms es la de
+> un servidor casi ocioso. Con la flota entera encima (≈1250 req/s de promedio
+> a 5000, §2) la cola de escritura ya está cargada y **el atraso se acumula
+> sobre eso, no reemplaza a eso**. El número real de un despacho ocupado es
+> peor que 1467 ms; cuánto peor, no se midió.
+
+### Después de los arreglos: ninguna crece peor que la flota
+
+El barrido completo repetido con los dos arreglos puestos (500 / 2000 / 5000):
+
+| lectura | 2000 | 5000 | factor | antes era |
+| --- | --- | --- | --- | --- |
+| `/admin/shifts` | 1 ms | **1 ms** | **1,0×** | 5,5× cuadrático |
+| `/admin/routes` | 3 ms | **6 ms** | **2,1×** | 3,3× |
+| CSV horas 30 d | 45 ms | **102 ms** | 2,3× | 195 ms (mejoró de rebote) |
+| `/gerencia/resumen` 90 d | 794 ms | **1244 ms** | 1,6× | 1746 ms (ídem) |
+| `/admin/metrics` | 673 ms | 1032 ms | 1,5× | sin cambios, a propósito |
+
+**Las 21 lecturas del panel quedaron lineales.** Las dos que mejoraron "de
+rebote" lo hicieron por el índice de turnos: las dos leían `shifts` sin un
+índice que les sirviera.
+
+#### Barrido final (9/8), con el período de `/admin/metrics` puesto
+
+Las 22 lecturas —21 más la segunda punta del selector de período— medidas de
+punta a punta. **Es el primer barrido en el que la etapa de 5000 llega a
+correr**: hasta acá el arnés le daba 50 s al servidor para levantar y contra la
+base de 2,0 GB tarda **55 s**, así que 5000 no fallaba a veces, fallaba
+siempre. Los absolutos NO son comparables con la tabla de arriba: el equipo
+estaba ~1,5× más lento este día, y se ve en las lecturas que nadie tocó. Lo
+que sí es comparable —y es lo que importa— es la **forma**:
+
+| lectura | 2000 | 5000 | factor |
+| --- | --- | --- | --- |
+| `/gerencia/resumen` 90 d | 1075 ms | 1970 ms | 1,8× |
+| `/admin/metrics` **todo** (elección expresa) | 942 ms | 1621 ms | 1,7× |
+| CSV tramos 30 d | 719 ms | 1017 ms | 1,4× |
+| CSV vueltas 30 d | 385 ms | 830 ms | 2,2× |
+| `/gerencia/resumen` 30 d | 355 ms | 800 ms | 2,3× |
+| **`/admin/metrics` 7 d (el default)** | **219 ms** | **335 ms** | **1,5×** |
+| las otras 16 (vueltas, turnos, rutas, CSV, creador…) | ≤ 58 ms | ≤ 129 ms | ≤ 2,3× |
+
+**Ninguna crece peor que la flota** (2,5× entre esos dos tamaños). Base:
+804 MB a 2000, 2054 MB a 5000.
+
+Un dato operativo que apareció al arreglar el arnés y que no estaba escrito en
+ningún lado: **arrancar contra la base de 5000 unidades tarda 55 s**. Es el
+tiempo que el sistema está caído después de un reinicio o un despliegue, y
+crece con la base — a 2000 son 5 s. Conviene tenerlo en cuenta al planificar
+una ventana de mantenimiento.
+
+Con qué frecuencia pasa importa tanto como el número: la pestaña de Números
+**abre con 7 días por defecto** (`despacho.html:1194`), y ahí la consulta trae
+19 054 filas en 61 ms en vez de 244 980 en 404. Los 90 días son una elección
+deliberada y ocasional, no el camino de todos los días.
+
+### El cuadro por unidad ahora muestra un período (y lo dice)
+
+`/admin/metrics` era la única lectura del sistema que agrupaba **todo lo
+retenido** —120 días de la cooperativa entera— y lo cobraba en cada apertura
+de la pestaña. Acotarlo estaba medido y sin hacer desde el barrido anterior
+(`PENDIENTES` 4.6) porque **cambia lo que se ve**, y eso es decisión del dueño,
+no de quien optimiza. Con la decisión tomada, medido a 5000 unidades sobre el
+mismo servidor y la misma base:
+
+| lo que se pide | 5000 unidades |
+| --- | --- |
+| `?todo=1` — lo que costaba ANTES en cada apertura | 1627 ms |
+| `?dias=90` | 1173 ms |
+| `?dias=30` | 971 ms |
+| **sin parámetros: 7 días, el nuevo default** | **343 ms** → **4,7×** |
+
+Es la palanca que Números no tenía (ver la sección anterior): acá **acotar el
+alcance sí gana**, y gana casi cinco veces, sin reescribir ninguna cuenta ni
+agregar un índice. Es el orden de preferencia del proyecto funcionando —
+primero acotar, después reescribir, el índice último.
+
+El corte se aplica a las tres consultas de la pantalla, no sólo a la de
+vueltas: también a `legs` y a la subconsulta correlacionada de "Última". Si esa
+última no se acotara, una unidad sin vueltas en la semana mostraría la duración
+de una vuelta de hace tres meses en una fila que dice "últimos 7 días".
+
+**Y la parte que no es de rendimiento, que es la que importa más.** Una
+pantalla acotada que sigue diciendo "acumulado" es peor que una sin acotar: el
+despachador lee un total y está viendo una semana. Así que cambió el rótulo en
+todos lados —encabezado (`Por unidad · últimos 7 días`), la columna que decía
+`Total` y ahora dice `Vueltas`, el pie, el `README`— y el servidor devuelve un
+campo `periodo` con lo que sirvió **de verdad**: recorta el pedido a [1, 365],
+y la pantalla rotula con esa respuesta y no con lo que ella creyó pedir. La
+suite `periodo` verifica las dos mitades: que el recorte se aplique **a los
+datos** (una vuelta de hace 20 días no aparece a 7 días y sí a 30) y que lo que
+el servidor dice haber servido coincida con lo que sirvió.
+
+### Agregar en SQL el cuadro del gerente: se hizo, se midió, se tiró
+
+`PENDIENTES` 4.8 decía que agregar en SQL bajaba la pantalla de 654 ms a
+182 ms. **Ese 182 estaba mal medido**: la prueba de la que salió agrupaba
+sumas y cuentas pero **no calculaba `cumplimiento`**, que es la columna cara —
+compara la brecha de CADA vuelta contra la vara de SU ruta. Es un error fácil
+de repetir: al escribir las variantes de abajo, dos de ellas volvieron a
+"ganar" por lo mismo, y sólo se notó al comparar cuántas columnas traían.
+
+Las dos implementaciones se corrieron **sobre la misma base y en el mismo
+proceso**, que es la única forma de no confundir "mi código es lento" con "la
+máquina está lenta hoy" — comparar contra una tabla medida otro día no
+distingue las dos cosas, y en este caso el equipo estaba ~1,5× más lento que
+cuando se escribió la tabla de arriba. A 5000 unidades, 245 252 vueltas, 90 d:
+
+| variante | 90 d | contra la de producción |
+| --- | --- | --- |
+| sólo LEER las filas, sin agrupar (el piso) | 423 ms | — |
+| **JS: leer + agrupar (la de producción)** | **832 ms** | — |
+| SQL en tres pasadas (la que se había escrito) | 2186 ms | **2,6× PEOR** |
+| SQL en una pasada, con `strftime` | 1483 ms | 1,8× peor |
+| SQL en una pasada, día por aritmética entera | **687 ms** | 1,21× mejor |
+
+**Por qué no se sube ninguna:**
+
+- **El techo no era la agregación, era leer las filas.** 423 de los 832 ms son
+  sólo traerlas a JavaScript. Agrupar cuesta 409 ms; aunque agrupar saliera
+  gratis, la pantalla no bajaría de la mitad. Toda la premisa de 4.8 —"el
+  problema es que agrupa en JavaScript"— era falsa, y eso no se veía sin medir.
+- **La única versión que gana lo hace con `strftime` afuera**, reemplazando el
+  día por `(finishedAt - offset) / 86400000`. Eso **asume que el huso horario
+  del servidor nunca cambia de offset**. Perú no tiene horario de verano hoy,
+  pero es una suposición sobre el despliegue escondida adentro de un número
+  que el gerente usa para hablar con un chofer. Con `strftime`, que es lo
+  correcto en cualquier huso, SQL **pierde** contra JS.
+- **Y lo que compra es poco y en el lugar equivocado**: 1,21× a 90 días
+  (145 ms), **0,96× a 30 días** —o sea que ahí es más lenta— y 11 ms a 7 días,
+  que es como la pantalla abre. Se pagaría una suposición de zona horaria y una
+  reescritura de la lógica de cumplimiento para acelerar el caso que casi nadie
+  pide.
+
+**Lo que queda escrito para el que vuelva a intentarlo:** la palanca de esta
+pantalla es **acotar el rango**, no reescribir la cuenta. Y si algún día hace
+falta bajar el piso de 423 ms, lo que hay que atacar es la lectura —un índice
+que cubra las columnas del `SELECT`, para que no haya que ir a la tabla fila
+por fila—, no el agrupado.
 - **No hace falta migrar de motor.** El cuello real del sistema no es la
   base: es (a) el egress del estado y (b) el CPU de serializar+emitir por
   WS a 2000 conexiones — presupuestado con 2 vCPU en §4. Si algún día se

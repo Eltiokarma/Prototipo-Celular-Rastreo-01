@@ -16,7 +16,7 @@ const COMPARTIDAS = ['tramos', 'objetivo', 'informes', 'desvio', 'turnos', 'priv
 const PROPIAS = ['variantes', 'brecha', 'creador', 'gerencia', 'cliente', 'senal', 'gpshttp', 'presencia', 'foto', 'marca', 'respaldo',
                  'trazador', 'ausencia', 'hud', 'chat', 'cola', 'margenes', 'gestos', 'imagen', 'tema', 'contraste', 'mapa', 'teclado', 'nativas',
                  'vendor', 'retencion', 'tiles', 'renovacion', 'cascada', 'mapa-shot', 'compresion', 'sos', 'perfil', 'grabador',
-                 'cobradores'];
+                 'cobradores', 'metidos', 'puertas', 'periodo', 'panel-periodo'];
 
 const correr = (suite, env) => new Promise((resolve) => {
   let salida = '';
@@ -54,7 +54,7 @@ async function conServidor(db, fn) {
   await esperarLibre();
   for (const f of [db, db + '-wal', db + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   const srv = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: '3001', DB_FILE: db, DISPATCH_PASSWORD: 'despacho99' },
+    env: { ...process.env, PORT: '3001', DB_FILE: db, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   let arrancó = false;
@@ -78,7 +78,7 @@ async function conServidor(db, fn) {
 
   console.log('');
   for (const r of resultados) {
-    console.log(`${r.suite.padEnd(11)}${r.ok ? 'ok' : `FALLA (código ${r.code}, ${r.fallas} falla(s))`}`);
+    console.log(`${r.suite.padEnd(15)}${r.ok ? 'ok' : `FALLA (código ${r.code}, ${r.fallas} falla(s))`}`);
     if (!r.ok) console.log(r.salida.split('\n').filter(l => /FALLA|Error|error:/.test(l)).slice(0, 8).map(l => '    ' + l).join('\n'));
   }
   const rojas = resultados.filter(r => !r.ok).length;

@@ -20,7 +20,7 @@ let servidor = null;
 async function arrancar() {
   if (servidor) { servidor.kill(); await sleep(600); }
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
       // Estado cada 600 ms: una vuelta de prueba dura segundos, no una hora
       STATE_INTERVAL_MS: '200' },
     stdio: ['ignore', 'pipe', 'pipe'],
