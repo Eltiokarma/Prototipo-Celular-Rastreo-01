@@ -188,7 +188,7 @@ tratamiento de color del SOS.
 | Cronómetro | **TU BRECHA, EN VIVO** | Cuánto tenés con el de adelante y con el de atrás. Verde, ámbar o rojo, con la palabra al lado. |
 | Triángulo de alerta | **SOS DESLIZANDO** | Sin desbloquear ni marcar. Le llega a Despacho y a toda tu ruta. Qué pasó lo decís después. |
 | Globo de chat | **EL GRUPO DE LA RUTA** | Chat y notas de voz con toda tu ruta. Y una línea privada con Despacho. |
-| Mapa | **EL MAPA, SIN SEÑAL** | Guardado en tu teléfono. No depende de Google ni de tener datos. |
+| Mapa | **EL MAPA NO TE GASTA DATOS** | Se guarda en tu teléfono la primera vez y no se vuelve a bajar. Es nuestro, no de Google. |
 | Reloj | **TUS HORAS Y TUS VUELTAS** | Tus últimos 7 días. Un corte de señal no te parte el turno. |
 | Candado | **NO EMITE HASTA QUE VOS DECÍS** | Deslizás SALIR A RUTA y recién ahí. Parar a comer no te cuenta en contra. |
 
@@ -199,6 +199,22 @@ título. Nada más en las dos caras lo usa.
 espacio para destacar uno con un filete o un fondo apenas distinto, es ese: es
 el que contesta el miedo real del chofer. Sugerencia: cerrar la grilla con él a
 lo ancho de las dos columnas en vez de dejarlo en la esquina.
+
+### 7.2 bis. La línea honesta, debajo de la grilla
+
+Una sola línea, tinta tenue `#41627F`, monoespaciada chica, mismo tratamiento
+que las fuentes del frente:
+
+```
+Sin señal la app abre igual y el mapa está. Lo que se congela es la
+brecha, hasta que vuelva.
+```
+
+**No es un descargo legal y no se achica hasta desaparecer.** Es el detalle que
+hace creíble todo el resto: el chofer va a perder señal el primer día, y de las
+dos maneras de que se entere —leyéndolo acá o descubriéndolo solo— la primera
+es la que conserva el flyer. Un papel que promete lo que el producto no hace se
+desmiente a sí mismo en cinco minutos.
 
 ### 7.3 El recuadro del cobrador
 
@@ -251,6 +267,12 @@ que se resuelve después.
 - **Ninguna promesa de que el GPS aguanta el turno entero con la pantalla
   apagada.** Está comprobado por minutos, no por ocho horas, y depende de la
   configuración de batería de cada teléfono (`PENDIENTES.md`, 1.3).
+- **Nada que insinúe que la app funciona sin internet.** El mapa sí queda
+  guardado en el teléfono; **la brecha no**: sin señal se congela hasta que
+  vuelva, y el chat solo agrega mensajes locales (`LIMITACIONES.md`, B). Un
+  título como «EL MAPA, SIN SEÑAL» se lee como «la app anda sin datos», y eso
+  el chofer lo desmiente el primer día. Por eso el bloque habla de **datos**,
+  que es el beneficio real y verdadero, y la línea honesta dice el resto.
 - **Nada de "no te distrae".** Cualquier pantalla en un vehículo distrae algo.
 - **Ni un mockup de teléfono flotando con sombra y reflejo.** Se muestra el
   dato, no el dispositivo.
@@ -350,8 +372,8 @@ Autocontenido: no supone acceso a este repositorio.
 >    toda tu ruta. Qué pasó lo decís después.
 > 3. 💬 **EL GRUPO DE LA RUTA** — Chat y notas de voz con toda tu ruta. Y una
 >    línea privada con Despacho.
-> 4. 🗺 **EL MAPA, SIN SEÑAL** — Guardado en tu teléfono. No depende de Google
->    ni de tener datos.
+> 4. 🗺 **EL MAPA NO TE GASTA DATOS** — Se guarda en tu teléfono la primera vez
+>    y no se vuelve a bajar. Es nuestro, no de Google.
 > 5. ⏳ **TUS HORAS Y TUS VUELTAS** — Tus últimos 7 días. Un corte de señal no
 >    te parte el turno.
 > 6. 🔒 **NO EMITE HASTA QUE VOS DECÍS** — Deslizás SALIR A RUTA y recién ahí.
@@ -362,6 +384,15 @@ Autocontenido: no supone acceso a este repositorio.
 > miedo a ser vigilado, que es la objeción real de este lector. Dale jerarquía
 > — por ejemplo cerrando la grilla a lo ancho de las dos columnas en vez de
 > dejarlo en una esquina.
+>
+> **LÍNEA HONESTA, debajo de la grilla**, en tinta tenue `#41627F`,
+> monoespaciada chica, con el mismo tratamiento que las fuentes del frente:
+> «Sin señal la app abre igual y el mapa está. Lo que se congela es la brecha,
+> hasta que vuelva.»
+> No es un descargo legal: no la achiques hasta que desaparezca ni la mandes al
+> pie de página. Es el detalle que hace creíble todo el resto — el chofer va a
+> perder señal el primer día, y conviene que se entere leyendo esto y no
+> descubriéndolo solo.
 >
 > **Recuadro aparte** (borde `#C3D4E4`, fondo `#E9F0F8`), que tiene que leerse
 > como un apartado y no como un séptimo bloque:
@@ -396,6 +427,9 @@ Autocontenido: no supone acceso a este repositorio.
 > - Lenguaje de control, cumplimiento, productividad o supervisión: este papel
 >   es para el que maneja, no para la empresa.
 > - Prometer que el GPS funciona todo el turno con la pantalla apagada.
+> - Insinuar que la app funciona sin internet. El mapa sí queda guardado en el
+>   teléfono; la brecha no — sin señal se congela. El bloque 4 habla de
+>   **datos**, no de andar sin conexión, y para eso está la línea honesta.
 > - La frase «no te distrae».
 > - Mockups de teléfono flotando con sombra y reflejo.
 > - Códigos QR.

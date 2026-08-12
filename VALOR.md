@@ -139,7 +139,8 @@ Nada de esta tabla es una promesa a futuro.
 | Pagarle al datero, esquina por esquina | S/ 3 a S/ 15 por turno por un dato viejo y parcial | El mismo dato, **gratis, todo el turno y en toda la ruta** |
 | Quedar en pelotón: cuatro combis juntas y las cuatro vacías | Vuelta perdida | **Objetivo de brecha** con semáforo: verde en objetivo, ámbar al límite, rojo crítica. Y la palabra al lado del color |
 | Manejar con el celular en soporte, a 3800 m, con el sol de frente | No se ve la pantalla | **Modo día de fábrica** y **Sol extremo** (blanco puro, tinta casi negra). El rojo está reservado a SOS y brecha crítica: nada más lo usa |
-| Perder señal en media ruta | Se queda ciego y la app no abre | Abre de la **copia guardada**, con las **tiles del mapa cacheadas** y el mapa servido por nosotros. No depende de Google ni de una clave que se venza |
+| Perder señal en media ruta | Se queda ciego y la app no abre | Abre de la **copia guardada** y el mapa está ahí: las tiles se guardan en el teléfono (600, unos 15 MB — alcanza para la ruta entera con varios zooms) y no se vuelven a bajar. **La brecha sí se congela** hasta que vuelva la señal: eso no tiene arreglo y va dicho en el flyer |
+| Gastar sus datos en la app | Un turno entero de mapa son 20 a 50 MB | El mapa se baja **una vez**. Con 20 unidades, el turno pasó de 839 MB a **40 MB** (`ESCALABILIDAD.md`). Y es mapa propio: no depende de Google ni de una clave que se venza |
 | Una emergencia con las dos manos en el volante | Desbloquear, buscar contacto, marcar | **SOS deslizando**, sin desbloquear ni marcar. Sale **ya**, genérico; el *qué pasó* se elige **después**, nunca antes. Llega a Despacho y a toda la ruta, y queda con cartel hasta que alguien lo marque **ATENDIDO** |
 | Discutir cuántas horas hizo | Nadie tiene el registro, o lo tiene solo la oficina | **PERFIL**: sus vueltas, sus horas y su cumplimiento de los últimos 7 días, con el mismo criterio con el que lo mide el gerente. Y **un corte de señal no le parte el turno** (misma persona, misma unidad, 15 minutos) |
 | Su cobrador se olvidó la clave o cambió de teléfono | Terminan entrando los dos con la misma cuenta — y ahí se rompen las horas de los dos | Desde **PERFIL**, el chofer le **cambia la clave y lo saca**. Sin esperar a que Despacho atienda |
@@ -196,6 +197,7 @@ Traducido al flyer: **el rastreo mide la vuelta, no a la persona.**
 | S/ 0,10–0,50 por dato al datero | «Lo que le pagás al datero, gratis y todo el turno» | ❌ Un ahorro mensual exacto: depende de cuántos datos compra cada uno |
 | Menos de 1 segundo de lectura | «Pensada para leerse de un vistazo, con el celular en soporte y el sol de frente» | ❌ «No distrae»: cualquier pantalla en un vehículo distrae algo |
 | 65 % de choferes con estrés moderado o severo | «El apuro enferma: 2 de cada 3 choferes con estrés moderado a severo» | ❌ Que la app baje la presión arterial de nadie |
+| El mapa guardado en el teléfono | «El mapa no te gasta datos: se guarda la primera vez y no se vuelve a bajar» | ❌ «El mapa, sin señal», ni nada que se lea como que **la app** anda sin internet. El mapa sí queda; **la brecha se congela**. Es la promesa que se desmiente más rápido: el chofer pierde señal el primer día |
 
 **La regla:** el número de afuera describe **el problema**; la app se describe
 por **lo que hace**. En cuanto un número del estudio se pega a un resultado de
@@ -243,9 +245,18 @@ Bloque de apoyo, en chico:
 | ⏱ | **Tu brecha, en vivo** | Cuánto tenés con el de adelante y con el de atrás. Verde, ámbar o rojo, con la palabra al lado. Se lee de un vistazo, con el celular en soporte y el sol de frente. |
 | 🆘 | **SOS deslizando** | Sin desbloquear, sin buscar el número. Sale al toque y le llega a Despacho y a toda la ruta. Qué pasó lo elegís después — primero sale la alerta. |
 | 💬 | **El grupo de la ruta** | Chat y notas de voz con toda tu ruta, y una línea privada con Despacho. Sin gritar por la ventana. |
-| 🗺 | **El mapa, aunque no haya señal** | Mapa propio, guardado en el teléfono. No depende de Google ni de tener datos. |
+| 🗺 | **El mapa no te gasta datos** | Se guarda en tu teléfono la primera vez y no se vuelve a bajar. Es nuestro, no de Google. |
 | ⏳ | **Tus horas y tus vueltas** | Tus 7 días: vueltas, horas y cumplimiento. Un corte de señal no te parte el turno. |
 | 🔒 | **No emite hasta que vos decís** | Deslizás **SALIR A RUTA** y recién ahí. AUSENTE existe: comer o parar no te cuenta en contra, y a las 2 horas se apaga sola. Se mide la vuelta, no la persona. |
+
+Y debajo de los seis bloques, en letra chica pero legible:
+
+> Sin señal la app abre igual y el mapa está. Lo que se congela es la brecha,
+> hasta que vuelva.
+
+**Esa línea no se saca.** Es la que sostiene a las otras seis: el chofer va a
+perder señal el primer día, y de las dos maneras de enterarse —leyéndolo en el
+papel o descubriéndolo solo— la primera es la única que conserva el flyer.
 
 ### 5.4 El recuadro del cobrador
 
