@@ -110,6 +110,9 @@ PROMPT-REACT-NATIVE.md  Encargo para la app nativa: por qué, qué mantener y
 VALOR.md            Para qué le sirve esto al chofer y al cobrador: la
                     evidencia con su fuente, el texto del flyer y lo que NO
                     se puede prometer
+PROMPT-FLYER.md     Encargo del flyer: la maqueta cara por cara, la paleta
+                    (la misma de la app) y el prompt autocontenido para
+                    quien lo diseñe
 ```
 
 **Importante:** no hay archivos `.jsx` sueltos ni paso de build — todos los
