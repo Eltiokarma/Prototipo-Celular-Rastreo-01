@@ -236,7 +236,8 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
 
 ## Puesta en producción — la lista corta
 
-- [ ] **Cambiar `CREATOR_PASSWORD`** (ver 1.1).
+- [x] **Cambiar `CREATOR_PASSWORD`** — hecho por el dueño el 24/8, junto con
+      `DISPATCH_PASSWORD` (ver 1.1).
 - [x] Respaldo automático de la base, con descarga desde el panel del creador (ver 1.2).
 - [x] Volumen montado y `DB_FILE` apuntando ahí — comprobado con un
       despliegue real: los datos sobrevivieron al cambio de contenedor.
@@ -328,10 +329,12 @@ Tres cosas de la propuesta de Design no se implementaron. Ninguna es una
 omisión: cada una pedía un dato o un comportamiento que no existe. De las
 tres, **la primera ya está hecha** (7/8) y queda abajo tachada.
 
-- **«Último respaldo» y «errores en 24 h»** en el panel del creador. No hay
-  respaldos automáticos ni registro de errores. Son features de operación, no
-  de interfaz, y una tarjeta que muestre un número inventado es peor que no
-  tenerla.
+- **«Último respaldo» y «errores en 24 h»** en el panel del creador. Cuando
+  se escribió esto no había respaldos automáticos ni registro de errores.
+  Los respaldos ya existen (ver 1.2), así que la tarjeta «último respaldo»
+  hoy sí tendría un dato real que mostrar; el registro de errores sigue sin
+  existir. Son features de operación, no de interfaz, y una tarjeta que
+  muestre un número inventado es peor que no tenerla.
 - ~~**«7 / 9 unidades»** en la cabecera de la lista de Despacho~~ **HECHO**
   (7/8). No hizo falta el endpoint nuevo que se temía: el total viaja en el
   mismo estado de tiempo real (`flota`), que ya sale cada 3 s por ruta, con
