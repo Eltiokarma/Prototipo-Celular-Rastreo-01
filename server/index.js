@@ -5122,6 +5122,18 @@ app.get('/config.js', (req, res) => {
   );
 });
 
+// ─── POLÍTICA DE PRIVACIDAD ──────────────────────────────────
+// Google Play exige una URL pública con la política de la app del chofer,
+// y la sirve este mismo servidor: un documento estático, sin scripts. El
+// contacto sale de CONTACTO_PRIVACIDAD para no dejar un correo personal
+// escrito en el repositorio; sin la variable queda el canal genérico.
+const PRIVACIDAD_HTML = fs.readFileSync(path.join(__dirname, 'privacidad.html'), 'utf8')
+  .replaceAll('__CONTACTO__', String(process.env.CONTACTO_PRIVACIDAD || '').trim()
+    || 'la administración del sistema (su cooperativa tiene el contacto)');
+app.get('/privacidad', (req, res) => {
+  res.type('text/html; charset=utf-8').send(PRIVACIDAD_HTML);
+});
+
 if (PROJECT_DIR) {
   app.use(express.static(PROJECT_DIR));
   console.log('Sirviendo la app web desde', PROJECT_DIR);

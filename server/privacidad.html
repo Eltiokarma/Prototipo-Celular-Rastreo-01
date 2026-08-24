@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<!-- Política de privacidad de la app del chofer ("Control de ruta").
+     Google Play exige una URL pública que la sirva; la sirve este mismo
+     servidor en /privacidad. Sin frameworks ni scripts a propósito: es un
+     documento, y tiene que cargar hasta en el peor teléfono.
+
+     Los números de retención NO se inventan acá: son los mismos que
+     aplican las constantes del servidor (CHAT_DIAS 30, SOS_DIAS 365,
+     LAPS_DIAS/DESVIOS_DIAS 120, TURNOS_DIAS 365). Si esos cambian, esta
+     página tiene que cambiar con ellos.
+
+     El marcador de contacto lo reemplaza el servidor con la variable
+     CONTACTO_PRIVACIDAD. -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidad — Control de ruta</title>
+<style>
+  body {
+    margin: 0 auto; max-width: 720px; padding: 32px 20px 60px;
+    font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    background: #F7FAFD; color: #0B2239; line-height: 1.65; font-size: 16px;
+  }
+  h1 { font-size: 26px; line-height: 1.25; }
+  h2 { font-size: 18px; margin-top: 34px; }
+  p, li { color: #2A4864; }
+  strong { color: #0B2239; }
+  .fecha { font-size: 13px; color: #5A7591; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #E1E9F2; color: #2A4864; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #5A7591; }
+</style>
+</head>
+<body>
+<h1>Política de privacidad — Control de ruta</h1>
+<p class="fecha">Vigente desde el 24 de agosto de 2026.</p>
+
+<p><strong>Control de ruta</strong> es la aplicación del conductor y el
+cobrador de una cooperativa de transporte que contrató este sistema de
+control de flota. La usan personas con una cuenta que su propia
+cooperativa creó: no tiene registro abierto ni usuarios anónimos.</p>
+
+<h2>Qué datos se recopilan</h2>
+<ul>
+  <li><strong>Ubicación (también en segundo plano).</strong> Mientras el
+  conductor declara que está <em>en ruta</em>, el teléfono emite su
+  ubicación de forma continua — también con la pantalla apagada o la
+  aplicación en segundo plano. Es la función central de la app: con esa
+  ubicación se dibuja la combi en el mapa de su cooperativa y se calcula
+  la separación con las demás. <strong>Fuera del turno no se emite
+  ubicación</strong>: al declarar «fuera de ruta» (o al cerrar sesión) el
+  GPS se apaga, y una ausencia prolongada lo apaga sola.</li>
+  <li><strong>Identidad de la cuenta.</strong> Nombre, alias opcional,
+  vehículo y rol, cargados por la cooperativa. Las contraseñas se
+  guardan cifradas de forma irreversible.</li>
+  <li><strong>Mensajes del chat de la ruta</strong>: texto, notas de voz
+  y fotos que el usuario decide mandar, incluida la emergencia (SOS).</li>
+  <li><strong>Actividad del turno</strong>: horas en ruta, vueltas al
+  circuito y desvíos del trazado, calculados de la ubicación.</li>
+  <li><strong>Grabación de recorrido</strong>: solo si el conductor la
+  inicia (o acepta el pedido de su central), se guarda el trazado
+  recorrido para cargarlo como recorrido oficial de la ruta.</li>
+</ul>
+
+<h2>Para qué se usan</h2>
+<p>Para operar la flota de la cooperativa: el mapa en vivo de su central
+(Despacho), la separación entre combis, el registro de vueltas y horas
+con el que la cooperativa liquida el trabajo, el chat de coordinación y
+la atención de emergencias. <strong>No se usan para publicidad, no se
+venden ni se comparten con terceros para sus propios fines.</strong></p>
+
+<h2>Quién los ve</h2>
+<ul>
+  <li><strong>Su cooperativa</strong>: el personal de Despacho y gerencia
+  de la propia cooperativa, dentro de su alcance. Una cooperativa nunca ve
+  datos de otra.</li>
+  <li><strong>El operador del sistema</strong>, para administrar el
+  servicio y dar soporte.</li>
+  <li><strong>Proveedores de infraestructura</strong>, solo lo mínimo
+  para funcionar: el servidor se aloja en Railway, y el fondo del mapa
+  puede pedir imágenes de mapa a Geoapify (ese pedido lleva la dirección
+  IP del teléfono, como cualquier descarga; no lleva la identidad de la
+  cuenta).</li>
+</ul>
+
+<h2>Cuánto tiempo se guardan</h2>
+<table>
+  <tr><th>Dato</th><th>Retención</th></tr>
+  <tr><td>Mensajes del chat (texto, voz, fotos)</td><td>30 días</td></tr>
+  <tr><td>Vueltas y desvíos de ruta</td><td>120 días</td></tr>
+  <tr><td>Turnos (horas trabajadas)</td><td>365 días</td></tr>
+  <tr><td>Emergencias (SOS)</td><td>365 días</td></tr>
+  <tr><td>Posición en vivo</td><td>Solo la última conocida; no se guarda el recorrido continuo</td></tr>
+  <tr><td>Grabaciones de recorrido</td><td>Hasta 25 por cooperativa; las más viejas se borran solas</td></tr>
+</table>
+
+<h2>Seguridad</h2>
+<p>Todos los datos viajan cifrados (HTTPS y WebSocket seguro). Las
+contraseñas se guardan con hash irreversible. El acceso está separado por
+cooperativa y por rol, y las acciones administrativas quedan
+auditadas.</p>
+
+<h2>Sus derechos</h2>
+<p>La cuenta la administra su cooperativa: para corregir sus datos, o
+para darse de baja y pedir el borrado de lo que no sea registro laboral
+de la cooperativa, el primer canal es su central (Despacho). También
+puede escribir a <strong>__CONTACTO__</strong>.</p>
+
+<h2>Cambios</h2>
+<p>Si esta política cambia, la fecha de vigencia de arriba cambia con
+ella, en esta misma dirección.</p>
+</body>
+</html>

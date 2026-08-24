@@ -285,6 +285,14 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
       vigencia semanal de variantes (3.9) cambia de recorrido el sábado a
       las 19:00 en vez del domingo a medianoche. El servidor lo avisa en el
       arranque si detecta la combinación.
+- [ ] **`CONTACTO_PRIVACIDAD` en las variables del despliegue** — el correo
+      que muestra la política de privacidad (`/privacidad`, la URL que pide
+      Google Play). Sin la variable queda un canal genérico, que alcanza
+      para producción pero no para la ficha de la tienda.
+- [ ] **Publicar en Google Play** — el camino completo, con textos y
+      formularios listos, está en `PLAYSTORE.md`. Lo que no puede hacer el
+      repo: la cuenta de desarrollador (US$25 + verificación), los 12
+      testers × 14 días, y el video de la divulgación de ubicación.
 - [x] Marca de cada cooperativa (logo y nombre) configurable desde el panel
       del creador y corregible desde Despacho.
 - [x] **Ninguna pantalla depende de un CDN para dibujar el mapa** (ver 2.2).
