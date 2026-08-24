@@ -171,7 +171,7 @@ Lo que falta construir, ordenado: ver **PENDIENTES.md**.
 | --- | --- |
 | `DB_FILE` | Dónde vive la base. En Railway hay que montar un volumen y apuntarla ahí (`/data/r14.db`) o **un redeploy borra todo** |
 | `PORT` | Puerto (3001 por defecto) |
-| `DISPATCH_PASSWORD` | Crea o actualiza la cuenta `DESPACHO` al arrancar. Es la ruta de recuperación si esa clave se pierde o se filtra: cuando el valor **cambia**, revoca también las sesiones abiertas con la clave anterior |
+| `DISPATCH_PASSWORD` | Crea o actualiza la cuenta `DESPACHO` al arrancar. Es la ruta de recuperación si esa clave se pierde o se filtra: cuando el valor **cambia**, revoca también las sesiones abiertas con la clave anterior. **En producción es obligatoria**: sin ella la fila `DESPACHO` no existe y, mientras no haya ninguna cuenta de administración, el primer login que use ese nombre se la queda |
 | `GEOAPIFY_API_KEY` | La clave del proveedor de tiles del mapa (gratis en [myprojects.geoapify.com](https://myprojects.geoapify.com); el plan gratuito permite uso comercial). El servidor se la pasa a las pantallas en el momento — por `/config.js` a las web, con el login a la app nativa. Sin ella el fondo del mapa sale gris; los puntos y el trazado se dibujan igual |
 | `TILES_RELEASE_URL` | De dónde bajar el **mapa propio** (PMTiles raster por ciudad) al arrancar: la URL de descargas del release `mapa-propio`, p. ej. `https://github.com/Eltiokarma/Prototipo-Celular-Rastreo-01/releases/download/mapa-propio`. Con esto, las tiles de la zona de operación salen de NUESTRO servidor y Geoapify queda de excepción (fuera de zona o falla). El release lo genera el workflow **mapa propio** (Actions) |
 | `TILES_DIR` | Dónde guardar/leer esos archivos. Por defecto, `tiles/` junto a la base — en Railway eso cae dentro del volumen, que es donde deben vivir |
@@ -191,10 +191,15 @@ servidor por servidor, y sin que nada avisara si te lo olvidabas. La URL de
 tile sin versión sigue atendida: es la que piden los APK que ya están en la
 calle. Suite `renovacion`.
 | `DEFAULT_ROUTE` / `DEFAULT_COMPANY` / `DEFAULT_COMPANY_NAME` | Código de la ruta y de la cooperativa iniciales, y su nombre visible. Solo se usan la primera vez |
-| `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres |
+| `CREATOR_PASSWORD` | **Enciende el panel del creador.** Sin esta variable, ese panel no existe. Mínimo 12 caracteres, y distinta de `DISPATCH_PASSWORD` |
 | `CREATOR_PATH` | Mueve el panel del creador a una ruta propia (por defecto `/creador`) |
 | `CREATOR_TOTP_SECRET` | Segundo factor del panel del creador (base32) |
-| `OPEN_REGISTRATION` | `1` deja que cualquiera se registre. **Solo para demos** |
+| `OPEN_REGISTRATION` | `1` deja que cualquiera se registre. **Solo para demos**, y ahora el servidor lo hace cumplir: sin `MODO=demo` **se niega a arrancar** y explica por qué |
+| `MODO` | `demo` declara que la instancia es descartable. Es lo único que habilita `OPEN_REGISTRATION`. Cualquier otro valor —o ninguno— es producción |
+| `CLAVES_QUEMADAS` | Huellas —separadas por coma— de contraseñas que **ya no pueden volver a usarse**. Se generan con `node herramientas/quemar-clave.js`. Van acá y no en el repositorio: la huella de una clave filtrada vive al lado de la clave nueva que la reemplazó |
+| `TRUST_PROXY` | Cuántos proxies hay adelante (**1** por defecto, que es Railway). El bloqueo por intentos fallidos cuenta la IP desde la derecha de `X-Forwarded-For`: si el servidor se expone **sin** proxy hay que poner `0`, o la cabecera la escribe el cliente y el bloqueo no bloquea |
+| `REVISAR_SESIONES_MS` | Cada cuánto se revalidan las sesiones de los WebSocket abiertos (60 000). Es el retardo máximo de una revocación |
+| `TURNOS_DIAS` | Cuántos días se guardan los turnos cerrados (365: con ellos se liquidan horas) |
 | `STATE_INTERVAL_MS` | Cada cuánto se emite el estado (3000 por defecto) |
 | `SIN_SENAL_MS` | A los cuántos ms sin GPS una unidad queda marcada **sin señal** (30 000). Sigue en la fila y en el mapa con su última posición, pero nadie se mide contra ella |
 | `RESPALDO_CADA_H` | Cada cuántas horas se respalda la base sola (6). `0` lo apaga |
@@ -215,8 +220,10 @@ token válido no hay estado, historial ni chat. Contraseñas con scrypt+salt
 en la tabla `users` (roles `driver`/`collector`/`dispatch`/`manager`); 5 intentos fallidos
 bloquean la unidad 5 minutos. **El alta de choferes la hace Despacho**
 (panel → Unidades): el login rechaza unidades no registradas. Solo se
-auto-registran DESPACHO (bootstrap del sistema) y, para demos sin
-administración, cualquier unidad si `OPEN_REGISTRATION=1`. La app guarda
+auto-registran DESPACHO —y **sólo mientras el sistema no tenga ninguna cuenta
+de administración**: en cuanto existe un despacho o una gerencia en cualquier
+cooperativa, esa puerta se cierra, porque ya hay a quién pedirle el alta— y,
+para demos sin administración, cualquier unidad si `OPEN_REGISTRATION=1`. La app guarda
 la sesión en el celular y la restaura al abrir; si el servidor no
 responde, ofrece un modo demo local.
 
@@ -292,9 +299,14 @@ un desplegable. Todo contra los endpoints `/admin/*` del servidor
   cargado y con cuál de los trazados se está midiendo.
 - **Turnos** — entradas y salidas de la jornada, con hoy / ayer / esta semana.
 - **Vueltas** — cada vuelta cerrada con su duración y su brecha promedio, más
-  el acumulado por unidad. El servidor detecta cada vuelta solo —cuando el
+  el cuadro **por unidad**, que muestra el período elegido arriba (7, 30 o 90
+  días, o todo el historial retenido como elección explícita). El servidor
+  detecta cada vuelta solo —cuando el
   `routeProgress` llega cerca del final y vuelve al inicio— y la guarda en la
-  tabla `laps` (últimas 2000).
+  tabla `laps`. Al lado van las **medias vueltas** (idas y retornos, tabla
+  `legs`), que es lo que queda del chofer que hizo la ida y no volvió, y las
+  vueltas **parciales**, que son las del que se metió a mitad de ruta: se
+  listan marcadas y no entran en ningún promedio.
 - **Actividad** — la auditoría: quién inició sesión, quién dio de alta/baja o
   reseteó claves, bloqueos por intentos fallidos y SOS.
 
@@ -414,6 +426,85 @@ que es la base para detectar que una combi se salió de la ruta.
   grabada manejando. Se simplifica con Douglas-Peucker (tolerancia 10 m): un
   GPX de 600 puntos queda en unas decenas **sin cambiar la forma**. Tope:
   2000 puntos por tramo.
+
+### Medias vueltas: la ida que no tuvo retorno
+
+"Vuelta" quiere decir dos cosas y conviene tener las dos escritas: el **tramo
+`vuelta`** es la mitad geométrica del circuito, la que se opone a la ida; una
+**vuelta de `laps`** es el circuito entero.
+
+De ahí salía un agujero. El chofer que hace la ida y se va —termina el turno,
+se le rompe algo, lo mandan a otro lado— no completa el circuito, así que no
+cerraba **ninguna** fila. En vivo Despacho lo veía (la unidad dice `↪ IDA` o
+`↩ VUELTA`), pero al día siguiente esa media rutina no existía en ningún
+lado: ni en el informe, ni en el perfil del chofer, ni en el cuadro del
+gerente. Quedaban sus horas y nada que dijera qué hizo con ellas.
+
+Ahora **cada tramo terminado se guarda por su cuenta** (tabla `legs`):
+
+- Una vuelta entera son dos filas de tramo (una ida y un retorno) más una en
+  `laps`. No se reemplazan: cuentan cosas distintas.
+- El cambio de tramo tiene que **sostenerse** cuatro posiciones, y hay que
+  haber recorrido el tramo (>80 %) para decir que se terminó. Cuando la ida y
+  la vuelta comparten calle la proyección puede dudar en una esquina, y sin
+  esto esas dudas se guardarían como medias vueltas.
+- El tramo se cierra **también cuando la unidad se baja**: declarar "fuera",
+  irse a almorzar o dejar de reportar no borra la ida que ya estaba hecha.
+  Ése es exactamente el caso que esto existe para no perder.
+- Si el trazado cambia abajo (otra variante) el tramo en curso **se descarta**
+  sin guardarlo: cambió contra qué se lo medía a mitad de camino, y de ése no
+  se puede afirmar ni que se completó.
+- En una ruta cargada **solo con ida** el circuito es ese tramo y las dos
+  tablas dan el mismo número, que es lo correcto: ahí una ida sí es una
+  vuelta.
+
+Se ve en el cuadro por unidad de Despacho (columnas **Idas** y
+**Retornos**, el retorno en ámbar cuando queda por debajo de las idas), en el
+cuadro del gerente, en el perfil del chofer y en el informe `tramos.csv`.
+
+### El que no sale del paradero inicial
+
+La confirmación de presencia sólo exige **pisar el trazado**, y el trazado son
+veinte kilómetros: pisarlo en el paradero inicial y pisarlo a mitad de ruta
+eran la misma cuenta y daban el mismo resultado. El chofer que se "mete" en el
+medio entraba a la cadena de brechas como cualquiera.
+
+Que entre no es el problema —puede tener mil motivos, y el sistema no está
+para juzgarlos—. El problema era que esa **primera vuelta no es una vuelta**:
+es el pedazo que le faltaba al circuito. Se cerraba igual (llega al final,
+cruza el inicio) con una duración que es una fracción de la real, y entraba a
+los promedios como entera: bajaba la duración promedio de la ruta, movía el
+objetivo automático y le sumaba una vuelta que no dio. **Y no se notaba
+mirando la pantalla**, que es lo que lo hacía caro: la fila era idéntica a las
+demás.
+
+Ahora, en el momento en que la unidad pisa el trazado, se mira **por dónde**:
+
+- Si entró más allá del 15 % del circuito, la unidad queda marcada en vivo en
+  Despacho (`↳ ENTRÓ 62%`, en ámbar) y el hecho se **audita**, para poder
+  contestar "¿cuántas veces esta semana?" sin haber estado mirando la pantalla
+  en el momento.
+- **Salvo que esté reanudando.** El olvido desconfirma a los 3 minutos sin oír
+  al teléfono, y una zona muerta más larga que eso es común: un cerro, un
+  sótano, la batería agotada. Al reaparecer, el que venía desde el paradero se
+  ve idéntico al que se acaba de meter. Si la unidad estaba confirmada y
+  vuelve dentro de las 2 h, es la misma corrida cortada: la vuelta sigue
+  siendo parcial —no se la midió entera, y eso es aritmética— pero **no se
+  audita a nadie ni se lo marca en el mapa**. Una acusación automática y falsa
+  es peor que no tener la detección: se descubre discutiendo con un chofer que
+  tiene razón.
+- La vuelta que cierre se guarda con `parcial = 1` y el progreso por el que
+  entró. **No se descarta**: borrarla sería perder justo el dato que se busca.
+- Todo lo que promedia la filtra —resumen de Despacho, cuadro por unidad,
+  objetivo automático, cumplimiento del gerente y del perfil— y todo lo que
+  lista la muestra **marcada como PARCIAL**, con el porcentaje por el que
+  entró. Al chofer se le dice lo mismo que ve Despacho: esconderlo sería la
+  versión amable de mentir, y además le saca la posibilidad de explicarlo.
+- Al chofer **no se le avisa mientras maneja**: mismo criterio que el desvío
+  —esto es gestión, no alarma—.
+
+Al chofer no se le pide nada nuevo y la app no cambió: todo sale de datos que
+el servidor ya calculaba y tiraba.
 
 Una ruta sin recorrido cargado sigue funcionando con la estimación lineal de
 siempre, así que se puede ir cargando ruta por ruta. El trazado se dibuja en
@@ -944,11 +1035,12 @@ informe de horas trabajadas.
 ## Informes
 
 Panel → Gestión → **Informes**. Se elige un rango de fechas y se bajan los
-cinco informes de ese período:
+seis informes de ese período:
 
 | Informe | Qué trae |
 | --- | --- |
-| **Vueltas por unidad** | Cuántas vueltas hizo cada combi, cuánto tardó, a qué velocidad, y la brecha que mantuvo **con el objetivo de esa vuelta al lado** |
+| **Vueltas por unidad** | Cuántas vueltas hizo cada combi, cuánto tardó, a qué velocidad, y la brecha que mantuvo **con el objetivo de esa vuelta al lado**. Dos columnas dicen si la vuelta es entera y, si no, por qué punto del circuito entró esa unidad |
+| **Medias vueltas** | Cada ida y cada retorno que se completó. Es el informe que contesta "hizo la ida y se fue": un día con muchas más idas que retornos tiene una explicación |
 | **Horas por persona** | Turnos: entrada, salida y horas de cada chofer y cobrador |
 | **Salidas del recorrido** | Cada desvío: cuándo salió, cuándo volvió, cuánto duró, a cuánto llegó y cómo terminó |
 | **Emergencias** | Cada SOS con quién lo disparó, desde qué unidad y dónde |
@@ -964,8 +1056,8 @@ las vueltas son estimaciones y no medidas. Un informe con números que parecen
 precisos y no lo son es peor que no tener informe.
 
 El período máximo son 90 días, y un despachador de ruta solo puede sacar los
-de la suya. El gerente tiene los tres que más mira —vueltas, turnos y
-salidas— como botón directo arriba de sus números.
+de la suya. El gerente tiene los cuatro que más mira —vueltas, medias vueltas,
+turnos y salidas— como botón directo arriba de sus números.
 
 ## Qué frena cada cosa
 
@@ -1006,6 +1098,151 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
 4. **Operador (dueño de la infraestructura)** — está por encima de todo
    **sin clave ninguna**: controla el deploy, las variables de entorno y el
    archivo de la base. Es quien decide si el nivel 3 existe.
+
+### Lo que se cerró en la revisión del 8/8
+
+Una revisión de seguridad del sistema entero —no de un cambio— encontró ocho
+cosas. Ninguna se veía usando la app, y ésa es la parte que conviene recordar:
+
+- **El bootstrap de `DESPACHO` era una puerta abierta con nombre conocido.**
+  Si esa fila no existía —y `DISPATCH_PASSWORD` es opcional, y una cooperativa
+  provisionada desde el panel del creador recibe su supervisor con otro
+  nombre— el primer `POST /auth/login` anónimo del mundo se creaba la cuenta
+  que administra a todos, con la clave que el atacante mandara. Ahora el
+  bootstrap sólo corre si **no existe ninguna cuenta de administración**: si
+  ya hay a quién pedirle el alta, la puerta no tiene por qué existir.
+- **El bloqueo por origen no bloqueaba nada.** Leía el primer elemento de
+  `X-Forwarded-For`, que es justo el pedazo que escribe el cliente: una
+  cabecera distinta por pedido y cada intento estrenaba contador. Era el único
+  freno contra probar una contraseña en las 2000 cuentas, y el único del login
+  del panel del creador. Ahora se cuenta desde la derecha, con `TRUST_PROXY`
+  diciendo cuántos proxies hay adelante (**1 por defecto, Railway; poner 0 si
+  se corre sin proxy**).
+- **No existía cerrar sesión.** El "salir" de las pantallas borraba el token
+  del navegador y nada más: en el servidor seguía valiendo 30 días. Ahora hay
+  `POST /auth/logout`, con variante `{todas:true}` para el teléfono perdido.
+- **Cambiar la contraseña propia no cerraba las otras sesiones**, así que no
+  servía contra la amenaza que la justifica —un token copiado de un teléfono
+  desbloqueado—. Ahora las cierra, menos la del que la está cambiando.
+- **Las grabaciones y el logo se saltaban el alcance por ruta**: una gerencia
+  atada a una ruta bajaba los trazados de las otras y podía cambiarle la marca
+  a toda la cooperativa.
+- **El WebSocket se autenticaba una sola vez.** Suspender una cooperativa por
+  falta de pago borraba las filas de sesión y no cortaba a nadie que dejara la
+  conexión abierta: seguía recibiendo el mapa y el chat. Ahora se revalida cada
+  minuto y se cierra.
+- **Lo que manda el teléfono no se miraba** en el WebSocket, aunque el POST sí
+  lo mirara. Un `routeProgress: 999` no le arruinaba los números al que lo
+  mandaba sino **al de adelante** (la brecha se acumula en la vuelta del de
+  atrás); una latitud `"x"` llegaba hasta Leaflet y dejaba en blanco la
+  pantalla de todos los despachadores de esa ruta; y un SOS con coordenadas
+  basura mataba el proceso en el `toFixed` de la auditoría.
+- **La hora de los mensajes la ponía el cliente.** Un SOS con `timestamp: 1`
+  sonaba en Despacho y quedaba guardado en 1970: no salía en el informe de
+  emergencias, no salía en el conteo del gerente, y la poda lo borraba por
+  viejo. La emergencia ocurría y no dejaba rastro. Ahora la hora declarada se
+  acota a la misma ventana que las posiciones.
+
+Todo con prueba puesta: suite `puertas`. Lo que la revisión verificó como sano
+está en su informe — vale la pena saber que la parte más grande salió limpia:
+el aislamiento entre cooperativas, el hash de contraseñas, los tokens, los
+bordes de rol, el panel del creador y las rutas de archivos.
+
+### El registro abierto ya no depende de que alguien se acuerde
+
+Quedaba una puerta cruzada entre cooperativas, y la única que quedaba:
+`OPEN_REGISTRATION=1`. Quien se auto-registra **elige su código de usuario** y
+queda **sin vehículo**, y "mi combi" se resolvía como `vehicleId || unitId`
+buscando después por un `unitId` que es único en todo el servidor. Registrarse
+con el código de una combi ajena —son cortos y predecibles— alcanzaba para
+cambiarle la clave y dar de baja a los cobradores de **otra cooperativa**.
+Medido: sin el arreglo, el ataque devuelve 200 y el cobrador desaparece.
+
+Se cerró por los dos lados:
+
+- **El servidor se niega a arrancar** si encuentra `OPEN_REGISTRATION=1` sin
+  `MODO=demo`, con un mensaje que nombra la variable, explica el riesgo y dice
+  cómo seguir. Antes era un cartel en el log, y un cartel depende de que
+  alguien lo lea: las variables de un deploy se copian del deploy anterior.
+- **`cobradorDeSuCombi` compara también la empresa.** El arranque ya impide
+  que un auto-registrado exista en producción; esto hace que la regla "un
+  chofer sólo toca a los suyos" valga sola, sin depender de qué variables
+  tenga el deploy.
+
+**Qué cuenta como producción**: todo lo que no esté marcado explícitamente
+como demo. El repo no tenía ningún criterio —no usa `NODE_ENV` ni mira las
+variables de Railway— así que se eligió el conservador. Al revés (suponer
+desarrollo salvo que digan producción) el olvido sale barato en la máquina del
+que programa y caro en el servidor de la cooperativa, que es donde el olvido
+de verdad ocurre.
+
+### Las llaves de arranque no pueden estar quemadas
+
+Mismo criterio de producción, aplicado a las dos contraseñas que se ponen por
+variable de entorno. En producción el servidor **no arranca** si:
+
+| situación | por qué frena |
+| --- | --- |
+| `DISPATCH_PASSWORD` no está | sin ella la fila `DESPACHO` no se crea, y mientras no exista ninguna cuenta de administración el primer login que use ese nombre se la queda, con la clave que mande y viendo todas las rutas |
+| `DISPATCH_PASSWORD` tiene menos de 6 caracteres | antes era un aviso en el log, y no sirvió nunca |
+| cualquiera de las dos es una clave **quemada** | ya no es secreta: alguien que no somos nosotros la puede escribir |
+| `CREATOR_PASSWORD` es igual a `DISPATCH_PASSWORD` | son dos niveles distintos y tienen que ser dos secretos distintos: así, quien consigue la clave de una cooperativa consigue la de todas |
+
+**Qué cuenta como quemada.** Tres familias: las que están en este repositorio
+—`despacho99` aparece en más de treinta archivos de pruebas, y el repositorio
+es público—, las obvias (`password`, `123456`, `admin`), y **las que quemó el
+dueño**: las que pasaron por un chat, un correo o una captura. Esas últimas no
+están en el código y no pueden estarlo — escribirlas acá sería publicarlas por
+segunda vez. Van por `CLAVES_QUEMADAS`, como huellas:
+
+```
+node herramientas/quemar-clave.js     # pide la clave, no la muestra, imprime la huella
+```
+
+**Nunca se guarda una contraseña, ni acá ni en el despliegue.** Lo que se
+compara son huellas `scrypt`, que van en un solo sentido. La sal es fija y
+está a la vista porque tiene que serlo: la huella se calcula en una máquina y
+se compara en otra. Eso tiene un costo, y conviene decirlo entero — con sal
+fija, la huella de una contraseña corta y común se puede adivinar probando
+candidatas. **La protección de verdad es que la clave nueva sea larga y
+aleatoria**; la huella sólo impide volver a la vieja por distracción.
+
+La herramienta se niega a recibir la clave por tubería o por argumento: ahí
+quedaría en el historial del shell, en la lista de procesos y en el log del
+sistema. Una herramienta para quemar un secreto que de paso lo publica en tres
+lados no sirve.
+
+**En demo no se revisa nada.** `MODO=demo` sigue arrancando con cualquier
+clave, que es lo que una demo necesita. Los servidores de las pruebas declaran
+`MODO=demo` por eso mismo: son instancias descartables, que es literalmente lo
+que esa variable significa. Suite `puertas`.
+
+### Qué viaja adentro del APK
+
+Un APK es un archivo comprimido: cualquiera de los 2000 choferes puede abrirlo
+y leerlo. Se revisó una sola pregunta —¿hay credenciales adentro?— y la
+respuesta es **no**. Lo que sí viaja, y por qué está bien:
+
+| Qué | Veredicto |
+| --- | --- |
+| `EXPO_PUBLIC_SERVIDOR` (la URL del servidor) | Público por necesidad: la app tiene que saber a dónde hablar. El prefijo `EXPO_PUBLIC_` es justamente la convención de Expo para "esto se incrusta en el paquete" |
+| `extra.eas.projectId` | Identificador del proyecto de compilación, no una credencial |
+| La URL de las tiles de Geoapify | Sólo el **host**; la clave no |
+| `https://localhost` en el WebView del mapa | Es la etiqueta de origen del HTML embebido, no un servidor |
+
+**La clave del mapa NO va compilada en el APK, a propósito** — rotarla
+obligaría a repartir una app nueva a toda la flota. Viaja en la respuesta del
+login, que exige autenticación (`server/index.js:2057-2062`). No hay keystore,
+ni `google-services.json`, ni claves de push o SMS, ni cadenas de conexión, ni
+la ruta del panel del creador (que sólo aparece en comentarios). El historial
+de git tampoco tiene ninguna clave de mapas commiteada.
+
+Queda **una cosa para decidir, y no es de código**: los paneles web reciben esa
+misma clave por `GET /config.js`, que es **público** — tiene que serlo, porque
+el navegador la necesita antes de que alguien inicie sesión. Es normal en
+cualquier mapa web y no expone datos de nadie, pero es una clave que se
+factura: conviene restringirla por dominio en el panel de Geoapify. Eso se
+hace allá, no acá.
 
    **Rutas de recuperación**: si la clave de Despacho de la cooperativa
    inicial se pierde o filtra, setear/cambiar `DISPATCH_PASSWORD` y

@@ -106,7 +106,7 @@ console.log('\nBORDES');
 let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99' },
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   servidor.stderr.on('data', d => process.stderr.write('[srv] ' + d));

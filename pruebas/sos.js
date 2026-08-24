@@ -36,7 +36,7 @@ const ok = (n, c, e) => {
 let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
            SOS_TIPO_VENTANA_MS: String(VENTANA_MS) },
     stdio: ['ignore', 'ignore', 'pipe'],
   });

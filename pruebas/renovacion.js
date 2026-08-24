@@ -87,7 +87,7 @@ async function arrancarYEsperar(versionEsperada) {
   const p = spawn('node', [path.join(RAIZ, 'server', 'index.js')], {
     env: {
       ...process.env, PORT: String(PUERTO), DB_FILE: DB,
-      DISPATCH_PASSWORD: 'despacho99',
+      DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
       TILES_DIR: VOLUMEN,
       TILES_RELEASE_URL: `http://localhost:${PUERTO_RELEASE}`,
     },

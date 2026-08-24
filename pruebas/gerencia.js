@@ -25,7 +25,7 @@ const ok = (n, c, e) => {
 let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99' },
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   servidor.stderr.on('data', d => process.stderr.write('[srv] ' + d));
@@ -309,11 +309,21 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
     // CSV el mes que viene no tiene forma de saber cuál regía ese martes.
     ok('la brecha viene con el objetivo de ESA vuelta al lado',
       /Objetivo de esa vuelta/.test(csv), csv.split('\r\n').find(l => /Brecha promedio/.test(l)));
+    // Por POSICIÓN de la columna y no por fin de línea: el CSV gana columnas
+    // cada tanto (la última vez, si la vuelta es entera y por dónde entró), y
+    // un `$` convierte cada columna nueva en una falla que no tiene nada que
+    // ver con lo que esta prueba defiende.
+    const columna = (fila, nombre) => {
+      const cab = csv.split('\r\n').find(l => l.startsWith('Unidad;'));
+      const i = (cab || '').split(';').indexOf(nombre);
+      return i === -1 ? undefined : (fila || '').split(';')[i];
+    };
     const filaM90 = csv.split('\r\n').find(l => l.startsWith('M-90'));
-    ok('y la vuelta que lo guardó lo muestra', /;05:00\s*$/.test(filaM90 || ''), filaM90);
+    ok('y la vuelta que lo guardó lo muestra',
+      columna(filaM90, 'Objetivo de esa vuelta (m:ss)') === '05:00', filaM90);
     const filaM02 = csv.split('\r\n').find(l => l.startsWith('M-02'));
     ok('la que no lo tiene deja la celda vacía, no un cero inventado',
-      /;$/.test(filaM02 || ''), filaM02);
+      columna(filaM02, 'Objetivo de esa vuelta (m:ss)') === '', filaM02);
 
     // Los tres botones de descarga del panel, por su nombre REAL. El de horas
     // decía "CSV turnos" y pedía `turnos.csv`, que no existe: devolvía 404 y

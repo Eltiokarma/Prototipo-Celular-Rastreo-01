@@ -125,7 +125,7 @@ const limpiar = () => {
   limpiar();
   const servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: String(P), DB_FILE: DB,
-           DISPATCH_PASSWORD: 'despacho99', CREATOR_PASSWORD: CLAVE,
+           DISPATCH_PASSWORD: 'despacho99', MODO: 'demo', CREATOR_PASSWORD: CLAVE,
            RESPALDO_DIR: CARPETA, RESPALDO_CADA_H: '0',   // el timer no ensucia la prueba
            STATE_INTERVAL_MS: '600' },
     stdio: ['ignore', 'ignore', 'pipe'],

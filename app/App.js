@@ -897,6 +897,12 @@ function Perfil({ sesion, marca, onCerrar }) {
   const tarjetas = m ? [
     ['VUELTAS · 7 DÍAS', String(m.vueltas)],
     ['HOY', String(m.vueltasHoy)],
+    // Las medias vueltas. Una VUELTA es el circuito entero (ida y retorno);
+    // el que hizo la ida y no volvió no cerraba ninguna y su trabajo no
+    // aparecía en ningún lado — quedaban las horas y nada que dijera qué
+    // hizo con ellas. Ahora las mitades se cuentan por separado.
+    ['IDAS · 7 DÍAS', String(m.idas ?? 0)],
+    ['RETORNOS · 7 DÍAS', String(m.retornos ?? 0)],
     ['HORAS · 7 DÍAS', hm(m.horasSec)],
     ['HORAS HOY', hm(m.horasHoySec)],
     ['BRECHA PROM.', mmss(m.brechaProm)],
@@ -940,6 +946,32 @@ function Perfil({ sesion, marca, onCerrar }) {
               <Text style={s.diagnostico}>
                 En objetivo: dentro del ±{Math.round((datos.toleranciaCumple || 0.15) * 100)} % de la
                 vara que regía en cada vuelta ({m.juzgables} juzgable{m.juzgables === 1 ? '' : 's'}).
+              </Text>
+            )}
+            {/* Una VUELTA es salir y volver. Las idas y los retornos son las
+                mitades: si hiciste la ida y no volviste, la ida está contada
+                igual. */}
+            {m && (m.idas > 0 || m.retornos > 0) && m.idas !== m.retornos && (
+              <Text style={s.diagnostico}>
+                Una vuelta es el circuito entero. Las idas y los retornos se cuentan
+                aparte: {m.idas} ida{m.idas === 1 ? '' : 's'} y {m.retornos} retorno
+                {m.retornos === 1 ? '' : 's'} en 7 días.
+              </Text>
+            )}
+            {/* Se le dice al chofer lo mismo que ve Despacho. Esconderlo sería
+                la versión amable de mentir, y además le saca la posibilidad de
+                explicarlo si hay algo que explicar.
+                Se nombra el HECHO y las dos causas posibles, no una sola: la
+                medición también se parte por quedarse sin señal, y acusar al
+                chofer de haberse metido cuando estuvo en un cerro es la clase
+                de error que se descubre cuando ya perdió la confianza. */}
+            {m && m.parciales > 0 && (
+              <Text style={s.diagnostico}>
+                {m.parciales} vuelta{m.parciales === 1 ? '' : 's'} no se
+                midi{m.parciales === 1 ? 'ó' : 'eron'} entera{m.parciales === 1 ? '' : 's'}: la
+                medición arrancó con la ruta ya avanzada, sea porque entraste en el medio o
+                porque estuviste sin señal un rato largo. No cuentan para el promedio ni
+                para el objetivo.
               </Text>
             )}
 

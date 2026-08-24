@@ -152,6 +152,32 @@ limitación se resuelva o aparezca una nueva.
 - La **detección de vueltas** sigue siendo una heurística (llegar cerca del
   final y volver al inicio): un desvío grande o GPS muy errático puede
   perder o duplicar una vuelta.
+- La **detección de medias vueltas** (idas y retornos, tabla `legs`) es la
+  misma heurística sobre el tramo, con dos guardas: el cambio de tramo tiene
+  que sostenerse cuatro posiciones y hay que haber recorrido más del 80 % del
+  tramo para darlo por terminado. Los dos números son fijos y no se pueden
+  ajustar por ruta; en un circuito muy corto, o con un teléfono que reporta
+  muy espaciado, la confirmación puede llegar tarde.
+- **Un tramo que no se completó no queda en ningún lado.** Si la combi hizo
+  media ida y se bajó, no hay fila: sólo sus horas. Es a propósito —un pedazo
+  suelto no le sirve a nadie para contar— pero significa que las horas y las
+  medias vueltas no cuadran siempre.
+- **El umbral de "se metió a mitad de ruta" es el 15 % del circuito**, fijo
+  para todas las rutas. Está elegido para cubrir el ruido normal (entre
+  encender la app y arrancar ya se avanzaron unas cuadras); en una ruta muy
+  corta puede quedar generoso, y una entrada real al 12 % no se marcaría.
+- **Una zona muerta larga corta la medición igual.** El olvido desconfirma a
+  los 3 minutos sin oír al teléfono, así que un cerro o un sótano parten la
+  vuelta en dos y la que se cierre queda `parcial`. Eso **no** se traduce en
+  una acusación: si la unidad estaba confirmada y vuelve dentro de las 2 h
+  (`REANUDA_MS`), se la trata como reanudación — no se audita ni se la marca
+  en el mapa. Pero la vuelta sí queda fuera de los promedios, así que un
+  chofer con mala cobertura suma menos vueltas juzgables que uno con buena.
+- **La ventana de reanudación es de tiempo, no de recorrido.** Vuelve a
+  contar como entrada tardía recién pasadas las 2 h. Un chofer que corta el
+  turno una hora y retoma a mitad de ruta pasa por reanudación. Está elegido
+  a propósito: el error barato es no marcar una entrada real (la parcial
+  queda en los números igual), el caro es marcar una falsa.
 - El GPS urbano tiene error típico de 5–30 m, y algunos equipos no
   reportan velocidad (se muestra 0).
 

@@ -39,7 +39,7 @@ function totp(secretoBase32, desfase = 0) {
 const servidores = [];
 async function arrancar(puerto, env, dbFile) {
   const p = spawn('node', [RAIZ + '/server/index.js'], {
-    env: { ...process.env, PORT: String(puerto), DB_FILE: dbFile, DISPATCH_PASSWORD: 'despacho99', ...env },
+    env: { ...process.env, PORT: String(puerto), DB_FILE: dbFile, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let salida = '';

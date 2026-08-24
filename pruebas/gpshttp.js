@@ -35,7 +35,7 @@ let servidor = null;
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: String(P), DB_FILE: DB,
-           DISPATCH_PASSWORD: 'despacho99', STATE_INTERVAL_MS: '400',
+           DISPATCH_PASSWORD: 'despacho99', MODO: 'demo', STATE_INTERVAL_MS: '400',
            // Acortados para "VACIAR ATRASO NO ES ESTAR MUERTO": el barrido
            // corre cada 10 s fijos, y con los plazos de producción (30 s /
            // 3 min) verlo actuar sería una suite de cinco minutos.

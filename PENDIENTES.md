@@ -16,9 +16,11 @@ primero lo que impide vender, después lo que impide escalar, después producto.
 
 | # | Qué | Por qué bloquea | Tamaño |
 | --- | --- | --- | --- |
-| 1.1 | **Cambiar `CREATOR_PASSWORD`** | Estuvo escrita en un chat en texto plano y es la ÚNICA llave que abre TODAS las cooperativas. Todo lo demás de esta lista da lo mismo si esto queda | 10 minutos |
+| 1.1 | **Cambiar `CREATOR_PASSWORD`** | Estuvo escrita en un chat en texto plano y es la ÚNICA llave que abre TODAS las cooperativas. Todo lo demás de esta lista da lo mismo si esto queda. Decisión del dueño (8/8): se cambia **antes de exponerlo**, no durante el desarrollo. **SIGUE ABIERTA — la rotación es del dueño y nadie más la puede hacer.** Lo que sí se hizo (10/8) es que deje de depender de que alguien se acuerde: en producción el servidor **se niega a arrancar** con una llave quemada, corta, ausente, o si las dos llaves son la misma (`server/claves.js`, suite `puertas`). Los tres pasos: **1)** poner una `CREATOR_PASSWORD` nueva, larga y aleatoria, distinta de `DISPATCH_PASSWORD`; **2)** correr `node herramientas/quemar-clave.js` con la VIEJA y pegar la huella en `CLAVES_QUEMADAS` del despliegue, para que nadie la reponga por distracción; **3)** reiniciar. Ninguna contraseña se escribe en el repositorio: lo que viaja son huellas | 10 minutos |
 | 1.2 | ~~Respaldo automático de la base~~ | **HECHO.** Cada 6 h en el volumen, verificado (se abre y se lee, no solo se escribe) y con rotación. Desde el panel del creador: crear a pedido y **descargar** — el archivo en otra máquina es el respaldo que sobrevive a perder el servidor. Suite `respaldo` con restauración real | ✔ |
 | 1.3 | **Medir un turno de 8 horas** | Toda la app nativa existe por una promesa —el GPS aguanta con la pantalla bloqueada— que solo está comprobada por *varios minutos*. Si a las 3 horas Android la mata, el producto no es lo que decimos que es. No se arregla programando: se mide | 1 turno |
+| 1.4 | ~~Poner `OPEN_REGISTRATION` fuera de producción~~ | **HECHO** (8/8). Era la única puerta cruzada entre cooperativas que quedaba, y el agujero se midió antes de taparlo: sin el arreglo, un auto-registrado con el código de una combi ajena le cambia la clave a su cobrador (200) y lo da de baja (200). Cerrado por los dos lados: el servidor **se niega a arrancar** con `OPEN_REGISTRATION=1` sin `MODO=demo` —salida con código 1 y un mensaje que nombra la variable, explica el riesgo y dice cómo seguir— y `cobradorDeSuCombi` compara **también la empresa**, para que la regla valga sola sin depender del deploy. Producción = todo lo que no esté marcado como demo: el repo no tenía criterio (ni `NODE_ENV` ni Railway) y se eligió el conservador. La demo sigue andando igual, sólo hay que declararla. Suite `puertas` | ✔ |
+| 1.5 | **Restringir por dominio la clave del mapa (Geoapify)** | Salió de revisar el APK (8/8). La clave NO está compilada en la app —viaja en la respuesta del login, autenticada— pero los paneles web la reciben por `GET /config.js`, que es público y tiene que serlo: el navegador la necesita antes de que nadie inicie sesión. Es lo normal en cualquier mapa web y no expone datos de nadie, pero es una clave que se factura. Se restringe por dominio **en el panel de Geoapify**, no en este código | 5 minutos, fuera del repo |
 
 ### 2 · Para escalar de 1 cooperativa a varias, y de 6 combis a 20
 
@@ -121,6 +123,47 @@ lo verifica pegándole al endpoint, no mirando la pantalla. Todo auditado
 —del cambio de clave queda QUE la cambió y nunca cuál— y Despacho y la
 gerencia los siguen viendo enteros. Suite `cobradores`.
 
+### 3.7 · ~~El que se mete a mitad de ruta y el que hace media vuelta~~ — HECHO (8/8)
+
+Dos preguntas del dueño, y las dos apuntaban al mismo lugar: cosas que el
+servidor **veía en vivo y tiraba**.
+
+**«Si un chofer no inicia en el paradero inicial y se mete en la ruta, cómo
+lo detectamos?»** — No se detectaba. La confirmación de presencia sólo exige
+pisar el trazado, y el trazado son veinte kilómetros: pisarlo en el paradero
+y pisarlo a mitad de ruta daban el mismo resultado. Y el daño no era el hueco
+de detección sino lo que hacía callado: su **primera vuelta** —que es el
+pedazo que le faltaba al circuito— se cerraba como una vuelta entera con una
+duración que es una fracción, bajaba la duración promedio de la ruta, movía
+el objetivo automático y le sumaba una vuelta que no dio. La fila era
+idéntica a las demás y **nadie podía notarlo mirando la pantalla**, que es lo
+que lo hacía caro.
+
+Ahora, al confirmar, se mira por dónde entró (el progreso ya estaba
+calculado, sólo faltaba mirarlo): más allá del 15 % del circuito la unidad
+queda marcada en vivo en Despacho (`↳ ENTRÓ 62%`) y el hecho se audita, para
+poder contestar «¿cuántas veces esta semana?» sin haber estado mirando. La
+vuelta se guarda con `parcial = 1` y el progreso de entrada — **no se
+descarta**, borrarla sería perder justo el dato que se busca —, queda fuera de
+todos los promedios (resumen, acumulado por unidad, objetivo automático,
+cumplimiento) y se lista marcada. Al chofer se le dice lo mismo que ve
+Despacho; mientras maneja no se le avisa nada, mismo criterio que el desvío.
+
+**«A veces un chofer sólo hace la ida, cómo se ve eso?»** — No se veía. Una
+vuelta de `laps` es el circuito entero, así que el que hacía la ida y se iba
+no cerraba **ninguna** fila: quedaban sus horas y ningún dato que dijera qué
+hizo con ellas. Ahora cada tramo terminado se guarda por su cuenta (tabla
+`legs`), con dos guardas contra el ruido —el cambio de tramo se confirma en
+cuatro posiciones y hay que haber recorrido más del 80 % del tramo— y, sobre
+todo, **cerrando el tramo también cuando la unidad se baja**: declarar
+«fuera» o dejar de reportar no borra la ida que ya estaba hecha. Se ve como
+columnas *Idas* y *Retornos* en Despacho y en el cuadro del gerente (el
+retorno en ámbar cuando queda por debajo), en el perfil del chofer, y en el
+informe nuevo `tramos.csv`.
+
+Ni la app ni el chofer cambian: todo sale de datos que el servidor ya
+calculaba. Suite `metidos`.
+
 ### 3bis · ~~Los bancos visuales fotografiaban pantallas vacías~~ — HECHO
 
 Salió de mirar las capturas antes de desplegar, y es la clase de rotura que
@@ -177,6 +220,10 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
 | 4.2 | **Una sola instancia, SQLite compartido** | Alcanza de sobra para decenas de cooperativas. El día que no alcance, `ESCALABILIDAD.md` tiene el plan con números |
 | 4.3 | **iPhone** | Todo el desarrollo asume Android, que es lo que usan los choferes. Nada está probado en iOS |
 | 4.4 | **Nombres cosméticos con "R-14"** | "Servidor COOP-R14", títulos de páginas, la descripción del `package.json`. El modelo de datos ya es multi-cooperativa; esto es solo texto que suena a un solo cliente |
+| 4.5 | **Despacho no puede PEDIR una grabación de recorrido** | Preguntado por el dueño (8/8). Grabar sale sólo de la app del que va arriba (Perfil → GRABAR RECORRIDO) y come del GPS de ese teléfono; Despacho únicamente **consume** —lista las grabaciones de su empresa y las importa al trazador—. Que Despacho apriete "grabar" en su panel no puede existir: no tiene GPS en la calle. Lo que sí sería implementable es que **pida** una: un flag que la app levanta en su próximo POST y arranca sola, con aviso al chofer. Chico, y sin nada que lo bloquee |
+| 4.6 | ~~El acumulado por unidad no tiene corte por fecha~~ | **HECHO** (9/8), por decisión del dueño. Era la única lectura del sistema que agrupaba "todo lo retenido" en vez de un período, y lo cobraba en CADA apertura de la pestaña. Ahora acepta `?dias=N` y `?todo=1`, **abre con 7 días**, y todo el historial queda como elección expresa. Medido a 5000 unidades, mismo servidor y misma base: **1627 ms → 343 ms, 4,7× más rápido**; a 30 días 971 ms y a 90 días 1173 ms, así que el que pide más sigue pagando más — pero lo pide él. El corte se aplica también a `legs` y a la subconsulta de "Última", que si no mostraría una vuelta de hace tres meses en una fila que dice 7 días. **Lo que más importa acá no es el milisegundo sino el rótulo**: la pantalla ya no dice "acumulado" en ningún lado —encabezado, columna, pie, README—, y el servidor devuelve `periodo` con lo que sirvió DE VERDAD (recorta a [1, 365]), que es con lo que la pantalla rotula. Suite `periodo` | ✔ |
+| 4.8 | ~~Números a 90 días: agregar en SQL~~ | **PROBADO Y DESCARTADO** (9/8). Se escribió, se midió y **se revirtió**: no sirve. La estimación de 182 ms que estaba acá era falsa — se había medido sobre una agregación que **no calculaba `cumplimiento`**, que es justo la columna cara. Con las dos implementaciones corriendo sobre la misma base y en la misma corrida (5000 unidades, 245 252 vueltas, 90 días): JS **832 ms**, SQL de tres pasadas **2186 ms** (2,5 veces PEOR), SQL de una pasada con `strftime` **1483 ms**, y la única que gana —día por aritmética entera— **687 ms**, o sea 1,21×. A 30 días la SQL es más lenta que la JS (229 contra 219) y a 7 días, que es como abre la pantalla, ahorra 11 ms. Y sólo gana **asumiendo que el huso horario del servidor nunca cambia de offset** (sin horario de verano), suposición invisible metida en un número que lee el gerente. **El techo no era la agregación: era leer las filas** —423 de los 832 ms son sólo traerlas—, así que ninguna reescritura del agrupado podía ganar mucho. La palanca real es acotar el rango, no reescribir la cuenta. Detalle y tabla completa en `COSTOS.md` §3 | ✔ descartado con medición |
+| 4.7 | ~~`shifts` no se poda nunca~~ | **HECHO** (8/8). Era la única tabla de historial sin techo: todo lo demás tiene retención y ésta se había escapado. No dolía en la pantalla —su lectura filtra por fecha y sale en 20 ms— y por eso podía crecer años sin que nadie lo notara. Ahora `TURNOS_DIAS`, **365 y no 120**: con los turnos se liquidan horas, y un reclamo por una liquidación llega bastante después que una discusión por una vuelta. Sólo poda los CERRADOS, para no partirle las horas del día al que está arriba de la combi. Suite `retencion` | ✔ |
 
 ---
 
