@@ -549,6 +549,14 @@ function montarPanelDelCreador(app, deps) {
     const base = dbFile && dbFile !== ':memory:' ? dbFile : null;
     const vivo = deps.estadoVivo ? deps.estadoVivo() : { unidades: 0, conexiones: 0 };
 
+    // El último respaldo, acá y no solo en su pestaña: esta pantalla es el
+    // "¿estoy cubierto?" de un vistazo, y un respaldo viejo (o ausente) es
+    // de las cosas que hay que ver sin ir a buscarlas. La tarjeta se había
+    // descartado en el rediseño porque los respaldos automáticos no
+    // existían; ahora existen (PENDIENTES 1.2) y el número es real.
+    const respaldos = base ? respaldo.listar(respaldo.dirDe(db.name || '')) : [];
+    const ultimoRespaldo = respaldos[respaldos.length - 1] || null;
+
     res.json({
       arrancadoEn,
       ahora: Date.now(),
@@ -574,6 +582,8 @@ function montarPanelDelCreador(app, deps) {
       ...vivo,
       sesionesCreador: sesiones.size,
       segundoFactor: !!totpClave,
+      ultimoRespaldo,                        // { archivo, bytes, cuando } o null
+      respaldoCadaHoras: respaldo.CADA_HORAS,
     });
   });
 

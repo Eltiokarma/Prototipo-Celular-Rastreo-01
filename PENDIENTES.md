@@ -385,10 +385,14 @@ tres, **la primera ya está hecha** (7/8) y queda abajo tachada.
 
 - **«Último respaldo» y «errores en 24 h»** en el panel del creador. Cuando
   se escribió esto no había respaldos automáticos ni registro de errores.
-  Los respaldos ya existen (ver 1.2), así que la tarjeta «último respaldo»
-  hoy sí tendría un dato real que mostrar; el registro de errores sigue sin
-  existir. Son features de operación, no de interfaz, y una tarjeta que
-  muestre un número inventado es peor que no tenerla.
+  ~~La mitad de respaldos~~ **HECHA** (24/8): con los respaldos automáticos
+  ya reales (1.2), SISTEMA muestra la tarjeta «Último respaldo» con la fecha
+  verdadera, y si el último quedó a más de dos vueltas del automático (o no
+  hay ninguno) aparece un aviso ámbar que manda a la pestaña RESPALDOS — con
+  el recordatorio de que el archivo DESCARGADO en otra máquina es el que
+  sobrevive a perder el servidor. El registro de errores sigue sin existir,
+  y su tarjeta sigue sin existir con él: un número inventado es peor que
+  ninguno.
 - ~~**«7 / 9 unidades»** en la cabecera de la lista de Despacho~~ **HECHO**
   (7/8). No hizo falta el endpoint nuevo que se temía: el total viaja en el
   mismo estado de tiempo real (`flota`), que ya sale cada 3 s por ruta, con

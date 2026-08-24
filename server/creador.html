@@ -1566,8 +1566,15 @@ function Respaldos({ datos, api, recargar, aviso, fallo, token }) {
 
 function Sistema({ datos }) {
   if (!datos) return <div style={{ color: 'var(--dim)' }}>Cargando…</div>;
+  // El respaldo se considera VIEJO pasadas dos vueltas del automático (o si
+  // no hay ninguno): una vuelta perdida puede ser un reinicio; dos, no.
+  const resp = datos.ultimoRespaldo;
+  const cadaMs = (datos.respaldoCadaHoras || 6) * 3600 * 1000;
+  const respaldoViejo = !datos.baseEnMemoria &&
+    (!resp || (datos.ahora - resp.cuando) > 2 * cadaMs);
   const tarjetas = [
     ['Encendido hace', duracion(datos.ahora - datos.arrancadoEn)],
+    ['Último respaldo', resp ? `hace ${duracion(datos.ahora - resp.cuando)}` : 'nunca'],
     ['Unidades en el mapa', datos.unidades],
     ['Conexiones', datos.conexiones],
     ['Cooperativas', `${datos.empresasActivas} de ${datos.empresas}`],
@@ -1632,6 +1639,23 @@ function Sistema({ datos }) {
             No se pudo averiguar si la base está en un disco aparte
             (<code>{datos.base}</code>). Conviene confirmarlo a mano antes de
             cargar datos de verdad.
+          </Aviso>
+        )}
+        {respaldoViejo && (
+          <Aviso tono="amber" titulo={resp ? 'RESPALDO VIEJO' : 'SIN RESPALDO'}>
+            {resp ? (
+              <>El último respaldo es de hace{' '}
+              <strong>{duracion(datos.ahora - resp.cuando)}</strong> y el
+              automático corre cada {datos.respaldoCadaHoras || '—'} h: algo lo
+              está frenando. La pestaña RESPALDOS permite crear uno a pedido y
+              <strong> descargarlo</strong> — el archivo en otra máquina es el
+              que sobrevive a perder el servidor.</>
+            ) : (
+              <>Todavía no hay <strong>ningún respaldo</strong> de la base. La
+              pestaña RESPALDOS permite crear uno ahora y
+              <strong> descargarlo</strong> — el archivo en otra máquina es el
+              que sobrevive a perder el servidor.</>
+            )}
           </Aviso>
         )}
         {!datos.segundoFactor && (
