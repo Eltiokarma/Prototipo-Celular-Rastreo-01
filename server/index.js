@@ -1,4 +1,4 @@
-// Servidor COOP-R14 — tiempo real
+// Servidor de control de flota — tiempo real
 // Recibe GPS de cada combi, calcula gaps, distribuye a todos.
 
 const express = require('express');
@@ -117,7 +117,7 @@ if (nativeProblem) {
   app.use((req, res) => {
     res.status(503).type('html').send(`<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>COOP-R14 — base de datos no disponible</title>
+<title>Control de flota — base de datos no disponible</title>
 <style>body{margin:0;padding:32px 20px;background:#03060a;color:#EAF4FF;
 font-family:system-ui,sans-serif;line-height:1.6}.b{max-width:560px;margin:0 auto}
 h1{font-size:20px;margin:0 0 12px}code{background:#10161d;border:1px solid #232b36;
@@ -5180,7 +5180,7 @@ if (PROJECT_DIR) {
   app.get('/', (req, res) => {
     res.status(503).type('html').send(`<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>COOP-R14 — falta la app web</title>
+<title>Control de flota — falta la app web</title>
 <style>
   body { margin:0; padding:32px 20px; background:#03060a; color:#EAF4FF;
          font-family: system-ui, sans-serif; line-height:1.6; }
@@ -6417,7 +6417,7 @@ respaldo.programar(db, Database);
 // ─── ARRANCAR ────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Servidor COOP-R14 corriendo en puerto ${PORT}`);
+  console.log(`Servidor de control de flota corriendo en puerto ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/ping`);
   // Si el servidor estuvo apagado el día que empezaba o vencía una obra, la
   // vigencia programada se aplica al encenderlo y no un minuto después.

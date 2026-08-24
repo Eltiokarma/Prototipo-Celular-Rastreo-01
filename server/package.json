@@ -1,7 +1,7 @@
 {
   "name": "coop-r14-server",
   "version": "1.0.0",
-  "description": "Servidor en tiempo real para Cooperativa R-14 Juliaca",
+  "description": "Servidor en tiempo real del control de flota (multi-cooperativa)",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
