@@ -418,6 +418,23 @@ const pedir = (puerto, ruta, opts = {}) =>
     ok('sabe si está en un disco aparte o no', typeof sis.body.baseEnDiscoAparte === 'boolean',
       sis.body.baseEnDiscoAparte);
     ok('y avisa que no hay segundo factor', sis.body.segundoFactor === false);
+    // El último respaldo vive TAMBIÉN acá: esta pantalla es el "¿estoy
+    // cubierto?" de un vistazo. En un servidor con base en disco NUNCA es
+    // null: el automático deja uno en el propio arranque — y eso es
+    // exactamente lo que se afirma, con un archivo real y con bytes.
+    ok('la salud trae el último respaldo — el automático del arranque ya dejó uno',
+      !!sis.body.ultimoRespaldo && sis.body.ultimoRespaldo.bytes > 0 &&
+      typeof sis.body.ultimoRespaldo.cuando === 'number' &&
+      typeof sis.body.respaldoCadaHoras === 'number',
+      { ultimo: sis.body.ultimoRespaldo, cada: sis.body.respaldoCadaHoras });
+    const hecho = await pedir(P, '/gestion-x9k2/respaldos', { method: 'POST', headers: H });
+    ok('se crea un respaldo a pedido', hecho.status === 200, hecho.body);
+    const sis2 = await pedir(P, '/gestion-x9k2/sistema', { headers: H });
+    ok('y la salud lo muestra al instante, con fecha fresca',
+      !!sis2.body.ultimoRespaldo &&
+      Date.now() - sis2.body.ultimoRespaldo.cuando < 60_000 &&
+      sis2.body.ultimoRespaldo.bytes > 0,
+      sis2.body.ultimoRespaldo);
   }
 
   console.log('\nCERRAR SESIÓN');

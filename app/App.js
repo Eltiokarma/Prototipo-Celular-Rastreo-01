@@ -629,13 +629,24 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
         {cabecera}
         <View style={s.centro}>
           <Text style={[s.ladoEtiqueta, { color: C.brillante }]}>¿SALÍS A RUTA?</Text>
+          {/* Esta pantalla es además la "divulgación destacada" que Google
+              Play exige ANTES de pedir el permiso de ubicación en segundo
+              plano: dice QUÉ se recopila (tu ubicación), CUÁNDO (también
+              con la pantalla apagada) y PARA QUÉ (la brecha y el mapa de
+              tu cooperativa). El permiso se pide recién al deslizar. No
+              recortar esas tres partes: sin ellas, la app se rechaza en
+              la revisión de la tienda. */}
           <Text style={[s.instruccion, { marginTop: 14 }]}>
-            Al salir, tu combi aparece en el mapa y empieza a emitir tu
-            posición. Tu vuelta y tu brecha arrancan recién cuando pises el
-            trazado — marcar desde tu casa no confunde a nadie.
+            Al salir, tu combi aparece en el mapa de tu cooperativa y tu
+            teléfono emite tu ubicación durante el turno — también con la
+            pantalla apagada o la app en segundo plano — para medir la
+            brecha con las otras combis. Tu vuelta y tu brecha arrancan
+            recién cuando pises el trazado — marcar desde tu casa no
+            confunde a nadie.
           </Text>
           <Text style={[s.diagnostico, { marginTop: 18 }]}>
-            Mientras tanto el chat queda abierto y no se emite nada.
+            Mientras tanto el chat queda abierto y no se emite nada. Al
+            salir de ruta, la ubicación se apaga.
           </Text>
         </View>
         <Deslizable texto="DESLIZÁ PARA SALIR A RUTA  →" textoBoton="IR"
@@ -884,9 +895,11 @@ function Perfil({ sesion, marca, onCerrar }) {
         await gps.descartarGrabacion();
         return;
       }
+      // Si la pidió Despacho (4.5), el nombre lo dice: en su lista de
+      // grabaciones es cómo distingue la que encargó de las espontáneas.
       const fue = await post('/grabacion', {
         puntos,
-        nombre: `Recorrido ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString().slice(0, 5)}`,
+        nombre: `${grabacion?.pedida ? 'Pedido por Despacho' : 'Recorrido'} ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString().slice(0, 5)}`,
       }, `Recorrido enviado (${puntos.length} puntos) — se importa desde el trazador de Despacho`);
       if (fue) await gps.descartarGrabacion();
       else setAviso('No salió — la grabación quedó guardada. Probá ENVIAR de nuevo con señal.');
@@ -1101,7 +1114,8 @@ function Perfil({ sesion, marca, onCerrar }) {
             )}
             {grabacion && (<>
               <Text style={[s.diagnostico, { marginTop: 12 }]}>
-                {grabacion.parada ? 'Grabación parada (sin enviar)' : '● Grabando'}
+                {grabacion.parada ? 'Grabación parada (sin enviar)'
+                  : grabacion.pedida ? '● Grabando (la pidió Despacho)' : '● Grabando'}
                 {` · ${grabacion.puntos} punto${grabacion.puntos === 1 ? '' : 's'}`}
                 {` · ${((grabacion.largoM || 0) / 1000).toFixed(1)} km`}
               </Text>

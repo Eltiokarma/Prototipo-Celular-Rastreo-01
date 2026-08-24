@@ -316,7 +316,23 @@ function fechaOpcional(valor) {
   return { ok: true, ts: t };
 }
 
-function altaVariante(db, { routeId, name, desde, hasta, copiarDe } = {}) {
+// Los días de la semana opcionales ("los domingos"): llegan como array
+// [0, 6] o como "0,6" — 0 es domingo, la misma convención que Date.getDay().
+// Se guardan "0,6" o null. La forma la valida ACÁ y no cada puerta.
+function diasOpcionales(valor) {
+  if (valor === undefined || valor === null || valor === '' ||
+      (Array.isArray(valor) && valor.length === 0)) return { ok: true, dias: null };
+  // Los pedazos vacíos se descartan ANTES de convertir: Number('') es 0, y
+  // sin este filtro un "6," inventaba un domingo que nadie pidió.
+  const partes = (Array.isArray(valor) ? valor : String(valor).split(','))
+    .map(x => String(x).trim()).filter(x => x !== '');
+  if (!partes.length) return { ok: true, dias: null };
+  const nums = partes.map(Number);
+  if (nums.some(n => !Number.isInteger(n) || n < 0 || n > 6)) return { ok: false };
+  return { ok: true, dias: [...new Set(nums)].sort().join(',') };
+}
+
+function altaVariante(db, { routeId, name, desde, hasta, dias, copiarDe } = {}) {
   const ruta = idLimpio(routeId);
   if (!ruta) return { error: 'Falta la ruta' };
   if (!db.prepare('SELECT routeId FROM routes WHERE routeId = ?').get(ruta)) {
@@ -328,6 +344,8 @@ function altaVariante(db, { routeId, name, desde, hasta, copiarDe } = {}) {
   const d = fechaOpcional(desde), h = fechaOpcional(hasta);
   if (!d.ok || !h.ok) return { error: 'Las fechas de vigencia no se entienden' };
   if (d.ts && h.ts && h.ts <= d.ts) return { error: 'La vigencia termina antes de empezar' };
+  const ds = diasOpcionales(dias);
+  if (!ds.ok) return { error: 'Los días de vigencia no se entienden (0 a 6, 0 es domingo)' };
 
   // Copiar de otra es lo normal: un desvío suele ser el recorrido de siempre
   // con dos cuadras distintas, no un trazado nuevo desde cero.
@@ -341,8 +359,8 @@ function altaVariante(db, { routeId, name, desde, hasta, copiarDe } = {}) {
   let variantId;
   db.transaction(() => {
     variantId = db.prepare(
-      'INSERT INTO route_variants (routeId, name, activa, desde, hasta, createdAt) VALUES (?, ?, 0, ?, ?, ?)'
-    ).run(ruta, nombre, d.ts, h.ts, Date.now()).lastInsertRowid;
+      'INSERT INTO route_variants (routeId, name, activa, desde, hasta, dias, createdAt) VALUES (?, ?, 0, ?, ?, ?, ?)'
+    ).run(ruta, nombre, d.ts, h.ts, ds.dias, Date.now()).lastInsertRowid;
 
     if (origen) {
       db.prepare(`
@@ -354,20 +372,28 @@ function altaVariante(db, { routeId, name, desde, hasta, copiarDe } = {}) {
 
   return {
     ok: true, routeId: ruta, variantId, name: nombre,
-    desde: d.ts, hasta: h.ts, copiadaDe: origen ? origen.name : null,
+    desde: d.ts, hasta: h.ts, dias: ds.dias, copiadaDe: origen ? origen.name : null,
   };
 }
 
-function editarVariante(db, { variantId, name, desde, hasta } = {}) {
+function editarVariante(db, { variantId, name, desde, hasta, dias } = {}) {
   const v = db.prepare('SELECT * FROM route_variants WHERE variantId = ?').get(Number(variantId));
   if (!v) return { error: 'Esa variante no existe' };
   const nombre = String(name || '').trim().slice(0, 60) || v.name;
   const d = fechaOpcional(desde), h = fechaOpcional(hasta);
   if (!d.ok || !h.ok) return { error: 'Las fechas de vigencia no se entienden' };
   if (d.ts && h.ts && h.ts <= d.ts) return { error: 'La vigencia termina antes de empezar' };
-  db.prepare('UPDATE route_variants SET name = ?, desde = ?, hasta = ? WHERE variantId = ?')
-    .run(nombre, d.ts, h.ts, v.variantId);
-  return { ok: true, routeId: v.routeId, variantId: v.variantId, name: nombre, desde: d.ts, hasta: h.ts };
+  // `dias` ausente CONSERVA los que había, a diferencia de las fechas (que
+  // siempre se reemplazan, como desde el primer día). No es prolijidad: un
+  // renombre que borrara la recurrencia semanal en silencio la mataría sin
+  // error y sin rastro — nadie lo notaría hasta el domingo que el mapa no
+  // cambió. Para quitarlos de verdad se manda `dias: []`.
+  const ds = dias === undefined ? { ok: true, dias: v.dias } : diasOpcionales(dias);
+  if (!ds.ok) return { error: 'Los días de vigencia no se entienden (0 a 6, 0 es domingo)' };
+  db.prepare('UPDATE route_variants SET name = ?, desde = ?, hasta = ?, dias = ? WHERE variantId = ?')
+    .run(nombre, d.ts, h.ts, ds.dias, v.variantId);
+  return { ok: true, routeId: v.routeId, variantId: v.variantId, name: nombre,
+           desde: d.ts, hasta: h.ts, dias: ds.dias };
 }
 
 function bajaVariante(db, { variantId } = {}) {
@@ -396,8 +422,52 @@ function bajaVariante(db, { variantId } = {}) {
   return { ok: true, routeId: v.routeId, name: v.name };
 }
 
+// ─── AVISOS A UNA COOPERATIVA ────────────────────────────────
+// El nivel de arriba le deja un mensaje a la cooperativa —una deuda, un
+// mantenimiento programado— y aparece como banner en su panel de Despacho
+// hasta que alguien lo marque como visto. No toca el chat de las rutas: la
+// relación es con la cooperativa, no con sus choferes, y escribirle a las
+// unidades por encima de su propio Despacho quemaría el canal.
+
+const AVISO_MAX = 500;
+const AVISOS_VISTOS_DIAS = 365;   // los vistos se guardan un año, como el resto de lo administrativo
+
+function aviso(db, { companyId, routeId, texto } = {}) {
+  const empresa = idLimpio(companyId);
+  if (!empresa || !db.prepare('SELECT companyId FROM companies WHERE companyId = ?').get(empresa)) {
+    return { error: `No existe la empresa ${companyId || ''}` };
+  }
+  const cuerpo = String(texto || '').trim().slice(0, AVISO_MAX);
+  if (!cuerpo) return { error: 'El aviso está vacío' };
+  let ruta = null;
+  if (routeId) {
+    ruta = String(routeId).trim();
+    // La ruta tiene que ser de ESA empresa: un aviso colgado de una ruta
+    // ajena aparecería en el panel de otra cooperativa.
+    if (!db.prepare('SELECT routeId FROM routes WHERE routeId = ? AND companyId = ?').get(ruta, empresa)) {
+      return { error: `La ruta ${ruta} no es de ${empresa}` };
+    }
+  }
+  const r = db.prepare(`INSERT INTO notices (companyId, routeId, texto, creadoEn)
+                        VALUES (?, ?, ?, ?)`).run(empresa, ruta, cuerpo, Date.now());
+  // Los vistos viejos se van solos; los pendientes NO caducan — un aviso sin
+  // ver es exactamente lo que no puede desaparecer callado.
+  db.prepare('DELETE FROM notices WHERE vistoEn IS NOT NULL AND vistoEn < ?')
+    .run(Date.now() - AVISOS_VISTOS_DIAS * 86400_000);
+  return { ok: true, id: r.lastInsertRowid, companyId: empresa, routeId: ruta, texto: cuerpo };
+}
+
+// Lo que el nivel de arriba ve de sus propios avisos: si los vieron y quién.
+function avisos(db, companyId) {
+  const empresa = idLimpio(companyId);
+  if (!empresa) return [];
+  return db.prepare(`SELECT id, routeId, texto, creadoEn, vistoEn, vistoPor
+                     FROM notices WHERE companyId = ? ORDER BY id DESC LIMIT 20`).all(empresa);
+}
+
 module.exports = {
   listar, alta, supervisor, gerente, altaRuta, estado, editar, editarRuta,
   variantes, altaVariante, editarVariante, bajaVariante,
+  aviso, avisos, AVISO_MAX,
   CLAVE_MINIMA,
 };

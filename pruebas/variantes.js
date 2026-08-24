@@ -25,6 +25,9 @@ async function arrancar() {
     env: {
       ...process.env, PORT: String(P), DB_FILE: DB,
       DISPATCH_PASSWORD: 'despacho99', MODO: 'demo', CREATOR_PASSWORD: CLAVE_CREADOR,
+      // El revisor de vigencias corre cada 400 ms y no cada minuto: la
+      // sección "la mano manda" necesita verlo intentar (y no poder).
+      VIGENCIAS_MS: '400',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -268,6 +271,112 @@ const punto = (norte, este = 0) => ({ lat: LAT + gLat * norte, lng: LNG + gLng *
     const v2 = await pedir('/admin/routes/R-14/variantes', { headers: { Authorization: 'Bearer ' + D3.token } });
     const activa2 = v2.body.variantes.find(x => x.activa);
     ok('vencida, vuelve la que no tiene fechas', activa2.name === 'Obra Circunvalación', activa2.name);
+  }
+
+  console.log('\nVIGENCIA SEMANAL: «LOS DOMINGOS»');
+  {
+    // Varios recorridos cambian TODOS los domingos, y la vigencia por
+    // fechas obligaba a activarlos a mano cada semana. Se prueba con el día
+    // de HOY (el que sea): la regla es la misma para cualquier día.
+    const HOY = new Date().getDay();
+    const OTRO = (HOY + 3) % 7;
+
+    // Las sesiones del creador viven en memoria a propósito: los reinicios
+    // de la sección anterior las cerraron, así que se entra de nuevo.
+    const C2 = (await pedir('/creador/login', { method: 'POST',
+      body: JSON.stringify({ password: CLAVE_CREADOR }) })).body;
+    const HC = { Authorization: 'Bearer ' + C2.token };
+
+    let r = await pedir(`/creador/empresas/${EMP}/rutas/R-14/variantes`, {
+      method: 'POST', headers: HC,
+      body: JSON.stringify({ name: 'Mal día', dias: [9] }) });
+    ok('un día que no existe se rechaza', r.status === 400, r.body.error);
+
+    r = await pedir(`/creador/empresas/${EMP}/rutas/R-14/variantes`, {
+      method: 'POST', headers: HC,
+      body: JSON.stringify({ name: 'Recorrido semanal', copiarDe: obraId, dias: [HOY] }) });
+    ok('se crea con día de la semana', r.status === 200 && r.body.dias === String(HOY), r.body);
+    const semanalId = r.body.variantId;
+
+    await arrancar();
+    let D2 = (await login('DESPACHO', 'despacho99')).body;
+    let v = await pedir('/admin/routes/R-14/variantes', { headers: { Authorization: 'Bearer ' + D2.token } });
+    let activa = v.body.variantes.find(x => x.activa);
+    ok('el día que le toca, rige sola', activa.name === 'Recorrido semanal', activa.name);
+
+    // Se le corre el día a otro: hoy ya no le toca → vuelve la de siempre,
+    // sin que nadie la desactive a mano. Es exactamente el lunes a la
+    // madrugada del recorrido de domingo.
+    const db = new Database(DB);
+    db.prepare('UPDATE route_variants SET dias = ? WHERE variantId = ?').run(String(OTRO), semanalId);
+    db.close();
+    await arrancar();
+    D2 = (await login('DESPACHO', 'despacho99')).body;
+    v = await pedir('/admin/routes/R-14/variantes', { headers: { Authorization: 'Bearer ' + D2.token } });
+    activa = v.body.variantes.find(x => x.activa);
+    ok('el día que no le toca, vuelve la de siempre sola',
+       activa.name === 'Obra Circunvalación', activa.name);
+  }
+
+  console.log('\nFECHAS Y DÍAS COMPONEN, LA MANO MANDA, Y EDITAR NO BORRA');
+  {
+    const HOY = new Date().getDay();
+    const C3 = (await pedir('/creador/login', { method: 'POST',
+      body: JSON.stringify({ password: CLAVE_CREADOR }) })).body;
+    const HC3 = { Authorization: 'Bearer ' + C3.token };
+
+    // La coma colada de un cliente por API: Number('') es 0 (domingo)
+    let r = await pedir(`/creador/empresas/${EMP}/rutas/R-14/variantes`, {
+      method: 'POST', headers: HC3,
+      body: JSON.stringify({ name: 'Feria semanal', copiarDe: obraId, dias: `${HOY},` }) });
+    ok('una coma colada no inventa un domingo', r.status === 200 && r.body.dias === String(HOY), r.body.dias);
+    const feriaId = r.body.variantId;
+
+    // Fechas Y días componen: su día, pero vencida por fecha → no rige
+    r = await pedir(`/creador/variantes/${feriaId}`, { method: 'POST', headers: HC3,
+      body: JSON.stringify({ name: 'Feria semanal', dias: [HOY], hasta: Date.now() - 1000 }) });
+    ok('se le pone una fecha ya vencida', r.status === 200, r.body);
+    await arrancar();
+    let D3 = (await login('DESPACHO', 'despacho99')).body;
+    let HD3 = { Authorization: 'Bearer ' + D3.token };
+    let v = await pedir('/admin/routes/R-14/variantes', { headers: HD3 });
+    ok('con fechas Y días, la fecha acota: vencida no rige ni en su día',
+       v.body.variantes.find(x => x.activa).name === 'Obra Circunvalación',
+       v.body.variantes.find(x => x.activa).name);
+
+    // Sin la fecha, su día vuelve a regir
+    const C4 = (await pedir('/creador/login', { method: 'POST',
+      body: JSON.stringify({ password: CLAVE_CREADOR }) })).body;
+    const HC4 = { Authorization: 'Bearer ' + C4.token };
+    await pedir(`/creador/variantes/${feriaId}`, { method: 'POST', headers: HC4,
+      body: JSON.stringify({ name: 'Feria semanal', dias: [HOY] }) });
+    await arrancar();
+    D3 = (await login('DESPACHO', 'despacho99')).body;
+    HD3 = { Authorization: 'Bearer ' + D3.token };
+    v = await pedir('/admin/routes/R-14/variantes', { headers: HD3 });
+    ok('sin la fecha, el día rige de nuevo',
+       v.body.variantes.find(x => x.activa).name === 'Feria semanal',
+       v.body.variantes.find(x => x.activa).name);
+
+    // LA MANO MANDA: Despacho activa otra en pleno día programado, y el
+    // revisor (que acá corre cada 400 ms) no se la revierte.
+    await pedir(`/admin/routes/R-14/variantes/${obraId}/activar`, { method: 'POST', headers: HD3 });
+    await sleep(1500);
+    v = await pedir('/admin/routes/R-14/variantes', { headers: HD3 });
+    ok('la elección manual del día no se revierte sola',
+       v.body.variantes.find(x => x.activa).name === 'Obra Circunvalación',
+       v.body.variantes.find(x => x.activa).name);
+
+    // Editar sin mandar `dias` CONSERVA la recurrencia; [] la quita
+    const C5 = (await pedir('/creador/login', { method: 'POST',
+      body: JSON.stringify({ password: CLAVE_CREADOR }) })).body;
+    const HC5 = { Authorization: 'Bearer ' + C5.token };
+    r = await pedir(`/creador/variantes/${feriaId}`, { method: 'POST', headers: HC5,
+      body: JSON.stringify({ name: 'Feria semanal v2' }) });
+    ok('renombrar no borra la recurrencia semanal', r.body.dias === String(HOY), r.body);
+    r = await pedir(`/creador/variantes/${feriaId}`, { method: 'POST', headers: HC5,
+      body: JSON.stringify({ name: 'Feria semanal v2', dias: [] }) });
+    ok('y dias vacío la quita de verdad', r.body.dias === null, r.body);
   }
 
   console.log(fallas === 0 ? '\nTODO EN ORDEN\n' : `\n${fallas} FALLA(S)\n`);

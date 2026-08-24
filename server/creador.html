@@ -37,13 +37,14 @@
   }
   .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
   .black { font-family: "Archivo Black", system-ui, sans-serif; }
-  input, select, button { font-family: inherit; }
-  input, select {
+  input, select, button, textarea { font-family: inherit; }
+  input, select, textarea {
     width: 100%; height: 40px; padding: 0 12px; font-size: 14px;
     background: var(--campo); color: var(--fg);
     border: 1px solid var(--line); border-radius: 10px; outline: none;
   }
-  input:focus, select:focus { border-color: var(--bright); }
+  textarea { height: auto; min-height: 72px; padding: 10px 12px; resize: vertical; }
+  input:focus, select:focus, textarea:focus { border-color: var(--bright); }
   label { display: block; font-family: "JetBrains Mono", ui-monospace, monospace;
           font-size: 9px; font-weight: 700; letter-spacing: 1.3px;
           text-transform: uppercase; color: var(--dim3); margin-bottom: 6px; }
@@ -374,6 +375,77 @@ function LogoDeEmpresa({ empresa, api, correr, ocupado }) {
   );
 }
 
+// El canal del nivel de arriba hacia la cooperativa: el aviso aparece como
+// banner en su panel de Despacho hasta que alguien lo marque visto. Acá se
+// manda y se ve si lo vieron, cuándo y quién — que es la mitad que importa
+// cuando el aviso es una deuda.
+function AvisosDeEmpresa({ empresa, api, correr, ocupado }) {
+  const [texto, setTexto] = React.useState('');
+  const [routeId, setRouteId] = React.useState('');
+  const [lista, setLista] = React.useState(null);
+
+  const cargar = React.useCallback(() => {
+    api(`/empresas/${empresa.companyId}/avisos`)
+      .then(d => setLista(d.avisos || []))
+      .catch(() => setLista([]));
+  }, [empresa.companyId]);
+  React.useEffect(cargar, [cargar]);
+
+  return (
+    <div>
+      <div className="mono" style={{
+        fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
+        textTransform: 'uppercase', marginBottom: 8,
+      }}>Aviso a la cooperativa</div>
+      <div className="campo">
+        <label>Mensaje</label>
+        <textarea value={texto} maxLength={500}
+          placeholder="Ej.: Tienen pendiente el pago de agosto. Coordinar con administración."
+          onChange={ev => setTexto(ev.target.value)} />
+      </div>
+      {empresa.rutas.length > 1 && (
+        <div className="campo">
+          <label>Alcance</label>
+          <select value={routeId} onChange={ev => setRouteId(ev.target.value)}>
+            <option value="">Toda la cooperativa</option>
+            {empresa.rutas.map(r => (
+              <option key={r.routeId} value={r.routeId}>Solo la ruta {r.routeId}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <button disabled={ocupado || !texto.trim()} onClick={() => correr(async () => {
+        await api(`/empresas/${empresa.companyId}/avisos`, {
+          method: 'POST', body: JSON.stringify({ texto, ...(routeId ? { routeId } : {}) }),
+        });
+        setTexto('');
+        cargar();
+      }, 'Aviso enviado')} style={{
+        padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
+        color: texto.trim() ? 'var(--fg2)' : 'var(--dim3)', border: '1px solid var(--line)',
+      }}>Enviar aviso</button>
+      <div style={{ fontSize: 11, color: 'var(--dim2)', marginTop: 6, lineHeight: 1.45 }}>
+        Aparece como banner en su panel de Despacho hasta que alguien lo
+        marque visto. No les toca el chat de las rutas.
+      </div>
+      {lista && lista.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          {lista.slice(0, 5).map(a => (
+            <div key={a.id} style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--dim2)', marginBottom: 4 }}>
+              <span className="mono" style={{
+                fontWeight: 700,
+                color: a.vistoEn ? 'var(--verdeTinta)' : 'var(--amber)',
+              }}>{a.vistoEn ? `VISTO ${fecha(a.vistoEn)} · ${a.vistoPor}` : 'PENDIENTE'}</span>
+              {a.routeId ? <span className="mono"> · {a.routeId}</span> : null}
+              {' · '}{a.texto.length > 90 ? a.texto.slice(0, 90) + '…' : a.texto}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Empresas({ api, empresas, recargar, aviso, fallo }) {
   const [abierta, setAbierta] = React.useState(null);
   const [nueva, setNueva] = React.useState(null);
@@ -553,6 +625,7 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 18 }}>
                 <DatosDeEmpresa empresa={e} api={api} correr={correr} ocupado={ocupado} />
                 <LogoDeEmpresa empresa={e} api={api} correr={correr} ocupado={ocupado} />
+                <AvisosDeEmpresa empresa={e} api={api} correr={correr} ocupado={ocupado} />
                 <div>
                   <div className="mono" style={{
                     fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
@@ -1106,7 +1179,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
   // estaba repetida en la tarjeta de la cooperativa, a medias y sin mapa.
   const [gestion, setGestion] = React.useState(null);   // 'renombrar' | 'nuevo' | null
   const [nombreRuta, setNombreRuta] = React.useState('');
-  const [nuevoTrazado, setNuevoTrazado] = React.useState({ name: '', copiarDe: '', desde: '', hasta: '' });
+  const [nuevoTrazado, setNuevoTrazado] = React.useState({ name: '', copiarDe: '', desde: '', hasta: '', dias: [] });
   const [gestionando, setGestionando] = React.useState(false);
 
   const urlVariantes = () =>
@@ -1131,7 +1204,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
     try {
       const r = await api(urlVariantes(), { method: 'POST', body: JSON.stringify(nuevoTrazado) });
       aviso(`Trazado «${r.name}» creado — quedó elegido para dibujar`);
-      setNuevoTrazado({ name: '', copiarDe: '', desde: '', hasta: '' });
+      setNuevoTrazado({ name: '', copiarDe: '', desde: '', hasta: '', dias: [] });
       setGestion(null);
       const d = await api(urlVariantes());
       setVariantes(d.variantes);
@@ -1195,6 +1268,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
             {(variantes || []).map(v => (
               <option key={v.variantId} value={v.variantId}>
                 {v.name}{v.activa ? ' — MIDIENDO' : ''}{v.puntos ? '' : ' (sin dibujar)'}
+                {v.dias ? ` · ${String(v.dias).split(',').map(d => ['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'][Number(d)] || d).join(' ')}` : ''}
               </option>
             ))}
           </select>
@@ -1262,6 +1336,28 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
                       onChange={ev => setNuevoTrazado({ ...nuevoTrazado, hasta: ev.target.value })} />
                   </div>
                 </div>
+                <div>
+                  <label>O ciertos días, todas las semanas</label>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'].map((rot, dia) => {
+                      const puesto = nuevoTrazado.dias.includes(dia);
+                      return (
+                        <button key={dia} type="button"
+                          title={puesto ? `Quitar ${rot}` : `Regir los ${rot}`}
+                          onClick={() => setNuevoTrazado({
+                            ...nuevoTrazado,
+                            dias: puesto ? nuevoTrazado.dias.filter(d => d !== dia)
+                                         : [...nuevoTrazado.dias, dia],
+                          })} style={{
+                            width: 34, height: 34, fontSize: 11, fontWeight: 700,
+                            background: puesto ? 'var(--fg)' : 'var(--campo)',
+                            color: puesto ? '#fff' : 'var(--dim2)',
+                            border: puesto ? 'none' : '1px solid var(--line)',
+                          }}>{rot}</button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <button disabled={gestionando} onClick={crearTrazado} style={{
@@ -1271,7 +1367,12 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
                 <span style={{ fontSize: 11, color: 'var(--dim2)' }}>
                   Copiar del de siempre y corregir dos cuadras suele ser más
                   rápido que dibujarlo de nuevo. Con fechas, se activa y se
-                  desactiva solo el día que corresponde.
+                  desactiva solo el día que corresponde; con días de la
+                  semana («los domingos»), rige esos días y vuelve solo al
+                  de siempre — el cambio pasa a la medianoche, antes de que
+                  salga la primera combi. Con las dos cosas, rige esos días
+                  solo dentro del período. Y si un día Despacho activa otro
+                  trazado a mano, la mano manda hasta la medianoche.
                 </span>
               </div>
             </div>
@@ -1465,8 +1566,15 @@ function Respaldos({ datos, api, recargar, aviso, fallo, token }) {
 
 function Sistema({ datos }) {
   if (!datos) return <div style={{ color: 'var(--dim)' }}>Cargando…</div>;
+  // El respaldo se considera VIEJO pasadas dos vueltas del automático (o si
+  // no hay ninguno): una vuelta perdida puede ser un reinicio; dos, no.
+  const resp = datos.ultimoRespaldo;
+  const cadaMs = (datos.respaldoCadaHoras || 6) * 3600 * 1000;
+  const respaldoViejo = !datos.baseEnMemoria &&
+    (!resp || (datos.ahora - resp.cuando) > 2 * cadaMs);
   const tarjetas = [
     ['Encendido hace', duracion(datos.ahora - datos.arrancadoEn)],
+    ['Último respaldo', resp ? `hace ${duracion(datos.ahora - resp.cuando)}` : 'nunca'],
     ['Unidades en el mapa', datos.unidades],
     ['Conexiones', datos.conexiones],
     ['Cooperativas', `${datos.empresasActivas} de ${datos.empresas}`],
@@ -1531,6 +1639,23 @@ function Sistema({ datos }) {
             No se pudo averiguar si la base está en un disco aparte
             (<code>{datos.base}</code>). Conviene confirmarlo a mano antes de
             cargar datos de verdad.
+          </Aviso>
+        )}
+        {respaldoViejo && (
+          <Aviso tono="amber" titulo={resp ? 'RESPALDO VIEJO' : 'SIN RESPALDO'}>
+            {resp ? (
+              <>El último respaldo es de hace{' '}
+              <strong>{duracion(datos.ahora - resp.cuando)}</strong> y el
+              automático corre cada {datos.respaldoCadaHoras || '—'} h: algo lo
+              está frenando. La pestaña RESPALDOS permite crear uno a pedido y
+              <strong> descargarlo</strong> — el archivo en otra máquina es el
+              que sobrevive a perder el servidor.</>
+            ) : (
+              <>Todavía no hay <strong>ningún respaldo</strong> de la base. La
+              pestaña RESPALDOS permite crear uno ahora y
+              <strong> descargarlo</strong> — el archivo en otra máquina es el
+              que sobrevive a perder el servidor.</>
+            )}
           </Aviso>
         )}
         {!datos.segundoFactor && (

@@ -203,6 +203,113 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
        nombres.slice(-3));
   }
 
+  // El POST /gps del chofer, con lo que la app manda pegado a sus posiciones
+  const gps = (extra = {}) => pedir('/gps', s1.token, { method: 'POST',
+    body: JSON.stringify({ posiciones: [{ lat: LAT, lng: LNG, timestamp: Date.now() }], ...extra }) });
+
+  console.log('\nDESPACHO PIDE UNA GRABACIÓN (4.5)');
+  {
+    let r = await pedir('/admin/grabaciones/pedir', s1.token, { method: 'POST',
+      body: JSON.stringify({ vehicleId: 'M-01' }) });
+    ok('un chofer no pide grabaciones — es una puerta del panel: 403', r.status === 403, r.status);
+
+    r = await pedir('/admin/grabaciones/pedir', d.token, { method: 'POST',
+      body: JSON.stringify({ vehicleId: 'M-99' }) });
+    ok('una unidad que no existe: 404', r.status === 404, r.status);
+
+    r = await pedir('/admin/grabaciones/pedir', d.token, { method: 'POST',
+      body: JSON.stringify({ vehicleId: 'M-01' }) });
+    ok('Despacho pide una grabación a M-01', r.status === 200 && r.body.estado === 'pedida', r.body);
+    r = await pedir('/admin/grabaciones', d.token);
+    ok('el panel lista el pedido, esperando a la app',
+       (r.body.pedidos || []).some(p => p.vehicleId === 'M-01' && p.estado === 'pedida'),
+       r.body.pedidos);
+
+    // El pedido viaja por el canal que sobrevive a la pantalla apagada
+    r = await gps();
+    ok('el próximo POST /gps de esa unidad trae grabar: true',
+       r.status === 200 && r.body.grabar === true, r.body);
+    r = await gps({ grabando: false });
+    ok('y lo sigue trayendo mientras la app no confirme', r.body.grabar === true, r.body);
+
+    r = await gps({ grabando: true });
+    ok('la app confirma con grabando: true y el "arrancá" se apaga',
+       r.status === 200 && r.body.grabar === undefined, r.body);
+    r = await pedir('/admin/grabaciones', d.token);
+    ok('el panel ve el pedido GRABANDO',
+       (r.body.pedidos || []).some(p => p.vehicleId === 'M-01' && p.estado === 'grabando'),
+       r.body.pedidos);
+
+    const dos = [{ lat: LAT, lng: LNG }, { lat: LAT + M * 40, lng: LNG }];
+    await pedir('/grabacion', s1.token, { method: 'POST',
+      body: JSON.stringify({ nombre: 'la pedida', puntos: dos }) });
+    r = await pedir('/admin/grabaciones', d.token);
+    ok('subir la grabación deja el pedido cumplido: desaparece',
+       (r.body.pedidos || []).length === 0, r.body.pedidos);
+
+    // El chofer que descarta también limpia: la app reporta grabando: false
+    await pedir('/admin/grabaciones/pedir', d.token, { method: 'POST',
+      body: JSON.stringify({ vehicleId: 'M-01' }) });
+    await gps({ grabando: true });
+    await gps({ grabando: false });
+    r = await pedir('/admin/grabaciones', d.token);
+    ok('si la app deja de grabar sin subir nada, el pedido también se va',
+       (r.body.pedidos || []).length === 0, r.body.pedidos);
+
+    // Cancelar antes de que la app lo levante
+    await pedir('/admin/grabaciones/pedir', d.token, { method: 'POST',
+      body: JSON.stringify({ vehicleId: 'M-01' }) });
+    r = await pedir('/admin/grabaciones/pedir/M-01', d.token, { method: 'DELETE' });
+    ok('Despacho cancela el pedido', r.status === 200, r.status);
+    r = await gps();
+    ok('y a la app ya no le llega ningún "arrancá"', r.body.grabar === undefined, r.body);
+
+    // Repetir el pedido sobre una grabación en curso no la reinicia
+    await pedir('/admin/grabaciones/pedir', d.token, { method: 'POST',
+      body: JSON.stringify({ vehicleId: 'M-01' }) });
+    await gps({ grabando: true });
+    r = await pedir('/admin/grabaciones/pedir', d.token, { method: 'POST',
+      body: JSON.stringify({ vehicleId: 'M-01' }) });
+    ok('pedir de nuevo mientras graba responde "grabando", no degrada el estado',
+       r.status === 200 && r.body.estado === 'grabando', r.body);
+    r = await gps({ grabando: true });
+    ok('y la app no recibe otro "arrancá" arriba de la grabación en curso',
+       r.body.grabar === undefined, r.body);
+    await gps({ grabando: false });   // deja la mesa limpia para lo que sigue
+  }
+
+  console.log('\nEL PEDIDO NO CRUZA EL BORDE DE EMPRESA, Y SE VENCE SOLO');
+  {
+    // Otra cooperativa, creada con las mismas piezas que usa la consola —
+    // el mismo camino que gerente.js.
+    const Database = require(RAIZ + '/server/node_modules/better-sqlite3');
+    const coop = require(RAIZ + '/server/cooperativas.js');
+    const db2 = new Database(DB);
+    const alta = coop.alta(db2, { companyId: 'OTRA', name: 'La Otra', ruta: 'R-9',
+      despacho: 'DESPACHO-2', clave: 'clavelarga2' });
+    db2.close();
+    ok('la segunda cooperativa existe', alta.ok === true, alta);
+    const d2 = await login('DESPACHO-2', 'clavelarga2');
+    let r = await pedir('/admin/grabaciones/pedir', d2.token, { method: 'POST',
+      body: JSON.stringify({ vehicleId: 'M-01' }) });
+    ok('el Despacho de otra empresa no le pide a M-01 — 404, como si no existiera',
+       r.status === 404, r.status);
+    r = await pedir('/admin/grabaciones/pedir/M-01', d2.token, { method: 'DELETE' });
+    ok('ni le cancela un pedido — mismo 404', r.status === 404, r.status);
+
+    // El vencimiento: un pedido de hace 13 horas ya no existe para nadie
+    await pedir('/admin/grabaciones/pedir', d.token, { method: 'POST',
+      body: JSON.stringify({ vehicleId: 'M-01' }) });
+    const db3 = new Database(DB);
+    db3.prepare('UPDATE recording_requests SET pedidaEn = ? WHERE vehicleId = ?')
+      .run(Date.now() - 13 * 3600_000, 'M-01');
+    db3.close();
+    r = await gps();
+    ok('a la app no le llega un pedido vencido', r.body.grabar === undefined, r.body);
+    r = await pedir('/admin/grabaciones', d.token);
+    ok('y el panel tampoco lo lista', (r.body.pedidos || []).length === 0, r.body.pedidos);
+  }
+
   servidor.kill();
   console.log(fallas ? `\n${fallas} FALLAS` : '\nTODO EN ORDEN');
   process.exit(fallas ? 1 : 0);

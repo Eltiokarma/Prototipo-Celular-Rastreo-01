@@ -1,7 +1,7 @@
 {
   "name": "coop-r14",
   "private": true,
-  "description": "COOP-R14 — rastreo de combis Juliaca: app del chofer, panel de Despacho y servidor de tiempo real",
+  "description": "Control de flota para cooperativas de transporte: app del chofer, panel de Despacho y servidor de tiempo real",
   "scripts": {
     "postinstall": "cd server && npm install --omit=dev",
     "start": "node server/index.js",

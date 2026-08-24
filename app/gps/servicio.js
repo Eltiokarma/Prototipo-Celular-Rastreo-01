@@ -25,7 +25,7 @@ import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
 import { crearVigia } from '../ausencia.js';
-import { notificarBrecha, limpiarNotificacion } from '../notificacion.js';
+import { notificarBrecha, notificarGrabacionPedida, limpiarNotificacion } from '../notificacion.js';
 import { crearGrabador } from '../grabador.js';
 
 export const TAREA_GPS = 'coop-r14-gps';
@@ -163,6 +163,10 @@ export const LLAVE_GRABANDO = 'grabando';
 const ARCHIVO_GRABACION = () => FileSystem.documentDirectory + 'grabacion.json';
 let grabador = null;
 let grabadoEnDisco = 0;   // hasta qué punto está persistido (ver abajo)
+// Si la grabación en curso la pidió Despacho (4.5), para que la pantalla lo
+// diga. Solo memoria: si Android mata el proceso, la grabación sigue (flag y
+// archivo están en disco) y únicamente se pierde este rótulo.
+let grabacionPedida = false;
 
 async function grabar(posiciones) {
   const flag = await SecureStore.getItemAsync(LLAVE_GRABANDO).catch(() => null);
@@ -179,7 +183,8 @@ async function grabar(posiciones) {
   for (const p of posiciones) {
     if (grabador.posicion(p.lat, p.lng)) huboNuevos = true;
   }
-  diagnostico.grabacion = { puntos: grabador.cantidad, largoM: grabador.largoM };
+  diagnostico.grabacion = { puntos: grabador.cantidad, largoM: grabador.largoM,
+    ...(grabacionPedida ? { pedida: true } : {}) };
   // Se persiste cada 10 puntos y no en cada uno: el archivo se reescribe
   // ENTERO en cada guardado, y punto a punto la escritura acumulada crece
   // al cuadrado del recorrido — flash quemado en el teléfono que además
@@ -197,9 +202,37 @@ async function grabar(posiciones) {
 export async function empezarGrabacion() {
   grabador = crearGrabador();
   grabadoEnDisco = 0;
+  grabacionPedida = false;
   try { await FileSystem.deleteAsync(ARCHIVO_GRABACION(), { idempotent: true }); } catch {}
   await SecureStore.setItemAsync(LLAVE_GRABANDO, '1');
   diagnostico.grabacion = { puntos: 0, largoM: 0 };
+}
+
+// Despacho pidió una grabación (4.5): el flag `grabar` llegó en la respuesta
+// del POST /gps. Arranca sola y se le avisa al chofer por notificación — no
+// tiene que hacer nada, y mientras maneja no se lo interrumpe (el mismo
+// criterio que el desvío). Terminar y enviar sigue siendo suyo, en Perfil.
+//
+// Dos casos en los que NO se arranca, y el pedido queda esperando en el
+// servidor: ya hay una grabación corriendo (el próximo POST manda
+// `grabando: true` y el pedido se da por levantado con la que está), y hay
+// una grabación PARADA sin enviar — empezar borra su archivo, y una vuelta
+// manejada no se pisa por un pedido; cuando el chofer la envíe o descarte,
+// el próximo POST arranca la pedida.
+//
+// El flag se lee ACÁ, no se recibe: el que leyó `subirAhora` puede tener
+// hasta 15 s (el corte del fetch), y en ese hueco el chofer pudo apretar
+// GRABAR RECORRIDO en Perfil — con el valor viejo, su grabación recién
+// empezada se pisaba y encima quedaba rotulada como pedida por Despacho.
+async function atenderPedidoGrabacion() {
+  const flagGrabando = await SecureStore.getItemAsync(LLAVE_GRABANDO).catch(() => null);
+  if (flagGrabando === '1') return;
+  const info = await FileSystem.getInfoAsync(ARCHIVO_GRABACION()).catch(() => null);
+  if (info?.exists) return;
+  await empezarGrabacion();
+  grabacionPedida = true;
+  diagnostico.grabacion = { puntos: 0, largoM: 0, pedida: true };
+  notificarGrabacionPedida().catch(() => {});
 }
 
 // Para de grabar y devuelve los puntos — pero NO borra el archivo: una
@@ -208,6 +241,15 @@ export async function empezarGrabacion() {
 // `descartarGrabacion()`, cuando el envío salió bien (o el chofer descarta).
 export async function pararGrabacion() {
   let puntos = grabador ? grabador.puntos : [];
+  // Los puntos van a disco ANTES de soltar el grabador. Sin esto, una
+  // grabación corta (menos de 10 puntos: el guardado periódico nunca
+  // escribió) que falla al enviarse quedaba sólo en la memoria del
+  // grabador que se acaba de soltar — el reintento leía un archivo que no
+  // existía, encontraba cero puntos y la descartaba, mientras la pantalla
+  // decía "quedó guardada". Ahora "quedó guardada" es literal.
+  if (puntos.length) {
+    try { await FileSystem.writeAsStringAsync(ARCHIVO_GRABACION(), JSON.stringify(puntos)); } catch {}
+  }
   grabador = null;
   try { await SecureStore.deleteItemAsync(LLAVE_GRABANDO); } catch {}
   if (!puntos.length) {
@@ -220,6 +262,7 @@ export async function pararGrabacion() {
 
 export async function descartarGrabacion() {
   grabador = null;
+  grabacionPedida = false;
   diagnostico.grabacion = null;
   try { await SecureStore.deleteItemAsync(LLAVE_GRABANDO); } catch {}
   try { await FileSystem.deleteAsync(ARCHIVO_GRABACION(), { idempotent: true }); } catch {}
@@ -271,10 +314,11 @@ async function subirAhora(nuevas) {
   diagnostico.enEspera = pendientes.length;
   if (!posiciones.length) return;
   try {
-    const [crudo, servidor, presencia] = await Promise.all([
+    const [crudo, servidor, presencia, flagGrabando] = await Promise.all([
       SecureStore.getItemAsync(LLAVE_SESION),
       SecureStore.getItemAsync(LLAVE_SERVIDOR),
       SecureStore.getItemAsync(LLAVE_PRESENCIA).catch(() => null),
+      SecureStore.getItemAsync(LLAVE_GRABANDO).catch(() => null),
     ]);
     if (!crudo || !servidor || !JSON.parse(crudo)?.token) {
       guardar(posiciones);
@@ -338,6 +382,10 @@ async function subirAhora(nuevas) {
         posiciones,
         ...(presenciaEfectiva === 'ruta' || presenciaEfectiva === 'ausente'
           ? { presencia: presenciaEfectiva } : {}),
+        // Si se está grabando, para que un pedido de Despacho (4.5) se dé
+        // por levantado; si no, para que el servidor sepa que la grabación
+        // que pidió ya terminó. Un booleano explícito en cada envío.
+        grabando: flagGrabando === '1',
       }),
     });
     if (r.ok) {
@@ -349,6 +397,10 @@ async function subirAhora(nuevas) {
       // POST es el único canal. Mejor esfuerzo: si falla, el GPS ni se entera.
       const cuerpo = await r.json().catch(() => null);
       if (cuerpo?.brecha) notificarBrecha(cuerpo.brecha).catch(() => {});
+      // Despacho pidió una grabación (4.5). Mejor esfuerzo, como todo lo que
+      // cuelga de esta respuesta: si falla, el pedido sigue vivo en el
+      // servidor y el próximo POST lo vuelve a traer.
+      if (cuerpo?.grabar === true) atenderPedidoGrabacion().catch(() => {});
     } else {
       // El cuerpo del error dice bastante más que el número: 403 del cobrador,
       // 409 del relevo y 400 del reloj mal puesto se ven igual desde afuera.

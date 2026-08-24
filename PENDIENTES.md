@@ -164,6 +164,48 @@ informe nuevo `tramos.csv`.
 Ni la app ni el chofer cambian: todo sale de datos que el servidor ya
 calculaba. Suite `metidos`.
 
+### 3.8 · ~~La central no tenía cómo avisarle nada a una cooperativa~~ — HECHO (24/8)
+
+Preguntado por el dueño: «cuando alguien nos deba y tengamos que
+notificarle, nos falta ese canal». Faltaba: el chat vive adentro de cada
+cooperativa, y el nivel de arriba no tenía voz — las únicas palancas eran el
+teléfono o la suspensión, que es el martillo.
+
+Ahora el panel del creador tiene **«Aviso a la cooperativa»** en la tarjeta
+de cada empresa (con alcance opcional a una ruta): el aviso aparece como
+**banner ámbar persistente** en el panel de Despacho de esa cooperativa
+hasta que alguien lo marque visto — y del visto queda quién y cuándo, a la
+vista del creador y en la auditoría de la empresa. Los pendientes **no
+caducan** (un aviso de deuda no desaparece callado); los vistos se retienen
+un año. A propósito NO les toca el chat de las rutas: la deuda es de la
+cooperativa, no de sus choferes, y escribirle a las unidades por encima de
+su propio Despacho quemaría el canal. Suite `avisos`.
+
+### 3.9 · ~~El recorrido de los domingos se activaba a mano cada semana~~ — HECHO (24/8)
+
+Salió de la operación real: «varios micros suelen cambiar de recorrido los
+domingos». El mecanismo de cambio de variante ya era sólido (descarta
+vueltas en curso, no mezcla promedios, audita — suite `variantes`), pero la
+vigencia programada era solo por **rango de fechas**, pensada para obras:
+lo semanal obligaba a que alguien de Despacho activara la variante cada
+domingo y la devolviera el lunes.
+
+Ahora una variante puede regir **ciertos días de la semana** (columna
+`dias`, 0–6 como `Date.getDay()`): se elige con botones Do–Sá al crear el
+trazado en el panel del creador, rige sola esos días y **vuelve sola** al
+de siempre — el cambio pasa en el minuto después de medianoche, antes de
+que salga la primera combi, así el descarte de vueltas en curso no
+descarta nada. Prioridades como siempre: si varias vigencias aplican, gana
+la más nueva. Dos reglas que salieron de la revisión: **fechas y días
+componen** (con las dos cosas, rige esos días solo dentro del período — con
+O lógico, «los domingos de octubre» habría regido todo octubre y además los
+domingos para siempre), y **la mano manda**: si Despacho activa otra
+variante ese día, el reloj no se la revierte hasta la medianoche. **OJO con el huso**: el día se mira con la hora local del
+servidor; si el contenedor corre en UTC, «domingo» empieza el sábado a las
+19:00 de Perú — el servidor lo grita en el arranque si detecta esa
+combinación, y el despliegue debe llevar `TZ=America/Lima`. Suite
+`variantes`, sección «vigencia semanal».
+
 ### 3bis · ~~Los bancos visuales fotografiaban pantallas vacías~~ — HECHO
 
 Salió de mirar las capturas antes de desplegar, y es la clase de rotura que
@@ -219,8 +261,8 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
 | 4.1 | **Babel compila en el navegador** | 3 MB y arranque lento. Es el precio de no tener paso de build, y ese precio se eligió a conciencia. Se paga una vez por dispositivo (el service worker lo guarda). Vale revisarlo cuando la app del chofer sea 100 % nativa y los paneles queden solo en desktop |
 | 4.2 | **Una sola instancia, SQLite compartido** | Alcanza de sobra para decenas de cooperativas. El día que no alcance, `ESCALABILIDAD.md` tiene el plan con números |
 | 4.3 | **iPhone** | Todo el desarrollo asume Android, que es lo que usan los choferes. Nada está probado en iOS |
-| 4.4 | **Nombres cosméticos con "R-14"** | "Servidor COOP-R14", títulos de páginas, la descripción del `package.json`. El modelo de datos ya es multi-cooperativa; esto es solo texto que suena a un solo cliente |
-| 4.5 | **Despacho no puede PEDIR una grabación de recorrido** | Preguntado por el dueño (8/8). Grabar sale sólo de la app del que va arriba (Perfil → GRABAR RECORRIDO) y come del GPS de ese teléfono; Despacho únicamente **consume** —lista las grabaciones de su empresa y las importa al trazador—. Que Despacho apriete "grabar" en su panel no puede existir: no tiene GPS en la calle. Lo que sí sería implementable es que **pida** una: un flag que la app levanta en su próximo POST y arranca sola, con aviso al chofer. Chico, y sin nada que lo bloquee |
+| 4.4 | ~~Nombres cosméticos con "R-14"~~ | **HECHO** (24/8). Todo lo que un usuario u operador VE quedó neutro: el log de arranque y las dos páginas de error del servidor dicen «Control de flota», el título de la app web dice «Conductor — Control de ruta» (los manifests ya estaban bien), y las descripciones de los `package.json` hablan de cooperativas en plural. Lo que se dejó A PROPÓSITO: los `name` de los `package.json` (los lockfiles los referencian y cambiarlos rompe `npm ci` a cambio de nada), las claves de caché del service worker (renombrarlas obliga a re-bajar todo a cada teléfono) y los comentarios internos del código — nada de eso lo ve un cliente | ✔ |
+| 4.5 | ~~Despacho no puede PEDIR una grabación de recorrido~~ | **HECHO** (24/8), como se describió acá: grabar sigue saliendo sólo del teléfono que va arriba — lo que se agregó es el **pedido**. En el trazador, "Grabaciones de la calle" ahora tiene "Pedir una grabación" con las unidades de la ruta; el pedido viaja por el único canal que sobrevive a la pantalla apagada —la respuesta del `POST /gps`, igual que la brecha— y la app **arranca sola**, con aviso al chofer por notificación (canal BAJO, sin sonido: mientras maneja no se lo interrumpe). Terminar y enviar sigue siendo del chofer, desde Perfil, y la que sube se llama "Pedido por Despacho …". La app confirma con `grabando: true` pegado a sus posiciones, así el panel distingue *esperando a la app* de *grabando*; una grabación en curso o una **parada sin enviar nunca se pisan** (el pedido espera), cancelar no corta a distancia lo ya grabado, el pedido no cruza el borde de empresa ni de ruta (404, como si la unidad no existiera) y se vence solo a las 12 h — la web del chofer no graba y un APK viejo no manda el campo, así que sin app el pedido muere en silencio, no miente. Suite `grabador`. Falta verlo en el teléfono con el APK nuevo, como 3.3–3.5 | ✔ |
 | 4.6 | ~~El acumulado por unidad no tiene corte por fecha~~ | **HECHO** (9/8), por decisión del dueño. Era la única lectura del sistema que agrupaba "todo lo retenido" en vez de un período, y lo cobraba en CADA apertura de la pestaña. Ahora acepta `?dias=N` y `?todo=1`, **abre con 7 días**, y todo el historial queda como elección expresa. Medido a 5000 unidades, mismo servidor y misma base: **1627 ms → 343 ms, 4,7× más rápido**; a 30 días 971 ms y a 90 días 1173 ms, así que el que pide más sigue pagando más — pero lo pide él. El corte se aplica también a `legs` y a la subconsulta de "Última", que si no mostraría una vuelta de hace tres meses en una fila que dice 7 días. **Lo que más importa acá no es el milisegundo sino el rótulo**: la pantalla ya no dice "acumulado" en ningún lado —encabezado, columna, pie, README—, y el servidor devuelve `periodo` con lo que sirvió DE VERDAD (recorta a [1, 365]), que es con lo que la pantalla rotula. Suite `periodo` | ✔ |
 | 4.8 | ~~Números a 90 días: agregar en SQL~~ | **PROBADO Y DESCARTADO** (9/8). Se escribió, se midió y **se revirtió**: no sirve. La estimación de 182 ms que estaba acá era falsa — se había medido sobre una agregación que **no calculaba `cumplimiento`**, que es justo la columna cara. Con las dos implementaciones corriendo sobre la misma base y en la misma corrida (5000 unidades, 245 252 vueltas, 90 días): JS **832 ms**, SQL de tres pasadas **2186 ms** (2,5 veces PEOR), SQL de una pasada con `strftime` **1483 ms**, y la única que gana —día por aritmética entera— **687 ms**, o sea 1,21×. A 30 días la SQL es más lenta que la JS (229 contra 219) y a 7 días, que es como abre la pantalla, ahorra 11 ms. Y sólo gana **asumiendo que el huso horario del servidor nunca cambia de offset** (sin horario de verano), suposición invisible metida en un número que lee el gerente. **El techo no era la agregación: era leer las filas** —423 de los 832 ms son sólo traerlas—, así que ninguna reescritura del agrupado podía ganar mucho. La palanca real es acotar el rango, no reescribir la cuenta. Detalle y tabla completa en `COSTOS.md` §3 | ✔ descartado con medición |
 | 4.7 | ~~`shifts` no se poda nunca~~ | **HECHO** (8/8). Era la única tabla de historial sin techo: todo lo demás tiene retención y ésta se había escapado. No dolía en la pantalla —su lectura filtra por fecha y sale en 20 ms— y por eso podía crecer años sin que nadie lo notara. Ahora `TURNOS_DIAS`, **365 y no 120**: con los turnos se liquidan horas, y un reclamo por una liquidación llega bastante después que una discusión por una vuelta. Sólo poda los CERRADOS, para no partirle las horas del día al que está arriba de la combi. Suite `retencion` | ✔ |
@@ -236,12 +278,25 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
 
 ## Puesta en producción — la lista corta
 
-- [ ] **Cambiar `CREATOR_PASSWORD`** (ver 1.1).
+- [x] **Cambiar `CREATOR_PASSWORD`** — hecho por el dueño el 24/8, junto con
+      `DISPATCH_PASSWORD` (ver 1.1).
 - [x] Respaldo automático de la base, con descarga desde el panel del creador (ver 1.2).
 - [x] Volumen montado y `DB_FILE` apuntando ahí — comprobado con un
       despliegue real: los datos sobrevivieron al cambio de contenedor.
 - [x] Segundo factor del panel del creador activo (`CREATOR_TOTP_SECRET`).
 - [ ] Cargar el recorrido real con el trazador.
+- [ ] **`TZ=America/Lima` en las variables del despliegue** — sin eso la
+      vigencia semanal de variantes (3.9) cambia de recorrido el sábado a
+      las 19:00 en vez del domingo a medianoche. El servidor lo avisa en el
+      arranque si detecta la combinación.
+- [ ] **`CONTACTO_PRIVACIDAD` en las variables del despliegue** — el correo
+      que muestra la política de privacidad (`/privacidad`, la URL que pide
+      Google Play). Sin la variable queda un canal genérico, que alcanza
+      para producción pero no para la ficha de la tienda.
+- [ ] **Publicar en Google Play** — el camino completo, con textos y
+      formularios listos, está en `PLAYSTORE.md`. Lo que no puede hacer el
+      repo: la cuenta de desarrollador (US$25 + verificación), los 12
+      testers × 14 días, y el video de la divulgación de ubicación.
 - [x] Marca de cada cooperativa (logo y nombre) configurable desde el panel
       del creador y corregible desde Despacho.
 - [x] **Ninguna pantalla depende de un CDN para dibujar el mapa** (ver 2.2).
@@ -328,10 +383,16 @@ Tres cosas de la propuesta de Design no se implementaron. Ninguna es una
 omisión: cada una pedía un dato o un comportamiento que no existe. De las
 tres, **la primera ya está hecha** (7/8) y queda abajo tachada.
 
-- **«Último respaldo» y «errores en 24 h»** en el panel del creador. No hay
-  respaldos automáticos ni registro de errores. Son features de operación, no
-  de interfaz, y una tarjeta que muestre un número inventado es peor que no
-  tenerla.
+- **«Último respaldo» y «errores en 24 h»** en el panel del creador. Cuando
+  se escribió esto no había respaldos automáticos ni registro de errores.
+  ~~La mitad de respaldos~~ **HECHA** (24/8): con los respaldos automáticos
+  ya reales (1.2), SISTEMA muestra la tarjeta «Último respaldo» con la fecha
+  verdadera, y si el último quedó a más de dos vueltas del automático (o no
+  hay ninguno) aparece un aviso ámbar que manda a la pestaña RESPALDOS — con
+  el recordatorio de que el archivo DESCARGADO en otra máquina es el que
+  sobrevive a perder el servidor. El registro de errores sigue sin existir,
+  y su tarjeta sigue sin existir con él: un número inventado es peor que
+  ninguno.
 - ~~**«7 / 9 unidades»** en la cabecera de la lista de Despacho~~ **HECHO**
   (7/8). No hizo falta el endpoint nuevo que se temía: el total viaja en el
   mismo estado de tiempo real (`flota`), que ya sale cada 3 s por ruta, con

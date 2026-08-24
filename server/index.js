@@ -1,4 +1,4 @@
-// Servidor COOP-R14 — tiempo real
+// Servidor de control de flota — tiempo real
 // Recibe GPS de cada combi, calcula gaps, distribuye a todos.
 
 const express = require('express');
@@ -117,7 +117,7 @@ if (nativeProblem) {
   app.use((req, res) => {
     res.status(503).type('html').send(`<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>COOP-R14 — base de datos no disponible</title>
+<title>Control de flota — base de datos no disponible</title>
 <style>body{margin:0;padding:32px 20px;background:#03060a;color:#EAF4FF;
 font-family:system-ui,sans-serif;line-height:1.6}.b{max-width:560px;margin:0 auto}
 h1{font-size:20px;margin:0 0 12px}code{background:#10161d;border:1px solid #232b36;
@@ -209,6 +209,22 @@ db.exec(`
     contacto TEXT,                         -- a quién llamar, opcional
     activa INTEGER NOT NULL DEFAULT 1,
     createdAt INTEGER NOT NULL
+  )
+`);
+
+// Avisos del nivel de arriba a una cooperativa (deuda, mantenimiento):
+// banner en su panel de Despacho hasta que alguien lo marque visto. Los
+// manda el creador (server/cooperativas.js `aviso`); acá viven la tabla y
+// las dos puertas con las que Despacho los lee y los marca.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    companyId TEXT NOT NULL,
+    routeId TEXT,              -- NULL = para toda la cooperativa
+    texto TEXT NOT NULL,
+    creadoEn INTEGER NOT NULL,
+    vistoEn INTEGER,           -- NULL = pendiente
+    vistoPor TEXT
   )
 `);
 
@@ -325,6 +341,13 @@ db.exec(`
     createdAt INTEGER NOT NULL
   )
 `);
+// Vigencia SEMANAL ("los domingos"): días 0-6 como los da Date.getDay(),
+// guardados "0" o "0,6". Existe porque varios recorridos cambian todos los
+// domingos, y la vigencia por fechas obligaba a activarlos a mano cada
+// semana. OJO: el día se mira con la hora LOCAL del servidor — en el
+// despliegue tiene que estar TZ=America/Lima, o "domingo" empezaría el
+// sábado a las 19:00 de Juliaca (el contenedor pelado corre en UTC).
+addColumnIfMissing('route_variants', 'dias', 'TEXT');
 
 const VARIANTE_BASE = 'Recorrido normal';
 
@@ -2675,6 +2698,47 @@ db.exec(`
 `);
 const GRABACIONES_MAX = 25;   // por empresa: las viejas se van solas
 
+// Despacho puede PEDIR una grabación (PENDIENTES 4.5). Grabar sigue saliendo
+// solo de la app del que va arriba —Despacho no tiene GPS en la calle—, pero
+// el pedido viaja por el único canal que sobrevive a la pantalla apagada: la
+// respuesta del POST /gps, igual que la brecha. La app lo levanta, arranca a
+// grabar sola y avisa al chofer; terminar y enviar sigue siendo del chofer.
+//
+// Una fila por vehículo, con dos estados: 'pedida' (esperando a que la app
+// reporte) y 'grabando' (la app confirmó, con `grabando: true` pegado a sus
+// posiciones). La fila se va cuando la grabación llega por POST /grabacion,
+// cuando la app reporta que dejó de grabar, cuando Despacho cancela, o sola
+// a las 12 horas — un pedido que nadie levantó en un turno entero es que la
+// unidad no salió con la app puesta, y no puede quedar armado para siempre.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recording_requests (
+    vehicleId TEXT PRIMARY KEY,
+    routeId TEXT,
+    companyId TEXT,
+    pedidaPor TEXT NOT NULL,
+    pedidaEn INTEGER NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'pedida'
+  )
+`);
+const PEDIDO_GRABACION_MS = 12 * 3600_000;
+// Preparados afuera: el de lectura corre en CADA POST /gps. Es una búsqueda
+// por clave primaria en una tabla casi siempre vacía — microsegundos, no es
+// de la familia de los barridos que se midieron en COSTOS.md.
+const pedidoDeVehiculoStmt = db.prepare('SELECT * FROM recording_requests WHERE vehicleId = ?');
+const borrarPedidoStmt = db.prepare('DELETE FROM recording_requests WHERE vehicleId = ?');
+
+// El pedido de esta unidad, si sigue vivo. El vencido se borra acá mismo:
+// la tabla es diminuta y así ninguna lectura necesita repetir el criterio.
+function pedidoVigente(vehicleId) {
+  const p = pedidoDeVehiculoStmt.get(vehicleId);
+  if (!p) return null;
+  if (Date.now() - p.pedidaEn > PEDIDO_GRABACION_MS) {
+    borrarPedidoStmt.run(vehicleId);
+    return null;
+  }
+  return p;
+}
+
 app.post('/grabacion', (req, res) => {
   const user = usuarioPropio(req, res);   // chofer o cobrador: el que grabó iba arriba
   if (!user) return;
@@ -2707,8 +2771,13 @@ app.post('/grabacion', (req, res) => {
   db.prepare(`DELETE FROM recordings WHERE companyId IS ? AND id NOT IN
               (SELECT id FROM recordings WHERE companyId IS ? ORDER BY id DESC LIMIT ?)`)
     .run(user.companyId || null, user.companyId || null, GRABACIONES_MAX);
+  // Si venía de un pedido de Despacho (4.5), quedó cumplido: la grabación
+  // que pidió ya está en la lista de la que él mismo importa.
+  const vehGrabador = user.vehicleId || user.unitId;
+  const pedido = pedidoDeVehiculoStmt.get(vehGrabador);
+  if (pedido) borrarPedidoStmt.run(vehGrabador);
   audit(user.unitId, 'grabacion', null,
-    `${puntos.length} puntos · ${(largoM / 1000).toFixed(1)} km`, routeId);
+    `${puntos.length} puntos · ${(largoM / 1000).toFixed(1)} km${pedido ? ' · pedida por Despacho' : ''}`, routeId);
   console.log(`Recorrido grabado por ${user.unitId}: ${puntos.length} puntos, ${(largoM / 1000).toFixed(1)} km`);
   res.json({ ok: true, puntos: puntos.length, largoM: Math.round(largoM) });
 });
@@ -2730,11 +2799,22 @@ app.get('/admin/grabaciones', requireDispatch, (req, res) => {
       AND (@scope IS NULL OR r.routeId IS @scope)
     ORDER BY r.id DESC LIMIT @tope
   `).all({ empresa: req.empresa, scope: req.scope || null, tope: GRABACIONES_MAX });
+  // Los pedidos en curso van en la misma respuesta: es la pantalla donde
+  // Despacho los hizo, y ahí mismo ve si la app ya los levantó. Antes de
+  // listar se barren los vencidos — la tabla es de un puñado de filas.
+  db.prepare('DELETE FROM recording_requests WHERE pedidaEn < ?')
+    .run(Date.now() - PEDIDO_GRABACION_MS);
+  const pedidos = db.prepare(`
+    SELECT vehicleId, estado, pedidaEn FROM recording_requests
+    WHERE companyId IS @empresa AND (@scope IS NULL OR routeId IS @scope)
+    ORDER BY pedidaEn DESC
+  `).all({ empresa: req.empresa, scope: req.scope || null });
   res.json({
     grabaciones: filas.map(f => ({
       id: f.id, nombre: f.nombre, quien: f.quien, routeId: f.routeId,
       largoM: f.largoM, puntos: f.cantidad, createdAt: f.createdAt,
     })),
+    pedidos,
   });
 });
 
@@ -2763,6 +2843,51 @@ app.get('/admin/grabaciones/:id.geojson', requireDispatch, (req, res) => {
       geometry: { type: 'LineString', coordinates: puntos.map(p => [p.lng, p.lat]) },
     }],
   }));
+});
+
+// Pedir una grabación a una unidad. El pedido no arranca nada por sí solo:
+// queda esperando al próximo POST /gps de esa unidad, que es cuando la app
+// existe de verdad — la web del chofer no graba, y una unidad apagada no
+// tiene a quién avisarle.
+app.post('/admin/grabaciones/pedir', requireDispatch, (req, res) => {
+  const vehicleId = String(req.body?.vehicleId || '').trim();
+  const veh = vehicleId ? vehicleOf(vehicleId) : null;
+  // La combi de otra empresa o de otra ruta se trata como inexistente: el
+  // mismo 404 que las grabaciones — distinguirlos convierte esta puerta en
+  // un directorio de lo ajeno.
+  if (!veh || veh.companyId !== req.empresa || (req.scope && veh.routeId !== req.scope)) {
+    return res.status(404).json({ error: 'Esa unidad no existe' });
+  }
+  const previo = pedidoVigente(vehicleId);
+  if (previo && previo.estado === 'grabando') {
+    // La app ya está grabando: repetir el pedido no la degrada a 'pedida' —
+    // eso volvería a mandarle "arrancá" a una grabación en curso.
+    return res.json({ ok: true, estado: 'grabando' });
+  }
+  db.prepare(`INSERT INTO recording_requests (vehicleId, routeId, companyId, pedidaPor, pedidaEn, estado)
+              VALUES (?, ?, ?, ?, ?, 'pedida')
+              ON CONFLICT(vehicleId) DO UPDATE SET
+                pedidaPor = excluded.pedidaPor, pedidaEn = excluded.pedidaEn, estado = 'pedida'`)
+    .run(vehicleId, veh.routeId || null, veh.companyId || null,
+         req.dispatchUser.unitId, Date.now());
+  audit(req.dispatchUser.unitId, 'grabacion_pedida', vehicleId, null, veh.routeId);
+  res.json({ ok: true, estado: 'pedida' });
+});
+
+// Cancelar un pedido. Si la app todavía no lo levantó, no lo levanta nunca.
+// Si ya está grabando, cancelar NO la corta a distancia: lo grabado es
+// tiempo de manejo del chofer y la termina o descarta él, desde su Perfil —
+// acá solo se deja de esperar.
+app.delete('/admin/grabaciones/pedir/:vehicleId', requireDispatch, (req, res) => {
+  const vehicleId = String(req.params.vehicleId || '');
+  const p = pedidoDeVehiculoStmt.get(vehicleId);
+  if (!p || p.companyId !== req.empresa || (req.scope && p.routeId !== req.scope)) {
+    return res.status(404).json({ error: 'No hay ningún pedido para esa unidad' });
+  }
+  borrarPedidoStmt.run(vehicleId);
+  audit(req.dispatchUser.unitId, 'grabacion_pedido_cancelado', vehicleId,
+    p.estado === 'grabando' ? 'la app ya estaba grabando' : null, p.routeId);
+  res.json({ ok: true, estado: p.estado });
 });
 
 app.post('/gps', (req, res) => {
@@ -2821,6 +2946,29 @@ app.post('/gps', (req, res) => {
     routeId = anotarPosicion(vehicleId, user.unitId, prof, p, p.cuando);
   }
 
+  // El pedido de grabación de Despacho (4.5) viaja por esta misma respuesta
+  // — el único canal que sobrevive a la pantalla apagada, igual que la
+  // brecha. La app confirma con `grabando: true` pegado a sus posiciones y
+  // el pedido pasa a 'grabando'; cuando reporta `grabando: false` con el
+  // pedido ya confirmado, la grabación terminó (subió por POST /grabacion,
+  // que también lo limpia, o el chofer la descartó) y la fila se va. Solo
+  // los booleanos explícitos cuentan: un APK viejo no manda el campo y su
+  // pedido queda esperando hasta vencerse, no se le inventa un estado.
+  let pedirGrabar = false;
+  const pedido = pedidoVigente(vehicleId);
+  if (pedido) {
+    if (pedido.estado === 'pedida') {
+      if (req.body?.grabando === true) {
+        db.prepare("UPDATE recording_requests SET estado = 'grabando' WHERE vehicleId = ?").run(vehicleId);
+        console.log(`La app de ${vehicleId} arrancó la grabación pedida por ${pedido.pedidaPor}`);
+      } else {
+        pedirGrabar = true;
+      }
+    } else if (req.body?.grabando === false) {
+      borrarPedidoStmt.run(vehicleId);
+    }
+  }
+
   // La brecha va de vuelta en la MISMA respuesta. Con la pantalla apagada
   // este POST es el único canal del teléfono (el WebSocket murió con la
   // pantalla), y sin esto la notificación del chofer mostraba la brecha
@@ -2831,6 +2979,7 @@ app.post('/gps', (req, res) => {
   res.json({
     ok: true, aceptadas: buenas.length, descartadas: crudas.length - buenas.length, routeId,
     ...(g ? { brecha: { ...g, objetivoMin: estado.targetGapMin ?? null } } : {}),
+    ...(pedirGrabar ? { grabar: true } : {}),
   });
 });
 
@@ -3169,10 +3318,29 @@ function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
   return descartadas;
 }
 
+// La mano manda sobre el reloj. Si alguien activó una variante A MANO, la
+// vigencia automática no se la pisa por el resto del DÍA: el domingo que la
+// ruta de domingo no corre (procesión, calle cerrada), Despacho activa la
+// de siempre y eso tiene que sostenerse — sin esta pausa, el revisor de
+// vigencias la revertía al minuto, descartando las vueltas en curso en cada
+// ida y vuelta. A medianoche el día nuevo vuelve a decidir. En memoria a
+// propósito: un reinicio vuelve a la regla programada, que es el estado que
+// no depende de que nadie se acuerde.
+const vigenciaEnPausa = new Map();   // routeId → hasta cuándo (fin del día local)
+
+function finDeDiaLocal() {
+  const d = new Date();
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
+
 function activarVariante(routeId, variantId, quien, motivo) {
   const v = db.prepare('SELECT * FROM route_variants WHERE variantId = ? AND routeId = ?')
     .get(variantId, routeId);
   if (!v) return { error: 404, msg: 'Esa variante no existe' };
+  // La pausa se anota aunque la variante ya esté activa: reactivar la que
+  // está es la forma de decir "quedate con ésta hoy".
+  if (quien !== 'sistema') vigenciaEnPausa.set(routeId, finDeDiaLocal());
   const anterior = varianteActiva(routeId);
   if (anterior.variantId === v.variantId) return { ok: true, variante: v, sinCambios: true };
 
@@ -3190,11 +3358,44 @@ function activarVariante(routeId, variantId, quien, motivo) {
 // minuto — no hace falta más fino, esto se mide en días.
 //
 // La regla es simple y se resuelve sola: si hay una variante vigente por
-// fecha, esa manda; si la vigente se venció, vuelve la base. Nunca se apaga
-// una ruta: si nada aplica, queda la variante base.
+// fecha O por día de la semana ("los domingos"), esa manda; si la vigente
+// se venció, vuelve la base. Nunca se apaga una ruta: si nada aplica,
+// queda la variante base. El cambio de día se agarra en el minuto después
+// de medianoche — antes de que salga la primera combi, así el descarte de
+// vueltas en curso no descarta nada.
+let avisoHusoDado = false;
 function revisarVigencias() {
   const ahora = Date.now();
+  // Día 0-6 en hora LOCAL del servidor (ver la nota sobre TZ en la columna)
+  const hoy = String(new Date().getDay());
+  // La trampa clásica: el contenedor corre en UTC y nadie lo notó. Con
+  // vigencia semanal cargada eso significa que "domingo" empieza el sábado
+  // a las 19:00 de Perú. Se avisa una vez, fuerte, y no se frena nada.
+  if (!avisoHusoDado && new Date().getTimezoneOffset() === 0 &&
+      db.prepare('SELECT COUNT(*) AS c FROM route_variants WHERE dias IS NOT NULL').get().c > 0) {
+    avisoHusoDado = true;
+    console.warn('──────────────────────────────────────────────────────────');
+    console.warn('Hay variantes con vigencia SEMANAL y el servidor corre en UTC:');
+    console.warn('"domingo" va a empezar el sábado a las 19:00 hora de Perú.');
+    console.warn('Poné TZ=America/Lima en las variables del despliegue.');
+    console.warn('──────────────────────────────────────────────────────────');
+  }
+  // Fechas y días COMPONEN, no compiten: con días, la variante rige esos
+  // días (acotados al rango si además hay fechas — "los domingos hasta fin
+  // de la obra"); sin días, rige el rango entero, que es la obra clásica.
+  // Con OR, "los domingos de octubre" habría regido TODOS los días de
+  // octubre y además todos los domingos para siempre.
+  const enFecha = v => (!v.desde || v.desde <= ahora) && (!v.hasta || v.hasta > ahora);
+  const porDia = v => !!v.dias && String(v.dias).split(',').includes(hoy);
+  const rige = v => v.dias ? (porDia(v) && enFecha(v)) : ((v.desde || v.hasta) && enFecha(v));
   for (const ruta of allRoutes()) {
+    // La mano manda: si hoy alguien eligió a mano, el reloj no opina hasta
+    // mañana. Las pausas vencidas se limpian acá mismo.
+    const pausa = vigenciaEnPausa.get(ruta.routeId);
+    if (pausa) {
+      if (pausa > ahora) continue;
+      vigenciaEnPausa.delete(ruta.routeId);
+    }
     const variantes = variantesDe(ruta.routeId);
     if (variantes.length < 2) continue;
     const activa = variantes.find(v => v.activa);
@@ -3202,19 +3403,22 @@ function revisarVigencias() {
     // La programada que corresponde a hoy. Si hay varias solapadas gana la
     // más nueva: es la que se cargó sabiendo de las anteriores.
     const vigente = variantes
-      .filter(v => (v.desde || v.hasta) &&
-                   (!v.desde || v.desde <= ahora) &&
-                   (!v.hasta || v.hasta > ahora))
+      .filter(rige)
       .sort((a, b) => b.variantId - a.variantId)[0];
 
-    const destino = vigente || variantes.find(v => !v.desde && !v.hasta) || variantes[0];
+    const destino = vigente
+      || variantes.find(v => !v.desde && !v.hasta && !v.dias)
+      || variantes[0];
     if (destino && activa && destino.variantId !== activa.variantId) {
       activarVariante(ruta.routeId, destino.variantId, 'sistema',
-        vigente ? 'por vigencia programada' : 'venció la vigencia');
+        vigente ? (vigente.dias ? 'por día de la semana' : 'por vigencia programada')
+                : 'venció la vigencia');
     }
   }
 }
-setInterval(revisarVigencias, 60_000);
+// El intervalo sale de una variable SOLO para que la suite pueda apurarlo:
+// en producción es el minuto de siempre.
+setInterval(revisarVigencias, Number(process.env.VIGENCIAS_MS) || 60_000);
 // La primera revisión NO va acá sino al final, cuando el servidor ya
 // escucha: activar una variante toca cachés y clientes que se definen más
 // abajo en este archivo, y llamarla mientras el módulo todavía se está
@@ -3604,6 +3808,40 @@ app.get('/admin/audit', requireDispatch, (req, res) => {
     ORDER BY id DESC LIMIT 100
   `).all({ empresa: req.empresa, scope: req.scope });
   res.json({ events });
+});
+
+// ─── AVISOS DEL NIVEL DE ARRIBA ──────────────────────────────
+// El panel de Despacho los muestra como banner hasta que alguien los marque
+// vistos. Un despachador atado a una ruta ve los de toda la cooperativa
+// (la deuda es de la cooperativa) más los de SU ruta; los de otra ruta no.
+app.get('/admin/avisos', requireDispatch, (req, res) => {
+  const avisos = db.prepare(`
+    SELECT id, routeId, texto, creadoEn FROM notices
+    WHERE companyId = @empresa AND vistoEn IS NULL
+      AND (routeId IS NULL OR @scope IS NULL OR routeId = @scope)
+    ORDER BY id DESC LIMIT 10
+  `).all({ empresa: req.empresa, scope: req.scope || null });
+  res.json({ avisos });
+});
+
+// Marcar visto es de la cooperativa entera: el aviso es un mensaje del
+// nivel de arriba a la empresa, y con que UNO lo lea alcanza — quién y
+// cuándo quedan en la fila y en la auditoría, para poder responder "se
+// les avisó tal día y lo vio tal persona".
+app.post('/admin/avisos/:id/visto', requireDispatch, (req, res) => {
+  const aviso = db.prepare(`
+    SELECT id, routeId, texto FROM notices
+    WHERE id = @id AND companyId = @empresa AND vistoEn IS NULL
+      AND (routeId IS NULL OR @scope IS NULL OR routeId = @scope)
+  `).get({ id: Number(req.params.id) || -1, empresa: req.empresa, scope: req.scope || null });
+  // El de otra empresa (o de otra ruta) se responde como inexistente,
+  // igual que todo lo demás detrás de /admin.
+  if (!aviso) return res.status(404).json({ error: 'Ese aviso no existe' });
+  db.prepare('UPDATE notices SET vistoEn = ?, vistoPor = ? WHERE id = ?')
+    .run(Date.now(), req.dispatchUser.unitId, aviso.id);
+  audit(req.dispatchUser.unitId, 'aviso_visto', String(aviso.id),
+    aviso.texto.slice(0, 80), aviso.routeId);
+  res.json({ ok: true });
 });
 
 // Gestión del desvío de una ruta: a partir de cuántos metros se considera
@@ -4917,6 +5155,18 @@ app.get('/config.js', (req, res) => {
   );
 });
 
+// ─── POLÍTICA DE PRIVACIDAD ──────────────────────────────────
+// Google Play exige una URL pública con la política de la app del chofer,
+// y la sirve este mismo servidor: un documento estático, sin scripts. El
+// contacto sale de CONTACTO_PRIVACIDAD para no dejar un correo personal
+// escrito en el repositorio; sin la variable queda el canal genérico.
+const PRIVACIDAD_HTML = fs.readFileSync(path.join(__dirname, 'privacidad.html'), 'utf8')
+  .replaceAll('__CONTACTO__', String(process.env.CONTACTO_PRIVACIDAD || '').trim()
+    || 'la administración del sistema (su cooperativa tiene el contacto)');
+app.get('/privacidad', (req, res) => {
+  res.type('text/html; charset=utf-8').send(PRIVACIDAD_HTML);
+});
+
 if (PROJECT_DIR) {
   app.use(express.static(PROJECT_DIR));
   console.log('Sirviendo la app web desde', PROJECT_DIR);
@@ -4930,7 +5180,7 @@ if (PROJECT_DIR) {
   app.get('/', (req, res) => {
     res.status(503).type('html').send(`<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>COOP-R14 — falta la app web</title>
+<title>Control de flota — falta la app web</title>
 <style>
   body { margin:0; padding:32px 20px; background:#03060a; color:#EAF4FF;
          font-family: system-ui, sans-serif; line-height:1.6; }
@@ -6167,7 +6417,7 @@ respaldo.programar(db, Database);
 // ─── ARRANCAR ────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Servidor COOP-R14 corriendo en puerto ${PORT}`);
+  console.log(`Servidor de control de flota corriendo en puerto ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/ping`);
   // Si el servidor estuvo apagado el día que empezaba o vencía una obra, la
   // vigencia programada se aplica al encenderlo y no un minuto después.
