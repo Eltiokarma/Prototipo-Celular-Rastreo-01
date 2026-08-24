@@ -196,7 +196,11 @@ trazado en el panel del creador, rige sola esos días y **vuelve sola** al
 de siempre — el cambio pasa en el minuto después de medianoche, antes de
 que salga la primera combi, así el descarte de vueltas en curso no
 descarta nada. Prioridades como siempre: si varias vigencias aplican, gana
-la más nueva. **OJO con el huso**: el día se mira con la hora local del
+la más nueva. Dos reglas que salieron de la revisión: **fechas y días
+componen** (con las dos cosas, rige esos días solo dentro del período — con
+O lógico, «los domingos de octubre» habría regido todo octubre y además los
+domingos para siempre), y **la mano manda**: si Despacho activa otra
+variante ese día, el reloj no se la revierte hasta la medianoche. **OJO con el huso**: el día se mira con la hora local del
 servidor; si el contenedor corre en UTC, «domingo» empieza el sábado a las
 19:00 de Perú — el servidor lo grita en el arranque si detecta esa
 combinación, y el despliegue debe llevar `TZ=America/Lima`. Suite

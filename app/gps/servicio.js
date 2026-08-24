@@ -219,7 +219,13 @@ export async function empezarGrabacion() {
 // una grabación PARADA sin enviar — empezar borra su archivo, y una vuelta
 // manejada no se pisa por un pedido; cuando el chofer la envíe o descarte,
 // el próximo POST arranca la pedida.
-async function atenderPedidoGrabacion(flagGrabando) {
+//
+// El flag se lee ACÁ, no se recibe: el que leyó `subirAhora` puede tener
+// hasta 15 s (el corte del fetch), y en ese hueco el chofer pudo apretar
+// GRABAR RECORRIDO en Perfil — con el valor viejo, su grabación recién
+// empezada se pisaba y encima quedaba rotulada como pedida por Despacho.
+async function atenderPedidoGrabacion() {
+  const flagGrabando = await SecureStore.getItemAsync(LLAVE_GRABANDO).catch(() => null);
   if (flagGrabando === '1') return;
   const info = await FileSystem.getInfoAsync(ARCHIVO_GRABACION()).catch(() => null);
   if (info?.exists) return;
@@ -235,6 +241,15 @@ async function atenderPedidoGrabacion(flagGrabando) {
 // `descartarGrabacion()`, cuando el envío salió bien (o el chofer descarta).
 export async function pararGrabacion() {
   let puntos = grabador ? grabador.puntos : [];
+  // Los puntos van a disco ANTES de soltar el grabador. Sin esto, una
+  // grabación corta (menos de 10 puntos: el guardado periódico nunca
+  // escribió) que falla al enviarse quedaba sólo en la memoria del
+  // grabador que se acaba de soltar — el reintento leía un archivo que no
+  // existía, encontraba cero puntos y la descartaba, mientras la pantalla
+  // decía "quedó guardada". Ahora "quedó guardada" es literal.
+  if (puntos.length) {
+    try { await FileSystem.writeAsStringAsync(ARCHIVO_GRABACION(), JSON.stringify(puntos)); } catch {}
+  }
   grabador = null;
   try { await SecureStore.deleteItemAsync(LLAVE_GRABANDO); } catch {}
   if (!puntos.length) {
@@ -385,7 +400,7 @@ async function subirAhora(nuevas) {
       // Despacho pidió una grabación (4.5). Mejor esfuerzo, como todo lo que
       // cuelga de esta respuesta: si falla, el pedido sigue vivo en el
       // servidor y el próximo POST lo vuelve a traer.
-      if (cuerpo?.grabar === true) atenderPedidoGrabacion(flagGrabando).catch(() => {});
+      if (cuerpo?.grabar === true) atenderPedidoGrabacion().catch(() => {});
     } else {
       // El cuerpo del error dice bastante más que el número: 403 del cobrador,
       // 409 del relevo y 400 del reloj mal puesto se ven igual desde afuera.

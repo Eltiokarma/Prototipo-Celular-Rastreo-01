@@ -322,8 +322,13 @@ function fechaOpcional(valor) {
 function diasOpcionales(valor) {
   if (valor === undefined || valor === null || valor === '' ||
       (Array.isArray(valor) && valor.length === 0)) return { ok: true, dias: null };
-  const nums = (Array.isArray(valor) ? valor : String(valor).split(',')).map(Number);
-  if (!nums.length || nums.some(n => !Number.isInteger(n) || n < 0 || n > 6)) return { ok: false };
+  // Los pedazos vacíos se descartan ANTES de convertir: Number('') es 0, y
+  // sin este filtro un "6," inventaba un domingo que nadie pidió.
+  const partes = (Array.isArray(valor) ? valor : String(valor).split(','))
+    .map(x => String(x).trim()).filter(x => x !== '');
+  if (!partes.length) return { ok: true, dias: null };
+  const nums = partes.map(Number);
+  if (nums.some(n => !Number.isInteger(n) || n < 0 || n > 6)) return { ok: false };
   return { ok: true, dias: [...new Set(nums)].sort().join(',') };
 }
 
@@ -378,7 +383,12 @@ function editarVariante(db, { variantId, name, desde, hasta, dias } = {}) {
   const d = fechaOpcional(desde), h = fechaOpcional(hasta);
   if (!d.ok || !h.ok) return { error: 'Las fechas de vigencia no se entienden' };
   if (d.ts && h.ts && h.ts <= d.ts) return { error: 'La vigencia termina antes de empezar' };
-  const ds = diasOpcionales(dias);
+  // `dias` ausente CONSERVA los que había, a diferencia de las fechas (que
+  // siempre se reemplazan, como desde el primer día). No es prolijidad: un
+  // renombre que borrara la recurrencia semanal en silencio la mataría sin
+  // error y sin rastro — nadie lo notaría hasta el domingo que el mapa no
+  // cambió. Para quitarlos de verdad se manda `dias: []`.
+  const ds = dias === undefined ? { ok: true, dias: v.dias } : diasOpcionales(dias);
   if (!ds.ok) return { error: 'Los días de vigencia no se entienden (0 a 6, 0 es domingo)' };
   db.prepare('UPDATE route_variants SET name = ?, desde = ?, hasta = ?, dias = ? WHERE variantId = ?')
     .run(nombre, d.ts, h.ts, ds.dias, v.variantId);

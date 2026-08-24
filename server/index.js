@@ -3318,10 +3318,29 @@ function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
   return descartadas;
 }
 
+// La mano manda sobre el reloj. Si alguien activó una variante A MANO, la
+// vigencia automática no se la pisa por el resto del DÍA: el domingo que la
+// ruta de domingo no corre (procesión, calle cerrada), Despacho activa la
+// de siempre y eso tiene que sostenerse — sin esta pausa, el revisor de
+// vigencias la revertía al minuto, descartando las vueltas en curso en cada
+// ida y vuelta. A medianoche el día nuevo vuelve a decidir. En memoria a
+// propósito: un reinicio vuelve a la regla programada, que es el estado que
+// no depende de que nadie se acuerde.
+const vigenciaEnPausa = new Map();   // routeId → hasta cuándo (fin del día local)
+
+function finDeDiaLocal() {
+  const d = new Date();
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
+
 function activarVariante(routeId, variantId, quien, motivo) {
   const v = db.prepare('SELECT * FROM route_variants WHERE variantId = ? AND routeId = ?')
     .get(variantId, routeId);
   if (!v) return { error: 404, msg: 'Esa variante no existe' };
+  // La pausa se anota aunque la variante ya esté activa: reactivar la que
+  // está es la forma de decir "quedate con ésta hoy".
+  if (quien !== 'sistema') vigenciaEnPausa.set(routeId, finDeDiaLocal());
   const anterior = varianteActiva(routeId);
   if (anterior.variantId === v.variantId) return { ok: true, variante: v, sinCambios: true };
 
@@ -3361,10 +3380,22 @@ function revisarVigencias() {
     console.warn('Poné TZ=America/Lima en las variables del despliegue.');
     console.warn('──────────────────────────────────────────────────────────');
   }
-  const porFecha = v => (v.desde || v.hasta) &&
-    (!v.desde || v.desde <= ahora) && (!v.hasta || v.hasta > ahora);
+  // Fechas y días COMPONEN, no compiten: con días, la variante rige esos
+  // días (acotados al rango si además hay fechas — "los domingos hasta fin
+  // de la obra"); sin días, rige el rango entero, que es la obra clásica.
+  // Con OR, "los domingos de octubre" habría regido TODOS los días de
+  // octubre y además todos los domingos para siempre.
+  const enFecha = v => (!v.desde || v.desde <= ahora) && (!v.hasta || v.hasta > ahora);
   const porDia = v => !!v.dias && String(v.dias).split(',').includes(hoy);
+  const rige = v => v.dias ? (porDia(v) && enFecha(v)) : ((v.desde || v.hasta) && enFecha(v));
   for (const ruta of allRoutes()) {
+    // La mano manda: si hoy alguien eligió a mano, el reloj no opina hasta
+    // mañana. Las pausas vencidas se limpian acá mismo.
+    const pausa = vigenciaEnPausa.get(ruta.routeId);
+    if (pausa) {
+      if (pausa > ahora) continue;
+      vigenciaEnPausa.delete(ruta.routeId);
+    }
     const variantes = variantesDe(ruta.routeId);
     if (variantes.length < 2) continue;
     const activa = variantes.find(v => v.activa);
@@ -3372,7 +3403,7 @@ function revisarVigencias() {
     // La programada que corresponde a hoy. Si hay varias solapadas gana la
     // más nueva: es la que se cargó sabiendo de las anteriores.
     const vigente = variantes
-      .filter(v => porFecha(v) || porDia(v))
+      .filter(rige)
       .sort((a, b) => b.variantId - a.variantId)[0];
 
     const destino = vigente
@@ -3380,12 +3411,14 @@ function revisarVigencias() {
       || variantes[0];
     if (destino && activa && destino.variantId !== activa.variantId) {
       activarVariante(ruta.routeId, destino.variantId, 'sistema',
-        vigente ? (porDia(vigente) && !porFecha(vigente) ? 'por día de la semana' : 'por vigencia programada')
+        vigente ? (vigente.dias ? 'por día de la semana' : 'por vigencia programada')
                 : 'venció la vigencia');
     }
   }
 }
-setInterval(revisarVigencias, 60_000);
+// El intervalo sale de una variable SOLO para que la suite pueda apurarlo:
+// en producción es el minuto de siempre.
+setInterval(revisarVigencias, Number(process.env.VIGENCIAS_MS) || 60_000);
 // La primera revisión NO va acá sino al final, cuando el servidor ya
 // escucha: activar una variante toca cachés y clientes que se definen más
 // abajo en este archivo, y llamarla mientras el módulo todavía se está

@@ -3490,8 +3490,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             {a.texto}
           </span>
           <div style={{ flex: 1 }} />
+          {/* fmtWhen y no nowTime: un aviso pendiente puede tener semanas
+              (no caducan a propósito), y "14:32" a secas se lee como si
+              hubiera llegado hoy — al revés de lo que el aviso certifica. */}
           <span style={{ fontFamily: mono, fontSize: 10, color: HUD.ambarTinta2, flexShrink: 0 }}>
-            {nowTime(a.creadoEn)}
+            {fmtWhen(a.creadoEn)}
           </span>
           <button onClick={() => marcarAviso(a.id)}
             title="Lo marca visto para toda la cooperativa; queda registrado quién lo vio"
