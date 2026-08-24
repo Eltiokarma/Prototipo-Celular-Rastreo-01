@@ -47,7 +47,19 @@ app.use((req, res, next) => {
 // En memoria por ahora — cuando el servidor se reinicia, se borran.
 // Más adelante esto irá a una base de datos.
 
-const units = new Map();
+// El mapa de unidades vivas, con un índice por ruta. `units` es el Map plano
+// de siempre; `unitsByRoute` (routeId → Set) evita barrer la flota entera para
+// armar el estado de una ruta. La mutación pasa SIEMPRE por `ponerUnidad` /
+// `quitarUnidad` para que el índice no se separe del mapa; el porqué, el número
+// medido y el verificador de invariante están en `indice-unidades.js`.
+const { crearIndiceUnidades } = require('./indice-unidades');
+const {
+  units,
+  unitsByRoute,
+  poner: ponerUnidad,
+  quitar: quitarUnidad,
+  deRuta: unidadesDeRuta,
+} = crearIndiceUnidades();
 // units = { "V-247": { unitId, lat, lng, speed, timestamp, routeProgress }, ... }
 
 const clients = new Map();
@@ -1791,7 +1803,7 @@ function fijarPresencia(vehicleId, routeId, estado) {
     // Terminó el turno estando fuera del trazado: el episodio se cierra acá.
     // Dejarlo abierto lo haría durar hasta que alguien lo mire.
     olvidarDesvio(vehicleId, 'corte');
-    units.delete(vehicleId);
+    quitarUnidad(vehicleId);
     // El mismo aviso que manda el olvido: los mapas que borran por evento
     // no tienen por qué esperar al próximo estado completo.
     if (u) broadcastToRoute(u.routeId, { type: 'unit_left', unitId: vehicleId });
@@ -1810,7 +1822,7 @@ function fijarPresencia(vehicleId, routeId, estado) {
   // última posición, por lo mismo que arriba: el almuerzo no es parte del
   // tramo aunque se declare a la media hora de haber estacionado.
   olvidarTramo(vehicleId, (u && u.timestamp) || Date.now());
-  if (u) units.set(vehicleId, { ...u, presencia: estado, enRuta: false });
+  if (u) ponerUnidad(vehicleId, { ...u, presencia: estado, enRuta: false });
   scheduleStateBroadcast((u && u.routeId) || routeId);
 }
 
@@ -2985,7 +2997,7 @@ app.get('/admin/company', requireDispatch, (req, res) => {
       personas: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role NOT IN ('dispatch', 'manager')").get(req.empresa).c,
       despacho: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role = 'dispatch'").get(req.empresa).c,
       gerencia: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role = 'manager'").get(req.empresa).c,
-      enLinea: Array.from(units.values()).filter(u => rutas.some(r => r.routeId === u.routeId)).length,
+      enLinea: rutas.reduce((n, r) => n + ((unitsByRoute.get(r.routeId)?.size) || 0), 0),
     },
     // Los datos de la empresa los corrige el gerente sin ruta acotada: son
     // de la cooperativa entera, no de una ruta ni del turno de hoy.
@@ -3037,7 +3049,7 @@ app.get('/admin/routes', requireDispatch, (req, res) => {
         ...r,
         objetivo,
         unidades: choferesPorRuta.get(r.routeId) || 0,
-        enLinea: Array.from(units.values()).filter(u => u.routeId === r.routeId).length,
+        enLinea: (unitsByRoute.get(r.routeId)?.size) || 0,
         // Recorrido cargado: cuántos puntos por tramo y cuántos metros
         puntos: geo ? geo.ida.puntos.length + (geo.vuelta ? geo.vuelta.puntos.length : 0) : 0,
         tieneVuelta: !!(geo && geo.vuelta),
@@ -5101,7 +5113,7 @@ wss.on('connection', (ws) => {
         const yaEstaba = units.has(vehicleId);
         const veh = vehicleOf(vehicleId);
         const previo = units.get(vehicleId);
-        units.set(vehicleId, {
+        ponerUnidad(vehicleId, {
           ...(previo || { lat: null, lng: null, speed: 0, routeProgress: 0 }),
           unitId: vehicleId,
           label: veh?.label || null,
@@ -5454,7 +5466,7 @@ wss.on('connection', (ws) => {
     // dónde está" es mucho más barato que equivocarse hacia "no existe".
     if (otrosDelVehiculo.length === 0 && units.has(vehicleId)) {
       const u = units.get(vehicleId);
-      if (!u.sinSenal) units.set(vehicleId, { ...u, sinSenal: true, sinSenalDesde: u.timestamp });
+      if (!u.sinSenal) ponerUnidad(vehicleId, { ...u, sinSenal: true, sinSenalDesde: u.timestamp });
       scheduleStateBroadcast(routeId, true);
     }
   });
@@ -5645,8 +5657,8 @@ function objetivoDe(routeId) {
   // se fue a su casa, estaríamos apretando a los que quedan por un fantasma.
   // Sin contarla el objetivo queda algo más grande de lo ideal mientras dura
   // el corte, que es el error barato. Vuelve a contar apenas reaparece.
-  const unidades = Array.from(units.values())
-    .filter(u => u.routeId === routeId && u.lat !== null && !u.sinSenal &&
+  const unidades = unidadesDeRuta(routeId)
+    .filter(u => u.lat !== null && !u.sinSenal &&
                  u.enRuta !== false && u.presencia !== 'ausente').length;
   const diaSemana = new Date().getDay();
   const prom = promedioVuelta(routeId, diaSemana);
@@ -5693,13 +5705,20 @@ function anotarBrecha(vehicleId, minutosAdelante) {
   st.brechaCount++;
 }
 
+// La cuenta de flota se compila UNA vez y no en cada emisión. Estaba como
+// `db.prepare('SELECT COUNT(*)…').get(routeId)` dentro de `buildState`, que
+// corre cada 3 s por ruta: compilar la sentencia en cada pasada es trabajo de
+// SQLite en el mismo hilo que atiende los `POST /gps`. Con `vehicles(routeId)`
+// indexado, la cuenta es un salto por el índice; lo que sobraba era compilar.
+const contarFlotaStmt = db.prepare('SELECT COUNT(*) AS c FROM vehicles WHERE routeId = ?');
+
 // `acumular` distingue la emisión con cadencia —que es la que representa el
 // paso del tiempo— de las que se arman para contestarle a alguien que se
 // acaba de conectar.
 function buildState(routeId, acumular) {
   const ruta = routeOf(routeId);
-  const all = Array.from(units.values())
-    .filter(u => u.routeId === routeId && u.lat !== null) // solo su ruta, con GPS
+  const all = unidadesDeRuta(routeId)                      // por índice, no barriendo la flota
+    .filter(u => u.lat !== null)                           // con GPS
     .sort((a, b) => b.routeProgress - a.routeProgress);    // ordenadas por avance
 
   // La CADENA de brechas es solo de las confirmadas en ruta. Las que van
@@ -5742,7 +5761,7 @@ function buildState(routeId, acumular) {
     // hasta ahora no viajaba: el panel podía decir cuántas veía, nunca
     // cuántas faltaban. Que falten dos a las 6 de la mañana es justo el
     // dato que hace levantar el teléfono.
-    flota: db.prepare('SELECT COUNT(*) AS c FROM vehicles WHERE routeId = ?').get(routeId).c,
+    flota: contarFlotaStmt.get(routeId).c,
     timestamp: Date.now(),
   };
 }
@@ -5845,7 +5864,7 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   // dónde está — y el barrido lo volvía a marcar 10 s después, en bucle.
   const fresca = Date.now() - cuando <= SIN_SENAL_MS;
 
-  units.set(vehicleId, {
+  ponerUnidad(vehicleId, {
     ...unit,
     unitId: vehicleId,
     routeId,
@@ -6095,7 +6114,7 @@ setInterval(() => {
     const sinOir = ahora - (unit.oidoEn ?? unit.timestamp);
 
     if (sinOir > OLVIDAR_MS) {
-      units.delete(unitId);
+      quitarUnidad(unitId);
       lapState.delete(unitId); // la vuelta a medias no cuenta
       // El tramo sí, si estaba terminado: apagar la app al llegar al final
       // de la ida es la forma más común de "hice la ida y me fui". Se cierra
@@ -6129,7 +6148,7 @@ setInterval(() => {
     // Entra en "sin señal". Se marca una sola vez: sin este chequeo se
     // reemitiría el estado cada diez segundos durante los tres minutos.
     if (muda > SIN_SENAL_MS && !unit.sinSenal) {
-      units.set(unitId, { ...unit, sinSenal: true, sinSenalDesde: unit.timestamp });
+      ponerUnidad(unitId, { ...unit, sinSenal: true, sinSenalDesde: unit.timestamp });
       console.log(`Unidad sin señal: ${unitId}`);
       rutasAfectadas.add(unit.routeId);
     }

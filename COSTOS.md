@@ -580,6 +580,52 @@ Quedan dos `NOT IN` de la misma familia sin tocar —el de grabaciones y el de
 `audit`—: llevan un `WHERE` adentro, no aparecieron en la medición (49 ms y
 menos) y se reescriben igual el día que pesen. Anotado en `PENDIENTES 4.9`.
 
+### El WebSocket de estado: el CPU (no los bytes) era cuadrático
+
+Este archivo ya tenía medidos los **bytes** del WS de estado (egress, el rubro
+que domina la factura). Faltaba el **CPU**: `buildState` corre en el mismo hilo
+que atiende los `POST /gps`, así que el tiempo que tarda en armar el estado es
+tiempo que la flota no reporta — el mismo problema que una consulta lenta.
+
+Medido con `herramientas/emision.js`, que replica los dos costos de `buildState`
+que crecen con la flota (`server/index.js`) y mide su factor de crecimiento:
+
+| ciclo de emisión (armar TODAS las rutas una vez, cada 3 s) | 2000 u. | 5000 u. | factor |
+|---|---|---|---|
+| **barrido de unidades por ruta** | 1,7 ms | **10,6 ms** | **6,2× — CUADRÁTICO** |
+| cuenta de flota (`db.prepare` sin cachear) | 1,8 ms | 3,2 ms | 1,8× |
+| **ciclo hoy** | 3,5 ms | **13,8 ms** | 3,9× |
+| **ciclo con los arreglos** | 2,5 ms | **1,4 ms** | 0,5× — lineal |
+
+`units` era un `Map` plano: armar el estado de UNA ruta corría
+`Array.from(units.values()).filter(u => u.routeId === r)` —barrer la flota
+entera—, y como el estado se emite por ruta, por ciclo se barre una vez por
+ruta: **rutas × unidades**. Y `buildState` barría dos veces (acá y en
+`objetivoDe`), así que el costo real era el doble de la tabla.
+
+**El arreglo.** Un índice `routeId → Set<unitId>` al lado del mapa plano
+(`server/indice-unidades.js`). Armar una ruta lee sólo lo suyo; el barrido deja
+de escalar con la flota. La mutación se centraliza en `ponerUnidad`/`quitarUnidad`
+—nadie toca `units.set/.delete` por afuera— porque el índice sólo sirve si nunca
+se separa del mapa: una unidad fantasma en un balde sale mal en el mapa de
+Despacho, que es peor que el barrido lento. El caso que obliga a centralizar es
+la unidad que cambia de ruta. De paso se cacheó la cuenta de flota (compilaba la
+sentencia en cada emisión) y se arreglaron dos barridos gemelos en el endpoint
+de rutas de gerencia (`:3038`, `:3090`), que eran el mismo cuadrático por
+pedido.
+
+**Honestidad sobre la magnitud.** A 5000 unidades el ciclo era 13,8 ms cada 3 s
+—chico, no se veía—, pero cuadrático: a ~11 000 unidades pasa de 50 ms y a
+20 000 el barrido solo son ~170 ms por ciclo. Es de la clase que no avisa hasta
+el día del crecimiento; el arreglo lo aplana antes. Que el índice sea siempre
+fiel al mapa lo fija la suite `emision`, que fuzzea 5000 operaciones —altas,
+bajas y ~1000 cambios de ruta— y reconstruye el índice después de cada una.
+
+Lo que NO se tocó: el egress (los bytes), que sigue siendo el rubro caro del WS
+y ya está mitigado por compresión (`palanca 2`); y montar 5000 conexiones reales
+para medir el envío end-to-end, que pondría al generador a competir por CPU con
+el servidor. Anotado como límite en el banco.
+
 ## 4. Costo en dinero
 
 **Fuentes de precios (consultadas 2026-08-05):**
