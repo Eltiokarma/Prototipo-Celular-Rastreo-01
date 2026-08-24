@@ -6,7 +6,7 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v47';       // app: HTML, JS propio, iconos
+const CACHE_NAME = 'coop-r14-v48';       // app: HTML, JS propio, iconos
 // tiles-v2: las tiles ahora vienen de Geoapify — las de CARTO guardadas con
 // la v1 tienen URLs que ya nadie pide y solo ocupan los ~15 MB del tope.
 const TILE_CACHE = 'coop-r14-tiles-v2';  // tiles del mapa

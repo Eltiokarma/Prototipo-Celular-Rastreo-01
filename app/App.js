@@ -884,9 +884,11 @@ function Perfil({ sesion, marca, onCerrar }) {
         await gps.descartarGrabacion();
         return;
       }
+      // Si la pidió Despacho (4.5), el nombre lo dice: en su lista de
+      // grabaciones es cómo distingue la que encargó de las espontáneas.
       const fue = await post('/grabacion', {
         puntos,
-        nombre: `Recorrido ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString().slice(0, 5)}`,
+        nombre: `${grabacion?.pedida ? 'Pedido por Despacho' : 'Recorrido'} ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString().slice(0, 5)}`,
       }, `Recorrido enviado (${puntos.length} puntos) — se importa desde el trazador de Despacho`);
       if (fue) await gps.descartarGrabacion();
       else setAviso('No salió — la grabación quedó guardada. Probá ENVIAR de nuevo con señal.');
@@ -1101,7 +1103,8 @@ function Perfil({ sesion, marca, onCerrar }) {
             )}
             {grabacion && (<>
               <Text style={[s.diagnostico, { marginTop: 12 }]}>
-                {grabacion.parada ? 'Grabación parada (sin enviar)' : '● Grabando'}
+                {grabacion.parada ? 'Grabación parada (sin enviar)'
+                  : grabacion.pedida ? '● Grabando (la pidió Despacho)' : '● Grabando'}
                 {` · ${grabacion.puntos} punto${grabacion.puntos === 1 ? '' : 's'}`}
                 {` · ${((grabacion.largoM || 0) / 1000).toFixed(1)} km`}
               </Text>

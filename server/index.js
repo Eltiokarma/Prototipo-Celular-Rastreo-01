@@ -2675,6 +2675,47 @@ db.exec(`
 `);
 const GRABACIONES_MAX = 25;   // por empresa: las viejas se van solas
 
+// Despacho puede PEDIR una grabación (PENDIENTES 4.5). Grabar sigue saliendo
+// solo de la app del que va arriba —Despacho no tiene GPS en la calle—, pero
+// el pedido viaja por el único canal que sobrevive a la pantalla apagada: la
+// respuesta del POST /gps, igual que la brecha. La app lo levanta, arranca a
+// grabar sola y avisa al chofer; terminar y enviar sigue siendo del chofer.
+//
+// Una fila por vehículo, con dos estados: 'pedida' (esperando a que la app
+// reporte) y 'grabando' (la app confirmó, con `grabando: true` pegado a sus
+// posiciones). La fila se va cuando la grabación llega por POST /grabacion,
+// cuando la app reporta que dejó de grabar, cuando Despacho cancela, o sola
+// a las 12 horas — un pedido que nadie levantó en un turno entero es que la
+// unidad no salió con la app puesta, y no puede quedar armado para siempre.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recording_requests (
+    vehicleId TEXT PRIMARY KEY,
+    routeId TEXT,
+    companyId TEXT,
+    pedidaPor TEXT NOT NULL,
+    pedidaEn INTEGER NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'pedida'
+  )
+`);
+const PEDIDO_GRABACION_MS = 12 * 3600_000;
+// Preparados afuera: el de lectura corre en CADA POST /gps. Es una búsqueda
+// por clave primaria en una tabla casi siempre vacía — microsegundos, no es
+// de la familia de los barridos que se midieron en COSTOS.md.
+const pedidoDeVehiculoStmt = db.prepare('SELECT * FROM recording_requests WHERE vehicleId = ?');
+const borrarPedidoStmt = db.prepare('DELETE FROM recording_requests WHERE vehicleId = ?');
+
+// El pedido de esta unidad, si sigue vivo. El vencido se borra acá mismo:
+// la tabla es diminuta y así ninguna lectura necesita repetir el criterio.
+function pedidoVigente(vehicleId) {
+  const p = pedidoDeVehiculoStmt.get(vehicleId);
+  if (!p) return null;
+  if (Date.now() - p.pedidaEn > PEDIDO_GRABACION_MS) {
+    borrarPedidoStmt.run(vehicleId);
+    return null;
+  }
+  return p;
+}
+
 app.post('/grabacion', (req, res) => {
   const user = usuarioPropio(req, res);   // chofer o cobrador: el que grabó iba arriba
   if (!user) return;
@@ -2707,8 +2748,13 @@ app.post('/grabacion', (req, res) => {
   db.prepare(`DELETE FROM recordings WHERE companyId IS ? AND id NOT IN
               (SELECT id FROM recordings WHERE companyId IS ? ORDER BY id DESC LIMIT ?)`)
     .run(user.companyId || null, user.companyId || null, GRABACIONES_MAX);
+  // Si venía de un pedido de Despacho (4.5), quedó cumplido: la grabación
+  // que pidió ya está en la lista de la que él mismo importa.
+  const vehGrabador = user.vehicleId || user.unitId;
+  const pedido = pedidoDeVehiculoStmt.get(vehGrabador);
+  if (pedido) borrarPedidoStmt.run(vehGrabador);
   audit(user.unitId, 'grabacion', null,
-    `${puntos.length} puntos · ${(largoM / 1000).toFixed(1)} km`, routeId);
+    `${puntos.length} puntos · ${(largoM / 1000).toFixed(1)} km${pedido ? ' · pedida por Despacho' : ''}`, routeId);
   console.log(`Recorrido grabado por ${user.unitId}: ${puntos.length} puntos, ${(largoM / 1000).toFixed(1)} km`);
   res.json({ ok: true, puntos: puntos.length, largoM: Math.round(largoM) });
 });
@@ -2730,11 +2776,22 @@ app.get('/admin/grabaciones', requireDispatch, (req, res) => {
       AND (@scope IS NULL OR r.routeId IS @scope)
     ORDER BY r.id DESC LIMIT @tope
   `).all({ empresa: req.empresa, scope: req.scope || null, tope: GRABACIONES_MAX });
+  // Los pedidos en curso van en la misma respuesta: es la pantalla donde
+  // Despacho los hizo, y ahí mismo ve si la app ya los levantó. Antes de
+  // listar se barren los vencidos — la tabla es de un puñado de filas.
+  db.prepare('DELETE FROM recording_requests WHERE pedidaEn < ?')
+    .run(Date.now() - PEDIDO_GRABACION_MS);
+  const pedidos = db.prepare(`
+    SELECT vehicleId, estado, pedidaEn FROM recording_requests
+    WHERE companyId IS @empresa AND (@scope IS NULL OR routeId IS @scope)
+    ORDER BY pedidaEn DESC
+  `).all({ empresa: req.empresa, scope: req.scope || null });
   res.json({
     grabaciones: filas.map(f => ({
       id: f.id, nombre: f.nombre, quien: f.quien, routeId: f.routeId,
       largoM: f.largoM, puntos: f.cantidad, createdAt: f.createdAt,
     })),
+    pedidos,
   });
 });
 
@@ -2763,6 +2820,51 @@ app.get('/admin/grabaciones/:id.geojson', requireDispatch, (req, res) => {
       geometry: { type: 'LineString', coordinates: puntos.map(p => [p.lng, p.lat]) },
     }],
   }));
+});
+
+// Pedir una grabación a una unidad. El pedido no arranca nada por sí solo:
+// queda esperando al próximo POST /gps de esa unidad, que es cuando la app
+// existe de verdad — la web del chofer no graba, y una unidad apagada no
+// tiene a quién avisarle.
+app.post('/admin/grabaciones/pedir', requireDispatch, (req, res) => {
+  const vehicleId = String(req.body?.vehicleId || '').trim();
+  const veh = vehicleId ? vehicleOf(vehicleId) : null;
+  // La combi de otra empresa o de otra ruta se trata como inexistente: el
+  // mismo 404 que las grabaciones — distinguirlos convierte esta puerta en
+  // un directorio de lo ajeno.
+  if (!veh || veh.companyId !== req.empresa || (req.scope && veh.routeId !== req.scope)) {
+    return res.status(404).json({ error: 'Esa unidad no existe' });
+  }
+  const previo = pedidoVigente(vehicleId);
+  if (previo && previo.estado === 'grabando') {
+    // La app ya está grabando: repetir el pedido no la degrada a 'pedida' —
+    // eso volvería a mandarle "arrancá" a una grabación en curso.
+    return res.json({ ok: true, estado: 'grabando' });
+  }
+  db.prepare(`INSERT INTO recording_requests (vehicleId, routeId, companyId, pedidaPor, pedidaEn, estado)
+              VALUES (?, ?, ?, ?, ?, 'pedida')
+              ON CONFLICT(vehicleId) DO UPDATE SET
+                pedidaPor = excluded.pedidaPor, pedidaEn = excluded.pedidaEn, estado = 'pedida'`)
+    .run(vehicleId, veh.routeId || null, veh.companyId || null,
+         req.dispatchUser.unitId, Date.now());
+  audit(req.dispatchUser.unitId, 'grabacion_pedida', vehicleId, null, veh.routeId);
+  res.json({ ok: true, estado: 'pedida' });
+});
+
+// Cancelar un pedido. Si la app todavía no lo levantó, no lo levanta nunca.
+// Si ya está grabando, cancelar NO la corta a distancia: lo grabado es
+// tiempo de manejo del chofer y la termina o descarta él, desde su Perfil —
+// acá solo se deja de esperar.
+app.delete('/admin/grabaciones/pedir/:vehicleId', requireDispatch, (req, res) => {
+  const vehicleId = String(req.params.vehicleId || '');
+  const p = pedidoDeVehiculoStmt.get(vehicleId);
+  if (!p || p.companyId !== req.empresa || (req.scope && p.routeId !== req.scope)) {
+    return res.status(404).json({ error: 'No hay ningún pedido para esa unidad' });
+  }
+  borrarPedidoStmt.run(vehicleId);
+  audit(req.dispatchUser.unitId, 'grabacion_pedido_cancelado', vehicleId,
+    p.estado === 'grabando' ? 'la app ya estaba grabando' : null, p.routeId);
+  res.json({ ok: true, estado: p.estado });
 });
 
 app.post('/gps', (req, res) => {
@@ -2821,6 +2923,29 @@ app.post('/gps', (req, res) => {
     routeId = anotarPosicion(vehicleId, user.unitId, prof, p, p.cuando);
   }
 
+  // El pedido de grabación de Despacho (4.5) viaja por esta misma respuesta
+  // — el único canal que sobrevive a la pantalla apagada, igual que la
+  // brecha. La app confirma con `grabando: true` pegado a sus posiciones y
+  // el pedido pasa a 'grabando'; cuando reporta `grabando: false` con el
+  // pedido ya confirmado, la grabación terminó (subió por POST /grabacion,
+  // que también lo limpia, o el chofer la descartó) y la fila se va. Solo
+  // los booleanos explícitos cuentan: un APK viejo no manda el campo y su
+  // pedido queda esperando hasta vencerse, no se le inventa un estado.
+  let pedirGrabar = false;
+  const pedido = pedidoVigente(vehicleId);
+  if (pedido) {
+    if (pedido.estado === 'pedida') {
+      if (req.body?.grabando === true) {
+        db.prepare("UPDATE recording_requests SET estado = 'grabando' WHERE vehicleId = ?").run(vehicleId);
+        console.log(`La app de ${vehicleId} arrancó la grabación pedida por ${pedido.pedidaPor}`);
+      } else {
+        pedirGrabar = true;
+      }
+    } else if (req.body?.grabando === false) {
+      borrarPedidoStmt.run(vehicleId);
+    }
+  }
+
   // La brecha va de vuelta en la MISMA respuesta. Con la pantalla apagada
   // este POST es el único canal del teléfono (el WebSocket murió con la
   // pantalla), y sin esto la notificación del chofer mostraba la brecha
@@ -2831,6 +2956,7 @@ app.post('/gps', (req, res) => {
   res.json({
     ok: true, aceptadas: buenas.length, descartadas: crudas.length - buenas.length, routeId,
     ...(g ? { brecha: { ...g, objetivoMin: estado.targetGapMin ?? null } } : {}),
+    ...(pedirGrabar ? { grabar: true } : {}),
   });
 });
 

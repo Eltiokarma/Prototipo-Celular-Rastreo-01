@@ -616,6 +616,37 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   // Las grabaciones de la calle (3.4): null = todavía no se pidieron
   const [grabaciones, setGrabaciones] = React.useState(null);
   const [verGrabaciones, setVerGrabaciones] = React.useState(false);
+  // Y los pedidos de grabación (4.5): Despacho le encarga una a una unidad,
+  // la app la arranca sola en su próximo reporte. La flota de la ruta se
+  // carga una vez para el selector; los pedidos se recargan con cada
+  // apertura, porque su estado cambia solo (la app confirma, o termina).
+  const [pedidos, setPedidos] = React.useState([]);
+  const [flota, setFlota] = React.useState(null);
+  const [unidadPedir, setUnidadPedir] = React.useState('');
+  const cargarGrabaciones = () => {
+    api('/admin/grabaciones')
+      .then(d => { setGrabaciones(d.grabaciones || []); setPedidos(d.pedidos || []); })
+      .catch(e => { setGrabaciones([]); setError(e.message); });
+    if (!flota) {
+      api('/admin/vehicles')
+        .then(d => setFlota((d.vehicles || []).filter(v => v.routeId === routeId)))
+        .catch(() => setFlota([]));
+    }
+  };
+  const pedirGrabacion = () => {
+    api('/admin/grabaciones/pedir', { method: 'POST', body: JSON.stringify({ vehicleId: unidadPedir }) })
+      .then(d => {
+        setPedidos(ps => [{ vehicleId: unidadPedir, estado: d.estado, pedidaEn: Date.now() },
+                          ...ps.filter(p => p.vehicleId !== unidadPedir)]);
+        setUnidadPedir('');
+      })
+      .catch(e => setError(e.message));
+  };
+  const cancelarPedido = (vehicleId) => {
+    api(`/admin/grabaciones/pedir/${encodeURIComponent(vehicleId)}`, { method: 'DELETE' })
+      .then(() => setPedidos(ps => ps.filter(p => p.vehicleId !== vehicleId)))
+      .catch(e => setError(e.message));
+  };
   const mapRef = React.useRef(null);
   const capaRef = React.useRef(null);
   const archivoRef = React.useRef(null);
@@ -948,16 +979,62 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                 por el MISMO import (y su misma simplificación) que un GPX. */}
             <button onClick={() => {
               setVerGrabaciones(v => !v);
-              if (!grabaciones) {
-                api('/admin/grabaciones')
-                  .then(d => setGrabaciones(d.grabaciones || []))
-                  .catch(e => { setGrabaciones([]); setError(e.message); });
-              }
+              if (!verGrabaciones) cargarGrabaciones();
             }} style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2 }}>
               {verGrabaciones ? 'Ocultar grabaciones' : 'Grabaciones de la calle'}
             </button>
             {verGrabaciones && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {/* Pedir una a la calle (4.5): el pedido le llega a la app
+                    en su próximo reporte de GPS y la grabación arranca sola,
+                    con aviso al chofer — que la termina desde su Perfil. */}
+                <div style={{ ...tarjeta('8px 10px'), borderRadius: 8 }}>
+                  <div style={rotulo(9)}>Pedir una grabación</div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                    <select value={unidadPedir} onChange={e => setUnidadPedir(e.target.value)}
+                      title="A qué unidad de esta ruta se le pide"
+                      style={{ ...campo(32), flex: 1, minWidth: 0, fontSize: 12, cursor: 'pointer' }}>
+                      <option value="">Unidad…</option>
+                      {(flota || []).map(v => (
+                        <option key={v.vehicleId} value={v.vehicleId}>
+                          {v.vehicleId}{v.label ? ` · ${v.label}` : ''}{v.enLinea ? ' · en línea' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <button disabled={!unidadPedir} onClick={pedirGrabacion}
+                      style={{ ...btnChico(HUD.fg2), flexShrink: 0, opacity: unidadPedir ? 1 : .5 }}>
+                      Pedir
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 10, color: HUD.dim3, marginTop: 6, lineHeight: 1.5 }}>
+                    Le llega a la app del chofer en su próximo reporte y la grabación
+                    arranca sola, con aviso. Él la termina y envía desde su Perfil.
+                    Necesita la app instalada; si nadie la levanta, el pedido se vence
+                    a las 12 horas.
+                  </div>
+                </div>
+                {pedidos.map(p => (
+                  <div key={p.vehicleId} style={{
+                    ...tarjeta('8px 10px'), borderRadius: 8, display: 'flex',
+                    alignItems: 'center', gap: 8,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700 }}>{p.vehicleId}</div>
+                      <div style={{ fontFamily: mono, fontSize: 10,
+                        color: p.estado === 'grabando' ? HUD.green : HUD.dim3 }}>
+                        {p.estado === 'grabando' ? '● grabando' : 'esperando a la app'}
+                        {' · pedida '}{new Date(p.pedidaEn).toLocaleTimeString().slice(0, 5)}
+                      </div>
+                    </div>
+                    <button onClick={() => cancelarPedido(p.vehicleId)}
+                      title={p.estado === 'grabando'
+                        ? 'Deja de esperarla. La grabación en curso no se corta: el chofer la termina o descarta desde su Perfil'
+                        : 'La app no va a arrancar ninguna grabación'}
+                      style={{ ...btnChico(HUD.fg2), flexShrink: 0 }}>
+                      Cancelar
+                    </button>
+                  </div>
+                ))}
                 {!grabaciones && <span style={{ fontSize: 12, color: HUD.dim3 }}>Cargando…</span>}
                 {grabaciones && grabaciones.length === 0 && (
                   <span style={{ fontSize: 12, color: HUD.dim3 }}>

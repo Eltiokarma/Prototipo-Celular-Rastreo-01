@@ -79,6 +79,34 @@ export async function notificarBrecha(brecha) {
   } catch {}
 }
 
+// Despacho pidió una grabación (4.5) y la app la arrancó sola: se le dice
+// al chofer QUE pasó, no se le pide nada — la grabación ya corre y se
+// termina desde Perfil cuando él quiera. Canal propio de importancia BAJA,
+// como la brecha: información de reojo, nada que suene ni salte mientras
+// maneja (el mismo criterio que el desvío).
+const CANAL_GRABACION = 'grabacion';
+
+export async function notificarGrabacionPedida() {
+  await preparar();
+  if (!preparado) return;
+  try {
+    await Notifications.setNotificationChannelAsync(CANAL_GRABACION, {
+      name: 'Grabación de recorrido',
+      importance: Notifications.AndroidImportance.LOW,
+      sound: null, vibrationPattern: null, enableVibrate: false,
+    }).catch(() => {});
+    await Notifications.scheduleNotificationAsync({
+      identifier: 'grabacion-pedida',
+      content: {
+        title: 'Despacho pidió grabar este recorrido',
+        body: 'La grabación ya arrancó sola. Se termina y envía desde Perfil.',
+        sound: false,
+      },
+      trigger: { channelId: CANAL_GRABACION },
+    });
+  } catch {}
+}
+
 // Al salir de ruta o cerrar sesión, la brecha vieja no puede quedar colgada
 // en la bandeja diciendo un número de hace una hora.
 export async function limpiarNotificacion() {
