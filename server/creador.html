@@ -37,13 +37,14 @@
   }
   .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
   .black { font-family: "Archivo Black", system-ui, sans-serif; }
-  input, select, button { font-family: inherit; }
-  input, select {
+  input, select, button, textarea { font-family: inherit; }
+  input, select, textarea {
     width: 100%; height: 40px; padding: 0 12px; font-size: 14px;
     background: var(--campo); color: var(--fg);
     border: 1px solid var(--line); border-radius: 10px; outline: none;
   }
-  input:focus, select:focus { border-color: var(--bright); }
+  textarea { height: auto; min-height: 72px; padding: 10px 12px; resize: vertical; }
+  input:focus, select:focus, textarea:focus { border-color: var(--bright); }
   label { display: block; font-family: "JetBrains Mono", ui-monospace, monospace;
           font-size: 9px; font-weight: 700; letter-spacing: 1.3px;
           text-transform: uppercase; color: var(--dim3); margin-bottom: 6px; }
@@ -374,6 +375,77 @@ function LogoDeEmpresa({ empresa, api, correr, ocupado }) {
   );
 }
 
+// El canal del nivel de arriba hacia la cooperativa: el aviso aparece como
+// banner en su panel de Despacho hasta que alguien lo marque visto. Acá se
+// manda y se ve si lo vieron, cuándo y quién — que es la mitad que importa
+// cuando el aviso es una deuda.
+function AvisosDeEmpresa({ empresa, api, correr, ocupado }) {
+  const [texto, setTexto] = React.useState('');
+  const [routeId, setRouteId] = React.useState('');
+  const [lista, setLista] = React.useState(null);
+
+  const cargar = React.useCallback(() => {
+    api(`/empresas/${empresa.companyId}/avisos`)
+      .then(d => setLista(d.avisos || []))
+      .catch(() => setLista([]));
+  }, [empresa.companyId]);
+  React.useEffect(cargar, [cargar]);
+
+  return (
+    <div>
+      <div className="mono" style={{
+        fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',
+        textTransform: 'uppercase', marginBottom: 8,
+      }}>Aviso a la cooperativa</div>
+      <div className="campo">
+        <label>Mensaje</label>
+        <textarea value={texto} maxLength={500}
+          placeholder="Ej.: Tienen pendiente el pago de agosto. Coordinar con administración."
+          onChange={ev => setTexto(ev.target.value)} />
+      </div>
+      {empresa.rutas.length > 1 && (
+        <div className="campo">
+          <label>Alcance</label>
+          <select value={routeId} onChange={ev => setRouteId(ev.target.value)}>
+            <option value="">Toda la cooperativa</option>
+            {empresa.rutas.map(r => (
+              <option key={r.routeId} value={r.routeId}>Solo la ruta {r.routeId}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <button disabled={ocupado || !texto.trim()} onClick={() => correr(async () => {
+        await api(`/empresas/${empresa.companyId}/avisos`, {
+          method: 'POST', body: JSON.stringify({ texto, ...(routeId ? { routeId } : {}) }),
+        });
+        setTexto('');
+        cargar();
+      }, 'Aviso enviado')} style={{
+        padding: '8px 14px', fontSize: 13, background: 'var(--campo)',
+        color: texto.trim() ? 'var(--fg2)' : 'var(--dim3)', border: '1px solid var(--line)',
+      }}>Enviar aviso</button>
+      <div style={{ fontSize: 11, color: 'var(--dim2)', marginTop: 6, lineHeight: 1.45 }}>
+        Aparece como banner en su panel de Despacho hasta que alguien lo
+        marque visto. No les toca el chat de las rutas.
+      </div>
+      {lista && lista.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          {lista.slice(0, 5).map(a => (
+            <div key={a.id} style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--dim2)', marginBottom: 4 }}>
+              <span className="mono" style={{
+                fontWeight: 700,
+                color: a.vistoEn ? 'var(--verdeTinta)' : 'var(--amber)',
+              }}>{a.vistoEn ? `VISTO ${fecha(a.vistoEn)} · ${a.vistoPor}` : 'PENDIENTE'}</span>
+              {a.routeId ? <span className="mono"> · {a.routeId}</span> : null}
+              {' · '}{a.texto.length > 90 ? a.texto.slice(0, 90) + '…' : a.texto}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Empresas({ api, empresas, recargar, aviso, fallo }) {
   const [abierta, setAbierta] = React.useState(null);
   const [nueva, setNueva] = React.useState(null);
@@ -553,6 +625,7 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 18 }}>
                 <DatosDeEmpresa empresa={e} api={api} correr={correr} ocupado={ocupado} />
                 <LogoDeEmpresa empresa={e} api={api} correr={correr} ocupado={ocupado} />
+                <AvisosDeEmpresa empresa={e} api={api} correr={correr} ocupado={ocupado} />
                 <div>
                   <div className="mono" style={{
                     fontSize: 11, letterSpacing: 1, color: 'var(--dim2)',

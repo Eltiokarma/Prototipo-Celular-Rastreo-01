@@ -164,6 +164,23 @@ informe nuevo `tramos.csv`.
 Ni la app ni el chofer cambian: todo sale de datos que el servidor ya
 calculaba. Suite `metidos`.
 
+### 3.8 · ~~La central no tenía cómo avisarle nada a una cooperativa~~ — HECHO (24/8)
+
+Preguntado por el dueño: «cuando alguien nos deba y tengamos que
+notificarle, nos falta ese canal». Faltaba: el chat vive adentro de cada
+cooperativa, y el nivel de arriba no tenía voz — las únicas palancas eran el
+teléfono o la suspensión, que es el martillo.
+
+Ahora el panel del creador tiene **«Aviso a la cooperativa»** en la tarjeta
+de cada empresa (con alcance opcional a una ruta): el aviso aparece como
+**banner ámbar persistente** en el panel de Despacho de esa cooperativa
+hasta que alguien lo marque visto — y del visto queda quién y cuándo, a la
+vista del creador y en la auditoría de la empresa. Los pendientes **no
+caducan** (un aviso de deuda no desaparece callado); los vistos se retienen
+un año. A propósito NO les toca el chat de las rutas: la deuda es de la
+cooperativa, no de sus choferes, y escribirle a las unidades por encima de
+su propio Despacho quemaría el canal. Suite `avisos`.
+
 ### 3bis · ~~Los bancos visuales fotografiaban pantallas vacías~~ — HECHO
 
 Salió de mirar las capturas antes de desplegar, y es la clase de rotura que

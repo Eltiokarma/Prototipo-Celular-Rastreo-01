@@ -301,6 +301,30 @@ function montarPanelDelCreador(app, deps) {
     res.json(r);
   });
 
+  // ─── AVISOS A UNA COOPERATIVA ──────────────────────────────
+  // El canal del nivel de arriba hacia la empresa: una deuda, un
+  // mantenimiento. Aparece como banner en su panel de Despacho hasta que
+  // alguien lo marque visto — y acá se ve si lo vieron, cuándo y quién.
+  app.get(BASE + '/empresas/:companyId/avisos', requireCreador, (req, res) => {
+    if (!db.prepare('SELECT companyId FROM companies WHERE companyId = ?').get(String(req.params.companyId))) {
+      return res.status(404).json({ error: 'Esa cooperativa no existe' });
+    }
+    res.json({ avisos: coop.avisos(db, req.params.companyId) });
+  });
+
+  app.post(BASE + '/empresas/:companyId/avisos', requireCreador, (req, res) => {
+    const r = coop.aviso(db, {
+      companyId: req.params.companyId,
+      routeId: req.body?.routeId,
+      texto: req.body?.texto,
+    });
+    if (r.error) return res.status(/No existe/.test(r.error) ? 404 : 400).json({ error: r.error });
+    anotar('aviso_enviado', r.companyId,
+      `${r.routeId ? `ruta ${r.routeId} · ` : ''}${r.texto.slice(0, 80)}`, r.companyId);
+    console.log(`Aviso del creador a ${r.companyId}${r.routeId ? ` (ruta ${r.routeId})` : ''}`);
+    res.json(r);
+  });
+
   app.post(BASE + '/empresas/:companyId/despacho', requireCreador, (req, res) => {
     const r = coop.supervisor(db, {
       companyId: req.params.companyId,

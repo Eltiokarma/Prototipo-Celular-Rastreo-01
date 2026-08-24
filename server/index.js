@@ -212,6 +212,22 @@ db.exec(`
   )
 `);
 
+// Avisos del nivel de arriba a una cooperativa (deuda, mantenimiento):
+// banner en su panel de Despacho hasta que alguien lo marque visto. Los
+// manda el creador (server/cooperativas.js `aviso`); acá viven la tabla y
+// las dos puertas con las que Despacho los lee y los marca.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    companyId TEXT NOT NULL,
+    routeId TEXT,              -- NULL = para toda la cooperativa
+    texto TEXT NOT NULL,
+    creadoEn INTEGER NOT NULL,
+    vistoEn INTEGER,           -- NULL = pendiente
+    vistoPor TEXT
+  )
+`);
+
 const DEFAULT_COMPANY = idLimpio(process.env.DEFAULT_COMPANY) || 'R14';
 
 if (db.prepare('SELECT COUNT(*) AS c FROM companies').get().c === 0) {
@@ -3730,6 +3746,40 @@ app.get('/admin/audit', requireDispatch, (req, res) => {
     ORDER BY id DESC LIMIT 100
   `).all({ empresa: req.empresa, scope: req.scope });
   res.json({ events });
+});
+
+// ─── AVISOS DEL NIVEL DE ARRIBA ──────────────────────────────
+// El panel de Despacho los muestra como banner hasta que alguien los marque
+// vistos. Un despachador atado a una ruta ve los de toda la cooperativa
+// (la deuda es de la cooperativa) más los de SU ruta; los de otra ruta no.
+app.get('/admin/avisos', requireDispatch, (req, res) => {
+  const avisos = db.prepare(`
+    SELECT id, routeId, texto, creadoEn FROM notices
+    WHERE companyId = @empresa AND vistoEn IS NULL
+      AND (routeId IS NULL OR @scope IS NULL OR routeId = @scope)
+    ORDER BY id DESC LIMIT 10
+  `).all({ empresa: req.empresa, scope: req.scope || null });
+  res.json({ avisos });
+});
+
+// Marcar visto es de la cooperativa entera: el aviso es un mensaje del
+// nivel de arriba a la empresa, y con que UNO lo lea alcanza — quién y
+// cuándo quedan en la fila y en la auditoría, para poder responder "se
+// les avisó tal día y lo vio tal persona".
+app.post('/admin/avisos/:id/visto', requireDispatch, (req, res) => {
+  const aviso = db.prepare(`
+    SELECT id, routeId, texto FROM notices
+    WHERE id = @id AND companyId = @empresa AND vistoEn IS NULL
+      AND (routeId IS NULL OR @scope IS NULL OR routeId = @scope)
+  `).get({ id: Number(req.params.id) || -1, empresa: req.empresa, scope: req.scope || null });
+  // El de otra empresa (o de otra ruta) se responde como inexistente,
+  // igual que todo lo demás detrás de /admin.
+  if (!aviso) return res.status(404).json({ error: 'Ese aviso no existe' });
+  db.prepare('UPDATE notices SET vistoEn = ?, vistoPor = ? WHERE id = ?')
+    .run(Date.now(), req.dispatchUser.unitId, aviso.id);
+  audit(req.dispatchUser.unitId, 'aviso_visto', String(aviso.id),
+    aviso.texto.slice(0, 80), aviso.routeId);
+  res.json({ ok: true });
 });
 
 // Gestión del desvío de una ruta: a partir de cuántos metros se considera

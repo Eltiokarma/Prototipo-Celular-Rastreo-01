@@ -396,8 +396,52 @@ function bajaVariante(db, { variantId } = {}) {
   return { ok: true, routeId: v.routeId, name: v.name };
 }
 
+// ─── AVISOS A UNA COOPERATIVA ────────────────────────────────
+// El nivel de arriba le deja un mensaje a la cooperativa —una deuda, un
+// mantenimiento programado— y aparece como banner en su panel de Despacho
+// hasta que alguien lo marque como visto. No toca el chat de las rutas: la
+// relación es con la cooperativa, no con sus choferes, y escribirle a las
+// unidades por encima de su propio Despacho quemaría el canal.
+
+const AVISO_MAX = 500;
+const AVISOS_VISTOS_DIAS = 365;   // los vistos se guardan un año, como el resto de lo administrativo
+
+function aviso(db, { companyId, routeId, texto } = {}) {
+  const empresa = idLimpio(companyId);
+  if (!empresa || !db.prepare('SELECT companyId FROM companies WHERE companyId = ?').get(empresa)) {
+    return { error: `No existe la empresa ${companyId || ''}` };
+  }
+  const cuerpo = String(texto || '').trim().slice(0, AVISO_MAX);
+  if (!cuerpo) return { error: 'El aviso está vacío' };
+  let ruta = null;
+  if (routeId) {
+    ruta = String(routeId).trim();
+    // La ruta tiene que ser de ESA empresa: un aviso colgado de una ruta
+    // ajena aparecería en el panel de otra cooperativa.
+    if (!db.prepare('SELECT routeId FROM routes WHERE routeId = ? AND companyId = ?').get(ruta, empresa)) {
+      return { error: `La ruta ${ruta} no es de ${empresa}` };
+    }
+  }
+  const r = db.prepare(`INSERT INTO notices (companyId, routeId, texto, creadoEn)
+                        VALUES (?, ?, ?, ?)`).run(empresa, ruta, cuerpo, Date.now());
+  // Los vistos viejos se van solos; los pendientes NO caducan — un aviso sin
+  // ver es exactamente lo que no puede desaparecer callado.
+  db.prepare('DELETE FROM notices WHERE vistoEn IS NOT NULL AND vistoEn < ?')
+    .run(Date.now() - AVISOS_VISTOS_DIAS * 86400_000);
+  return { ok: true, id: r.lastInsertRowid, companyId: empresa, routeId: ruta, texto: cuerpo };
+}
+
+// Lo que el nivel de arriba ve de sus propios avisos: si los vieron y quién.
+function avisos(db, companyId) {
+  const empresa = idLimpio(companyId);
+  if (!empresa) return [];
+  return db.prepare(`SELECT id, routeId, texto, creadoEn, vistoEn, vistoPor
+                     FROM notices WHERE companyId = ? ORDER BY id DESC LIMIT 20`).all(empresa);
+}
+
 module.exports = {
   listar, alta, supervisor, gerente, altaRuta, estado, editar, editarRuta,
   variantes, altaVariante, editarVariante, bajaVariante,
+  aviso, avisos, AVISO_MAX,
   CLAVE_MINIMA,
 };

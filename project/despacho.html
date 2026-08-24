@@ -2978,6 +2978,32 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const rutaPreviaRef = React.useRef(session.routeId || null);
   const esSupervisor = !!session.supervisor;
 
+  // Avisos del nivel de arriba (la administración del sistema): banner
+  // persistente hasta que alguien de la cooperativa lo marque visto. Se
+  // piden al entrar y cada 5 minutos — un aviso de deuda no corre con la
+  // urgencia del tiempo real, pero tampoco puede depender de recargar.
+  const [avisos, setAvisos] = React.useState([]);
+  React.useEffect(() => {
+    let vivo = true;
+    const cargar = () => {
+      fetch(HTTP_URL + '/admin/avisos', { headers: { Authorization: 'Bearer ' + session.token } })
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (vivo && d) setAvisos(d.avisos || []); })
+        .catch(() => {});
+    };
+    cargar();
+    const t = setInterval(cargar, 5 * 60_000);
+    return () => { vivo = false; clearInterval(t); };
+  }, [session.token]);
+  const marcarAviso = async (id) => {
+    try {
+      const r = await fetch(`${HTTP_URL}/admin/avisos/${id}/visto`, {
+        method: 'POST', headers: { Authorization: 'Bearer ' + session.token },
+      });
+      if (r.ok) setAvisos(a => a.filter(x => x.id !== id));
+    } catch {}
+  };
+
   // El mismo panel sirve en PC y en celular: bajo 900px pasa a vista
   // única (Unidades / Mapa / Chat) con navegación inferior.
   const [isMobile, setIsMobile] = React.useState(window.innerWidth < 900);
@@ -3444,6 +3470,39 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           }}>ATENDIDO</button>
         </div>
       )}
+
+      {/* Avisos del nivel de arriba. Persistentes a propósito: un aviso de
+          deuda o de mantenimiento no puede desaparecer solo ni esconderse
+          tras un ícono. Ámbar y no rojo: es atención, no emergencia — el
+          rojo es del SOS y de nada más. Marcar visto es de la cooperativa
+          entera, y queda auditado quién lo hizo. */}
+      {avisos.map(a => (
+        <div key={a.id} style={{
+          flexShrink: 0, background: HUD.ambarFondo,
+          borderBottom: `1px solid ${HUD.ambarBorde}`,
+          padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 12,
+          flexWrap: isMobile ? 'wrap' : 'nowrap',
+        }}>
+          <span style={{ ...rotulo(9, HUD.ambarTinta), letterSpacing: 1.4, flexShrink: 0 }}>
+            Aviso de la administración del sistema{a.routeId ? ` · ruta ${a.routeId}` : ''}
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: HUD.ambarTinta, minWidth: 0 }}>
+            {a.texto}
+          </span>
+          <div style={{ flex: 1 }} />
+          <span style={{ fontFamily: mono, fontSize: 10, color: HUD.ambarTinta2, flexShrink: 0 }}>
+            {nowTime(a.creadoEn)}
+          </span>
+          <button onClick={() => marcarAviso(a.id)}
+            title="Lo marca visto para toda la cooperativa; queda registrado quién lo vio"
+            style={{
+              height: 30, padding: '0 12px', background: HUD.surface,
+              border: `1px solid ${HUD.ambarBorde}`, borderRadius: 8,
+              color: HUD.ambarTinta, fontSize: 12, fontWeight: 700,
+              cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+            }}>Marcar visto</button>
+        </div>
+      ))}
 
       {/* cuerpo: en PC tres columnas; en celular una vista a la vez */}
       <div style={isMobile
