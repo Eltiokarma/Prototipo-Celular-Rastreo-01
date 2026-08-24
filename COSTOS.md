@@ -7,6 +7,36 @@ midieron con clientes de verdad (login + WebSocket + POST), no se estimaron.
 El modelo es `modelo-costos.js` (raíz): `node modelo-costos.js` imprime los
 tres escenarios; `node modelo-costos.js bench` corre el benchmark del §3.
 
+> ## ⚠️ CORRECCIÓN DEL 2026-08-24 — leer antes que el resto
+>
+> Este archivo se escribió el 5/8 y su resumen quedó **mal en los dos
+> sentidos**. Lo de abajo sigue valiendo como método y como inventario; los
+> números de egress de §2 y §4 están **corregidos en `modelo-costos.js`**, que
+> es la fuente. Tres correcciones, todas verificadas en el código:
+>
+> 1. **El WebSocket no se cae de precio con la compresión.** `permessage-deflate`
+>    lo negocia el CLIENTE, y sólo los navegadores lo ofrecen. La app nativa
+>    abre un WebSocket plano (`app/protocolo/cliente.js:117`) y recibe `state`
+>    entero (`:191`). Como los choferes son ~20 de las ~21 conexiones de una
+>    ruta, el −90 % toca la fracción chica del egress. La línea de §5 que dice
+>    "el escenario 2000 real queda en ~$190-210/mes" **daba el número correcto
+>    por el motivo equivocado**.
+> 2. **Los choferes no reciben estado todo el turno.** Bloquear la pantalla
+>    suspende el JavaScript y **el WebSocket se cae** (medido en un teléfono
+>    real, `server/index.js:2231-2237`); con la pantalla apagada la brecha
+>    vuelve en la respuesta del `POST /gps`, 59 B contra ~3600. El modelo viejo
+>    asumía, sin decirlo, WS permanente para las 20 combis durante 16 horas —
+>    el caso PEOR, no el normal. Ése es hoy **el supuesto que más pesa de todo
+>    el archivo**, y sale de la calle, no del código.
+> 3. **Los tiles no salen todos de Geoapify.** `CapaCascada`
+>    (`project/Prototipo.html:278`) los busca en tres niveles: caché del
+>    teléfono → **mapa propio en nuestro servidor** → Geoapify. Si el mapa
+>    propio está desplegado, Geoapify baja a cero y su costo se muda a egress
+>    propio. El interruptor es `TILES_RELEASE_URL`, de configuración.
+>
+> **Y la línea que faltaba, que es la que decide:** a S/ 0,30 por unidad por
+> día, el costo es **S/ 0,013 a 2000 unidades — margen 95,6 %**. Ver §4.1.
+
 **El resumen en tres líneas:**
 
 1. **La base de datos NO es el cuello de botella.** Con WAL, la carga de
@@ -664,6 +694,86 @@ el servidor. Anotado como límite en el banco.
   toque eso es decorativa.
 
 ---
+
+### 4.1 El margen — costo en la unidad en la que se cobra
+
+*(medido 2026-08-24; `node modelo-costos.js` reproduce esta tabla)*
+
+Todo lo de arriba está en dólares por mes, que no se compara con nada. **Se
+cobra S/ 0,30 por unidad por día**, así que el costo tiene que ir a la misma
+unidad o no dice si el negocio cierra.
+
+| escenario | ingreso/mes | costo/mes | **costo por unidad/día** | **margen** |
+|---|---|---|---|---|
+| 20 u. (piloto) | S/ 180 | $37 | S/ 0,228 | 23,9 % |
+| 500 u. | S/ 4 500 | $83 | S/ 0,021 | 93,0 % |
+| **2000 u.** | **S/ 18 000** | **$214** | **S/ 0,013** | **95,6 %** |
+| 5000 u. | S/ 45 000 | $414 | S/ 0,010 | 96,6 % |
+
+**El negocio cierra con muchísimo aire.** Y la forma importa más que el número:
+el costo por unidad **baja** al crecer, porque el grueso del gasto fijo (vCPU,
+RAM, Vercel) se reparte entre más unidades. Lo contrario de lo que pasaría si
+hubiera quedado un cuadrático suelto — por eso valió la pena cazarlos.
+
+El piloto de 20 unidades pierde plata en términos relativos (23,9 % de margen
+sobre S/ 180) y **eso es normal y no es un problema**: son los $37 de piso que
+paga cualquier despliegue. Se diluyen solos.
+
+**A 5000 unidades, dónde se va cada céntimo del costo:**
+
+| rubro | céntimos por unidad/día | |
+|---|---|---|
+| **egress** | **0,83** | el 83 % — y de eso, casi todo es el WS de estado |
+| vCPU | 0,10 | |
+| RAM | 0,05 | |
+| Vercel | 0,05 | prescindible: el backend ya sirve las mismas páginas |
+| Geoapify | 0,00 | con el mapa propio desplegado |
+
+#### El supuesto que más pesa, y no es técnico
+
+Cuánto del turno el chofer tiene la app adelante con la pantalla encendida.
+Gobierna el 83 % del costo, y **no se puede saber leyendo código**: sale de
+mirar a un chofer trabajar.
+
+| pantalla encendida | costo u./día | margen |
+|---|---|---|
+| 10 % | S/ 0,006 | 98,1 % |
+| **25 %** (supuesto actual) | **S/ 0,010** | **96,6 %** |
+| 50 % | S/ 0,018 | 93,9 % |
+| 100 % (el caso imposible) | S/ 0,034 | 88,7 % |
+
+**Incluso en el peor caso el margen es 88,7 %.** Por eso este supuesto, siendo
+el que más pesa, no cambia ninguna decisión: no hay valor plausible que ponga
+el negocio en rojo. Vale medirlo en el piloto por prolijidad, no por riesgo.
+
+#### El mapa propio: un interruptor de configuración, no de código
+
+| | Geoapify | tiles/día a 5000 u. | margen |
+|---|---|---|---|
+| `TILES_RELEASE_URL` sin poner | **$59/mes** | 33 000 | 96,1 % |
+| desplegado | **$0** | 3 300 (bajo el free de 12 000) | 96,6 % |
+
+Son $59/mes de diferencia — medio céntimo por unidad. Conviene desplegarlo,
+pero **no es urgente y no cambia nada estructural**.
+
+#### Qué NO entra en esta cuenta
+
+Es infraestructura, no el costo total del negocio. **Faltan sueldos, soporte,
+cobranza, impuestos y adquisición de clientes**, que a esta escala pesan mucho
+más que los $214. Lo que esta tabla dice es que **la infraestructura no es un
+problema** y que el precio tiene aire de sobra — no que el negocio entero tenga
+95 % de margen.
+
+#### Y lo que esto responde sobre el plan "sin mapa"
+
+Un plan más barato sin mapa en el teléfono del chofer **ahorraría a lo sumo
+medio céntimo por unidad por día** — el rubro Geoapify ya es cero con el mapa
+propio, y el egress del WS no cambia. Resignar S/ 0,10 de los S/ 0,30 para
+ahorrar S/ 0,005 no cierra por el lado de los costos. Si ese plan existe, tiene
+que ser por **segmentación de mercado** (llegar a cooperativas que no pagan 30),
+no por ahorro; y entonces conviene que lo que saque sea algo que el cliente
+valore —días de historial, informes, auditoría— y no algo que a nosotros nos
+cueste.
 
 ## 5. Palancas, ordenadas por ahorro ÷ esfuerzo (escenario 2000)
 
