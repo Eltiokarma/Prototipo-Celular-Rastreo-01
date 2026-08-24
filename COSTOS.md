@@ -7,6 +7,36 @@ midieron con clientes de verdad (login + WebSocket + POST), no se estimaron.
 El modelo es `modelo-costos.js` (raíz): `node modelo-costos.js` imprime los
 tres escenarios; `node modelo-costos.js bench` corre el benchmark del §3.
 
+> ## ⚠️ CORRECCIÓN DEL 2026-08-24 — leer antes que el resto
+>
+> Este archivo se escribió el 5/8 y su resumen quedó **mal en los dos
+> sentidos**. Lo de abajo sigue valiendo como método y como inventario; los
+> números de egress de §2 y §4 están **corregidos en `modelo-costos.js`**, que
+> es la fuente. Tres correcciones, todas verificadas en el código:
+>
+> 1. **El WebSocket no se cae de precio con la compresión.** `permessage-deflate`
+>    lo negocia el CLIENTE, y sólo los navegadores lo ofrecen. La app nativa
+>    abre un WebSocket plano (`app/protocolo/cliente.js:117`) y recibe `state`
+>    entero (`:191`). Como los choferes son ~20 de las ~21 conexiones de una
+>    ruta, el −90 % toca la fracción chica del egress. La línea de §5 que dice
+>    "el escenario 2000 real queda en ~$190-210/mes" **daba el número correcto
+>    por el motivo equivocado**.
+> 2. **Los choferes no reciben estado todo el turno.** Bloquear la pantalla
+>    suspende el JavaScript y **el WebSocket se cae** (medido en un teléfono
+>    real, `server/index.js:2231-2237`); con la pantalla apagada la brecha
+>    vuelve en la respuesta del `POST /gps`, 59 B contra ~3600. El modelo viejo
+>    asumía, sin decirlo, WS permanente para las 20 combis durante 16 horas —
+>    el caso PEOR, no el normal. Ése es hoy **el supuesto que más pesa de todo
+>    el archivo**, y sale de la calle, no del código.
+> 3. **Los tiles no salen todos de Geoapify.** `CapaCascada`
+>    (`project/Prototipo.html:278`) los busca en tres niveles: caché del
+>    teléfono → **mapa propio en nuestro servidor** → Geoapify. Si el mapa
+>    propio está desplegado, Geoapify baja a cero y su costo se muda a egress
+>    propio. El interruptor es `TILES_RELEASE_URL`, de configuración.
+>
+> **Y la línea que faltaba, que es la que decide:** a S/ 0,30 por unidad por
+> día, el costo es **S/ 0,013 a 2000 unidades — margen 95,6 %**. Ver §4.1.
+
 **El resumen en tres líneas:**
 
 1. **La base de datos NO es el cuello de botella.** Con WAL, la carga de
@@ -524,6 +554,108 @@ por fila—, no el agrupado.
 
 ---
 
+### El arranque: 38 s a 5000 unidades, y el 99 % era una sola forma de escribir
+
+Medido con `herramientas/arranque.js`, que intercepta `better-sqlite3` desde
+afuera (`node -r`) y cronometra cada consulta del arranque sin tocar
+`server/index.js`. El arranque es **tiempo con el sistema caído**: después de
+cada despliegue o reinicio nadie reporta y nadie ve el mapa.
+
+Se venía de dos puntos sueltos —5 s a 2000, 55 s a 5000— y de una sospecha
+razonable: la flota crecía 2,5× y el arranque 11×, así que podía haber otro
+cuadrático escondido justo donde nadie había mirado. **No lo había.** Era una
+sola consulta, escrita de una forma que recorre toda la tabla para no borrar
+nada.
+
+| | 500 u. | 2000 u. | 5000 u. |
+|---|---|---|---|
+| arranque total | 1,82 s | 4,83 s | **38,3 s** |
+| de eso, SQL | 852 ms | 3 764 ms | 37 432 ms |
+| **las dos `DELETE` del techo de filas** | **96 %** | **97 %** | **99 %** |
+
+Y hay que separar dos casos, porque confundirlos da un número que exagera:
+
+| arranque a 5000 | total | las dos `DELETE` | filas borradas |
+|---|---|---|---|
+| **1º** — el techo aprieta | 38,3 s | 37,2 s | 1,8 M + 3,6 M |
+| **2º** — base ya podada | 6,6 s | 5,4 s | **cero** |
+
+Los **5,4 s del segundo caso son el costo permanente**: se pagan en cada
+reinicio para no borrar ni una fila. El techo de filas es un cinturón —casi
+nunca aprieta— y sin embargo cobraba como si trabajara.
+
+**La causa.** `DELETE … WHERE id NOT IN (SELECT id … ORDER BY id DESC LIMIT N)`
+arma el conjunto de los N ids más nuevos y compara **cada fila** contra él.
+Como `id` es INTEGER PRIMARY KEY, "las N más nuevas" son "los N ids más altos":
+alcanza con buscar el corte con un salto por el índice y borrar por rango.
+
+A/B sobre la misma base de 5000, mismo proceso:
+
+| | `NOT IN` | corte por rango | |
+|---|---|---|---|
+| techo que **no** aprieta (cada arranque) | 5 855 ms | **231 ms** | **25×** |
+| techo que **sí** aprieta (borra 1 M) | 8 643 ms | 6 032 ms | 1,4× |
+
+**Resultado a 5000 unidades: 6,57 s → 1,32 s.** Lo que importa no es el 5×:
+una base **vacía** arrancaba en 1,8 s y una de 2,0 GB ahora arranca en 1,3.
+El arranque **dejó de escalar con los datos** — lo domina levantar Node, que
+es fijo. Ya no hay que volver a mirarlo al crecer.
+
+Las mismas filas exactas, y eso está fijado y no supuesto: la suite `poda`
+corre las dos formas sobre copias idénticas y compara los ids que sobreviven
+uno por uno, incluidos ids con huecos, techo justo, techo 0 y tabla vacía.
+Cambiar `<=` por `<` hace fallar 5 de los 10 casos.
+
+Quedan dos `NOT IN` de la misma familia sin tocar —el de grabaciones y el de
+`audit`—: llevan un `WHERE` adentro, no aparecieron en la medición (49 ms y
+menos) y se reescriben igual el día que pesen. Anotado en `PENDIENTES 4.9`.
+
+### El WebSocket de estado: el CPU (no los bytes) era cuadrático
+
+Este archivo ya tenía medidos los **bytes** del WS de estado (egress, el rubro
+que domina la factura). Faltaba el **CPU**: `buildState` corre en el mismo hilo
+que atiende los `POST /gps`, así que el tiempo que tarda en armar el estado es
+tiempo que la flota no reporta — el mismo problema que una consulta lenta.
+
+Medido con `herramientas/emision.js`, que replica los dos costos de `buildState`
+que crecen con la flota (`server/index.js`) y mide su factor de crecimiento:
+
+| ciclo de emisión (armar TODAS las rutas una vez, cada 3 s) | 2000 u. | 5000 u. | factor |
+|---|---|---|---|
+| **barrido de unidades por ruta** | 1,7 ms | **10,6 ms** | **6,2× — CUADRÁTICO** |
+| cuenta de flota (`db.prepare` sin cachear) | 1,8 ms | 3,2 ms | 1,8× |
+| **ciclo hoy** | 3,5 ms | **13,8 ms** | 3,9× |
+| **ciclo con los arreglos** | 2,5 ms | **1,4 ms** | 0,5× — lineal |
+
+`units` era un `Map` plano: armar el estado de UNA ruta corría
+`Array.from(units.values()).filter(u => u.routeId === r)` —barrer la flota
+entera—, y como el estado se emite por ruta, por ciclo se barre una vez por
+ruta: **rutas × unidades**. Y `buildState` barría dos veces (acá y en
+`objetivoDe`), así que el costo real era el doble de la tabla.
+
+**El arreglo.** Un índice `routeId → Set<unitId>` al lado del mapa plano
+(`server/indice-unidades.js`). Armar una ruta lee sólo lo suyo; el barrido deja
+de escalar con la flota. La mutación se centraliza en `ponerUnidad`/`quitarUnidad`
+—nadie toca `units.set/.delete` por afuera— porque el índice sólo sirve si nunca
+se separa del mapa: una unidad fantasma en un balde sale mal en el mapa de
+Despacho, que es peor que el barrido lento. El caso que obliga a centralizar es
+la unidad que cambia de ruta. De paso se cacheó la cuenta de flota (compilaba la
+sentencia en cada emisión) y se arreglaron dos barridos gemelos en el endpoint
+de rutas de gerencia (`:3038`, `:3090`), que eran el mismo cuadrático por
+pedido.
+
+**Honestidad sobre la magnitud.** A 5000 unidades el ciclo era 13,8 ms cada 3 s
+—chico, no se veía—, pero cuadrático: a ~11 000 unidades pasa de 50 ms y a
+20 000 el barrido solo son ~170 ms por ciclo. Es de la clase que no avisa hasta
+el día del crecimiento; el arreglo lo aplana antes. Que el índice sea siempre
+fiel al mapa lo fija la suite `emision`, que fuzzea 5000 operaciones —altas,
+bajas y ~1000 cambios de ruta— y reconstruye el índice después de cada una.
+
+Lo que NO se tocó: el egress (los bytes), que sigue siendo el rubro caro del WS
+y ya está mitigado por compresión (`palanca 2`); y montar 5000 conexiones reales
+para medir el envío end-to-end, que pondría al generador a competir por CPU con
+el servidor. Anotado como límite en el banco.
+
 ## 4. Costo en dinero
 
 **Fuentes de precios (consultadas 2026-08-05):**
@@ -562,6 +694,86 @@ por fila—, no el agrupado.
   toque eso es decorativa.
 
 ---
+
+### 4.1 El margen — costo en la unidad en la que se cobra
+
+*(medido 2026-08-24; `node modelo-costos.js` reproduce esta tabla)*
+
+Todo lo de arriba está en dólares por mes, que no se compara con nada. **Se
+cobra S/ 0,30 por unidad por día**, así que el costo tiene que ir a la misma
+unidad o no dice si el negocio cierra.
+
+| escenario | ingreso/mes | costo/mes | **costo por unidad/día** | **margen** |
+|---|---|---|---|---|
+| 20 u. (piloto) | S/ 180 | $37 | S/ 0,228 | 23,9 % |
+| 500 u. | S/ 4 500 | $83 | S/ 0,021 | 93,0 % |
+| **2000 u.** | **S/ 18 000** | **$214** | **S/ 0,013** | **95,6 %** |
+| 5000 u. | S/ 45 000 | $414 | S/ 0,010 | 96,6 % |
+
+**El negocio cierra con muchísimo aire.** Y la forma importa más que el número:
+el costo por unidad **baja** al crecer, porque el grueso del gasto fijo (vCPU,
+RAM, Vercel) se reparte entre más unidades. Lo contrario de lo que pasaría si
+hubiera quedado un cuadrático suelto — por eso valió la pena cazarlos.
+
+El piloto de 20 unidades pierde plata en términos relativos (23,9 % de margen
+sobre S/ 180) y **eso es normal y no es un problema**: son los $37 de piso que
+paga cualquier despliegue. Se diluyen solos.
+
+**A 5000 unidades, dónde se va cada céntimo del costo:**
+
+| rubro | céntimos por unidad/día | |
+|---|---|---|
+| **egress** | **0,83** | el 83 % — y de eso, casi todo es el WS de estado |
+| vCPU | 0,10 | |
+| RAM | 0,05 | |
+| Vercel | 0,05 | prescindible: el backend ya sirve las mismas páginas |
+| Geoapify | 0,00 | con el mapa propio desplegado |
+
+#### El supuesto que más pesa, y no es técnico
+
+Cuánto del turno el chofer tiene la app adelante con la pantalla encendida.
+Gobierna el 83 % del costo, y **no se puede saber leyendo código**: sale de
+mirar a un chofer trabajar.
+
+| pantalla encendida | costo u./día | margen |
+|---|---|---|
+| 10 % | S/ 0,006 | 98,1 % |
+| **25 %** (supuesto actual) | **S/ 0,010** | **96,6 %** |
+| 50 % | S/ 0,018 | 93,9 % |
+| 100 % (el caso imposible) | S/ 0,034 | 88,7 % |
+
+**Incluso en el peor caso el margen es 88,7 %.** Por eso este supuesto, siendo
+el que más pesa, no cambia ninguna decisión: no hay valor plausible que ponga
+el negocio en rojo. Vale medirlo en el piloto por prolijidad, no por riesgo.
+
+#### El mapa propio: un interruptor de configuración, no de código
+
+| | Geoapify | tiles/día a 5000 u. | margen |
+|---|---|---|---|
+| `TILES_RELEASE_URL` sin poner | **$59/mes** | 33 000 | 96,1 % |
+| desplegado | **$0** | 3 300 (bajo el free de 12 000) | 96,6 % |
+
+Son $59/mes de diferencia — medio céntimo por unidad. Conviene desplegarlo,
+pero **no es urgente y no cambia nada estructural**.
+
+#### Qué NO entra en esta cuenta
+
+Es infraestructura, no el costo total del negocio. **Faltan sueldos, soporte,
+cobranza, impuestos y adquisición de clientes**, que a esta escala pesan mucho
+más que los $214. Lo que esta tabla dice es que **la infraestructura no es un
+problema** y que el precio tiene aire de sobra — no que el negocio entero tenga
+95 % de margen.
+
+#### Y lo que esto responde sobre el plan "sin mapa"
+
+Un plan más barato sin mapa en el teléfono del chofer **ahorraría a lo sumo
+medio céntimo por unidad por día** — el rubro Geoapify ya es cero con el mapa
+propio, y el egress del WS no cambia. Resignar S/ 0,10 de los S/ 0,30 para
+ahorrar S/ 0,005 no cierra por el lado de los costos. Si ese plan existe, tiene
+que ser por **segmentación de mercado** (llegar a cooperativas que no pagan 30),
+no por ahorro; y entonces conviene que lo que saque sea algo que el cliente
+valore —días de historial, informes, auditoría— y no algo que a nosotros nos
+cueste.
 
 ## 5. Palancas, ordenadas por ahorro ÷ esfuerzo (escenario 2000)
 

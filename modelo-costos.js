@@ -35,6 +35,15 @@ const MEDIDO = {
   libsKB: 450,              // React+ReactDOM+Babel+Leaflet+fuentes (1 vez)
   tileKB: 25,               // tile raster promedio
   tilesPrimeraCarga: 120,   // tiles que baja un chofer nuevo
+
+  // Compresión del WS, medida en la suite `compresion` contra el servidor
+  // real (2026-08-24): 3658 B/estado sin comprimir → 368 B comprimido.
+  // OJO A QUIÉN SE LE APLICA: `permessage-deflate` lo negocia el CLIENTE, y
+  // sólo los navegadores lo ofrecen. La app nativa abre un WebSocket plano
+  // (`app/protocolo/cliente.js:117`) y recibe `state` sin comprimir
+  // (`:191`). Como los choferes son ~20 de las ~21 conexiones de una ruta,
+  // el −90 % toca la fracción chica del egress, no la que domina.
+  factorCompresion: 368 / 3658,
 };
 
 // ─── PRECIOS PÚBLICOS (consultados 2026-08-05) ───────────────────────────
@@ -49,6 +58,16 @@ const PRECIOS = {
   vcpuMes: 20, ramGBMes: 10, volumenGBMes: 0.15, egressGB: 0.05,
   vercelProMes: 20, geoapify: (tilesDia) =>
     tilesDia <= 12000 ? 0 : tilesDia <= 40000 ? 59 : 109,
+
+  // Para pasar el costo a la unidad en que se cobra. El tipo de cambio es un
+  // SUPUESTO con fecha: si se mueve, se toca acá y todo el margen se recalcula.
+  solesPorDolar: 3.75,        // aprox., 2026-08
+};
+
+// Lo que se COBRA. Sin esto el modelo dice cuánto sale y no si conviene, que
+// es la pregunta de verdad.
+const VENTA = {
+  solesPorUnidadDia: 0.30,
 };
 
 // ─── PARÁMETROS DE OPERACIÓN (los inventados van a "Supuestos a validar") ─
@@ -68,12 +87,42 @@ const P = {
   choferesNuevosPorDia: 0.03,   // 3% reinstala/limpia caché (SUPUESTO)
   diasMes: 30,
   puntaFactor: 3,
+
+  // ── EL SUPUESTO QUE MÁS PESA DE TODO EL MODELO ──────────────────────
+  // Qué fracción del turno el chofer tiene la app ADELANTE con la pantalla
+  // encendida. Gobierna el egress del estado, que es el 90 % del costo
+  // variable, porque **bloquear la pantalla tira el WebSocket**: Android
+  // suspende el JavaScript y el socket se cae (medido en un teléfono real,
+  // `server/index.js:2231-2237`). Con la pantalla apagada el chofer no
+  // recibe estado: sólo postea GPS y la brecha le vuelve en la respuesta
+  // del mismo POST, que son 59 bytes contra ~3600.
+  //
+  // El modelo viejo asumía, sin decirlo, que las 20 combis de una ruta
+  // mantenían WS las 16 horas. Eso es el caso PEOR, no el normal: el diseño
+  // de la app es justamente que el chofer maneje con la pantalla apagada.
+  // Manejar mirando el celular no es lo que queremos que hagan.
+  //
+  // 0,25 es un SUPUESTO (mira la app en paradas y semáforos). El número
+  // bueno sale de la calle, y es lo primero que hay que medir en el piloto:
+  // mueve el costo total más que cualquier otra palanca de este archivo.
+  fraccionPantallaEncendida: 0.25,
+
+  // Qué fracción de los tiles cae dentro de una zona del mapa propio y se
+  // sirve desde nuestro servidor en vez de Geoapify. Un chofer trabaja
+  // SIEMPRE sobre su ruta, así que si la ciudad está extraída la cobertura es
+  // casi total; lo que se escapa es el que se aleja del área o hace zoom
+  // afuera. **Vale 0 si `TILES_RELEASE_URL` no está configurada en el
+  // despliegue**: sin zonas cargadas la cascada cae entera a Geoapify.
+  coberturaMapaPropio: 0.9,     // SUPUESTO — verificar que el mapa propio esté desplegado
 };
 
 const ESCENARIOS = [
   { nombre: 'Piloto actual', unidades: 20, coops: 1 },
   { nombre: '500 unidades / 5 coops', unidades: 500, coops: 5 },
   { nombre: '2000 unidades / 20 coops', unidades: 2000, coops: 20 },
+  // El margen que hay que garantizar: el objetivo es llegar a 2000 con techo
+  // para 5000 sin rediseñar.
+  { nombre: '5000 unidades / 50 coops', unidades: 5000, coops: 50 },
 ];
 
 const GB = 1024 ** 3;
@@ -130,9 +179,27 @@ function modelo(esc) {
 
   // ── egress mensual del backend (GB) ──
   const stateBytes = MEDIDO.stateBase + P.unidadesPorRuta * MEDIDO.statePorUnidad;
-  const clientesPorRuta = P.unidadesPorRuta + paneles / rutas;
+
+  // El estado se emite por ruta, pero NO todos lo reciben ni todos lo reciben
+  // igual. Dos correcciones sobre el modelo original, las dos verificadas en
+  // el código y las dos en la misma dirección (el costo real es menor):
+  //
+  //  1. Los choferes sólo reciben estado mientras tienen la app adelante:
+  //     con la pantalla bloqueada el WebSocket se cae y la brecha les vuelve
+  //     en la respuesta del POST /gps (59 B). Ver `fraccionPantallaEncendida`.
+  //  2. Los que reciben comprimen o no según QUIÉN son: el navegador negocia
+  //     `permessage-deflate` (−90 %), la app nativa no lo ofrece y recibe el
+  //     estado entero.
+  //
+  // Los paneles son navegador y están todo el turno: comprimen y no se van.
+  const emisionesDia = rutas * (horasSeg / P.stateCadaSeg);
+  const choferesConectados = P.unidadesPorRuta * P.fraccionPantallaEncendida;
+  const panelesPorRuta = paneles / rutas;
   const egressDia = {
-    wsState: rutas * (horasSeg / P.stateCadaSeg) * stateBytes * clientesPorRuta,
+    // Choferes: app nativa, SIN comprimir, sólo con la pantalla encendida.
+    wsStateChoferes: emisionesDia * stateBytes * choferesConectados,
+    // Paneles: navegador, CON compresión, todo el turno.
+    wsStatePaneles: emisionesDia * stateBytes * MEDIDO.factorCompresion * panelesPorRuta,
     chatYVoz: u * P.chatPorUnidadHora * P.horasOperacionDia * MEDIDO.chatEcho * P.unidadesPorRuta +
               u * P.vozPorUnidadDia * MEDIDO.vozBytes * P.unidadesPorRuta,
     gpsRespuestas: (horasSeg / P.gpsPostCadaSeg) * u * MEDIDO.postGpsRes,
@@ -142,15 +209,41 @@ function modelo(esc) {
   };
   const egressMesGB = Object.fromEntries(
     Object.entries(egressDia).map(([k, v]) => [k, v * P.diasMes / GB]));
-  const egressTotalGB = Object.values(egressMesGB).reduce((a, b) => a + b, 0);
 
   // Lo que le cuesta al CHOFER (datos móviles, no dinero nuestro): el estado
   // de su ruta durante un turno de 8 h + su GPS.
-  const choferMBturno = (8 * 3600 / P.stateCadaSeg * stateBytes +
+  // Sólo recibe estado mientras la pantalla está encendida; el resto del
+  // turno paga nada más su GPS. Con el modelo viejo (WS las 8 h) el número
+  // salía ~4× más alto, y es el que se usó para decir "89 MB por turno".
+  const choferMBturno = (8 * 3600 / P.stateCadaSeg * stateBytes * P.fraccionPantallaEncendida +
                          8 * 3600 / P.gpsPostCadaSeg * (MEDIDO.postGpsReq1 + 350)) / 1024 ** 2;
 
-  // ── tiles Geoapify (cuota de terceros, no egress nuestro) ──
-  const tilesDia = u * P.choferesNuevosPorDia * MEDIDO.tilesPrimeraCarga + u * 0.10 * 30;
+  // ── MAPAS: la cascada de tres niveles ────────────────────────────────
+  // Los tiles NO salen todos de Geoapify. `project/Prototipo.html:278`
+  // (`CapaCascada`) los busca en este orden:
+  //
+  //   1. caché del service worker — cache-first, sin expiración, tope 600
+  //      tiles. Es lo que hace que un chofer que repite la misma ruta todos
+  //      los días baje el mapa UNA vez. No cuesta nada a nadie.
+  //   2. mapa propio, servido por NUESTRO servidor (`/tiles/xyz/{zona}/…`),
+  //      para los tiles que caen dentro de una zona extraída. Sale gratis de
+  //      cuota pero se paga como egress propio.
+  //   3. Geoapify, sólo para lo que queda afuera de toda zona.
+  //
+  // O sea que el rubro depende de si el mapa propio está DESPLEGADO: si
+  // `TILES_RELEASE_URL` no está configurada no hay zonas, `zonaDeTile()`
+  // devuelve null para todo y la cascada cae entera al nivel 3. Ése es el
+  // interruptor que mueve este renglón, y es de configuración, no de código.
+  const tilesFrescosDia = u * P.choferesNuevosPorDia * MEDIDO.tilesPrimeraCarga +
+                          u * 0.10 * 30;   // el resto lo sirve el caché del teléfono
+  const tilesDia = tilesFrescosDia * (1 - P.coberturaMapaPropio);
+  const tilesPropiosDia = tilesFrescosDia * P.coberturaMapaPropio;
+  // Los tiles propios no pagan cuota pero sí egress nuestro.
+  const egressTilesGB = tilesPropiosDia * MEDIDO.tileKB * 1024 * P.diasMes / GB;
+  // El mapa propio cambia de bolsillo, no desaparece: sale de la cuota de
+  // Geoapify y entra como egress nuestro. Por eso se suma acá y no se olvida.
+  egressMesGB.tilesPropios = egressTilesGB;
+  const egressTotalGB = Object.values(egressMesGB).reduce((a, b) => a + b, 0);
 
   // ── cómputo presupuestado (el bench muestra que SQLite sobra; el techo
   //    es CPU de JSON+WS y margen de punta) ──
@@ -168,9 +261,26 @@ function modelo(esc) {
   };
   const total = Object.values(costo).reduce((a, b) => a + b, 0);
   const fijo = costo.vcpu + costo.ram + costo.vercel;
+
+  // ── LA UNIDAD EN QUE SE COBRA ──────────────────────────────────────
+  // El costo en dólares al mes no se compara con nada; el precio es en soles
+  // por unidad por día. Traducirlo es lo que convierte este archivo en una
+  // decisión de negocio y no en una tabla de infraestructura.
+  const costoSolesUnidadDia = (total * PRECIOS.solesPorDolar) / u / P.diasMes;
+  const margenSolesUnidadDia = VENTA.solesPorUnidadDia - costoSolesUnidadDia;
+  const margenPct = margenSolesUnidadDia / VENTA.solesPorUnidadDia * 100;
+  const ingresoMes = VENTA.solesPorUnidadDia * u * P.diasMes;
+  // Por rubro, en céntimos por unidad por día: dice DÓNDE se va el costo en
+  // la misma unidad en la que se cobra, que es la única forma de saber si una
+  // palanca vale la pena.
+  const costoPorRubro = Object.fromEntries(Object.entries(costo).map(
+    ([k, v]) => [k, v * PRECIOS.solesPorDolar / u / P.diasMes]));
+
   return { esc, rutas, paneles, rps, rpsTotal, wps, wpsTotal, brutoDiaMB,
            establesGB, egressMesGB, egressTotalGB, choferMBturno, tilesDia,
-           volumenGB, costo, total, fijo };
+           volumenGB, costo, total, fijo,
+           costoSolesUnidadDia, margenSolesUnidadDia, margenPct, ingresoMes,
+           costoPorRubro };
 }
 
 function imprimir() {
@@ -194,6 +304,65 @@ function imprimir() {
   const b2000 = modelo({ unidades: 2000, coops: 20 });
   const mas100 = modelo({ unidades: 2100, coops: 21 });
   const coopMarginal = mas100.total - b2000.total;
+  // ── EL MARGEN: la tabla que decide si el negocio cierra ──────────────
+  const R = ESCENARIOS.map(modelo);
+  // Los montos van con decimales FIJOS: `fmt` se come los ceros finales y
+  // "S/ 0.3" al lado de "S/ 0.228" se lee mal justo en la tabla que decide.
+  const sol = (n, d = 3) => 'S/ ' + n.toFixed(d);
+  const pct = (n) => n.toFixed(1) + ' %';
+  const caja = (texto) => {
+    const ancho = 70;
+    console.log('\n\n╔' + '═'.repeat(ancho) + '╗');
+    console.log('║  ' + texto.padEnd(ancho - 2) + '║');
+    console.log('╚' + '═'.repeat(ancho) + '╝\n');
+  };
+  caja(`MARGEN — se cobra ${sol(VENTA.solesPorUnidadDia, 2)} por unidad por día`);
+  console.log(`   escenario        ingreso/mes      costo/mes    costo u./día    MARGEN`);
+  console.log(`   ` + '─'.repeat(70));
+  for (const r of R) {
+    console.log('   ' + String(r.esc.unidades).padStart(5) + ' u.  ' +
+      ('S/ ' + fmt(r.ingresoMes, 0)).padStart(14) +
+      ('$' + fmt(r.total, 0)).padStart(14) +
+      sol(r.costoSolesUnidadDia).padStart(15) +
+      pct(r.margenPct).padStart(11));
+  }
+
+  const g = R[R.length - 1];
+  console.log(`\n   Dónde se va el costo a ${g.esc.unidades} unidades (céntimos por unidad por día):`);
+  for (const [k, v] of Object.entries(g.costoPorRubro).sort((a, b) => b[1] - a[1])) {
+    if (v * 100 < 0.05) continue;
+    console.log(`     ${k.padEnd(10)} ${fmt(v * 100, 2).padStart(6)} cts` +
+      `   ${'█'.repeat(Math.max(1, Math.round(v / g.costoSolesUnidadDia * 30)))}`);
+  }
+
+  // El supuesto que más pesa, mostrado como rango en vez de como un número
+  // solo: es más honesto y es lo que hay que salir a medir al piloto.
+  console.log(`\n   SENSIBILIDAD al supuesto que más pesa (fracción del turno con`);
+  console.log(`   la pantalla encendida — hoy asumido ${fmt(P.fraccionPantallaEncendida * 100, 0)} %):\n`);
+  const guardado = P.fraccionPantallaEncendida;
+  for (const f of [0.10, 0.25, 0.50, 1.00]) {
+    P.fraccionPantallaEncendida = f;
+    const m = modelo(ESCENARIOS[ESCENARIOS.length - 1]);
+    console.log(`     ${fmt(f * 100, 0).padStart(3)} % encendida →  costo ${sol(m.costoSolesUnidadDia)}/u./día` +
+      `   margen ${pct(m.margenPct).padStart(7)}` +
+      (m.margenPct < 0 ? '   ← PIERDE PLATA' : ''));
+  }
+  P.fraccionPantallaEncendida = guardado;
+
+  // El otro interruptor: el mapa propio no es código, es configuración del
+  // despliegue. Si `TILES_RELEASE_URL` no está puesta, la cascada cae entera
+  // a Geoapify y ese renglón deja de ser cero.
+  console.log(`\n   EL MAPA PROPIO (¿está \`TILES_RELEASE_URL\` puesta en producción?):\n`);
+  const guardadoMapa = P.coberturaMapaPropio;
+  for (const [cob, etq] of [[0, 'sin desplegar — todo a Geoapify'], [0.9, 'desplegado (supuesto actual)']]) {
+    P.coberturaMapaPropio = cob;
+    const m = modelo(ESCENARIOS[ESCENARIOS.length - 1]);
+    console.log(`     ${etq.padEnd(34)} Geoapify $${fmt(m.costo.terceros, 0).padStart(3)}/mes` +
+      `   ${fmt(m.tilesDia, 0).padStart(7)} tiles/día` +
+      `   margen ${pct(m.margenPct)}`);
+  }
+  P.coberturaMapaPropio = guardadoMapa;
+
   console.log(`\n═══ MARGINALES (sobre 2000/20) ═══`);
   console.log(`  cooperativa de 100 unidades más (con su panel): $${fmt(coopMarginal, 2)}/mes`);
   console.log(`  unidad más (promedio dentro de esa coop): $${fmt(coopMarginal / 100, 3)}/mes`);
