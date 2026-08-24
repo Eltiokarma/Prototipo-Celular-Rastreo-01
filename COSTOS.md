@@ -524,6 +524,62 @@ por fila—, no el agrupado.
 
 ---
 
+### El arranque: 38 s a 5000 unidades, y el 99 % era una sola forma de escribir
+
+Medido con `herramientas/arranque.js`, que intercepta `better-sqlite3` desde
+afuera (`node -r`) y cronometra cada consulta del arranque sin tocar
+`server/index.js`. El arranque es **tiempo con el sistema caído**: después de
+cada despliegue o reinicio nadie reporta y nadie ve el mapa.
+
+Se venía de dos puntos sueltos —5 s a 2000, 55 s a 5000— y de una sospecha
+razonable: la flota crecía 2,5× y el arranque 11×, así que podía haber otro
+cuadrático escondido justo donde nadie había mirado. **No lo había.** Era una
+sola consulta, escrita de una forma que recorre toda la tabla para no borrar
+nada.
+
+| | 500 u. | 2000 u. | 5000 u. |
+|---|---|---|---|
+| arranque total | 1,82 s | 4,83 s | **38,3 s** |
+| de eso, SQL | 852 ms | 3 764 ms | 37 432 ms |
+| **las dos `DELETE` del techo de filas** | **96 %** | **97 %** | **99 %** |
+
+Y hay que separar dos casos, porque confundirlos da un número que exagera:
+
+| arranque a 5000 | total | las dos `DELETE` | filas borradas |
+|---|---|---|---|
+| **1º** — el techo aprieta | 38,3 s | 37,2 s | 1,8 M + 3,6 M |
+| **2º** — base ya podada | 6,6 s | 5,4 s | **cero** |
+
+Los **5,4 s del segundo caso son el costo permanente**: se pagan en cada
+reinicio para no borrar ni una fila. El techo de filas es un cinturón —casi
+nunca aprieta— y sin embargo cobraba como si trabajara.
+
+**La causa.** `DELETE … WHERE id NOT IN (SELECT id … ORDER BY id DESC LIMIT N)`
+arma el conjunto de los N ids más nuevos y compara **cada fila** contra él.
+Como `id` es INTEGER PRIMARY KEY, "las N más nuevas" son "los N ids más altos":
+alcanza con buscar el corte con un salto por el índice y borrar por rango.
+
+A/B sobre la misma base de 5000, mismo proceso:
+
+| | `NOT IN` | corte por rango | |
+|---|---|---|---|
+| techo que **no** aprieta (cada arranque) | 5 855 ms | **231 ms** | **25×** |
+| techo que **sí** aprieta (borra 1 M) | 8 643 ms | 6 032 ms | 1,4× |
+
+**Resultado a 5000 unidades: 6,57 s → 1,32 s.** Lo que importa no es el 5×:
+una base **vacía** arrancaba en 1,8 s y una de 2,0 GB ahora arranca en 1,3.
+El arranque **dejó de escalar con los datos** — lo domina levantar Node, que
+es fijo. Ya no hay que volver a mirarlo al crecer.
+
+Las mismas filas exactas, y eso está fijado y no supuesto: la suite `poda`
+corre las dos formas sobre copias idénticas y compara los ids que sobreviven
+uno por uno, incluidos ids con huecos, techo justo, techo 0 y tabla vacía.
+Cambiar `<=` por `<` hace fallar 5 de los 10 casos.
+
+Quedan dos `NOT IN` de la misma familia sin tocar —el de grabaciones y el de
+`audit`—: llevan un `WHERE` adentro, no aparecieron en la medición (49 ms y
+menos) y se reescriben igual el día que pesen. Anotado en `PENDIENTES 4.9`.
+
 ## 4. Costo en dinero
 
 **Fuentes de precios (consultadas 2026-08-05):**

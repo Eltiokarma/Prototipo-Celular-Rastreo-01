@@ -424,6 +424,15 @@ async function pruebaDeCarga(DB, { empresa, HD, HG, HC }) {
   return filas;
 }
 
+// El sembrado sirve a cualquier herramienta que necesite una base del tamaño
+// real —`arranque.js` mide el arranque contra ella—, y duplicarlo sería tener
+// dos generadores que se van separando: el día que uno gane una columna y el
+// otro no, las dos herramientas miden bases distintas y nadie se entera.
+// Por eso se exporta, y el banco de abajo sólo corre si se lo invoca directo.
+module.exports = { sembrar, UNIDADES_POR_RUTA };
+
+if (require.main !== module) return;
+
 // ── Correr ────────────────────────────────────────────────────────────
 (async () => {
   const resultados = new Map();   // etiqueta → { tamaño → ms }

@@ -131,3 +131,37 @@ Así se encontró justamente eso — ver `COSTOS.md` §3.
 Usa el puerto **3199** y una base temporal propia; no toca nada tuyo. Sembrar
 2000 unidades tarda ~1,5 min y ocupa ~730 MB de disco; 20 000 tarda bastante
 más y ocupa ~7 GB. Con `--keep` la base **no se borra**: acordate de borrarla.
+
+## `arranque.js` — en qué se le va el tiempo al servidor antes de contestar
+
+```bash
+node herramientas/arranque.js --sembrar 500 2000 5000
+node herramientas/arranque.js <una-base.db> [otra.db …]
+```
+
+El arranque es **tiempo con el sistema caído**: después de cada despliegue o
+reinicio nadie reporta y nadie ve el mapa. Y no aparece en ninguna métrica,
+porque ninguna métrica existe todavía cuando pasa.
+
+La herramienta reparte el arranque en cuatro: abrir la base (que es donde se
+recupera el WAL y suele esconderse tiempo que nadie le atribuye a nada),
+compilar sentencias, ejecutar SQL, y todo lo demás. Después lista las consultas
+más caras. **Esa resta es el dato**: si el arranque son 40 s y el SQL son 3, el
+problema no está en las consultas y hay que buscar en otro lado.
+
+### Por qué mide desde afuera
+
+Se precarga con `node -r` e intercepta `better-sqlite3` **antes** de que
+`server/index.js` lo requiera. No hay una sola línea de instrumentación dentro
+del servidor, y es a propósito: una sonda que viva adentro mide un servidor que
+no es el que se despliega.
+
+### Cuidado
+
+- Siembra en `os.tmpdir()` y **no borra** las bases: a 5000 unidades son 2 GB.
+  Borralas a mano cuando termines.
+- Sembrar 5000 unidades tarda ~3,5 min y la base pesa 2 GB. Empezá por 500.
+- **El primer arranque contra una base recién sembrada no es representativo**:
+  si el techo de filas aprieta, esa vez borra de verdad y tarda mucho más que
+  las siguientes. Medí dos veces y quedate con la segunda, que es la que se
+  paga en cada reinicio.

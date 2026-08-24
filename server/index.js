@@ -661,8 +661,14 @@ const pruneChatStmt = db.prepare(
   "DELETE FROM messages WHERE kind != 'sos' AND timestamp < @corte");
 const pruneSosStmt = db.prepare(
   "DELETE FROM messages WHERE kind = 'sos' AND timestamp < @corte");
+// El techo de filas se corta por RANGO y no con `id NOT IN (…)`. Como `id` es
+// INTEGER PRIMARY KEY, "las @tope más nuevas" son "los @tope ids más altos", así
+// que alcanza con buscar el corte y borrar de ahí para abajo. El `NOT IN`
+// materializa @tope ids y compara fila por fila contra ese conjunto: recorre la
+// tabla entera aunque no haya una sola fila para borrar. Ver `podarHistorico()`,
+// donde esa diferencia se midió y era el 99 % del arranque.
 const pruneRowsStmt = db.prepare(`
-  DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY id DESC LIMIT @tope)
+  DELETE FROM messages WHERE id <= (SELECT id FROM messages ORDER BY id DESC LIMIT 1 OFFSET @tope)
 `);
 // Lo pesado viejo suelta su contenido pero conserva la burbuja — el cliente
 // la muestra como expirada, que es honesto: existió, ya no está.
@@ -1664,8 +1670,27 @@ const TURNOS_DIAS = Number(process.env.TURNOS_DIAS || 365);
 function podarHistorico() {
   const corte = Date.now() - LAPS_DIAS * 86400_000;
   const viejas = db.prepare('DELETE FROM laps WHERE finishedAt < ?').run(corte).changes;
+  // EL TECHO SE CORTA POR RANGO, y esto no es un detalle de estilo.
+  //
+  // Escrito como `id NOT IN (SELECT id … LIMIT @tope)` —que es como estaba— la
+  // base arma el conjunto de los @tope ids más nuevos y compara CADA fila
+  // contra él. Recorre la tabla entera aunque no haya nada que borrar, que es
+  // el caso normal: el techo es un cinturón, casi siempre no aprieta. Medido
+  // con `herramientas/arranque.js` sobre 5000 unidades, esas dos consultas
+  // eran el 99 % del arranque —5,4 s por vuelta para borrar CERO filas— y ése
+  // es tiempo con el sistema caído después de cada despliegue.
+  //
+  // Como `id` es INTEGER PRIMARY KEY AUTOINCREMENT, "las N más nuevas" es lo
+  // mismo que "los N ids más altos": se busca el corte con un salto por el
+  // índice y se borra de ahí para abajo por rango. Mismas filas exactas —lo
+  // fija `pruebas/poda.js` comparando las dos formas—, 25× más rápido cuando
+  // no hay nada que borrar y 1,4× cuando sí.
+  //
+  // Si la tabla tiene menos de @tope filas, el OFFSET se pasa del final y
+  // devuelve NULL; `id <= NULL` es NULL y no borra nada, que es justo lo que
+  // corresponde.
   const sobrantes = db.prepare(
-    'DELETE FROM laps WHERE id NOT IN (SELECT id FROM laps ORDER BY id DESC LIMIT ?)').run(LAPS_MAX_FILAS).changes;
+    'DELETE FROM laps WHERE id <= (SELECT id FROM laps ORDER BY id DESC LIMIT 1 OFFSET ?)').run(LAPS_MAX_FILAS).changes;
   // Los tramos se podan con la misma vara que las vueltas: son el mismo dato
   // partido al medio, y que uno sobreviviera al otro daría informes donde las
   // medias vueltas no suman las vueltas.
@@ -1679,7 +1704,7 @@ function podarHistorico() {
   // suman las vueltas, que es la contradicción que este bloque evita.
   const tramosViejos = db.prepare('DELETE FROM legs WHERE finishedAt < ?').run(corte).changes;
   const tramosDeMas = db.prepare(
-    'DELETE FROM legs WHERE id NOT IN (SELECT id FROM legs ORDER BY id DESC LIMIT ?)')
+    'DELETE FROM legs WHERE id <= (SELECT id FROM legs ORDER BY id DESC LIMIT 1 OFFSET ?)')
     .run(LAPS_MAX_FILAS * 2).changes;
   const desviosViejos = db.prepare(
     'DELETE FROM deviations WHERE startedAt < ?').run(Date.now() - DESVIOS_DIAS * 86400_000).changes;
