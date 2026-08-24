@@ -270,6 +270,51 @@ const punto = (norte, este = 0) => ({ lat: LAT + gLat * norte, lng: LNG + gLng *
     ok('vencida, vuelve la que no tiene fechas', activa2.name === 'Obra Circunvalación', activa2.name);
   }
 
+  console.log('\nVIGENCIA SEMANAL: «LOS DOMINGOS»');
+  {
+    // Varios recorridos cambian TODOS los domingos, y la vigencia por
+    // fechas obligaba a activarlos a mano cada semana. Se prueba con el día
+    // de HOY (el que sea): la regla es la misma para cualquier día.
+    const HOY = new Date().getDay();
+    const OTRO = (HOY + 3) % 7;
+
+    // Las sesiones del creador viven en memoria a propósito: los reinicios
+    // de la sección anterior las cerraron, así que se entra de nuevo.
+    const C2 = (await pedir('/creador/login', { method: 'POST',
+      body: JSON.stringify({ password: CLAVE_CREADOR }) })).body;
+    const HC = { Authorization: 'Bearer ' + C2.token };
+
+    let r = await pedir(`/creador/empresas/${EMP}/rutas/R-14/variantes`, {
+      method: 'POST', headers: HC,
+      body: JSON.stringify({ name: 'Mal día', dias: [9] }) });
+    ok('un día que no existe se rechaza', r.status === 400, r.body.error);
+
+    r = await pedir(`/creador/empresas/${EMP}/rutas/R-14/variantes`, {
+      method: 'POST', headers: HC,
+      body: JSON.stringify({ name: 'Recorrido semanal', copiarDe: obraId, dias: [HOY] }) });
+    ok('se crea con día de la semana', r.status === 200 && r.body.dias === String(HOY), r.body);
+    const semanalId = r.body.variantId;
+
+    await arrancar();
+    let D2 = (await login('DESPACHO', 'despacho99')).body;
+    let v = await pedir('/admin/routes/R-14/variantes', { headers: { Authorization: 'Bearer ' + D2.token } });
+    let activa = v.body.variantes.find(x => x.activa);
+    ok('el día que le toca, rige sola', activa.name === 'Recorrido semanal', activa.name);
+
+    // Se le corre el día a otro: hoy ya no le toca → vuelve la de siempre,
+    // sin que nadie la desactive a mano. Es exactamente el lunes a la
+    // madrugada del recorrido de domingo.
+    const db = new Database(DB);
+    db.prepare('UPDATE route_variants SET dias = ? WHERE variantId = ?').run(String(OTRO), semanalId);
+    db.close();
+    await arrancar();
+    D2 = (await login('DESPACHO', 'despacho99')).body;
+    v = await pedir('/admin/routes/R-14/variantes', { headers: { Authorization: 'Bearer ' + D2.token } });
+    activa = v.body.variantes.find(x => x.activa);
+    ok('el día que no le toca, vuelve la de siempre sola',
+       activa.name === 'Obra Circunvalación', activa.name);
+  }
+
   console.log(fallas === 0 ? '\nTODO EN ORDEN\n' : `\n${fallas} FALLA(S)\n`);
   if (servidor) servidor.kill();
   await sleep(300);

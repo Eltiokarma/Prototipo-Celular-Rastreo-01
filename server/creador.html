@@ -1179,7 +1179,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
   // estaba repetida en la tarjeta de la cooperativa, a medias y sin mapa.
   const [gestion, setGestion] = React.useState(null);   // 'renombrar' | 'nuevo' | null
   const [nombreRuta, setNombreRuta] = React.useState('');
-  const [nuevoTrazado, setNuevoTrazado] = React.useState({ name: '', copiarDe: '', desde: '', hasta: '' });
+  const [nuevoTrazado, setNuevoTrazado] = React.useState({ name: '', copiarDe: '', desde: '', hasta: '', dias: [] });
   const [gestionando, setGestionando] = React.useState(false);
 
   const urlVariantes = () =>
@@ -1204,7 +1204,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
     try {
       const r = await api(urlVariantes(), { method: 'POST', body: JSON.stringify(nuevoTrazado) });
       aviso(`Trazado «${r.name}» creado — quedó elegido para dibujar`);
-      setNuevoTrazado({ name: '', copiarDe: '', desde: '', hasta: '' });
+      setNuevoTrazado({ name: '', copiarDe: '', desde: '', hasta: '', dias: [] });
       setGestion(null);
       const d = await api(urlVariantes());
       setVariantes(d.variantes);
@@ -1268,6 +1268,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
             {(variantes || []).map(v => (
               <option key={v.variantId} value={v.variantId}>
                 {v.name}{v.activa ? ' — MIDIENDO' : ''}{v.puntos ? '' : ' (sin dibujar)'}
+                {v.dias ? ` · ${String(v.dias).split(',').map(d => ['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'][Number(d)] || d).join(' ')}` : ''}
               </option>
             ))}
           </select>
@@ -1335,6 +1336,28 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
                       onChange={ev => setNuevoTrazado({ ...nuevoTrazado, hasta: ev.target.value })} />
                   </div>
                 </div>
+                <div>
+                  <label>O ciertos días, todas las semanas</label>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'].map((rot, dia) => {
+                      const puesto = nuevoTrazado.dias.includes(dia);
+                      return (
+                        <button key={dia} type="button"
+                          title={puesto ? `Quitar ${rot}` : `Regir los ${rot}`}
+                          onClick={() => setNuevoTrazado({
+                            ...nuevoTrazado,
+                            dias: puesto ? nuevoTrazado.dias.filter(d => d !== dia)
+                                         : [...nuevoTrazado.dias, dia],
+                          })} style={{
+                            width: 34, height: 34, fontSize: 11, fontWeight: 700,
+                            background: puesto ? 'var(--fg)' : 'var(--campo)',
+                            color: puesto ? '#fff' : 'var(--dim2)',
+                            border: puesto ? 'none' : '1px solid var(--line)',
+                          }}>{rot}</button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <button disabled={gestionando} onClick={crearTrazado} style={{
@@ -1344,7 +1367,10 @@ function Rutas({ api, empresas, aviso, fallo, recargar }) {
                 <span style={{ fontSize: 11, color: 'var(--dim2)' }}>
                   Copiar del de siempre y corregir dos cuadras suele ser más
                   rápido que dibujarlo de nuevo. Con fechas, se activa y se
-                  desactiva solo el día que corresponde.
+                  desactiva solo el día que corresponde; con días de la
+                  semana («los domingos»), rige esos días y vuelve solo al
+                  de siempre — el cambio pasa a la medianoche, antes de que
+                  salga la primera combi.
                 </span>
               </div>
             </div>

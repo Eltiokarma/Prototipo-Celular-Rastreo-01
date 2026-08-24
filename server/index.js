@@ -341,6 +341,13 @@ db.exec(`
     createdAt INTEGER NOT NULL
   )
 `);
+// Vigencia SEMANAL ("los domingos"): días 0-6 como los da Date.getDay(),
+// guardados "0" o "0,6". Existe porque varios recorridos cambian todos los
+// domingos, y la vigencia por fechas obligaba a activarlos a mano cada
+// semana. OJO: el día se mira con la hora LOCAL del servidor — en el
+// despliegue tiene que estar TZ=America/Lima, o "domingo" empezaría el
+// sábado a las 19:00 de Juliaca (el contenedor pelado corre en UTC).
+addColumnIfMissing('route_variants', 'dias', 'TEXT');
 
 const VARIANTE_BASE = 'Recorrido normal';
 
@@ -3332,10 +3339,31 @@ function activarVariante(routeId, variantId, quien, motivo) {
 // minuto — no hace falta más fino, esto se mide en días.
 //
 // La regla es simple y se resuelve sola: si hay una variante vigente por
-// fecha, esa manda; si la vigente se venció, vuelve la base. Nunca se apaga
-// una ruta: si nada aplica, queda la variante base.
+// fecha O por día de la semana ("los domingos"), esa manda; si la vigente
+// se venció, vuelve la base. Nunca se apaga una ruta: si nada aplica,
+// queda la variante base. El cambio de día se agarra en el minuto después
+// de medianoche — antes de que salga la primera combi, así el descarte de
+// vueltas en curso no descarta nada.
+let avisoHusoDado = false;
 function revisarVigencias() {
   const ahora = Date.now();
+  // Día 0-6 en hora LOCAL del servidor (ver la nota sobre TZ en la columna)
+  const hoy = String(new Date().getDay());
+  // La trampa clásica: el contenedor corre en UTC y nadie lo notó. Con
+  // vigencia semanal cargada eso significa que "domingo" empieza el sábado
+  // a las 19:00 de Perú. Se avisa una vez, fuerte, y no se frena nada.
+  if (!avisoHusoDado && new Date().getTimezoneOffset() === 0 &&
+      db.prepare('SELECT COUNT(*) AS c FROM route_variants WHERE dias IS NOT NULL').get().c > 0) {
+    avisoHusoDado = true;
+    console.warn('──────────────────────────────────────────────────────────');
+    console.warn('Hay variantes con vigencia SEMANAL y el servidor corre en UTC:');
+    console.warn('"domingo" va a empezar el sábado a las 19:00 hora de Perú.');
+    console.warn('Poné TZ=America/Lima en las variables del despliegue.');
+    console.warn('──────────────────────────────────────────────────────────');
+  }
+  const porFecha = v => (v.desde || v.hasta) &&
+    (!v.desde || v.desde <= ahora) && (!v.hasta || v.hasta > ahora);
+  const porDia = v => !!v.dias && String(v.dias).split(',').includes(hoy);
   for (const ruta of allRoutes()) {
     const variantes = variantesDe(ruta.routeId);
     if (variantes.length < 2) continue;
@@ -3344,15 +3372,16 @@ function revisarVigencias() {
     // La programada que corresponde a hoy. Si hay varias solapadas gana la
     // más nueva: es la que se cargó sabiendo de las anteriores.
     const vigente = variantes
-      .filter(v => (v.desde || v.hasta) &&
-                   (!v.desde || v.desde <= ahora) &&
-                   (!v.hasta || v.hasta > ahora))
+      .filter(v => porFecha(v) || porDia(v))
       .sort((a, b) => b.variantId - a.variantId)[0];
 
-    const destino = vigente || variantes.find(v => !v.desde && !v.hasta) || variantes[0];
+    const destino = vigente
+      || variantes.find(v => !v.desde && !v.hasta && !v.dias)
+      || variantes[0];
     if (destino && activa && destino.variantId !== activa.variantId) {
       activarVariante(ruta.routeId, destino.variantId, 'sistema',
-        vigente ? 'por vigencia programada' : 'venció la vigencia');
+        vigente ? (porDia(vigente) && !porFecha(vigente) ? 'por día de la semana' : 'por vigencia programada')
+                : 'venció la vigencia');
     }
   }
 }

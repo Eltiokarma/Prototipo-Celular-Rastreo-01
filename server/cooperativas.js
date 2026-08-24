@@ -316,7 +316,18 @@ function fechaOpcional(valor) {
   return { ok: true, ts: t };
 }
 
-function altaVariante(db, { routeId, name, desde, hasta, copiarDe } = {}) {
+// Los días de la semana opcionales ("los domingos"): llegan como array
+// [0, 6] o como "0,6" — 0 es domingo, la misma convención que Date.getDay().
+// Se guardan "0,6" o null. La forma la valida ACÁ y no cada puerta.
+function diasOpcionales(valor) {
+  if (valor === undefined || valor === null || valor === '' ||
+      (Array.isArray(valor) && valor.length === 0)) return { ok: true, dias: null };
+  const nums = (Array.isArray(valor) ? valor : String(valor).split(',')).map(Number);
+  if (!nums.length || nums.some(n => !Number.isInteger(n) || n < 0 || n > 6)) return { ok: false };
+  return { ok: true, dias: [...new Set(nums)].sort().join(',') };
+}
+
+function altaVariante(db, { routeId, name, desde, hasta, dias, copiarDe } = {}) {
   const ruta = idLimpio(routeId);
   if (!ruta) return { error: 'Falta la ruta' };
   if (!db.prepare('SELECT routeId FROM routes WHERE routeId = ?').get(ruta)) {
@@ -328,6 +339,8 @@ function altaVariante(db, { routeId, name, desde, hasta, copiarDe } = {}) {
   const d = fechaOpcional(desde), h = fechaOpcional(hasta);
   if (!d.ok || !h.ok) return { error: 'Las fechas de vigencia no se entienden' };
   if (d.ts && h.ts && h.ts <= d.ts) return { error: 'La vigencia termina antes de empezar' };
+  const ds = diasOpcionales(dias);
+  if (!ds.ok) return { error: 'Los días de vigencia no se entienden (0 a 6, 0 es domingo)' };
 
   // Copiar de otra es lo normal: un desvío suele ser el recorrido de siempre
   // con dos cuadras distintas, no un trazado nuevo desde cero.
@@ -341,8 +354,8 @@ function altaVariante(db, { routeId, name, desde, hasta, copiarDe } = {}) {
   let variantId;
   db.transaction(() => {
     variantId = db.prepare(
-      'INSERT INTO route_variants (routeId, name, activa, desde, hasta, createdAt) VALUES (?, ?, 0, ?, ?, ?)'
-    ).run(ruta, nombre, d.ts, h.ts, Date.now()).lastInsertRowid;
+      'INSERT INTO route_variants (routeId, name, activa, desde, hasta, dias, createdAt) VALUES (?, ?, 0, ?, ?, ?, ?)'
+    ).run(ruta, nombre, d.ts, h.ts, ds.dias, Date.now()).lastInsertRowid;
 
     if (origen) {
       db.prepare(`
@@ -354,20 +367,23 @@ function altaVariante(db, { routeId, name, desde, hasta, copiarDe } = {}) {
 
   return {
     ok: true, routeId: ruta, variantId, name: nombre,
-    desde: d.ts, hasta: h.ts, copiadaDe: origen ? origen.name : null,
+    desde: d.ts, hasta: h.ts, dias: ds.dias, copiadaDe: origen ? origen.name : null,
   };
 }
 
-function editarVariante(db, { variantId, name, desde, hasta } = {}) {
+function editarVariante(db, { variantId, name, desde, hasta, dias } = {}) {
   const v = db.prepare('SELECT * FROM route_variants WHERE variantId = ?').get(Number(variantId));
   if (!v) return { error: 'Esa variante no existe' };
   const nombre = String(name || '').trim().slice(0, 60) || v.name;
   const d = fechaOpcional(desde), h = fechaOpcional(hasta);
   if (!d.ok || !h.ok) return { error: 'Las fechas de vigencia no se entienden' };
   if (d.ts && h.ts && h.ts <= d.ts) return { error: 'La vigencia termina antes de empezar' };
-  db.prepare('UPDATE route_variants SET name = ?, desde = ?, hasta = ? WHERE variantId = ?')
-    .run(nombre, d.ts, h.ts, v.variantId);
-  return { ok: true, routeId: v.routeId, variantId: v.variantId, name: nombre, desde: d.ts, hasta: h.ts };
+  const ds = diasOpcionales(dias);
+  if (!ds.ok) return { error: 'Los días de vigencia no se entienden (0 a 6, 0 es domingo)' };
+  db.prepare('UPDATE route_variants SET name = ?, desde = ?, hasta = ?, dias = ? WHERE variantId = ?')
+    .run(nombre, d.ts, h.ts, ds.dias, v.variantId);
+  return { ok: true, routeId: v.routeId, variantId: v.variantId, name: nombre,
+           desde: d.ts, hasta: h.ts, dias: ds.dias };
 }
 
 function bajaVariante(db, { variantId } = {}) {

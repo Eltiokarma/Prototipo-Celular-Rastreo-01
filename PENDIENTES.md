@@ -181,6 +181,27 @@ un año. A propósito NO les toca el chat de las rutas: la deuda es de la
 cooperativa, no de sus choferes, y escribirle a las unidades por encima de
 su propio Despacho quemaría el canal. Suite `avisos`.
 
+### 3.9 · ~~El recorrido de los domingos se activaba a mano cada semana~~ — HECHO (24/8)
+
+Salió de la operación real: «varios micros suelen cambiar de recorrido los
+domingos». El mecanismo de cambio de variante ya era sólido (descarta
+vueltas en curso, no mezcla promedios, audita — suite `variantes`), pero la
+vigencia programada era solo por **rango de fechas**, pensada para obras:
+lo semanal obligaba a que alguien de Despacho activara la variante cada
+domingo y la devolviera el lunes.
+
+Ahora una variante puede regir **ciertos días de la semana** (columna
+`dias`, 0–6 como `Date.getDay()`): se elige con botones Do–Sá al crear el
+trazado en el panel del creador, rige sola esos días y **vuelve sola** al
+de siempre — el cambio pasa en el minuto después de medianoche, antes de
+que salga la primera combi, así el descarte de vueltas en curso no
+descarta nada. Prioridades como siempre: si varias vigencias aplican, gana
+la más nueva. **OJO con el huso**: el día se mira con la hora local del
+servidor; si el contenedor corre en UTC, «domingo» empieza el sábado a las
+19:00 de Perú — el servidor lo grita en el arranque si detecta esa
+combinación, y el despliegue debe llevar `TZ=America/Lima`. Suite
+`variantes`, sección «vigencia semanal».
+
 ### 3bis · ~~Los bancos visuales fotografiaban pantallas vacías~~ — HECHO
 
 Salió de mirar las capturas antes de desplegar, y es la clase de rotura que
@@ -260,6 +281,10 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
       despliegue real: los datos sobrevivieron al cambio de contenedor.
 - [x] Segundo factor del panel del creador activo (`CREATOR_TOTP_SECRET`).
 - [ ] Cargar el recorrido real con el trazador.
+- [ ] **`TZ=America/Lima` en las variables del despliegue** — sin eso la
+      vigencia semanal de variantes (3.9) cambia de recorrido el sábado a
+      las 19:00 en vez del domingo a medianoche. El servidor lo avisa en el
+      arranque si detecta la combinación.
 - [x] Marca de cada cooperativa (logo y nombre) configurable desde el panel
       del creador y corregible desde Despacho.
 - [x] **Ninguna pantalla depende de un CDN para dibujar el mapa** (ver 2.2).
