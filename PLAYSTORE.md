@@ -15,8 +15,9 @@ Lo que ya está en el repo (no hay que hacerlo de nuevo):
   contacto sale de la variable `CONTACTO_PRIVACIDAD` — en producción:
   `soporte@microstempo.com` (el buzón ya existe en Hostinger).
 - **Ícono de la app**: `app/assets/icon.png` y el adaptive icon de
-  Android, con la misma marca (la mira de GPS) y el mismo azul `#2580CF`
-  de las PWA. Antes el APK salía con el ícono genérico de Expo. Del
+  Android, con la marca real de Micros Tempo — el reloj del logotipo,
+  con sus marcas horarias y las agujas en 10:10 — en blanco sobre el
+  azul `#2580CF` del producto. Antes el APK salía con el ícono genérico de Expo. Del
   ícono de 1024 se exporta el de 512 que pide la ficha. **Splash
   pendiente**: necesita agregar el paquete `expo-splash-screen`
   (`npx expo install expo-splash-screen` en `app/` cuando compiles); sin
