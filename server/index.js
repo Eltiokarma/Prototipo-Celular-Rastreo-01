@@ -5167,6 +5167,29 @@ app.get('/privacidad', (req, res) => {
   res.type('text/html; charset=utf-8').send(PRIVACIDAD_HTML);
 });
 
+// ─── LA LANDING ──────────────────────────────────────────────
+// La cara pública (server/landing.html): lo que ve una cooperativa ANTES
+// de ser cliente. Siempre vive en /landing; y si DOMINIO_LANDING nombra el
+// dominio comercial (p. ej. "microstempo.com,www.microstempo.com"), la
+// raíz de ESE dominio muestra la landing en vez de la app del chofer — el
+// mismo servidor atiende app.microstempo.com (el producto) y
+// microstempo.com (la vidriera), sin un hosting más que pagar y vigilar.
+// Sin la variable no cambia nada: la raíz sigue siendo la app.
+const LANDING_HTML = fs.readFileSync(path.join(__dirname, 'landing.html'), 'utf8');
+const DOMINIOS_LANDING = String(process.env.DOMINIO_LANDING || '')
+  .split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+app.get('/landing', (req, res) => {
+  res.type('text/html; charset=utf-8').send(LANDING_HTML);
+});
+if (DOMINIOS_LANDING.length) {
+  app.get('/', (req, res, next) => {
+    if (DOMINIOS_LANDING.includes(String(req.hostname || '').toLowerCase())) {
+      return res.type('text/html; charset=utf-8').send(LANDING_HTML);
+    }
+    next();   // por cualquier otro dominio, la raíz sigue siendo la app
+  });
+}
+
 if (PROJECT_DIR) {
   app.use(express.static(PROJECT_DIR));
   console.log('Sirviendo la app web desde', PROJECT_DIR);

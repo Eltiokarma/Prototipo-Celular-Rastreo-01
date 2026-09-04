@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<!-- La cara pública de MicrosTempo: lo que ve una cooperativa ANTES de ser
+     cliente. La sirve el propio servidor (GET /landing siempre; y en la
+     raíz cuando el pedido llega por el dominio de la landing — variable
+     DOMINIO_LANDING, ver server/index.js).
+
+     Deliberadamente: sin JavaScript, sin imágenes externas (la marca es un
+     SVG inline), sin fuentes externas, y con la paleta DÍA del sistema —
+     la misma que ven los clientes adentro. Tiene que cargar entera en el
+     peor celular con el peor 3G, porque ahí vive nuestro mercado. -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MicrosTempo — Control de flota para cooperativas de transporte</title>
+<meta name="description" content="El mapa vivo de su flota, la separación entre combis, las vueltas y las horas de cada conductor. Hecho para cooperativas de transporte urbano del Perú.">
+<style>
+  :root {
+    --bg: #F7FAFD; --surface: #FFFFFF; --line: #C3D4E4; --divider: #E1E9F2;
+    --fg: #0B2239; --fg2: #2A4864; --dim: #41627F; --dim3: #5A7591;
+    --azul: #2580CF; --azulOscuro: #1668C4;
+    --verdeFondo: #E9F7EF; --verdeTinta: #0B6B33;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    line-height: 1.65; font-size: 17px;
+  }
+  .caja { max-width: 880px; margin: 0 auto; padding: 0 22px; }
+  header { padding: 26px 0 10px; display: flex; align-items: center; gap: 12px; }
+  .marca { font-weight: 900; font-size: 20px; letter-spacing: -.02em; }
+  .marca span { color: var(--azul); }
+  .hero { padding: 44px 0 30px; }
+  h1 { font-size: clamp(30px, 5.5vw, 46px); line-height: 1.15; letter-spacing: -.02em; margin: 0 0 18px; font-weight: 900; }
+  h1 em { font-style: normal; color: var(--azul); }
+  .bajada { font-size: 19px; color: var(--fg2); max-width: 640px; margin: 0 0 26px; }
+  .cta {
+    display: inline-block; background: var(--azul); color: #fff;
+    padding: 14px 26px; border-radius: 12px; font-weight: 800;
+    text-decoration: none; font-size: 17px;
+  }
+  .cta:hover { background: var(--azulOscuro); }
+  .nota-cta { font-size: 14px; color: var(--dim3); margin-top: 10px; }
+  h2 { font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim3); font-weight: 800; margin: 52px 0 6px; }
+  .roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 14px; }
+  .rol { background: var(--surface); border: 1px solid var(--divider); border-radius: 16px; padding: 20px; }
+  .rol h3 { margin: 0 0 8px; font-size: 18px; }
+  .rol p { margin: 0; color: var(--fg2); font-size: 15px; }
+  ul.lista { columns: 2; column-gap: 40px; padding-left: 20px; margin: 14px 0 0; }
+  ul.lista li { margin-bottom: 9px; color: var(--fg2); break-inside: avoid; }
+  ul.lista b { color: var(--fg); }
+  .franja {
+    background: var(--verdeFondo); border-radius: 16px; padding: 18px 22px;
+    margin-top: 52px; color: var(--verdeTinta); font-size: 15px; line-height: 1.6;
+  }
+  footer { border-top: 1px solid var(--divider); margin-top: 56px; padding: 26px 0 40px; font-size: 14px; color: var(--dim3); }
+  footer a { color: var(--dim); }
+  @media (max-width: 640px) { ul.lista { columns: 1; } }
+</style>
+</head>
+<body>
+<div class="caja">
+  <header>
+    <svg width="34" height="34" viewBox="0 0 100 100" aria-hidden="true">
+      <rect width="100" height="100" rx="22" fill="#2580CF"/>
+      <circle cx="50" cy="50" r="16" fill="none" stroke="#fff" stroke-width="7"/>
+      <circle cx="50" cy="50" r="5.5" fill="#fff"/>
+      <rect x="46.5" y="14" width="7" height="12" fill="#fff"/>
+      <rect x="46.5" y="74" width="7" height="12" fill="#fff"/>
+      <rect x="14" y="46.5" width="12" height="7" fill="#fff"/>
+      <rect x="74" y="46.5" width="12" height="7" fill="#fff"/>
+    </svg>
+    <div class="marca">Micros<span>Tempo</span></div>
+  </header>
+
+  <section class="hero">
+    <h1>Toda su flota en un mapa vivo, y <em>la separación entre combis</em> medida en serio.</h1>
+    <p class="bajada">
+      MicrosTempo es el control de flota hecho para cooperativas de
+      transporte urbano: el conductor ve su brecha en grande mientras
+      maneja, su central ve el mapa en vivo, y la gerencia ve los números
+      con los que se administra la ruta.
+    </p>
+    <a class="cta" href="mailto:soporte@microstempo.com?subject=Quiero%20conocer%20MicrosTempo">Escríbanos: soporte@microstempo.com</a>
+    <div class="nota-cta">Le mostramos el sistema andando con su propia ruta, sin compromiso.</div>
+  </section>
+
+  <h2>Una pantalla para cada uno</h2>
+  <div class="roles">
+    <div class="rol">
+      <h3>El conductor</h3>
+      <p>Su app Android muestra en grande lo único que importa manejando:
+      la separación con la combi de adelante, medida sobre el recorrido
+      real. Sigue funcionando con la pantalla bloqueada, avisa por
+      notificación, y trae chat con la central, botón de emergencia
+      deslizable y sus propias horas y vueltas.</p>
+    </div>
+    <div class="rol">
+      <h3>La central (Despacho)</h3>
+      <p>El mapa en vivo de la ruta, la cadena de combis con cada brecha,
+      quién salió y quién falta, las emergencias sonando al instante, el
+      chat con toda la ruta o con una unidad, y la gestión del día:
+      conductores, cobradores, recorridos y desvíos.</p>
+    </div>
+    <div class="rol">
+      <h3>La gerencia</h3>
+      <p>Los números para administrar: cumplimiento del objetivo, vueltas
+      y horas por unidad y por persona, tendencia por día e informes
+      descargables para liquidar y para reclamar con datos.</p>
+    </div>
+  </div>
+
+  <h2>Lo que trae</h2>
+  <ul class="lista">
+    <li><b>Brecha en tiempo real</b> medida sobre el trazado real de su ruta, no en línea recta.</li>
+    <li><b>Botón de emergencia</b> que la central ve y oye al instante, con ubicación.</li>
+    <li><b>Vueltas, medias vueltas y horas</b> por unidad y por persona, con informes CSV.</li>
+    <li><b>Chat de ruta</b> con texto, notas de voz y fotos, y mensajes privados por unidad.</li>
+    <li><b>Recorridos por variante</b>: el trazado de los domingos cambia y vuelve solo.</li>
+    <li><b>Detección de desvíos</b> con umbral por ruta, tratada como gestión y no como alarma.</li>
+    <li><b>Turnos automáticos</b>: se abren al subir a la combi y aguantan cortes de señal.</li>
+    <li><b>Cada cooperativa con su marca</b>: su logo y su nombre en todas sus pantallas.</li>
+  </ul>
+
+  <div class="franja">
+    <b>Pensado para la sierra y para el bolsillo del conductor:</b> la app
+    consume una fracción de los datos móviles de un rastreador común, el
+    mapa funciona sin señal en la zona de operación, y todo está probado a
+    3800 metros, en la calle, con combis de verdad.
+  </div>
+
+  <footer>
+    MicrosTempo · Perú · <a href="mailto:soporte@microstempo.com">soporte@microstempo.com</a>
+    · <a href="/privacidad">Política de privacidad</a>
+  </footer>
+</div>
+</body>
+</html>
