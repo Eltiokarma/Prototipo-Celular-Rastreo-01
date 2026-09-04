@@ -26,7 +26,7 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_SERVIDOR": "https://prototipo-celular-rastreo-01-production.up.railway.app"
+        "EXPO_PUBLIC_SERVIDOR": "https://app.microstempo.com"
       }
     }
   }

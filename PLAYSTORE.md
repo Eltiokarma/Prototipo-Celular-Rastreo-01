@@ -12,9 +12,15 @@ Lo que ya está en el repo (no hay que hacerlo de nuevo):
   el `versionCode` solo.
 - **Política de privacidad pública**: la sirve el propio servidor en
   `/privacidad`, con los números de retención reales del sistema. El
-  contacto sale de la variable `CONTACTO_PRIVACIDAD` (ponerla en el
-  despliegue: un correo que puedas atender; sin ella queda un canal
-  genérico).
+  contacto sale de la variable `CONTACTO_PRIVACIDAD` — en producción:
+  `soporte@microstempo.com` (el buzón ya existe en Hostinger).
+- **Ícono de la app**: `app/assets/icon.png` y el adaptive icon de
+  Android, con la misma marca (la mira de GPS) y el mismo azul `#2580CF`
+  de las PWA. Antes el APK salía con el ícono genérico de Expo. Del
+  ícono de 1024 se exporta el de 512 que pide la ficha. **Splash
+  pendiente**: necesita agregar el paquete `expo-splash-screen`
+  (`npx expo install expo-splash-screen` en `app/` cuando compiles); sin
+  él, el arranque muestra un fondo plano — feo pero no bloquea nada.
 - **La divulgación destacada de ubicación**: la pantalla «¿Salís a
   ruta?» dice qué se recopila (ubicación), cuándo (también con la
   pantalla apagada) y para qué (brecha y mapa), y el permiso se pide
@@ -45,9 +51,14 @@ npx eas build --platform android --profile production
 - EAS genera y guarda la **llave de firma**; en Play activá «Firma de
   aplicaciones de Google Play» (viene por defecto) y no hay nada que
   custodiar a mano.
-- El paquete es `pe.coopr14.chofer` — **no se puede cambiar después**;
-  si algún día esto deja de ser solo R14, conviene decidirlo ANTES de la
-  primera subida (p. ej. `pe.controlderuta.chofer`).
+- El paquete quedó decidido con el dominio: **`com.microstempo.chofer`**
+  (ya está en `app.json`). No se puede cambiar después de la primera
+  subida. Ojo: por el cambio de paquete, los APK de prueba viejos
+  (`pe.coopr14.chofer`) no se actualizan encima — se desinstalan y se
+  instala el nuevo, una sola vez.
+- **Antes del primer build de producción**: conectar
+  `app.microstempo.com` en Railway (ver `DOMINIO.md`) — el perfil
+  `production` de `eas.json` ya compila esa URL adentro del APK.
 
 ### 3 · La ficha en Play Console
 
@@ -56,7 +67,7 @@ Las que van a mirar con lupa en ésta:
 
 | Sección | Qué declarar |
 | --- | --- |
-| **Política de privacidad** | `https://<servidor>/privacidad` |
+| **Política de privacidad** | `https://app.microstempo.com/privacidad` |
 | **Ubicación en segundo plano** | Formulario de declaración: caso de uso «seguimiento de flota para empleados/operadores», y un **video** (subido a YouTube, puede ser oculto) que muestre: la pantalla «¿Salís a ruta?» con su texto → el deslizar → el diálogo de permiso del sistema → la combi en el mapa. Grabalo del teléfono real |
 | **Seguridad de los datos** | Ver la tabla de abajo — tiene que decir lo mismo que `/privacidad` |
 | **Público objetivo** | 18+, no dirigida a niños |
