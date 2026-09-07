@@ -14,12 +14,12 @@
 // corren**. Está en el código de React Native para Android
 // (`JavaTimerManager`): al pausarse la actividad se quita el callback del
 // Choreographer y los timers con duración mayor a cero quedan esperando un
-// frame que no llega hasta que la pantalla vuelve. Sólo `setTimeout(fn, 0)`
-// se llama en el acto — y por eso el fetch SÍ resuelve en segundo plano
-// (whatwg-fetch resuelve con un setTimeout de 0), pero el corte de 15 s no.
-// Se veía en el servidor: ráfagas de posiciones y silencios de minutos, y al
-// prender la pantalla, el corte por fin disparaba, la tanda se re-encolaba y
-// llegaba repetida («volvió tras 0 s sin señal»).
+// frame que no llega hasta que la pantalla vuelve. (En bridgeless ni el
+// `setTimeout` de 0 ms se salva — por eso el pedido tampoco va por `fetch`;
+// ver `app/pedido.js`.) Se veía en el servidor: ráfagas de posiciones y
+// silencios de minutos, y al prender la pantalla, el corte por fin
+// disparaba, la tanda se re-encolaba y llegaba repetida («volvió tras 0 s
+// sin señal»).
 //
 // Lo único que sigue latiendo con la pantalla apagada es la tarea del GPS,
 // que dispara cada 10 s con posiciones nuevas. Entonces EL RELOJ ES ESA
@@ -68,10 +68,10 @@ function crearVigiaDeEnvio({ corteMs = CORTE_MS, ahora = () => Date.now() } = {}
       const vuelo = enVuelo;
       vuelo.cortado = true;
       enVuelo = null;
-      // El abort dispara el rechazo del fetch (por un setTimeout de 0, que
-      // sí corre en fondo) y cancela la llamada nativa, que cierra el socket
-      // muerto: el próximo envío abre una conexión nueva en vez de reusar
-      // la que no contesta.
+      // El abort dispara el rechazo del pedido en el acto (XMLHttpRequest
+      // despacha `abort` sincrónicamente) y cancela la llamada nativa, que
+      // cierra el socket muerto: el próximo envío abre una conexión nueva en
+      // vez de reusar la que no contesta.
       try { vuelo.control?.abort(); } catch {}
       return { accion: 'cortado', vuelo };
     },
@@ -80,4 +80,17 @@ function crearVigiaDeEnvio({ corteMs = CORTE_MS, ahora = () => Date.now() } = {}
   };
 }
 
-module.exports = { crearVigiaDeEnvio, CORTE_MS };
+// La cola de lo que no salió, mezclada POR HORA y recortada por arriba.
+//
+// Las posiciones que vuelven de un envío cortado son las VIEJAS, y llegan a
+// la cola DESPUÉS de las nuevas que la tarea juntó mientras tanto. Un recorte
+// por orden de llegada (`[...cola, ...vueltas].slice(-tope)`) se quedaba con
+// las viejas y tiraba las nuevas — las únicas que dicen dónde está la combi
+// ahora. Pasó 1 h 47 min seguidos. Se mezcla por hora, se tiran las más
+// viejas, y la tanda que salga lleva siempre la última posición.
+function mezclarCola(cola, posiciones, tope) {
+  const todas = [...cola, ...posiciones].sort((a, b) => a.timestamp - b.timestamp);
+  return tope > 0 && todas.length > tope ? todas.slice(todas.length - tope) : todas;
+}
+
+module.exports = { crearVigiaDeEnvio, mezclarCola, CORTE_MS };

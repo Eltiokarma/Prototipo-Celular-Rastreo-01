@@ -128,6 +128,9 @@ gestos.js              Pasar de pantalla deslizando, sin robarle el gesto
                        al SOS. JS puro, probado en pruebas/gestos.js
 cola.js                Las posiciones cuando no hay datos. Probada en
                        pruebas/cola.js
+pedido.js              El pedido HTTP de la tarea de fondo: XMLHttpRequest
+                       con timeout nativo, sin fetch ni timers. JS puro,
+                       probado en pruebas/pedido.js
 envio.js               Qué hacer con un POST que no vuelve: el corte del
                        envío colgado, con la tarea del GPS como reloj.
                        JS puro, probado en pruebas/envio.js
@@ -200,10 +203,11 @@ Corren con el resto: `npm test` desde la raíz.
   el código de React Native para Android (`JavaTimerManager`): al pausarse
   la actividad se quita el callback del Choreographer, y un `setTimeout`
   con duración mayor a cero queda esperando un frame que no llega hasta que
-  la pantalla vuelve. Sólo `setTimeout(fn, 0)` se llama en el acto — por eso
-  el `fetch` SÍ resuelve en fondo (whatwg-fetch resuelve con uno de 0), y
-  por eso **el corte de 15 s del envío, que era un `setTimeout`, nunca
-  disparaba con la pantalla apagada**: un POST que la red dejaba a medias
+  la pantalla vuelve. Y en bridgeless (la arquitectura nueva, la de esta
+  app) **el de 0 ms tampoco**: `TimerManager.cpp` manda todo a
+  `JavaTimerManager.createTimer`, que espera el próximo frame. Por eso **el
+  corte de 15 s del envío, que era un `setTimeout`, nunca disparaba con la
+  pantalla apagada**: un POST que la red dejaba a medias
   se quedaba colgado, y como sólo hay un envío en vuelo, todo lo demás se
   apilaba detrás. En el servidor se veía como ráfagas de posiciones y
   silencios de minutos —«sin señal» a los dos minutos de bloquear— con la
@@ -218,6 +222,25 @@ Corren con el resto: `npm test` desde la raíz.
   puede colgar de un timer**; hay que colgarlo del disparo del GPS o de la
   respuesta de un POST. La pantalla lo muestra como «enviando hace N s»:
   si ese número crece, es un envío colgado. Suite `envio`.
+- **Y el pedido no es `fetch`: es `XMLHttpRequest` con timeout nativo.**
+  El tercer intento del turno lo dejó clarísimo: cada `POST /gps` llegaba al
+  servidor en un segundo, el servidor contestaba, y la app **no se enteraba
+  de ninguna respuesta** — reencolaba todo y lo mandaba de nuevo a los 20 s,
+  «150 posiciones, 150 ya vistas», durante 1 h 47 min, hasta que se prendió
+  la pantalla y todas las promesas se resolvieron juntas. `fetch` en React
+  Native es whatwg-fetch, que resuelve y rechaza con `setTimeout(fn, 0)`, y
+  ese timer no corre con la actividad pausada. `XMLHttpRequest` despacha
+  `load`/`error`/`timeout`/`abort` directo desde el evento nativo, sin
+  timers, y `xhr.timeout` es el `callTimeout` de OkHttp: el pedido que no
+  vuelve se corta solo. Vive en `app/pedido.js`, con la clase inyectada para
+  probarlo en Node. Regla: **con la pantalla apagada, ni `fetch` ni ningún
+  timer, de ninguna duración**. Suite `pedido`, que además falla si
+  `gps/servicio.js` vuelve a llamar `fetch`.
+- **La cola se mezcla POR HORA, no por orden de llegada.** Las posiciones
+  que vuelven de un envío cortado son las viejas y entran a la cola después
+  de las nuevas; un recorte por orden de llegada tiraba las nuevas. Pasó en
+  el mismo turno: «la más nueva de hace 4302 s». `mezclarCola` en
+  `app/envio.js`, con suite.
 - **La cola de posiciones es UNA tanda (150), y el servidor no procesa dos
   veces lo que ya sabía.** Segundo intento del turno: con la batería «sin
   restricción» según el menú, el servidor oía al teléfono cada pocos
