@@ -85,7 +85,12 @@ npx eas build --profile apk --platform android
 Y no se arregla desde el código:
 
 - **Permitir la ubicación "todo el tiempo"**, no "solo mientras se usa".
-- **Sacar la app de la optimización de batería.**
+- **Sacar la app de la optimización de batería.** La app se lo pregunta a
+  Android y, si sigue activa, lo dice en rojo en la pantalla de la ruta con
+  un atajo a los ajustes: «BATERÍA: optimización ACTIVA». Mientras ese cartel
+  esté, el GPS se va a cortar con la pantalla apagada, diga lo que diga el
+  menú del fabricante. Tiene que ser «Sin restricciones», no «Optimizada» ni
+  sólo «permitir actividad en segundo plano».
 - En **Xiaomi, Huawei y Oppo**: habilitar *inicio automático* y fijar la app
   en recientes. Esos fabricantes matan servicios en segundo plano aunque
   tengan foreground service, y es justo el parque de teléfonos que se va a
@@ -213,6 +218,22 @@ Corren con el resto: `npm test` desde la raíz.
   puede colgar de un timer**; hay que colgarlo del disparo del GPS o de la
   respuesta de un POST. La pantalla lo muestra como «enviando hace N s»:
   si ese número crece, es un envío colgado. Suite `envio`.
+- **La cola de posiciones es UNA tanda (150), y el servidor no procesa dos
+  veces lo que ya sabía.** Segundo intento del turno: con la batería «sin
+  restricción» según el menú, el servidor oía al teléfono cada pocos
+  segundos y aun así lo tenía en «sin señal» — todo lo que le llegaba era
+  viejo. Con la cola más grande que un envío, la tanda que salía era la de
+  las 150 más viejas y las nuevas esperaban al envío siguiente, que en una
+  red que va en ventanas es dentro de minutos. Ahora lo que no entra en un
+  envío se tira (es historia que ya no le sirve a nadie en vivo) y cada tanda
+  lleva la posición de ahora. Del otro lado, `POST /gps` descarta como «ya
+  vista» toda posición más vieja o igual que la que tiene: un envío cortado
+  y repetido no vuelve a medirse ni teletransporta la combi hacia atrás, y
+  sólo cuenta como «se lo oye». Cuando un envío trae repetidos o su posición
+  más nueva ya es vieja, el servidor lo deja en el log con las dos cuentas,
+  y Despacho ve «EL TELÉFONO SIGUE MANDANDO · OÍDO HACE N S» debajo de «SIN
+  SEÑAL»: un cerro y una app mandando atraso ya no se ven igual. Suite
+  `gpshttp`.
 
 ## Las versiones de los módulos nativos NO se adivinan
 

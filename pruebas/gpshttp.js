@@ -92,7 +92,10 @@ const mandar = (token, posiciones) => fetch(API + '/gps', {
   // Esto es lo que la app hace con la pantalla apagada: no hay socket, no hay
   // React vivo, solo la tarea de fondo mandando un POST.
   const q = anillo(0.10);
-  let r = await mandar(s12.token, [{ lat: q.lat, lng: q.lng, speed: 22, timestamp: ahora }]);
+  // Con hora de hace un rato, para que el atraso del túnel de abajo sea más
+  // nuevo que esto: una posición más vieja que la que ya se tiene no se
+  // procesa (ver "LO QUE YA SE SABÍA").
+  let r = await mandar(s12.token, [{ lat: q.lat, lng: q.lng, speed: 22, timestamp: ahora - 400_000 }]);
   ok('acepta la posición sin ninguna conexión abierta', r.status === 200 && r.body.aceptadas === 1, r.body);
 
   // Se mira desde otro cliente, para comprobar que entró de verdad al estado.
@@ -124,6 +127,32 @@ const mandar = (token, posiciones) => fetch(API + '/gps', {
   ok('y la hora guardada es la de la posición, no la de llegada',
      Math.abs(vista().timestamp - (ahora - 10_000)) < 2000,
      { guardada: vista().timestamp, esperada: ahora - 10_000 });
+
+  console.log('\nLO QUE YA SE SABÍA NO SE PROCESA DOS VECES');
+  // Con la pantalla apagada la app corta un envío que no vuelve y lo manda
+  // de nuevo — y ese envío pudo haber llegado igual: se perdió la respuesta,
+  // no el pedido. El lote repetido no puede volver a pasar por la medición
+  // ni mover la unidad; lo único que dice es que al teléfono se lo oye.
+  const antesDelRepetido = { ...vista() };
+  await sleep(300);
+  r = await mandar(s12.token, atraso);
+  ok('el mismo lote otra vez: nada aceptado, todo ya visto',
+     r.status === 200 && r.body.aceptadas === 0 && r.body.yaVistas === 30, r.body);
+  await sleep(700);
+  ok('la unidad no se movió ni cambió de hora',
+     vista().timestamp === antesDelRepetido.timestamp && vista().lat === antesDelRepetido.lat,
+     { antes: antesDelRepetido.timestamp, ahora: vista()?.timestamp });
+  ok('pero al teléfono se lo oyó: la hora del enlace avanzó',
+     vista().oidoEn > antesDelRepetido.oidoEn, { antes: antesDelRepetido.oidoEn, ahora: vista()?.oidoEn });
+  // Y una tanda VIEJA que llega después de una fresca —un envío colgado que
+  // se destrabó tarde— no la teletransporta hacia atrás.
+  const vieja = anillo(0.05);
+  r = await mandar(s12.token, [{ lat: vieja.lat, lng: vieja.lng, speed: 20, timestamp: ahora - 200_000 }]);
+  await sleep(600);
+  ok('una posición más vieja que la conocida se descarta como ya vista',
+     r.body.aceptadas === 0 && r.body.yaVistas === 1, r.body);
+  ok('y la unidad sigue donde estaba',
+     Math.abs(vista().lat - anillo(0.11 + 29 * 0.001).lat) < 1e-6, vista()?.lat);
 
   console.log('\nLA BRECHA VUELVE EN LA RESPUESTA');
   // Con la pantalla apagada este POST es el único canal del teléfono: la

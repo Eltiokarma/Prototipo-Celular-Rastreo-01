@@ -19,11 +19,12 @@ import React from 'react';
 import {
   View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
   FlatList, PanResponder, Animated, Vibration,
-  Image, Modal, Dimensions, Keyboard, BackHandler, ScrollView,
+  Image, Modal, Dimensions, Keyboard, BackHandler, ScrollView, Linking,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
+import * as Battery from 'expo-battery';
 
 import { crearCliente } from './protocolo/cliente';
 import { limpiarNotificacion } from './notificacion.js';
@@ -325,6 +326,27 @@ function Aplicacion() {
     return () => { vivo = false; clearInterval(t); };
   }, [sesion, presencia]);
 
+  // ── ¿Android le va a cortar la red con la pantalla apagada? ─
+  //
+  // Es la condición número uno de todas, y la única que no se arregla desde
+  // el código: con la app bajo "optimización de batería", Doze le corta la
+  // red al servicio de fondo y las posiciones salen en ventanas de minutos
+  // —o no salen—. Se le pidió a cada chofer que la saque, y no alcanza:
+  // en un teléfono con la batería "sin restricción" según su dueño, el GPS
+  // se calló a los 4 minutos de bloquear. Así que se le PREGUNTA a Android,
+  // que es el único que lo sabe seguro, y si está activa se dice en rojo con
+  // el atajo a la pantalla donde se apaga. Se vuelve a preguntar cada vez
+  // que la app vuelve al frente: es justo cuando el chofer vuelve de ajustes.
+  React.useEffect(() => {
+    if (!sesion) return;
+    const preguntar = () => Battery.isBatteryOptimizationEnabledAsync()
+      .then(v => { gps.diagnostico.bateriaOptimizada = !!v; })
+      .catch(() => {});
+    preguntar();
+    const sub = AppState.addEventListener('change', (e) => { if (e === 'active') preguntar(); });
+    return () => sub.remove();
+  }, [sesion]);
+
   // ── Cadencia según la pantalla ──────────────────────────────
   // Con la pantalla apagada el chofer no mira el HUD: la posición ya solo
   // sirve para la brecha de los demás, y 10 s alcanzan. Baja mucho el gasto.
@@ -590,6 +612,16 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// La pantalla del sistema con la lista de apps y su optimización de batería.
+// No se pide el permiso REQUEST_IGNORE_BATTERY_OPTIMIZATIONS (Google Play lo
+// restringe): se lleva al chofer a la lista y él elige esta app. Si el
+// fabricante no tiene esa pantalla, la de la app misma, donde Batería está a
+// un toque.
+function abrirOptimizacionDeBateria() {
+  Linking.sendIntent('android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS')
+    .catch(() => Linking.openSettings().catch(() => {}));
+}
+
 function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
                 tipificarSos, onTipoSos, onPerfil }) {
@@ -715,6 +747,17 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
       <Text style={[s.diagnostico, diag.servicio !== 'corriendo' && { color: C.rojo }]}>
         Servicio de GPS: {diag.servicio}
       </Text>
+      {/* Lo que Android va a hacer con la red apenas se apague la pantalla.
+          Va arriba de los contadores porque los explica: con esto activo,
+          "enviando hace 300s" no es un bug de la app. Tocar lleva a la
+          pantalla del sistema donde se apaga. */}
+      {diag.bateriaOptimizada === true && (
+        <Pressable onPress={abrirOptimizacionDeBateria}>
+          <Text style={[s.diagnostico, { color: C.rojo }]}>
+            BATERÍA: optimización ACTIVA — Android corta la red con la pantalla apagada. Tocá acá y poné esta app en «Sin restricciones»
+          </Text>
+        </Pressable>
+      )}
       <Text style={s.diagnostico}>
         GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
         {diag.enEspera > 0 ? ` · ${diag.enEspera} esperando` : ''}

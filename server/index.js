@@ -2941,9 +2941,38 @@ app.post('/gps', (req, res) => {
   // reporta por HTTP (app en segundo plano toda la mañana) igual trabajó.
   abrirTurno(user.unitId, vehicleId, user.routeId || prof.routeId || DEFAULT_ROUTE, user.role);
 
-  let routeId = null;
-  for (const p of buenas) {
+  // Lo que YA se sabía no se procesa dos veces. Con la pantalla apagada la
+  // app corta un envío que no vuelve y lo manda de nuevo — y ese envío puede
+  // haber llegado igual (la respuesta fue lo que se perdió, no el pedido).
+  // Sin este filtro, el lote repetido volvía a pasar por la medición entera,
+  // la unidad "volvía tras 0 s sin señal", y una tanda vieja que llegaba
+  // después de una fresca la teletransportaba hacia atrás. Una posición más
+  // vieja o igual que la que ya se tiene no dice nada nuevo de dónde está la
+  // combi; lo único que dice es que al teléfono se lo oye, y eso sí se anota.
+  const viva = units.get(vehicleId);
+  const conocidaHasta = viva ? viva.timestamp : -Infinity;
+  const nuevas = buenas.filter(p => p.cuando > conocidaHasta);
+  const yaVistas = buenas.length - nuevas.length;
+
+  let routeId = viva ? viva.routeId : null;
+  for (const p of nuevas) {
     routeId = anotarPosicion(vehicleId, user.unitId, prof, p, p.cuando);
+  }
+  if (!nuevas.length && viva) {
+    // Nada nuevo, pero el teléfono habló: que el olvido no lo borre y que el
+    // panel vea que sigue mandando.
+    viva.oidoEn = Date.now();
+    marcarVivo(user.unitId);
+    scheduleStateBroadcast(routeId);
+  }
+  // Se deja rastro sólo cuando el envío no dice dónde está la combi AHORA:
+  // repetido, o con la posición más nueva ya vieja. En un turno sano esta
+  // línea no aparece; cuando aparece, dice si el teléfono está vaciando
+  // atraso, resendiendo lo mismo, o mandando en ventanas.
+  const edadMasNueva = ahora - buenas[buenas.length - 1].cuando;
+  if (yaVistas || edadMasNueva > SIN_SENAL_MS) {
+    console.log(`POST /gps ${vehicleId}: ${buenas.length} posición(es), ${yaVistas} ya vista(s), ` +
+      `la más nueva de hace ${Math.round(edadMasNueva / 1000)} s`);
   }
 
   // El pedido de grabación de Despacho (4.5) viaja por esta misma respuesta
@@ -2977,7 +3006,7 @@ app.post('/gps', (req, res) => {
   const estado = routeId ? ultimoEstado.get(routeId) : null;
   const g = estado?.gaps?.[vehicleId] || null;
   res.json({
-    ok: true, aceptadas: buenas.length, descartadas: crudas.length - buenas.length, routeId,
+    ok: true, aceptadas: nuevas.length, yaVistas, descartadas: crudas.length - buenas.length, routeId,
     ...(g ? { brecha: { ...g, objetivoMin: estado.targetGapMin ?? null } } : {}),
     ...(pedirGrabar ? { grabar: true } : {}),
   });
@@ -6422,7 +6451,11 @@ setInterval(() => {
     // reemitiría el estado cada diez segundos durante los tres minutos.
     if (muda > SIN_SENAL_MS && !unit.sinSenal) {
       ponerUnidad(unitId, { ...unit, sinSenal: true, sinSenalDesde: unit.timestamp });
-      console.log(`Unidad sin señal: ${unitId}`);
+      // Las dos edades van en el renglón: "posición vieja y teléfono mudo" es
+      // un corte; "posición vieja y teléfono oído hace nada" es la app
+      // mandando atraso o repetidos, y se diagnostica distinto.
+      console.log(`Unidad sin señal: ${unitId} (posición de hace ${Math.round(muda / 1000)} s; ` +
+        `al teléfono se lo oyó hace ${Math.round(sinOir / 1000)} s)`);
       rutasAfectadas.add(unit.routeId);
     }
   }
