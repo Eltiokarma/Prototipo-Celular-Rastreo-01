@@ -25,6 +25,7 @@ import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
 import { crearVigia } from '../ausencia.js';
+import { crearVigiaDeEnvio } from '../envio.js';
 import { notificarBrecha, notificarGrabacionPedida, limpiarNotificacion } from '../notificacion.js';
 import { crearGrabador } from '../grabador.js';
 
@@ -64,6 +65,9 @@ let vigia = null;
 export const diagnostico = {
   enviadas: 0, fallidas: 0, ultimoEnvio: null, ultimoError: null,
   enEspera: 0, motivos: {},
+  // Desde cuándo hay un envío en vuelo, o null. Es lo que distingue "no
+  // hay nada que mandar" de "hay uno colgado y todo se apila detrás".
+  enVueloDesde: null,
   // Si el servicio de ubicación está CORRIENDO de verdad. Sin esto, "0
   // enviadas y 0 fallidas" es indistinguible de "todavía no llegó ninguna
   // posición", y esa ambigüedad ya costó una sesión entera de diagnóstico.
@@ -271,17 +275,34 @@ export async function descartarGrabacion() {
 // Cuántas están esperando, para verlo en pantalla
 export function enEspera() { return pendientes.length; }
 
-// `fetch` en React Native NO tiene timeout: un socket que Doze dejó a medias
-// puede quedar esperando PARA SIEMPRE. Y ese silencio era invisible de las
-// dos puntas: el envío colgado no cuenta como fallo —no hay error, no hay
-// nada—, sus posiciones no vuelven a la cola (solo vuelven en el catch), y
-// todo lo que llega después se apila detrás. Medido en un teléfono real:
+// `fetch` en React Native NO tiene timeout: un socket que la red dejó a
+// medias puede quedar esperando PARA SIEMPRE. Y ese silencio era invisible
+// de las dos puntas: el envío colgado no cuenta como fallo —no hay error, no
+// hay nada—, sus posiciones no vuelven a la cola (solo vuelven en el catch),
+// y todo lo que llega después se apila detrás. Medido en un teléfono real:
 // "enviadas 300 · fallidas 0 · 523 esperando · último hace 2123 s" — 35
-// minutos sin un solo envío y ni un error a la vista. El corte convierte el
-// cuelgue en un error común y corriente: se re-encola y se cuenta.
+// minutos sin un solo envío y ni un error a la vista.
+//
+// El corte tiene DOS relojes, y el segundo es el que importa:
+//
+//   1. Un `setTimeout` de 15 s. Sirve con la pantalla encendida, y NADA
+//      MÁS: con la pantalla apagada React Native no corre los timers de
+//      JavaScript (se quita el callback del Choreographer al pausarse la
+//      actividad — está en `JavaTimerManager`), así que este corte se
+//      quedaba esperando junto con el fetch que tenía que cortar. Fue la
+//      primera versión, y en el servidor se veía como ráfagas de posiciones
+//      y silencios de minutos, aunque el teléfono tuviera la batería sin
+//      restricción.
+//   2. La propia tarea del GPS, que sí dispara con la pantalla apagada. En
+//      cada disparo el vigía (`app/envio.js`) mira hace cuánto está en
+//      vuelo el envío anterior y, si pasó el corte, lo aborta desde acá:
+//      `abort()` es sincrónico y no necesita ningún timer. Sus posiciones
+//      vuelven a la cola y salen con la tanda nueva.
+//
+// El corte convierte el cuelgue en un error común y corriente: se re-encola
+// y se cuenta, con un motivo distinto según qué reloj lo cortó.
 const FETCH_CORTE_MS = 15_000;
-function fetchConCorte(url, opciones) {
-  const control = new AbortController();
+function fetchConCorte(url, opciones, control = new AbortController()) {
   const corte = setTimeout(() => control.abort(), FETCH_CORTE_MS);
   return fetch(url, { ...opciones, signal: control.signal })
     .finally(() => clearTimeout(corte));
@@ -294,13 +315,21 @@ function fetchConCorte(url, opciones) {
 // dos veces o perdidas, y colas por encima de su propio tope (los 523 sobre
 // un tope de 500 del mismo teléfono). El que llega mientras otro está
 // enviando deja lo suyo en la cola y se va; el próximo envío se lo lleva.
-let subiendo = false;
+//
+// Salvo que el anterior esté COLGADO: entonces se lo corta y se manda igual.
+// Sin esto, un solo fetch que no vuelve tapaba el resto del turno.
+const vigiaEnvio = crearVigiaDeEnvio({ corteMs: FETCH_CORTE_MS });
 
 async function subir(nuevas) {
-  if (subiendo) { guardar(nuevas); return; }
-  subiendo = true;
-  try { await subirAhora(nuevas); }
-  finally { subiendo = false; }
+  const r = vigiaEnvio.revisar();
+  if (r.accion === 'esperar') { guardar(nuevas); return; }
+  if (r.accion === 'cortado') {
+    // Las posiciones del envío colgado vuelven a la cola YA, para salir en
+    // esta misma tanda. El `catch` del envío cortado no las vuelve a tocar.
+    guardar(r.vuelo.posiciones);
+    anotarFallo('envío colgado (cortado por la tarea)', r.vuelo.posiciones);
+  }
+  await subirAhora(nuevas);
 }
 
 async function subirAhora(nuevas) {
@@ -313,6 +342,12 @@ async function subirAhora(nuevas) {
   pendientes = todas.slice(MAX_POR_ENVIO);
   diagnostico.enEspera = pendientes.length;
   if (!posiciones.length) return;
+  // El vuelo se anota ANTES de tocar la red, y con el mismo `control` para
+  // todo lo que se espere adentro: es lo que el próximo disparo del GPS va
+  // a cortar si esto no vuelve.
+  const control = new AbortController();
+  const vuelo = vigiaEnvio.empezar(posiciones, control);
+  diagnostico.enVueloDesde = vuelo.desde;
   try {
     const [crudo, servidor, presencia, flagGrabando] = await Promise.all([
       SecureStore.getItemAsync(LLAVE_SESION),
@@ -357,12 +392,15 @@ async function subirAhora(nuevas) {
         // pantalla nunca ve "servicio caído" sin saber por qué (y no lo
         // rearranca).
         diagnostico.presenciaAuto = 'fuera';
+        // Si este POST queda colgado y la tarea lo corta, no hay nada que
+        // devolver a la cola: las posiciones de la casa no se mandan.
+        vuelo.posiciones = [];
         try {
           await fetchConCorte(servidor + '/presencia', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
             body: JSON.stringify({ estado: 'fuera' }),
-          });
+          }, control);
         } catch {}
         diagnostico.servicio = 'detenido: ausente mucho tiempo';
         try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
@@ -387,7 +425,7 @@ async function subirAhora(nuevas) {
         // que pidió ya terminó. Un booleano explícito en cada envío.
         grabando: flagGrabando === '1',
       }),
-    });
+    }, control);
     if (r.ok) {
       diagnostico.enviadas += posiciones.length;
       diagnostico.ultimoEnvio = Date.now();
@@ -412,12 +450,18 @@ async function subirAhora(nuevas) {
       anotarFallo(`HTTP ${r.status}${cuerpo.error ? ' ' + cuerpo.error : ''}`, posiciones);
     }
   } catch (e) {
+    // Si lo cortó la tarea, `subir` ya devolvió las posiciones a la cola y
+    // las contó: volver a hacerlo acá las mandaría dos veces.
+    if (vuelo.cortado) return;
     // Sin datos: en segundo plano es lo normal, Doze le corta la red a la app.
     // NO se pierden — esperan al próximo envío que salga. El envío colgado
     // llega acá por el corte de 15 s, con su propio nombre: "sin red" dice
     // que no hay datos, esto dice que los hay pero el socket quedó muerto.
     guardar(posiciones);
     anotarFallo(e?.name === 'AbortError' ? 'envío colgado (corte a los 15 s)' : 'sin red', posiciones);
+  } finally {
+    vigiaEnvio.terminar(vuelo);
+    if (!vigiaEnvio.enVuelo) diagnostico.enVueloDesde = null;
   }
 }
 
