@@ -41,6 +41,7 @@ const ESPERADO = {
   'expo':              '~54.0.36',
   'expo-asset':        '~12.0.13',
   'expo-audio':        '~1.1.1',
+  'expo-battery':      '~10.0.8',
   'expo-dev-client':   '~6.0.21',
   'expo-file-system':  '~19.0.23',
   'expo-image-manipulator': '~14.0.8',

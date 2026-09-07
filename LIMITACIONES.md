@@ -51,7 +51,9 @@ limitación se resuelva o aparezca una nueva.
      medido, el 43 % de los envíos fallaba con "sin red" y las posiciones se
      perdían. Esto **no se arregla desde el código** — se configura en cada
      teléfono, y en Xiaomi/Huawei/Oppo hace falta además el inicio
-     automático. Ver `app/README.md`.
+     automático. Ver `app/README.md`. Como el menú del fabricante no es de
+     fiar, la app se lo pregunta a Android y lo dice en rojo si sigue
+     activa, con el atajo a los ajustes.
   4. **Que ningún corte dependa de un timer de JavaScript.** Con la
      pantalla apagada React Native (Android) no corre los `setTimeout` con
      duración mayor a cero, así que el corte de 15 s del envío nunca

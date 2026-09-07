@@ -3683,6 +3683,20 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                       color: HUD.amber, marginTop: 8,
                     }}>SIN SEÑAL DESDE {nowTime(u.sinSenalDesde || u.timestamp)}</div>
                 )}
+                {/* Y si al teléfono se lo sigue oyendo. Son dos cosas distintas
+                    que se veían igual: una combi en un cerro (el teléfono no
+                    llega) y una app mandando posiciones viejas (llega, pero
+                    lo que trae no dice dónde está ahora). La segunda es un
+                    problema del celular, no de la calle, y saberlo desde acá
+                    ahorra mandar a alguien a buscar una combi que está bien. */}
+                {u.sinSenal && u.oidoEn && (
+                  <div style={{
+                    fontFamily: mono, fontSize: 10, letterSpacing: .6,
+                    color: HUD.amber, marginTop: 4,
+                  }}>{Date.now() - u.oidoEn <= 60_000
+                        ? `EL TELÉFONO SIGUE MANDANDO · OÍDO HACE ${Math.round((Date.now() - u.oidoEn) / 1000)} S`
+                        : `SIN NOTICIAS DEL TELÉFONO HACE ${Math.round((Date.now() - u.oidoEn) / 1000)} S`}</div>
+                )}
                 {/* La presencia declarada desde la app. AUSENTE: comiendo o
                     en un repuesto — fuera de la cadena, a la vista. YENDO:
                     marcó "en ruta" pero el GPS todavía no lo vio sobre el

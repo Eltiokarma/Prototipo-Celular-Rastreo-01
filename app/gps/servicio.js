@@ -68,6 +68,10 @@ export const diagnostico = {
   // Desde cuándo hay un envío en vuelo, o null. Es lo que distingue "no
   // hay nada que mandar" de "hay uno colgado y todo se apila detrás".
   enVueloDesde: null,
+  // Si Android tiene a la app bajo "optimización de batería" (true), o sea
+  // con Doze cortándole la red con la pantalla apagada. La pantalla lo
+  // pregunta al sistema y lo deja acá para mostrarlo con el resto.
+  bateriaOptimizada: null,
   // Si el servicio de ubicación está CORRIENDO de verdad. Sin esto, "0
   // enviadas y 0 fallidas" es indistinguible de "todavía no llegó ninguna
   // posición", y esa ambigüedad ya costó una sesión entera de diagnóstico.
@@ -86,7 +90,16 @@ export const diagnostico = {
 // fallo. El GPS las tenía, el servidor las habría aceptado, y se tiraban en
 // el medio. Ahora esperan y se van con el próximo envío que sí salga, con su
 // hora original — el servidor acepta el atraso desde que existe `POST /gps`.
-const TOPE_PENDIENTES = 500;
+//
+// El tope es UNA tanda, a propósito. Con la cola más grande que un envío, la
+// tanda que salía era la de las 150 más viejas, y las nuevas —las únicas que
+// dicen dónde está la combi AHORA— quedaban esperando el envío siguiente,
+// que en una red que va en ventanas puede ser dentro de varios minutos. Se
+// vio en producción: el servidor oía al teléfono cada pocos segundos y aun
+// así lo tenía en «sin señal», porque todo lo que le llegaba era viejo.
+// Lo que no entra en un envío es historia que ya no le sirve a nadie en
+// vivo: se tiran las MÁS VIEJAS y la tanda lleva siempre la última posición.
+const TOPE_PENDIENTES = 150;
 // Si la tarea dispara tantas veces seguidas sin encontrar sesión en el disco,
 // es que NO HAY sesión — el chofer salió— y un servicio de ubicación corriendo
 // para nadie es exactamente lo que no puede existir: quema batería, llena la
@@ -99,6 +112,8 @@ let sinSesionSeguidas = 0;
 // cortar en tandas, una cola de más de 200 daba 413 —y como un 4xx no se
 // reintenta, se perdía entera— y además la cola no podía vaciarse NUNCA más:
 // cada intento mandaba de nuevo demasiadas. Se deja margen sobre el tope.
+// Es el mismo número que TOPE_PENDIENTES, y tiene que seguir siéndolo: así
+// la cola entera cabe en un envío y ninguna tanda sale sin la posición nueva.
 const MAX_POR_ENVIO = 150;
 let pendientes = [];
 
@@ -467,7 +482,8 @@ async function subirAhora(nuevas) {
 
 // Se tiran las MÁS VIEJAS si el corte fue largo: si estuvo una hora sin red,
 // las de hace una hora ya no le sirven a nadie y solo hacen más pesada la
-// descarga cuando vuelva.
+// descarga cuando vuelva. Y como el tope es una tanda, lo que queda sale
+// entero en el próximo envío, con la posición de ahora adentro.
 function guardar(posiciones) {
   pendientes = [...pendientes, ...posiciones].slice(-TOPE_PENDIENTES);
   diagnostico.enEspera = pendientes.length;
