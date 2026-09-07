@@ -8,7 +8,7 @@
 // propia tarea del GPS, que sí dispara con la pantalla apagada.
 const RAIZ = require('path').join(__dirname, '..');
 const fs = require('fs');
-const { crearVigiaDeEnvio, CORTE_MS } = require(RAIZ + '/app/envio.js');
+const { crearVigiaDeEnvio, mezclarCola, CORTE_MS } = require(RAIZ + '/app/envio.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -117,6 +117,23 @@ console.log('\nUN CONTROL QUE REVIENTA AL ABORTAR NO TUMBA LA TAREA');
   ok('y sin control también', v2.revisar().accion === 'cortado');
 }
 
+console.log('\nLA COLA SE MEZCLA POR HORA Y TIRA LAS VIEJAS, NUNCA LAS NUEVAS');
+{
+  // La secuencia real: se corta un envío con las posiciones 0..149, y
+  // mientras tanto la tarea juntó las 150..155. Las cortadas VUELVEN
+  // DESPUÉS. Con un recorte por orden de llegada, se tiraban las nuevas.
+  const cortadas = tanda(150);
+  const nuevas = Array.from({ length: 6 }, (_, i) => pos(150 + i));
+  const cola = mezclarCola(nuevas, cortadas, 150);
+  ok('la cola no pasa del tope', cola.length === 150, cola.length);
+  ok('la última posición es la MÁS NUEVA, no la última en llegar',
+     cola[cola.length - 1].timestamp === 1155, cola[cola.length - 1].timestamp);
+  ok('y lo que se tiró son las seis más viejas', cola[0].timestamp === 1006, cola[0].timestamp);
+  ok('queda ordenada por hora', cola.every((p, i) => i === 0 || p.timestamp >= cola[i - 1].timestamp));
+  ok('sin tope no recorta', mezclarCola(tanda(3), tanda(2), 0).length === 5);
+  ok('con lugar de sobra, entra todo', mezclarCola(tanda(3), [pos(10)], 150).length === 4);
+}
+
 console.log('\nEL RELOJ ES LA TAREA DEL GPS, NO UN TIMER');
 {
   // Es la razón de todo el módulo: un setTimeout acá volvería a no correr
@@ -135,8 +152,9 @@ console.log('\nEL RELOJ ES LA TAREA DEL GPS, NO UN TIMER');
      /accion === 'cortado'/.test(cuerpoSubir) && /guardar\(r\.vuelo\.posiciones\)/.test(cuerpoSubir));
   ok('y el envío cortado no las vuelve a encolar desde su catch',
      /if \(vuelo\.cortado\) return;/.test(servicio));
-  ok('el fetch del envío lleva el control del vuelo, no uno propio',
+  ok('el pedido del envío lleva el control del vuelo, no uno propio',
      /\}, control\);/.test(servicio) && /vigiaEnvio\.empezar\(posiciones, control\)/.test(servicio));
+  ok('y la cola se guarda mezclada por hora', /mezclarCola\(pendientes, posiciones, TOPE_PENDIENTES\)/.test(servicio));
   ok('y ya no hay un booleano `subiendo` que un cuelgue deje trabado para siempre',
      !/let subiendo/.test(servicio));
 }

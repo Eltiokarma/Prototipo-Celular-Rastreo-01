@@ -61,7 +61,12 @@ limitación se resuelva o aparezca una nueva.
      tapaba todos los siguientes — con la batería sin restricción y el
      servicio corriendo, la unidad caía en «sin señal» a los dos minutos
      de bloquear. Ahora el reloj del corte es la propia tarea del GPS
-     (`app/envio.js`), que sí dispara con la pantalla apagada.
+     (`app/envio.js`), que sí dispara con la pantalla apagada. **Y tampoco
+     `fetch`**: en bridgeless ni el `setTimeout` de 0 ms con el que
+     whatwg-fetch resuelve corre con la actividad pausada, así que la app
+     mandaba y nunca se enteraba de la respuesta (1 h 47 min de envíos
+     repetidos). El pedido va por `XMLHttpRequest` con timeout nativo
+     (`app/pedido.js`).
 
   Con las tres primeras, los envíos fallidos bajaron de casi la mitad a
   casi cero; la cuarta salió de intentar el turno entero.

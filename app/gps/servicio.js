@@ -25,7 +25,8 @@ import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
 import { crearVigia } from '../ausencia.js';
-import { crearVigiaDeEnvio } from '../envio.js';
+import { crearVigiaDeEnvio, mezclarCola } from '../envio.js';
+import { crearPedidor } from '../pedido.js';
 import { notificarBrecha, notificarGrabacionPedida, limpiarNotificacion } from '../notificacion.js';
 import { crearGrabador } from '../grabador.js';
 
@@ -290,37 +291,37 @@ export async function descartarGrabacion() {
 // Cuántas están esperando, para verlo en pantalla
 export function enEspera() { return pendientes.length; }
 
-// `fetch` en React Native NO tiene timeout: un socket que la red dejó a
-// medias puede quedar esperando PARA SIEMPRE. Y ese silencio era invisible
-// de las dos puntas: el envío colgado no cuenta como fallo —no hay error, no
-// hay nada—, sus posiciones no vuelven a la cola (solo vuelven en el catch),
-// y todo lo que llega después se apila detrás. Medido en un teléfono real:
-// "enviadas 300 · fallidas 0 · 523 esperando · último hace 2123 s" — 35
-// minutos sin un solo envío y ni un error a la vista.
+// EL PEDIDO NO ES `fetch`, y el timeout es NATIVO. Es la lección más cara de
+// la pantalla apagada, y llevó tres intentos:
 //
-// El corte tiene DOS relojes, y el segundo es el que importa:
+//   1. `fetch` en React Native no tiene timeout. Un socket que la red dejó a
+//      medias esperaba PARA SIEMPRE, y como sólo hay un envío en vuelo, todo
+//      lo demás se apilaba detrás. Medido: "enviadas 300 · fallidas 0 · 523
+//      esperando · último hace 2123 s".
+//   2. Se le puso un `setTimeout` de 15 s que abortaba. No disparaba: con la
+//      actividad pausada React Native no corre los timers de JavaScript.
+//      Entonces el corte pasó a hacerlo la propia tarea del GPS (el vigía de
+//      `app/envio.js`), que sí dispara con la pantalla apagada.
+//   3. Y aun así la app no se enteraba de NINGUNA respuesta: whatwg-fetch
+//      resuelve y rechaza con `setTimeout(fn, 0)`, y en bridgeless ese
+//      timer de 0 ms también espera un frame que no llega. Medido 1 h 47 min
+//      seguidos: cada POST llegaba al servidor en un segundo, el servidor
+//      contestaba, y la app reencolaba todo y lo mandaba de nuevo a los 20 s
+//      («150 posiciones, 150 ya vistas»). Al prender la pantalla, todas las
+//      promesas se resolvieron juntas.
 //
-//   1. Un `setTimeout` de 15 s. Sirve con la pantalla encendida, y NADA
-//      MÁS: con la pantalla apagada React Native no corre los timers de
-//      JavaScript (se quita el callback del Choreographer al pausarse la
-//      actividad — está en `JavaTimerManager`), así que este corte se
-//      quedaba esperando junto con el fetch que tenía que cortar. Fue la
-//      primera versión, y en el servidor se veía como ráfagas de posiciones
-//      y silencios de minutos, aunque el teléfono tuviera la batería sin
-//      restricción.
-//   2. La propia tarea del GPS, que sí dispara con la pantalla apagada. En
-//      cada disparo el vigía (`app/envio.js`) mira hace cuánto está en
-//      vuelo el envío anterior y, si pasó el corte, lo aborta desde acá:
-//      `abort()` es sincrónico y no necesita ningún timer. Sus posiciones
-//      vuelven a la cola y salen con la tanda nueva.
+// Por eso el pedido va por XMLHttpRequest (`app/pedido.js`): sus eventos
+// salen directo del evento nativo, sin timers, y `xhr.timeout` es el
+// `callTimeout` de OkHttp — un pedido que no vuelve se corta solo, aunque
+// ningún timer de JavaScript corra. El vigía del envío queda como segundo
+// corte, desde el disparo del GPS: `abort()` también llega en el acto.
 //
-// El corte convierte el cuelgue en un error común y corriente: se re-encola
-// y se cuenta, con un motivo distinto según qué reloj lo cortó.
+// REGLA: nada de lo que tenga que pasar con la pantalla apagada puede
+// depender de un timer de JavaScript. Ni de 15 s, ni de 0 ms.
 const FETCH_CORTE_MS = 15_000;
-function fetchConCorte(url, opciones, control = new AbortController()) {
-  const corte = setTimeout(() => control.abort(), FETCH_CORTE_MS);
-  return fetch(url, { ...opciones, signal: control.signal })
-    .finally(() => clearTimeout(corte));
+const { pedir } = crearPedidor({ XHR: XMLHttpRequest });
+function pedirConCorte(url, { method, headers, body }, control) {
+  return pedir(url, { method, headers, body, timeoutMs: FETCH_CORTE_MS, control });
 }
 
 // Un solo envío en vuelo. La tarea dispara de nuevo mientras el anterior
@@ -411,7 +412,7 @@ async function subirAhora(nuevas) {
         // devolver a la cola: las posiciones de la casa no se mandan.
         vuelo.posiciones = [];
         try {
-          await fetchConCorte(servidor + '/presencia', {
+          await pedirConCorte(servidor + '/presencia', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
             body: JSON.stringify({ estado: 'fuera' }),
@@ -428,7 +429,7 @@ async function subirAhora(nuevas) {
       vigia = null;
     }
 
-    const r = await fetchConCorte(servidor + '/gps', {
+    const r = await pedirConCorte(servidor + '/gps', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({
@@ -448,7 +449,7 @@ async function subirAhora(nuevas) {
       // La brecha vuelve en la misma respuesta: es lo que mantiene VIVA la
       // notificación con la pantalla apagada — el WebSocket ya murió y este
       // POST es el único canal. Mejor esfuerzo: si falla, el GPS ni se entera.
-      const cuerpo = await r.json().catch(() => null);
+      const cuerpo = r.json();
       if (cuerpo?.brecha) notificarBrecha(cuerpo.brecha).catch(() => {});
       // Despacho pidió una grabación (4.5). Mejor esfuerzo, como todo lo que
       // cuelga de esta respuesta: si falla, el pedido sigue vivo en el
@@ -457,7 +458,7 @@ async function subirAhora(nuevas) {
     } else {
       // El cuerpo del error dice bastante más que el número: 403 del cobrador,
       // 409 del relevo y 400 del reloj mal puesto se ven igual desde afuera.
-      const cuerpo = await r.json().catch(() => ({}));
+      const cuerpo = r.json() || {};
       // Un 4xx que no sea de red es culpa del contenido o del permiso: no se
       // reintenta, porque reintentarlo daría el mismo error para siempre y
       // taparía las posiciones nuevas detrás de un atraso que nunca se vacía.
@@ -470,10 +471,11 @@ async function subirAhora(nuevas) {
     if (vuelo.cortado) return;
     // Sin datos: en segundo plano es lo normal, Doze le corta la red a la app.
     // NO se pierden — esperan al próximo envío que salga. El envío colgado
-    // llega acá por el corte de 15 s, con su propio nombre: "sin red" dice
+    // llega acá por el timeout nativo, con su propio nombre: "sin red" dice
     // que no hay datos, esto dice que los hay pero el socket quedó muerto.
     guardar(posiciones);
-    anotarFallo(e?.name === 'AbortError' ? 'envío colgado (corte a los 15 s)' : 'sin red', posiciones);
+    anotarFallo(e?.name === 'TimeoutError' ? 'envío colgado (corte nativo a los 15 s)'
+              : e?.name === 'AbortError' ? 'envío cortado' : 'sin red', posiciones);
   } finally {
     vigiaEnvio.terminar(vuelo);
     if (!vigiaEnvio.enVuelo) diagnostico.enVueloDesde = null;
@@ -484,8 +486,14 @@ async function subirAhora(nuevas) {
 // las de hace una hora ya no le sirven a nadie y solo hacen más pesada la
 // descarga cuando vuelva. Y como el tope es una tanda, lo que queda sale
 // entero en el próximo envío, con la posición de ahora adentro.
+//
+// Se mezcla POR HORA, no por orden de llegada. Cuando el vigía corta un envío
+// y devuelve sus posiciones, esas son las VIEJAS y entran después de las
+// nuevas que llegaron mientras tanto: con un recorte por orden de llegada se
+// tiraban las nuevas. Pasó: 1 h 47 min mandando las mismas 150 posiciones
+// con «la más nueva de hace 4302 s», y las de ahora tiradas en cada disparo.
 function guardar(posiciones) {
-  pendientes = [...pendientes, ...posiciones].slice(-TOPE_PENDIENTES);
+  pendientes = mezclarCola(pendientes, posiciones, TOPE_PENDIENTES);
   diagnostico.enEspera = pendientes.length;
 }
 
