@@ -42,7 +42,7 @@ DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp presencia foto marca respaldo
 # las que se arman solas (cont.): vendor retencion renovacion cascada mapa-shot compresion sos perfil grabador cobradores metidos puertas
-# las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema contraste mapa teclado nativas
+# las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema contraste mapa teclado nativas envio
 node gerencia.js
 ```
 
@@ -93,6 +93,7 @@ Tres detalles que cuestan una tarde si no están escritos:
 | `hud` | Qué se le muestra al chofer en la app nativa: los tres estados de un lado, cuál es el dígito grande, los colores y el texto de la notificación. Sin servidor — es lógica pura |
 | `chat` | El chat de la app nativa: que un privado no aparezca en el grupo, que Despacho se lea como Despacho, que el hilo no repita al reconectar y que lo propio no cuente como sin leer |
 | `cola` | Las posiciones guardadas cuando no hay datos: orden, tope, y que un corte a la mitad de la descarga no las pierda |
+| `envio` | El vigía del envío (`app/envio.js`): qué pasa con un `POST /gps` que no vuelve. Que un envío reciente haga esperar a la tanda nueva, que uno **colgado se corte desde la propia tarea del GPS** —el único reloj que late con la pantalla apagada: en Android los timers de JavaScript no corren con la actividad pausada, y el `setTimeout` de 15 s se quedaba esperando junto con el fetch—, que sus posiciones vuelvan a la cola una sola vez, que el envío cortado al morir tarde no pise al que arrancó después, y que el módulo no use ningún timer. Lógica pura, con el reloj inyectado |
 | `foto` | Las fotos contra el servidor de verdad: que una de más no pase, que el tope del cliente y el del servidor sean **el mismo número** (el servidor descarta en silencio: si se separan, el chofer ve su foto salir y nunca llega), que una privada no se filtre al grupo, y que una ráfaga de fotos no le borre el audio a las notas de voz |
 | `margenes` | Dónde terminan las barras de Android en cada configuración —botones, gestos, muesca, horizontal, y un Android viejo que reporta 0—. Existe por un bug medido: el botón de CHAT quedaba **debajo** de los botones del sistema |
 | `gestos` | Pasar de pantalla deslizando **sin** robarle el gesto al SOS ni al scroll del chat. Un falso SOS moviliza gente; un scroll que cambia de pantalla hace el chat inusable |

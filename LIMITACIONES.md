@@ -52,8 +52,17 @@ limitación se resuelva o aparezca una nueva.
      perdían. Esto **no se arregla desde el código** — se configura en cada
      teléfono, y en Xiaomi/Huawei/Oppo hace falta además el inicio
      automático. Ver `app/README.md`.
+  4. **Que ningún corte dependa de un timer de JavaScript.** Con la
+     pantalla apagada React Native (Android) no corre los `setTimeout` con
+     duración mayor a cero, así que el corte de 15 s del envío nunca
+     disparaba: un `POST /gps` que la red dejaba a medias quedaba colgado y
+     tapaba todos los siguientes — con la batería sin restricción y el
+     servicio corriendo, la unidad caía en «sin señal» a los dos minutos
+     de bloquear. Ahora el reloj del corte es la propia tarea del GPS
+     (`app/envio.js`), que sí dispara con la pantalla apagada.
 
-  Con las tres, los envíos fallidos bajaron de casi la mitad a casi cero.
+  Con las tres primeras, los envíos fallidos bajaron de casi la mitad a
+  casi cero; la cuarta salió de intentar el turno entero.
   Lo que **todavía no está medido** es un turno entero de 8 h: cuánta
   batería consume y si Android lo mata más tarde.
 - **Notificaciones:** no hay push con la app cerrada. En Android es

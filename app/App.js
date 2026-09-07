@@ -719,6 +719,9 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
         GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
         {diag.enEspera > 0 ? ` · ${diag.enEspera} esperando` : ''}
         {diag.ultimoEnvio ? ` · último hace ${Math.round((Date.now() - diag.ultimoEnvio) / 1000)}s` : ' · todavía ninguna'}
+        {/* Un envío en vuelo que envejece es un envío colgado: es lo que
+            hay que ver cuando "último hace" crece y no hay ningún error. */}
+        {diag.enVueloDesde ? ` · enviando hace ${Math.round((Date.now() - diag.enVueloDesde) / 1000)}s` : ''}
       </Text>
       {/* Los motivos, con su cuenta. Es lo que dice DÓNDE está el problema:
           "sin red" es el teléfono, un HTTP 4xx es el servidor rechazando. */}

@@ -123,6 +123,9 @@ gestos.js              Pasar de pantalla deslizando, sin robarle el gesto
                        al SOS. JS puro, probado en pruebas/gestos.js
 cola.js                Las posiciones cuando no hay datos. Probada en
                        pruebas/cola.js
+envio.js               Qué hacer con un POST que no vuelve: el corte del
+                       envío colgado, con la tarea del GPS como reloj.
+                       JS puro, probado en pruebas/envio.js
 gps/servicio.js        expo-location + expo-task-manager: el foreground
                        service, la cadencia, y el ENVÍO de las posiciones
 App.js                 Las pantallas. Solo dibujan lo que les dan
@@ -188,6 +191,28 @@ Corren con el resto: `npm test` desde la raíz.
   estado mientras el chofer mira el HUD.
 - **La cola ya se puede vaciar entera.** `POST /gps` acepta varias posiciones
   con su hora, y el servidor mide con esa hora y no con la de llegada.
+- **Con la pantalla apagada, los timers de JavaScript NO corren.** Está en
+  el código de React Native para Android (`JavaTimerManager`): al pausarse
+  la actividad se quita el callback del Choreographer, y un `setTimeout`
+  con duración mayor a cero queda esperando un frame que no llega hasta que
+  la pantalla vuelve. Sólo `setTimeout(fn, 0)` se llama en el acto — por eso
+  el `fetch` SÍ resuelve en fondo (whatwg-fetch resuelve con uno de 0), y
+  por eso **el corte de 15 s del envío, que era un `setTimeout`, nunca
+  disparaba con la pantalla apagada**: un POST que la red dejaba a medias
+  se quedaba colgado, y como sólo hay un envío en vuelo, todo lo demás se
+  apilaba detrás. En el servidor se veía como ráfagas de posiciones y
+  silencios de minutos —«sin señal» a los dos minutos de bloquear— con la
+  batería sin restricción y el servicio corriendo; al prender la pantalla el
+  timer por fin disparaba, la tanda se re-encolaba y llegaba repetida
+  («volvió tras 0 s sin señal»). Lo único que late con la pantalla apagada
+  es la tarea del GPS, así que **el reloj es esa tarea**: en cada disparo,
+  `app/envio.js` mira hace cuánto está en vuelo el envío anterior y, si
+  pasó el corte, lo aborta desde ahí —`abort()` es sincrónico— y devuelve
+  sus posiciones a la cola. Un cuelgue cuesta como mucho dos disparos. La
+  regla general: **nada de lo que tenga que pasar con la pantalla apagada
+  puede colgar de un timer**; hay que colgarlo del disparo del GPS o de la
+  respuesta de un POST. La pantalla lo muestra como «enviando hace N s»:
+  si ese número crece, es un envío colgado. Suite `envio`.
 
 ## Las versiones de los módulos nativos NO se adivinan
 
