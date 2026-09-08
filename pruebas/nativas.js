@@ -210,5 +210,59 @@ console.log('\nLA API QUE SE USA');
      /estaCorriendo\(\)/.test(app) && /gps\.arrancar/.test(app));
 }
 
+console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
+{
+  // Lo que no se puede probar en Node porque vive en la pantalla o en el
+  // servicio nativo: que las líneas estén, y en el orden que importa.
+  const fs = require('fs');
+  const app = fs.readFileSync(RAIZ + '/app/App.js', 'utf8');
+  const servicio = fs.readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
+  const cliente = fs.readFileSync(RAIZ + '/app/protocolo/cliente.js', 'utf8');
+  const config = JSON.parse(fs.readFileSync(RAIZ + '/app/app.json', 'utf8'));
+
+  // A1: el SOS dice la verdad
+  const sos = (app.match(/function SosDeslizable[\s\S]*?\n}\n/) || [''])[0];
+  ok('el SOS tiene cuatro fases: listo, enviando, enviada, fallo',
+     /'enviando'/.test(sos) && /'enviada'/.test(sos) && /'fallo'/.test(sos) && /ENVIANDO…/.test(sos) && /NO SALIÓ/.test(sos));
+  ok('y «enviada» sale del resultado de onDisparar, no del deslizar',
+     /\.then\(\(r\) => \{[\s\S]*?r && r\.ok/.test(sos));
+  ok('el cliente espera el eco propio y cae a POST /sos', /esperarEcoSos\(SOS_ECO_MS\)/.test(cliente) && /pedirHttp\('\/sos'/.test(cliente));
+
+  // A2/A3: salir y auth_error limpian de verdad
+  ok('el servicio expone limpiarSesion()', /export function limpiarSesion\(\)[\s\S]*?pendientes = \[\];/.test(servicio));
+  const onSalir = (app.match(/onSalir: async \(\) => \{([\s\S]*?)\n    \},/) || ['', ''])[1];
+  ok('«Salir» espera el «fuera», limpia la sesión del servicio y la cierra en el servidor',
+     /await cliente\.current\.marcarPresencia\('fuera'\)/.test(onSalir) && /gps\.limpiarSesion\(\)/.test(onSalir) &&
+     /cerrarSesion\(\)/.test(onSalir));
+  const authErr = (app.match(/c\.on\('authError', async \(e\) => \{([\s\S]*?)\}\),/) || ['', ''])[1];
+  ok('auth_error para el GPS, limpia y borra la sesión del disco',
+     /gps\.limpiarSesion\(\)/.test(authErr) && /deleteItemAsync\(gps\.LLAVE_SESION\)/.test(authErr) && /gps\.parar\(\)/.test(authErr));
+  ok('la tarea se apaga sola con 401 sostenidos y borra la sesión',
+     /RECHAZOS_TOPE/.test(servicio) && /sesionRechazada = true/.test(servicio) && /detenido: sesión rechazada/.test(servicio));
+  ok('y con 403/409 sostenidos, sin borrarla', /detenidoPor = cuerpo\.error/.test(servicio) && /detenido: sin rol de GPS/.test(servicio));
+  ok('lo que estaba en vuelo al salir no vuelve a la cola', /guardarSiSigue/.test(servicio) && /generacion\+\+/.test(servicio));
+  ok('y salir DE RUTA vacía la cola (lo de antes del «fuera» no se manda)',
+     /export function vaciarCola\(\)/.test(servicio) && /gps\.vaciarCola\(\)/.test(app));
+  ok('la pantalla lee los dos flags', /sesionRechazada/.test(app) && /detenidoPor/.test(app));
+
+  // A4: la puerta del cobrador
+  ok('el cobrador no tiene el deslizable de salir a ruta', /rol === 'collector' \? \(/.test(app) && /rol: sesion\?\.role/.test(app));
+  ok('ni retoma el GPS al abrir', /s\.role === 'collector'\) \{ setPresencia\('fuera'\); return; \}/.test(app));
+
+  // A5: la presencia se puede esperar
+  ok('marcarPresencia devuelve una promesa y «fuera» reintenta por HTTP',
+     /async function marcarPresencia/.test(cliente) && /estado === 'fuera' \? 3 : 1/.test(cliente));
+
+  // A6: un solo tope de foto, con motivo en pantalla
+  ok('un solo tope de foto (el de imagen.js)', /const TOPE_IMAGEN = MAX_DATAURL;/.test(cliente) && /require\('\.\.\/imagen\.js'\)/.test(cliente));
+  ok('y la pantalla dice por qué no salió', /La foto pesa demasiado/.test(app) && /Sin conexión: la foto no salió/.test(app));
+
+  // A14, A15, A17
+  ok('app.json: allowBackup=false (grabacion.json no va al backup de Google)', config.expo.android.allowBackup === false);
+  ok('el reintento del socket sobrevive a un `new WebSocket` que revienta', /try \{ abrir\(\); \} catch \{ programarReintento\(\); \}/.test(cliente));
+  ok('la presentación no espera para siempre a SecureStore', /Promise\.race\(\[\s*SecureStore\.getItemAsync\(gps\.LLAVE_SESION\)/.test(app));
+  ok('el APK es otro: versionCode subió', config.expo.android.versionCode >= 3, config.expo.android.versionCode);
+}
+
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
 process.exit(fallas ? 1 : 0);

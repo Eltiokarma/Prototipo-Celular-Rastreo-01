@@ -37,6 +37,15 @@ const TOPE_AUSENTE_MS = 2 * 60 * 60 * 1000;
 // alguien sentado comiendo.
 const SEGUIDAS = 2;
 
+// Dos posiciones seguidas a menos de esto son "quieto": ahí se ancla. El
+// zigzag del GPS parado (10-30 m en Juliaca) entra; una combi rodando a
+// 20 km/h (55 m entre posiciones de 10 s) no. Sin esto el ancla era la
+// PRIMERA posición de la ausencia, que podía ser en marcha: marcar ausente
+// en el terminal y manejar 800 m hasta el restaurante lo devolvía a ruta
+// solo, y ahí almorzaba «en ruta» una hora — Despacho lo veía parado y le
+// llegaba «¿estás en tráfico?» (REVISION-2026-09-08.md, A9).
+const QUIETO_M = 40;
+
 const METROS_POR_GRADO = 111320;
 
 function metrosEntre(aLat, aLng, bLat, bLng) {
@@ -46,8 +55,9 @@ function metrosEntre(aLat, aLng, bLat, bLng) {
 
 // El vigía de UNA ausencia. Se crea al declararse ausente y se tira al
 // salir del estado — cada ausencia ancla de nuevo.
-function crearVigia({ radioM = RADIO_VOLVER_M, topeMs = TOPE_AUSENTE_MS } = {}) {
+function crearVigia({ radioM = RADIO_VOLVER_M, topeMs = TOPE_AUSENTE_MS, quietoM = QUIETO_M } = {}) {
   let ancla = null;        // { lat, lng } — dónde quedó parado
+  let candidata = null;    // la posición anterior, mientras no haya ancla
   let desde = null;        // cuándo se declaró ausente
   let lejosSeguidas = 0;
 
@@ -58,12 +68,19 @@ function crearVigia({ radioM = RADIO_VOLVER_M, topeMs = TOPE_AUSENTE_MS } = {}) 
     // si se movió.
     posicion(lat, lng, ts = Date.now()) {
       if (desde === null) desde = ts;
-      // La PRIMERA posición de la ausencia es el ancla: dónde quedó parado.
-      // Se ancla acá y no al declarar, porque se declara a veces todavía
-      // rodando hacia el sitio.
-      if (!ancla) { ancla = { lat, lng }; return null; }
-
+      // El tope manda antes que todo: pasadas las horas, da igual dónde esté.
       if (ts - desde > topeMs) return 'fuera';
+      // El ancla es donde QUEDÓ PARADO: dos posiciones seguidas quietas. Se
+      // declara a veces todavía rodando hacia el sitio, y anclar en marcha
+      // devolvía a ruta al que llegaba a almorzar.
+      if (!ancla) {
+        if (candidata && metrosEntre(candidata.lat, candidata.lng, lat, lng) <= quietoM) {
+          ancla = { lat, lng };
+        } else {
+          candidata = { lat, lng };
+        }
+        return null;
+      }
 
       if (metrosEntre(ancla.lat, ancla.lng, lat, lng) > radioM) {
         lejosSeguidas++;
@@ -79,4 +96,4 @@ function crearVigia({ radioM = RADIO_VOLVER_M, topeMs = TOPE_AUSENTE_MS } = {}) 
   };
 }
 
-module.exports = { crearVigia, RADIO_VOLVER_M, TOPE_AUSENTE_MS, SEGUIDAS, metrosEntre };
+module.exports = { crearVigia, RADIO_VOLVER_M, TOPE_AUSENTE_MS, SEGUIDAS, QUIETO_M, metrosEntre };

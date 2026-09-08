@@ -73,6 +73,11 @@ export const diagnostico = {
   // con Doze cortándole la red con la pantalla apagada. La pantalla lo
   // pregunta al sistema y lo deja acá para mostrarlo con el resto.
   bateriaOptimizada: null,
+  // El servidor dijo que no, sostenido, y el servicio se apagó solo: por
+  // qué (403 del cobrador, 409 del relevo), o que la sesión ya no vale
+  // (401). La pantalla los lee cada 2 s y actúa (ver App.js).
+  detenidoPor: null,
+  sesionRechazada: false,
   // Si el servicio de ubicación está CORRIENDO de verdad. Sin esto, "0
   // enviadas y 0 fallidas" es indistinguible de "todavía no llegó ninguna
   // posición", y esa ambigüedad ya costó una sesión entera de diagnóstico.
@@ -109,6 +114,21 @@ const TOPE_PENDIENTES = 150;
 // Con la cadencia de pantalla apagada (10 s) esto corta en ~2 minutos.
 const SIN_SESION_TOPE = 12;
 let sinSesionSeguidas = 0;
+
+// Y el servidor diciendo que NO, sostenido. Un 401 seguido es que la sesión
+// ya no vale (Despacho reseteó la clave, vencieron los 30 días): la pantalla
+// vuelve al ingreso, pero este servicio seguía con el GPS alto y un 401 cada
+// 3 s todo el día, y al reabrir la app la sesión guardada reconectaba y
+// volvía a fallar. Un 403/409 seguido es que esta persona no reporta (el
+// cobrador; el chofer relevado): mismo giro para nadie. A los tres seguidos
+// se apaga solo, y la pantalla se entera por `diagnostico` (REVISION, A2/A4).
+const RECHAZOS_TOPE = 3;
+let noAutorizadosSeguidos = 0;   // 401
+let sinRolSeguidos = 0;          // 403 / 409
+
+// Cambia en cada `limpiarSesion()`: lo que estaba en vuelo cuando se salió
+// no puede volver a la cola de la sesión siguiente.
+let generacion = 0;
 // El servidor rechaza con 413 cualquier envío de más de 200 posiciones. Sin
 // cortar en tandas, una cola de más de 200 daba 413 —y como un 4xx no se
 // reintenta, se perdía entera— y además la cola no podía vaciarse NUNCA más:
@@ -301,6 +321,37 @@ export async function descartarGrabacion() {
 // Cuántas están esperando, para verlo en pantalla
 export function enEspera() { return pendientes.length; }
 
+// La cola se vacía al salir DE RUTA, no sólo al cerrar sesión: lo que quedó
+// esperando red antes del «fuera» es de antes del «fuera», y mandarlo con el
+// turno siguiente volvía a dibujar la combi donde estuvo ayer (el servidor
+// lo descarta igual, pero no hay por qué gastarle los datos).
+export function vaciarCola() {
+  generacion++;
+  pendientes = [];
+  diagnostico.enEspera = 0;
+}
+
+// Salir es salir: nada de esta sesión sobrevive para la siguiente. Sin esto,
+// el relevo con el mismo teléfono mandaba las 150 posiciones de A con el
+// token de B —la combi de B se teletransportaba y se le contaba media vuelta
+// ajena—, y el flag de grabación y el diagnóstico quedaban de la sesión
+// anterior (REVISION-2026-09-08.md, A3). Se llama desde «Salir» y desde
+// `authError`.
+export function limpiarSesion() {
+  vaciarCola();
+  vigia = null;
+  sinSesionSeguidas = 0;
+  noAutorizadosSeguidos = 0;
+  sinRolSeguidos = 0;
+  diagnostico.enEspera = 0;
+  diagnostico.enVueloDesde = null;
+  diagnostico.ultimoError = null;
+  diagnostico.presenciaAuto = null;
+  diagnostico.detenidoPor = null;
+  diagnostico.sesionRechazada = false;
+  descartarGrabacion().catch(() => {});
+}
+
 // EL PEDIDO NO ES `fetch`, y el timeout es NATIVO. Es la lección más cara de
 // la pantalla apagada, y llevó tres intentos:
 //
@@ -374,6 +425,10 @@ async function subirAhora(nuevas) {
   const control = new AbortController();
   const vuelo = vigiaEnvio.empezar(posiciones, control);
   diagnostico.enVueloDesde = vuelo.desde;
+  // Lo que falle de este envío vuelve a la cola SÓLO si sigue siendo la
+  // misma sesión: si en el medio se salió, esas posiciones son de nadie.
+  const gen = generacion;
+  const guardarSiSigue = (p) => { if (gen === generacion) guardar(p); };
   try {
     const [crudo, servidor, presencia, flagGrabando] = await Promise.all([
       SecureStore.getItemAsync(LLAVE_SESION),
@@ -382,7 +437,7 @@ async function subirAhora(nuevas) {
       SecureStore.getItemAsync(LLAVE_GRABANDO).catch(() => null),
     ]);
     if (!crudo || !servidor || !JSON.parse(crudo)?.token) {
-      guardar(posiciones);
+      guardarSiSigue(posiciones);
       anotarFallo(!crudo || !servidor ? 'sin sesión guardada' : 'sesión sin token', posiciones);
       // Sin sesión SOSTENIDO no es un tropiezo: es que nadie está adentro.
       // El servicio se apaga solo en vez de girar para nadie.
@@ -453,6 +508,8 @@ async function subirAhora(nuevas) {
       }),
     }, control);
     if (r.ok) {
+      noAutorizadosSeguidos = 0;
+      sinRolSeguidos = 0;
       diagnostico.enviadas += posiciones.length;
       diagnostico.ultimoEnvio = Date.now();
       diagnostico.ultimoError = null;
@@ -472,8 +529,38 @@ async function subirAhora(nuevas) {
       // Un 4xx que no sea de red es culpa del contenido o del permiso: no se
       // reintenta, porque reintentarlo daría el mismo error para siempre y
       // taparía las posiciones nuevas detrás de un atraso que nunca se vacía.
-      if (r.status >= 500) guardar(posiciones);
+      if (r.status >= 500) guardarSiSigue(posiciones);
       anotarFallo(`HTTP ${r.status}${cuerpo.error ? ' ' + cuerpo.error : ''}`, posiciones);
+      // Y el «no» sostenido apaga el servicio (ver RECHAZOS_TOPE)
+      if (r.status === 401) {
+        if (++noAutorizadosSeguidos >= RECHAZOS_TOPE) {
+          noAutorizadosSeguidos = 0;
+          // La sesión guardada ya no vale: se borra, para que al reabrir la
+          // app no reconecte con ella y vuelva a fallar. El flag va ANTES
+          // de parar, como el de la ausencia: la pantalla lo lee y sabe.
+          diagnostico.sesionRechazada = true;
+          diagnostico.servicio = 'detenido: sesión rechazada';
+          try { await SecureStore.deleteItemAsync(LLAVE_SESION); } catch {}
+          try { await SecureStore.deleteItemAsync(LLAVE_PRESENCIA); } catch {}
+          pendientes = [];
+          diagnostico.enEspera = 0;
+          limpiarNotificacion().catch(() => {});
+          try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        }
+      } else if (r.status === 403 || r.status === 409) {
+        if (++sinRolSeguidos >= RECHAZOS_TOPE) {
+          sinRolSeguidos = 0;
+          diagnostico.detenidoPor = cuerpo.error || `HTTP ${r.status}`;
+          diagnostico.servicio = 'detenido: sin rol de GPS';
+          pendientes = [];
+          diagnostico.enEspera = 0;
+          limpiarNotificacion().catch(() => {});
+          try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        }
+      } else {
+        noAutorizadosSeguidos = 0;
+        sinRolSeguidos = 0;
+      }
     }
   } catch (e) {
     // Si lo cortó la tarea, `subir` ya devolvió las posiciones a la cola y
@@ -483,7 +570,7 @@ async function subirAhora(nuevas) {
     // NO se pierden — esperan al próximo envío que salga. El envío colgado
     // llega acá por el timeout nativo, con su propio nombre: "sin red" dice
     // que no hay datos, esto dice que los hay pero el socket quedó muerto.
-    guardar(posiciones);
+    guardarSiSigue(posiciones);
     anotarFallo(e?.name === 'TimeoutError' ? 'envío colgado (corte nativo a los 15 s)'
               : e?.name === 'AbortError' ? 'envío cortado' : 'sin red', posiciones);
   } finally {

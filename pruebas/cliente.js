@@ -248,9 +248,41 @@ async function hasta(cond, ms = 6000) {
 
   const sos = [];
   c08.on('sos', a => sos.push(a));
-  relevo.mandarSos({ lat: posB.lat, lng: posB.lng });
+  const rSos = await relevo.mandarSos({ lat: posB.lat, lng: posB.lng });
   ok('el SOS llega a la ruta con quién lo mandó',
      await hasta(() => sos.some(a => a.vehicleId === 'M-12')), sos);
+  ok('y `mandarSos` recién resuelve con el ECO: llegó, por el socket, con su id',
+     rSos && rSos.ok === true && rSos.via === 'ws' && Number.isInteger(rSos.sosId), rSos);
+
+  console.log('\nEL SOS SIN SOCKET SALE POR HTTP');
+  // De la revisión del 8/9 (A1): con el socket muerto (pantalla recién
+  // desbloqueada, reintento esperando), deslizar no mandaba nada y la
+  // pantalla decía «ALERTA ENVIADA». Ahora sale por `POST /sos` y la
+  // respuesta es el eco.
+  {
+    const solo = nuevo();
+    const ss = await solo.entrar('M-20', 'chofer1234');
+    // Ni se conecta: no hay socket
+    const propios = [];
+    solo.on('sos', a => propios.push(a));
+    const antes = sos.length;
+    const r = await solo.mandarSos({ lat: posB.lat, lng: posB.lng });
+    ok('sin socket, resuelve ok por HTTP con el id', r.ok === true && r.via === 'http' && Number.isInteger(r.sosId), r);
+    ok('la ruta lo recibe igual', await hasta(() => sos.length > antes && sos.at(-1).unitId === 'M-20'), sos.at(-1));
+    ok('y el cliente emite el eco él mismo, para que la pantalla abra el «¿qué pasó?»',
+       propios.length === 1 && propios[0].sosId === r.sosId, propios);
+    ok('con ese id se puede tipificar', solo.marcarTipoSos('mecanica') !== 'sin-sos');
+    ok('la presencia sin socket también se puede ESPERAR: «fuera» por HTTP contesta',
+       (await solo.marcarPresencia('fuera')) === true);
+    // Cerrar sesión de verdad: el token muere en el servidor
+    ok('cerrarSesion() revoca el token en el servidor', (await solo.cerrarSesion()) === true);
+    const muerto = await fetch(`${API}/sos`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ss.token }, body: '{}' });
+    ok('y después de eso el token ya no vale', muerto.status === 401, muerto.status);
+    const otra = nuevo();
+    ok('sin sesión, mandarSos dice que no salió en vez de mentir',
+       (await otra.mandarSos({})).ok === false);
+  }
 
   console.log('\nCAÍDAS');
   const caido = nuevo();

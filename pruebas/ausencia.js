@@ -4,7 +4,7 @@
 // solo, que el que se fue a su casa ausente no emita toda la noche, y que
 // un salto de GPS de alguien sentado comiendo NO lo devuelva a ruta.
 const RAIZ = require('path').join(__dirname, '..');
-const { crearVigia, RADIO_VOLVER_M, TOPE_AUSENTE_MS, SEGUIDAS } = require(RAIZ + '/app/ausencia.js');
+const { crearVigia, RADIO_VOLVER_M, TOPE_AUSENTE_MS, SEGUIDAS, QUIETO_M } = require(RAIZ + '/app/ausencia.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -34,6 +34,7 @@ console.log('\nARRANCÓ DE NUEVO: VUELVE SOLO');
 {
   const v = crearVigia();
   v.posicion(R.lat, R.lng, T0);
+  v.posicion(R.lat, R.lng, T0 + min(0.2));   // dos quietas: acá se ancla
   // Se aleja: 400 m y después 700 m — dos seguidas fuera del radio
   const a1 = v.posicion(R.lat + 0.0036, R.lng, T0 + min(31));
   const a2 = v.posicion(R.lat + 0.0063, R.lng, T0 + min(31.2));
@@ -45,12 +46,39 @@ console.log('\nUN SALTO DE GPS NO ES ARRANCAR');
 {
   const v = crearVigia();
   v.posicion(R.lat, R.lng, T0);
+  v.posicion(R.lat, R.lng, T0 + min(0.2));
   // Rebote de edificio: una posición a 500 m… y la siguiente de vuelta al plato
   const salto = v.posicion(R.lat + 0.0045, R.lng, T0 + min(10));
   const devuelta = v.posicion(R.lat, R.lng, T0 + min(10.2));
   const otraVez = v.posicion(R.lat + 0.0045, R.lng, T0 + min(20));
   ok('el salto solo no dispara', salto === null && devuelta === null, [salto, devuelta]);
   ok('y el contador se reinició: el segundo salto suelto tampoco', otraVez === null, otraVez);
+}
+
+console.log('\nSE DECLARA AUSENTE TODAVÍA RODANDO');
+{
+  // De la revisión del 8/9 (A9): marca ausente en el terminal y maneja
+  // 800 m hasta el restaurante. Antes el ancla era la PRIMERA posición (el
+  // terminal), y a los 300 m ya lo devolvía a ruta — y ahí almorzaba «en
+  // ruta» una hora. Ahora el ancla es donde QUEDÓ PARADO.
+  const v = crearVigia();
+  const T = { lat: R.lat - 0.0072, lng: R.lng };   // el terminal, 800 m al sur
+  let accion = null;
+  // 8 posiciones cada 10 s, 100 m cada una: rodando hacia el restaurante
+  for (let i = 0; i <= 8; i++) accion = v.posicion(T.lat + i * 0.0009, T.lng, T0 + i * 10_000);
+  ok('rodando hacia el sitio, nada se dispara (todavía no hay ancla)', accion === null, accion);
+  // Estaciona: dos posiciones quietas en el restaurante
+  v.posicion(R.lat, R.lng, T0 + 100_000);
+  const anclado = v.posicion(R.lat + 0.0001, R.lng, T0 + 110_000);
+  ok('al quedar parado ancla, sin decir nada', anclado === null, anclado);
+  // Media hora comiendo, con zigzag
+  for (let i = 1; i <= 10; i++) accion = v.posicion(R.lat + (i % 2 ? 0.00025 : -0.00025), R.lng, T0 + 110_000 + min(3 * i));
+  ok('y almuerza AUSENTE, no «en ruta»', accion === null, accion);
+  // Arranca de nuevo: dos lejos del restaurante
+  v.posicion(R.lat + 0.0036, R.lng, T0 + min(45));
+  const vuelve = v.posicion(R.lat + 0.0063, R.lng, T0 + min(45.2));
+  ok('y recién al irse del restaurante vuelve a ruta', vuelve === 'volver', vuelve);
+  ok('el umbral de quieto aguanta el zigzag del GPS y no una combi rodando', QUIETO_M === 40, QUIETO_M);
 }
 
 console.log('\nDOS HORAS YA NO ES UN ALMUERZO');

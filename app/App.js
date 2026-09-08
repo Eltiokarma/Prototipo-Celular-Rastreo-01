@@ -208,10 +208,28 @@ function Aplicacion() {
       c.on('estado', () => { setHud(construirHud(c.miBrecha())); setEstado(c.estado); }),
       c.on('geometria', (g) => setGeometria(g)),
       c.on('conexion', ({ conectado }) => setConectado(conectado)),
-      c.on('rolGps', ({ reporta, motivo }) => { setReporta(reporta); setAviso(motivo); }),
+      c.on('rolGps', ({ reporta, motivo }) => {
+        setReporta(reporta); setAviso(motivo);
+        // Si el servicio se había apagado por un 409 (otro chofer tomó la
+        // unidad) y el rol volvió, el vigilante puede rearrancarlo.
+        if (reporta) gps.diagnostico.detenidoPor = null;
+      }),
       // La presencia vuelve a 'fuera' con la sesión: sin esto, el próximo
       // login saltaba la puerta y mostraba el HUD sin GPS corriendo.
-      c.on('authError', (e) => { setAviso(e); setSesion(null); setPresencia('fuera'); }),
+      //
+      // Y el GPS se APAGA y la sesión se BORRA del disco. Antes quedaba el
+      // servicio con el GPS alto y un 401 cada 3 s todo el día, para nadie,
+      // y al reabrir la app la sesión guardada reconectaba y volvía a
+      // fallar (REVISION-2026-09-08.md, A2). El orden es el de `onSalir`:
+      // primero el vigilante, después parar.
+      c.on('authError', async (e) => {
+        saliendo.current = true;
+        setAviso(e); setSesion(null); setPresencia('fuera');
+        gps.limpiarSesion();
+        try { await SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA); } catch {}
+        try { await SecureStore.deleteItemAsync(gps.LLAVE_SESION); } catch {}
+        try { await gps.parar(); } catch {}
+      }),
       // El historial llega al identificarse y trae solo lo que a este chofer
       // le corresponde ver: el filtrado del privado lo hace el servidor.
       c.on('historial', (items) => setMensajes(items.map(m => aMensaje(m, quienSoy(c))))),
@@ -244,7 +262,12 @@ function Aplicacion() {
   const [arranque, setArranque] = React.useState('cargando');
   React.useEffect(() => {
     const minimo = new Promise(r => setTimeout(r, PRESENTACION_MIN_MS));
-    const sesionGuardada = SecureStore.getItemAsync(gps.LLAVE_SESION).then(guardada => {
+    // Con un tope: si SecureStore no contesta nunca (pasa con un almacén
+    // corrupto), la presentación no se puede quedar para siempre.
+    const sesionGuardada = Promise.race([
+      SecureStore.getItemAsync(gps.LLAVE_SESION),
+      new Promise(r => setTimeout(() => r(null), 3000)),
+    ]).then(guardada => {
       if (guardada) entrarConSesion(JSON.parse(guardada));
     }).catch(() => {});
     Promise.all([minimo, sesionGuardada]).then(() => setArranque('listo'));
@@ -266,6 +289,9 @@ function Aplicacion() {
     // la presencia guardada retoma sola: nadie vuelve a marcar nada.
     const previa = await SecureStore.getItemAsync(gps.LLAVE_PRESENCIA).catch(() => null);
     if (previa !== 'ruta' && previa !== 'ausente') setPresencia('fuera');
+    // El cobrador no emite: la unidad la lleva el chofer. Su «en ruta»
+    // guardado de un APK viejo no arranca nada.
+    if (s.role === 'collector') { setPresencia('fuera'); return; }
     if (previa === 'ruta' || previa === 'ausente') {
       setPresencia(previa);
       cliente.current.marcarPresencia(previa);
@@ -288,6 +314,8 @@ function Aplicacion() {
       // que ya nos costó un servicio huérfano en `onSalir`.
       saliendo.current = true;
       await gps.parar();
+      // Lo que quedó esperando red es de antes del «fuera»: no se manda
+      gps.vaciarCola();
     } else {
       // AUSENTE sale de la cadena: el servidor deja de contestar brecha y
       // la notificación viva no se actualiza más — sin esto, la bandeja
@@ -360,6 +388,24 @@ function Aplicacion() {
         setAviso(auto === 'ruta'
           ? 'Te vimos en movimiento: volviste a ruta'
           : 'Ausente más de 2 horas: te sacamos de ruta');
+      }
+      // La tarea de fondo vio tres 401 seguidos y ya borró la sesión del
+      // disco: acá se cierra la pantalla, igual que con `auth_error`.
+      if (gps.diagnostico.sesionRechazada) {
+        gps.diagnostico.sesionRechazada = false;
+        saliendo.current = true;
+        gps.limpiarSesion();
+        setAviso('Tu sesión ya no vale: entrá de nuevo');
+        setSesion(null); setPresencia('fuera');
+        return;
+      }
+      // Tres 403/409 seguidos: esta persona no reporta (cobrador, o el
+      // relevo tomó la unidad). El servicio se apagó solo y NO se rearranca
+      // hasta que el rol vuelva (`rolGps`); se dice por qué.
+      if (gps.diagnostico.detenidoPor) {
+        setAviso(`El GPS se apagó: ${gps.diagnostico.detenidoPor}`);
+        setDiag({ ...gps.diagnostico });
+        return;
       }
       const corriendo = await gps.estaCorriendo();
       if (!vivo || saliendo.current) return;
@@ -478,17 +524,26 @@ function Aplicacion() {
 
   const comun = {
     conectado, aviso, diag, pantalla, noLeidos, marca, presencia,
+    rol: sesion?.role || 'driver',
     onIr: irA,
     onSalir: async () => {
       // El orden importa: primero se le avisa al vigilante, DESPUÉS se para
       // el servicio. Al revés, un tick del vigilante en medio lo rearrancaba.
       saliendo.current = true;
-      // Que la unidad se vaya del mapa en el acto, no a los 3 min del olvido
-      try { cliente.current.marcarPresencia('fuera'); } catch {}
+      // Que la unidad se vaya del mapa en el acto, no a los 3 min del olvido.
+      // Se ESPERA (con reintento por HTTP): sin señal en ese instante el
+      // «fuera» se perdía y la combi quedaba en el mapa hasta el olvido.
+      try { await cliente.current.marcarPresencia('fuera'); } catch {}
       try { await SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA); } catch {}
       setPresencia('fuera');
       await SecureStore.deleteItemAsync(gps.LLAVE_SESION);
       await gps.parar();
+      // Nada de esta sesión sobrevive: ni la cola de posiciones (el relevo
+      // con el mismo teléfono las mandaba con el token del siguiente), ni el
+      // flag de grabación, ni el diagnóstico.
+      gps.limpiarSesion();
+      // Y el token deja de valer en el servidor, no sólo en este teléfono
+      try { await cliente.current.cerrarSesion(); } catch {}
       cliente.current.salir();
       setSesion(null);
     },
@@ -522,7 +577,14 @@ function Aplicacion() {
         onCanal={(cual) => { setCanal(cual); marcarVisto(cual); }}
         onEnviar={(texto) => cliente.current.mandarChat(texto, { privado: canal === 'directo' })}
         onVoz={(data, duration) => cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' })}
-        onFoto={(data) => cliente.current.mandarFoto({ data, privado: canal === 'directo' })} />
+        onFoto={(data) => {
+          // Si no salió, se dice por qué. Antes la pantalla ignoraba el
+          // retorno y una foto pesada o sin conexión se perdía en silencio.
+          const r = cliente.current.mandarFoto({ data, privado: canal === 'directo' });
+          if (r === 'muy-pesada') setAviso('La foto pesa demasiado y no salió: sacala de más lejos');
+          else if (r === 'sin-conexion') setAviso('Sin conexión: la foto no salió, probá de nuevo');
+          else if (r) setAviso('Eso no es una foto');
+        }} />
     </Carrusel>
     {/* Fuera del carrusel: el perfil no es una página más, es un alto */}
     {verPerfil && (
@@ -682,7 +744,7 @@ function abrirOptimizacionDeBateria() {
 
 function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
-                tipificarSos, onTipoSos, onPerfil, yo, onTrafico }) {
+                tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol }) {
   const { s, C } = usarTema();
   // ── Tráfico: lo que el servidor midió de MÍ, y lo que yo dije ───────
   // `yo.parado` es el hecho (N minutos sin avanzar por la ruta, lo mide el
@@ -755,8 +817,18 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
             salir de ruta, la ubicación se apaga.
           </Text>
         </View>
-        <Deslizable texto="DESLIZÁ PARA SALIR A RUTA  →" textoBoton="IR"
-          colorListo={C.verde} onDisparar={() => onPresencia('ruta')} />
+        {/* El cobrador no emite: la unidad la lleva el chofer, y el servidor
+            le contesta 403 a cada posición. Antes podía deslizar igual y
+            quedaba con el GPS alto y un 403 cada 3 s todo el turno (A4). */}
+        {rol === 'collector' ? (
+          <Text style={[s.diagnostico, { marginBottom: 12 }]}>
+            La ubicación la emite el teléfono del chofer. Vos tenés el chat, el
+            mapa y el SOS.
+          </Text>
+        ) : (
+          <Deslizable texto="DESLIZÁ PARA SALIR A RUTA  →" textoBoton="IR"
+            colorListo={C.verde} onDisparar={() => onPresencia('ruta')} />
+        )}
         <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
       </View>
     );
@@ -1561,12 +1633,22 @@ function BotonTema() {
 // se dispara con un roce es peor que no tenerlo — el celular va en un
 // soporte, en una combi que se mueve, y un falso SOS que moviliza gente
 // quema la confianza en el sistema entero.
+//
+// Y dice la VERDAD sobre si salió: «ENVIANDO…» hasta que el servidor lo
+// confirma (el eco por el socket, o la respuesta de `POST /sos`), «ALERTA
+// ENVIADA» recién ahí, y «NO SALIÓ — REPETÍ» en rojo si no llegó. Antes
+// decía «enviada» al soltar el dedo, con el socket muerto y la alerta en
+// ninguna parte (REVISION-2026-09-08.md, A1).
 function SosDeslizable({ onDisparar }) {
   const { s, C } = usarTema();
   const [ancho, setAncho] = React.useState(0);
-  const [disparado, setDisparado] = React.useState(false);
+  // 'listo' | 'enviando' | 'enviada' | 'fallo'
+  const [fase, setFase] = React.useState('listo');
+  const disparado = fase !== 'listo';
   const x = React.useRef(new Animated.Value(0)).current;
   const recorrido = Math.max(0, ancho - 78);
+  const volver = React.useRef(null);
+  React.useEffect(() => () => clearTimeout(volver.current), []);
 
   const pan = React.useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => !disparado,
@@ -1584,16 +1666,28 @@ function SosDeslizable({ onDisparar }) {
       // Tiene que llegar casi al final. Un 85 % perdona el último tramo,
       // que es donde el dedo se frena solo, sin volverlo disparable de refilón.
       if (recorrido > 0 && g.dx >= recorrido * 0.85) {
-        setDisparado(true);
+        setFase('enviando');
         Vibration.vibrate(400);
-        onDisparar?.();
         Animated.timing(x, { toValue: recorrido, duration: 120, useNativeDriver: false }).start();
-        // Vuelve solo pasado un rato: que quede la marca de que se mandó,
+        // Vuelve solo pasado un rato: que quede la marca de lo que pasó,
         // pero que no quede trabado para siempre si hace falta repetirlo.
-        setTimeout(() => {
-          setDisparado(false);
-          Animated.timing(x, { toValue: 0, duration: 200, useNativeDriver: false }).start();
-        }, 6000);
+        // Si no salió, vuelve antes: hay que poder repetirlo YA.
+        const reponer = (ms) => {
+          clearTimeout(volver.current);
+          volver.current = setTimeout(() => {
+            setFase('listo');
+            Animated.timing(x, { toValue: 0, duration: 200, useNativeDriver: false }).start();
+          }, ms);
+        };
+        Promise.resolve()
+          .then(() => onDisparar?.())
+          .then((r) => {
+            const salio = !!(r && r.ok);
+            setFase(salio ? 'enviada' : 'fallo');
+            if (!salio) Vibration.vibrate([0, 200, 100, 200]);
+            reponer(salio ? 6000 : 3500);
+          })
+          .catch(() => { setFase('fallo'); reponer(3500); });
       } else {
         Animated.spring(x, { toValue: 0, useNativeDriver: false }).start();
       }
@@ -1602,13 +1696,17 @@ function SosDeslizable({ onDisparar }) {
 
   return (
     <View style={s.sosPista} onLayout={e => setAncho(e.nativeEvent.layout.width)}>
-      <Text style={s.sosTexto}>
-        {disparado ? 'ALERTA ENVIADA' : 'DESLIZÁ PARA SOS  →'}
+      <Text style={[s.sosTexto, fase === 'fallo' && { color: C.rojo }]}>
+        {fase === 'enviando' ? 'ENVIANDO…'
+          : fase === 'enviada' ? 'ALERTA ENVIADA'
+          : fase === 'fallo' ? 'NO SALIÓ — REPETÍ'
+          : 'DESLIZÁ PARA SOS  →'}
       </Text>
       <Animated.View {...pan.panHandlers}
         style={[s.sosBoton, { transform: [{ translateX: x }] },
-                disparado && { backgroundColor: C.verde }]}>
-        <Text style={s.sosBotonTexto}>{disparado ? '✓' : 'SOS'}</Text>
+                fase === 'enviada' && { backgroundColor: C.verde },
+                fase === 'enviando' && { backgroundColor: C.ambar }]}>
+        <Text style={s.sosBotonTexto}>{fase === 'enviada' ? '✓' : fase === 'fallo' ? '!' : fase === 'enviando' ? '…' : 'SOS'}</Text>
       </Animated.View>
     </View>
   );

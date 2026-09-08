@@ -2007,8 +2007,16 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_laps_ruta ON laps (routeId, finishedAt, 
 // del mapa, pero la palabra del chofer sigue valiendo cuando reaparece.
 const presencias = new Map();
 
+// Cuándo declaró «fuera» cada unidad por última vez. Un `POST /gps` que
+// venía en vuelo con `presencia: 'ruta'` puede llegar DESPUÉS del «fuera»:
+// sin esto, volvía a poner en el mapa a una combi que acababa de irse, hasta
+// el olvido. Se compara contra la hora de las posiciones, no la de llegada
+// (REVISION-2026-09-08.md, A5).
+const salidas = new Map();   // vehicleId → hora del último «fuera»
+
 function fijarPresencia(vehicleId, routeId, estado) {
   if (estado === 'fuera') {
+    salidas.set(vehicleId, Date.now());
     // Se va del mapa EN EL ACTO, no a los 3 minutos del olvido: lo pidió él.
     presencias.delete(vehicleId);
     lapState.delete(vehicleId);
@@ -3148,9 +3156,10 @@ app.post('/gps', (req, res) => {
   // apagada el WebSocket muere y este POST es el único canal, y así el
   // estado declarado sobrevive hasta a un reinicio del servidor. 'fuera'
   // no viaja por acá: para irse se deja de mandar (y está POST /presencia).
-  if (req.body?.presencia === 'ruta' || req.body?.presencia === 'ausente') {
-    fijarPresencia(vehicleId, user.routeId || DEFAULT_ROUTE, req.body.presencia);
-  }
+  // Se aplica más abajo, cuando ya se sabe si el lote es posterior al último
+  // «fuera» de la unidad.
+  const presenciaDelLote = req.body?.presencia === 'ruta' || req.body?.presencia === 'ausente'
+    ? req.body.presencia : null;
 
   const crudas = Array.isArray(req.body?.posiciones) ? req.body.posiciones : [];
   if (!crudas.length) return res.status(400).json({ error: 'Sin posiciones' });
@@ -3195,8 +3204,16 @@ app.post('/gps', (req, res) => {
   // segundos— quedaba a medias como "ya visto".
   const viva = units.get(vehicleId);
   const conocidaHasta = viva && viva.lat != null && typeof viva.timestamp === 'number' ? viva.timestamp : -Infinity;
-  const nuevas = buenas.filter(p => p.cuando > conocidaHasta);
+  // Y lo tomado ANTES de que el chofer declarara «fuera» no cuenta: se fue.
+  // Un lote en vuelo que llega después del «fuera» —con `presencia: 'ruta'`
+  // y todo— volvía a dibujar la combi hasta el olvido.
+  // Descontando lo que atrase el reloj del teléfono: sus horas vienen
+  // corridas, y compararlas crudas contra la hora del «fuera» (que es del
+  // servidor) dejaría afuera las primeras posiciones del turno siguiente.
+  const salioEn = (salidas.get(vehicleId) || -Infinity) - reloj.sesgoDe(vehicleId, ahora);
+  const nuevas = buenas.filter(p => p.cuando > conocidaHasta && p.cuando > salioEn);
   const yaVistas = buenas.length - nuevas.length;
+  const deAntesDeSalir = buenas.filter(p => p.cuando <= salioEn).length;
 
   // Qué tan vieja viene la posición más nueva del lote. Es lo que alimenta la
   // estimación del reloj del teléfono (server/reloj.js), y va ANTES de anotar
@@ -3210,6 +3227,14 @@ app.post('/gps', (req, res) => {
   if (sesgo > SIN_SENAL_MS && sesgoAntes <= SIN_SENAL_MS) {
     console.log(`Reloj atrasado: el teléfono de ${vehicleId} manda con la hora ~${Math.round(sesgo / 1000)} s ` +
       `atrás, sostenido; se lo juzga fresco igual`);
+  }
+
+  // La presencia que viaja pegada al lote vale sólo si el lote es posterior
+  // al último «fuera»: si no, es la declaración vieja de un envío atrasado.
+  if (presenciaDelLote && (nuevas.length || !deAntesDeSalir)) {
+    fijarPresencia(vehicleId, user.routeId || DEFAULT_ROUTE, presenciaDelLote);
+  } else if (presenciaDelLote) {
+    console.log(`POST /gps ${vehicleId}: presencia '${presenciaDelLote}' ignorada — el lote es anterior a su «fuera»`);
   }
 
   let routeId = viva ? viva.routeId : null;
@@ -5848,29 +5873,7 @@ wss.on('connection', (ws) => {
     if (msg.type === 'sos') {
       const unitId = clients.get(ws);
       if (!unitId) return;
-      const prof = profiles.get(unitId) || {};
-      const routeId = rutaDelEmisor();
-      console.log(`🚨 SOS de ${unitId} (${routeId})`);
-      // La emergencia sale IGUAL aunque el GPS no tenga fijo: lo que no puede
-      // pasar es que una coordenada inventada entre al registro —o rompa el
-      // `toFixed` de la auditoría dos líneas abajo, que no está en ningún
-      // try/catch y se lleva puesto el proceso entero—.
-      const conPosicion = coordenadaValida(msg.lat, msg.lng);
-      const alert = {
-        unitId,
-        driverName: prof.driverName || 'Conductor',
-        vehicleId: prof.vehicleId || null,
-        routeId,
-        lat: conPosicion ? msg.lat : null,
-        lng: conPosicion ? msg.lng : null,
-        timestamp: horaDeclarada(msg.timestamp),
-      };
-      // El id viaja en la alerta: es el ancla para que el tipo elegido
-      // después (sos_tipo) encuentre este disparo y no otro.
-      const sosId = remember({ kind: 'sos', ...alert });
-      audit(unitId, 'sos', null, alert.lat ? `${alert.lat.toFixed(4)}, ${alert.lng.toFixed(4)}` : null, routeId);
-      broadcastToRoute(routeId, { type: 'sos_alert', sosId, ...alert });
-      broadcastToSupervisors({ type: 'sos_alert', sosId, ...alert }, routeId);
+      dispararSos(unitId, profiles.get(unitId) || {}, rutaDelEmisor(), msg);
     }
 
     // TIPO: sos_tipo — el chofer le pone nombre a la emergencia YA ENVIADA.
@@ -6082,6 +6085,65 @@ wss.on('connection', (ws) => {
 
   // El estado y el historial se mandan recién después de un identify
   // válido — una conexión sin autenticar no recibe nada.
+});
+
+// El SOS, por cualquiera de las dos puertas (WebSocket o `POST /sos`).
+// Devuelve la alerta con su id, que es lo que el cliente necesita para
+// ponerle nombre después (`sos_tipo`) y para saber que LLEGÓ.
+function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
+  console.log(`🚨 SOS de ${unitId} (${routeId})`);
+  // La emergencia sale IGUAL aunque el GPS no tenga fijo: lo que no puede
+  // pasar es que una coordenada inventada entre al registro —o rompa el
+  // `toFixed` de la auditoría dos líneas abajo, que no está en ningún
+  // try/catch y se lleva puesto el proceso entero—.
+  const conPosicion = coordenadaValida(lat, lng);
+  const alert = {
+    unitId,
+    driverName: prof.driverName || 'Conductor',
+    vehicleId: prof.vehicleId || null,
+    routeId,
+    lat: conPosicion ? lat : null,
+    lng: conPosicion ? lng : null,
+    timestamp: horaDeclarada(timestamp),
+  };
+  // El id viaja en la alerta: es el ancla para que el tipo elegido
+  // después (sos_tipo) encuentre este disparo y no otro.
+  const sosId = remember({ kind: 'sos', ...alert });
+  audit(unitId, 'sos', null, alert.lat ? `${alert.lat.toFixed(4)}, ${alert.lng.toFixed(4)}` : null, routeId);
+  broadcastToRoute(routeId, { type: 'sos_alert', sosId, ...alert });
+  broadcastToSupervisors({ type: 'sos_alert', sosId, ...alert }, routeId);
+  return { sosId, ...alert };
+}
+
+// El SOS por HTTP: la puerta que sobrevive a la pantalla apagada y al
+// socket caído, como la presencia y el tráfico. El escenario real: la
+// pantalla estuvo apagada (el socket murió), el chofer desbloquea, el
+// reintento está esperando de 3 a 30 s, desliza SOS. Por el socket no salía
+// nada y la pantalla decía «ALERTA ENVIADA» (REVISION-2026-09-08.md, A1).
+// Chofer o cobrador —el cobrador también puede pedir ayuda—, nunca Despacho.
+// La respuesta trae la alerta con su id: es el eco que el socket no va a
+// dar, y el ancla para el tipo.
+const sosPorHttp = new Map();   // unitId → marcas de tiempo recientes
+app.post('/sos', (req, res) => {
+  const auth = String(req.headers.authorization || '');
+  const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
+  if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  if (user.role !== 'driver' && user.role !== 'collector') {
+    return res.status(403).json({ error: 'El SOS lo manda la gente de la combi' });
+  }
+  // Un cupo chico: cinco por minuto por persona. Una emergencia real son
+  // uno o dos deslizamientos; cien por minuto es un cliente roto o alguien
+  // probando, y Despacho no tiene por qué recibirlos.
+  const ahora = Date.now();
+  const marcas = (sosPorHttp.get(user.unitId) || []).filter(t => ahora - t < 60_000);
+  if (marcas.length >= 5) return res.status(429).json({ error: 'Demasiados SOS seguidos' });
+  marcas.push(ahora);
+  sosPorHttp.set(user.unitId, marcas);
+  const prof = profiles.get(user.unitId) || {
+    driverName: user.driverName || user.name || 'Conductor', vehicleId: user.vehicleId || null,
+  };
+  const alert = dispararSos(user.unitId, prof, user.routeId || DEFAULT_ROUTE, req.body || {});
+  res.json({ ok: true, ...alert });
 });
 
 // Topes de lo que viaja incrustado en el mensaje, en caracteres del data-URL

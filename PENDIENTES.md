@@ -352,7 +352,19 @@ a la ruta que se miraba; «Salir» revoca el token en el servidor (Despacho y
 la web del chofer); «N EN RUTA» cuenta la cadena y dice aparte sin señal,
 yendo y ausentes; los tiempos relativos corren con un reloj de 1 s y la
 lista se atenúa sin conexión; y el chat exige formato de imagen y audio, no
-sólo el prefijo (suite `paneles`, y `foto`). Falta: tanda 4 (app, un APK). Para las brechas quedó decidido: **la
+sólo el prefijo (suite `paneles`, y `foto`). **Tanda 4 (8/9, la app nativa,
+un APK — `versionCode` 3): hecha en el código, falta compilar y repartir**
+— el SOS dice la verdad (`POST /sos` cuando no hay socket; «ENVIANDO…»,
+«ALERTA ENVIADA» recién con el eco, «NO SALIÓ — REPETÍ»); cerrar sesión y
+`auth_error` limpian la cola, el vigía, la grabación y el diagnóstico, paran
+el GPS y revocan el token en el servidor; la tarea se apaga sola con tres
+401 (y borra la sesión) o tres 403/409 seguidos; el cobrador no tiene la
+puerta de «salir a ruta»; «fuera» se espera y reintenta, y el servidor
+descarta un lote anterior al «fuera»; un solo tope de foto con el motivo en
+pantalla; el vigía de la ausencia ancla donde quedó parado; `allowBackup`
+apagado. Suites `sos`, `cliente`, `presencia`, `ausencia`, `nativas`.
+Quedan para después: S5–S7, L6, L8, A7 (la web del chofer no ve el tráfico:
+o se porta o se retira), y las bajas. Para las brechas quedó decidido: **la
 ruta es ida y retorno, no un circuito**; las brechas se calculan sólo entre
 unidades del mismo tramo, la vuelta es una métrica y nada más. El paradero
 inicial de cada tramo ya está: es el primer punto (**A**) de cada tramo en

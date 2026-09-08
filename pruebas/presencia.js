@@ -196,6 +196,18 @@ let servidor = null;
     ok('la unidad se fue del mapa sin esperar al olvido de 3 minutos',
        !st.units.some(u => u.unitId === 'M-03'), st.units.map(u => u.unitId));
     ok('y la cadena quedó en dos', st.totalOnRoute === 2, st.totalOnRoute);
+
+    // Un POST /gps que venía en vuelo llega DESPUÉS del «fuera», con la
+    // presencia 'ruta' pegada y posiciones de antes de irse (REVISION del
+    // 8/9, A5). Antes volvía a dibujar la combi hasta el olvido.
+    const antesDeIrse = Date.now() - 5000;
+    await pedir('/gps', { method: 'POST', headers: { Authorization: 'Bearer ' + s3.token },
+      body: JSON.stringify({ presencia: 'ruta',
+        posiciones: [{ lat: -15.4802, lng: -70.1202, speed: 6, timestamp: antesDeIrse }] }) });
+    await sleep(700);
+    const st2 = await estado();
+    ok('un lote atrasado de antes del «fuera» no la vuelve a poner en el mapa',
+       !st2.units.some(u => u.unitId === 'M-03'), st2.units.map(u => u.unitId));
   }
 
   console.log('\nLA PRESENCIA VIAJA PEGADA AL GPS');
