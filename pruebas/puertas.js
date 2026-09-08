@@ -510,6 +510,96 @@ const entrar = (api, user, password, cab = {}) =>
     limpiar(DBK);
   }
 
+  // ── UN SOCKET ROTO NO TUMBA EL SERVIDOR ──────────────────────────────
+  // Salió de la revisión del 8/9 (REVISION-2026-09-08.md, S1-S3): un frame
+  // WebSocket con RSV1 puesto, o un mensaje de texto `null`, apagaban el
+  // proceso entero —sin token, el identify viene después de abrir—; el
+  // WebSocket aceptaba 100 MB por frame; y un cuerpo JSON malformado
+  // devolvía el stack trace con las rutas del servidor.
+  console.log('\nUN SOCKET ROTO NO TUMBA EL SERVIDOR');
+  {
+    const DBW = S + '/puertas-ws.db';
+    limpiar(DBW);
+    const srvW = await arrancar(DBW, 3191, { DISPATCH_PASSWORD: 'despacho99' });
+    const APIW = 'http://localhost:3191';
+    const WebSocket = require(RAIZ + '/server/node_modules/ws');
+    const vivo = async () => (await pedir(APIW, '/ping')).status === 200;
+    const abrir = () => new Promise((res, rej) => {
+      const c = new WebSocket('ws://localhost:3191');
+      c.on('open', () => res(c)); c.on('error', rej);
+    });
+
+    // 1) Un frame inválido, sin identificarse
+    {
+      const c = await abrir();
+      c.on('error', () => {});
+      c._socket.write(Buffer.from([0xC0, 0x00]));   // RSV1 puesto: frame inválido
+      await sleep(600);
+      ok('un frame inválido no apaga el servidor', await vivo());
+      try { c.terminate(); } catch {}
+    }
+    // 2) JSON válido que no es un mensaje
+    {
+      const c = await abrir();
+      c.on('error', () => {});
+      for (const raro of ['null', '"hola"', '[]', '7', 'true']) c.send(raro);
+      await sleep(400);
+      ok('null, un texto, una lista o un número tampoco', await vivo());
+      c.close();
+    }
+    // 3) El tope por frame
+    {
+      const c = await abrir();
+      c.on('error', () => {});
+      const cierre = new Promise(res => c.on('close', (code) => res(code)));
+      c.send('x'.repeat(3_000_000));
+      const code = await Promise.race([cierre, sleep(3000).then(() => 'sin cierre')]);
+      ok('un frame de 3 MB cierra ESA conexión (1009: demasiado grande)', code === 1009, code);
+      ok('y el servidor sigue', await vivo());
+    }
+    // 4) Un cuerpo JSON roto contesta JSON, no un stack trace
+    {
+      const r = await fetch(APIW + '/auth/login', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: '{"user":' });
+      const texto = await r.text();
+      ok('JSON malformado → 400', r.status === 400, r.status);
+      ok('con un cuerpo JSON corto, sin el stack', /^\{.*"error"/.test(texto) && !/SyntaxError|node_modules|at /.test(texto), texto.slice(0, 120));
+      ok('y sin decir qué framework corre', !r.headers.get('x-powered-by'), r.headers.get('x-powered-by'));
+    }
+    // 5) Un cuerpo enorme también contesta corto
+    {
+      const r = await fetch(APIW + '/auth/login', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: '{"user":"' + 'a'.repeat(1_200_000) + '"}' });
+      ok('cuerpo de más de 1 MB → 413 en JSON', r.status === 413 && /error/.test(await r.text()), r.status);
+    }
+    // Y después de todo eso, el servidor sigue atendiendo a los de verdad
+    const r = await entrar(APIW, 'DESPACHO', 'despacho99');
+    ok('y Despacho sigue pudiendo entrar', r.status === 200 && !!r.body.token, r.status);
+
+    // 6) La excepción a la red de última: con el puerto tomado, el proceso
+    //    tiene que MORIR (Railway lo relanza), no quedar vivo sin escuchar.
+    //    `ws` reenvía el error del servidor HTTP a `wss` antes que a nadie,
+    //    y sin ese detalle la red lo tragaba.
+    {
+      const { spawn } = require('child_process');
+      const salida = await new Promise((res) => {
+        const p = spawn('node', [RAIZ + '/server/index.js'], {
+          env: { ...process.env, PORT: '3191', DB_FILE: S + '/puertas-ws2.db', MODO: 'demo' },
+        });
+        let log = '';
+        p.stdout.on('data', d => { log += d; });
+        p.stderr.on('data', d => { log += d; });
+        const t = setTimeout(() => { p.kill(); res({ code: 'sigue vivo', log }); }, 8000);
+        p.on('exit', (code) => { clearTimeout(t); res({ code, log }); });
+      });
+      ok('con el puerto tomado, el segundo servidor sale con código 1', salida.code === 1, salida.code);
+      ok('y dice por qué', /No se puede escuchar en el puerto 3191/.test(salida.log));
+      limpiar(S + '/puertas-ws2.db');
+    }
+    await matar(srvW);
+    limpiar(DBW);
+  }
+
   console.log('\nY LA DEMO SIGUE SIENDO UNA DEMO');
   {
     const DBD = S + '/puertas-demo2.db';

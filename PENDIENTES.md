@@ -327,7 +327,19 @@ recién salida recibe «apurá»); la entrada tardía se marca en falso tras un
 reinicio y al volver de ausente; el SOS de la app dice «enviada» sin que haya
 salido y no tiene camino HTTP; cerrar sesión no vacía la cola de posiciones;
 el service worker cachea respuestas con token; y Babel entra sin `integrity`
-en Despacho y en el creador. Nada de eso está arreglado todavía.
+en Despacho y en el creador.
+
+Va por tandas. **Tanda 1 (8/9, servidor, sin APK): hecha** — el socket con
+error se cierra solo, el handler entero va en `try`, `null` se descarta,
+`maxPayload` de 2,2 MB, errores no atrapados al log en vez de apagar el
+proceso, middleware de error que contesta JSON corto (sin stack ni
+`X-Powered-By`), y los CSV neutralizan las fórmulas (`server/csv.js`, suite
+`csv`; suite `puertas` para lo demás). Falta: tanda 2 (lógica: brechas por
+tramo, entrada tardía, desvío, frescura), tanda 3 (paneles) y tanda 4 (app,
+un APK). Para las brechas quedó decidido: **la ruta es ida y retorno, no un
+circuito**; las brechas se calculan sólo entre unidades del mismo tramo, la
+vuelta es una métrica y nada más, y la cooperativa define el paradero inicial
+de cada tramo.
 
 ### Lo que todavía no se midió, y no se arregla programando
 
