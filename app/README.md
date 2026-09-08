@@ -352,6 +352,15 @@ reinstalar en cada teléfono.
 
 ## Decisiones de las pantallas nuevas
 
+- **La presentación al abrir tapa el parpadeo del arranque.** Antes, al
+  abrir la app se veía el ingreso a medio armar y de golpe saltaba a la
+  ruta: era el instante en que se lee la sesión guardada. Ahora la pantalla
+  nativa de arranque (`expo-splash-screen` en `app.json`: el ícono sobre el
+  fondo de la app) se queda hasta que la presentación de la app está
+  dibujada —mismo fondo, mismo ícono, el pase no se nota—, y la presentación
+  se queda hasta saber si hay sesión, nunca menos de 1,2 s, y se desvanece
+  sobre la ruta o sobre el ingreso. No espera a la red: lo que decide es
+  qué pantalla va, no si el servidor contestó.
 - **El tráfico se toca, no se desliza.** Es lo contrario del SOS a
   propósito: un aviso de tráfico en falso no moviliza a nadie y se apaga
   solo cuando la combi vuelve a andar (lo decide el servidor), y el chofer

@@ -48,6 +48,7 @@ const ESPERADO = {
   'expo-image-picker': '~17.0.11',
   'expo-location':     '~19.0.8',
   'expo-secure-store': '~15.0.8',
+  'expo-splash-screen': '~31.0.13',
   'expo-status-bar':   '~3.0.9',
   'expo-task-manager': '~14.0.9',
   'babel-preset-expo': '~54.0.12',
