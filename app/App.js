@@ -25,6 +25,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import * as Battery from 'expo-battery';
+import * as SplashScreen from 'expo-splash-screen';
 
 import { crearCliente } from './protocolo/cliente';
 import { limpiarNotificacion } from './notificacion.js';
@@ -51,6 +52,7 @@ const LLAVE_TEMA = 'r14_tema';
 
 const SERVIDOR = process.env.EXPO_PUBLIC_SERVIDOR
   || 'https://prototipo-celular-rastreo-01-production.up.railway.app';
+
 
 // La persona firma el mensaje; el vehículo define el canal privado. No son
 // lo mismo y confundirlos rompe las dos cosas — ver PROTOCOLO.md.
@@ -119,6 +121,47 @@ function ConTema({ children }) {
   }), [C, modo, ahora]);
 
   return <Tema.Provider value={valor}>{children}</Tema.Provider>;
+}
+
+// ── La presentación al abrir ─────────────────────────────────
+// Al abrir, la app tarda un instante en saber si hay sesión guardada, y en
+// ese instante mostraba la pantalla de ingreso a medio armar antes de saltar
+// a la ruta: un parpadeo feo, justo en lo primero que ve el chofer cada
+// mañana. Ahora la pantalla nativa de arranque (el ícono sobre el fondo de
+// la app, configurada en app.json) se queda hasta que esta presentación
+// está dibujada, y la presentación se queda hasta que la sesión se resolvió
+// — con un mínimo para que no sea un destello — y recién entonces se
+// desvanece sobre lo que corresponda: la ruta o el ingreso.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+const PRESENTACION_MIN_MS = 1200;
+
+function Presentacion({ mostrando }) {
+  const { s, C } = usarTema();
+  const opacidad = React.useRef(new Animated.Value(1)).current;
+  const [montada, setMontada] = React.useState(true);
+  React.useEffect(() => {
+    if (mostrando) return;
+    Animated.timing(opacidad, { toValue: 0, duration: 380, useNativeDriver: true })
+      .start(() => setMontada(false));
+  }, [mostrando]);
+  if (!montada) return null;
+  return (
+    <Animated.View
+      pointerEvents={mostrando ? 'auto' : 'none'}
+      // Recién cuando esto está en pantalla se suelta la nativa: mismo fondo
+      // y mismo ícono, así el pase no se nota.
+      onLayout={() => SplashScreen.hideAsync().catch(() => {})}
+      style={[StyleSheet.absoluteFill, {
+        backgroundColor: C.fondo, opacity: opacidad,
+        alignItems: 'center', justifyContent: 'center',
+      }]}>
+      <StatusBar style="light" />
+      <Image source={require('./assets/icon.png')} style={{ width: 112, height: 112, borderRadius: 26 }} />
+      <Text style={[s.tituloChico, { marginTop: 24 }]}>MICROS TEMPO</Text>
+      <Text style={[s.subtitulo, { marginBottom: 0 }]}>Control de ruta</Text>
+      <ActivityIndicator color={C.cielo} style={{ marginTop: 28 }} />
+    </Animated.View>
+  );
 }
 
 function Aplicacion() {
@@ -195,11 +238,18 @@ function Aplicacion() {
   // ── Sesión guardada ─────────────────────────────────────────
   // El token dura 30 días: el chofer no vuelve a escribir la contraseña cada
   // mañana. Va en SecureStore y no en AsyncStorage porque es una credencial.
+  // La presentación se queda hasta que se sabe si hay sesión (no hasta que
+  // la red contestó: lo que importa es qué pantalla va), y nunca menos que
+  // el mínimo, para que no sea un destello.
+  const [arranque, setArranque] = React.useState('cargando');
   React.useEffect(() => {
-    SecureStore.getItemAsync(gps.LLAVE_SESION).then(guardada => {
+    const minimo = new Promise(r => setTimeout(r, PRESENTACION_MIN_MS));
+    const sesionGuardada = SecureStore.getItemAsync(gps.LLAVE_SESION).then(guardada => {
       if (guardada) entrarConSesion(JSON.parse(guardada));
     }).catch(() => {});
+    Promise.all([minimo, sesionGuardada]).then(() => setArranque('listo'));
   }, []);
+  const presentacion = <Presentacion mostrando={arranque === 'cargando'} />;
 
   const entrarConSesion = async (s) => {
     saliendo.current = false;
@@ -398,10 +448,15 @@ function Aplicacion() {
     return () => sub.remove();
   }, [sesion, pantalla]);
 
-  if (!sesion) return <Entrar servidor={SERVIDOR} aviso={aviso} onEntrar={async (s) => {
-    await SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(s));
-    entrarConSesion(s);
-  }} clienteRef={cliente} />;
+  if (!sesion) return (
+    <>
+      <Entrar servidor={SERVIDOR} aviso={aviso} onEntrar={async (s) => {
+        await SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(s));
+        entrarConSesion(s);
+      }} clienteRef={cliente} />
+      {presentacion}
+    </>
+  );
 
   const irA = (p) => {
     setPantalla(p);
@@ -473,6 +528,7 @@ function Aplicacion() {
     {verPerfil && (
       <Perfil sesion={sesion} marca={marca} onCerrar={() => setVerPerfil(false)} />
     )}
+    {presentacion}
     </>
   );
 }
