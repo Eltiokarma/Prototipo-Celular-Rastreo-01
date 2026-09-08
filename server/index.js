@@ -16,6 +16,9 @@ const respaldo = require('./respaldo');
 const claves = require('./claves');
 
 const app = express();
+// La versión del framework no le sirve a nadie que no esté buscando por
+// dónde entrar. Ver REVISION-2026-09-08.md, S7.
+app.disable('x-powered-by');
 // El tope de cuerpo de `express.json()` viene en 100 kB, y eso era MÁS CHICO
 // que lo que este servidor dice aceptar:
 //
@@ -4126,16 +4129,10 @@ app.post('/admin/routes/:routeId/desvio', requireDispatch, (req, res) => {
 // cargado da números que parecen precisos y no lo son, y eso es peor que no
 // tener informe.
 
-// Escapa un valor para CSV: comillas dobles y separador punto y coma, que es
-// lo que espera el Excel en español (con coma parte mal los decimales).
-function csvValor(v) {
-  if (v === null || v === undefined) return '';
-  const s = String(v);
-  return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
-function csvLinea(campos) {
-  return campos.map(csvValor).join(';');
-}
+// Escapar para CSV (comillas, punto y coma —que es lo que espera el Excel en
+// español—, y la defensa contra fórmulas) vive en server/csv.js: puro, con
+// suite. Ver REVISION-2026-09-08.md, S4.
+const { csvValor, csvLinea } = require('./csv');
 
 function fechaHora(ts) {
   if (!ts) return '';
@@ -5505,6 +5502,14 @@ const server = http.createServer(app);
 // contemplados en los 2 GB presupuestados para ese escenario.
 const wss = new WebSocketServer({
   server,
+  // El tope de tamaño POR FRAME, en la capa de recepción. Sin esto regía el
+  // default de `ws`: 100 MB por mensaje, buffereados enteros ANTES del tope
+  // propio de 2,1 MB y antes del cupo por minuto — y antes del `identify`,
+  // o sea sin credencial. Con varias conexiones era agotar la memoria del
+  // único proceso. Apenas por encima del tope real (fotos y notas de voz):
+  // `ws` corta el frame al recibirlo y cierra la conexión con 1009.
+  // Cubre también el inflado de permessage-deflate. Ver REVISION-2026-09-08.md, S2.
+  maxPayload: 2_200_000,
   perMessageDeflate: {
     threshold: 512,
     serverMaxWindowBits: 12,
@@ -5553,8 +5558,18 @@ function dentroDelCupo(ws, tipo) {
 wss.on('connection', (ws) => {
   console.log('Nueva conexión WebSocket');
 
+  // Un socket con error NO puede tumbar el proceso. `ws` emite 'error' ante
+  // un frame inválido (RSV1 puesto, UTF-8 roto), y sin este listener Node lo
+  // convierte en excepción no capturada: dos bytes, sin token —el `identify`
+  // viene después de abrir—, y se caían las 2000 unidades a la vez. Medido
+  // contra un servidor levantado. Ver REVISION-2026-09-08.md, S1.
+  ws.on('error', (e) => {
+    console.warn(`WebSocket con error (se cierra): ${e && e.message}`);
+    try { ws.terminate(); } catch {}
+  });
+
   // Cuando llega un mensaje de una combi
-  ws.on('message', (raw) => {
+  const manejarMensaje = (raw) => {
     // Un mensaje descomunal ni se intenta parsear
     if (raw.length > 2_100_000) return;
 
@@ -5564,6 +5579,9 @@ wss.on('connection', (ws) => {
     } catch {
       return; // ignorar mensajes que no sean JSON válido
     }
+    // `null`, un número, una lista: JSON válido que no es un mensaje. Sin
+    // esto, `msg.type` sobre null era la otra forma de tumbar el proceso.
+    if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
 
     if (!dentroDelCupo(ws, msg.type)) return;
 
@@ -5932,6 +5950,13 @@ wss.on('connection', (ws) => {
       if (toVehicleId) enviarPrivado(routeId, toVehicleId, payload);
       else broadcastToRoute(routeId, payload);
     }
+  };
+  // Todo el manejo va adentro de un try: un mensaje que reviente en algún
+  // rincón (un campo con la forma equivocada que nadie previó) es un mensaje
+  // ignorado y una línea en el log, no el servidor de la cooperativa caído.
+  ws.on('message', (raw) => {
+    try { manejarMensaje(raw); }
+    catch (e) { console.error(`Mensaje WebSocket que reventó (se ignora): ${e && e.stack || e}`); }
   });
 
   // Cuando alguien se desconecta
@@ -6716,8 +6741,50 @@ setInterval(() => {
 // servidor.
 respaldo.programar(db, Database);
 
+// ─── ERRORES QUE NO SE ATRAPARON ─────────────────────────────
+// Un cuerpo JSON malformado —o cualquier throw en un handler— devolvía la
+// página de error de Express: el stack entero, con las rutas absolutas del
+// servidor y las versiones. Express sólo lo esconde con NODE_ENV=production,
+// que este deploy no usa (el criterio de producción es MODO). Acá se
+// contesta JSON corto y se anota el resto en el log. Va al final, después de
+// todas las rutas, que es donde Express busca los manejadores de error.
+// Ver REVISION-2026-09-08.md, S3.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'Cuerpo demasiado grande' });
+  if (err && (err.type === 'entity.parse.failed' || err.type === 'entity.verify.failed' || err.status === 400)) {
+    return res.status(400).json({ error: 'Cuerpo inválido: se espera JSON' });
+  }
+  console.error(`Error no atrapado en ${req.method} ${req.path}: ${err && err.stack || err}`);
+  res.status(500).json({ error: 'Error interno' });
+});
+
+// Y la red de última: lo que se escape de todo lo anterior queda en el log
+// en vez de apagar el servidor de la cooperativa. No es una licencia para
+// dejar errores sueltos —cada uno que aparezca acá es un bug por arreglar—,
+// es que un bug en un rincón no puede costar el mapa de todos.
+process.on('uncaughtException', (e) => {
+  console.error(`EXCEPCIÓN NO ATRAPADA (el servidor sigue): ${e && e.stack || e}`);
+});
+process.on('unhandledRejection', (e) => {
+  console.error(`PROMESA RECHAZADA SIN ATRAPAR (el servidor sigue): ${e && e.stack || e}`);
+});
+
 // ─── ARRANCAR ────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
+// La excepción a la red de arriba: si no se puede escuchar (puerto tomado),
+// no hay servidor que salvar. Antes esto mataba el proceso por ser una
+// excepción no atrapada; ahora hay que decirlo explícitamente, porque un
+// proceso vivo que no escucha es peor que uno caído que Railway relanza.
+server.on('error', (e) => {
+  console.error(`No se puede escuchar en el puerto ${PORT}: ${e && e.message}`);
+  process.exit(1);
+});
+// `ws` reenvía el 'error' del servidor HTTP a `wss`, y lo hace ANTES de que
+// corra el listener de arriba (se registró primero). Sin nadie escuchando en
+// `wss`, ese reenvío revienta y el de arriba no llega a correr. Medido: con
+// el puerto tomado, el proceso quedaba vivo sin escuchar.
+wss.on('error', () => {});
 server.listen(PORT, () => {
   console.log(`Servidor de control de flota corriendo en puerto ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/ping`);
