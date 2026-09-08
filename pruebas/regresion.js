@@ -17,7 +17,7 @@ const PROPIAS = ['variantes', 'brecha', 'creador', 'gerencia', 'cliente', 'senal
                  'trazador', 'ausencia', 'hud', 'chat', 'cola', 'margenes', 'gestos', 'imagen', 'tema', 'contraste', 'mapa', 'teclado', 'nativas',
                  'vendor', 'retencion', 'tiles', 'renovacion', 'cascada', 'mapa-shot', 'compresion', 'sos', 'perfil', 'grabador',
                  'cobradores', 'metidos', 'puertas', 'periodo', 'panel-periodo', 'avisos',
-                 'rotacion', 'poda', 'emision', 'envio', 'pedido', 'parada', 'trafico', 'csv', 'reloj', 'cadena'];
+                 'rotacion', 'poda', 'emision', 'envio', 'pedido', 'parada', 'trafico', 'csv', 'reloj', 'cadena', 'paneles'];
 
 const correr = (suite, env) => new Promise((resolve) => {
   let salida = '';

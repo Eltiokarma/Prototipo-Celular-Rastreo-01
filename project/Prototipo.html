@@ -2591,7 +2591,11 @@ function Root() {
     // minutos del olvido. La declaración va ANTES de cortar el socket.
     declararPresencia('fuera');
     try { localStorage.removeItem('r14_session'); } catch {}
-    if (window.RealtimeClient) window.RealtimeClient.disconnect();
+    if (window.RealtimeClient) {
+      // El token deja de valer en el servidor, no sólo en este navegador
+      if (window.RealtimeClient.logout) window.RealtimeClient.logout();
+      window.RealtimeClient.disconnect();
+    }
     setUser(null);
     setScreen('login');
   };
