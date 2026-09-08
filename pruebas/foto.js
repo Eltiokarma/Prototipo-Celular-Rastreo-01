@@ -150,6 +150,20 @@ async function hasta(cond, ms = 6000) {
     ok('y nada, también', c08.mandarFoto({ data: null }) === 'formato');
     await sleep(400);
     ok('nada de eso llegó a nadie', recibidas12.length === antes);
+
+    // Y el servidor mira el FORMATO, no sólo el prefijo (revisión del 8/9,
+    // P8): `data:image` dejaba pasar un SVG, que no es una foto de nadie.
+    const crudo = new WebSocket(`ws://localhost:${P}`);
+    await new Promise(res => crudo.on('open', res));
+    crudo.send(JSON.stringify({ type: 'identify', token: s08.token }));
+    await sleep(400);
+    crudo.send(JSON.stringify({ type: 'photo', data: 'data:image/svg+xml;base64,' + 'A'.repeat(400), timestamp: Date.now() }));
+    crudo.send(JSON.stringify({ type: 'photo', data: 'data:image/jpeg,' + 'A'.repeat(400), timestamp: Date.now() }));   // sin base64
+    await sleep(700);
+    ok('un SVG mandado por un cliente crudo tampoco entra', recibidas12.length === antes, recibidas12.length - antes);
+    crudo.send(JSON.stringify({ type: 'photo', data: 'data:image/webp;base64,' + 'A'.repeat(400), timestamp: Date.now() }));
+    ok('pero un WebP sí: la lista blanca no rechaza de más', await hasta(() => recibidas12.length === antes + 1));
+    crudo.close();
   }
 
   console.log('\nLAS VIEJAS SUELTAN LA IMAGEN, LOS AUDIOS NO SE VAN CON ELLAS');

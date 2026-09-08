@@ -1,0 +1,100 @@
+// Los paneles web, por lectura: lo que salió de la revisión del 8/9
+// (REVISION-2026-09-08.md, P1–P7) y no se ve usándolos, sólo leyéndolos.
+//
+// Son comprobaciones sobre el código fuente —como `vendor` y `tiles` con el
+// service worker—: no hay navegador acá. Lo que se defiende es que nadie
+// "simplifique" una de estas líneas sin que una suite lo diga.
+const RAIZ = require('path').join(__dirname, '..');
+const fs = require('fs');
+const leer = (f) => fs.readFileSync(RAIZ + '/' + f, 'utf8');
+
+let fallas = 0;
+const ok = (n, c, e) => {
+  if (c !== true) fallas++;
+  console.log((c === true ? '  ok   ' : '  FALLA') + '  ' + n + (e !== undefined ? '  → ' + JSON.stringify(e) : ''));
+};
+
+const sw = leer('project/service-worker.js');
+const despacho = leer('project/despacho.html');
+const creador = leer('server/creador.html');
+const prototipo = leer('project/Prototipo.html');
+const realtime = leer('project/realtime.js');
+
+console.log('\nP1. EL SERVICE WORKER NO GUARDA LO QUE ES DE ALGUIEN');
+{
+  // El orden importa: la regla de la credencial va ANTES de cualquier caché
+  const iFetch = sw.indexOf("addEventListener('fetch'");
+  const iAuth = sw.indexOf("req.headers.has('authorization')");
+  const iTile = sw.indexOf('ES_TILE.test(url)');
+  ok('toda petición con Authorization va a la red', iAuth > iFetch && iFetch > 0);
+  ok('y se decide antes que las tiles y las librerías', iAuth < iTile);
+  for (const ruta of ['marca', 'gerencia', 'perfil', 'grabacion', 'informe', 'creador']) {
+    ok(`/${ruta} está en NUNCA_CACHEAR`, new RegExp('NUNCA_CACHEAR = \\[[\\s\\S]*?\\\\/' + ruta + '[\\s\\S]*?\\];').test(sw));
+  }
+  ok('/auth/ y /admin/ siguen ahí', /\/\\\/auth\\\/\//.test(sw) && /\/\\\/admin\\\/\//.test(sw));
+  const v = (sw.match(/CACHE_NAME = 'coop-r14-v(\d+)'/) || [])[1];
+  ok('CACHE_NAME subió (v54 o más)', Number(v) >= 54, v);
+}
+
+console.log('\nP2. BABEL CON INTEGRITY EN LOS TRES');
+{
+  const hash = (prototipo.match(/babel\.min\.js" integrity="(sha384-[^"]+)"/) || [])[1];
+  ok('Prototipo.html lo tiene', !!hash, hash);
+  for (const [n, h] of [['despacho.html', despacho], ['creador.html', creador]]) {
+    const tag = (h.match(/<script src="https:\/\/unpkg\.com\/@babel\/standalone@[^"]+"[^>]*>/) || [])[0] || '';
+    ok(`${n} lleva el mismo hash`, !!hash && tag.includes(`integrity="${hash}"`), tag.slice(0, 90));
+    ok(`${n} con crossorigin`, /crossorigin="anonymous"/.test(tag));
+  }
+  ok('y React/ReactDOM siguen con el suyo en Despacho',
+     (despacho.match(/react(-dom)?@18\.3\.1[^>]*integrity="sha384-/g) || []).length === 2);
+}
+
+console.log('\nP3. EL GERENTE NO PIERDE LA SESIÓN AL RECARGAR');
+{
+  const m = despacho.match(/localStorage\.getItem\('r14_dispatch_session'\)[\s\S]{0,400}?return ([^\n]+);/);
+  const linea = m ? m[1] : '';
+  ok('la sesión guardada vale para dispatch Y manager',
+     /role === 'dispatch'/.test(linea) && /role === 'manager'/.test(linea), linea);
+}
+
+console.log('\nP4. AL RECONECTAR SE VUELVE A LA RUTA QUE SE MIRABA');
+{
+  const onopen = (despacho.match(/ws\.onopen = \(\) => \{([\s\S]*?)\};/) || [])[1] || '';
+  ok('onopen manda identify', /type: 'identify'/.test(onopen));
+  ok('y vuelve a pedir la ruta mirada', /type: 'watch'/.test(onopen) && /rutaMiradaRef/.test(onopen), onopen.trim().slice(0, 160));
+  ok('cambiarRuta la recuerda', /rutaMiradaRef\.current = routeId;/.test(despacho));
+}
+
+console.log('\nP5. SALIR REVOCA EL TOKEN EN EL SERVIDOR');
+{
+  const logout = (despacho.match(/const logout = \(\) => \{([\s\S]*?)\n  \};/) || [])[1] || '';
+  ok('Despacho llama a POST /auth/logout', /\/auth\/logout/.test(logout) && /method: 'POST'/.test(logout));
+  ok('con el token de la sesión', /Authorization: 'Bearer ' \+ session\.token/.test(logout));
+  ok('y borra lo local igual', /removeItem\('r14_dispatch_session'\)/.test(logout));
+  ok('la app web del chofer también (realtime.js)', /function logout\(\)[\s\S]*?\/auth\/logout/.test(realtime) && /\n    logout,\n/.test(realtime));
+  ok('y la llama al salir', /RealtimeClient\.logout\(\)/.test(prototipo));
+}
+
+console.log('\nP6. «N EN RUTA» CUENTA LA CADENA, NO TODO LO QUE SE VE');
+{
+  ok('el panel guarda los conteos del servidor',
+     /enRuta: msg\.totalOnRoute/.test(despacho) && /sinSenal: msg\.sinSenal/.test(despacho) &&
+     /yendo: msg\.yendo/.test(despacho) && /ausentes: msg\.ausentes/.test(despacho));
+  ok('y la cabecera los usa', /routeInfo\.enRuta \?\? units\.length/.test(despacho) && /SIN SEÑAL`/.test(despacho) && /YENDO`/.test(despacho));
+  ok('con `units.length` sólo de respaldo para un servidor viejo', !/`EN VIVO · \$\{units\.length\} EN RUTA`/.test(despacho));
+}
+
+console.log('\nP7. LOS TIEMPOS RELATIVOS CORREN AUNQUE CAIGA EL SOCKET');
+{
+  ok('hay un reloj de 1 s en el panel', /setInterval\(\(\) => setAhora\(Date\.now\(\)\), 1000\)/.test(despacho));
+  const iLista = despacho.indexOf('{units.map(u => {');
+  const lista = despacho.slice(iLista, iLista + 20_000);   // la tarjeta de cada unidad
+  ok('la lista existe', iLista > 0);
+  ok('la lista de unidades no llama Date.now() en el render', !/Date\.now\(\)/.test(lista));
+  ok('«EN TRÁFICO · N MIN» y «OÍDO HACE N S» usan el reloj', /ahora - \(u\.trafico \? u\.traficoDesde/.test(lista) && /ahora - u\.oidoEn/.test(lista));
+  ok('y la lista se atenúa sin conexión', /opacity: connected \? 1 : 0\.55/.test(despacho));
+  ok('el reloj atrasado del teléfono se dice', /EL RELOJ DEL TELÉFONO ATRASA/.test(lista) && /relojAtrasadoS >= 30/.test(lista));
+}
+
+console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
+process.exit(fallas ? 1 : 0);

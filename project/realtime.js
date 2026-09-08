@@ -145,6 +145,18 @@
     };
   }
 
+  // Cerrar sesión de verdad: revoca el token en el servidor (P5 de la
+  // revisión del 8/9). Sin red, no importa: lo local se borra igual.
+  function logout() {
+    if (!authToken) return;
+    try {
+      fetch(HTTP_URL + '/auth/logout', {
+        method: 'POST', keepalive: true,
+        headers: { Authorization: 'Bearer ' + authToken },
+      }).catch(() => {});
+    } catch {}
+  }
+
   function disconnect() {
     clearTimeout(reconnectTimeout);
     stopGps();
@@ -360,6 +372,7 @@
     login,
     connect,
     disconnect,
+    logout,
     sendChat,
     sendVoice,
     sendSos,

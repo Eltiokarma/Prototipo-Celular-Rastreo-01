@@ -69,7 +69,7 @@ if (typeof L === 'undefined') {
 <!-- Producción, no desarrollo: react-dom pasa de 1054 kB a 128. -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
 <script type="text/babel" data-presets="react">
 
@@ -2976,7 +2976,20 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // el estado se acaba de pisar unas líneas más arriba: ver el comentario
   // del cierre de la conversación privada, abajo.
   const rutaPreviaRef = React.useRef(session.routeId || null);
+  // La ruta que el supervisor ELIGIÓ mirar. El servidor arranca cada
+  // conexión en la primera ruta y no recuerda el `watch`: tras un corte de
+  // 3 s mirando R-20 se volvía en silencio a R-14, y lo que se escribía iba
+  // al grupo equivocado (P4). Al reconectar se la vuelve a pedir.
+  const rutaMiradaRef = React.useRef(null);
   const esSupervisor = !!session.supervisor;
+  // Un reloj de 1 s para los tiempos relativos de la lista («EN TRÁFICO ·
+  // N MIN», «OÍDO HACE N S»): se calculaban en el render y quedaban
+  // congelados cuando caía el WebSocket (P7).
+  const [ahora, setAhora] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const t = setInterval(() => setAhora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   // Avisos del nivel de arriba (la administración del sistema): banner
   // persistente hasta que alguien de la cooperativa lo marque visto. Se
@@ -3095,6 +3108,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       ws.onopen = () => {
         setConnected(true);
         ws.send(JSON.stringify({ type: 'identify', token: session.token }));
+        // Y la ruta que se estaba mirando, si se eligió una
+        if (rutaMiradaRef.current) ws.send(JSON.stringify({ type: 'watch', routeId: rutaMiradaRef.current }));
       };
       ws.onmessage = (ev) => {
         let msg;
@@ -3122,6 +3137,13 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             // Cuántas combis tiene la ruta dadas de alta: el denominador
             // del "N de M" de la cabecera de la lista.
             flota: msg.flota ?? null,
+            // Los conteos del servidor: la cadena (con las que perdieron
+            // señal), cuántas de ésas están calladas, cuántas van yendo y
+            // cuántas ausentes. `units.length` contaba todo junto (P6).
+            enRuta: msg.totalOnRoute ?? null,
+            sinSenal: msg.sinSenal ?? 0,
+            yendo: msg.yendo ?? 0,
+            ausentes: msg.ausentes ?? 0,
           });
           fittedRef.current = false; // reencuadrar el mapa al cambiar de ruta
         } else if (msg.type === 'routes') {
@@ -3301,6 +3323,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     setUnits([]); setGaps({}); setMessages([]);
+    rutaMiradaRef.current = routeId;
     ws.send(JSON.stringify({ type: 'watch', routeId }));
   };
 
@@ -3403,7 +3426,20 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             color: connected ? HUD.verdeTinta : HUD.ambarTinta2,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
-            {connected ? (isMobile ? `${units.length} EN RUTA` : `EN VIVO · ${units.length} EN RUTA`) : 'RECONECTANDO…'}
+            {connected ? (() => {
+              // «N EN RUTA» es la cadena, no todo lo que se ve: las que van
+              // yendo y las ausentes no están trabajando la ruta, y las sin
+              // señal sí pero calladas. Cada cosa con su nombre.
+              const enRuta = routeInfo.enRuta ?? units.length;
+              const extras = [
+                routeInfo.sinSenal ? `${routeInfo.sinSenal} SIN SEÑAL` : null,
+                routeInfo.yendo ? `${routeInfo.yendo} YENDO` : null,
+                routeInfo.ausentes ? `${routeInfo.ausentes} AUSENTE${routeInfo.ausentes > 1 ? 'S' : ''}` : null,
+              ].filter(Boolean);
+              const base = `${enRuta} EN RUTA`;
+              if (isMobile) return base;
+              return ['EN VIVO', base, ...extras].join(' · ');
+            })() : 'RECONECTANDO…'}
           </span>
         </span>
 
@@ -3514,6 +3550,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         {/* unidades */}
         <div style={{
           overflowY: 'auto', minHeight: 0, background: HUD.surface,
+          // Sin conexión, lo que se ve es la última foto: se atenúa para
+          // que no se lea como el presente (P7). La cabecera ya dice
+          // «RECONECTANDO…»; esto es para el que mira la lista y no arriba.
+          opacity: connected ? 1 : 0.55,
+          transition: 'opacity .4s',
           ...(isMobile
             ? { flex: 1, display: view === 'units' ? 'block' : 'none' }
             : { borderRight: `1px solid ${HUD.divider}` }),
@@ -3682,7 +3723,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                       fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
                       color: HUD.amber, marginTop: 8,
                     }}>{u.trafico ? 'EN TRÁFICO' : 'PARADA'} · {
-                      Math.max(0, Math.round((Date.now() - (u.trafico ? u.traficoDesde : u.paradoDesde)) / 60000))
+                      Math.max(0, Math.round((ahora - (u.trafico ? u.traficoDesde : u.paradoDesde)) / 60000))
                     } MIN{u.trafico ? ' · AVISÓ EL CHOFER' : ''}</div>
                 )}
                 {/* Dejó de reportar. La posición que se ve en el mapa es la
@@ -3707,9 +3748,22 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                   <div style={{
                     fontFamily: mono, fontSize: 10, letterSpacing: .6,
                     color: HUD.amber, marginTop: 4,
-                  }}>{Date.now() - u.oidoEn <= 60_000
-                        ? `EL TELÉFONO SIGUE MANDANDO · OÍDO HACE ${Math.round((Date.now() - u.oidoEn) / 1000)} S`
-                        : `SIN NOTICIAS DEL TELÉFONO HACE ${Math.round((Date.now() - u.oidoEn) / 1000)} S`}</div>
+                  }}>{ahora - u.oidoEn <= 60_000
+                        ? `EL TELÉFONO SIGUE MANDANDO · OÍDO HACE ${Math.max(0, Math.round((ahora - u.oidoEn) / 1000))} S`
+                        : `SIN NOTICIAS DEL TELÉFONO HACE ${Math.max(0, Math.round((ahora - u.oidoEn) / 1000))} S`}</div>
+                )}
+                {/* El reloj del teléfono atrasado (lo estima el servidor,
+                    ver server/reloj.js). Sus posiciones vienen con esa hora
+                    y el servidor ya lo descuenta; acá se dice para que nadie
+                    lea «de hace 2 min» donde es de ahora, y para que alguien
+                    le arregle la hora al celular. */}
+                {u.relojAtrasadoS >= 30 && (
+                  <div title="El teléfono manda sus posiciones con la hora atrasada; el servidor lo descuenta"
+                    style={{
+                      fontFamily: mono, fontSize: 10, letterSpacing: .6,
+                      color: HUD.dim2, marginTop: 4,
+                    }}>EL RELOJ DEL TELÉFONO ATRASA {u.relojAtrasadoS >= 120
+                      ? `${Math.round(u.relojAtrasadoS / 60)} MIN` : `${u.relojAtrasadoS} S`}</div>
                 )}
                 {/* La presencia declarada desde la app. AUSENTE: comiendo o
                     en un repuesto — fuera de la cadena, a la vista. YENDO:
@@ -3838,12 +3892,26 @@ function Root() {
   const [session, setSession] = React.useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('r14_dispatch_session') || 'null');
-      return s?.token && s?.role === 'dispatch' ? s : null;
+      // El gerente entra por este mismo panel: su sesión guardada vale
+      // igual que la de Despacho. Antes, F5 lo mandaba al ingreso con el
+      // token intacto en localStorage (REVISION-2026-09-08.md, P3).
+      return s?.token && (s?.role === 'dispatch' || s?.role === 'manager') ? s : null;
     } catch { return null; }
   });
   const [notice, setNotice] = React.useState(null);
 
   const logout = () => {
+    // Salir revoca el token EN EL SERVIDOR (P5): sin esto, un token copiado
+    // de esta PC seguía valiendo los 30 días de la sesión. Si no hay red no
+    // importa: lo local se borra igual.
+    try {
+      if (session?.token) {
+        fetch(HTTP_URL + '/auth/logout', {
+          method: 'POST', keepalive: true,
+          headers: { Authorization: 'Bearer ' + session.token },
+        }).catch(() => {});
+      }
+    } catch {}
     try { localStorage.removeItem('r14_dispatch_session'); } catch {}
     setSession(null);
     setNotice(null);

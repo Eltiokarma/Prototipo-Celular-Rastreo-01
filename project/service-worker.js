@@ -6,7 +6,7 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v53';       // app: HTML, JS propio, iconos
+const CACHE_NAME = 'coop-r14-v54';       // app: HTML, JS propio, iconos
 // tiles-v2: las tiles ahora vienen de Geoapify — las de CARTO guardadas con
 // la v1 tienen URLs que ya nadie pide y solo ocupan los ~15 MB del tope.
 const TILE_CACHE = 'coop-r14-tiles-v2';  // tiles del mapa
@@ -34,6 +34,18 @@ const NUNCA_CACHEAR = [
   // El índice de zonas del mapa propio: si quedara congelado acá, una
   // ciudad nueva no aparecería hasta la próxima versión de la app.
   /\/tiles\/zonas\.json$/,
+  // Lo que depende de QUIÉN pregunta (REVISION-2026-09-08.md, P1): la marca
+  // de la cooperativa —en una PC compartida, la B recibía el logo de la A—,
+  // los números del gerente, el perfil del chofer, las grabaciones, los
+  // informes y el panel del creador con sus respaldos. Nada de esto se
+  // guarda, y de todos modos lo que viaja con token va a la red (abajo).
+  /\/marca(\/|$|\?)/,
+  /\/gerencia\//,
+  /\/perfil(\/|$|\?)/,
+  /\/grabacion/,
+  /\/informe/,
+  /\/creador/,
+  /\/(gps|presencia|trafico|sos|estado)(\/|$|\?)/,
 ];
 
 // La URL de una tile lleva la clave (?apiKey=...) y entra en la clave del
@@ -162,6 +174,13 @@ self.addEventListener('fetch', (event) => {
 
   // Solo GET: los POST (login, chat) siempre van a la red
   if (req.method !== 'GET') return;
+
+  // Lo que viaja con credencial es de ESA persona y de ESE momento: nunca
+  // se guarda ni se sirve de la caché, que la ignora al buscar (`cache.match`
+  // no mira `Authorization`). Antes quedaban guardados el logo, los números
+  // del gerente, los CSV y hasta la descarga de la base del creador, pese al
+  // `no-store` del servidor. Ver REVISION-2026-09-08.md, P1.
+  if (req.headers.has('authorization')) return;
 
   // API y configuración: siempre a la red, nunca caché
   if (NUNCA_CACHEAR.some((re) => re.test(url))) return;

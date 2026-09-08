@@ -6094,8 +6094,17 @@ wss.on('connection', (ws) => {
 const MAX_AUDIO = 2_000_000;
 const MAX_IMAGEN = 1_200_000;
 
+// Y el FORMATO, no sólo el prefijo: `data:image` dejaba pasar un SVG, que
+// en un <img> no ejecuta nada pero tampoco es una foto de nadie. Lo que
+// mandan las apps: JPEG (la nativa y la web), PNG/WebP por si acaso; audio
+// MP4/M4A y 3GPP (la nativa, expo-av), WebM y OGG (la web, MediaRecorder).
+// Ver REVISION-2026-09-08.md, P8.
+const FORMATOS_DE_MEDIO = {
+  'data:image': /^data:image\/(jpeg|jpg|png|webp);base64,/i,
+  'data:audio': /^data:audio\/(mp4|m4a|x-m4a|aac|mpeg|mp3|3gpp|3gpp2|webm|ogg|wav|x-wav);(codecs=[^;,]+;)?base64,/i,
+};
 const medioValido = (data, prefijo, tope) =>
-  (typeof data === 'string' && data.startsWith(prefijo) && data.length <= tope) ? data : null;
+  (typeof data === 'string' && data.length <= tope && FORMATOS_DE_MEDIO[prefijo].test(data)) ? data : null;
 
 // A quién va este mensaje, si es que va a alguien en particular.
 //
