@@ -25,7 +25,7 @@ import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
 import { crearVigia } from '../ausencia.js';
-import { crearVigiaDeEnvio, mezclarCola } from '../envio.js';
+import { crearVigiaDeEnvio, mezclarCola, filtrarEntregadas } from '../envio.js';
 import { crearPedidor } from '../pedido.js';
 import { notificarBrecha, notificarGrabacionPedida, limpiarNotificacion } from '../notificacion.js';
 import { crearGrabador } from '../grabador.js';
@@ -155,9 +155,15 @@ function anotarFallo(motivo, posiciones) {
 // código que Android vuelve a cargar cuando revive la tarea, aunque no haya
 // ni una pantalla montada. Y el token se lee del disco, no de una variable,
 // porque la memoria del proceso anterior ya no está.
+// Hasta qué hora ya se entregó. expo-task-manager repite posiciones (funde
+// cada tanda nueva en el job que todavía no terminó, y lo relanza con todo):
+// medido, los envíos crecían 2, 3, 4… 12 con una sola posición nueva. Se
+// filtra acá, en la puerta; ver `filtrarEntregadas` en app/envio.js.
+let ultimaEntregada = -Infinity;
+
 TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
   if (error || !data?.locations?.length) return;
-  const posiciones = data.locations.map(l => ({
+  const crudas = data.locations.map(l => ({
     lat: l.coords.latitude,
     lng: l.coords.longitude,
     // El GPS da m/s y el resto del sistema habla km/h. Puede venir null
@@ -165,6 +171,10 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
     speed: Math.max(0, Math.round((l.coords.speed || 0) * 3.6)),
     timestamp: l.timestamp,
   }));
+  const filtradas = filtrarEntregadas(crudas, ultimaEntregada);
+  ultimaEntregada = filtradas.ultimaEntregada;
+  const posiciones = filtradas.nuevas;
+  if (!posiciones.length) return;
 
   for (const p of posiciones) alRecibir?.(p);   // solo para la pantalla
   // El grabador de recorridos come de las MISMAS posiciones que se mandan:

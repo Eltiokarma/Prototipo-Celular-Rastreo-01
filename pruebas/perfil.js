@@ -74,7 +74,13 @@ const dias = n => Date.now() - n * 86400_000;
       durationSec, avgSpeed, brechaProm, objetivoSec) VALUES (?, 'R-14', ?, ?, 3000, 22, ?, ?)`);
     vuelta.run('M-01', dias(1), dias(1), 120, 120);       // clavada en el objetivo
     vuelta.run('M-01', dias(1), dias(1) + 1, 300, 120);   // muy afuera (150 %)
-    vuelta.run('M-01', Date.now() - 3600e3, Date.now() - 3600e3, null, null); // hoy, sin vara
+    // "Hoy" para el servidor arranca a la medianoche LOCAL (setHours(0)).
+    // Una hora atrás, corrido en la primera hora del día, cae en AYER y la
+    // suite fallaba de madrugada sin que nada estuviera roto: la vuelta de
+    // hoy se clava después de la medianoche de hoy, pase la hora que pase.
+    const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+    const hoyHace1h = Math.max(Date.now() - 3600e3, hoy0.getTime() + 60e3);
+    vuelta.run('M-01', hoyHace1h, hoyHace1h, null, null); // hoy, sin vara
     vuelta.run('M-01', dias(30), dias(30), 120, 120);     // vieja: fuera de los 7 días
     vuelta.run('M-02', dias(1), dias(1), 120, 120);       // ajena: de otra combi
     const turno = b.prepare(`INSERT INTO shifts (personId, vehicleId, routeId, role,

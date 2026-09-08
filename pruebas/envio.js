@@ -8,7 +8,7 @@
 // propia tarea del GPS, que sí dispara con la pantalla apagada.
 const RAIZ = require('path').join(__dirname, '..');
 const fs = require('fs');
-const { crearVigiaDeEnvio, mezclarCola, CORTE_MS } = require(RAIZ + '/app/envio.js');
+const { crearVigiaDeEnvio, mezclarCola, filtrarEntregadas, CORTE_MS } = require(RAIZ + '/app/envio.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -132,6 +132,34 @@ console.log('\nLA COLA SE MEZCLA POR HORA Y TIRA LAS VIEJAS, NUNCA LAS NUEVAS');
   ok('queda ordenada por hora', cola.every((p, i) => i === 0 || p.timestamp >= cola[i - 1].timestamp));
   ok('sin tope no recorta', mezclarCola(tanda(3), tanda(2), 0).length === 5);
   ok('con lugar de sobra, entra todo', mezclarCola(tanda(3), [pos(10)], 150).length === 4);
+}
+
+console.log('\nLO QUE LA TAREA YA ENTREGÓ NO SE ENTREGA DOS VECES');
+{
+  // Lo que hace expo-task-manager, medido: el job pendiente se relanza con
+  // todo lo acumulado, así que la tarea recibe [a], [a,b], [a,b,c]…
+  let ultima = -Infinity;
+  let r = filtrarEntregadas([pos(0)], ultima); ultima = r.ultimaEntregada;
+  ok('la primera pasa entera', r.nuevas.length === 1 && ultima === 1000);
+  r = filtrarEntregadas([pos(0), pos(1)], ultima); ultima = r.ultimaEntregada;
+  ok('de [a,b] sólo pasa b', r.nuevas.length === 1 && r.nuevas[0].timestamp === 1001);
+  r = filtrarEntregadas([pos(0), pos(1), pos(2)], ultima); ultima = r.ultimaEntregada;
+  ok('de [a,b,c] sólo pasa c', r.nuevas.length === 1 && r.nuevas[0].timestamp === 1002 && ultima === 1002);
+  r = filtrarEntregadas([pos(2)], ultima);
+  ok('la misma otra vez no pasa, y la marca no retrocede', r.nuevas.length === 0 && r.ultimaEntregada === 1002);
+  r = filtrarEntregadas([pos(5), pos(3), pos(4)], ultima);
+  ok('varias nuevas pasan ordenadas por hora',
+     r.nuevas.map(p => p.timestamp).join(',') === '1003,1004,1005' && r.ultimaEntregada === 1005);
+  r = filtrarEntregadas([{ lat: 0, lng: 0 }, pos(9)], 1005);
+  ok('una posición sin hora no pasa ni rompe', r.nuevas.length === 1 && r.nuevas[0].timestamp === 1009);
+  ok('sin marca previa pasa todo', filtrarEntregadas([pos(0), pos(1)]).nuevas.length === 2);
+
+  // Y la tarea la usa en la puerta, antes de la pantalla, el grabador y el envío
+  const servicio = fs.readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
+  const tarea = (servicio.match(/TaskManager\.defineTask\([\s\S]*?\n\}\);/) || [''])[0];
+  ok('la tarea filtra lo ya entregado antes de repartir',
+     /filtrarEntregadas\(crudas, ultimaEntregada\)/.test(tarea) &&
+     tarea.indexOf('filtrarEntregadas') < tarea.indexOf('alRecibir'));
 }
 
 console.log('\nEL RELOJ ES LA TAREA DEL GPS, NO UN TIMER');
