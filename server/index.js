@@ -14,6 +14,7 @@ const marca = require('./marca');
 const respaldo = require('./respaldo');
 // Las llaves de arranque y la lista de las que ya no son secretas.
 const claves = require('./claves');
+const { crearEstimadorDeReloj } = require('./reloj');
 
 const app = express();
 // La versión del framework no le sirve a nadie que no esté buscando por
@@ -1287,30 +1288,32 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_deviations_ruta ON deviations (routeId, 
 const desvios = new Map();
 
 // Abre la fila del episodio y devuelve su id, para poder cerrarla después.
-function abrirDesvio(vehicleId, routeId, maxM, umbralM, silenciado) {
+function abrirDesvio(vehicleId, routeId, maxM, umbralM, silenciado, cuando = Date.now()) {
   return db.prepare(
     'INSERT INTO deviations (vehicleId, routeId, startedAt, maxM, umbralM, silenciado) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(vehicleId, routeId, Date.now(), Math.round(maxM), umbralM, silenciado ? 1 : 0).lastInsertRowid;
+  ).run(vehicleId, routeId, cuando, Math.round(maxM), umbralM, silenciado ? 1 : 0).lastInsertRowid;
 }
 
 // Cierra el episodio. `cierre` dice POR QUÉ dejó de estar abierto, que no es
 // lo mismo en los tres casos: volvió al trazado, se quedó sin señal (o terminó
 // el turno) mientras seguía afuera, o le cambiaron el trazado abajo — en ese
 // último ni siquiera se puede afirmar que estuviera fuera de algo.
-function cerrarDesvio(estado, cierre) {
+// `cuando` es la hora con la que se cierra: la de la posición que lo trajo de
+// vuelta, o la última conocida cuando se lo pierde. Nunca antes de abrirlo.
+function cerrarDesvio(estado, cierre, cuando = Date.now()) {
   if (!estado || !estado.id) return;
-  const ahora = Date.now();
+  const fin = Math.max(cuando, estado.desde || 0);
   db.prepare('UPDATE deviations SET endedAt = ?, durationSec = ?, maxM = ?, cierre = ? WHERE id = ?')
-    .run(ahora, Math.max(0, Math.round((ahora - estado.desde) / 1000)), estado.maxM, cierre, estado.id);
+    .run(fin, Math.max(0, Math.round((fin - estado.desde) / 1000)), estado.maxM, cierre, estado.id);
   estado.id = null;
 }
 
 // Todo camino por el que una unidad deja de ser evaluada tiene que cerrar su
 // desvío abierto: si no, la fila queda creciendo y el informe del mes dice que
 // una combi estuvo fuera de ruta cuatro días.
-function olvidarDesvio(vehicleId, cierre) {
+function olvidarDesvio(vehicleId, cierre, cuando = Date.now()) {
   const e = desvios.get(vehicleId);
-  if (e && e.fuera) cerrarDesvio(e, cierre);
+  if (e && e.fuera) cerrarDesvio(e, cierre, cuando);
   desvios.delete(vehicleId);
 }
 
@@ -1474,13 +1477,23 @@ function fijarTrafico(vehicleId, routeId, companyId, activo) {
   scheduleStateBroadcast(ruta);
 }
 
-function evaluarDesvio(vehicleId, routeId, desvioM) {
+// `cuando` es la hora de la POSICIÓN, no la de llegada: vueltas, tramos y
+// paradas ya se fechan así, y el desvío se fechaba con `Date.now()`. Un
+// atraso vaciado de golpe abría y cerraba el episodio en el mismo milisegundo,
+// con duración 0 y la hora equivocada (REVISION-2026-09-08.md, L4).
+//
+// `activo` dice si la unidad está en la cadena (confirmada en ruta, no
+// ausente), igual que en `evaluarParada`. Sin esto se evaluaba a todas: el que
+// marcaba «en ruta» desde su casa a 4 km del trazado quedaba como salida de
+// ruta en la auditoría, en `deviations`, en el chip de Despacho y en el
+// informe; y el ausente que iba por un repuesto, igual (L3).
+function evaluarDesvio(vehicleId, routeId, desvioM, cuando = Date.now(), activo = true) {
   const ruta = routeOf(routeId);
-  // Sin geometría no hay nada que comparar
-  if (desvioM === null || desvioM === undefined || !ruta) {
+  // Sin geometría no hay nada que comparar; fuera de la cadena, nada que juzgar
+  if (desvioM === null || desvioM === undefined || !ruta || !activo) {
     // Se quedó sin con qué compararse. Si venía afuera, el episodio se cierra
     // acá: dejar la fila abierta la haría crecer hasta el fin de los tiempos.
-    olvidarDesvio(vehicleId, 'corte');
+    olvidarDesvio(vehicleId, 'corte', cuando);
     return null;
   }
   const umbral = ruta.desvioMaxM || DESVIO_DEFECTO_M;
@@ -1496,12 +1509,12 @@ function evaluarDesvio(vehicleId, routeId, desvioM) {
     e.maxM = Math.max(e.maxM, Math.round(desvioM));
     if (!e.fuera && e.seguidasFuera >= DESVIO_MUESTRAS) {
       e.fuera = true;
-      e.desde = Date.now();
+      e.desde = cuando;
       const mudo = ruta.desvioMudoHasta && ruta.desvioMudoHasta > Date.now();
       // Se guarda TAMBIÉN el silenciado. Silenciar es "ya lo sé, no me avises
       // más", no "esto no pasó": si no quedara registrado, la forma de que un
       // desvío no aparezca en el informe sería apretar el botón de silencio.
-      e.id = abrirDesvio(vehicleId, routeId, e.maxM, umbral, mudo);
+      e.id = abrirDesvio(vehicleId, routeId, e.maxM, umbral, mudo, cuando);
       e.maxGuardado = e.maxM;
       if (!mudo) {
         console.log(`Fuera de ruta: ${vehicleId} a ${Math.round(desvioM)} m del trazado`);
@@ -1520,9 +1533,9 @@ function evaluarDesvio(vehicleId, routeId, desvioM) {
     e.seguidasDentro++;
     e.seguidasFuera = 0;
     if (e.fuera && e.seguidasDentro >= REGRESO_MUESTRAS) {
-      const minutos = Math.round((Date.now() - e.desde) / 60000);
+      const minutos = Math.round((cuando - e.desde) / 60000);
       console.log(`De vuelta en ruta: ${vehicleId} (estuvo ${minutos} min fuera)`);
-      cerrarDesvio(e, 'regreso');
+      cerrarDesvio(e, 'regreso', cuando);
       e.fuera = false;
       e.desde = null;
       e.maxM = 0;
@@ -1735,6 +1748,19 @@ const VUELTA_DESDE_INICIO = 0.15;
 // y el caro es marcar una falsa. Más allá de eso ya no es un corte, es otro
 // turno, y ahí la entrada vuelve a ser una entrada.
 const REANUDA_MS = Number(process.env.REANUDA_MS || 2 * 3600_000);
+
+// Y el reinicio del servidor, que es la otra forma de perder la memoria. Las
+// presencias viven en memoria: tras un deploy, el primer `POST /gps` de cada
+// combi (que trae `presencia: 'ruta'`) la confirma por donde esté, y estaba a
+// mitad de ruta, trabajando desde hace una hora. Doce combis, doce «entrada
+// tardía» falsas en la auditoría y doce chips en Despacho — se leyó en el
+// código y era exactamente eso. Durante los primeros minutos después de
+// arrancar, la confirmación no juzga: la unidad venía de antes. Se puede
+// poner en 0 para las pruebas que necesitan juzgar desde el primer segundo.
+// Ver REVISION-2026-09-08.md, L2.
+const ARRANQUE_EN = Date.now();
+const ARRANQUE_GRACIA_MS = process.env.ARRANQUE_GRACIA_MS !== undefined
+  ? Number(process.env.ARRANQUE_GRACIA_MS) : 5 * 60_000;
 
 // Las vueltas que ya estaban guardadas cuando el recorrido pasó a colgar de
 // una variante se midieron con ESE trazado: es el mismo, solo que ahora tiene
@@ -1999,8 +2025,9 @@ function fijarPresencia(vehicleId, routeId, estado) {
     olvidarTramo(vehicleId, (u && u.timestamp) || Date.now());
     // Terminó el turno estando fuera del trazado: el episodio se cierra acá.
     // Dejarlo abierto lo haría durar hasta que alguien lo mire.
-    olvidarDesvio(vehicleId, 'corte');
+    olvidarDesvio(vehicleId, 'corte', (u && u.timestamp) || Date.now());
     olvidarParada(vehicleId, 'corte');
+    reloj.olvidar(vehicleId);
     quitarUnidad(vehicleId);
     // El mismo aviso que manda el olvido: los mapas que borran por evento
     // no tienen por qué esperar al próximo estado completo.
@@ -2010,12 +2037,22 @@ function fijarPresencia(vehicleId, routeId, estado) {
   }
   const previa = presencias.get(vehicleId);
   if (previa && previa.estado === estado) return;
+  const u = units.get(vehicleId);
   // Todo cambio de estado descarta la vuelta a medias y obliga a
   // RECONFIRMAR sobre el trazado: un almuerzo en el medio no es una vuelta,
   // y volver de ausente es volver a entrar a la ruta.
-  presencias.set(vehicleId, { estado, enRuta: false });
+  //
+  // Pero volver a entrar NO es meterse por el medio. El que estaba confirmado
+  // y se fue a almorzar vuelve a pisar el trazado donde estacionó —a mitad de
+  // ruta, casi siempre— y sin esta marca quedaba acusado de entrada tardía
+  // cada mediodía. Se anota cuándo se lo perdió (la hora de su última
+  // posición), igual que hace el olvido, y la confirmación lo trata como la
+  // reanudación que es si vuelve dentro de `REANUDA_MS`. Si venía con una
+  // marca de antes (ausente → yendo, por ejemplo), se conserva.
+  const estabaEnRuta = previa ? previa.enRuta : !!(u && u.lat != null && u.enRuta !== false);
+  const perdidaEn = estabaEnRuta ? ((u && u.timestamp) || Date.now()) : (previa && previa.perdidaEn) || null;
+  presencias.set(vehicleId, { estado, enRuta: false, perdidaEn });
   lapState.delete(vehicleId);
-  const u = units.get(vehicleId);
   // Irse a almorzar después de la ida no borra la ida. Con la hora de la
   // última posición, por lo mismo que arriba: el almuerzo no es parte del
   // tramo aunque se declare a la media hora de haber estacionado.
@@ -3161,6 +3198,20 @@ app.post('/gps', (req, res) => {
   const nuevas = buenas.filter(p => p.cuando > conocidaHasta);
   const yaVistas = buenas.length - nuevas.length;
 
+  // Qué tan vieja viene la posición más nueva del lote. Es lo que alimenta la
+  // estimación del reloj del teléfono (server/reloj.js), y va ANTES de anotar
+  // las posiciones para que la frescura ya la descuente. Se anota en el log
+  // la primera vez que el sesgo pasa a ser más que el plazo de «sin señal»:
+  // desde ahí se la juzga fresca aunque su hora diga otra cosa.
+  const edadMasNueva = ahora - buenas[buenas.length - 1].cuando;
+  const sesgoAntes = reloj.sesgoDe(vehicleId, ahora);
+  reloj.muestra(vehicleId, { cuando: ahora, edadMs: edadMasNueva });
+  const sesgo = reloj.sesgoDe(vehicleId, ahora);
+  if (sesgo > SIN_SENAL_MS && sesgoAntes <= SIN_SENAL_MS) {
+    console.log(`Reloj atrasado: el teléfono de ${vehicleId} manda con la hora ~${Math.round(sesgo / 1000)} s ` +
+      `atrás, sostenido; se lo juzga fresco igual`);
+  }
+
   let routeId = viva ? viva.routeId : null;
   for (const p of nuevas) {
     routeId = anotarPosicion(vehicleId, user.unitId, prof, p, p.cuando);
@@ -3176,10 +3227,10 @@ app.post('/gps', (req, res) => {
   // repetido, o con la posición más nueva ya vieja. En un turno sano esta
   // línea no aparece; cuando aparece, dice si el teléfono está vaciando
   // atraso, resendiendo lo mismo, o mandando en ventanas.
-  const edadMasNueva = ahora - buenas[buenas.length - 1].cuando;
-  if (yaVistas || edadMasNueva > SIN_SENAL_MS) {
+  if (yaVistas || edadMasNueva - sesgo > SIN_SENAL_MS) {
     console.log(`POST /gps ${vehicleId}: ${buenas.length} posición(es), ${yaVistas} ya vista(s), ` +
-      `la más nueva de hace ${Math.round(edadMasNueva / 1000)} s`);
+      `la más nueva de hace ${Math.round(edadMasNueva / 1000)} s` +
+      (sesgo ? ` (reloj atrasado ~${Math.round(sesgo / 1000)} s)` : ''));
   }
 
   // El pedido de grabación de Despacho (4.5) viaja por esta misma respuesta
@@ -6011,10 +6062,21 @@ wss.on('connection', (ws) => {
     // gris. Es el precio correcto: desde el servidor, terminar el turno y
     // entrar a un túnel son indistinguibles, y equivocarse hacia "no sé
     // dónde está" es mucho más barato que equivocarse hacia "no existe".
+    //
+    // Salvo que al teléfono se lo esté oyendo por HTTP: la app nativa manda
+    // sus posiciones por `POST /gps` y usa el socket sólo para el chat y el
+    // estado, así que con la pantalla apagada el socket se cae y el GPS
+    // sigue llegando. Marcarla acá emitía un estado con brechas en null para
+    // los vecinos en cada apagado de pantalla, hasta el siguiente POST. Si
+    // de verdad se calló, el barrido la marca a los 30 s, como a cualquiera.
+    // Ver REVISION-2026-09-08.md, L7.
     if (otrosDelVehiculo.length === 0 && units.has(vehicleId)) {
       const u = units.get(vehicleId);
-      if (!u.sinSenal) ponerUnidad(vehicleId, { ...u, sinSenal: true, sinSenalDesde: u.timestamp });
-      scheduleStateBroadcast(routeId, true);
+      const sinOir = Date.now() - (u.oidoEn ?? u.timestamp ?? 0);
+      if (!u.sinSenal && sinOir > SIN_SENAL_MS) {
+        ponerUnidad(vehicleId, { ...u, sinSenal: true, sinSenalDesde: u.timestamp });
+        scheduleStateBroadcast(routeId, true);
+      }
     }
   });
 
@@ -6347,9 +6409,6 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   });
   const progreso = proy ? proy.progreso : (pos.routeProgress || 0);
 
-  // ¿Se salió del recorrido? Solo cuenta si se sostiene (ver arriba)
-  const desvio = evaluarDesvio(vehicleId, routeId, proy ? proy.desvioM : null);
-
   // La confirmación de presencia: declaró "en ruta" y esta posición cayó
   // SOBRE el trazado (mismo umbral que el desvío) → entra a la cadena.
   // Una vez adentro se queda: el desvío sostenido ya tiene su propia
@@ -6382,8 +6441,12 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
       // a nadie ni se lo marca en el mapa.
       const perdidaEn = decl.perdidaEn || null;
       const reanuda = !!perdidaEn && (cuando - perdidaEn) <= REANUDA_MS;
+      // Y si el servidor acaba de arrancar, la memoria es la que se perdió,
+      // no la combi: venía trabajando desde antes del reinicio.
+      const arranqueReciente = (Date.now() - ARRANQUE_EN) <= ARRANQUE_GRACIA_MS;
+      const porElMedio = !!(proy && proy.progreso > VUELTA_DESDE_INICIO);
       decl.entroEn = proy ? proy.progreso : null;
-      decl.entradaTardia = !reanuda && !!(proy && proy.progreso > VUELTA_DESDE_INICIO);
+      decl.entradaTardia = !reanuda && !arranqueReciente && porElMedio;
       decl.entroA = cuando;
       decl.perdidaEn = null;
       if (decl.entradaTardia) {
@@ -6398,6 +6461,10 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
       } else if (reanuda) {
         console.log(`Presencia: ${vehicleId} volvió tras ${Math.round((cuando - perdidaEn) / 1000)} s ` +
           `sin señal — reanuda la corrida, no es una entrada`);
+      } else if (arranqueReciente && porElMedio) {
+        console.log(`Presencia: ${vehicleId} confirmó al ${Math.round(proy.progreso * 100)} % del circuito ` +
+          `con el servidor recién arrancado (hace ${Math.round((Date.now() - ARRANQUE_EN) / 1000)} s) — ` +
+          `venía de antes del reinicio, no se juzga`);
       } else {
         console.log(`Presencia: ${vehicleId} pisó el trazado — entra a la cadena de brechas`);
       }
@@ -6409,13 +6476,26 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   // cola de un corte llega con posiciones de hace minutos, y limpiarlo con
   // esas dibujaba en color firme una unidad que en realidad no se sabe
   // dónde está — y el barrido lo volvía a marcar 10 s después, en bucle.
-  const fresca = Date.now() - cuando <= SIN_SENAL_MS;
+  //
+  // Descontando lo que atrase el reloj del teléfono (server/reloj.js): un
+  // Android con la hora dos minutos atrás manda perfecto y ninguna posición
+  // pasaba por fresca — gris el turno entero por un reloj.
+  const sesgoReloj = reloj.sesgoDe(vehicleId);
+  const fresca = Date.now() - cuando - sesgoReloj <= SIN_SENAL_MS;
+
+  // En la cadena: confirmada en ruta y no ausente. Es lo que deciden la
+  // parada y el desvío — al que va yendo o está ausente no se lo juzga.
+  const activa = enRuta && (!decl || decl.estado === 'ruta');
+
+  // ¿Se salió del recorrido? Solo cuenta si se sostiene (ver arriba), y
+  // sólo a las de la cadena, con la hora de la posición.
+  const desvio = evaluarDesvio(vehicleId, routeId, proy ? proy.desvioM : null, cuando, activa);
 
   // La parada sostenida y la palabra del chofer, con esta posición. Sólo
   // se mide a las confirmadas en ruta: el que va yendo o está ausente puede
   // estar parado todo lo que quiera.
   const parada = evaluarParada(vehicleId, routeId, prof.companyId || null, pos, proy, cuando,
-    enRuta && (!decl || decl.estado === 'ruta'), !!(desvio && desvio.fuera));
+    activa, !!(desvio && desvio.fuera));
   const traf = traficos.get(vehicleId) || null;
 
   ponerUnidad(vehicleId, {
@@ -6448,6 +6528,10 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     // anterior, y una unidad que reapareció seguiría en gris para siempre.
     sinSenal: fresca ? false : (unit.sinSenal || false),
     sinSenalDesde: fresca ? null : (unit.sinSenalDesde ?? null),
+    // Cuánto atrasa el reloj del teléfono, si se pudo estimar. Despacho lo
+    // puede decir en vez de mostrar una posición «de hace 2 min» que es de
+    // ahora.
+    relojAtrasadoS: Math.round(sesgoReloj / 1000),
     // La presencia declarada y si ya está confirmada sobre el trazado.
     // Sin declaración: 'ruta' confirmada, como fue siempre.
     presencia: decl ? decl.estado : 'ruta',
@@ -6493,12 +6577,30 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
 // para ir juntando la brecha promedio de la vuelta en curso. Se pasa SOLO en
 // la emisión de estado con cadencia, no cada vez que alguien se conecta: si
 // no, una ruta con veinte choferes reconectando ensuciaría el promedio.
+//
+// LA CADENA ES POR TRAMO. La ruta no es un circuito: es una ida y un retorno,
+// y una combi se mide sólo contra las de SU tramo. La lista viene ordenada
+// por progreso del circuito entero, así que las de la ida y las de la vuelta
+// quedan contiguas; el vecino de otro tramo no es un vecino. Sin esto, la
+// última de la ida se medía contra la primera de la vuelta —que va para el
+// otro lado— y la recién salida contra la que está por llegar al terminal
+// (48 min de «apurá» con 12 unidades en la calle). La vuelta entera sigue
+// existiendo como métrica (`laps`, objetivo automático); lo que no existe es
+// la brecha a través del terminal. Decisión del 8/9, REVISION-2026-09-08.md,
+// L1. Una ruta sin trazado no tiene tramos y sigue siendo una sola fila.
+function mismoTramo(a, b) {
+  return !a.tramo || !b.tramo || a.tramo === b.tramo;
+}
+
 function calculateGaps(sortedUnits, durationMin, anotar) {
   const gaps = {};
   for (let i = 0; i < sortedUnits.length; i++) {
     const current = sortedUnits[i];
-    const ahead = sortedUnits[i - 1]; // la que va adelante (más progreso)
-    const behind = sortedUnits[i + 1]; // la que viene atrás (menos progreso)
+    const vecinaAdelante = sortedUnits[i - 1]; // más progreso
+    const vecinaAtras = sortedUnits[i + 1];    // menos progreso
+    // Sólo cuenta si va por el mismo tramo
+    const ahead = vecinaAdelante && mismoTramo(vecinaAdelante, current) ? vecinaAdelante : null;
+    const behind = vecinaAtras && mismoTramo(vecinaAtras, current) ? vecinaAtras : null;
 
     // Una unidad sin señal SIGUE OCUPANDO SU LUGAR en la fila, pero su
     // posición es vieja y no se puede medir contra ella. Las dos cosas
@@ -6663,6 +6765,12 @@ function scheduleStateBroadcast(routeId, immediate = false) {
 const SIN_SENAL_MS = Number(process.env.SIN_SENAL_MS || 30_000);
 const OLVIDAR_MS   = Number(process.env.OLVIDAR_MS   || 180_000);
 
+// El reloj atrasado del teléfono (server/reloj.js). Se le cree cuando se
+// sostuvo dos plazos de «sin señal» —un minuto en producción— y se mira lo
+// de los últimos diez plazos —cinco minutos—: un reloj que se corrige a
+// mitad de turno tarda eso en dejar de contar como atrasado.
+const reloj = crearEstimadorDeReloj({ lapsoMs: 2 * SIN_SENAL_MS, ventanaMs: 10 * SIN_SENAL_MS });
+
 setInterval(() => {
   const ahora = Date.now();
   const rutasAfectadas = new Set();
@@ -6681,7 +6789,7 @@ setInterval(() => {
     // renacía con timestamp viejo y el barrido la olvidaba EN BUCLE, cada
     // 10 segundos, mientras el teléfono seguía llegando: una noche entera
     // de «Unidad olvidada tras 400…992 s» con la señal perfecta.
-    const muda = ahora - unit.timestamp;
+    const muda = ahora - unit.timestamp - reloj.sesgoDe(unitId, ahora);
     const sinOir = ahora - (unit.oidoEn ?? unit.timestamp);
 
     if (sinOir > OLVIDAR_MS) {
@@ -6694,9 +6802,11 @@ setInterval(() => {
       olvidarTramo(unitId, unit.timestamp || ahora);
       // Y el desvío abierto se cierra: de una unidad que dejó de reportar no
       // se puede decir que "siguió fuera de ruta" — no se sabe dónde está.
-      olvidarDesvio(unitId, 'corte');
+      olvidarDesvio(unitId, 'corte', unit.timestamp || ahora);
       // La parada igual: sin datos no hay parada que sostener.
       olvidarParada(unitId, 'corte');
+      // Y lo que se sabía de su reloj: si vuelve, se vuelve a medir.
+      reloj.olvidar(unitId);
       // Y la CONFIRMACIÓN se pierde con el olvido: si mató la app sin
       // "salir de ruta" y reaparece mañana desde su casa, tiene que volver
       // a pisar el trazado — no entrar a la cadena por un true de ayer.

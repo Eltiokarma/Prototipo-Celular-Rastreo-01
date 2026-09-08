@@ -30,7 +30,10 @@ let servidor = null;
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
-           STATE_INTERVAL_MS: '400' },
+           STATE_INTERVAL_MS: '400',
+           // Sin gracia de arranque: la entrada se juzga desde el primer
+           // segundo. La gracia se prueba aparte, abajo, con un reinicio.
+           ARRANQUE_GRACIA_MS: '0' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   servidor.stderr.on('data', d => process.stderr.write('[srv] ' + d));
@@ -115,6 +118,22 @@ let servidor = null;
     ok('y las brechas de los demás no lo sienten',
        st.gaps['M-01'].aheadUnit !== 'M-03' && st.gaps['M-02'].aheadUnit !== 'M-03',
        { m1: st.gaps['M-01'].aheadUnit, m2: st.gaps['M-02'].aheadUnit });
+
+    // Y yendo desde su casa NO es estar fuera de ruta (REVISION del 8/9, L3):
+    // el desvío se evaluaba a todas, y once posiciones a 3 km del trazado lo
+    // dejaban como salida de ruta en la auditoría y en el informe.
+    const ahora = Date.now();
+    await pedir('/gps', { method: 'POST', headers: { Authorization: 'Bearer ' + s3.token },
+      body: JSON.stringify({ posiciones: Array.from({ length: 12 }, (_, i) =>
+        ({ lat: -15.5200 - i * 0.0001, lng: -70.1650, speed: 8, timestamp: ahora - (12 - i) * 1000 })) }) });
+    await sleep(700);
+    const st2 = await estado();
+    const el2 = st2.units.find(u => u.unitId === 'M-03');
+    ok('doce posiciones a 3 km del trazado, yendo, no son un desvío',
+       !!el2 && el2.fueraDeRuta === false, el2 && el2.fueraDeRuta);
+    const act = await pedir('/admin/audit', { headers: HD });
+    ok('y no queda acusado de salida de ruta',
+       !(act.body.events || []).some(e => e.action === 'desvio' && e.target === 'M-03'));
   }
 
   console.log('\nPISA EL TRAZADO Y RECIÉN AHÍ ENTRA');
@@ -156,6 +175,16 @@ let servidor = null;
     st2 = await estado();
     ok('y una posición sobre el trazado la devuelve a la cadena',
        !!st2.gaps['M-02'] && st2.totalOnRoute === 3, st2.totalOnRoute);
+    // Volvió donde estacionó: a mitad de la ida. Eso NO es meterse por el
+    // medio (REVISION del 8/9, L2): estaba confirmado antes del almuerzo, y
+    // la marca de cuándo se lo perdió lo trata como la reanudación que es.
+    const el2 = st2.units.find(u => u.unitId === 'M-02');
+    ok('y NO como entrada tardía: venía de antes del almuerzo',
+       !!el2 && el2.entradaTardia === false, el2 && { tardia: el2.entradaTardia, entroEn: el2.entroEn });
+    const act = await pedir('/admin/audit', { headers: HD });
+    ok('sin fila de entrada tardía en la auditoría',
+       !(act.body.events || []).some(e => e.action === 'entrada_tardia' && e.target === 'M-02'),
+       (act.body.events || []).filter(e => e.action === 'entrada_tardia').map(e => e.target));
   }
 
   console.log('\nSALIR DE RUTA: IRSE ES IRSE EN EL ACTO');
@@ -267,8 +296,43 @@ let servidor = null;
        !!el && el.enRuta === false && !ultimo2.gaps['M-09'],
        el && { enRuta: el.enRuta, enGaps: !!ultimo2.gaps['M-09'] });
 
+    console.log('\nEL REINICIO DEL SERVIDOR NO ACUSA A NADIE');
+    // El otro olvido: un deploy. Las presencias viven en memoria, y tras el
+    // reinicio el primer POST de cada combi —que trae `presencia: 'ruta'`—
+    // la confirmaba por donde estuviera: doce combis trabajando desde hace
+    // una hora, doce «entrada tardía» falsas. Durante los primeros minutos
+    // después de arrancar, la confirmación no juzga (REVISION del 8/9, L2).
     try { ws2.close(); } catch {}
     srv2.kill();
+    await sleep(600);
+    const srv3 = spawn('node', [RAIZ + '/server/index.js'], {
+      env: { ...process.env, PORT: String(P2), DB_FILE: DB2, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
+             OLVIDAR_MS: '1500', SIN_SENAL_MS: '600', STATE_INTERVAL_MS: '300' },   // gracia por defecto
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    for (let i = 0; i < 80; i++) { await sleep(250); try { await fetch(API2 + '/ping'); break; } catch {} }
+    const d3 = (await pedir2('/auth/login', { method: 'POST', body: JSON.stringify({ user: 'DESPACHO', password: 'despacho99' }) })).body;
+    const s9b = (await pedir2('/auth/login', { method: 'POST', body: JSON.stringify({ user: 'M-09', password: 'chofer1234' }) })).body;
+    const ws3 = new WebSocket(`ws://localhost:${P2}`);
+    let ultimo3 = null;
+    ws3.on('message', raw => { const m = JSON.parse(raw); if (m.type === 'state') ultimo3 = m; });
+    await new Promise(r => ws3.on('open', r));
+    ws3.send(JSON.stringify({ type: 'identify', token: d3.token }));
+    // La app sigue como si nada: «en ruta», a mitad de la ida
+    await pedir2('/gps', { method: 'POST', headers: { Authorization: 'Bearer ' + s9b.token },
+      body: JSON.stringify({ presencia: 'ruta',
+        posiciones: [{ lat: -15.4900, lng: -70.1300, speed: 20, timestamp: Date.now() }] }) });
+    await sleep(700);
+    const el3 = (ultimo3 && ultimo3.units || []).find(u => u.unitId === 'M-09');
+    ok('tras el reinicio, la confirma a mitad de ruta', !!el3 && el3.enRuta === true, el3 && el3.enRuta);
+    ok('pero NO como entrada tardía: venía de antes del reinicio',
+       !!el3 && el3.entradaTardia === false, el3 && { tardia: el3.entradaTardia, entroEn: el3.entroEn });
+    const act3 = await pedir2('/admin/audit', { headers: { Authorization: 'Bearer ' + d3.token } });
+    ok('y sin fila en la auditoría',
+       !(act3.body.events || []).some(e => e.action === 'entrada_tardia' && e.target === 'M-09'));
+
+    try { ws3.close(); } catch {}
+    srv3.kill();
     await sleep(300);
     for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   }

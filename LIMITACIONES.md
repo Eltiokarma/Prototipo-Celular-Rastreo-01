@@ -210,12 +210,16 @@ limitación se resuelva o aparezca una nueva.
   Una unidad sola en la ruta, o la que va primera todo el tiempo, no tiene
   contra qué compararse y su vuelta queda sin dato: así no cuenta ni a favor
   ni en contra de nadie.
-- **Una muestra por vuelta sale distorsionada.** Al cruzar el inicio del
-  circuito, la unidad que acaba de dar la vuelta queda comparada contra las
-  que todavía no la dieron, y esa muestra sale grande. En una vuelta real son
-  cientos de muestras, así que mueve el promedio menos de un 0,1 %. Se
-  documenta en vez de filtrarla porque cualquier filtro por tamaño también
-  descartaría brechas legítimas cuando hay pocas unidades en la ruta.
+- **En el terminal no hay brecha.** La cadena es por tramo (8/9): la que
+  llega al final de la ida y la que acaba de salir de vuelta no son vecinas,
+  así que la que cruza el terminal queda un momento sin muestra —y no con
+  una muestra gigante contra la que va para el otro lado, que era lo que
+  pasaba antes—. Una unidad sola en su tramo queda sin brecha aunque haya
+  cinco en el otro.
+- **Un reloj de teléfono atrasado se detecta, hasta diez minutos.** Más
+  atrasado que eso no se cree (es indistinguible de la app repitiendo
+  atraso) y la unidad queda gris; y si el reloj salta hacia atrás a mitad de
+  turno, sus posiciones se descartan como «ya vistas» durante lo que saltó.
 - **Cuenta también los minutos detenido** en el terminal o en un
   embotellamiento. Es la brecha que existió, no la que la unidad podía
   controlar.

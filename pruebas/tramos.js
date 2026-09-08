@@ -72,7 +72,11 @@ const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
   u = await mover(0.6);
   ok('10. Al salir otra vez vuelve a la IDA', u.tramo === 'ida', `${u.tramo} · ${u.routeProgress.toFixed(3)}`);
 
-  // Dos unidades, una de ida y otra de vuelta: la brecha se calcula igual
+  // Dos unidades, una de ida y otra de vuelta: cada una en su tramo, y SIN
+  // brecha entre ellas — la cadena es por tramo (decisión del 8/9; suite
+  // `cadena`). Antes se medían sobre el circuito entero, y la que iba de
+  // vuelta le mostraba a la de ida un tiempo hacia una combi que venía para
+  // el otro lado.
   await fetch(API + '/admin/users', { method: 'POST', headers: HG,
     body: JSON.stringify({ unitId: 'M-02', name: 'Chofer dos', personRole: 'driver', password: 'clave1234' }) });
   const s2 = await login('M-02', 'clave1234');
@@ -92,8 +96,9 @@ const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
   ok('11. Dos unidades, una de ida y otra de vuelta, cada una en su tramo',
      m1.tramo === 'ida' && m2.tramo === 'vuelta', `M-01 ${m1.tramo} ${m1.routeProgress.toFixed(2)} · M-02 ${m2.tramo} ${m2.routeProgress.toFixed(2)}`);
   const brechas = e.gaps['M-01'] || {};
-  ok('12. Y hay brecha entre ellas, sobre el mismo circuito',
-     !!(brechas.toAhead || brechas.toBehind),
+  ok('12. Y NO hay brecha entre ellas: la de vuelta no es vecina de la de ida',
+     !!e.gaps['M-01'] && !!e.gaps['M-02'] && brechas.toAhead === null && brechas.toBehind === null &&
+     brechas.aheadUnit === null && brechas.behindUnit === null,
      `+1 ${brechas.toAhead || '—'} / −1 ${brechas.toBehind || '—'} contra ${brechas.aheadUnit || brechas.behindUnit}`);
 
   // Una ruta puede tener solo ida

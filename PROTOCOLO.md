@@ -135,6 +135,11 @@ Lo que hay que tener claro:
   de la fila, porque entonces este lado se mediría contra la que sigue —el
   doble de lejos— y la pantalla diría *"apurá"* hacia una combi que el chofer
   tiene justo adelante. Está medido; ver la sección 5.
+- **Los vecinos son del mismo tramo.** La cadena es por tramo (ida o
+  vuelta), no un anillo: la primera de la vuelta no tiene «atrás» a la última
+  de la ida, y la primera de la ida no tiene «adelante» a nadie de la vuelta.
+  Ambos lados en `null` puede querer decir «sola en su tramo» con cinco
+  unidades en el otro.
 
   **Taparlo con un `||` fue el bug que la app web tuvo hasta hace poco**: le
   mostraba al chofer una unidad inventada con el mismo tamaño y color que el
@@ -149,6 +154,9 @@ Lo que hay que tener claro:
 - **`routeProgress` lo calcula el servidor**, proyectando la posición sobre el
   trazado. El cliente no lo calcula ni lo necesita.
 - `tramo` es `"ida"` o `"vuelta"`; `progresoTramo` va de 0 a 1 dentro del tramo.
+- `relojAtrasadoS`: cuánto atrasa el reloj del teléfono, en segundos, si el
+  servidor lo pudo estimar (0 si no). Sus `timestamp` vienen con ese atraso;
+  el servidor ya lo descuenta para el gris de «sin señal».
 - `desvioM` es la distancia al trazado en metros, o `null` si la ruta no tiene
   geometría cargada. `fueraDeRuta` ya viene evaluado y sostenido por el
   servidor: **no lo recalcules con `desvioM > umbral`**, porque el servidor

@@ -386,12 +386,18 @@ guarda en **dos tramos, IDA y VUELTA**, cada uno con su polilínea
 
 - El progreso se mide dentro del tramo y después se convierte a una
   **coordenada del circuito completo** (0 = salida de la ida, 1 = fin de la
-  vuelta). Esa es la que usan las brechas: dos combis se comparan sobre la
-  misma rueda aunque una vaya de ida y la otra de vuelta.
-- **Una vuelta pasa a ser el circuito entero** — salir y volver, que es lo
-  que la cooperativa llama una vuelta. Es también lo que corresponde para el
-  objetivo automático, porque la rueda que se reparte entre las combis es el
-  circuito completo.
+  vuelta). Esa es la que ordena a las combis en la fila.
+- **Las brechas son por tramo.** Una combi se mide sólo contra las de su
+  mismo tramo: la que está por llegar al terminal no tiene «adelante» a la
+  que acaba de salir de vuelta —va para el otro lado—, y la recién salida no
+  recibe «apurá» hacia la que está a 48 minutos por el otro extremo. La ruta
+  no es un circuito: es una ida y un retorno (decisión del 8/9; suite
+  `cadena`). El paradero inicial de cada tramo es su primer punto (**A**) en
+  el creador de recorridos, y con eso el tramo se detecta solo.
+- **Una vuelta es el circuito entero** — salir y volver, que es lo que la
+  cooperativa llama una vuelta — y sigue existiendo **como métrica**: se
+  cuenta, se guarda en `laps` y alimenta el objetivo automático. Lo que no
+  existe es la brecha a través del terminal.
 - Una ruta puede tener **solo ida**: ahí el circuito es ese tramo y funciona
   como antes. Lo que no se puede es cargar la vuelta sin la ida.
 

@@ -96,12 +96,23 @@ const meterVuelta = (unitId, minutos, cuandoMs, routeId = 'R-14') => {
      ultimo().objetivo.modo === 'auto' && ultimo().targetGapMin === 10,
      `${ultimo().targetGapMin} min · ${ultimo().objetivo.vueltas} vueltas · ${ultimo().objetivo.unidades} unidades · ${ultimo().objetivo.dia || 'promedio general'}`);
 
-  // Se van dos unidades: el objetivo tiene que SUBIR (menos combis, más espacio)
+  // Se van dos unidades: el objetivo tiene que SUBIR (menos combis, más espacio).
+  // Cerrar el socket ya no marca «sin señal» en el acto si al teléfono se lo
+  // oyó hace poco (8/9, L7): las marca el barrido a los 30 s, como a
+  // cualquiera que se calla. Las dos que se quedan siguen reportando —si no,
+  // a los 30 s quedarían grises las cuatro.
+  const seguirReportando = setInterval(() => {
+    for (const c of conexiones.slice(0, 2)) {
+      try { c.ws.send(JSON.stringify({ type: 'gps', lat: -15.49, lng: -70.12, speed: 25, routeProgress: 0.3 })); } catch {}
+    }
+  }, 3000);
   conexiones[3].ws.close();
   conexiones[2].ws.close();
-  await sleep(2500);
-  await objetivo({});
-  await sleep(1500);
+  for (const t0 = Date.now(); Date.now() - t0 < 55_000;) {
+    await objetivo({});
+    await sleep(1500);
+    if (ultimo().objetivo.unidades === 2) break;
+  }
   ok('5. Con 2 unidades el objetivo sube a 20', ultimo().targetGapMin === 20,
      `${ultimo().targetGapMin} min · ${ultimo().objetivo.unidades} unidades`);
 
@@ -174,6 +185,7 @@ const meterVuelta = (unitId, minutos, cuandoMs, routeId = 'R-14') => {
   const ev = aud.events.filter(e => e.action === 'objetivo');
   ok('11. Cada cambio queda en la auditoría', ev.length >= 2, ev[0] && `${ev[0].actor}: ${ev[0].detail}`);
 
+  clearInterval(seguirReportando);
   conexiones.forEach(c => { try { c.ws.close(); } catch {} });
   process.exit(0);
 })();

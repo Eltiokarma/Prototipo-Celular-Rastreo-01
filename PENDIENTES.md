@@ -334,12 +334,20 @@ error se cierra solo, el handler entero va en `try`, `null` se descarta,
 `maxPayload` de 2,2 MB, errores no atrapados al log en vez de apagar el
 proceso, middleware de error que contesta JSON corto (sin stack ni
 `X-Powered-By`), y los CSV neutralizan las fórmulas (`server/csv.js`, suite
-`csv`; suite `puertas` para lo demás). Falta: tanda 2 (lógica: brechas por
-tramo, entrada tardía, desvío, frescura), tanda 3 (paneles) y tanda 4 (app,
-un APK). Para las brechas quedó decidido: **la ruta es ida y retorno, no un
-circuito**; las brechas se calculan sólo entre unidades del mismo tramo, la
-vuelta es una métrica y nada más, y la cooperativa define el paradero inicial
-de cada tramo.
+`csv`; suite `puertas` para lo demás). **Tanda 2 (8/9, servidor, sin APK):
+hecha** — la cadena de brechas es **por tramo** (la última de la ida ya no
+se mide contra la primera de la vuelta, ni la recién salida contra la que
+llega al terminal; suite `cadena`); volver del almuerzo o de un reinicio del
+servidor ya no acusa una entrada tardía falsa (`perdidaEn` se conserva,
+`ARRANQUE_GRACIA_MS`); el desvío se evalúa sólo a las de la cadena y se
+fecha con la hora de la posición; el reloj atrasado del teléfono se estima y
+se descuenta (`server/reloj.js`, suite `reloj`, campo `relojAtrasadoS`); y
+cerrar el socket con el HTTP vivo ya no marca «sin señal». Falta: tanda 3
+(paneles) y tanda 4 (app, un APK). Para las brechas quedó decidido: **la
+ruta es ida y retorno, no un circuito**; las brechas se calculan sólo entre
+unidades del mismo tramo, la vuelta es una métrica y nada más. El paradero
+inicial de cada tramo ya está: es el primer punto (**A**) de cada tramo en
+el creador de recorridos, y el tramo se detecta solo por la proyección.
 
 ### Lo que todavía no se midió, y no se arregla programando
 

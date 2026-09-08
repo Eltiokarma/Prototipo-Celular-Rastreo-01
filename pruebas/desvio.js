@@ -181,5 +181,66 @@ const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
      /M-01;R-14;/.test(csv) && /Máxima distancia/.test(csv),
      csv.split('\r\n').find(l => l.startsWith('M-01')));
 
+  // ─── SÓLO A LAS DE LA CADENA, Y CON LA HORA DE LA POSICIÓN ─────────────
+  //
+  // De la revisión del 8/9 (L3 y L4). El desvío se evaluaba a todas: el que
+  // marcaba «en ruta» desde su casa a 4 km quedaba como salida de ruta, y el
+  // ausente que iba por un repuesto, igual. Y se fechaba con la hora de
+  // llegada: un atraso vaciado de golpe abría y cerraba el episodio en el
+  // mismo milisegundo, con duración 0.
+  const posHttp = (token, posiciones, extra = {}) => fetch(API + '/gps', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify({ posiciones, ...extra }) });
+  const lejos = (i, hace) => ({ lat: LAT + gLat * 200, lng: LNG + gLng * (4000 + i), speed: 20, timestamp: Date.now() - hace });
+  // Más nuevas que la última posición que el servidor tiene de la unidad —si
+  // no, las descarta como «ya vistas» y no evalúa nada
+  const recientes = (i) => -(i * 50);
+  const cuantos = (base2, id) => base2.prepare('SELECT COUNT(*) c FROM deviations WHERE vehicleId = ?').get(id).c;
+  const base2 = new Database(process.env.DBFILE || process.env.DB_FILE, { readonly: true });
+
+  for (const [u, n] of [['M-02', 'Chofer dos'], ['M-03', 'Chofer tres']]) {
+    await fetch(API + '/admin/users', { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: u, name: n, personRole: 'driver', password: 'clave1234' }) });
+  }
+  const s2 = await login('M-02', 'clave1234');
+  const s3 = await login('M-03', 'clave1234');
+  // El estado sale con la cadencia de producción (3 s) en este servidor
+  const estadoDe = async (id) => { await sleep(3800); return (rec.states.at(-1).units || []).find(x => x.unitId === id); };
+
+  // 22. Yendo, a 4 km, doce posiciones: no es desvío
+  await fetch(API + '/presencia', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s2.token },
+    body: JSON.stringify({ estado: 'ruta' }) });
+  await posHttp(s2.token, Array.from({ length: 12 }, (_, i) => lejos(i, recientes(i))));
+  let e2 = await estadoDe('M-02');
+  ok('22. El que va yendo a 4 km del trazado NO está fuera de ruta',
+     !!e2 && e2.enRuta === false && e2.fueraDeRuta === false, e2 && { enRuta: e2.enRuta, fuera: e2.fueraDeRuta });
+  ok('23. Y no le abre episodio', cuantos(base2, 'M-02') === 0, cuantos(base2, 'M-02'));
+
+  // 24. Ausente, lejos: tampoco
+  const antesM1 = cuantos(base2, 'M-01');
+  await fetch(API + '/presencia', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.token },
+    body: JSON.stringify({ estado: 'ausente' }) });
+  await posHttp(s.token, Array.from({ length: 12 }, (_, i) => lejos(i, recientes(i))));
+  const e1 = await estadoDe('M-01');
+  ok('24. El ausente que se fue por un repuesto tampoco', !!e1 && e1.fueraDeRuta === false, e1 && e1.fueraDeRuta);
+  ok('25. Ni episodio nuevo', cuantos(base2, 'M-01') === antesM1, cuantos(base2, 'M-01') - antesM1);
+
+  // 26. La hora es la de la POSICIÓN: un atraso de 14 minutos vaciado de
+  //     golpe —10 afuera, 4 adentro— es un episodio de 4 minutos, no de 0 ms.
+  const M = 60_000;
+  await posHttp(s3.token, [
+    ...Array.from({ length: 10 }, (_, i) => lejos(i, (14 - i) * M)),                    // hace 14…5 min, a 4 km
+    ...Array.from({ length: 4 }, (_, i) => ({ lat: LAT + gLat * 200, lng: LNG, speed: 20, timestamp: Date.now() - (4 - i) * M })),
+  ]);
+  await sleep(900);
+  const ep = base2.prepare('SELECT * FROM deviations WHERE vehicleId = ? ORDER BY id DESC').get('M-03');
+  ok('26. El episodio se abre con la hora de la décima posición (hace ~5 min)',
+     !!ep && Math.abs(ep.startedAt - (Date.now() - 5 * M)) < 15_000, ep && Math.round((Date.now() - ep.startedAt) / 1000) + ' s');
+  ok('27. Y dura lo que duró: ~4 minutos, no 0',
+     !!ep && ep.cierre === 'regreso' && ep.durationSec >= 230 && ep.durationSec <= 250, ep && ep.durationSec);
+  base2.close();
+
   ws.close(); process.exit(0);
 })();
