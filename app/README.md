@@ -97,7 +97,8 @@ Y no se arregla desde el código:
 - En **Xiaomi, Huawei y Oppo**: habilitar *inicio automático* y fijar la app
   en recientes. Esos fabricantes matan servicios en segundo plano aunque
   tengan foreground service, y es justo el parque de teléfonos que se va a
-  encontrar.
+  encontrar. **Medido en un Oppo** (7/9): con los permisos de segundo plano
+  habilitados, 13 horas seguidas sin un corte.
 
 Si esto no se hace, el GPS se corta igual que en la web y volvemos al
 problema del principio.
@@ -351,6 +352,16 @@ reinstalar en cada teléfono.
 
 ## Decisiones de las pantallas nuevas
 
+- **El tráfico se toca, no se desliza.** Es lo contrario del SOS a
+  propósito: un aviso de tráfico en falso no moviliza a nadie y se apaga
+  solo cuando la combi vuelve a andar (lo decide el servidor), y el chofer
+  tiene una mano en el volante. Un botón de un toque con tres caras: «ESTOY
+  EN TRÁFICO», «¿ESTÁS EN TRÁFICO? · parado hace N min» cuando el servidor
+  lo vio parado y él no dijo nada (vibra una vez por episodio), y «EN
+  TRÁFICO · N MIN · se apaga solo al andar». Lo que el chofer ve del vecino
+  trabado lo arma `hud.js`: el rótulo dice `EN TRÁFICO N MIN` o `PARADA N
+  MIN` y la instrucción pasa a «mantené» — nunca «apurá» hacia el
+  embotellamiento. Ver `README.md` de la raíz, «Tráfico».
 - **El SOS se desliza, no se toca.** Un botón de emergencia que se dispara con
   un roce es peor que no tenerlo: el celular va en un soporte, en una combi
   que se mueve, y un falso SOS que moviliza gente quema la confianza en el

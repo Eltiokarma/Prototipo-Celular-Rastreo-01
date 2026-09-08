@@ -247,10 +247,17 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // saca de la fila, porque entonces este lado pasaría a medirse contra la
   // que sigue —el doble de lejos— y la pantalla diría "apurá" hacia una
   // combi que el chofer tiene justo adelante. Está medido; ver PROTOCOLO.md.
-  function lado(tiempo, unidad, sinSenal) {
+  //
+  // Y a cualquiera de los tres se le puede sumar el tráfico: el vecino lleva
+  // N minutos sin avanzar (lo midió el servidor) o avisó que está trabado
+  // (lo dijo él). Viaja con su hora, para decir "hace 6 min".
+  function lado(tiempo, unidad, sinSenal, trafico) {
     if (!unidad) return null;                       // no hay nadie
-    if (sinSenal || !tiempo) return { tiempo: null, unidad, sinSenal: true };
-    return { tiempo, unidad, sinSenal: false };
+    const t = trafico && trafico.enTrafico
+      ? { enTrafico: true, traficoDesde: trafico.desde ?? null, traficoConfirmado: !!trafico.confirmado }
+      : { enTrafico: false, traficoDesde: null, traficoConfirmado: false };
+    if (sinSenal || !tiempo) return { tiempo: null, unidad, sinSenal: true, ...t };
+    return { tiempo, unidad, sinSenal: false, ...t };
   }
 
   function miBrecha() {
@@ -258,8 +265,10 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     const g = estado?.gaps?.[vehiculo];
     if (!g) return { adelante: null, atras: null, objetivoMin: estado?.targetGapMin ?? null };
     return {
-      adelante: lado(g.toAhead, g.aheadUnit, g.aheadSinSenal),
-      atras:    lado(g.toBehind, g.behindUnit, g.behindSinSenal),
+      adelante: lado(g.toAhead, g.aheadUnit, g.aheadSinSenal,
+                     { enTrafico: g.aheadEnTrafico, desde: g.aheadTraficoDesde, confirmado: g.aheadTraficoConfirmado }),
+      atras:    lado(g.toBehind, g.behindUnit, g.behindSinSenal,
+                     { enTrafico: g.behindEnTrafico, desde: g.behindTraficoDesde, confirmado: g.behindTraficoConfirmado }),
       objetivoMin: estado?.targetGapMin ?? null,
     };
   }
@@ -423,10 +432,28 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     }
   }
 
+  // "Estoy en tráfico" / "ya no". Mismo camino que la presencia: WebSocket
+  // si está vivo, HTTP si no — el botón tiene que andar con mala señal.
+  // El servidor lo apaga solo cuando la combi vuelve a andar; desmarcar a
+  // mano existe para el toque en falso.
+  function marcarTrafico(activo) {
+    const a = !!activo;
+    if (ws && conectado) {
+      try { ws.send(JSON.stringify({ type: 'trafico', activo: a })); return; } catch {}
+    }
+    if (token) {
+      fetch(servidor + '/trafico', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ activo: a }),
+      }).catch(() => {});
+    }
+  }
+
   return {
     entrar, conectar, salir,
     mandarGps, subirPosiciones, mandarChat, mandarVoz, mandarFoto, mandarSos,
-    marcarTipoSos, pedirMarca, marcarPresencia,
+    marcarTipoSos, pedirMarca, marcarPresencia, marcarTrafico,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {
       if (!oyentes.has(evento)) oyentes.set(evento, new Set());

@@ -42,7 +42,8 @@ DBFILE=$DB DB_FILE=$DB node turnos.js
 
 # las que se arman solas: variantes brecha creador gerencia cliente senal gpshttp presencia foto marca respaldo
 # las que se arman solas (cont.): vendor retencion renovacion cascada mapa-shot compresion sos perfil grabador cobradores metidos puertas
-# las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema contraste mapa teclado nativas envio pedido
+# las que no necesitan servidor: trazador ausencia hud chat cola margenes gestos imagen tema contraste mapa teclado nativas envio pedido parada
+# y trafico levanta el suyo, como gpshttp
 node gerencia.js
 ```
 
@@ -76,6 +77,8 @@ Tres detalles que cuestan una tarde si no están escritos:
 | `tramos` | El circuito es ida + vuelta: progreso, tramo en el que va cada unidad y brechas sobre el circuito entero |
 | `objetivo` | El objetivo de brecha automático: cuándo confía en el historial, cuándo cae al manual, y que el día de la semana no se mezcle |
 | `informes` | Los CSV: que las horas salgan de los turnos y que un nombre con `;` o comillas no parta el archivo |
+| `parada` | La parada sostenida (`server/parada.js`), pura: que 50 s subiendo pasajeros en una esquina de Juliaca NO sea tráfico, que 3 min clavado SÍ, que el embotellamiento que arrastra a 1,8 km/h cuente igual y que a 3,6 km/h sostenidos no, que se salga con 100 m en el último minuto y un semáforo adentro del embotellamiento no apague y prenda el aviso, que el terminal y fuera de ruta no cuenten, que el cambio de vuelta no sea marcha atrás, y que `andando` diga cuándo apagar la palabra del chofer |
+| `trafico` | Lo mismo contra el servidor de verdad, con los plazos en segundos: la unidad queda `parado` sola y con su hora, al de atrás le llega `aheadEnTrafico` en la brecha, el chofer confirma por `POST /trafico` y por WebSocket, las dos marcas se apagan solas al andar (con el minuto de gracia para el que marcó llegando), retirarla a mano existe, el terminal y la ausente no cuentan, cobrador 403 y sin booleano 400, `GET /admin/paradas` lista los episodios con dónde y cuánto, y al salir de ruta no queda ninguno abierto |
 | `desvio` | Que el desvío se marque solo si se sostiene, y que se pueda silenciar |
 | `turnos` | Que un corte de señal no parta el turno y que un reinicio no deje turnos abiertos para siempre |
 | `privado` | El mensaje directo Despacho ↔ unidad: que lo vean los dos y nadie más |
@@ -90,7 +93,7 @@ Tres detalles que cuestan una tarde si no están escritos:
 | `ausencia` | El vigía de la ausencia (`app/ausencia.js`): que el que arranca después de almorzar **vuelva a ruta solo** (dos posiciones seguidas lejos del ancla), que un salto de GPS de alguien sentado comiendo NO lo devuelva, que media hora de zigzag parado no dispare nada, y que pasadas 2 horas la ausencia se convierta en **fuera** — aunque se esté moviendo. Lógica pura: vive en la tarea de fondo y se prueba sin teléfono |
 | `senal` | Que una unidad que deja de reportar quede **sin señal** y no borrada: que la de atrás no salte a medirse contra la que sigue, que vuelva sola al reaparecer, que se olvide recién a los 3 min, y que ninguna brecha salga con los segundos en 60 |
 | `gpshttp` | `POST /gps`: que la posición pueda entrar **sin WebSocket vivo**, que un atraso entero se mida con la hora de cada posición y no la de llegada, que el cobrador y los relojes mal puestos no pasen, que **la brecha vuelva en la respuesta** (es lo que mantiene viva la notificación con la pantalla apagada), que **vaciar atraso no sea estar muerto**: al que llega con posiciones viejas se lo oye — queda en gris, jamás borrado —, y que **lo que ya se sabía no se procese dos veces**: un lote repetido (un envío cortado con la pantalla apagada que llegó igual) o una posición más vieja que la conocida vuelve como «ya vista», no mueve la unidad ni pasa por la medición, y sólo cuenta como «al teléfono se lo oye» |
-| `hud` | Qué se le muestra al chofer en la app nativa: los tres estados de un lado, cuál es el dígito grande, los colores y el texto de la notificación. Sin servidor — es lógica pura |
+| `hud` | Qué se le muestra al chofer en la app nativa: los tres estados de un lado, cuál es el dígito grande, los colores y el texto de la notificación — y el vecino en tráfico: el rótulo con los minutos, la instrucción que pasa a «mantené» y nunca «apurá» hacia el embotellamiento, y la notificación viva diciendo lo mismo. Sin servidor — es lógica pura |
 | `chat` | El chat de la app nativa: que un privado no aparezca en el grupo, que Despacho se lea como Despacho, que el hilo no repita al reconectar y que lo propio no cuente como sin leer |
 | `cola` | Las posiciones guardadas cuando no hay datos: orden, tope, y que un corte a la mitad de la descarga no las pierda |
 | `envio` | El vigía del envío (`app/envio.js`): qué pasa con un `POST /gps` que no vuelve. Que un envío reciente haga esperar a la tanda nueva, que uno **colgado se corte desde la propia tarea del GPS** —el único reloj que late con la pantalla apagada: en Android los timers de JavaScript no corren con la actividad pausada, y el `setTimeout` de 15 s se quedaba esperando junto con el fetch—, que sus posiciones vuelvan a la cola una sola vez, que el envío cortado al morir tarde no pise al que arrancó después, que la cola se mezcle por hora y tire las viejas y nunca las nuevas, que lo que la tarea ya entregó no se entregue dos veces (expo-task-manager relanza el job pendiente con todo lo acumulado), y que el módulo no use ningún timer. Lógica pura, con el reloj inyectado |

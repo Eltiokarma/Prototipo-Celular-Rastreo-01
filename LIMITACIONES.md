@@ -71,8 +71,9 @@ limitación se resuelva o aparezca una nueva.
   Con las tres primeras, los envíos fallidos bajaron de casi la mitad a
   casi cero; la cuarta salió de intentar el turno entero. **Con las cuatro,
   el turno está medido: 13 horas seguidas con la pantalla apagada, sin un
-  corte (7/9).** Lo que **todavía no está medido** es cuánta batería
-  consume ese turno, y cómo se porta en Xiaomi/Huawei/Oppo.
+  corte (7/9), en un Oppo con los permisos de segundo plano habilitados.**
+  Lo que **todavía no está medido** es cuánta batería consume ese turno, y
+  cómo se portan Xiaomi y Huawei.
 - **Notificaciones:** no hay push con la app cerrada. En Android es
   técnicamente posible con Web Push (pendiente); en iPhone es mucho más
   restringido.

@@ -3671,6 +3671,20 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                       color: HUD.amber, marginTop: 8,
                     }}>FUERA DE RUTA · {u.desvioM} M</div>
                 )}
+                {/* Trabada: N minutos sin avanzar por la ruta (lo midió el
+                    servidor) o el chofer avisó tráfico (lo dijo él). Se
+                    distinguen con la palabra, y las dos dicen hace cuánto.
+                    Es lo que decide si Despacho manda a los de atrás por otro
+                    lado, y por eso va antes que la señal. */}
+                {(u.trafico || u.parado) && (
+                  <div title={u.trafico ? 'El chofer avisó que está en tráfico' : 'Lleva minutos sin avanzar por la ruta'}
+                    style={{
+                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
+                      color: HUD.amber, marginTop: 8,
+                    }}>{u.trafico ? 'EN TRÁFICO' : 'PARADA'} · {
+                      Math.max(0, Math.round((Date.now() - (u.trafico ? u.traficoDesde : u.paradoDesde)) / 60000))
+                    } MIN{u.trafico ? ' · AVISÓ EL CHOFER' : ''}</div>
+                )}
                 {/* Dejó de reportar. La posición que se ve en el mapa es la
                     última conocida, así que se dice desde cuándo: sin eso,
                     Despacho manda a alguien a un lugar donde la combi estuvo

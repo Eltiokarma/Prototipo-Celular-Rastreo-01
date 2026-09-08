@@ -452,6 +452,8 @@ function Aplicacion() {
       <Ruta {...comun} hud={hud} reporta={reporta}
         confirmada={enRutaConfirmada}
         onPresencia={cambiarPresencia}
+        yo={cliente.current?.miUnidad ? cliente.current.miUnidad() : null}
+        onTrafico={(activo) => cliente.current.marcarTrafico(activo)}
         onSos={() => cliente.current.mandarSos(ultimaPos.current)}
         tipificarSos={tipificarSos}
         onTipoSos={(tipo) => {
@@ -624,8 +626,24 @@ function abrirOptimizacionDeBateria() {
 
 function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
-                tipificarSos, onTipoSos, onPerfil }) {
+                tipificarSos, onTipoSos, onPerfil, yo, onTrafico }) {
   const { s, C } = usarTema();
+  // ── Tráfico: lo que el servidor midió de MÍ, y lo que yo dije ───────
+  // `yo.parado` es el hecho (N minutos sin avanzar por la ruta, lo mide el
+  // servidor); `yo.trafico` es mi palabra. Cuando aparece el hecho y todavía
+  // no dije nada, la app vibra UNA vez por episodio y ofrece confirmarlo de
+  // un toque. No es un slider como el SOS: un tráfico en falso se apaga solo
+  // al andar, y el chofer tiene una mano en el volante.
+  const parado = !!yo?.parado, enTrafico = !!yo?.trafico;
+  const desde = enTrafico ? yo?.traficoDesde : parado ? yo?.paradoDesde : null;
+  const minTrabado = desde ? Math.max(0, Math.round((Date.now() - desde) / 60000)) : 0;
+  const episodioAvisado = React.useRef(null);
+  React.useEffect(() => {
+    if (parado && !enTrafico && yo?.paradoDesde && episodioAvisado.current !== yo.paradoDesde) {
+      episodioAvisado.current = yo.paradoDesde;
+      Vibration.vibrate(200);
+    }
+  }, [parado, enTrafico, yo?.paradoDesde]);
   const p = hud.principal, sec = hud.secundario;
   const color = colorEstado(C)[p.estado];
   // La pantalla termina en la barra de navegación de la app: el aire de abajo
@@ -794,6 +812,23 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
           <Text style={[s.digitosSec, { color: colorEstado(C)[sec.estado] }]}>{sec.display}</Text>
         )}
       </View>
+
+      {/* Tráfico, de un toque. Tres caras: nada (avisar), el servidor me vio
+          parado y pregunta (confirmar), y ya avisé (se apaga solo al andar;
+          tocar retira). El de atrás lo ve en su brecha y deja de recibir
+          "apurá" hacia acá. */}
+      <Pressable onPress={() => onTrafico(!enTrafico)}
+        style={[s.botonTrafico,
+                enTrafico && { backgroundColor: C.ambar, borderColor: C.ambar },
+                !enTrafico && parado && { borderColor: C.ambar }]}>
+        <Text style={[s.botonPresenciaTexto, (enTrafico || parado) && { color: enTrafico ? '#08131F' : C.ambar }]}>
+          {enTrafico
+            ? `EN TRÁFICO · ${minTrabado} MIN · se apaga solo al andar`
+            : parado
+              ? `¿ESTÁS EN TRÁFICO? · parado hace ${minTrabado} min · tocá para avisar`
+              : 'ESTOY EN TRÁFICO'}
+        </Text>
+      </Pressable>
 
       {/* Los dos movimientos del turno, a un toque del pulgar: pausar
           (ausente) y terminar (salir de ruta, con confirmación de 2 toques). */}
@@ -1905,6 +1940,11 @@ function crearEstilos(C) { return StyleSheet.create({
 
   // ── Presencia ────────────────────────────────────────────────
   filaPresencia: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  botonTrafico: {
+    height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
+    backgroundColor: C.panel, alignItems: 'center', justifyContent: 'center',
+    marginTop: 12, paddingHorizontal: 12,
+  },
   botonPresencia: {
     flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
     backgroundColor: C.panel, alignItems: 'center', justifyContent: 'center',
