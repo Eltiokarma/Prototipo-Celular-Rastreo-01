@@ -25,8 +25,11 @@ fallando:
    le corta la red a la app de fondo: se medía un 43 % de envíos fallidos con
    "sin red". Esto no se arregla en el código.
 
-**Lo que falta medir es un turno entero**: batería en 8 horas, y si Android
-lo mata más tarde. Varios minutos no dicen nada de eso.
+**El turno entero ya está medido (7/9): 13 horas seguidas con la pantalla
+apagada, sin un corte y con las vueltas contadas.** Costó cuatro intentos y
+los cuatro se anotan abajo en «Decisiones que conviene no re-descubrir»:
+todos fueron la misma lección —con la pantalla apagada no corre ningún timer
+de JavaScript, ni `fetch`—. Lo que falta medir es la batería en ese turno.
 
 ## Qué hay hoy
 
@@ -241,6 +244,15 @@ Corren con el resto: `npm test` desde la raíz.
   de las nuevas; un recorte por orden de llegada tiraba las nuevas. Pasó en
   el mismo turno: «la más nueva de hace 4302 s». `mezclarCola` en
   `app/envio.js`, con suite.
+- **La tarea recibe las mismas posiciones varias veces, y las filtra en la
+  puerta.** `expo-task-manager` funde cada tanda nueva en el job que todavía
+  está pendiente o corriendo —lo cancela y lo vuelve a programar con todo lo
+  acumulado—, así que la tarea ve [a], [a,b], [a,b,c]… hasta que un job
+  termina sin que nadie lo pise. Medido en el turno de 13 h: envíos de 2, 3,
+  4… 12 posiciones con una sola nueva. El servidor ya las descartaba como «ya
+  vistas», pero mandarlas es datos del chofer. `filtrarEntregadas` en
+  `app/envio.js` deja pasar sólo lo más nuevo que lo último entregado; si
+  Android mata el proceso se repite una vez y el servidor lo descarta.
 - **La cola de posiciones es UNA tanda (150), y el servidor no procesa dos
   veces lo que ya sabía.** Segundo intento del turno: con la batería «sin
   restricción» según el menú, el servidor oía al teléfono cada pocos

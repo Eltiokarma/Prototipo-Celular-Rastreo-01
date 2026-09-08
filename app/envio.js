@@ -93,4 +93,26 @@ function mezclarCola(cola, posiciones, tope) {
   return tope > 0 && todas.length > tope ? todas.slice(todas.length - tope) : todas;
 }
 
-module.exports = { crearVigiaDeEnvio, mezclarCola, CORTE_MS };
+// Lo que la tarea YA entregó no se entrega dos veces.
+//
+// expo-task-manager funde cada tanda nueva de posiciones en el job que
+// todavía está pendiente o corriendo (`updateOrScheduleJob`: lo cancela y lo
+// vuelve a programar con todo lo acumulado), así que la tarea recibe las
+// mismas posiciones varias veces hasta que un job termina sin que nadie lo
+// pise. Medido en un turno entero: los envíos crecían 2, 3, 4… 12 posiciones
+// con una sola nueva, y volvían a 2. El servidor las descarta como «ya
+// vistas», pero mandarlas es datos del chofer y trabajo del servidor para
+// nada. Se filtra por hora: sólo pasa lo más nuevo que lo último entregado.
+// Vive en memoria del proceso; si Android lo mata, se repite una vez y el
+// servidor lo descarta.
+function filtrarEntregadas(posiciones, ultimaEntregada = -Infinity) {
+  const nuevas = posiciones
+    .filter(p => typeof p?.timestamp === 'number' && p.timestamp > ultimaEntregada)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  return {
+    nuevas,
+    ultimaEntregada: nuevas.length ? nuevas[nuevas.length - 1].timestamp : ultimaEntregada,
+  };
+}
+
+module.exports = { crearVigiaDeEnvio, mezclarCola, filtrarEntregadas, CORTE_MS };

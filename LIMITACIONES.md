@@ -8,7 +8,7 @@ limitación se resuelva o aparezca una nueva.
 
 | # | Limitación | Impacto | Salida |
 |---|---|---|---|
-| 1 | El GPS se corta con la pantalla apagada | **Resuelto en la app nativa, con condiciones** (medido en un teléfono real: siguió reportando varios minutos con la pantalla bloqueada). En la **web** sigue igual y no tiene arreglo. Las condiciones están abajo, en la sección A | `app/` — ya construida |
+| 1 | El GPS se corta con la pantalla apagada | **Resuelto en la app nativa, con condiciones** (medido en un teléfono real: 13 horas seguidas con la pantalla bloqueada, sin un corte, 7/9). En la **web** sigue igual y no tiene arreglo. Las condiciones están abajo, en la sección A | `app/` — ya construida |
 | 2 | Sin notificaciones con la app cerrada | Un SOS o mensaje no suena si el chofer/encargado no tiene la app abierta | Web Push (Android) o app nativa |
 | 3 | Sin volumen en Railway, un redeploy borra la base | Se pierden usuarios, historial de chat y vueltas | Montar volumen + `DB_FILE=/data/r14.db` (documentado en README) |
 | 4 | Brechas y vueltas son aproximadas | **Resuelto para las rutas con recorrido cargado**: el progreso se calcula proyectando la posición sobre el trazado real. Una ruta sin recorrido sigue con la estimación lineal | Ver README, sección El recorrido de la ruta |
@@ -69,9 +69,10 @@ limitación se resuelva o aparezca una nueva.
      (`app/pedido.js`).
 
   Con las tres primeras, los envíos fallidos bajaron de casi la mitad a
-  casi cero; la cuarta salió de intentar el turno entero.
-  Lo que **todavía no está medido** es un turno entero de 8 h: cuánta
-  batería consume y si Android lo mata más tarde.
+  casi cero; la cuarta salió de intentar el turno entero. **Con las cuatro,
+  el turno está medido: 13 horas seguidas con la pantalla apagada, sin un
+  corte (7/9).** Lo que **todavía no está medido** es cuánta batería
+  consume ese turno, y cómo se porta en Xiaomi/Huawei/Oppo.
 - **Notificaciones:** no hay push con la app cerrada. En Android es
   técnicamente posible con Web Push (pendiente); en iPhone es mucho más
   restringido.
