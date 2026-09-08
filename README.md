@@ -1008,6 +1008,42 @@ significa lo mismo en dos rutas— y si estaba silenciada.
 Se ven en el cuadro del gerente (columna **Salidas**: cuántas y cuántos
 minutos en total) y en el informe `desvios.csv`.
 
+## Tráfico: la parada sostenida y la palabra del chofer
+
+En Juliaca se sube y se baja en cada esquina, no hay paraderos, y nadie
+tarda tres minutos en subir. Lo que sí dura tres minutos es un
+embotellamiento, y es lo que los de atrás tienen que saber **antes** de
+llegar. Son dos cosas, en tres capas:
+
+1. **El servidor lo mide solo: `PARADA · N MIN`.** Una unidad confirmada en
+   ruta que en los últimos 3 minutos (`PARADA_MS`) avanzó menos de 150 m
+   **por la ruta** queda marcada como parada. No mide velocidad: el GPS
+   parado da 0-3 km/h de ruido y una fila que arrastra a paso de hombre da
+   2-4, no se distinguen; mide metros sobre el trazado, que la proyección
+   ya calcula. Clavada o arrastrando, es lo mismo para el de atrás. No
+   cuenta en los extremos del tramo (el terminal, donde se espera), fuera
+   de ruta (eso ya tiene su alarma) ni fuera de la cadena (yendo, ausente).
+   Lógica pura en `server/parada.js`, con suite.
+2. **El chofer lo confirma o lo dice antes, de un toque: `EN TRÁFICO`.** No es
+   un slider como el SOS: un tráfico en falso no moviliza a nadie y se apaga
+   solo al andar, y el chofer tiene una mano en el volante. Cuando el
+   servidor lo ve parado y él todavía no dijo nada, la app vibra una vez y
+   el botón pregunta.
+3. **Se apaga solo.** Al avanzar 100 m en un minuto, las dos marcas se van.
+   Nadie tiene que acordarse de desmarcar, y la duración se mide en vez de
+   escribirse: "breve" o "largo" lo dice el reloj.
+
+A los demás les llega por la brecha. El de atrás ve `+1 · M-12 · EN TRÁFICO
+6 MIN` y su instrucción pasa a **"mantené"**: la cuenta de siempre le diría
+"apurá", porque la brecha contra una combi parada crece sola, y apurar hacia
+un embotellamiento es exactamente el pelotón que este sistema existe para
+evitar. Despacho ve `EN TRÁFICO · 6 MIN · AVISÓ EL CHOFER` (o `PARADA · 4 MIN`)
+en la fila de la unidad. Cada episodio queda guardado en `paradas` con dónde,
+en qué punto del circuito, cuánto duró y si el chofer lo confirmó
+(`GET /admin/paradas`): con meses de eso se puede decir dónde y a qué hora se
+traba cada ruta. Protocolo en `PROTOCOLO.md` §4quater; suites `parada`,
+`trafico` y `hud`.
+
 ## Turnos
 
 Quién manejó qué unidad y cuánto tiempo. Se registra **solo lo que el sistema

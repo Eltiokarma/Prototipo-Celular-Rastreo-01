@@ -294,6 +294,40 @@ cliente debe RE-DECLARAR su presencia al reconectar el WebSocket: el
 servidor la guarda en memoria. Un cliente que no declara nada se comporta
 como siempre: en cadena desde la primera posición.
 
+## 4quater. Tráfico: `parado`, `trafico` (WS) y `POST /trafico`
+
+Dos cosas, y viajan juntas en cada unidad del `state`:
+
+| Campo | Quién lo pone | Qué es |
+| --- | --- | --- |
+| `parado`, `paradoDesde` | el servidor | lleva N minutos (`PARADA_MS`, 3 por defecto) sin avanzar más de 150 m por la ruta. Un hecho. No cuenta en los extremos del tramo (el terminal), fuera de ruta, ni fuera de la cadena (yendo, ausente). Se apaga solo al andar 100 m en un minuto |
+| `trafico`, `traficoDesde` | el chofer | avisó que está en tráfico. También se apaga solo al andar (pasado un minuto de gracia desde que lo marcó) |
+
+El chofer lo dice así, y sólo el chofer (cobrador y Despacho reciben 403):
+
+```json
+{ "type": "trafico", "activo": true }
+```
+
+o por HTTP, `POST /trafico` con `{ "activo": true | false }` (Bearer). `false`
+retira la palabra a mano; el episodio automático, si existe, sigue.
+
+A los vecinos les llega en `gaps`: `aheadEnTrafico`, `aheadTraficoDesde`,
+`aheadTraficoConfirmado` (y los tres `behind…`). `EnTrafico` es "parado O
+avisó"; `Confirmado` distingue la palabra del chofer del hecho medido. **Al
+de atrás esto le cambia la instrucción**: con el de adelante trabado, el HUD
+dice "mantené" y nunca "apurá" — la brecha crece sola mientras el otro está
+parado, y apurar hacia un embotellamiento es el pelotón que el sistema
+existe para evitar. Los mismos campos vuelven en el `brecha` de la
+respuesta del `POST /gps`, así la notificación con la pantalla apagada lo
+dice igual.
+
+Cada episodio queda en la tabla `paradas` (unidad, ruta, dónde, en qué punto
+del circuito, cuánto duró, si el chofer lo confirmó, y cómo terminó:
+`movio` | `chofer` | `corte` | `trazado`). `GET /admin/paradas?dias=N` los
+lista para la cooperativa (o la ruta del despachador atado a una). Es la
+materia prima de "dónde se traba esta ruta y a qué hora".
+
 ## 5. Reconexión y caídas
 
 - La app web reconecta **cada 3 s** (`project/realtime.js`) y al volver a

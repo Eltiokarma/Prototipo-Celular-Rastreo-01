@@ -46,30 +46,49 @@ function estadoDe(mmss, objetivoMin) {
 // Un lado (adelante o atrás) tiene TRES formas, no dos. Ver PROTOCOLO.md:
 // "no hay nadie" y "hay alguien y no sé dónde" son situaciones opuestas para
 // el que maneja, y mostrarlas igual fue el bug más caro de este proyecto.
-function armarLado(brechaLado, etiqueta, signo, objetivoMin) {
+// Cuánto lleva trabado el vecino, en minutos enteros. `ahora` se inyecta
+// para que la prueba no dependa del reloj.
+function minutosDeTrafico(brechaLado, ahora) {
+  if (!brechaLado?.enTrafico) return null;
+  const desde = Number(brechaLado.traficoDesde);
+  if (!Number.isFinite(desde)) return 0;
+  return Math.max(0, Math.round((ahora - desde) / 60000));
+}
+
+function armarLado(brechaLado, etiqueta, signo, objetivoMin, ahora) {
   if (!brechaLado) {
-    return { etiqueta, signo, unidad: null, vacio: true, sinSenal: false,
+    return { etiqueta, signo, unidad: null, vacio: true, sinSenal: false, enTrafico: false, traficoMin: null,
              estado: 'ninguno', display: null, rotulo: 'sin nadie' };
   }
+  // El tráfico se suma a cualquiera de los otros dos estados: una unidad
+  // trabada sigue teniendo (o no) un tiempo contra el cual medirse. Lo que
+  // cambia es el rótulo, y abajo, la instrucción.
+  const enTrafico = !!brechaLado.enTrafico;
+  const traficoMin = minutosDeTrafico(brechaLado, ahora);
+  const traficoConfirmado = !!brechaLado.traficoConfirmado;
+  const sufijoTrafico = enTrafico
+    ? ` · ${traficoConfirmado ? 'EN TRÁFICO' : 'PARADA'} ${traficoMin} MIN` : '';
   if (brechaLado.sinSenal || !brechaLado.tiempo) {
     return { etiqueta, signo, unidad: brechaLado.unidad, vacio: true, sinSenal: true,
+             enTrafico, traficoMin, traficoConfirmado,
              estado: 'ninguno', display: null,
-             rotulo: `${brechaLado.unidad} · sin señal` };
+             rotulo: `${brechaLado.unidad} · sin señal${sufijoTrafico}` };
   }
   return {
     etiqueta, signo, unidad: brechaLado.unidad, vacio: false, sinSenal: false,
+    enTrafico, traficoMin, traficoConfirmado,
     estado: estadoDe(brechaLado.tiempo, objetivoMin),
     display: sinCeroInicial(brechaLado.tiempo),
     minutos: aMinutos(brechaLado.tiempo),
-    rotulo: `${signo} · ${brechaLado.unidad}`,
+    rotulo: `${signo} · ${brechaLado.unidad}${sufijoTrafico}`,
   };
 }
 
 // `brecha` es lo que devuelve cliente.miBrecha().
-function construirHud(brecha) {
+function construirHud(brecha, ahora = Date.now()) {
   const objetivoMin = brecha?.objetivoMin ?? null;
-  const adelante = armarLado(brecha?.adelante, 'ADELANTE', '+1', objetivoMin);
-  const atras    = armarLado(brecha?.atras,    'ATRÁS',    '−1', objetivoMin);
+  const adelante = armarLado(brecha?.adelante, 'ADELANTE', '+1', objetivoMin, ahora);
+  const atras    = armarLado(brecha?.atras,    'ATRÁS',    '−1', objetivoMin, ahora);
 
   // El dígito grande es para lo que el chofer tiene que corregir, así que un
   // lado sin número nunca puede ser el principal. Entre dos lados sin número
@@ -91,6 +110,19 @@ function construirHud(brecha) {
 }
 
 function instruccionDe(principal, esAtras, objetivoMin, adelante, atras) {
+  // El de ADELANTE trabado manda sobre todo lo demás. La brecha contra él
+  // crece sola mientras está parado, y la cuenta de siempre diría "apurá":
+  // apurar hacia un embotellamiento es el pelotón que este sistema existe
+  // para evitar, y encima con la combi de adelante ya adentro.
+  if (adelante.enTrafico) {
+    const que = adelante.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada';
+    return `${adelante.unidad} ${que} ${adelante.traficoMin} min. Mantené: no te apures hacia el embotellamiento.`;
+  }
+  // El de ATRÁS trabado no es un peligro para vos: se dice, y se pide ritmo
+  // normal — la brecha con él se va a agrandar sola y no es tu culpa.
+  if (atras.enTrafico) {
+    return `${atras.unidad} (atrás) ${atras.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${atras.traficoMin} min. Mantené el ritmo.`;
+  }
   // Con alguien sin señal, callarse o decir "sos la única" sería peor que no
   // mostrar nada: hay una combi que el chofer no ve, y manejar como si no
   // estuviera es exactamente lo que hay que evitar.
@@ -120,6 +152,10 @@ function instruccionDe(principal, esAtras, objetivoMin, adelante, atras) {
 function textoNotificacion(hud, reportaGps) {
   if (!reportaGps) return 'Modo acompañante · tu GPS no se usa';
   const p = hud.principal;
+  // El tráfico adelante es lo primero que se lee sin desbloquear
+  if (hud.adelante.enTrafico) {
+    return `ADELANTE ${hud.adelante.unidad} · ${hud.adelante.traficoConfirmado ? 'EN TRÁFICO' : 'PARADA'} ${hud.adelante.traficoMin} MIN`;
+  }
   if (p.sinSenal) return `${p.unidad} sin señal · sigue en ruta`;
   if (p.vacio) return 'Sin brecha para medir';
   return `${p.etiqueta} ${p.rotulo.replace(/^.{2} · /, '')} · ${p.display}`;
@@ -135,20 +171,23 @@ function textoNotificacion(hud, reportaGps) {
 //
 // Devuelve null cuando no hay nada que decir (sin brecha en la respuesta):
 // null significa "no toques la notificación", no "mostrá vacío".
-function avisoDesdeRespuesta(brecha) {
+function avisoDesdeRespuesta(brecha, ahora = Date.now()) {
   if (!brecha) return null;
   // Los tres estados de un lado, como en cliente.js: nadie / alguien a
-  // tanto / alguien sin señal. Ver PROTOCOLO.md.
-  const lado = (tiempo, unidad, sinSenal) => {
+  // tanto / alguien sin señal, más el tráfico encima. Ver PROTOCOLO.md.
+  const lado = (tiempo, unidad, sinSenal, enTrafico, desde, confirmado) => {
     if (!unidad) return null;
-    if (sinSenal || !tiempo) return { tiempo: null, unidad, sinSenal: true };
-    return { tiempo, unidad, sinSenal: false };
+    const t = { enTrafico: !!enTrafico, traficoDesde: desde ?? null, traficoConfirmado: !!confirmado };
+    if (sinSenal || !tiempo) return { tiempo: null, unidad, sinSenal: true, ...t };
+    return { tiempo, unidad, sinSenal: false, ...t };
   };
   const hud = construirHud({
-    adelante: lado(brecha.toAhead, brecha.aheadUnit, brecha.aheadSinSenal),
-    atras:    lado(brecha.toBehind, brecha.behindUnit, brecha.behindSinSenal),
+    adelante: lado(brecha.toAhead, brecha.aheadUnit, brecha.aheadSinSenal,
+                   brecha.aheadEnTrafico, brecha.aheadTraficoDesde, brecha.aheadTraficoConfirmado),
+    atras:    lado(brecha.toBehind, brecha.behindUnit, brecha.behindSinSenal,
+                   brecha.behindEnTrafico, brecha.behindTraficoDesde, brecha.behindTraficoConfirmado),
     objetivoMin: brecha.objetivoMin ?? null,
-  });
+  }, ahora);
   return { titulo: textoNotificacion(hud, true), detalle: hud.instruccion };
 }
 

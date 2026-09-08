@@ -53,6 +53,7 @@ app.use((req, res, next) => {
 // `quitarUnidad` para que el índice no se separe del mapa; el porqué, el número
 // medido y el verificador de invariante están en `indice-unidades.js`.
 const { crearIndiceUnidades } = require('./indice-unidades');
+const { crearDetectorDeParada } = require('./parada');
 const {
   units,
   unitsByRoute,
@@ -594,6 +595,12 @@ function proyectarEnRuta(routeId, lat, lng, previo) {
 
   return {
     progreso,
+    // Metros sobre el circuito completo. Es la coordenada con la que se mide
+    // si una combi AVANZA (la parada sostenida de parada.js): en metros y
+    // no en fracción, porque "150 m en 3 minutos" es lo que un chofer
+    // entiende, y porque un circuito de 8 km y uno de 25 km no pueden
+    // compartir un umbral en porcentaje.
+    recorridoM,
     tramo: elegido.leg,
     progresoTramo,
     desvioM: elegido.p.desvioM,
@@ -1304,6 +1311,166 @@ function olvidarDesvio(vehicleId, cierre) {
   desvios.delete(vehicleId);
 }
 
+// ─── PARADAS SOSTENIDAS Y TRÁFICO ────────────────────────────
+// Una combi que lleva N minutos sin avanzar por la ruta —clavada o
+// arrastrando a paso de hombre— está en tráfico, en un accidente o en algo
+// que los de atrás tienen que saber ANTES de llegar. Son dos cosas, y se
+// guardan juntas:
+//
+//   parado   lo mide el servidor (server/parada.js): un hecho, sin
+//            interpretación. Se prende solo y se apaga solo al volver a
+//            andar. No cuenta en los extremos del tramo (el terminal) ni
+//            fuera de ruta.
+//   trafico  lo dice el chofer, de un toque, antes o después de que la
+//            parada automática exista. También se apaga solo al andar: nadie
+//            tiene que acordarse de desmarcar, y por eso un toque en falso
+//            no cuesta nada.
+//
+// A los demás les llega por las brechas (`aheadEnTrafico`, `behindEnTrafico`)
+// y por el estado de la unidad; al de atrás, además, se le deja de decir
+// "apurá" hacia el embotellamiento — el pelotón que el sistema existe para
+// evitar. Cada episodio queda en `paradas`: es el dato con el que, con
+// meses de historial, se puede decir dónde y a qué hora se traba cada ruta.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS paradas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicleId TEXT NOT NULL,
+    routeId TEXT NOT NULL,
+    companyId TEXT,
+    startedAt INTEGER NOT NULL,
+    endedAt INTEGER,             -- NULL mientras sigue parada
+    durationSec INTEGER,
+    lat REAL, lng REAL,          -- dónde: para el mapa de calor de mañana
+    progreso REAL,               -- y en qué punto del circuito
+    tramo TEXT,
+    confirmado INTEGER NOT NULL DEFAULT 0,   -- 1 si el chofer dijo "tráfico"
+    cierre TEXT                  -- 'movio' | 'chofer' | 'corte' | 'trazado'
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_paradas_ruta ON paradas (routeId, startedAt)');
+{
+  const abiertas = db.prepare(
+    "UPDATE paradas SET endedAt = startedAt, durationSec = 0, cierre = 'corte' WHERE endedAt IS NULL").run();
+  if (abiertas.changes) {
+    console.log(`${abiertas.changes} parada(s) quedaron abiertas del arranque anterior: cerradas como cortadas`);
+  }
+}
+
+// Los plazos van por variable de entorno porque el número bueno sale de la
+// calle (ver parada.js), y porque la suite los acorta para no esperar 3 min.
+const PARADA_MS = Number(process.env.PARADA_MS || 3 * 60_000);
+const detectorParadas = crearDetectorDeParada({
+  paradaMs: PARADA_MS,
+  avanceM: Number(process.env.PARADA_AVANCE_M || 150),
+  libreMs: Number(process.env.PARADA_LIBRE_MS || 60_000),
+  libreAvanceM: Number(process.env.PARADA_LIBRE_AVANCE_M || 100),
+});
+// A menos de esto del principio o del fin del tramo es el terminal: ahí se
+// espera, y eso no es tráfico.
+const EXTREMO_TRAMO = 0.03;
+// Recién marcado por el chofer, la marca no se apaga por el "andando" de la
+// frenada: si tocó TRÁFICO llegando a 20 km/h, el último minuto todavía dice
+// que anduvo. Un minuto de gracia.
+const TRAFICO_GRACIA_MS = Number(process.env.TRAFICO_GRACIA_MS || 60_000);
+
+const paradasAbiertas = new Map();   // vehicleId → id de la fila abierta
+const traficos = new Map();          // vehicleId → { desde }
+
+function abrirParada(vehicleId, routeId, companyId, donde, desde, confirmado) {
+  if (paradasAbiertas.has(vehicleId)) return paradasAbiertas.get(vehicleId);
+  const id = db.prepare(`INSERT INTO paradas (vehicleId, routeId, companyId, startedAt, lat, lng, progreso, tramo, confirmado)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(vehicleId, routeId, companyId || null, desde,
+         donde?.lat ?? null, donde?.lng ?? null, donde?.progreso ?? null, donde?.tramo ?? null,
+         confirmado ? 1 : 0).lastInsertRowid;
+  paradasAbiertas.set(vehicleId, id);
+  return id;
+}
+
+function cerrarParada(vehicleId, cierre, cuando = Date.now()) {
+  const id = paradasAbiertas.get(vehicleId);
+  if (!id) return;
+  const fila = db.prepare('SELECT startedAt FROM paradas WHERE id = ?').get(id);
+  db.prepare('UPDATE paradas SET endedAt = ?, durationSec = ?, cierre = ? WHERE id = ?')
+    .run(cuando, Math.max(0, Math.round((cuando - (fila ? fila.startedAt : cuando)) / 1000)), cierre, id);
+  paradasAbiertas.delete(vehicleId);
+}
+
+// Todo camino por el que una unidad deja de evaluarse cierra su parada y
+// apaga su marca de tráfico: el olvido, salir de ruta, el cambio de trazado.
+function olvidarParada(vehicleId, cierre) {
+  detectorParadas.olvidar(vehicleId);
+  traficos.delete(vehicleId);
+  cerrarParada(vehicleId, cierre);
+}
+
+// Se llama con cada posición. `activo` es "confirmada en ruta": fuera de la
+// cadena (yendo, ausente) no hay parada que medir.
+function evaluarParada(vehicleId, routeId, companyId, pos, proy, cuando, activo, fueraDeRuta) {
+  let r;
+  if (!activo) {
+    const o = detectorParadas.olvidar(vehicleId);
+    r = o.estabaParado
+      ? { parado: false, desde: o.desde, cambio: 'termino', andando: false }
+      : { parado: false, desde: null, cambio: null, andando: false };
+  } else {
+    const enExtremo = !!proy && proy.progresoTramo != null &&
+      (proy.progresoTramo < EXTREMO_TRAMO || proy.progresoTramo > 1 - EXTREMO_TRAMO);
+    r = detectorParadas.posicion(vehicleId, {
+      cuando, recorridoM: proy ? proy.recorridoM : NaN, enExtremo, fueraDeRuta,
+    });
+  }
+  const traf = traficos.get(vehicleId) || null;
+  if (r.cambio === 'empezo') {
+    // Si el chofer ya lo había dicho, el episodio existe: se le suma el hecho.
+    abrirParada(vehicleId, routeId, companyId,
+      { lat: pos.lat, lng: pos.lng, progreso: proy ? proy.progreso : null, tramo: proy ? proy.tramo : null },
+      r.desde, !!traf);
+    console.log(`Parada: ${vehicleId} lleva ${Math.round((cuando - r.desde) / 60000)} min sin avanzar` +
+      (proy ? ` al ${Math.round(proy.progreso * 100)} % del circuito` : '') + (traf ? ' (el chofer ya avisó tráfico)' : ''));
+  }
+  // La palabra del chofer se apaga sola al volver a andar — pasado el minuto
+  // de gracia — aunque la parada automática nunca haya llegado a marcarse.
+  const seFue = r.cambio === 'termino' || (traf && r.andando && cuando - traf.desde >= TRAFICO_GRACIA_MS);
+  if (seFue) {
+    if (traf) traficos.delete(vehicleId);
+    const desde = r.desde ?? traf?.desde ?? cuando;
+    cerrarParada(vehicleId, 'movio', cuando);
+    console.log(`Sigue: ${vehicleId} volvió a andar tras ${Math.round((cuando - desde) / 60000)} min` +
+      (traf ? ' — se apaga su aviso de tráfico' : ''));
+  }
+  return { parado: r.parado, desde: r.parado ? r.desde : null };
+}
+
+// La palabra del chofer. `activo` true la prende (y abre el episodio si la
+// parada automática todavía no lo hizo); false la apaga a mano.
+function fijarTrafico(vehicleId, routeId, companyId, activo) {
+  const u = units.get(vehicleId);
+  const ruta = (u && u.routeId) || routeId;
+  if (activo) {
+    if (traficos.has(vehicleId)) return;
+    const desde = Date.now();
+    traficos.set(vehicleId, { desde });
+    if (paradasAbiertas.has(vehicleId)) {
+      db.prepare('UPDATE paradas SET confirmado = 1 WHERE id = ?').run(paradasAbiertas.get(vehicleId));
+    } else {
+      abrirParada(vehicleId, ruta, companyId,
+        u ? { lat: u.lat, lng: u.lng, progreso: u.routeProgress, tramo: u.tramo } : null, desde, true);
+    }
+    console.log(`Tráfico: ${vehicleId} avisa que está en tráfico`);
+    if (u) ponerUnidad(vehicleId, { ...u, trafico: true, traficoDesde: desde });
+  } else {
+    if (!traficos.has(vehicleId)) return;
+    traficos.delete(vehicleId);
+    // Si el hecho sigue (la parada automática), el episodio sigue abierto:
+    // desmarcar es retirar la palabra, no mover la combi.
+    if (!detectorParadas.estadoDe(vehicleId).parado) cerrarParada(vehicleId, 'chofer');
+    console.log(`Tráfico: ${vehicleId} retiró su aviso`);
+    if (u) ponerUnidad(vehicleId, { ...u, trafico: false, traficoDesde: null });
+  }
+  scheduleStateBroadcast(ruta);
+}
+
 function evaluarDesvio(vehicleId, routeId, desvioM) {
   const ruta = routeOf(routeId);
   // Sin geometría no hay nada que comparar
@@ -1743,6 +1910,10 @@ function podarHistorico() {
     .run(LAPS_MAX_FILAS * 2).changes;
   const desviosViejos = db.prepare(
     'DELETE FROM deviations WHERE startedAt < ?').run(Date.now() - DESVIOS_DIAS * 86400_000).changes;
+  // Las paradas, con el mismo plazo que los desvíos: son la misma clase de
+  // dato (episodios de la calle) y se leen con la misma pregunta.
+  const paradasViejas = db.prepare(
+    'DELETE FROM paradas WHERE startedAt < ?').run(Date.now() - DESVIOS_DIAS * 86400_000).changes;
   // Los turnos, con su propio plazo (más largo: se liquidan horas con ellos).
   // Sólo los CERRADOS: un turno abierto es alguien que está arriba de la
   // combi ahora mismo, y borrarlo le partiría las horas del día en curso.
@@ -1752,9 +1923,9 @@ function podarHistorico() {
   const chat = pruneChatStmt.run({ corte: Date.now() - CHAT_DIAS * 86400_000 }).changes;
   const sos = pruneSosStmt.run({ corte: Date.now() - SOS_DIAS * 86400_000 }).changes;
   const mensajesDeMas = pruneRowsStmt.run({ tope: MENSAJES_MAX_FILAS }).changes;
-  if (viejas || sobrantes || tramosViejos || tramosDeMas || desviosViejos || turnosViejos || chat || sos || mensajesDeMas) {
+  if (viejas || sobrantes || tramosViejos || tramosDeMas || desviosViejos || paradasViejas || turnosViejos || chat || sos || mensajesDeMas) {
     console.log(`Historial podado: ${viejas + sobrantes} vuelta(s), ${tramosViejos + tramosDeMas} tramo(s), ` +
-      `${desviosViejos} desvío(s), ${turnosViejos} turno(s), ${chat + mensajesDeMas} mensaje(s), ${sos} SOS` +
+      `${desviosViejos} desvío(s), ${paradasViejas} parada(s), ${turnosViejos} turno(s), ${chat + mensajesDeMas} mensaje(s), ${sos} SOS` +
       (sobrantes ? ` — ${sobrantes} vuelta(s) por el techo de ${LAPS_MAX_FILAS} filas` : '') +
       (tramosDeMas ? ` — ${tramosDeMas} tramo(s) por el techo de ${LAPS_MAX_FILAS * 2} filas` : ''));
   }
@@ -1826,6 +1997,7 @@ function fijarPresencia(vehicleId, routeId, estado) {
     // Terminó el turno estando fuera del trazado: el episodio se cierra acá.
     // Dejarlo abierto lo haría durar hasta que alguien lo mire.
     olvidarDesvio(vehicleId, 'corte');
+    olvidarParada(vehicleId, 'corte');
     quitarUnidad(vehicleId);
     // El mismo aviso que manda el olvido: los mapas que borran por evento
     // no tienen por qué esperar al próximo estado completo.
@@ -2325,6 +2497,34 @@ app.post('/presencia', (req, res) => {
   const vehicleId = user.vehicleId || user.unitId;
   fijarPresencia(vehicleId, user.routeId || DEFAULT_ROUTE, estado);
   res.json({ ok: true, estado });
+});
+
+// El tráfico por HTTP: el mismo camino que la presencia, para que el botón
+// funcione con mala señal y con el WebSocket caído.
+app.post('/trafico', (req, res) => {
+  const auth = String(req.headers.authorization || '');
+  const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
+  if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  if (user.role !== 'driver') return res.status(403).json({ error: 'El tráfico lo avisa el chofer' });
+  if (typeof req.body?.activo !== 'boolean') return res.status(400).json({ error: 'Falta activo: true o false' });
+  const vehicleId = user.vehicleId || user.unitId;
+  fijarTrafico(vehicleId, user.routeId || DEFAULT_ROUTE, user.companyId || null, req.body.activo);
+  res.json({ ok: true, activo: req.body.activo });
+});
+
+// Los episodios de parada de la cooperativa (o de la ruta del despachador
+// atado a una), de los últimos N días. Es la materia prima del "dónde se
+// traba esta ruta y a qué hora": hoy una lista; mañana, un mapa de calor.
+app.get('/admin/paradas', requireDispatch, (req, res) => {
+  const pedido = Number(req.query.dias);
+  const dias = Number.isFinite(pedido) && pedido > 0 ? Math.min(365, Math.max(1, Math.round(pedido))) : 7;
+  const paradas = db.prepare(`
+    SELECT id, vehicleId, routeId, startedAt, endedAt, durationSec, lat, lng, progreso, tramo, confirmado, cierre
+    FROM paradas
+    WHERE companyId = @empresa AND (@scope IS NULL OR routeId = @scope) AND startedAt >= @desde
+    ORDER BY startedAt DESC LIMIT 500
+  `).all({ empresa: req.empresa, scope: req.scope || null, desde: Date.now() - dias * 86400_000 });
+  res.json({ dias, paradas });
 });
 
 // ─── EL PERFIL DEL CONDUCTOR ─────────────────────────────────
@@ -2949,8 +3149,12 @@ app.post('/gps', (req, res) => {
   // después de una fresca la teletransportaba hacia atrás. Una posición más
   // vieja o igual que la que ya se tiene no dice nada nuevo de dónde está la
   // combi; lo único que dice es que al teléfono se lo oye, y eso sí se anota.
+  // Sólo cuenta como "ya sabida" una unidad CON posición: al identificarse
+  // por WebSocket la unidad nace con la hora de ese momento y sin lat, y
+  // contra esa hora el primer lote del teléfono —que trae los últimos diez
+  // segundos— quedaba a medias como "ya visto".
   const viva = units.get(vehicleId);
-  const conocidaHasta = viva ? viva.timestamp : -Infinity;
+  const conocidaHasta = viva && viva.lat != null && typeof viva.timestamp === 'number' ? viva.timestamp : -Infinity;
   const nuevas = buenas.filter(p => p.cuando > conocidaHasta);
   const yaVistas = buenas.length - nuevas.length;
 
@@ -3325,7 +3529,7 @@ function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
   // marcado como 'trazado' — de esos no se puede afirmar cuánto duró el
   // desvío, porque a mitad de camino cambió contra qué se lo medía.
   for (const [vehicleId, unidad] of units) {
-    if (unidad.routeId === routeId) olvidarDesvio(vehicleId, 'trazado');
+    if (unidad.routeId === routeId) { olvidarDesvio(vehicleId, 'trazado'); olvidarParada(vehicleId, 'trazado'); }
   }
 
   // El objetivo automático se recalcula solo con las vueltas de ESTA
@@ -5425,7 +5629,12 @@ wss.on('connection', (ws) => {
             ? displayName(user)
             : (previo?.driverName || vehicleId),
           routeId: user.routeId || veh?.routeId || DEFAULT_ROUTE,
-          timestamp: Date.now(),
+          // La hora de la POSICIÓN sólo se toca si no había ninguna: al
+          // reconectar (la pantalla que se prende) la unidad ya tiene una, y
+          // ponerle la hora de ahora hacía que el próximo lote del teléfono
+          // —los últimos diez segundos— entrara a medias como "ya visto".
+          // "Se lo oyó" es `oidoEn`, y eso sí es de ahora.
+          timestamp: previo && previo.lat != null && typeof previo.timestamp === 'number' ? previo.timestamp : Date.now(),
           oidoEn: Date.now(),
         });
 
@@ -5542,6 +5751,17 @@ wss.on('connection', (ws) => {
       // combi que sigue manejando otro — descartándole la vuelta en curso.
       if (vehicleId && estado && prof.role === 'driver') {
         fijarPresencia(vehicleId, prof.routeId || DEFAULT_ROUTE, estado);
+      }
+    }
+
+    // "Estoy en tráfico" / "ya no". Sólo el chofer, como la presencia: es de
+    // la unidad. Un booleano explícito; cualquier otra cosa se ignora.
+    if (msg.type === 'trafico') {
+      const personId = clients.get(ws);
+      const prof = personId ? profiles.get(personId) : null;
+      const vehicleId = prof?.vehicleId;
+      if (vehicleId && prof.role === 'driver' && typeof msg.activo === 'boolean') {
+        fijarTrafico(vehicleId, prof.routeId || DEFAULT_ROUTE, prof.companyId || null, msg.activo);
       }
     }
 
@@ -6166,6 +6386,13 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   // dónde está — y el barrido lo volvía a marcar 10 s después, en bucle.
   const fresca = Date.now() - cuando <= SIN_SENAL_MS;
 
+  // La parada sostenida y la palabra del chofer, con esta posición. Sólo
+  // se mide a las confirmadas en ruta: el que va yendo o está ausente puede
+  // estar parado todo lo que quiera.
+  const parada = evaluarParada(vehicleId, routeId, prof.companyId || null, pos, proy, cuando,
+    enRuta && (!decl || decl.estado === 'ruta'), !!(desvio && desvio.fuera));
+  const traf = traficos.get(vehicleId) || null;
+
   ponerUnidad(vehicleId, {
     ...unit,
     unitId: vehicleId,
@@ -6184,6 +6411,13 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     // del estado que ya se emite: no hace falta mensaje aparte.
     fueraDeRuta: !!(desvio && desvio.fuera),
     fueraDesde: desvio && desvio.fuera ? desvio.desde : null,
+    // Lleva N minutos sin avanzar por la ruta (lo mide el servidor), y si el
+    // chofer avisó tráfico (lo dijo él). Los dos con su hora, para que las
+    // pantallas digan "hace 6 min" en vez de un booleano mudo.
+    parado: parada.parado,
+    paradoDesde: parada.desde,
+    trafico: !!traf,
+    traficoDesde: traf ? traf.desde : null,
     // Volvió la señal (si la posición es de ahora). Se limpia explícitamente
     // porque el spread de arriba arrastra el `sinSenal` de la vuelta
     // anterior, y una unidad que reapareció seguiría en gris para siempre.
@@ -6273,6 +6507,16 @@ function calculateGaps(sortedUnits, durationMin, anotar) {
       // sabemos dónde", que para el chofer son cosas muy distintas.
       aheadSinSenal: !!(ahead && ahead.sinSenal),
       behindSinSenal: !!(behind && behind.sinSenal),
+      // Y si el vecino está trabado: parada sostenida o aviso del chofer.
+      // Con su hora, para decir "hace 6 min"; `confirmado` distingue la
+      // palabra del chofer del hecho medido. Al de atrás, esto le cambia la
+      // instrucción: no se apura hacia un embotellamiento.
+      aheadEnTrafico: !!(ahead && (ahead.trafico || ahead.parado)),
+      aheadTraficoDesde: ahead ? (ahead.trafico ? ahead.traficoDesde : ahead.parado ? ahead.paradoDesde : null) : null,
+      aheadTraficoConfirmado: !!(ahead && ahead.trafico),
+      behindEnTrafico: !!(behind && (behind.trafico || behind.parado)),
+      behindTraficoDesde: behind ? (behind.trafico ? behind.traficoDesde : behind.parado ? behind.paradoDesde : null) : null,
+      behindTraficoConfirmado: !!(behind && behind.trafico),
     };
   }
   return gaps;
@@ -6426,6 +6670,8 @@ setInterval(() => {
       // Y el desvío abierto se cierra: de una unidad que dejó de reportar no
       // se puede decir que "siguió fuera de ruta" — no se sabe dónde está.
       olvidarDesvio(unitId, 'corte');
+      // La parada igual: sin datos no hay parada que sostener.
+      olvidarParada(unitId, 'corte');
       // Y la CONFIRMACIÓN se pierde con el olvido: si mató la app sin
       // "salir de ruta" y reaparece mañana desde su casa, tiene que volver
       // a pisar el trazado — no entrar a la cadena por un true de ayer.
