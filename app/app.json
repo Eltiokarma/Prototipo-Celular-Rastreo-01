@@ -2,14 +2,15 @@
   "expo": {
     "name": "Control de ruta",
     "slug": "coop-r14",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "icon": "./assets/icon.png",
     "android": {
       "package": "com.microstempo.chofer",
-      "versionCode": 2,
+      "allowBackup": false,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#2580CF"

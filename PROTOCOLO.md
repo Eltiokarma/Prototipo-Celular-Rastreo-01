@@ -302,6 +302,29 @@ cliente debe RE-DECLARAR su presencia al reconectar el WebSocket: el
 servidor la guarda en memoria. Un cliente que no declara nada se comporta
 como siempre: en cadena desde la primera posición.
 
+## 4quinquies. El SOS por HTTP: `POST /sos`
+
+El SOS por el WebSocket (`{ "type": "sos", "lat", "lng", "timestamp" }`)
+sigue igual. Pero el socket no siempre está: con la pantalla recién
+desbloqueada murió y el reintento espera de 3 a 30 s, y ése es justo el
+momento en que alguien desliza SOS. `POST /sos` con `{ "lat", "lng",
+"timestamp" }` (Bearer, chofer o cobrador; Despacho recibe 403; más de 5 por
+minuto, 429) dispara exactamente lo mismo —la alerta a la ruta y a los
+supervisores, la auditoría, la fila en `messages`— y **contesta con la
+alerta y su `sosId`**: es el eco que el socket no va a dar, y el ancla para
+el `sos_tipo` de después.
+
+El cliente (`app/protocolo/cliente.js`, `mandarSos`) devuelve `{ ok, via,
+sosId }` y `ok` quiere decir que LLEGÓ: por el socket espera el eco propio
+(`sos_alert` con mi unidad) hasta 8 s; sin socket o sin eco, va por HTTP. La
+pantalla no dice «ALERTA ENVIADA» hasta ese `ok`.
+
+Y una regla del lado de `/gps` que va con la presencia: **un lote cuyas
+posiciones son todas anteriores al último «fuera» de la unidad se descarta
+entero, presencia incluida**. Es el `POST /gps` que venía en vuelo con
+`presencia: 'ruta'` y llegó después del «fuera»: sin esto volvía a poner en
+el mapa a una combi que acababa de irse.
+
 ## 4quater. Tráfico: `parado`, `trafico` (WS) y `POST /trafico`
 
 Dos cosas, y viajan juntas en cada unidad del `state`:

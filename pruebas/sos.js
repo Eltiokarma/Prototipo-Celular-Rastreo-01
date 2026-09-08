@@ -159,6 +159,47 @@ const tipoEnBase = (id) =>
     ok('y la fila dice qué fue', /Falla mecánica/.test(csv), csv.split('\r\n').slice(6, 8));
   }
 
+  console.log('\nY POR HTTP, CUANDO EL SOCKET NO ESTÁ');
+  // De la revisión del 8/9 (A1): el SOS era sólo WebSocket. La pantalla
+  // recién desbloqueada tiene el socket muerto y el reintento esperando de
+  // 3 a 30 s: deslizar no mandaba nada. `POST /sos` es la puerta que queda.
+  {
+    const antes = dos.visto.alertas.length;
+    const r = await fetch(`${API}/sos`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s1.token },
+      body: JSON.stringify({ lat: -15.49, lng: -70.13, timestamp: Date.now() }) });
+    const cuerpo = await r.json();
+    ok('POST /sos contesta con la alerta y su id', r.status === 200 && cuerpo.ok === true && Number.isInteger(cuerpo.sosId), cuerpo);
+    ok('con quién y desde dónde', cuerpo.unitId === 'M-01' && cuerpo.lat === -15.49, cuerpo);
+    ok('y le llega a la ruta igual que por el socket',
+       await hasta(() => dos.visto.alertas.length === antes + 1) && dos.visto.alertas.at(-1).sosId === cuerpo.sosId,
+       dos.visto.alertas.length - antes);
+    ok('queda en la base, genérico', tipoEnBase(cuerpo.sosId) === null);
+    // Y el tipo se le puede poner después, por el socket, con ese id
+    uno.ws.send(JSON.stringify({ type: 'sos_tipo', sosId: cuerpo.sosId, tipo: 'policia' }));
+    ok('y se lo puede tipificar después con ese id', await hasta(() => tipoEnBase(cuerpo.sosId) === 'policia'), tipoEnBase(cuerpo.sosId));
+
+    const sinToken = await fetch(`${API}/sos`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    ok('sin sesión, 401', sinToken.status === 401, sinToken.status);
+    const d = await login('DESPACHO', 'despacho99');
+    const despacho = await fetch(`${API}/sos`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + d.token }, body: '{}' });
+    ok('Despacho no manda SOS: 403', despacho.status === 403, despacho.status);
+    // Con basura en vez de coordenadas sale igual, sin posición
+    const basura = await fetch(`${API}/sos`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s1.token },
+      body: JSON.stringify({ lat: 'acá', lng: null }) }).then(r => r.json());
+    ok('con coordenadas inválidas sale igual, sin posición', basura.ok === true && basura.lat === null, basura);
+    // El cupo: 5 por minuto por persona
+    let ultimo = 200;
+    for (let i = 0; i < 6; i++) {
+      ultimo = (await fetch(`${API}/sos`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s1.token }, body: '{}' })).status;
+    }
+    ok('más de cinco por minuto, 429: un cliente roto no inunda a Despacho', ultimo === 429, ultimo);
+  }
+
   for (const c of [uno, dos]) { try { c.ws.close(); } catch {} }
   servidor.kill();
   console.log(fallas ? `\n${fallas} FALLAS` : '\nTODO EN ORDEN');

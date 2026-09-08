@@ -23,6 +23,8 @@ const CUPO_GPS_POR_MINUTO = 35;    // el servidor corta en 40; se deja margen
 const RECONEXION_BASE_MS = 3000;   // igual que la app web
 const RECONEXION_TOPE_MS = 30000;  // en un túnel largo, no cada 3 s para siempre
 
+const { MAX_DATAURL } = require('../imagen.js');
+
 function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   if (!servidor) throw new Error('falta la URL del servidor');
   if (!WebSocketImpl) throw new Error('falta la implementación de WebSocket');
@@ -63,6 +65,9 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       throw e;
     }
     sesion = cuerpo;
+    // El token queda desde acá: lo que va por HTTP (SOS, presencia, cerrar
+    // sesión) no tiene por qué esperar a que se abra el socket.
+    token = cuerpo.token || token;
     return cuerpo;
   }
 
@@ -164,7 +169,9 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     // reintentando cada 3 segundos durante media hora es batería tirada.
     const espera = Math.min(RECONEXION_BASE_MS * 2 ** intentos, RECONEXION_TOPE_MS);
     intentos++;
-    reintento = setTimeout(abrir, espera);
+    // Si `new WebSocket` revienta (pasa con una URL que el sistema rechaza
+    // en ese momento), el reintento no puede morir ahí: se vuelve a agendar.
+    reintento = setTimeout(() => { try { abrir(); } catch { programarReintento(); } }, espera);
     emitir('reintento', { enMs: espera, intento: intentos });
   }
 
@@ -221,8 +228,12 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       case 'photo_msg':    emitir('foto', m); break;
       case 'sos_alert':
         // Si el SOS es MÍO, el id queda anotado: es el ancla con la que la
-        // pantalla puede ponerle nombre a la emergencia YA enviada.
-        if (sesion && m.unitId === sesion.unitId) miUltimoSos = m.sosId ?? null;
+        // pantalla puede ponerle nombre a la emergencia YA enviada. Y es la
+        // prueba de que LLEGÓ: `mandarSos` espera este eco.
+        if (sesion && m.unitId === sesion.unitId) {
+          miUltimoSos = m.sosId ?? null;
+          if (esperandoEcoSos) esperandoEcoSos();
+        }
         emitir('sos', m);
         break;
       case 'sos_tipo':     emitir('sosTipo', m); break;
@@ -358,7 +369,10 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // imágenes es más chico que el del audio a propósito —una foto pesa mucho
   // más y el reparto lo pagan todos los que la reciben, no el que la manda—.
   // Ver `app/imagen.js`.
-  const TOPE_IMAGEN = 1_150_000;
+  // UN solo tope, el de `imagen.js` —que es el del servidor—. Había dos
+  // (1 150 000 acá, 1 200 000 allá) y una foto entre los dos se perdía en
+  // silencio: la pantalla la veía salir y nunca salía (REVISION, A6).
+  const TOPE_IMAGEN = MAX_DATAURL;
   function mandarFoto({ data, text = '', privado = false }) {
     if (!data || !String(data).startsWith('data:image')) return 'formato';
     if (String(data).length > TOPE_IMAGEN) return 'muy-pesada';
@@ -389,8 +403,78 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     }
   }
 
-  function mandarSos({ lat = null, lng = null } = {}) {
-    return enviar({ type: 'sos', lat, lng, timestamp: ahora() });
+  // El SOS. Devuelve una promesa con { ok, via, sosId }, y `ok` quiere decir
+  // que LLEGÓ, no que se intentó: por el socket se espera el eco propio
+  // (`sos_alert` con mi unidad), y si no hay socket o el eco no viene, se
+  // va por HTTP (`POST /sos`), que contesta con la alerta y su id. Antes
+  // devolvía `false` con el socket caído y la pantalla ni lo miraba: decía
+  // «ALERTA ENVIADA» de una alerta que nunca salió — el caso real es la
+  // pantalla recién desbloqueada, con el reintento del socket esperando
+  // de 3 a 30 s (REVISION-2026-09-08.md, A1).
+  const SOS_ECO_MS = 8000;
+  const SOS_HTTP_MS = 10_000;
+  let esperandoEcoSos = null;
+  function esperarEcoSos(ms) {
+    return new Promise((res) => {
+      const t = setTimeout(() => { esperandoEcoSos = null; res(false); }, ms);
+      esperandoEcoSos = () => { clearTimeout(t); esperandoEcoSos = null; res(true); };
+    });
+  }
+  async function mandarSos({ lat = null, lng = null } = {}) {
+    const cuerpo = { lat, lng, timestamp: ahora() };
+    if (enviar({ type: 'sos', ...cuerpo })) {
+      if (await esperarEcoSos(SOS_ECO_MS)) return { ok: true, via: 'ws', sosId: miUltimoSos };
+    }
+    if (!token) return { ok: false, via: 'http', error: 'sin sesión' };
+    try {
+      const r = await pedirHttp('/sos', cuerpo, SOS_HTTP_MS);
+      const alerta = await r.json().catch(() => ({}));
+      if (!r.ok) return { ok: false, via: 'http', error: alerta.error || ('HTTP ' + r.status) };
+      miUltimoSos = alerta.sosId ?? null;
+      // El eco que el socket no va a dar: la pantalla lo trata igual que el
+      // de verdad (abre el «¿qué pasó?» y lo pone en el hilo).
+      emitir('sos', { type: 'sos_alert', ...alerta });
+      return { ok: true, via: 'http', sosId: miUltimoSos };
+    } catch (e) {
+      return { ok: false, via: 'http', error: e?.name === 'AbortError' ? 'sin respuesta' : 'sin red' };
+    }
+  }
+
+  // Un POST con corte. Es para la pantalla encendida (el chofer está
+  // tocando algo): acá `fetch` sí resuelve. Lo de la pantalla apagada va por
+  // `app/pedido.js`, desde la tarea de fondo.
+  function pedirHttp(ruta, cuerpo, ms) {
+    const control = new AbortController();
+    const t = setTimeout(() => control.abort(), ms);
+    return fetch(servidor + ruta, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(cuerpo),
+      signal: control.signal,
+    }).finally(() => clearTimeout(t));
+  }
+
+  // Declarar algo por HTTP, con reintento: `true` si el servidor lo tomó.
+  // Un 4xx no se reintenta (va a dar lo mismo); la falta de red, sí.
+  async function declararPorHttp(ruta, cuerpo, intentos) {
+    if (!token) return false;
+    for (let i = 0; i < intentos; i++) {
+      try {
+        const r = await pedirHttp(ruta, cuerpo, 8000);
+        if (r.ok) return true;
+        if (r.status >= 400 && r.status < 500) return false;
+      } catch {}
+      if (i + 1 < intentos) await new Promise(res => setTimeout(res, 1000));
+    }
+    return false;
+  }
+
+  // Cerrar sesión de verdad: el token deja de valer EN EL SERVIDOR (A3).
+  // Mejor esfuerzo: sin red no importa, lo local se borra igual.
+  async function cerrarSesion() {
+    if (!token) return false;
+    try { const r = await pedirHttp('/auth/logout', {}, 5000); return r.ok; }
+    catch { return false; }
   }
 
   // Ponerle nombre a la emergencia YA disparada. El deslizar mandó la alerta
@@ -417,41 +501,34 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // vivo; si no, por HTTP — el botón "salir de ruta" tiene que funcionar
   // hasta con mala señal. Declarar 'ruta' NO mete a la unidad en la cadena:
   // eso lo confirma el servidor cuando el GPS pisa el trazado.
+  //
+  // Devuelve una promesa: `true` si el servidor lo tomó. «Fuera» era
+  // fire-and-forget y `onSalir` cerraba el socket enseguida: sin señal en
+  // ese instante, el «fuera» se perdía y la combi quedaba en el mapa hasta
+  // el olvido (REVISION, A5). Ahora se puede esperar, y por HTTP reintenta.
   let presenciaDeclarada = null;
-  function marcarPresencia(estado) {
+  async function marcarPresencia(estado) {
     presenciaDeclarada = estado;
     if (ws && conectado) {
-      try { ws.send(JSON.stringify({ type: 'presencia', estado })); return; } catch {}
+      try { ws.send(JSON.stringify({ type: 'presencia', estado })); return true; } catch {}
     }
-    if (token) {
-      fetch(servidor + '/presencia', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ estado }),
-      }).catch(() => {});
-    }
+    return declararPorHttp('/presencia', { estado }, estado === 'fuera' ? 3 : 1);
   }
 
   // "Estoy en tráfico" / "ya no". Mismo camino que la presencia: WebSocket
   // si está vivo, HTTP si no — el botón tiene que andar con mala señal.
   // El servidor lo apaga solo cuando la combi vuelve a andar; desmarcar a
   // mano existe para el toque en falso.
-  function marcarTrafico(activo) {
+  async function marcarTrafico(activo) {
     const a = !!activo;
     if (ws && conectado) {
-      try { ws.send(JSON.stringify({ type: 'trafico', activo: a })); return; } catch {}
+      try { ws.send(JSON.stringify({ type: 'trafico', activo: a })); return true; } catch {}
     }
-    if (token) {
-      fetch(servidor + '/trafico', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ activo: a }),
-      }).catch(() => {});
-    }
+    return declararPorHttp('/trafico', { activo: a }, 2);
   }
 
   return {
-    entrar, conectar, salir,
+    entrar, conectar, salir, cerrarSesion,
     mandarGps, subirPosiciones, mandarChat, mandarVoz, mandarFoto, mandarSos,
     marcarTipoSos, pedirMarca, marcarPresencia, marcarTrafico,
     miBrecha, otrasUnidades, miUnidad,

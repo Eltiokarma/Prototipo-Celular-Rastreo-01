@@ -376,6 +376,21 @@ reinstalar en cada teléfono.
   que se mueve, y un falso SOS que moviliza gente quema la confianza en el
   sistema entero. Hay que llegar al 85 % del recorrido, vibra al disparar, y
   vuelve solo a los 6 s por si hace falta repetirlo.
+- **Y dice la verdad sobre si salió.** «ENVIANDO…» hasta que el servidor lo
+  confirma —el eco por el socket, o la respuesta de `POST /sos` cuando el
+  socket está caído, que es justo el caso de la pantalla recién
+  desbloqueada—, «ALERTA ENVIADA» recién ahí, y «NO SALIÓ — REPETÍ» en rojo
+  con vibración doble si no llegó (vuelve a estar disponible a los 3,5 s).
+  Antes decía «enviada» al soltar el dedo, con el socket muerto y la alerta
+  en ninguna parte.
+- **Salir es salir.** «Salir» espera que el servidor tome el «fuera» (por
+  HTTP reintenta), para el GPS, vacía la cola de posiciones, el vigía de la
+  ausencia, el flag de grabación y el diagnóstico (`gps.limpiarSesion()`), y
+  revoca el token en el servidor (`POST /auth/logout`). Sin esto, el relevo
+  con el mismo teléfono mandaba las posiciones del anterior con el token del
+  siguiente. `auth_error` hace lo mismo, y la tarea de fondo se apaga sola
+  con tres 401 seguidos (y borra la sesión del disco) o tres 403/409 (el
+  cobrador, el relevado), y la pantalla lo dice.
 - **El SOS manda la última posición conocida.** Es lo primero que pregunta
   quien sale a ayudar.
 - **La nota de voz se graba manteniendo apretado**, como en WhatsApp. No es
