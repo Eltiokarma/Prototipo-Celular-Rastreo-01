@@ -75,7 +75,7 @@ const mandar = (token, posiciones) => fetch(API + '/gps', {
   db.close();
   const HG = { 'Content-Type': 'application/json',
     Authorization: 'Bearer ' + await require('./gerente.js')(API, DB) };
-  for (const [u, n] of [['M-08', 'Rufino Quispe'], ['M-12', 'Elmer Ccama']]) {
+  for (const [u, n] of [['M-08', 'Rufino Quispe'], ['M-12', 'Elmer Ccama'], ['M-13', 'Reloj Atrasado']]) {
     await fetch(`${API}/admin/users`, { method: 'POST', headers: HG,
       body: JSON.stringify({ unitId: u, name: n, personRole: 'driver', password: 'clave1234' }) });
   }
@@ -214,23 +214,80 @@ const mandar = (token, posiciones) => fetch(API + '/gps', {
   // llegando perfectamente. Son dos edades: la de la posición (gobierna el
   // gris) y la del enlace (gobierna el olvido).
   //
-  // Acá el teléfono llega cada 2 s durante ~24 s (dos barridos enteros),
-  // pero SOLO con posiciones de hace un minuto. Antes del arreglo, la
-  // unidad moría en el primer barrido.
-  for (let i = 0; i < 12; i++) {
-    const p = anillo(0.2 + i * 0.001);
+  // Una posición de hace un minuto, sola, y el barrido (cada 10 s fijos).
+  {
+    const p = anillo(0.2);
     await mandar(s12.token, [{ lat: p.lat, lng: p.lng, speed: 15, timestamp: Date.now() - 60_000 }]);
-    await sleep(2000);
   }
+  await sleep(11_000);
   ok('la unidad sigue en el estado: se la OYE, aunque su posición sea vieja',
      !!vista(), (estado?.units || []).map(u => u.unitId));
   ok('dibujada en gris — dónde está AHORA no se sabe, y eso se dice',
      vista()?.sinSenal === true, vista());
-  // Y con la cola vaciada llega la posición de ahora: vuelve al color.
+
+  console.log('\nEL RELOJ DEL TELÉFONO ATRASADO NO ES ESTAR MUDO');
+  // De la revisión del 8/9 (L5). Un Android con la hora un minuto atrás
+  // manda cada 2 s, perfecto, y NINGUNA posición pasaba por fresca: gris el
+  // turno entero, los vecinos sin tiempo contra ella. Un teléfono así viene
+  // atrasado DESDE QUE ARRANCA el turno (M-13, sin historia): si el reloj
+  // saltara hacia atrás a mitad de turno, sus posiciones serían «ya vistas»
+  // —más viejas que la última conocida— durante lo que saltó, y eso se
+  // acepta (ver server/reloj.js).
+  const s13 = await login('M-13', 'clave1234');
+  const vista13 = () => (estado?.units || []).find(u => u.unitId === 'M-13');
+  {
+    const p = anillo(0.30);
+    await mandar(s13.token, [{ lat: p.lat, lng: p.lng, speed: 15, timestamp: Date.now() - 60_000 }]);
+  }
+  await sleep(11_000);   // un barrido entero: con una sola muestra no se cree nada
+  ok('con una sola posición «de hace un minuto», gris, como corresponde',
+     vista13()?.sinSenal === true, vista13() && { sinSenal: vista13().sinSenal, reloj: vista13().relojAtrasadoS });
+  // Y ahora sostenido: cada 2 s durante 16 s, siempre un minuto atrás. Dos
+  // plazos de «sin señal» (acá 4 s) y el servidor concluye que es el reloj.
+  for (let i = 1; i <= 8; i++) {
+    const p = anillo(0.30 + i * 0.001);
+    await mandar(s13.token, [{ lat: p.lat, lng: p.lng, speed: 15, timestamp: Date.now() - 60_000 }]);
+    await sleep(2000);
+  }
+  ok('sostenido, la saca del gris: se la oye y se sabe cuánto atrasa',
+     vista13()?.sinSenal === false, vista13() && { sinSenal: vista13().sinSenal, reloj: vista13().relojAtrasadoS });
+  ok('y dice cuánto: ~60 s', vista13()?.relojAtrasadoS >= 58 && vista13()?.relojAtrasadoS <= 63, vista13()?.relojAtrasadoS);
+  // El reloj se sincroniza: llega una posición con la hora bien. Sigue en
+  // color, y el sesgo vuelve a cero.
+  {
+    const p = anillo(0.31);
+    await mandar(s13.token, [{ lat: p.lat, lng: p.lng, speed: 20, timestamp: Date.now() }]);
+  }
+  await sleep(700);
+  ok('una posición con la hora bien la deja en color', vista13()?.sinSenal === false, vista13()?.sinSenal);
+  ok('y el reloj deja de contar como atrasado', vista13()?.relojAtrasadoS === 0, vista13()?.relojAtrasadoS);
+  // M-12 sigue donde estaba, para lo que viene
   const fresca = anillo(0.25);
   await mandar(s12.token, [{ lat: fresca.lat, lng: fresca.lng, speed: 20, timestamp: Date.now() }]);
   await sleep(700);
-  ok('una posición fresca la saca del gris al instante', vista()?.sinSenal === false, vista()?.sinSenal);
+  ok('una posición fresca saca del gris a M-12', vista()?.sinSenal === false, vista()?.sinSenal);
+
+  console.log('\nCERRAR EL SOCKET CON EL HTTP VIVO NO ES QUEDARSE MUDO');
+  // De la revisión del 8/9 (L7). La app nativa manda el GPS por HTTP y usa
+  // el socket para el chat y el estado; con la pantalla apagada el socket se
+  // cae y el GPS sigue. Cerrarlo marcaba «sin señal» en el acto, con brechas
+  // en null para los vecinos hasta el siguiente POST.
+  ws2.close();
+  await sleep(500);
+  const ws3 = new WebSocket(`ws://localhost:${P}`);
+  await new Promise(res => ws3.on('open', res));
+  ws3.send(JSON.stringify({ type: 'identify', token: s12.token }));
+  await sleep(500);
+  {
+    const p = anillo(0.26);
+    await mandar(s12.token, [{ lat: p.lat, lng: p.lng, speed: 20, timestamp: Date.now() }]);
+  }
+  ws3.close();
+  await sleep(900);
+  ok('al cerrar el socket recién oída por HTTP, sigue en color', vista()?.sinSenal === false, vista()?.sinSenal);
+  ok('y si de verdad se calla, el barrido la marca como a cualquiera',
+     await (async () => { for (let i = 0; i < 30; i++) { if (vista()?.sinSenal === true) return true; await sleep(500); } return false; })(),
+     vista()?.sinSenal);
 
   ws.close(); ws2.close();
   console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

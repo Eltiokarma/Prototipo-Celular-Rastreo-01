@@ -41,7 +41,11 @@ let servidor = null;
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
-           STATE_INTERVAL_MS: '400' },
+           STATE_INTERVAL_MS: '400',
+           // Sin gracia de arranque: acá se juzga la entrada desde el primer
+           // segundo (en producción, los primeros minutos tras un reinicio
+           // no se juzgan — ver presencia.js).
+           ARRANQUE_GRACIA_MS: '0' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   servidor.stderr.on('data', d => process.stderr.write('[srv] ' + d));
@@ -281,7 +285,7 @@ let servidor = null;
     for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
     const srv = spawn('node', [RAIZ + '/server/index.js'], {
       env: { ...process.env, PORT: String(P2), DB_FILE: DB2, DISPATCH_PASSWORD: 'despacho99', MODO: 'demo',
-             STATE_INTERVAL_MS: '400', OLVIDAR_MS: '2000' },
+             STATE_INTERVAL_MS: '400', OLVIDAR_MS: '2000', ARRANQUE_GRACIA_MS: '0' },
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     srv.stderr.on('data', x => process.stderr.write('[srv2] ' + x));
