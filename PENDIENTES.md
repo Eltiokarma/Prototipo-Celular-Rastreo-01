@@ -316,6 +316,19 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
       Del mismo viaje: el índice `laps(finishedAt)`, que saca los 142 ms de
       bloqueo del hilo único en cada carga de la pestaña de vueltas.
 
+### Revisión de seguridad y de lógica del 8/9
+
+Una segunda revisión del sistema entero está en **`REVISION-2026-09-08.md`**:
+cuatro lecturas por área, cada hallazgo con archivo y línea, los importantes
+verificados contra el código, y un orden de arreglo. Lo primero: un frame
+WebSocket inválido o un mensaje `null` apagan el servidor; el WebSocket no
+tiene `maxPayload`; las brechas no dan la vuelta en el cero del circuito (la
+recién salida recibe «apurá»); la entrada tardía se marca en falso tras un
+reinicio y al volver de ausente; el SOS de la app dice «enviada» sin que haya
+salido y no tiene camino HTTP; cerrar sesión no vacía la cola de posiciones;
+el service worker cachea respuestas con token; y Babel entra sin `integrity`
+en Despacho y en el creador. Nada de eso está arreglado todavía.
+
 ### Lo que todavía no se midió, y no se arregla programando
 
 Para 2000 unidades quedaban dos preguntas que solo contesta la calle. La

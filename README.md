@@ -1135,6 +1135,9 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
    **sin clave ninguna**: controla el deploy, las variables de entorno y el
    archivo de la base. Es quien decide si el nivel 3 existe.
 
+> La revisión siguiente, del 8/9, está en `REVISION-2026-09-08.md`, con lo
+> que encontró y el orden en que conviene arreglarlo.
+
 ### Lo que se cerró en la revisión del 8/8
 
 Una revisión de seguridad del sistema entero —no de un cambio— encontró ocho
