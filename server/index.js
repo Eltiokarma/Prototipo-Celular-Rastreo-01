@@ -46,6 +46,42 @@ app.use((req, res, next) => {
   next();
 });
 
+// ─── CABECERAS DE SEGURIDAD ──────────────────────────────────
+// Sin dependencia nueva (no hay `helmet`): son cinco cabeceras y un CSP.
+// Ver REVISION-2026-09-08.md, S7. El CSP es a la medida de lo que los
+// paneles usan de verdad y no puede ser más estricto sin romperlos:
+//   - `'unsafe-inline'` y `'unsafe-eval'` en script: los tres HTML compilan
+//     con Babel standalone EN EL NAVEGADOR (`<script type="text/babel">`),
+//     que es evaluar en caliente. Es el precio de "sin build".
+//   - `unpkg.com`: React, ReactDOM, Babel, Leaflet (con su `integrity`).
+//   - fuentes de Google, tiles de Geoapify y del mapa propio (`'self'`).
+//   - `connect-src` con `wss:`/`ws:`: el WebSocket del tiempo real.
+// `frame-ancestors 'none'` es el equivalente de `X-Frame-Options: DENY` en
+// CSP; se dejan los dos porque no todos los navegadores viejos leen el CSP.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: blob: https://maps.geoapify.com https://*.geoapify.com",
+  "connect-src 'self' https: wss: ws:",
+  "worker-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // Sólo la entiende un navegador que ya llegó por HTTPS; sobre HTTP la
+  // ignora, así que ponerla siempre no molesta y en producción (Railway,
+  // HTTPS) fuerza el candado por seis meses.
+  res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  next();
+});
+
 // ─── ESTADO GLOBAL ───────────────────────────────────────────
 // Acá vivem todos los datos en tiempo real.
 // En memoria por ahora — cuando el servidor se reinicia, se borran.
@@ -713,8 +749,13 @@ const pruneSosStmt = db.prepare(
 // materializa @tope ids y compara fila por fila contra ese conjunto: recorre la
 // tabla entera aunque no haya una sola fila para borrar. Ver `podarHistorico()`,
 // donde esa diferencia se midió y era el 99 % del arranque.
+// El techo cuenta y borra SÓLO lo que no es SOS: un SOS tiene su propia
+// retención por tiempo (365 días) y una ráfaga de fotos o chats no puede
+// empujarlo fuera del techo antes de tiempo (REVISION-2026-09-08.md, L8).
 const pruneRowsStmt = db.prepare(`
-  DELETE FROM messages WHERE id <= (SELECT id FROM messages ORDER BY id DESC LIMIT 1 OFFSET @tope)
+  DELETE FROM messages WHERE kind != 'sos' AND id <= (
+    SELECT id FROM messages WHERE kind != 'sos' ORDER BY id DESC LIMIT 1 OFFSET @tope
+  )
 `);
 // Lo pesado viejo suelta su contenido pero conserva la burbuja — el cliente
 // la muestra como expirada, que es honesto: existió, ya no está.
@@ -2339,6 +2380,25 @@ setInterval(() => {
   }
 }, 1_800_000);
 
+// La respuesta de un login que falló, IGUAL para "no existe" y "clave mala":
+// mismo código, mismo texto, mismo contador (S6). El contador le sirve al
+// chofer honesto que se equivocó, y para el que prueba usuarios es ruido
+// idéntico en los dos casos. `user` es null cuando la cuenta no existe.
+function fallaLogin(res, unitId, user) {
+  const a = loginAttempts.get(unitId);
+  const count = (a?.count || 0) + 1;
+  // Techo de memoria: un atacante que prueba diez mil usuarios inexistentes
+  // no puede hacer crecer el mapa sin fin. Al pasar el tope se saca el más
+  // viejo (el Map conserva el orden de inserción).
+  if (loginAttempts.size >= 20_000) {
+    const primero = loginAttempts.keys().next().value;
+    if (primero !== undefined) loginAttempts.delete(primero);
+  }
+  loginAttempts.set(unitId, { count, until: count >= 5 ? Date.now() + 300_000 : 0 });
+  if (count >= 5 && user) audit(unitId, 'login_bloqueado', null, '5 intentos fallidos', user.routeId);
+  return res.status(401).json({ error: `Usuario o contraseña incorrectos · intento ${count} de 5` });
+}
+
 app.post('/auth/login', (req, res) => {
   const unitId = idLimpio(req.body?.user);
   const password = String(req.body?.password || '');
@@ -2394,7 +2454,7 @@ app.post('/auth/login', (req, res) => {
         anotarFalloIp(ip);
         console.warn(`Intento de bootstrap de ${DISPATCH_ID} con ${administradores} cuenta(s) ` +
           'de administración ya existentes: rechazado');
-        return res.status(403).json({ error: 'Unidad no registrada. Pedí el alta a Despacho.' });
+        return fallaLogin(res, unitId, null);
       }
       console.warn(`BOOTSTRAP: se creó ${DISPATCH_ID} desde un login porque no había ninguna ` +
         'cuenta de administración en el sistema. Poné DISPATCH_PASSWORD para que no dependa de esto.');
@@ -2402,9 +2462,11 @@ app.post('/auth/login', (req, res) => {
 
     if (unitId !== DISPATCH_ID && !openReg) {
       // Cuenta como fallo: si no, probar usuarios sale gratis y sirve para
-      // averiguar cuáles existen.
+      // averiguar cuáles existen. Y la RESPUESTA es idéntica a la de una
+      // contraseña incorrecta: si el mensaje distinguiera "no existe" de
+      // "clave mala", probar usuarios diría cuáles existen (S6).
       anotarFalloIp(ip);
-      return res.status(403).json({ error: 'Unidad no registrada. Pedí el alta a Despacho.' });
+      return fallaLogin(res, unitId, null);
     }
     const role = unitId === DISPATCH_ID ? 'dispatch' : 'driver';
     const driverName = role === 'dispatch' ? 'Despacho' : unitId;
@@ -2421,10 +2483,7 @@ app.post('/auth/login', (req, res) => {
     console.log(`${role === 'dispatch' ? 'Despacho' : 'Unidad'} registrado: ${unitId}`);
   } else if (!verifyPassword(password, user.passHash)) {
     anotarFalloIp(ip);
-    const count = (a?.count || 0) + 1;
-    loginAttempts.set(unitId, { count, until: count >= 5 ? Date.now() + 300_000 : 0 });
-    if (count >= 5) audit(unitId, 'login_bloqueado', null, '5 intentos fallidos', user.routeId);
-    return res.status(401).json({ error: `Contraseña incorrecta · intento ${count} de 5` });
+    return fallaLogin(res, unitId, user);
   }
 
   // La empresa desactivada corta el acceso de toda su gente de una vez. Se
@@ -3147,9 +3206,24 @@ app.post('/gps', (req, res) => {
   // nunca, y si otro chofer tomó la unidad manda el otro.
   if (user.role !== 'driver') return res.status(403).json({ error: 'Solo el chofer reporta posición' });
   const vehicleId = user.vehicleId || user.unitId;
+  // El relevo: el dueño actual del GPS es OTRO chofer con el socket todavía
+  // abierto (dejó la app abierta en el asiento al bajarse). El que sube entra
+  // por HTTP con la pantalla apagada, y devolverle 409 lo dejaba mudo todo el
+  // turno mientras el saliente no aportaba nada. Gana el que está trabajando:
+  // se le pasa el mando y al anterior se le avisa que su GPS ya no se usa —
+  // las mismas reglas que el relevo por WebSocket, que ya funciona así.
+  // (REVISION-2026-09-08.md, L6). El caso de DOS choferes mandando por HTTP a
+  // la vez (L9) sigue sin resolverse — es de baja probabilidad.
   const duenoWs = gpsOwner.get(vehicleId);
   if (duenoWs && clients.get(duenoWs) && clients.get(duenoWs) !== user.unitId) {
-    return res.status(409).json({ error: 'Otro chofer tomó esta unidad' });
+    if (duenoWs.readyState === 1) {
+      try {
+        duenoWs.send(JSON.stringify({ type: 'gps_role', reporting: false,
+          reason: 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa.' }));
+      } catch {}
+    }
+    console.log(`GPS de ${vehicleId} por HTTP: lo toma ${user.unitId}, relevó a ${clients.get(duenoWs)}`);
+    gpsOwner.delete(vehicleId);
   }
 
   // La presencia puede venir pegada a las posiciones: con la pantalla
@@ -5092,14 +5166,10 @@ app.get('/gerencia/informe/:tipo.csv', requireManager, (req, res) => {
 // ─── RUTA DE SALUD ───────────────────────────────────────────
 // Si hacés GET /ping y responde "pong", el servidor está vivo.
 app.get('/ping', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'pong',
-    units: units.size,
-    clients: clients.size,
-    historyLength: historyCount(),
-    time: new Date().toISOString(),
-  });
+  // Sólo "está vivo" y la hora. Cuántas unidades y conexiones hay es la
+  // foto de la operación de la cooperativa y no tiene por qué ser pública
+  // (REVISION-2026-09-08.md, S9). El monitoreo de salud sólo mira el status.
+  res.json({ status: 'ok', message: 'pong', time: new Date().toISOString() });
 });
 
 // ─── PANEL DEL CREADOR ───────────────────────────────────────
@@ -5610,6 +5680,14 @@ const CUPO = {
 };
 const cupos = new WeakMap();
 
+// Una conexión que abre y no se identifica no cuelga recursos para siempre:
+// se la cierra a los N segundos sin `identify`. Y a las identificadas se les
+// manda un ping cada rato; la que no contesta dos seguidos se termina — es
+// como se descubre el socket "medio muerto" que ni cierra ni contesta, el
+// que con la pantalla apagada deja el celular. Ver REVISION-2026-09-08.md, S5.
+const IDENTIFY_TIMEOUT_MS = Number(process.env.IDENTIFY_TIMEOUT_MS || 15_000);
+const WS_PING_MS = Number(process.env.WS_PING_MS || 30_000);
+
 function dentroDelCupo(ws, tipo) {
   const regla = CUPO[tipo] || CUPO.otro;
   let porTipo = cupos.get(ws);
@@ -5644,6 +5722,22 @@ wss.on('connection', (ws) => {
     try { ws.terminate(); } catch {}
   });
 
+  // El latido: vivo hasta que un ping quede sin contestar (ver el intervalo
+  // de más abajo). Empieza en true para que el primer barrido no lo mate.
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
+  // El reloj de arena del `identify`: si no se presenta a tiempo, afuera. Se
+  // limpia apenas se identifica (unas líneas más abajo) o al cerrarse.
+  const cerrarSiNoSeIdentifica = setTimeout(() => {
+    if (!clients.has(ws)) {
+      console.warn('WebSocket sin identificar a tiempo: se cierra');
+      try { ws.close(4008, 'sin identificar'); } catch {}
+      try { ws.terminate(); } catch {}
+    }
+  }, IDENTIFY_TIMEOUT_MS);
+  ws.on('close', () => clearTimeout(cerrarSiNoSeIdentifica));
+
   // Cuando llega un mensaje de una combi
   const manejarMensaje = (raw) => {
     // Un mensaje descomunal ni se intenta parsear
@@ -5675,6 +5769,7 @@ wss.on('connection', (ws) => {
       // lo rechazaba acá y se lo mandaba a gerencia.html; ese panel ya no
       // existe como puerta aparte.
       clients.set(ws, user.unitId);
+      clearTimeout(cerrarSiNoSeIdentifica);   // ya se presentó
       // El token queda guardado EN el socket. Sin esto, la sesión se
       // verificaba una sola vez —acá— y nunca más: por HTTP cada pedido la
       // revalida, pero un WebSocket abierto seguía valiendo para siempre.
@@ -6086,6 +6181,20 @@ wss.on('connection', (ws) => {
   // El estado y el historial se mandan recién después de un identify
   // válido — una conexión sin autenticar no recibe nada.
 });
+
+// El latido de todas las conexiones: un ping cada `WS_PING_MS`, y la que no
+// contestó el anterior se termina. Es lo que limpia el socket "medio muerto"
+// —ni abierto ni cerrado— que deja un celular al que se le cortó la red sin
+// avisar: sin esto, seguía contando como conexión y como dueño del GPS.
+const latido = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) { try { ws.terminate(); } catch {} return; }
+    ws.isAlive = false;
+    try { ws.ping(); } catch {}
+  });
+}, WS_PING_MS);
+latido.unref();
+wss.on('close', () => clearInterval(latido));
 
 // El SOS, por cualquiera de las dos puertas (WebSocket o `POST /sos`).
 // Devuelve la alerta con su id, que es lo que el cliente necesita para

@@ -60,6 +60,12 @@ const mandar = (token, posiciones) => fetch(API + '/gps', {
   body: JSON.stringify({ posiciones }),
 }).then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
+async function hasta(cond, ms = 4000) {
+  const fin = Date.now() + ms;
+  while (Date.now() < fin) { if (cond()) return true; await sleep(120); }
+  return false;
+}
+
 (async () => {
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   await arrancar();
@@ -205,6 +211,42 @@ const mandar = (token, posiciones) => fetch(API + '/gps', {
   await sleep(500);
   r = await mandar(s12.token, [{ lat: q.lat, lng: q.lng, speed: 10, timestamp: Date.now() }]);
   ok('la misma persona con otra sesión sí puede seguir mandando', r.status === 200, r.status);
+
+  console.log('\nEL RELEVO POR HTTP NO QUEDA MUDO CON 409');
+  // De la revisión del 8/9 (L6). El chofer saliente dejó la app abierta en el
+  // asiento (su WebSocket sigue vivo y es el dueño del GPS). El que sube entra
+  // por HTTP con la pantalla apagada: antes le llegaba 409 «Otro chofer tomó
+  // esta unidad» y quedaba mudo TODO el turno. Ahora gana el que trabaja.
+  {
+    try { ws2.close(); } catch {}
+    await sleep(400);
+    // Un relevo: otra persona (unitId) sobre la MISMA combi (vehicleId M-12)
+    await fetch(`${API}/admin/users`, { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: 'M-12R', name: 'Relevo de Elmer', personRole: 'driver',
+                             vehicleId: 'M-12', password: 'clave1234' }) });
+    const saliente = await login('M-12', 'clave1234');
+    const relevoHttp = await login('M-12R', 'clave1234');
+    // El saliente deja la app abierta: su WebSocket vivo es el dueño del GPS
+    const wsSaliente = new WebSocket(`ws://localhost:${P}`);
+    await new Promise(res => wsSaliente.on('open', res));
+    let avisado = null;
+    wsSaliente.on('message', raw => { const m = JSON.parse(raw);
+      if (m.type === 'gps_role' && m.reporting === false) avisado = m.reason; });
+    wsSaliente.send(JSON.stringify({ type: 'identify', token: saliente.token }));
+    await sleep(600);
+    // El que sube manda por HTTP: antes 409, ahora 200 (le pasan el mando)
+    const q2 = anillo(0.15);
+    const sube = await mandar(relevoHttp.token, [{ lat: q2.lat, lng: q2.lng, speed: 18, timestamp: Date.now() }]);
+    ok('el relevo que sube manda por HTTP y es aceptado (no 409)', sube.status === 200, { status: sube.status, body: sube.body });
+    ok('y al saliente se le avisa que su GPS ya no se usa',
+       await hasta(() => !!avisado), avisado);
+    // Y el saliente, si intentara mandar por HTTP, ahora es el de afuera
+    try { wsSaliente.close(); } catch {}
+    await sleep(400);
+    const q3 = anillo(0.16);
+    const sigue = await mandar(relevoHttp.token, [{ lat: q3.lat, lng: q3.lng, speed: 18, timestamp: Date.now() }]);
+    ok('el relevo sigue mandando sin trabas', sigue.status === 200, sigue.status);
+  }
 
   console.log('\nVACIAR ATRASO NO ES ESTAR MUERTO');
   // Salió de los logs de producción: la app vaciaba su cola tras un corte
