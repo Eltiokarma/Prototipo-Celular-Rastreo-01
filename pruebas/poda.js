@@ -68,12 +68,44 @@ for (const [nombre, ids, tope] of CASOS) {
 // no sirve de nada si mañana alguien reescribe la consulta de producción con
 // el patrón lento: acá se mide el archivo real, no una copia del SQL.
 const fuente = fs.readFileSync(path.join(__dirname, '..', 'server', 'index.js'), 'utf8');
-for (const tabla of ['laps', 'legs', 'messages']) {
+for (const tabla of ['laps', 'legs']) {
   const lento = new RegExp(`id NOT IN \\(SELECT id FROM ${tabla} ORDER BY id DESC LIMIT`);
   const rapido = new RegExp(`DELETE FROM ${tabla} WHERE id <= \\(SELECT id FROM ${tabla} ORDER BY id DESC LIMIT 1 OFFSET`);
   ok(`${++n}. ${tabla}: el techo se corta por rango, no con NOT IN`,
     !lento.test(fuente) && rapido.test(fuente),
     lento.test(fuente) ? 'volvió el NOT IN' : rapido.test(fuente) ? '' : 'no encontré el corte por rango');
+}
+
+// `messages` es igual pero EXCLUYENDO el SOS de las dos partes (L8, abajo)
+{
+  const lento = /id NOT IN \(SELECT id FROM messages ORDER BY id DESC LIMIT/;
+  const rapido = /DELETE FROM messages WHERE kind != 'sos' AND id <= \(\s*SELECT id FROM messages WHERE kind != 'sos' ORDER BY id DESC LIMIT 1 OFFSET/;
+  ok(`${++n}. messages: el techo se corta por rango y sin tocar el SOS`,
+    !lento.test(fuente) && rapido.test(fuente),
+    rapido.test(fuente) ? '' : 'no encontre el corte por rango que excluye SOS');
+}
+
+// EL TECHO DE FILAS NO PUEDE BORRAR UN SOS (L8). El SOS vive 365 dias por su
+// propia retencion; el techo de `messages` cortaba por id sin mirar el tipo,
+// asi que una rafaga de fotos o chats podia empujar un SOS de ayer fuera del
+// techo. Ahora cuenta y borra SOLO lo que no es SOS. Se prueba con la consulta
+// REAL sacada del servidor, sobre una tabla de juguete.
+{
+  const db = new Database(path.join(DIR, 'msg.db'));
+  db.exec("CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL)");
+  const ins = db.prepare('INSERT INTO messages (kind) VALUES (?)');
+  db.transaction(() => {
+    for (let i = 1; i <= 100; i++) ins.run(i === 5 || i === 12 || i === 30 ? 'sos' : (i % 2 ? 'chat' : 'photo'));
+  })();
+  // La misma forma que el servidor (verificada arriba, caso messages)
+  const sql = "DELETE FROM messages WHERE kind != 'sos' AND id <= (SELECT id FROM messages WHERE kind != 'sos' ORDER BY id DESC LIMIT 1 OFFSET :tope)";
+  db.prepare(sql).run({ tope: 10 });
+  const sos = db.prepare("SELECT id FROM messages WHERE kind = 'sos' ORDER BY id").all().map(r => r.id);
+  const noSos = db.prepare("SELECT COUNT(*) c FROM messages WHERE kind != 'sos'").get().c;
+  ok(`${++n}. los tres SOS sobreviven al techo aunque sean de los mas viejos`,
+    sos.length === 3 && sos[0] === 5 && sos[1] === 12 && sos[2] === 30, sos);
+  ok(`${++n}. y lo que no es SOS si queda recortado al techo`, noSos === 10, noSos);
+  db.close();
 }
 
 limpiar();

@@ -113,10 +113,13 @@ const entrar = (api, user, password, cab = {}) =>
     srv = await arrancar(DB, 3186, { DISPATCH_PASSWORD: '' });
 
     r = await entrar(API, 'DESPACHO', 'meLaLlevoYo1');
-    ok('un anónimo YA NO puede reclamar la cuenta DESPACHO', r.status === 403,
+    ok('un anónimo YA NO puede reclamar la cuenta DESPACHO', r.status === 401,
        { status: r.status, error: r.body.error });
-    ok('y el error no delata que el sistema esté sin esa cuenta',
-       /no registrada/i.test(r.body.error || ''), r.body.error);
+    // Desde S6 la respuesta es la misma que cualquier login fallido: ni
+    // siquiera insinúa que la cuenta DESPACHO exista o falte.
+    ok('y el error no delata NADA del estado del sistema',
+       /Usuario o contraseña incorrectos/.test(r.body.error || '') &&
+       !/DESPACHO|registrada|bootstrap/i.test(r.body.error || ''), r.body.error);
     // Y que no la haya creado igual
     {
       const b = new Database(DB, { readonly: true });
@@ -598,6 +601,81 @@ const entrar = (api, user, password, cab = {}) =>
     }
     await matar(srvW);
     limpiar(DBW);
+  }
+
+  console.log('\nLAS PUERTAS QUE NO SE VEN USANDO LA APP (revisión del 8/9)');
+  {
+    const DBS = S + '/puertas-sxx.db';
+    limpiar(DBS);
+    // Sin registro abierto: un usuario que no existe NO se auto-registra,
+    // así se puede probar que la respuesta es la misma que una clave mala.
+    const srvS = await arrancar(DBS, 3192, { DISPATCH_PASSWORD: 'despacho99',
+      IDENTIFY_TIMEOUT_MS: '700', WS_PING_MS: '500' });
+    const APIS = 'http://localhost:3192';
+    const WebSocket = require(RAIZ + '/server/node_modules/ws');
+
+    // S7: las cabeceras de seguridad, en toda respuesta
+    {
+      const r = await fetch(APIS + '/ping');
+      const csp = r.headers.get('content-security-policy') || '';
+      ok('hay Content-Security-Policy', /default-src 'self'/.test(csp) && /frame-ancestors 'none'/.test(csp), csp.slice(0, 40));
+      ok('el CSP deja compilar Babel en el navegador (unsafe-eval) desde unpkg',
+         /'unsafe-eval'/.test(csp) && /unpkg\.com/.test(csp));
+      ok('nosniff', r.headers.get('x-content-type-options') === 'nosniff');
+      ok('no se deja enmarcar (X-Frame-Options: DENY)', r.headers.get('x-frame-options') === 'DENY');
+      ok('Referrer-Policy y HSTS puestas',
+         !!r.headers.get('referrer-policy') && /max-age=/.test(r.headers.get('strict-transport-security') || ''));
+      ok('y sigue sin decir qué framework corre', !r.headers.get('x-powered-by'), r.headers.get('x-powered-by'));
+    }
+
+    // S9: /ping no cuenta la operación de la cooperativa
+    {
+      const cuerpo = await (await fetch(APIS + '/ping')).json();
+      ok('/ping dice status y hora, nada más',
+         cuerpo.status === 'ok' && !!cuerpo.time &&
+         cuerpo.units === undefined && cuerpo.clients === undefined && cuerpo.historyLength === undefined,
+         Object.keys(cuerpo));
+    }
+
+    // S6: un usuario que no existe y una clave mala se ven IGUAL
+    {
+      const noExiste = await entrar(APIS, 'FANTASMA', 'loquesea1');
+      const claveMala = await entrar(APIS, 'DESPACHO', 'malaClave1');
+      ok('usuario inexistente → 401 (no 403 «no registrada»)', noExiste.status === 401, noExiste.status);
+      ok('clave incorrecta → 401', claveMala.status === 401, claveMala.status);
+      ok('y el MISMO texto: no se puede saber cuál usuario existe',
+         noExiste.body.error === claveMala.body.error, [noExiste.body.error, claveMala.body.error]);
+      ok('DESPACHO con su clave sí entra', (await entrar(APIS, 'DESPACHO', 'despacho99')).status === 200);
+    }
+
+    // S5: un socket que no se identifica se cierra solo; uno que sí, no
+    {
+      const mudo = new WebSocket('ws://localhost:3192');
+      mudo.on('error', () => {});
+      const t0 = Date.now();
+      const code = await new Promise((res) => {
+        mudo.on('close', (c) => res(c));
+        setTimeout(() => res('sigue abierto'), 2500);
+      });
+      ok('un socket que no se identifica se cierra a tiempo (código 4008)',
+         code === 4008 && Date.now() - t0 < 2000, { code, ms: Date.now() - t0 });
+
+      const d = await entrar(APIS, 'DESPACHO', 'despacho99');
+      const bueno = new WebSocket('ws://localhost:3192');
+      bueno.on('error', () => {});
+      await new Promise(r => bueno.on('open', r));
+      bueno.send(JSON.stringify({ type: 'identify', token: d.body.token }));
+      let sigueAbierto = true;
+      bueno.on('close', () => { sigueAbierto = false; });
+      await sleep(1500);   // más que el timeout de identify
+      ok('el que se identificó NO se cierra por el reloj de arena', sigueAbierto === true);
+      // Y el latido lo mantiene: `ws` contesta el ping solo, así que sigue vivo
+      ok('y el latido no lo mata (contesta el ping)', sigueAbierto === true && bueno.readyState === 1);
+      try { bueno.close(); } catch {}
+    }
+
+    await matar(srvS);
+    limpiar(DBS);
   }
 
   console.log('\nY LA DEMO SIGUE SIENDO UNA DEMO');

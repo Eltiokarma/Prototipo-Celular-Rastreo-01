@@ -363,7 +363,13 @@ puerta de «salir a ruta»; «fuera» se espera y reintenta, y el servidor
 descarta un lote anterior al «fuera»; un solo tope de foto con el motivo en
 pantalla; el vigía de la ausencia ancla donde quedó parado; `allowBackup`
 apagado. Suites `sos`, `cliente`, `presencia`, `ausencia`, `nativas`.
-Quedan para después: S5–S7, L6, L8, A7 (la web del chofer no ve el tráfico:
+**Lo de «después» (9/9, tanda 5): hecho** — conexiones sin identificar que se
+cierran solas y un latido que limpia el socket medio muerto (S5); el login no
+distingue «no existe» de «clave mala» (S6); cinco cabeceras de seguridad con
+un CSP a la medida de los paneles (S7) y `/ping` que ya no cuenta la operación
+(S9); el relevo por HTTP no queda mudo con 409 (L6); y el techo de filas no
+puede borrar un SOS (L8). Suites `puertas`, `gpshttp`, `poda`. Sigue para
+después: A7 (la web del chofer no ve el tráfico:
 o se porta o se retira), y las bajas. Para las brechas quedó decidido: **la
 ruta es ida y retorno, no un circuito**; las brechas se calculan sólo entre
 unidades del mismo tramo, la vuelta es una métrica y nada más. El paradero
