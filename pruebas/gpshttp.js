@@ -212,11 +212,15 @@ async function hasta(cond, ms = 4000) {
   r = await mandar(s12.token, [{ lat: q.lat, lng: q.lng, speed: 10, timestamp: Date.now() }]);
   ok('la misma persona con otra sesión sí puede seguir mandando', r.status === 200, r.status);
 
-  console.log('\nEL RELEVO POR HTTP NO QUEDA MUDO CON 409');
-  // De la revisión del 8/9 (L6). El chofer saliente dejó la app abierta en el
-  // asiento (su WebSocket sigue vivo y es el dueño del GPS). El que sube entra
-  // por HTTP con la pantalla apagada: antes le llegaba 409 «Otro chofer tomó
-  // esta unidad» y quedaba mudo TODO el turno. Ahora gana el que trabaja.
+  console.log('\nEL RELEVO POR HTTP: EL QUE DECLARA RUTA TOMA EL MANDO, Y EL RELEVADO SE APAGA');
+  // De la revisión del 8/9 (L6) y la del 10/9 (C2). El chofer saliente dejó
+  // la app abierta en el asiento (su WebSocket vivo es el dueño del GPS). El
+  // que sube declara «ruta» por HTTP con la pantalla apagada y manda: toma el
+  // mando (antes: 409 y mudo todo el turno). Al saliente se le avisa por el
+  // socket, y si sigue mandando por HTTP —el teléfono en el asiento con el
+  // servicio vivo— recibe 200 con `gpsRole: false` y NADA se le procesa:
+  // antes, desde el relevo, nadie era dueño y los dos teléfonos entraban
+  // intercalados.
   {
     try { ws2.close(); } catch {}
     await sleep(400);
@@ -234,18 +238,56 @@ async function hasta(cond, ms = 4000) {
       if (m.type === 'gps_role' && m.reporting === false) avisado = m.reason; });
     wsSaliente.send(JSON.stringify({ type: 'identify', token: saliente.token }));
     await sleep(600);
-    // El que sube manda por HTTP: antes 409, ahora 200 (le pasan el mando)
+    // El que sube, sin declarar nada todavía, manda por HTTP: el dueño (el
+    // saliente, con el socket vivo) sigue siendo el dueño → 200 y nada
+    const q1 = anillo(0.149);
+    const antes = await mandar(relevoHttp.token, [{ lat: q1.lat, lng: q1.lng, speed: 18, timestamp: Date.now() }]);
+    ok('sin declarar ruta, el que sube no toma el mando: 200 con gpsRole false y 0 aceptadas',
+       antes.status === 200 && antes.body.gpsRole === false && antes.body.aceptadas === 0, antes.body);
+    // Declara «ruta» (lo que hace la app al deslizar SALIR A RUTA) y manda
+    await fetch(`${API}/presencia`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + relevoHttp.token },
+      body: JSON.stringify({ estado: 'ruta' }) });
     const q2 = anillo(0.15);
     const sube = await mandar(relevoHttp.token, [{ lat: q2.lat, lng: q2.lng, speed: 18, timestamp: Date.now() }]);
-    ok('el relevo que sube manda por HTTP y es aceptado (no 409)', sube.status === 200, { status: sube.status, body: sube.body });
-    ok('y al saliente se le avisa que su GPS ya no se usa',
+    ok('declarada la ruta, el relevo manda por HTTP y es aceptado (no 409)', sube.status === 200 && sube.body.aceptadas === 1 && sube.body.gpsRole === true, { status: sube.status, body: sube.body });
+    ok('y al saliente se le avisa por el socket que su GPS ya no se usa',
        await hasta(() => !!avisado), avisado);
-    // Y el saliente, si intentara mandar por HTTP, ahora es el de afuera
+    // El saliente sigue mandando por HTTP (el teléfono en el asiento)
+    const qS = anillo(0.151);
+    const saliendo = await mandar(saliente.token, [{ lat: qS.lat, lng: qS.lng, speed: 18, timestamp: Date.now() }]);
+    ok('al saliente se le contesta 200 con gpsRole false y no se le procesa nada', saliendo.status === 200 && saliendo.body.gpsRole === false && saliendo.body.aceptadas === 0, saliendo.body);
+    await sleep(500);
+    ok('y la unidad NO saltó a su posición', vista() && Math.abs(vista().lat - q2.lat) < 1e-9, vista() && vista().lat);
     try { wsSaliente.close(); } catch {}
     await sleep(400);
     const q3 = anillo(0.16);
     const sigue = await mandar(relevoHttp.token, [{ lat: q3.lat, lng: q3.lng, speed: 18, timestamp: Date.now() }]);
-    ok('el relevo sigue mandando sin trabas', sigue.status === 200, sigue.status);
+    ok('el relevo sigue mandando sin trabas', sigue.status === 200 && sigue.body.gpsRole === true, sigue.body);
+    // Y devolvemos la combi a M-12: se identifica por WS (el acto explícito)
+    const wsVuelve = new WebSocket(`ws://localhost:${P}`);
+    await new Promise(res => wsVuelve.on('open', res));
+    wsVuelve.send(JSON.stringify({ type: 'identify', token: saliente.token }));
+    await sleep(500);
+    const q4 = anillo(0.161);
+    const otraVez = await mandar(s12.token, [{ lat: q4.lat, lng: q4.lng, speed: 18, timestamp: Date.now() }]);
+    ok('identificarse por WS devuelve el mando: M-12 manda de nuevo', otraVez.status === 200 && otraVez.body.gpsRole === true && otraVez.body.aceptadas === 1, otraVez.body);
+    const relevado = await mandar(relevoHttp.token, [{ ...anillo(0.162), speed: 18, timestamp: Date.now() }]);
+    ok('y ahora el relevo es el de afuera', relevado.body.gpsRole === false, relevado.body);
+    try { wsVuelve.close(); } catch {}
+  }
+
+  console.log('\nLA COORDENADA INVÁLIDA Y EL RELOJ ADELANTADO');
+  // De la revisión del 10/9 (C1, C5). Por HTTP bastaba con que lat y lng
+  // fueran números: un `lat: 999` ordenaba la cadena de brechas de la ruta.
+  // Y un reloj adelantado mandaba todo del futuro y recibía un 400 mudo.
+  {
+    const mal = await mandar(s12.token, [{ lat: 999, lng: 9999, speed: 18, timestamp: Date.now() }]);
+    ok('lat 999 no entra: 400 «ninguna posición utilizable»', mal.status === 400, mal.body);
+    ok('y la unidad sigue donde estaba', vista() && Math.abs(vista().lat) < 90, vista() && vista().lat);
+    const q = anillo(0.163);
+    const futuro = await mandar(s12.token, [{ lat: q.lat, lng: q.lng, speed: 18, timestamp: Date.now() + 10 * 60_000 }]);
+    ok('todo del futuro: 400 que DICE que el reloj está adelantado y cuánto',
+       futuro.status === 400 && futuro.body.reloj === 'adelantado' && futuro.body.adelantoSec > 540 && futuro.body.adelantoSec < 660, futuro.body);
   }
 
   console.log('\nEL GPS SIMULADO SE DICE, NO SE ESCONDE');

@@ -279,7 +279,27 @@ Authorization: Bearer <token>
 cuando Android marca la posición como de una app de ubicación simulada) son
 de `TRUCOS-2026-09-10.md`; un cliente que no los manda se trata como siempre.
 
-Devuelve `{ ok, aceptadas, descartadas, routeId }`.
+Devuelve `{ ok, aceptadas, yaVistas, descartadas, routeId, gpsRole }` (más
+`brecha` y `grabar` cuando corresponde). **`aceptadas` es lo que el servidor
+usó**: lo repetido (`yaVistas`) y lo de hora imposible (`descartadas`) no
+cuentan, y la app lo muestra aparte de «enviadas».
+
+**Quién manda la posición de una combi (el mando del GPS).** Una sola
+persona por vehículo, por cualquier canal. Se toma con un acto explícito:
+identificarse por WebSocket, o declarar `ruta` (`POST /presencia` o el
+mensaje `presencia`); o, sin acto, cuando el dueño lleva `OLVIDAR_MS` sin
+mandar una posición, o no hay dueño. La presencia pegada al lote de
+`POST /gps` NO toma el mando (viaja en cada envío). Al relevado se le avisa
+por su socket si lo tiene (`gps_role: false`), se le cierra el turno, y
+**su próximo `POST /gps` recibe `200 { gpsRole: false, aceptadas: 0 }`**: la
+app apaga el servicio al leerlo y no lo rearranca hasta que el rol vuelva.
+Antes del 10/9 dos teléfonos en la misma combi entraban los dos y la unidad
+saltaba entre ambos.
+
+**El reloj adelantado.** Si TODO el lote viene del futuro (más de 2 min), la
+respuesta es `400 { reloj: 'adelantado', adelantoSec }`: la app lo muestra
+(«el reloj del teléfono está N min adelantado: activá la hora automática») y
+no reintenta ese lote. El atrasado se compensa solo (`relojAtrasadoS`).
 
 - **Un POST no necesita nada vivo del lado del cliente**, así que la tarea de
   fondo puede mandar con la app dormida.
@@ -292,7 +312,10 @@ Devuelve `{ ok, aceptadas, descartadas, routeId }`.
 - Se descartan las del futuro (más de 2 min de adelanto: un reloj mal puesto)
   y las de más de 6 h. Máximo 200 por envío.
 - Mismas reglas de rol que por WebSocket: **solo el chofer**; `403` para el
-  cobrador, `409` si otro chofer tomó la unidad.
+  cobrador. El relevo ya no es `409`: ver «el mando del GPS» arriba.
+- La coordenada se valida igual que por WebSocket (`lat` en ±90, `lng` en
+  ±180); `routeProgress` se acepta como respaldo para una ruta sin trazado,
+  igual que por WebSocket.
 
 El WebSocket queda para **recibir** el estado mientras la pantalla está
 encendida. Mandar posición por ahí sigue funcionando y es lo que hace la app

@@ -412,6 +412,13 @@ function Aplicacion() {
         setDiag({ ...gps.diagnostico });
         return;
       }
+      // El servidor descartó el lote porque el reloj del teléfono está
+      // adelantado: sin esto el chofer era invisible todo el turno y nadie
+      // le decía por qué (REVISION-2026-09-10.md, C5).
+      if (gps.diagnostico.relojAdelantadoSec) {
+        setAviso(`El reloj del teléfono está ${Math.max(1, Math.round(gps.diagnostico.relojAdelantadoSec / 60))} min adelantado: ` +
+          'el servidor no puede usar tus posiciones. Activá la fecha y hora automáticas en Ajustes.');
+      }
       const corriendo = await gps.estaCorriendo();
       if (!vivo || saliendo.current) return;
       if (!corriendo) {
@@ -911,6 +918,7 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
       )}
       <Text style={s.diagnostico}>
         GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
+        {diag.rechazadas > 0 ? ` · ${diag.rechazadas} no usadas` : ''}
         {diag.enEspera > 0 ? ` · ${diag.enEspera} esperando` : ''}
         {diag.ultimoEnvio ? ` · último hace ${Math.round((Date.now() - diag.ultimoEnvio) / 1000)}s` : ' · todavía ninguna'}
         {/* Un envío en vuelo que envejece es un envío colgado: es lo que

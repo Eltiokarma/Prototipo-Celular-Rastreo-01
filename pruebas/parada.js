@@ -177,6 +177,27 @@ console.log('\nLAS POSICIONES NO CAEN JUSTO EN EL BORDE DE LA VENTANA');
   ok('andando a 30 km/h con paso irregular, nada', r.parado === false, r);
 }
 
+console.log('\nUN HUECO DE DATOS NO ES UNA PARADA');
+{
+  // Revisión del 10/9, L7: con la muestra anterior al borde guardada, dos
+  // muestras separadas por diez minutos declaraban una parada de diez
+  // minutos sobre una ventana sin una sola medición.
+  const d = crearDetectorDeParada();
+  d.posicion('M-01', { cuando: T0, recorridoM: 5000 });
+  const r = d.posicion('M-01', { cuando: T0 + seg(600), recorridoM: 5000 });
+  ok('dos muestras a diez minutos, sin nada en el medio: nada', r.parado === false && r.cambio === null, r);
+  // Y la parada que estaba en curso termina si se cortan los datos
+  const d2 = crearDetectorDeParada();
+  correr(d2, { segundos: 240, m0: 5000 });
+  ok('(parada en curso)', d2.estadoDe('M-01').parado === true);
+  const r2 = d2.posicion('M-01', { cuando: T0 + seg(240 + 400), recorridoM: 5000 });
+  ok('tras un hueco de más de la ventana, termina: sin datos no se sostiene', r2.parado === false && r2.cambio === 'termino', r2);
+  // La muestra de después del hueco arranca la ventana nueva
+  let r3 = null;
+  for (let s = 10; s <= 180; s += 10) r3 = d2.posicion('M-01', { cuando: T0 + seg(640 + s), recorridoM: 5000 });
+  ok('y tres minutos clavada después del hueco vuelve a ser parada, fechada después del hueco', r3.parado === true && r3.desde === T0 + seg(640), r3);
+}
+
 console.log('\nLOS PLAZOS SE INYECTAN');
 {
   const d = crearDetectorDeParada({ paradaMs: 3000, avanceM: 10, libreMs: 1000, libreAvanceM: 5 });

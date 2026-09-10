@@ -276,6 +276,11 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
 
   // TRUCOS paso 2 (T11): la precisión viaja con cada posición, y es otro APK
   ok('la tarea manda `precision` (los metros de error de `accuracy`)', /precision: Math\.round\(l\.coords\.accuracy\)/.test(servicio));
+  // Revisión del 10/9, tanda 2 (C2, C13, C5): el relevado se apaga al leer
+  // `gpsRole: false`, se cuentan las aceptadas, y el reloj adelantado se dice
+  ok('el servicio se apaga cuando el servidor contesta `gpsRole: false`', /if \(cuerpo\.gpsRole === false\) \{/.test(servicio) && /Location\.stopLocationUpdatesAsync\(TAREA_GPS\)/.test(servicio));
+  ok('enviadas son las ACEPTADAS por el servidor, y las no usadas se cuentan aparte', /diagnostico\.enviadas \+= Number\.isFinite\(cuerpo\.aceptadas\)/.test(servicio) && /diagnostico\.rechazadas \+= \(cuerpo\.yaVistas \|\| 0\)/.test(servicio));
+  ok('y el reloj adelantado llega a la pantalla', /cuerpo\.reloj === 'adelantado'/.test(servicio) && /relojAdelantadoSec/.test(app) && /fecha y hora automáticas/.test(app));
   ok('otro APK más: versionCode 5 o más', config.expo.android.versionCode >= 5, config.expo.android.versionCode);
 }
 

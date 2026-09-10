@@ -66,6 +66,14 @@ let vigia = null;
 export const diagnostico = {
   enviadas: 0, fallidas: 0, ultimoEnvio: null, ultimoError: null,
   enEspera: 0, motivos: {},
+  // Las que el servidor recibió y NO usó (ya vistas, hora imposible): antes
+  // se contaban como enviadas y el diagnóstico decía «todo bien» con la
+  // combi invisible (REVISION-2026-09-10.md, C13).
+  rechazadas: 0,
+  // El servidor dijo que el reloj del teléfono está adelantado N segundos y
+  // descartó todo: la pantalla lo muestra, porque el chofer no tiene otra
+  // forma de enterarse (C5).
+  relojAdelantadoSec: null,
   // Desde cuándo hay un envío en vuelo, o null. Es lo que distingue "no
   // hay nada que mandar" de "hay uno colgado y todo se apila detrás".
   enVueloDesde: null,
@@ -357,6 +365,8 @@ export function limpiarSesion() {
   diagnostico.presenciaAuto = null;
   diagnostico.detenidoPor = null;
   diagnostico.sesionRechazada = false;
+  diagnostico.rechazadas = 0;
+  diagnostico.relojAdelantadoSec = null;
   descartarGrabacion().catch(() => {});
 }
 
@@ -518,13 +528,31 @@ async function subirAhora(nuevas) {
     if (r.ok) {
       noAutorizadosSeguidos = 0;
       sinRolSeguidos = 0;
-      diagnostico.enviadas += posiciones.length;
+      const cuerpo = r.json() || {};
+      // «Otro chofer tiene la unidad»: el servidor lo dice con 200 para que
+      // este teléfono lo lea y se apague (REVISION-2026-09-10.md, C2). Antes
+      // el relevado seguía mandando con la pantalla apagada y la combi
+      // saltaba entre dos teléfonos. No se rearranca hasta que el rol vuelva
+      // (`rolGps` por el socket, al abrir la app).
+      if (cuerpo.gpsRole === false) {
+        diagnostico.detenidoPor = cuerpo.motivo || 'otro chofer tomó la unidad';
+        diagnostico.servicio = 'detenido: sin rol de GPS';
+        pendientes = [];
+        diagnostico.enEspera = 0;
+        limpiarNotificacion().catch(() => {});
+        try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        return;
+      }
+      // Enviadas son las que el servidor ACEPTÓ; lo que ya tenía o descartó
+      // se cuenta aparte (C13). Un servidor viejo no manda `aceptadas`.
+      diagnostico.enviadas += Number.isFinite(cuerpo.aceptadas) ? cuerpo.aceptadas : posiciones.length;
+      diagnostico.rechazadas += (cuerpo.yaVistas || 0) + (cuerpo.descartadas || 0);
+      diagnostico.relojAdelantadoSec = null;
       diagnostico.ultimoEnvio = Date.now();
       diagnostico.ultimoError = null;
       // La brecha vuelve en la misma respuesta: es lo que mantiene VIVA la
       // notificación con la pantalla apagada — el WebSocket ya murió y este
       // POST es el único canal. Mejor esfuerzo: si falla, el GPS ni se entera.
-      const cuerpo = r.json();
       if (cuerpo?.brecha) notificarBrecha(cuerpo.brecha).catch(() => {});
       // Despacho pidió una grabación (4.5). Mejor esfuerzo, como todo lo que
       // cuelga de esta respuesta: si falla, el pedido sigue vivo en el
@@ -539,6 +567,10 @@ async function subirAhora(nuevas) {
       // taparía las posiciones nuevas detrás de un atraso que nunca se vacía.
       if (r.status >= 500) guardarSiSigue(posiciones);
       anotarFallo(`HTTP ${r.status}${cuerpo.error ? ' ' + cuerpo.error : ''}`, posiciones);
+      // El reloj adelantado: el servidor descarta todo y dice cuánto. Se
+      // guarda para que la pantalla lo diga; el lote no se reintenta (daría
+      // lo mismo) pero la próxima posición sale igual, por si lo arreglan.
+      if (r.status === 400 && cuerpo.reloj === 'adelantado') diagnostico.relojAdelantadoSec = cuerpo.adelantoSec || 0;
       // Y el «no» sostenido apaga el servicio (ver RECHAZOS_TOPE)
       if (r.status === 401) {
         if (++noAutorizadosSeguidos >= RECHAZOS_TOPE) {

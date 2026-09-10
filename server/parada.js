@@ -87,6 +87,17 @@ function crearDetectorDeParada({
       // Cambió de vuelta (el circuito volvió a cero): ventana nueva
       e.muestras = [];
     }
+    if (ultima && cuando - ultima.t > paradaMs) {
+      // Un hueco de datos más largo que la ventana: no se puede sostener una
+      // parada sin datos, ni inventarla. Con la muestra anterior al borde
+      // guardada (ver abajo), dos muestras separadas por diez minutos
+      // habrían declarado una parada de diez minutos sobre nada
+      // (REVISION-2026-09-10.md, L7). Si estaba parada, termina acá, y esta
+      // muestra es la primera de la ventana nueva.
+      const r = terminar(vehicleId, e, cuando);
+      e.muestras.push({ t: cuando, m: recorridoM });
+      return r;
+    }
     e.muestras.push({ t: cuando, m: recorridoM });
     // Sólo se guarda lo que entra en la ventana más larga, MÁS la última
     // muestra de antes del borde. Sin ésa, la primera muestra guardada era
