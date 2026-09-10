@@ -6050,7 +6050,10 @@ app.get('/config.js', (req, res) => {
     `window.TILES_KEY = ${JSON.stringify(TILES_KEY)};\n` +
     "// Zonas con mapa PROPIO: adentro de estos bbox las tiles salen de este\n" +
     "// servidor y el proveedor queda de excepción. Vacío = todo al proveedor.\n" +
-    `window.TILES_ZONAS = ${JSON.stringify(zonasDisponibles())};\n`
+    `window.TILES_ZONAS = ${JSON.stringify(zonasDisponibles())};\n` +
+    "// Si el servidor está en demo, la web del chofer puede simular el GPS\n" +
+    "// cuando no tiene fix; en producción, no (REVISION-2026-09-10.md, C4).\n" +
+    `window.MODO_DEMO = ${ES_DEMO};\n`
   );
 });
 
