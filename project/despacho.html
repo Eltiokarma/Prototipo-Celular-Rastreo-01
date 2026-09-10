@@ -2713,6 +2713,43 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   </Tabla>
                 )}
 
+                {/* ─── Por persona ──────────────────────────────────
+                    Las horas que se liquidan. El servidor las mandaba
+                    (`porPersona`) y ninguna pantalla las mostraba: el gerente
+                    tenía que bajar el CSV y pivotearlo (REVISION-2026-09-10.md,
+                    E3). Mismo criterio que el CSV y que el perfil del chofer:
+                    el turno abierto cuenta hasta la última señal, el que
+                    cruza el borde del período se recorta. */}
+                {(resumenGer.porPersona || []).length > 0 && (
+                  <div style={{ marginTop: 18 }}>
+                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Por persona</div>
+                    <Tabla cols="1.6fr 90px 80px 100px 1.4fr" ancho={620}
+                      cabeceras={['Persona', 'Rol', 'Turnos', 'Horas', 'Unidades']}>
+                      {resumenGer.porPersona.map(p => (
+                        <div key={'persona-' + p.personId} style={{
+                          display: 'grid', gridTemplateColumns: '1.6fr 90px 80px 100px 1.4fr',
+                          gap: 12, alignItems: 'center', padding: '11px 14px',
+                          borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                        }}>
+                          <div>
+                            <div style={{ fontWeight: 700 }}>{p.alias || p.name || p.personId}</div>
+                            {(p.alias || p.name) && <div style={{ ...rotulo(9, HUD.dim3), marginTop: 2 }}>{p.alias ? p.name : p.personId}</div>}
+                          </div>
+                          <div style={{ ...rotulo(9, HUD.dim2) }}>{p.role === 'collector' ? 'cobrador' : 'chofer'}</div>
+                          <div style={{ fontFamily: mono }}>{p.turnos}</div>
+                          <div style={{ fontFamily: mono, fontWeight: 800 }}>{`${Math.floor(Math.round(p.horasSec / 60) / 60)}:${String(Math.round(p.horasSec / 60) % 60).padStart(2, '0')} h`}</div>
+                          <div style={{ fontFamily: mono, color: HUD.dim2 }}>{(p.unidades || []).join(' · ') || '—'}</div>
+                        </div>
+                      ))}
+                    </Tabla>
+                    <Pie>
+                      Las horas de cada persona en el período, salidas de sus turnos: el mismo número
+                      que el CSV de horas y que el chofer ve en su perfil. Un turno abierto cuenta hasta
+                      la última señal que se le vio, y el que empezó antes del período se recorta.
+                    </Pie>
+                  </div>
+                )}
+
                 {/* ─── Señal y presencia ────────────────────────────
                     Lo de TRUCOS-2026-09-10.md, que hasta ahora sólo estaba en
                     el log: cuántas veces se quedó sin señal cada unidad y por

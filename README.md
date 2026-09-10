@@ -1065,8 +1065,23 @@ Dos cosas que lo hacen utilizable en la calle y no solo en la demo:
   8 horas quedaría partido en veinte pedazos.
 - **Si el servidor se reinicia**, los turnos que quedaron abiertos se cierran
   con la última señal que se les vio (`lastSeenAt`, que se marca una vez por
-  minuto). Sin eso quedarían abiertos para siempre y las horas darían
+  minuto —con el GPS o con el latido del socket, que es lo que tiene el
+  cobrador—). Sin eso quedarían abiertos para siempre y las horas darían
   cualquier cosa.
+- **El turno se cierra cuando la persona se baja, no cuando se cae el
+  socket** (revisión del 10/9, tanda 1). Con la pantalla apagada el
+  WebSocket ya está muerto, así que «salir de ruta», cerrar sesión y el
+  olvido (tres minutos sin oírse) cierran el turno — el olvido, con la
+  última señal, no con la hora del barrido. Antes el chofer que trabajaba por
+  HTTP y apagaba el teléfono dejaba el turno abierto hasta el próximo
+  reinicio, y la pestaña Turnos y el CSV se lo contaban «hasta ahora».
+- **Una sola cuenta de horas** (`duracionTurnoSec`): el perfil del chofer, el
+  resumen del gerente, la pestaña Turnos y el CSV de horas usan la misma
+  función. El turno abierto cuenta hasta la última señal; el que cruza el
+  borde del período se recorta a los dos lados; las horas por unidad son las
+  del chofer (las del cobrador son suyas y van en «Por persona», que ahora
+  está en Números); y cambiar de combi con el turno anterior abierto cierra
+  ése y abre otro.
 
 A propósito **no es un sistema de recursos humanos**: no hay corrección
 manual, ni fichaje, ni aprobación. Para las excepciones —se olvidó de salir de
