@@ -113,7 +113,7 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   ok('la tabla «Señal y presencia» tiene GPS y Tráfico', /'GPS', 'Tráfico'\]/.test(despacho) && /avisosSinParada \? `/.test(despacho));
   ok('la web del chofer también manda `precision` con cada posición', /precision: Math\.round\(accuracy\)/.test(realtime));
   const v = (sw.match(/CACHE_NAME = 'coop-r14-v(\d+)'/) || [])[1];
-  ok('CACHE_NAME subió (v59 o más)', Number(v) >= 59, v);
+  ok('CACHE_NAME subió (v60 o más)', Number(v) >= 60, v);
   // Tanda 1 de la revisión del 10/9: las horas por persona, en pantalla
   ok('Números tiene la tabla «Por persona» con las horas que se liquidan', /resumenGer\.porPersona\.map\(p =>/.test(despacho) && /'Persona', 'Rol', 'Turnos', 'Horas', 'Unidades'/.test(despacho));
 }

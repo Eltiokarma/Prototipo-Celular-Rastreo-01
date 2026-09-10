@@ -355,7 +355,9 @@ se cortó (`latDesde`, `lngDesde`, `progresoDesde`), dónde reapareció
 `presencia` que tenía, cuántas posiciones DEL corte llegaron después
 (`recuperadas`: si son más de cero fue la red, no el teléfono apagado) y
 cómo terminó (`cierre`: `volvio`, `no_volvio`, `fuera`, `trazado`, `corte`).
-`GET /admin/anomalias?dias=N` lista lo puntual: `tipo` en `salto` (más de
+El registro de presencia guarda `ruta`, `ausente`, `fuera` y `olvido` (se
+dejó de oír estando ausente: la ausencia termina en la última posición, no
+al fin del rango). `GET /admin/anomalias?dias=N` lista lo puntual: `tipo` en `salto` (más de
 120 km/h entre dos posiciones; `valor` en km/h), `ausente_en_marcha`,
 `reloj` (segundos), `descartadas` (posiciones con hora imposible),
 `gps_simulado`, `gps_sospechoso` (la heurística sin flag, con el motivo en

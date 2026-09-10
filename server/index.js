@@ -1450,7 +1450,7 @@ const traficos = new Map();          // vehicleId → { desde }
 //                  teléfono apagado). Metros y velocidad implícita entre los
 //                  dos puntos separan el cerro (lento, sobre el trazado) del
 //                  que se fue y volvió.
-//   presencia_log  cada cambio de presencia (ruta, ausente, fuera) con su
+//   presencia_log  cada cambio de presencia (ruta, ausente, fuera, olvido) con su
 //                  hora y su lugar: de acá salen los minutos ausente por día.
 //   anomalias      lo puntual que se anota y no se avisa: saltos imposibles
 //                  (T8, dos teléfonos), ausente en marcha sobre el trazado
@@ -1481,7 +1481,7 @@ db.exec(`
     vehicleId TEXT NOT NULL,
     routeId TEXT NOT NULL,
     companyId TEXT,
-    estado TEXT NOT NULL,         -- 'ruta' | 'ausente' | 'fuera'
+    estado TEXT NOT NULL,         -- 'ruta' | 'ausente' | 'fuera' | 'olvido' (se dejó de oír estando ausente)
     cuando INTEGER NOT NULL,
     lat REAL, lng REAL
   );
@@ -1537,10 +1537,10 @@ function anotarAnomalia(vehicleId, routeId, companyId, tipo, { valor = null, det
   } catch (e) { console.warn(`No se pudo anotar la anomalía ${tipo} de ${vehicleId}: ${e.message}`); }
 }
 
-function registrarPresencia(vehicleId, routeId, companyId, estado, u) {
+function registrarPresencia(vehicleId, routeId, companyId, estado, u, cuando = Date.now()) {
   try {
     db.prepare('INSERT INTO presencia_log (vehicleId, routeId, companyId, estado, cuando, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(vehicleId, routeId, companyId || null, estado, Date.now(), u?.lat ?? null, u?.lng ?? null);
+      .run(vehicleId, routeId, companyId || null, estado, cuando, u?.lat ?? null, u?.lng ?? null);
   } catch (e) { console.warn(`No se pudo registrar la presencia de ${vehicleId}: ${e.message}`); }
 }
 
@@ -1602,10 +1602,13 @@ function cerrarParada(vehicleId, cierre, cuando = Date.now()) {
 
 // Todo camino por el que una unidad deja de evaluarse cierra su parada y
 // apaga su marca de tráfico: el olvido, salir de ruta, el cambio de trazado.
-function olvidarParada(vehicleId, cierre) {
+// `cuando` es la hora de la última posición conocida cuando el camino es el
+// olvido o el «fuera»: los tres minutos del olvido no los manejó nadie y no
+// van a la duración de la parada (REVISION-2026-09-10.md, L13).
+function olvidarParada(vehicleId, cierre, cuando = Date.now()) {
   detectorParadas.olvidar(vehicleId);
   traficos.delete(vehicleId);
-  cerrarParada(vehicleId, cierre);
+  cerrarParada(vehicleId, cierre, cuando);
 }
 
 // Se llama con cada posición. `activo` es "confirmada en ruta": fuera de la
@@ -2308,7 +2311,7 @@ function fijarPresencia(vehicleId, routeId, estado) {
     // Terminó el turno estando fuera del trazado: el episodio se cierra acá.
     // Dejarlo abierto lo haría durar hasta que alguien lo mire.
     olvidarDesvio(vehicleId, 'corte', (u && u.timestamp) || Date.now());
-    olvidarParada(vehicleId, 'corte');
+    olvidarParada(vehicleId, 'corte', (u && u.timestamp) || Date.now());
     reloj.olvidar(vehicleId);
     quitarUnidad(vehicleId);
     // El mismo aviso que manda el olvido: los mapas que borran por evento
@@ -3974,10 +3977,13 @@ app.post('/admin/routes/:routeId/target', requireDispatch, (req, res) => {
 // cuando empieza la obra y se deshace cuando termina.
 
 // Todo lo que hay que rehacer cuando una ruta cambia de trazado.
-function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
-  geometrias.delete(routeId);
-  cargarGeometria(routeId);
-
+// Cambió la geometría con la que se mide una ruta —otra variante, o el
+// mismo trazado redibujado—: lo que se venía midiendo contra la anterior no
+// significa nada y se descarta. Devuelve cuántas vueltas en curso se tiraron.
+// Lo llaman `aplicarCambioDeVariante` y `guardarRecorrido` cuando se toca la
+// activa: antes sólo el primero, y corregir el trazado a mitad de la mañana
+// cerraba vueltas medidas contra dos geometrías (REVISION-2026-09-10.md, L3).
+function descartarMedicionesDe(routeId) {
   // Las vueltas en curso se venían midiendo sobre el trazado anterior: su
   // progreso quedó corrido y la que se cierre ahora sería una mezcla de dos
   // geometrías. Se descartan y se arranca de nuevo — perder una vuelta es
@@ -3997,13 +4003,27 @@ function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
   // marcado como 'trazado' — de esos no se puede afirmar cuánto duró el
   // desvío, porque a mitad de camino cambió contra qué se lo medía.
   for (const [vehicleId, unidad] of units) {
-    if (unidad.routeId === routeId) { olvidarDesvio(vehicleId, 'trazado'); olvidarParada(vehicleId, 'trazado'); cerrarHueco(vehicleId, 'trazado'); }
+    if (unidad.routeId !== routeId) continue;
+    olvidarDesvio(vehicleId, 'trazado'); olvidarParada(vehicleId, 'trazado'); cerrarHueco(vehicleId, 'trazado');
+    // Y las marcas que la unidad lleva en el estado, que eran contra el
+    // trazado viejo: hasta la próxima posición seguían diciendo «fuera de
+    // ruta» y «parada» en el mapa.
+    if (unidad.fueraDeRuta || unidad.parado || unidad.trafico) {
+      ponerUnidad(vehicleId, { ...unidad, fueraDeRuta: false, fueraDesde: null, parado: false, paradoDesde: null, trafico: false, traficoDesde: null });
+    }
   }
 
   // El objetivo automático se recalcula solo con las vueltas de ESTA
-  // variante, que al principio son cero: vuelve al valor manual hasta juntar
+  // geometría, que al principio son cero: vuelve al valor manual hasta juntar
   // historial nuevo. Es lo correcto — un trazado más largo tarda más.
   objetivoCache.delete(routeId);
+  return descartadas;
+}
+
+function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
+  geometrias.delete(routeId);
+  cargarGeometria(routeId);
+  const descartadas = descartarMedicionesDe(routeId);
 
   const msg = mensajeGeometria(routeId);
   for (const [ws, mirando] of watching) {
@@ -4232,7 +4252,14 @@ function guardarRecorrido(routeId, variante, cuerpoCrudo, quien) {
   const tIda = armarTramo(limpios.ida), tVuelta = armarTramo(limpios.vuelta);
   const largoM = tIda ? Math.round(tIda.largoM + (tVuelta ? tVuelta.largoM : 0)) : 0;
 
-  if (esLaActiva) cargarGeometria(routeId);
+  let descartadas = 0;
+  if (esLaActiva) {
+    cargarGeometria(routeId);
+    // Se está midiendo contra ESTE trazado y acaba de cambiar: lo mismo que
+    // al cambiar de variante (L3).
+    descartadas = descartarMedicionesDe(routeId);
+    if (descartadas) console.log(`Ruta ${routeId}: trazado redibujado, ${descartadas} vuelta(s) en curso descartada(s)`);
+  }
 
   const detalle = `${variante.name}: ` + (tIda
     ? `ida ${limpios.ida.length} pts${limpios.vuelta.length ? ` · vuelta ${limpios.vuelta.length} pts` : ''} · ${(largoM / 1000).toFixed(2)} km`
@@ -5396,10 +5423,15 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       AND (@ruta IS NULL OR routeId = @ruta)
     ORDER BY startedAt DESC
   `).all(filtro);
+  // Silenciar es «ya lo sé, no me avises» y `'trazado'` es «cambió contra qué
+  // se medía»: ninguno de los dos es una salida que contarle al chofer. Van
+  // aparte (REVISION-2026-09-10.md, E7). El CSV trae las dos columnas.
+  const esSalida = (d) => !d.silenciado && d.cierre !== 'trazado';
   const desviosDe = new Map();
   for (const d of desviosPeriodo) {
-    if (!desviosDe.has(d.vehicleId)) desviosDe.set(d.vehicleId, { veces: 0, segundos: 0, maxM: 0 });
+    if (!desviosDe.has(d.vehicleId)) desviosDe.set(d.vehicleId, { veces: 0, segundos: 0, maxM: 0, aparte: 0 });
     const x = desviosDe.get(d.vehicleId);
+    if (!esSalida(d)) { x.aparte++; continue; }
     x.veces++;
     // Los cortados (dejó de reportar) cuentan como salida pero su duración no
     // se sabe: sumarla como cero es más honesto que inventar hasta cuándo.
@@ -5427,11 +5459,25 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   }
   // Minutos ausente: cada 'ausente' dura hasta el siguiente cambio de esa
   // unidad, o hasta el fin del rango (o ahora) si no hubo otro.
+  // Con el último estado de cada unidad ANTES del rango: la que se declaró
+  // ausente a las 22:40 y volvió a ruta a las 6:30 estaba ausente las
+  // primeras 6,5 h del día, y sin esto daba cero (REVISION-2026-09-10.md, L9).
+  // El olvido también queda en el registro ('olvido'): la ausencia de un
+  // teléfono que se murió no dura hasta el fin del rango.
   const cambios = db.prepare(`
     SELECT vehicleId, estado, cuando FROM presencia_log
     WHERE cuando BETWEEN @desde AND @hasta
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
+    UNION ALL
+    SELECT p.vehicleId, p.estado, @desde AS cuando FROM presencia_log p
+    WHERE p.id IN (
+      SELECT MAX(id) FROM presencia_log
+      WHERE cuando < @desde
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+        AND (@ruta IS NULL OR routeId = @ruta)
+      GROUP BY vehicleId
+    ) AND p.estado = 'ausente'
     ORDER BY vehicleId, cuando
   `).all(filtro);
   const ausenteDe = new Map();
@@ -5478,7 +5524,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   // Las que sólo dejaron señal o presencia que contar también van al cuadro
   // Y las que sólo tienen horas (un turno de chofer sin vuelta cerrada):
   // sin esto la unidad con horas y sin vueltas no aparecía en el cuadro.
-  for (const id of [...senalDe.keys(), ...ausenteDe.keys(), ...anomaliasDe.keys(), ...traficoDe.keys(), ...horasDe.keys()]) if (!unidades.has(id)) unidades.set(id, []);
+  for (const id of [...senalDe.keys(), ...ausenteDe.keys(), ...anomaliasDe.keys(), ...traficoDe.keys(), ...horasDe.keys(), ...desviosDe.keys()]) if (!unidades.has(id)) unidades.set(id, []);
   // La unidad que hizo SOLO idas no cierra ninguna vuelta entera, y armando
   // el cuadro únicamente con `vueltas` desaparecía del listado: el gerente
   // veía una combi menos, no una combi que no volvió. Se agregan también las
@@ -5511,6 +5557,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       horasSec: horasDe.get(unitId) || 0,
       desvios: (desviosDe.get(unitId) || { veces: 0 }).veces,
       desvioSec: (desviosDe.get(unitId) || { segundos: 0 }).segundos,
+      desviosAparte: (desviosDe.get(unitId) || { aparte: 0 }).aparte,
       // Señal y presencia (ver TRUCOS-2026-09-10.md)
       senal: {
         cortes: (senalDe.get(unitId) || {}).cortes || 0,
@@ -5593,8 +5640,10 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       // pantalla tiene que poder decirlo. Con el tiempo llega solo a cero.
       conObjetivoPropio: vueltas.filter(l => l.brechaProm !== null && l.objetivoSec).length,
       conObjetivoViejo: vueltas.filter(l => l.brechaProm !== null && !l.objetivoSec).length,
-      desvios: desviosPeriodo.length,
-      desvioSec: desviosPeriodo.reduce((a, d) => a + (d.durationSec || 0), 0),
+      desvios: desviosPeriodo.filter(esSalida).length,
+      desvioSec: desviosPeriodo.filter(esSalida).reduce((a, d) => a + (d.durationSec || 0), 0),
+      // Silenciadas por Despacho o cerradas por cambio de trazado: no son salidas
+      desviosAparte: desviosPeriodo.filter(d => !esSalida(d)).length,
       // Medias vueltas del período y entradas a mitad de ruta. Van en los
       // totales y no sólo por unidad porque la pregunta primero es de la
       // cooperativa: si las idas superan a los retornos todos los días, no es
@@ -6659,6 +6708,9 @@ wss.on('connection', (ws) => {
       const sinOir = Date.now() - (u.oidoEn ?? u.timestamp ?? 0);
       if (!u.sinSenal && sinOir > SIN_SENAL_MS) {
         ponerUnidad(vehicleId, { ...u, sinSenal: true, sinSenalDesde: u.timestamp });
+        // Y el corte queda registrado: el barrido sólo abre el hueco al
+        // marcar «sin señal», y acá ya venía marcada (REVISION-2026-09-10.md, L6).
+        abrirHueco(vehicleId, u);
         scheduleStateBroadcast(routeId, true);
       }
     }
@@ -7397,7 +7449,10 @@ function calculateGaps(sortedUnits, durationMin, anotar) {
     // El número crudo se queda en el servidor. Mandarlo en el estado sería
     // ~18 bytes por unidad cada 3 segundos: con 20 unidades, varios MB de
     // datos móviles por turno y por celular para algo que el cliente no usa.
-    if (anotar && gapToAhead !== null) anotar(current.unitId, gapToAhead);
+    // Y la unidad SIN señal no acumula: su posición está congelada y la
+    // brecha «crece» sola mientras el de adelante se mueve — 3 min de corte
+    // eran ~60 muestras falsas en el promedio (REVISION-2026-09-10.md, L8).
+    if (anotar && gapToAhead !== null && !current.sinSenal) anotar(current.unitId, gapToAhead);
 
     const gapToBehind = behind && !behind.sinSenal
       ? (current.routeProgress - behind.routeProgress) * durationMin
@@ -7417,12 +7472,14 @@ function calculateGaps(sortedUnits, durationMin, anotar) {
       // Con su hora, para decir "hace 6 min"; `confirmado` distingue la
       // palabra del chofer del hecho medido. Al de atrás, esto le cambia la
       // instrucción: no se apura hacia un embotellamiento.
-      aheadEnTrafico: !!(ahead && (ahead.trafico || ahead.parado)),
-      aheadTraficoDesde: ahead ? (ahead.trafico ? ahead.traficoDesde : ahead.parado ? ahead.paradoDesde : null) : null,
-      aheadTraficoConfirmado: !!(ahead && ahead.trafico),
-      behindEnTrafico: !!(behind && (behind.trafico || behind.parado)),
-      behindTraficoDesde: behind ? (behind.trafico ? behind.traficoDesde : behind.parado ? behind.paradoDesde : null) : null,
-      behindTraficoConfirmado: !!(behind && behind.trafico),
+      // Del vecino sin señal no se afirma nada: su «parado» es de hace tres
+      // minutos, igual que su posición (L10).
+      aheadEnTrafico: !!(ahead && !ahead.sinSenal && (ahead.trafico || ahead.parado)),
+      aheadTraficoDesde: ahead && !ahead.sinSenal ? (ahead.trafico ? ahead.traficoDesde : ahead.parado ? ahead.paradoDesde : null) : null,
+      aheadTraficoConfirmado: !!(ahead && !ahead.sinSenal && ahead.trafico),
+      behindEnTrafico: !!(behind && !behind.sinSenal && (behind.trafico || behind.parado)),
+      behindTraficoDesde: behind && !behind.sinSenal ? (behind.trafico ? behind.traficoDesde : behind.parado ? behind.paradoDesde : null) : null,
+      behindTraficoConfirmado: !!(behind && !behind.sinSenal && behind.trafico),
     };
   }
   return gaps;
@@ -7587,7 +7644,7 @@ setInterval(() => {
       // se puede decir que "siguió fuera de ruta" — no se sabe dónde está.
       olvidarDesvio(unitId, 'corte', unit.timestamp || ahora);
       // La parada igual: sin datos no hay parada que sostener.
-      olvidarParada(unitId, 'corte');
+      olvidarParada(unitId, 'corte', unit.timestamp || ahora);
       // Y lo que se sabía de su reloj: si vuelve, se vuelve a medir.
       reloj.olvidar(unitId);
       // Y la ventana de la farsa: doce posiciones de antes del corte no
@@ -7609,6 +7666,9 @@ setInterval(() => {
         // trazado no se le está cortando ninguna corrida.
         if (decl.enRuta) decl.perdidaEn = unit.timestamp || ahora;
         decl.enRuta = false;
+        // El ausente que se murió sin volver: la ausencia termina acá, no
+        // al fin del rango del resumen (L9).
+        if (decl.estado === 'ausente') registrarPresencia(unitId, unit.routeId, unit.companyId, 'olvido', unit, unit.timestamp || ahora);
       }
       console.log(`Unidad olvidada tras ${Math.round(sinOir / 1000)} s sin oírse: ${unitId}`);
       broadcastToRoute(unit.routeId, { type: 'unit_left', unitId });

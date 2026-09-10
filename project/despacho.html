@@ -2704,7 +2704,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                             en total. Una salida es una obra; la misma salida
                             todos los días es otra cosa, y sin este número las
                             dos se ven igual. */}
-                        <div title={u.desvios ? `${Math.round((u.desvioSec || 0) / 60)} min fuera del recorrido en total` : 'No se salió del recorrido'}
+                        <div title={(u.desvios ? `${Math.round((u.desvioSec || 0) / 60)} min fuera del recorrido en total` : 'No se salió del recorrido') +
+                                    (u.desviosAparte ? ` · ${u.desviosAparte} episodio(s) aparte: silenciado(s) por Despacho o cerrado(s) por cambio de trazado, que no cuentan como salidas` : '')}
                           style={{ fontFamily: mono, color: u.desvios ? HUD.amber : HUD.dim3 }}>
                           {u.desvios ? `${u.desvios} · ${Math.round((u.desvioSec || 0) / 60)}′` : '—'}
                         </div>
