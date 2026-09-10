@@ -329,7 +329,7 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
     // decía "CSV turnos" y pedía `turnos.csv`, que no existe: devolvía 404 y
     // la pantalla mostraba "No se pudo descargar", que no dice nada. Un nombre
     // que no existe se ve igual que un servidor caído.
-    for (const tipo of ['vueltas', 'horas', 'desvios']) {
+    for (const tipo of ['vueltas', 'horas', 'desvios', 'senal', 'anomalias']) {
       const r = await fetch(`${API}/gerencia/informe/${tipo}.csv?desde=${Date.now() - 86400e3}&hasta=${Date.now()}`,
         { headers: { Authorization: 'Bearer ' + G.token } });
       ok(`el informe ${tipo} existe y baja`, r.status === 200, r.status);

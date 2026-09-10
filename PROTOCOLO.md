@@ -307,6 +307,22 @@ cliente debe RE-DECLARAR su presencia al reconectar el WebSocket: el
 servidor la guarda en memoria. Un cliente que no declara nada se comporta
 como siempre: en cadena desde la primera posición.
 
+## 4sexies. Señal y presencia: `GET /admin/huecos`, `GET /admin/anomalias`
+
+Lo de `TRUCOS-2026-09-10.md`, para Despacho y el gerente (nunca para el
+chofer, y nunca en vivo). `GET /admin/huecos?dias=N` lista los cortes de
+señal de la cooperativa (o de la ruta del despachador atado a una): dónde
+se cortó (`latDesde`, `lngDesde`, `progresoDesde`), dónde reapareció
+(`…Hasta`), `durationSec`, `metros` y `kmh` entre los dos puntos, la
+`presencia` que tenía, cuántas posiciones DEL corte llegaron después
+(`recuperadas`: si son más de cero fue la red, no el teléfono apagado) y
+cómo terminó (`cierre`: `volvio`, `no_volvio`, `fuera`, `trazado`, `corte`).
+`GET /admin/anomalias?dias=N` lista lo puntual: `tipo` en `salto` (más de
+120 km/h entre dos posiciones; `valor` en km/h), `ausente_en_marcha`,
+`reloj` (segundos), `descartadas` (posiciones con hora imposible) y
+`gps_simulado`. Los mismos datos bajan como `senal.csv` y `anomalias.csv`, y
+`/gerencia/resumen` trae un bloque `senal` por unidad y en los totales.
+
 ## 4quinquies. El SOS por HTTP: `POST /sos`
 
 El SOS por el WebSocket (`{ "type": "sos", "lat", "lng", "timestamp" }`)

@@ -1423,6 +1423,127 @@ const TRAFICO_GRACIA_MS = Number(process.env.TRAFICO_GRACIA_MS || 60_000);
 const paradasAbiertas = new Map();   // vehicleId → id de la fila abierta
 const traficos = new Map();          // vehicleId → { desde }
 
+// ─── SEÑAL Y PRESENCIA ───────────────────────────────────────
+// Los agregados que pedía TRUCOS-2026-09-10.md (T3, T4, T5, T8, T1): lo
+// que hasta acá sólo estaba en el log y no se podía preguntar. Tres tablas
+// chicas, con la misma retención que los desvíos:
+//
+//   huecos         cada corte de señal de una unidad: dónde se cortó, dónde
+//                  reapareció, cuánto duró, y si los datos del corte llegaron
+//                  DESPUÉS (la app los tenía en cola: fue la red, no el
+//                  teléfono apagado). Metros y velocidad implícita entre los
+//                  dos puntos separan el cerro (lento, sobre el trazado) del
+//                  que se fue y volvió.
+//   presencia_log  cada cambio de presencia (ruta, ausente, fuera) con su
+//                  hora y su lugar: de acá salen los minutos ausente por día.
+//   anomalias      lo puntual que se anota y no se avisa: saltos imposibles
+//                  (T8, dos teléfonos), ausente en marcha sobre el trazado
+//                  (T5), el reloj atrasado (T1), posiciones descartadas,
+//                  GPS simulado (T2).
+//
+// Nada de esto avisa a nadie en vivo: es para el informe de la reunión.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS huecos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicleId TEXT NOT NULL,
+    routeId TEXT NOT NULL,
+    companyId TEXT,
+    startedAt INTEGER NOT NULL,   -- hora de la última posición antes del corte
+    endedAt INTEGER,              -- hora de la primera posición fresca al volver
+    durationSec INTEGER,
+    latDesde REAL, lngDesde REAL, latHasta REAL, lngHasta REAL,
+    progresoDesde REAL, progresoHasta REAL,
+    metros INTEGER,               -- entre dónde se cortó y dónde reapareció
+    kmh INTEGER,                  -- velocidad implícita entre los dos puntos
+    presencia TEXT,               -- en qué estado estaba al cortarse
+    recuperadas INTEGER NOT NULL DEFAULT 0,  -- posiciones del corte que llegaron después
+    cierre TEXT                   -- 'volvio' | 'no_volvio' | 'fuera' | 'trazado' | 'corte'
+  );
+  CREATE INDEX IF NOT EXISTS idx_huecos_ruta ON huecos (routeId, startedAt);
+  CREATE TABLE IF NOT EXISTS presencia_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicleId TEXT NOT NULL,
+    routeId TEXT NOT NULL,
+    companyId TEXT,
+    estado TEXT NOT NULL,         -- 'ruta' | 'ausente' | 'fuera'
+    cuando INTEGER NOT NULL,
+    lat REAL, lng REAL
+  );
+  CREATE INDEX IF NOT EXISTS idx_presencia_ruta ON presencia_log (routeId, cuando);
+  CREATE TABLE IF NOT EXISTS anomalias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicleId TEXT NOT NULL,
+    routeId TEXT NOT NULL,
+    companyId TEXT,
+    tipo TEXT NOT NULL,           -- 'salto' | 'ausente_en_marcha' | 'reloj' | 'descartadas' | 'gps_simulado'
+    cuando INTEGER NOT NULL,
+    valor REAL,                   -- km/h del salto, segundos del reloj, posiciones descartadas…
+    detalle TEXT,
+    lat REAL, lng REAL
+  );
+  CREATE INDEX IF NOT EXISTS idx_anomalias_ruta ON anomalias (routeId, cuando);
+`);
+{
+  const abiertos = db.prepare(
+    "UPDATE huecos SET cierre = 'corte' WHERE endedAt IS NULL AND cierre IS NULL").run();
+  if (abiertos.changes) console.log(`${abiertos.changes} hueco(s) de señal quedaron abiertos del arranque anterior: cerrados como cortados`);
+}
+
+const huecosAbiertos = new Map();   // vehicleId → { id, startedAt, lat, lng }
+// Un salto se anota como mucho una vez por minuto por unidad: un GPS malo
+// puede saltar en cada posición y eso es UNA anomalía, no doscientas.
+const ultimoSaltoAnotado = new Map();
+const ultimaDescartadaAnotada = new Map();
+// Ausente y en marcha sobre el trazado, sostenido: vehicleId → { desde, anotado }
+const ausenteEnMarcha = new Map();
+const AUSENTE_MARCHA_MS = Number(process.env.AUSENTE_MARCHA_MS || 120_000);
+const AUSENTE_MARCHA_KMH = 15;
+const SALTO_KMH = 120;
+
+function anotarAnomalia(vehicleId, routeId, companyId, tipo, { valor = null, detalle = null, lat = null, lng = null, cuando = Date.now() } = {}) {
+  try {
+    db.prepare(`INSERT INTO anomalias (vehicleId, routeId, companyId, tipo, cuando, valor, detalle, lat, lng)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(vehicleId, routeId, companyId || null, tipo, cuando, valor, detalle, lat, lng);
+  } catch (e) { console.warn(`No se pudo anotar la anomalía ${tipo} de ${vehicleId}: ${e.message}`); }
+}
+
+function registrarPresencia(vehicleId, routeId, companyId, estado, u) {
+  try {
+    db.prepare('INSERT INTO presencia_log (vehicleId, routeId, companyId, estado, cuando, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(vehicleId, routeId, companyId || null, estado, Date.now(), u?.lat ?? null, u?.lng ?? null);
+  } catch (e) { console.warn(`No se pudo registrar la presencia de ${vehicleId}: ${e.message}`); }
+}
+
+// Se abre cuando la unidad entra en «sin señal» (el barrido), con la última
+// posición que se le conoció.
+function abrirHueco(vehicleId, unit) {
+  if (huecosAbiertos.has(vehicleId) || unit.lat == null) return;
+  const id = db.prepare(`INSERT INTO huecos (vehicleId, routeId, companyId, startedAt, latDesde, lngDesde, progresoDesde, presencia)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(vehicleId, unit.routeId, unit.companyId || (routeOf(unit.routeId) || {}).companyId || null,
+         unit.timestamp, unit.lat, unit.lng, unit.routeProgress ?? null, unit.presencia || 'ruta').lastInsertRowid;
+  huecosAbiertos.set(vehicleId, { id, startedAt: unit.timestamp, lat: unit.lat, lng: unit.lng });
+}
+
+// Se cierra con la primera posición FRESCA que vuelve ('volvio'), o por los
+// otros caminos: se fue ('fuera'), le cambiaron el trazado, o no volvió en
+// dos horas ('no_volvio', sin fin ni duración: no se sabe hasta cuándo).
+function cerrarHueco(vehicleId, cierre, { cuando = null, lat = null, lng = null, progreso = null } = {}) {
+  const h = huecosAbiertos.get(vehicleId);
+  if (!h) return;
+  huecosAbiertos.delete(vehicleId);
+  if (cierre === 'volvio' && cuando !== null) {
+    const fin = Math.max(cuando, h.startedAt);
+    const metros = lat !== null && h.lat != null ? Math.round(metrosEntre(h.lat, h.lng, lat, lng)) : null;
+    const durSec = Math.round((fin - h.startedAt) / 1000);
+    const kmh = metros !== null && durSec > 0 ? Math.round(metros / durSec * 3.6) : null;
+    db.prepare(`UPDATE huecos SET endedAt = ?, durationSec = ?, latHasta = ?, lngHasta = ?, progresoHasta = ?, metros = ?, kmh = ?, cierre = 'volvio' WHERE id = ?`)
+      .run(fin, durSec, lat, lng, progreso, metros, kmh, h.id);
+  } else {
+    db.prepare('UPDATE huecos SET cierre = ? WHERE id = ?').run(cierre, h.id);
+  }
+}
+
 function abrirParada(vehicleId, routeId, companyId, donde, desde, confirmado) {
   if (paradasAbiertas.has(vehicleId)) return paradasAbiertas.get(vehicleId);
   const id = db.prepare(`INSERT INTO paradas (vehicleId, routeId, companyId, startedAt, lat, lng, progreso, tramo, confirmado)
@@ -1984,6 +2105,12 @@ function podarHistorico() {
   // dato (episodios de la calle) y se leen con la misma pregunta.
   const paradasViejas = db.prepare(
     'DELETE FROM paradas WHERE startedAt < ?').run(Date.now() - DESVIOS_DIAS * 86400_000).changes;
+  // Señal y presencia: misma retención que los desvíos
+  const corteSenal = Date.now() - DESVIOS_DIAS * 86400_000;
+  const senalVieja = db.prepare('DELETE FROM huecos WHERE startedAt < ?').run(corteSenal).changes
+    + db.prepare('DELETE FROM presencia_log WHERE cuando < ?').run(corteSenal).changes
+    + db.prepare('DELETE FROM anomalias WHERE cuando < ?').run(corteSenal).changes;
+  if (senalVieja) console.log(`Historial podado: ${senalVieja} fila(s) de señal y presencia`);
   // Los turnos, con su propio plazo (más largo: se liquidan horas con ellos).
   // Sólo los CERRADOS: un turno abierto es alguien que está arriba de la
   // combi ahora mismo, y borrarlo le partiría las horas del día en curso.
@@ -2058,10 +2185,17 @@ const salidas = new Map();   // vehicleId → hora del último «fuera»
 function fijarPresencia(vehicleId, routeId, estado) {
   if (estado === 'fuera') {
     salidas.set(vehicleId, Date.now());
+    const u = units.get(vehicleId);
+    // Queda en el registro de presencia, una vez: un «fuera» repetido de
+    // alguien que ya no está no es un cambio.
+    if (presencias.has(vehicleId) || u) {
+      registrarPresencia(vehicleId, (u && u.routeId) || routeId, u && u.companyId, 'fuera', u);
+    }
+    cerrarHueco(vehicleId, 'fuera');
+    ausenteEnMarcha.delete(vehicleId);
     // Se va del mapa EN EL ACTO, no a los 3 minutos del olvido: lo pidió él.
     presencias.delete(vehicleId);
     lapState.delete(vehicleId);
-    const u = units.get(vehicleId);
     // El tramo, en cambio, NO se descarta sin mirarlo: si venía de terminar
     // la ida y se va, esa media vuelta es trabajo hecho y es justo lo que
     // antes se perdía. `olvidarTramo` la guarda si estaba completa.
@@ -2101,6 +2235,8 @@ function fijarPresencia(vehicleId, routeId, estado) {
   const estabaEnRuta = previa ? previa.enRuta : !!(u && u.lat != null && u.enRuta !== false);
   const perdidaEn = estabaEnRuta ? ((u && u.timestamp) || Date.now()) : (previa && previa.perdidaEn) || null;
   presencias.set(vehicleId, { estado, enRuta: false, perdidaEn });
+  registrarPresencia(vehicleId, (u && u.routeId) || routeId, u && u.companyId, estado, u);
+  if (estado !== 'ausente') ausenteEnMarcha.delete(vehicleId);
   lapState.delete(vehicleId);
   // Irse a almorzar después de la ida no borra la ida. Con la hora de la
   // última posición, por lo mismo que arriba: el almuerzo no es parte del
@@ -2622,6 +2758,34 @@ app.post('/trafico', (req, res) => {
 // Los episodios de parada de la cooperativa (o de la ruta del despachador
 // atado a una), de los últimos N días. Es la materia prima del "dónde se
 // traba esta ruta y a qué hora": hoy una lista; mañana, un mapa de calor.
+// Los cortes de señal y las anomalías (TRUCOS-2026-09-10.md), de los
+// últimos N días, como las paradas.
+function diasPedidos(req) {
+  const pedido = Number(req.query.dias);
+  return Number.isFinite(pedido) && pedido > 0 ? Math.min(365, Math.max(1, Math.round(pedido))) : 7;
+}
+app.get('/admin/huecos', requireDispatch, (req, res) => {
+  const dias = diasPedidos(req);
+  const huecos = db.prepare(`
+    SELECT id, vehicleId, routeId, startedAt, endedAt, durationSec, latDesde, lngDesde, latHasta, lngHasta,
+           progresoDesde, progresoHasta, metros, kmh, presencia, recuperadas, cierre
+    FROM huecos
+    WHERE companyId = @empresa AND (@scope IS NULL OR routeId = @scope) AND startedAt >= @desde
+    ORDER BY startedAt DESC LIMIT 500
+  `).all({ empresa: req.empresa, scope: req.scope || null, desde: Date.now() - dias * 86400_000 });
+  res.json({ dias, huecos });
+});
+app.get('/admin/anomalias', requireDispatch, (req, res) => {
+  const dias = diasPedidos(req);
+  const anomalias = db.prepare(`
+    SELECT id, vehicleId, routeId, tipo, cuando, valor, detalle, lat, lng
+    FROM anomalias
+    WHERE companyId = @empresa AND (@scope IS NULL OR routeId = @scope) AND cuando >= @desde
+    ORDER BY cuando DESC LIMIT 500
+  `).all({ empresa: req.empresa, scope: req.scope || null, desde: Date.now() - dias * 86400_000 });
+  res.json({ dias, anomalias });
+});
+
 app.get('/admin/paradas', requireDispatch, (req, res) => {
   const pedido = Number(req.query.dias);
   const dias = Number.isFinite(pedido) && pedido > 0 ? Math.min(365, Math.max(1, Math.round(pedido))) : 7;
@@ -3303,6 +3467,15 @@ app.post('/gps', (req, res) => {
   if (sesgo > SIN_SENAL_MS && sesgoAntes <= SIN_SENAL_MS) {
     console.log(`Reloj atrasado: el teléfono de ${vehicleId} manda con la hora ~${Math.round(sesgo / 1000)} s ` +
       `atrás, sostenido; se lo juzga fresco igual`);
+    anotarAnomalia(vehicleId, user.routeId || DEFAULT_ROUTE, user.companyId, 'reloj',
+      { valor: Math.round(sesgo / 1000), detalle: `reloj ~${Math.round(sesgo / 1000)} s atrás`, cuando: ahora });
+  }
+  // Posiciones imposibles (del futuro, o de hace más de 6 h): un reloj muy
+  // mal puesto. Una anotación por minuto como mucho, con cuántas fueron.
+  if (crudas.length > buenas.length && (ultimaDescartadaAnotada.get(vehicleId) || 0) < ahora - 60_000) {
+    ultimaDescartadaAnotada.set(vehicleId, ahora);
+    anotarAnomalia(vehicleId, user.routeId || DEFAULT_ROUTE, user.companyId, 'descartadas',
+      { valor: crudas.length - buenas.length, detalle: `${crudas.length - buenas.length} posición(es) con hora imposible`, cuando: ahora });
   }
 
   // La presencia que viaja pegada al lote vale sólo si el lote es posterior
@@ -3684,7 +3857,7 @@ function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
   // marcado como 'trazado' — de esos no se puede afirmar cuánto duró el
   // desvío, porque a mitad de camino cambió contra qué se lo medía.
   for (const [vehicleId, unidad] of units) {
-    if (unidad.routeId === routeId) { olvidarDesvio(vehicleId, 'trazado'); olvidarParada(vehicleId, 'trazado'); }
+    if (unidad.routeId === routeId) { olvidarDesvio(vehicleId, 'trazado'); olvidarParada(vehicleId, 'trazado'); cerrarHueco(vehicleId, 'trazado'); }
   }
 
   // El objetivo automático se recalcula solo con las vueltas de ESTA
@@ -4452,6 +4625,59 @@ const INFORMES = {
   // Salidas del recorrido. Una fila por episodio, no por posición: lo que se
   // quiere contestar es "cuántas veces y por cuánto tiempo", no "dónde estuvo
   // cada tres segundos".
+  // Cortes de señal: dónde se cortó, dónde reapareció, y si los datos del
+  // corte llegaron después (fue la red) o no (el teléfono apagado, la app
+  // muerta). Ver TRUCOS-2026-09-10.md, T3.
+  senal: (filtro) => {
+    const filas = db.prepare(`
+      SELECT vehicleId, routeId, startedAt, endedAt, durationSec, latDesde, lngDesde, latHasta, lngHasta,
+             metros, kmh, presencia, recuperadas, cierre
+      FROM huecos
+      WHERE startedAt BETWEEN @desde AND @hasta
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY startedAt
+    `).all(filtro);
+    const COMO_TERMINO = {
+      volvio: 'volvió', no_volvio: 'no volvió en 2 h', fuera: 'salió de ruta',
+      trazado: 'le cambiaron el trazado', corte: 'el servidor se reinició',
+    };
+    return {
+      nombre: 'senal',
+      cabecera: ['Unidad', 'Ruta', 'Se cortó', 'Volvió', 'Minutos sin señal', 'Estaba',
+        'Lat. corte', 'Lng. corte', 'Lat. vuelta', 'Lng. vuelta', 'Metros entre los dos', 'Velocidad implícita (km/h)',
+        'Posiciones del corte que llegaron después', 'Cómo terminó'],
+      filas: filas.map(h => [
+        h.vehicleId, h.routeId, fechaHora(h.startedAt), h.endedAt ? fechaHora(h.endedAt) : '',
+        h.durationSec === null ? '' : Math.round(h.durationSec / 60), h.presencia || '',
+        h.latDesde ?? '', h.lngDesde ?? '', h.latHasta ?? '', h.lngHasta ?? '',
+        h.metros ?? '', h.kmh ?? '', h.recuperadas,
+        COMO_TERMINO[h.cierre] || (h.endedAt ? h.cierre : 'sigue sin señal'),
+      ]),
+    };
+  },
+  // Lo puntual que se anota y no se avisa: saltos imposibles, ausente en
+  // marcha, reloj atrasado, posiciones descartadas, GPS simulado.
+  anomalias: (filtro) => {
+    const filas = db.prepare(`
+      SELECT vehicleId, routeId, tipo, cuando, valor, detalle, lat, lng
+      FROM anomalias
+      WHERE cuando BETWEEN @desde AND @hasta
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY cuando
+    `).all(filtro);
+    const QUE_ES = {
+      salto: 'salto imposible entre dos posiciones', ausente_en_marcha: 'ausente y en marcha sobre el trazado',
+      reloj: 'reloj del teléfono atrasado', descartadas: 'posiciones con hora imposible', gps_simulado: 'GPS simulado (Android)',
+    };
+    return {
+      nombre: 'anomalias',
+      cabecera: ['Unidad', 'Ruta', 'Cuándo', 'Qué', 'Valor', 'Detalle', 'Lat.', 'Lng.'],
+      filas: filas.map(a => [a.vehicleId, a.routeId, fechaHora(a.cuando), QUE_ES[a.tipo] || a.tipo,
+        a.valor ?? '', a.detalle || '', a.lat ?? '', a.lng ?? '']),
+    };
+  },
   desvios: (filtro) => {
     const filas = db.prepare(`
       SELECT vehicleId, routeId, startedAt, endedAt, durationSec, maxM, umbralM, silenciado, cierre
@@ -5032,11 +5258,65 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     x.maxM = Math.max(x.maxM, d.maxM);
   }
 
+  // Señal y presencia del período (TRUCOS-2026-09-10.md): cortes de señal
+  // por unidad, minutos ausente, y las anomalías contadas por tipo.
+  const huecosPeriodo = db.prepare(`
+    SELECT vehicleId, durationSec, recuperadas, cierre FROM huecos
+    WHERE startedAt BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+  `).all(filtro);
+  const senalDe = new Map();
+  for (const h of huecosPeriodo) {
+    if (!senalDe.has(h.vehicleId)) senalDe.set(h.vehicleId, { cortes: 0, sinDatos: 0, segundos: 0, maxSec: 0, noVolvio: 0 });
+    const x = senalDe.get(h.vehicleId);
+    x.cortes++;
+    if (!h.recuperadas) x.sinDatos++;
+    if (h.cierre === 'no_volvio') x.noVolvio++;
+    x.segundos += h.durationSec || 0;
+    x.maxSec = Math.max(x.maxSec, h.durationSec || 0);
+  }
+  // Minutos ausente: cada 'ausente' dura hasta el siguiente cambio de esa
+  // unidad, o hasta el fin del rango (o ahora) si no hubo otro.
+  const cambios = db.prepare(`
+    SELECT vehicleId, estado, cuando FROM presencia_log
+    WHERE cuando BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    ORDER BY vehicleId, cuando
+  `).all(filtro);
+  const ausenteDe = new Map();
+  const finRango = Math.min(rango.hasta, Date.now());
+  for (let i = 0; i < cambios.length; i++) {
+    const c = cambios[i];
+    if (c.estado !== 'ausente') continue;
+    const sig = cambios[i + 1];
+    const hasta = sig && sig.vehicleId === c.vehicleId ? sig.cuando : finRango;
+    const a = ausenteDe.get(c.vehicleId) || { veces: 0, segundos: 0 };
+    a.veces++;
+    a.segundos += Math.max(0, Math.round((hasta - c.cuando) / 1000));
+    ausenteDe.set(c.vehicleId, a);
+  }
+  const anomaliasPeriodo = db.prepare(`
+    SELECT vehicleId, tipo, COUNT(*) n, SUM(COALESCE(valor, 0)) suma FROM anomalias
+    WHERE cuando BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    GROUP BY vehicleId, tipo
+  `).all(filtro);
+  const anomaliasDe = new Map();
+  for (const a of anomaliasPeriodo) {
+    if (!anomaliasDe.has(a.vehicleId)) anomaliasDe.set(a.vehicleId, {});
+    anomaliasDe.get(a.vehicleId)[a.tipo] = { n: a.n, suma: a.suma };
+  }
+
   const unidades = new Map();
   for (const l of vueltas) {
     if (!unidades.has(l.unitId)) unidades.set(l.unitId, []);
     unidades.get(l.unitId).push(l);
   }
+  // Las que sólo dejaron señal o presencia que contar también van al cuadro
+  for (const id of [...senalDe.keys(), ...ausenteDe.keys(), ...anomaliasDe.keys()]) if (!unidades.has(id)) unidades.set(id, []);
   // La unidad que hizo SOLO idas no cierra ninguna vuelta entera, y armando
   // el cuadro únicamente con `vueltas` desaparecía del listado: el gerente
   // veía una combi menos, no una combi que no volvió. Se agregan también las
@@ -5069,6 +5349,21 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       horasSec: horasDe.get(unitId) || 0,
       desvios: (desviosDe.get(unitId) || { veces: 0 }).veces,
       desvioSec: (desviosDe.get(unitId) || { segundos: 0 }).segundos,
+      // Señal y presencia (ver TRUCOS-2026-09-10.md)
+      senal: {
+        cortes: (senalDe.get(unitId) || {}).cortes || 0,
+        sinDatos: (senalDe.get(unitId) || {}).sinDatos || 0,
+        noVolvio: (senalDe.get(unitId) || {}).noVolvio || 0,
+        sinSenalSec: (senalDe.get(unitId) || {}).segundos || 0,
+        corteMaxSec: (senalDe.get(unitId) || {}).maxSec || 0,
+        ausencias: (ausenteDe.get(unitId) || {}).veces || 0,
+        ausenteSec: (ausenteDe.get(unitId) || {}).segundos || 0,
+        saltos: ((anomaliasDe.get(unitId) || {}).salto || {}).n || 0,
+        ausenteEnMarcha: ((anomaliasDe.get(unitId) || {}).ausente_en_marcha || {}).n || 0,
+        reloj: ((anomaliasDe.get(unitId) || {}).reloj || {}).n || 0,
+        descartadas: ((anomaliasDe.get(unitId) || {}).descartadas || {}).suma || 0,
+        gpsSimulado: ((anomaliasDe.get(unitId) || {}).gps_simulado || {}).n || 0,
+      },
     };
   }).sort((a, b) => b.vueltas - a.vueltas || b.idas - a.idas);
 
@@ -5141,6 +5436,13 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       idas: tramosPorUnidad.filter(t => t.leg === 'ida').reduce((a, t) => a + t.n, 0),
       retornos: tramosPorUnidad.filter(t => t.leg === 'vuelta').reduce((a, t) => a + t.n, 0),
       parciales: Array.from(parcialesPorUnidad.values()).reduce((a, n) => a + n, 0),
+      // Señal y presencia de la cooperativa entera
+      cortes: huecosPeriodo.length,
+      cortesSinDatos: huecosPeriodo.filter(h => !h.recuperadas).length,
+      sinSenalSec: huecosPeriodo.reduce((a, h) => a + (h.durationSec || 0), 0),
+      ausenteSec: Array.from(ausenteDe.values()).reduce((a, x) => a + x.segundos, 0),
+      saltos: anomaliasPeriodo.filter(a => a.tipo === 'salto').reduce((a, x) => a + x.n, 0),
+      gpsSimulado: anomaliasPeriodo.filter(a => a.tipo === 'gps_simulado').reduce((a, x) => a + x.n, 0),
     },
     porDia,
     porUnidad,
@@ -6689,6 +6991,51 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   if (simulado && !unit.gpsSimulado) {
     console.warn(`GPS simulado: ${vehicleId} manda posiciones marcadas como falsas por Android`);
     audit('sistema', 'gps_simulado', vehicleId, 'Android marcó la posición como simulada (fake GPS)', routeId);
+    anotarAnomalia(vehicleId, routeId, prof.companyId, 'gps_simulado', { lat: pos.lat, lng: pos.lng, cuando });
+  }
+
+  // ── Señal y presencia (TRUCOS-2026-09-10.md) ──
+  // El salto imposible: más de 120 km/h entre dos posiciones seguidas de la
+  // misma unidad. Es dos teléfonos con la misma cuenta (T8), un GPS que
+  // inventa (T2 sin flag) o uno muy impreciso (T11). Una anotación por
+  // minuto como mucho.
+  if (unit.lat != null && typeof unit.timestamp === 'number' && cuando > unit.timestamp) {
+    const dtSec = (cuando - unit.timestamp) / 1000;
+    if (dtSec >= 2) {
+      const kmh = metrosEntre(unit.lat, unit.lng, pos.lat, pos.lng) / dtSec * 3.6;
+      if (kmh > SALTO_KMH && (ultimoSaltoAnotado.get(vehicleId) || 0) < cuando - 60_000) {
+        ultimoSaltoAnotado.set(vehicleId, cuando);
+        console.log(`Salto imposible: ${vehicleId} de ${unit.lat.toFixed(5)},${unit.lng.toFixed(5)} (${fechaHora(unit.timestamp)}) ` +
+          `a ${pos.lat.toFixed(5)},${pos.lng.toFixed(5)} (${fechaHora(cuando)}): ${Math.round(kmh)} km/h en ${Math.round(dtSec)} s`);
+        anotarAnomalia(vehicleId, routeId, prof.companyId, 'salto',
+          { valor: Math.round(kmh), detalle: `${Math.round(kmh)} km/h en ${Math.round(dtSec)} s`, lat: pos.lat, lng: pos.lng, cuando });
+      }
+    }
+  }
+  // El hueco de señal se cierra con la primera posición FRESCA; las
+  // posiciones DEL corte que llegan después (la cola de la app) se cuentan:
+  // dicen que fue la red y no el teléfono apagado.
+  {
+    const h = huecosAbiertos.get(vehicleId);
+    if (h) {
+      if (fresca) cerrarHueco(vehicleId, 'volvio', { cuando, lat: pos.lat, lng: pos.lng, progreso });
+      else if (cuando > h.startedAt) db.prepare('UPDATE huecos SET recuperadas = recuperadas + 1 WHERE id = ?').run(h.id);
+    }
+  }
+  // Ausente y en marcha sobre el trazado, sostenido: el que se olvidó de
+  // volver (casi siempre) o el que no quiere que lo midan (a veces). El vigía
+  // de la app lo devuelve a ruta solo; esto anota al que igual siguió así.
+  if (decl && decl.estado === 'ausente' && proy && (pos.speed || 0) > AUSENTE_MARCHA_KMH &&
+      proy.desvioM <= ((routeOf(routeId) || {}).desvioMaxM || DESVIO_DEFECTO_M)) {
+    const e = ausenteEnMarcha.get(vehicleId) || { desde: cuando, anotado: false };
+    if (!ausenteEnMarcha.has(vehicleId)) ausenteEnMarcha.set(vehicleId, e);
+    if (!e.anotado && cuando - e.desde >= AUSENTE_MARCHA_MS) {
+      e.anotado = true;
+      anotarAnomalia(vehicleId, routeId, prof.companyId, 'ausente_en_marcha',
+        { valor: Math.round((cuando - e.desde) / 1000), detalle: 'ausente, moviéndose sobre el trazado', lat: pos.lat, lng: pos.lng, cuando });
+    }
+  } else if (ausenteEnMarcha.has(vehicleId) && (!decl || decl.estado !== 'ausente' || (pos.speed || 0) <= AUSENTE_MARCHA_KMH)) {
+    ausenteEnMarcha.delete(vehicleId);
   }
 
   ponerUnidad(vehicleId, {
@@ -7027,6 +7374,7 @@ setInterval(() => {
     // reemitiría el estado cada diez segundos durante los tres minutos.
     if (muda > SIN_SENAL_MS && !unit.sinSenal) {
       ponerUnidad(unitId, { ...unit, sinSenal: true, sinSenalDesde: unit.timestamp });
+      abrirHueco(unitId, unit);
       // Las dos edades van en el renglón: "posición vieja y teléfono mudo" es
       // un corte; "posición vieja y teléfono oído hace nada" es la app
       // mandando atraso o repetidos, y se diagnostica distinto.
@@ -7034,6 +7382,12 @@ setInterval(() => {
         `al teléfono se lo oyó hace ${Math.round(sinOir / 1000)} s)`);
       rutasAfectadas.add(unit.routeId);
     }
+  }
+  // Un hueco de una unidad ya olvidada que lleva más de REANUDA_MS abierto no
+  // se va a cerrar solo: no volvió. Queda sin fin ni duración —no se sabe
+  // hasta cuándo—, que es más honesto que inventarle dos horas.
+  for (const [vehicleId, h] of huecosAbiertos) {
+    if (!units.has(vehicleId) && ahora - h.startedAt > REANUDA_MS) cerrarHueco(vehicleId, 'no_volvio');
   }
   // Sin este envío, si todas dejan de reportar el mapa queda congelado
   rutasAfectadas.forEach(r => scheduleStateBroadcast(r, true));
