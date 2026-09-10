@@ -191,18 +191,21 @@ const avanzando = (t0, metros, n, desdeMs, pasoMs = 500) =>
     ok('y el episodio queda cerrado como retirado por el chofer', fila && fila.cierre === 'chofer' && fila.confirmado === 1, fila);
   }
   {
-    // Marcado a mano mientras arrastra, y después arranca: se apaga por andar
+    // Marcado a mano mientras arrastra (200 m en 4 s: circula, no es parada
+    // medida), y después arranca: se apaga por andar. Ojo con dejarla quieta
+    // acá: M-08 ya tenía una posición en el mismo punto de hace rato, y desde
+    // el arreglo de la ventana (10/9) eso SÍ es una parada medida.
     let t = Date.now() - 4000;
-    await post('/gps', s08.token, { posiciones: quieto(0.15, 4, t) });
+    await post('/gps', s08.token, { posiciones: avanzando(0.18, 300, 4, t, 1000) });
     await post('/trafico', s08.token, { activo: true });
     await sleep(400);
     ok('marcado a mano, sin parada automática', vista('M-08')?.trafico === true && vista('M-08')?.parado === false, vista('M-08'));
     // Recién marcado: la gracia. Dos posiciones rápidas no lo apagan todavía.
-    await post('/gps', s08.token, { posiciones: avanzando(0.15, 60, 2, t + 2200) });
+    await post('/gps', s08.token, { posiciones: avanzando(0.233, 60, 2, t + 3200) });
     await sleep(400);
     ok('en el minuto de gracia no se apaga aunque ande', vista('M-08')?.trafico === true, vista('M-08'));
     await sleep(1600);   // pasa la gracia (1,5 s)
-    await post('/gps', s08.token, { posiciones: avanzando(0.152, 200, 3, Date.now() - 1200) });
+    await post('/gps', s08.token, { posiciones: avanzando(0.2436, 200, 3, Date.now() - 1200) });
     await sleep(400);
     ok('pasada la gracia, al andar se apaga solo', vista('M-08')?.trafico === false, vista('M-08'));
   }

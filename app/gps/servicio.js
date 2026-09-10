@@ -194,6 +194,10 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
     // simulada» (fake GPS). Viaja sólo cuando es true: el servidor lo anota
     // y Despacho lo ve. Ver TRUCOS-2026-09-10.md.
     ...(l.mocked === true ? { simulado: true } : {}),
+    // Con cuántos metros de error la dio el aparato. El servidor no juzga
+    // desvío ni parada con una posición de 300 m (ahorro de batería, «sólo
+    // red») y lo cuenta por unidad. Ver TRUCOS-2026-09-10.md, T11.
+    ...(Number.isFinite(l.coords.accuracy) && l.coords.accuracy >= 0 ? { precision: Math.round(l.coords.accuracy) } : {}),
   }));
   const filtradas = filtrarEntregadas(crudas, ultimaEntregada);
   ultimaEntregada = filtradas.ultimaEntregada;

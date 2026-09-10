@@ -159,6 +159,16 @@ Lo que hay que tener claro:
   `simulado: true` en la posición del `POST /gps` (o del mensaje `gps`); el
   servidor no la descarta, la marca y la anota en la auditoría
   (`gps_simulado`). Ver `TRUCOS-2026-09-10.md`.
+- `gpsSospechoso`: las últimas doce posiciones tienen la firma de un
+  simulador sin el flag de Android (`server/farsa.js`): `'velocidad_constante'`,
+  `'sin_ruido'`, `'velocidad_incoherente'`, o `null`. Es una sospecha con
+  motivo, anotada una vez por episodio (`gps_sospechoso`); no bloquea nada.
+- `precisionM` y `gpsImpreciso`: los metros de error que declaró el aparato
+  en la última posición (`precision` en `POST /gps` / mensaje `gps`; `null`
+  con un APK que no lo manda) y si son más de los que se aceptan para juzgar
+  (100 m, `PRECISION_MAX_M`). Con `gpsImpreciso` el servidor **no evaluó
+  desvío ni parada** con esa posición: `fueraDeRuta` y `parado` quedan como
+  estaban.
 - `relojAtrasadoS`: cuánto atrasa el reloj del teléfono, en segundos, si el
   servidor lo pudo estimar (0 si no). Sus `timestamp` vienen con ese atraso;
   el servidor ya lo descuenta para el gris de «sin señal».
@@ -261,8 +271,13 @@ sabiendo dónde estaba y no tenía por dónde decirlo.
 POST /gps
 Authorization: Bearer <token>
 { "posiciones": [ { "lat": -15.48, "lng": -70.13, "speed": 22,
-                    "timestamp": 1785649191992 }, … ] }
+                    "timestamp": 1785649191992,
+                    "precision": 12, "simulado": false }, … ] }
 ```
+
+`precision` (metros de error, opcional) y `simulado` (opcional, sólo `true`
+cuando Android marca la posición como de una app de ubicación simulada) son
+de `TRUCOS-2026-09-10.md`; un cliente que no los manda se trata como siempre.
 
 Devuelve `{ ok, aceptadas, descartadas, routeId }`.
 
@@ -319,9 +334,14 @@ se cortó (`latDesde`, `lngDesde`, `progresoDesde`), dónde reapareció
 cómo terminó (`cierre`: `volvio`, `no_volvio`, `fuera`, `trazado`, `corte`).
 `GET /admin/anomalias?dias=N` lista lo puntual: `tipo` en `salto` (más de
 120 km/h entre dos posiciones; `valor` en km/h), `ausente_en_marcha`,
-`reloj` (segundos), `descartadas` (posiciones con hora imposible) y
-`gps_simulado`. Los mismos datos bajan como `senal.csv` y `anomalias.csv`, y
-`/gerencia/resumen` trae un bloque `senal` por unidad y en los totales.
+`reloj` (segundos), `descartadas` (posiciones con hora imposible),
+`gps_simulado`, `gps_sospechoso` (la heurística sin flag, con el motivo en
+`detalle`) y `gps_impreciso` (`valor` en metros). Los mismos datos bajan como
+`senal.csv` y `anomalias.csv`, y `/gerencia/resumen` trae un bloque `senal`
+por unidad y en los totales — con `gpsSospechoso`, `gpsImpreciso`,
+`avisosTrafico` y `avisosSinParada` (avisos de tráfico del chofer sin que el
+servidor midiera la parada: `paradas.medida = 0`; `GET /admin/paradas`
+también trae `medida`).
 
 ## 4quinquies. El SOS por HTTP: `POST /sos`
 

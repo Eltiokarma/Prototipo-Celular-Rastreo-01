@@ -94,6 +94,7 @@ app.use((req, res, next) => {
 // medido y el verificador de invariante están en `indice-unidades.js`.
 const { crearIndiceUnidades } = require('./indice-unidades');
 const { crearDetectorDeParada } = require('./parada');
+const { crearDetectorDeFarsa } = require('./farsa');
 const {
   units,
   unitsByRoute,
@@ -1395,6 +1396,12 @@ db.exec(`
   )
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_paradas_ruta ON paradas (routeId, startedAt)');
+// `confirmado` dice que el chofer lo DIJO; `medida` que el servidor lo VIO
+// (tres minutos sin avanzar). Las dos juntas son un aviso con parada; sólo la
+// primera, un aviso sin parada — el botón de tráfico como excusa (T7 de
+// TRUCOS-2026-09-10.md). Antes se abría el episodio por cualquiera de los
+// dos caminos y no quedaba cuál.
+addColumnIfMissing('paradas', 'medida', 'INTEGER NOT NULL DEFAULT 0');
 {
   const abiertas = db.prepare(
     "UPDATE paradas SET endedAt = startedAt, durationSec = 0, cierre = 'corte' WHERE endedAt IS NULL").run();
@@ -1475,7 +1482,7 @@ db.exec(`
     vehicleId TEXT NOT NULL,
     routeId TEXT NOT NULL,
     companyId TEXT,
-    tipo TEXT NOT NULL,           -- 'salto' | 'ausente_en_marcha' | 'reloj' | 'descartadas' | 'gps_simulado'
+    tipo TEXT NOT NULL,           -- 'salto' | 'ausente_en_marcha' | 'reloj' | 'descartadas' | 'gps_simulado' | 'gps_sospechoso' | 'gps_impreciso'
     cuando INTEGER NOT NULL,
     valor REAL,                   -- km/h del salto, segundos del reloj, posiciones descartadas…
     detalle TEXT,
@@ -1499,6 +1506,19 @@ const ausenteEnMarcha = new Map();
 const AUSENTE_MARCHA_MS = Number(process.env.AUSENTE_MARCHA_MS || 120_000);
 const AUSENTE_MARCHA_KMH = 15;
 const SALTO_KMH = 120;
+// El GPS impreciso (T11): con más de esto de error declarado por el aparato
+// no se juzga desvío ni parada — una posición de 300 m está en cualquier
+// lado—. Se marca, se anota una vez por episodio, y se cuenta. Un APK viejo
+// no manda `precision` y se lo trata como siempre: sin dato no hay juicio.
+const PRECISION_MAX_M = Number(process.env.PRECISION_MAX_M || 100);
+// El GPS que inventa sin decirlo (T2 sin flag): server/farsa.js. Sospecha
+// con motivo, anotada una vez por episodio; nunca bloquea.
+const farsa = crearDetectorDeFarsa();
+const MOTIVO_FARSA = {
+  velocidad_constante: 'velocidad que no varía (implícita y reportada)',
+  sin_ruido: 'clavado sobre el trazado, sin el ruido de un GPS real',
+  velocidad_incoherente: 'la velocidad reportada no cuadra con el desplazamiento',
+};
 
 function anotarAnomalia(vehicleId, routeId, companyId, tipo, { valor = null, detalle = null, lat = null, lng = null, cuando = Date.now() } = {}) {
   try {
@@ -1544,13 +1564,19 @@ function cerrarHueco(vehicleId, cierre, { cuando = null, lat = null, lng = null,
   }
 }
 
-function abrirParada(vehicleId, routeId, companyId, donde, desde, confirmado) {
-  if (paradasAbiertas.has(vehicleId)) return paradasAbiertas.get(vehicleId);
-  const id = db.prepare(`INSERT INTO paradas (vehicleId, routeId, companyId, startedAt, lat, lng, progreso, tramo, confirmado)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+// `medida` es que la parada la vio el servidor; si el episodio ya estaba
+// abierto por la palabra del chofer, se le suma el hecho.
+function abrirParada(vehicleId, routeId, companyId, donde, desde, confirmado, medida = false) {
+  if (paradasAbiertas.has(vehicleId)) {
+    const id = paradasAbiertas.get(vehicleId);
+    if (medida) db.prepare('UPDATE paradas SET medida = 1 WHERE id = ?').run(id);
+    return id;
+  }
+  const id = db.prepare(`INSERT INTO paradas (vehicleId, routeId, companyId, startedAt, lat, lng, progreso, tramo, confirmado, medida)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(vehicleId, routeId, companyId || null, desde,
          donde?.lat ?? null, donde?.lng ?? null, donde?.progreso ?? null, donde?.tramo ?? null,
-         confirmado ? 1 : 0).lastInsertRowid;
+         confirmado ? 1 : 0, medida ? 1 : 0).lastInsertRowid;
   paradasAbiertas.set(vehicleId, id);
   return id;
 }
@@ -1593,7 +1619,7 @@ function evaluarParada(vehicleId, routeId, companyId, pos, proy, cuando, activo,
     // Si el chofer ya lo había dicho, el episodio existe: se le suma el hecho.
     abrirParada(vehicleId, routeId, companyId,
       { lat: pos.lat, lng: pos.lng, progreso: proy ? proy.progreso : null, tramo: proy ? proy.tramo : null },
-      r.desde, !!traf);
+      r.desde, !!traf, true);
     console.log(`Parada: ${vehicleId} lleva ${Math.round((cuando - r.desde) / 60000)} min sin avanzar` +
       (proy ? ` al ${Math.round(proy.progreso * 100)} % del circuito` : '') + (traf ? ' (el chofer ya avisó tráfico)' : ''));
   }
@@ -2193,6 +2219,7 @@ function fijarPresencia(vehicleId, routeId, estado) {
     }
     cerrarHueco(vehicleId, 'fuera');
     ausenteEnMarcha.delete(vehicleId);
+    farsa.olvidar(vehicleId);
     // Se va del mapa EN EL ACTO, no a los 3 minutos del olvido: lo pidió él.
     presencias.delete(vehicleId);
     lapState.delete(vehicleId);
@@ -2704,6 +2731,9 @@ const coordenadaValida = (lat, lng) =>
 // números al que lo manda: se los arruina AL DE ADELANTE, porque la brecha se
 // acumula en la vuelta del de atrás. Uno miente y el perjudicado es otro.
 const progresoValido = (p) => (Number.isFinite(p) && p >= 0 && p <= 1 ? p : 0);
+// Los metros de error que declara el aparato (`accuracy`). null si no vino o
+// no es un número: un APK viejo no lo manda, y sin dato no se juzga.
+const precisionValida = (m) => (Number.isFinite(m) && m >= 0 && m < 100_000 ? Math.round(m) : null);
 
 // La hora que declara el teléfono, acotada a la misma ventana que ya usan las
 // posiciones. Se conserva la declarada —sirve para el atraso de una zona sin
@@ -2790,7 +2820,7 @@ app.get('/admin/paradas', requireDispatch, (req, res) => {
   const pedido = Number(req.query.dias);
   const dias = Number.isFinite(pedido) && pedido > 0 ? Math.min(365, Math.max(1, Math.round(pedido))) : 7;
   const paradas = db.prepare(`
-    SELECT id, vehicleId, routeId, startedAt, endedAt, durationSec, lat, lng, progreso, tramo, confirmado, cierre
+    SELECT id, vehicleId, routeId, startedAt, endedAt, durationSec, lat, lng, progreso, tramo, confirmado, medida, cierre
     FROM paradas
     WHERE companyId = @empresa AND (@scope IS NULL OR routeId = @scope) AND startedAt >= @desde
     ORDER BY startedAt DESC LIMIT 500
@@ -3416,6 +3446,9 @@ app.post('/gps', (req, res) => {
       cuando: Number(p.timestamp) || ahora,
       // Android dice si la posición salió de una app de ubicación simulada
       simulado: p.simulado === true,
+      // Y con cuántos metros de error la dio (`accuracy`). null si el APK
+      // no la manda (los anteriores al 5): sin dato no se juzga.
+      precision: precisionValida(p.precision),
     }))
     .filter(p => p.cuando <= ahora + 120_000 && p.cuando >= ahora - ATRASO_MAXIMO_MS)
     .sort((a, b) => a.cuando - b.cuando);
@@ -4670,6 +4703,8 @@ const INFORMES = {
     const QUE_ES = {
       salto: 'salto imposible entre dos posiciones', ausente_en_marcha: 'ausente y en marcha sobre el trazado',
       reloj: 'reloj del teléfono atrasado', descartadas: 'posiciones con hora imposible', gps_simulado: 'GPS simulado (Android)',
+      gps_sospechoso: 'GPS sospechoso de inventar (sin el flag de Android)',
+      gps_impreciso: `GPS impreciso (más de ${PRECISION_MAX_M} m de error)`,
     };
     return {
       nombre: 'anomalias',
@@ -5309,6 +5344,17 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     if (!anomaliasDe.has(a.vehicleId)) anomaliasDe.set(a.vehicleId, {});
     anomaliasDe.get(a.vehicleId)[a.tipo] = { n: a.n, suma: a.suma };
   }
+  // El botón de tráfico (T7): cuántas veces lo dijo cada unidad y cuántas de
+  // ésas el servidor NO vio la parada. Un aviso sin parada es una excusa o un
+  // dedo apurado; diez por semana es otra cosa.
+  const avisosPeriodo = db.prepare(`
+    SELECT vehicleId, COUNT(*) avisos, SUM(CASE WHEN medida = 0 THEN 1 ELSE 0 END) sinParada FROM paradas
+    WHERE confirmado = 1 AND startedAt BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    GROUP BY vehicleId
+  `).all(filtro);
+  const traficoDe = new Map(avisosPeriodo.map(a => [a.vehicleId, { avisos: a.avisos, sinParada: a.sinParada }]));
 
   const unidades = new Map();
   for (const l of vueltas) {
@@ -5316,7 +5362,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     unidades.get(l.unitId).push(l);
   }
   // Las que sólo dejaron señal o presencia que contar también van al cuadro
-  for (const id of [...senalDe.keys(), ...ausenteDe.keys(), ...anomaliasDe.keys()]) if (!unidades.has(id)) unidades.set(id, []);
+  for (const id of [...senalDe.keys(), ...ausenteDe.keys(), ...anomaliasDe.keys(), ...traficoDe.keys()]) if (!unidades.has(id)) unidades.set(id, []);
   // La unidad que hizo SOLO idas no cierra ninguna vuelta entera, y armando
   // el cuadro únicamente con `vueltas` desaparecía del listado: el gerente
   // veía una combi menos, no una combi que no volvió. Se agregan también las
@@ -5363,6 +5409,10 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
         reloj: ((anomaliasDe.get(unitId) || {}).reloj || {}).n || 0,
         descartadas: ((anomaliasDe.get(unitId) || {}).descartadas || {}).suma || 0,
         gpsSimulado: ((anomaliasDe.get(unitId) || {}).gps_simulado || {}).n || 0,
+        gpsSospechoso: ((anomaliasDe.get(unitId) || {}).gps_sospechoso || {}).n || 0,
+        gpsImpreciso: ((anomaliasDe.get(unitId) || {}).gps_impreciso || {}).n || 0,
+        avisosTrafico: (traficoDe.get(unitId) || {}).avisos || 0,
+        avisosSinParada: (traficoDe.get(unitId) || {}).sinParada || 0,
       },
     };
   }).sort((a, b) => b.vueltas - a.vueltas || b.idas - a.idas);
@@ -5443,6 +5493,10 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       ausenteSec: Array.from(ausenteDe.values()).reduce((a, x) => a + x.segundos, 0),
       saltos: anomaliasPeriodo.filter(a => a.tipo === 'salto').reduce((a, x) => a + x.n, 0),
       gpsSimulado: anomaliasPeriodo.filter(a => a.tipo === 'gps_simulado').reduce((a, x) => a + x.n, 0),
+      gpsSospechoso: anomaliasPeriodo.filter(a => a.tipo === 'gps_sospechoso').reduce((a, x) => a + x.n, 0),
+      gpsImpreciso: anomaliasPeriodo.filter(a => a.tipo === 'gps_impreciso').reduce((a, x) => a + x.n, 0),
+      avisosTrafico: avisosPeriodo.reduce((a, x) => a + x.avisos, 0),
+      avisosSinParada: avisosPeriodo.reduce((a, x) => a + x.sinParada, 0),
     },
     porDia,
     porUnidad,
@@ -6230,6 +6284,7 @@ wss.on('connection', (ws) => {
         speed: Number.isFinite(msg.speed) && msg.speed >= 0 ? msg.speed : 0,
         routeProgress: progresoValido(msg.routeProgress),
         simulado: msg.simulado === true,
+        precision: precisionValida(msg.precision),
       });
     }
 
@@ -6972,15 +7027,30 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   // parada y el desvío — al que va yendo o está ausente no se lo juzga.
   const activa = enRuta && (!decl || decl.estado === 'ruta');
 
+  // GPS impreciso (T11): el aparato dice con cuántos metros de error dio la
+  // posición. Con más de PRECISION_MAX_M la posición no dice dónde está la
+  // combi —está en un círculo de 300 m— y juzgar desvío o parada con eso
+  // inventa salidas y paradas que no pasaron. Se la deja pasar al mapa (es
+  // lo mejor que se sabe) pero no se la juzga: el desvío y la parada se
+  // quedan como estaban. Sin `precision` (APK viejo) no hay con qué dudar.
+  const imprecisa = pos.precision != null && pos.precision > PRECISION_MAX_M;
+  if (imprecisa && !unit.gpsImpreciso) {
+    console.log(`GPS impreciso: ${vehicleId} manda posiciones con ${pos.precision} m de error — no se juzga desvío ni parada`);
+    anotarAnomalia(vehicleId, routeId, prof.companyId, 'gps_impreciso',
+      { valor: pos.precision, detalle: `${pos.precision} m de error declarado`, lat: pos.lat, lng: pos.lng, cuando });
+  }
+
   // ¿Se salió del recorrido? Solo cuenta si se sostiene (ver arriba), y
   // sólo a las de la cadena, con la hora de la posición.
-  const desvio = evaluarDesvio(vehicleId, routeId, proy ? proy.desvioM : null, cuando, activa);
+  const desvio = imprecisa ? (desvios.get(vehicleId) || null)
+    : evaluarDesvio(vehicleId, routeId, proy ? proy.desvioM : null, cuando, activa);
 
   // La parada sostenida y la palabra del chofer, con esta posición. Sólo
   // se mide a las confirmadas en ruta: el que va yendo o está ausente puede
   // estar parado todo lo que quiera.
-  const parada = evaluarParada(vehicleId, routeId, prof.companyId || null, pos, proy, cuando,
-    activa, !!(desvio && desvio.fuera));
+  const parada = imprecisa
+    ? (() => { const e = detectorParadas.estadoDe(vehicleId); return { parado: !!e.parado, desde: e.parado ? e.desde : null }; })()
+    : evaluarParada(vehicleId, routeId, prof.companyId || null, pos, proy, cuando, activa, !!(desvio && desvio.fuera));
   const traf = traficos.get(vehicleId) || null;
 
   // GPS simulado: Android marcó esta posición como salida de una app de
@@ -7010,6 +7080,25 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
         anotarAnomalia(vehicleId, routeId, prof.companyId, 'salto',
           { valor: Math.round(kmh), detalle: `${Math.round(kmh)} km/h en ${Math.round(dtSec)} s`, lat: pos.lat, lng: pos.lng, cuando });
       }
+    }
+  }
+  // El GPS que inventa sin el flag (T2, segundo paso): server/farsa.js mira
+  // las últimas doce posiciones y dice si tienen la firma de un simulador —
+  // velocidad que no varía, clavado en el trazado, velocidad reportada que
+  // no cuadra—. Sospecha con motivo, una anotación por episodio; la unidad
+  // sigue en el mapa con la marca. Las imprecisas no entran: su velocidad
+  // implícita es ruido y no dice nada.
+  let sospecha = unit.gpsSospechoso || null;
+  if (!imprecisa) {
+    const f = farsa.posicion(vehicleId, { cuando, lat: pos.lat, lng: pos.lng, speed: pos.speed || 0, desvioM: proy ? proy.desvioM : null });
+    sospecha = f.motivo;
+    if (f.cambio === 'empezo') {
+      console.warn(`GPS sospechoso: ${vehicleId} — ${MOTIVO_FARSA[f.motivo] || f.motivo}`);
+      audit('sistema', 'gps_sospechoso', vehicleId, MOTIVO_FARSA[f.motivo] || f.motivo, routeId);
+      anotarAnomalia(vehicleId, routeId, prof.companyId, 'gps_sospechoso',
+        { detalle: MOTIVO_FARSA[f.motivo] || f.motivo, lat: pos.lat, lng: pos.lng, cuando });
+    } else if (f.cambio === 'termino') {
+      console.log(`GPS sospechoso: ${vehicleId} volvió a parecer de verdad`);
     }
   }
   // El hueco de señal se cierra con la primera posición FRESCA; las
@@ -7065,6 +7154,12 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     traficoDesde: traf ? traf.desde : null,
     // La última posición vino marcada como simulada (fake GPS)
     gpsSimulado: simulado,
+    // Las últimas doce tienen la firma de un simulador: el motivo, o null
+    gpsSospechoso: sospecha,
+    // Cuántos metros de error declaró el aparato (null si el APK no lo
+    // manda), y si son más de los que se aceptan para juzgar
+    precisionM: pos.precision ?? null,
+    gpsImpreciso: imprecisa,
     // Volvió la señal (si la posición es de ahora). Se limpia explícitamente
     // porque el spread de arriba arrastra el `sinSenal` de la vuelta
     // anterior, y una unidad que reapareció seguiría en gris para siempre.
@@ -7349,6 +7444,9 @@ setInterval(() => {
       olvidarParada(unitId, 'corte');
       // Y lo que se sabía de su reloj: si vuelve, se vuelve a medir.
       reloj.olvidar(unitId);
+      // Y la ventana de la farsa: doce posiciones de antes del corte no
+      // dicen nada de las de después.
+      farsa.olvidar(unitId);
       // Y la CONFIRMACIÓN se pierde con el olvido: si mató la app sin
       // "salir de ruta" y reaparece mañana desde su casa, tiene que volver
       // a pisar el trazado — no entrar a la cadena por un true de ayer.

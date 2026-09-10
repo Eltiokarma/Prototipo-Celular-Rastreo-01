@@ -2721,17 +2721,23 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     ausente, y las anomalías. Se anota, no se acusa: es para
                     la reunión, no para la pantalla en vivo. */}
                 {resumenGer.porUnidad.some(u => u.senal && (u.senal.cortes || u.senal.ausencias || u.senal.saltos ||
-                    u.senal.ausenteEnMarcha || u.senal.reloj || u.senal.gpsSimulado || u.senal.descartadas)) && (
+                    u.senal.ausenteEnMarcha || u.senal.reloj || u.senal.gpsSimulado || u.senal.descartadas ||
+                    u.senal.gpsSospechoso || u.senal.gpsImpreciso || u.senal.avisosTrafico)) && (
                   <div style={{ marginTop: 18 }}>
                     <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Señal y presencia</div>
-                    <Tabla cols="110px 1fr 1fr 1fr 1fr 1fr 1fr 1fr" ancho={860}
-                      cabeceras={['Unidad', 'Cortes', 'Sin señal', 'Sin datos', 'Ausente', 'Saltos', 'Reloj', 'GPS falso']}>
+                    <Tabla cols="110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.2fr" ancho={980}
+                      cabeceras={['Unidad', 'Cortes', 'Sin señal', 'Sin datos', 'Ausente', 'Saltos', 'Reloj', 'GPS', 'Tráfico']}>
                       {resumenGer.porUnidad.filter(u => u.senal).map(u => {
                         const s = u.senal;
                         const min = (sec) => sec ? `${Math.round(sec / 60)}′` : '—';
+                        // Los tres problemas del GPS, en una celda: falso (Android
+                        // lo dijo), sospechoso (la firma de un simulador, sin
+                        // flag) e impreciso (más de 100 m de error declarado).
+                        const gps = [s.gpsSimulado && `${s.gpsSimulado} falso`, s.gpsSospechoso && `${s.gpsSospechoso} sosp.`,
+                                     s.gpsImpreciso && `${s.gpsImpreciso} impr.`].filter(Boolean);
                         return (
                           <div key={'senal-' + u.unitId} style={{
-                            display: 'grid', gridTemplateColumns: '110px 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
+                            display: 'grid', gridTemplateColumns: '110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.2fr',
                             gap: 12, alignItems: 'center', padding: '11px 14px',
                             borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
                           }}>
@@ -2753,8 +2759,15 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                             <div title={s.descartadas ? `${s.descartadas} posición(es) con hora imposible` : 'Veces que el reloj del teléfono apareció atrasado'}
                               style={{ fontFamily: mono, color: (s.reloj || s.descartadas) ? HUD.amber : HUD.dim3 }}>
                               {s.reloj || s.descartadas ? `${s.reloj}${s.descartadas ? ` · ${s.descartadas} desc.` : ''}` : '—'}</div>
-                            <div title="Episodios en que Android marcó las posiciones como simuladas (fake GPS)"
-                              style={{ fontFamily: mono, fontWeight: s.gpsSimulado ? 800 : 400, color: s.gpsSimulado ? HUD.amber : HUD.dim3 }}>{s.gpsSimulado || '—'}</div>
+                            <div title="Episodios de GPS falso (Android marcó las posiciones como simuladas), sospechoso (la firma de un simulador sin el flag: velocidad que no varía, clavado en el trazado, velocidad que no cuadra) e impreciso (más de 100 m de error declarado: no se juzgó desvío ni parada)"
+                              style={{ fontFamily: mono, fontWeight: (s.gpsSimulado || s.gpsSospechoso) ? 800 : 400, color: gps.length ? HUD.amber : HUD.dim3 }}>
+                              {gps.length ? gps.join(' · ') : '—'}</div>
+                            {/* Avisos de tráfico del chofer, y cuántos sin que el
+                                servidor viera la parada (T7): la excusa, o el
+                                dedo apurado. Diez por semana es otra cosa. */}
+                            <div title={s.avisosTrafico ? `${s.avisosTrafico} aviso(s) de tráfico; ${s.avisosSinParada} sin parada medida por el servidor` : 'Avisos de tráfico del chofer'}
+                              style={{ fontFamily: mono, color: s.avisosSinParada ? HUD.amber : s.avisosTrafico ? HUD.fg : HUD.dim3 }}>
+                              {s.avisosTrafico ? `${s.avisosTrafico}${s.avisosSinParada ? ` · ${s.avisosSinParada} sin parada` : ''}` : '—'}</div>
                           </div>
                         );
                       })}
@@ -2765,6 +2778,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                       que faltaban (con la red cortada la app las guarda y las manda al volver; si no llegan,
                       el teléfono estaba apagado o la app muerta). <strong>Ausente</strong> es veces y minutos
                       declarados; «en marcha» es que se movió por el trazado estando ausente.
+                      {' '}<strong>GPS</strong>: «falso» lo marcó Android, «sosp.» es la firma de un simulador
+                      sin marca (se sospecha, no se afirma), «impr.» es más de 100 m de error declarado.
+                      {' '}<strong>Tráfico</strong>: avisos del chofer, y cuántos sin que se midiera la parada.
                       Nada de esto acusa a nadie: es lo que pasó, para preguntarlo.
                     </Pie>
                   </div>
@@ -3799,6 +3815,33 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                       border: `1px solid ${HUD.ambarBorde}`, borderRadius: 6,
                       padding: '3px 6px', marginTop: 8, display: 'inline-block',
                     }}>GPS SIMULADO · ANDROID LO MARCA COMO FALSO</div>
+                )}
+                {/* Las últimas doce posiciones tienen la firma de un simulador
+                    sin el flag (server/farsa.js). Es una SOSPECHA con motivo:
+                    se dice cuál, y queda en la auditoría. */}
+                {u.gpsSospechoso && !u.gpsSimulado && (
+                  <div title="Las últimas posiciones tienen la firma de un GPS simulado sin la marca de Android. Es una sospecha, con su motivo; quedó en la auditoría."
+                    style={{
+                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
+                      color: HUD.ambarTinta, background: HUD.ambarFondo,
+                      border: `1px solid ${HUD.ambarBorde}`, borderRadius: 6,
+                      padding: '3px 6px', marginTop: 8, display: 'inline-block',
+                    }}>GPS SOSPECHOSO · {({
+                      velocidad_constante: 'VELOCIDAD QUE NO VARÍA',
+                      sin_ruido: 'CLAVADO EN EL TRAZADO',
+                      velocidad_incoherente: 'VELOCIDAD QUE NO CUADRA',
+                    })[u.gpsSospechoso] || String(u.gpsSospechoso).toUpperCase()}</div>
+                )}
+                {/* El aparato declara más de 100 m de error: la posición está
+                    en un círculo, no en un punto. Se muestra igual (es lo mejor
+                    que se sabe) pero no se juzga desvío ni parada con ella. */}
+                {u.gpsImpreciso && (
+                  <div title={`El teléfono declara ${u.precisionM} m de error en la posición (ahorro de batería, ubicación «sólo por red»). Con eso no se juzga desvío ni parada.`}
+                    style={{
+                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
+                      color: HUD.dim2, border: `1px solid ${HUD.divider}`, borderRadius: 6,
+                      padding: '3px 6px', marginTop: 8, display: 'inline-block',
+                    }}>GPS IMPRECISO · ±{u.precisionM} M</div>
                 )}
                 {/* Dejó de reportar. La posición que se ve en el mapa es la
                     última conocida, así que se dice desde cuándo: sin eso,
