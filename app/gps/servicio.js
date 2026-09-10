@@ -190,6 +190,10 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
     // cuando el aparato está quieto: eso es 0, no "no sé".
     speed: Math.max(0, Math.round((l.coords.speed || 0) * 3.6)),
     timestamp: l.timestamp,
+    // Android marca la posición que viene de una app de «ubicación
+    // simulada» (fake GPS). Viaja sólo cuando es true: el servidor lo anota
+    // y Despacho lo ve. Ver TRUCOS-2026-09-10.md.
+    ...(l.mocked === true ? { simulado: true } : {}),
   }));
   const filtradas = filtrarEntregadas(crudas, ultimaEntregada);
   ultimaEntregada = filtradas.ultimaEntregada;

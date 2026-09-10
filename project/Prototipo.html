@@ -439,7 +439,13 @@ function fmtGap(v) {
 // de la fila y tener adelante una combi que no ve son situaciones opuestas.
 function rotuloLado(lado) {
   if (lado.sinSenal) return `${lado.unit} · sin señal`;
-  return lado.vacio ? 'sin nadie' : `${lado.sign} · ${lado.unit}`;
+  if (lado.vacio) return 'sin nadie';
+  // El vecino trabado: N minutos parado (lo midió el servidor) o avisó
+  // tráfico (lo dijo él). Igual que en la app nativa (`app/hud.js`).
+  if (lado.enTrafico) {
+    return `${lado.sign} · ${lado.unit} · ${lado.traficoConfirmado ? 'en tráfico' : 'parada'} ${lado.traficoMin} min`;
+  }
+  return `${lado.sign} · ${lado.unit}`;
 }
 
 // 2 → "2:00", 2.5 → "2:30"
@@ -467,7 +473,20 @@ function fmtTarget(min) {
 function buildHudModel(tweaks, gapMeta) {
   const target = tweaks.targetGap;
   const vivo = !!gapMeta?.vivo;
-  const mk = (value, label, sign, unit, sinSenal) => {
+  // Y a cualquiera de los tres estados se le puede sumar el tráfico del
+  // vecino: N minutos sin avanzar (lo midió el servidor) o avisó que está
+  // trabado (lo dijo él). Lo mismo que muestra la app nativa; antes la web
+  // no lo veía y le decía «Apurá» al que iba detrás de un embotellamiento
+  // (REVISION-2026-09-08.md, A7).
+  const trafico = (t) => {
+    if (!t || !t.enTrafico) return { enTrafico: false, traficoMin: 0, traficoConfirmado: false };
+    return {
+      enTrafico: true,
+      traficoMin: Math.max(0, Math.round((Date.now() - (t.desde || Date.now())) / 60000)),
+      traficoConfirmado: !!t.confirmado,
+    };
+  };
+  const mk = (value, label, sign, unit, sinSenal, t) => {
     if (!value) {
       const hayAlguien = !!(unit && sinSenal);
       return {
@@ -478,6 +497,7 @@ function buildHudModel(tweaks, gapMeta) {
         color: HUD_STATUS.none.c,
         ink: HUD_STATUS.none.ink,
         display: '—',
+        ...trafico(hayAlguien ? t : null),
       };
     }
     const status = sideStatus(value, target);
@@ -487,14 +507,15 @@ function buildHudModel(tweaks, gapMeta) {
       color: HUD_STATUS[status].c,
       ink: HUD_STATUS[status].ink,
       display: fmtGap(value),
+      ...trafico(t),
     };
   };
   const frontVal = vivo ? gapMeta.toAhead  : tweaks.frontTime;
   const backVal  = vivo ? gapMeta.toBehind : tweaks.backTime;
   const front = mk(frontVal, 'ADELANTE', '+1', vivo ? gapMeta.aheadUnit  : 'M-08',
-                   vivo && gapMeta.aheadSinSenal);
+                   vivo && gapMeta.aheadSinSenal, vivo ? gapMeta.aheadTrafico : null);
   const back  = mk(backVal,  'ATRÁS',    '−1', vivo ? gapMeta.behindUnit : 'M-21',
-                   vivo && gapMeta.behindSinSenal);
+                   vivo && gapMeta.behindSinSenal, vivo ? gapMeta.behindTrafico : null);
 
   // El héroe es el lado con más desvío, pero un lado vacío nunca puede serlo:
   // el dígito grande es para lo que el chofer tiene que corregir.
@@ -1069,7 +1090,12 @@ function ChatMsg({ msg }) {
       <div style={bubbleStyle(msg)}>
         {msg.voice
           ? <VoiceBubble seconds={msg.voice} own={isYou} audio={msg.audio} expired={msg.expired} />
-          : msg.text}
+          : msg.photo
+            ? <img src={msg.photo} alt="Foto" style={{ display: 'block', maxWidth: '100%', maxHeight: 240, borderRadius: 8 }} />
+            : msg.expired && !msg.voice && msg.text === '' && 'photo' in msg
+              ? <span style={{ opacity: .6 }}>Foto (ya no está)</span>
+              : msg.text}
+        {msg.photo && msg.text ? <div style={{ marginTop: 6 }}>{msg.text}</div> : null}
       </div>
     </div>
   );
@@ -1929,7 +1955,16 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   // que el chofer no ve en el mapa, y manejar como si no estuviera es
   // exactamente lo que hay que evitar.
   const sinSenalCerca = hud.front.sinSenal || hud.back.sinSenal;
-  const instruction = hero.sinSenal
+  // El de ADELANTE trabado manda sobre todo lo demás: la brecha contra él
+  // crece sola mientras está parado y la cuenta de siempre diría «apurá» —
+  // apurar hacia un embotellamiento es el pelotón que este sistema existe
+  // para evitar. El de ATRÁS trabado no es un peligro: se dice, ritmo normal.
+  // Mismas frases que `instruccionDe` en app/hud.js.
+  const instruction = hud.front.enTrafico
+    ? `${hud.front.unit} ${hud.front.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada'} ${hud.front.traficoMin} min. Mantené: no te apures hacia el embotellamiento.`
+    : hud.back.enTrafico
+      ? `${hud.back.unit} (atrás) ${hud.back.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${hud.back.traficoMin} min. Mantené el ritmo.`
+    : hero.sinSenal
     ? `${hero.unit} se quedó sin señal. Andá con cuidado: sigue en ruta.`
     : hero.vacio
       ? (sinSenalCerca ? 'Sin brecha para medir por ahora.' : 'Sos la única unidad en ruta.')
@@ -2670,6 +2705,9 @@ function Root() {
         // significa "sos el primero", el otro "andá con cuidado".
         aheadSinSenal: !!myGaps?.aheadSinSenal,
         behindSinSenal: !!myGaps?.behindSinSenal,
+        // Y si el vecino está trabado (parada medida o aviso del chofer)
+        aheadTrafico:  { enTrafico: !!myGaps?.aheadEnTrafico,  desde: myGaps?.aheadTraficoDesde ?? null,  confirmado: !!myGaps?.aheadTraficoConfirmado },
+        behindTrafico: { enTrafico: !!myGaps?.behindEnTrafico, desde: myGaps?.behindTraficoDesde ?? null, confirmado: !!myGaps?.behindTraficoConfirmado },
       });
       // Todas las combis en ruta menos la mía (ya vienen solo de mi ruta)
       const others = (state.units || []).filter(u => u.unitId !== myVehicleId && u.lat);
@@ -2698,6 +2736,10 @@ function Root() {
         if (it.kind === 'voice') {
           // las notas viejas pierden el audio en el servidor: quedan expiradas
           return { from, role: msgRole, unit, privado, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
+        }
+        if (it.kind === 'photo') {
+          // ídem las fotos: la burbuja queda, la imagen se fue
+          return { from, role: msgRole, unit, privado, photo: it.data || null, expired: !it.data, text: it.text || '', time, tone };
         }
         return { from, role: msgRole, unit, privado, text: it.text, time, tone };
       }));
@@ -2730,6 +2772,23 @@ function Root() {
         privado: !!m.toVehicleId,
         voice: m.duration,
         audio: m.data,
+        time: nowTime(m.timestamp),
+        tone: isDispatch ? 'info' : 'normal',
+      });
+    });
+
+    // Foto de cualquier unidad (incluida la propia, por el eco). La web no
+    // saca fotos —eso es de la app nativa—, pero las que mandan los demás
+    // tiene que verlas: antes las ignoraba (REVISION-2026-09-08.md, A7).
+    window.RealtimeClient.on('photo', (m) => {
+      const own = m.unitId === myUnitId;
+      const isDispatch = m.role === 'dispatch' && !own;
+      pushMsg({
+        from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
+        role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
+        unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
+        privado: !!m.toVehicleId,
+        photo: m.data || null, expired: !m.data, text: m.text || '',
         time: nowTime(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
       });

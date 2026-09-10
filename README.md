@@ -1142,7 +1142,10 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
    archivo de la base. Es quien decide si el nivel 3 existe.
 
 > La revisión siguiente, del 8/9, está en `REVISION-2026-09-08.md`, con lo
-> que encontró y el orden en que conviene arreglarlo.
+> que encontró y el orden en que conviene arreglarlo. Y los **trucos del
+> chofer contra el control** —cambiar la hora, GPS falso, modo avión,
+> marcarse ausente— están en `TRUCOS-2026-09-10.md`, con qué se ve, qué se
+> detecta y qué no se va a impedir.
 
 ### Lo que se cerró en la revisión del 8/8
 

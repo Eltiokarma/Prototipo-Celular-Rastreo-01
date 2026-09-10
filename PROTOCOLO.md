@@ -154,6 +154,11 @@ Lo que hay que tener claro:
 - **`routeProgress` lo calcula el servidor**, proyectando la posición sobre el
   trazado. El cliente no lo calcula ni lo necesita.
 - `tramo` es `"ida"` o `"vuelta"`; `progresoTramo` va de 0 a 1 dentro del tramo.
+- `gpsSimulado`: la última posición vino marcada por Android como salida de
+  una app de «ubicación simulada» (fake GPS). La app la manda como
+  `simulado: true` en la posición del `POST /gps` (o del mensaje `gps`); el
+  servidor no la descarta, la marca y la anota en la auditoría
+  (`gps_simulado`). Ver `TRUCOS-2026-09-10.md`.
 - `relojAtrasadoS`: cuánto atrasa el reloj del teléfono, en segundos, si el
   servidor lo pudo estimar (0 si no). Sus `timestamp` vienen con ese atraso;
   el servidor ya lo descuenta para el gris de «sin señal».
