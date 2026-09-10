@@ -127,11 +127,16 @@ function ConTema({ children }) {
 // Al abrir, la app tarda un instante en saber si hay sesión guardada, y en
 // ese instante mostraba la pantalla de ingreso a medio armar antes de saltar
 // a la ruta: un parpadeo feo, justo en lo primero que ve el chofer cada
-// mañana. Ahora la pantalla nativa de arranque (el ícono sobre el fondo de
-// la app, configurada en app.json) se queda hasta que esta presentación
-// está dibujada, y la presentación se queda hasta que la sesión se resolvió
-// — con un mínimo para que no sea un destello — y recién entonces se
-// desvanece sobre lo que corresponda: la ruta o el ingreso.
+// mañana. Ahora la pantalla nativa de arranque se queda hasta que esta
+// presentación está dibujada, y la presentación se queda hasta que la sesión
+// se resolvió — con un mínimo para que no sea un destello — y recién entonces
+// se desvanece sobre lo que corresponda: la ruta o el ingreso.
+//
+// La nativa es SÓLO el fondo (app.json, sin `image`): con el ícono encima se
+// veían dos pantallas seguidas —un cuadrado azul con el logo, y después ésta,
+// con el nombre y «Control de ruta»—. La cooperativa eligió ésta (10/9). La
+// nativa no se puede quitar del todo (Android muestra algo antes de que
+// corra el JavaScript), así que se la deja lisa y el pase no se nota.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 const PRESENTACION_MIN_MS = 1200;
 
@@ -149,7 +154,7 @@ function Presentacion({ mostrando }) {
     <Animated.View
       pointerEvents={mostrando ? 'auto' : 'none'}
       // Recién cuando esto está en pantalla se suelta la nativa: mismo fondo
-      // y mismo ícono, así el pase no se nota.
+      // liso, así el pase no se nota.
       onLayout={() => SplashScreen.hideAsync().catch(() => {})}
       style={[StyleSheet.absoluteFill, {
         backgroundColor: C.fondo, opacity: opacidad,

@@ -248,6 +248,31 @@ async function hasta(cond, ms = 4000) {
     ok('el relevo sigue mandando sin trabas', sigue.status === 200, sigue.status);
   }
 
+  console.log('\nEL GPS SIMULADO SE DICE, NO SE ESCONDE');
+  // De TRUCOS-2026-09-10.md, el primer paso: Android marca la posición que
+  // sale de una app de «ubicación simulada» (fake GPS) y la app la manda con
+  // `simulado: true`. El servidor no la descarta —sería esconderle a
+  // Despacho justo lo que tiene que ver—: la unidad queda marcada, la
+  // auditoría lo anota una vez por episodio, y al volver el GPS real se limpia.
+  {
+    const sim = anillo(0.17);
+    const actAntes = (await fetch(`${API}/admin/audit`, { headers: H }).then(r => r.json())).events
+      .filter(e => e.action === 'gps_simulado' && e.target === 'M-12').length;
+    await mandar(s12.token, [{ lat: sim.lat, lng: sim.lng, speed: 20, timestamp: Date.now(), simulado: true }]);
+    await sleep(700);
+    ok('la posición simulada entra igual y la unidad queda marcada', vista()?.gpsSimulado === true, vista()?.gpsSimulado);
+    const sim2 = anillo(0.171);
+    await mandar(s12.token, [{ lat: sim2.lat, lng: sim2.lng, speed: 20, timestamp: Date.now(), simulado: true }]);
+    await sleep(500);
+    const act = (await fetch(`${API}/admin/audit`, { headers: H }).then(r => r.json())).events
+      .filter(e => e.action === 'gps_simulado' && e.target === 'M-12').length;
+    ok('y la auditoría lo anota UNA vez por episodio, no por posición', act === actAntes + 1, act - actAntes);
+    const real = anillo(0.172);
+    await mandar(s12.token, [{ lat: real.lat, lng: real.lng, speed: 20, timestamp: Date.now() }]);
+    await sleep(700);
+    ok('con el GPS de verdad otra vez, la marca se va', vista()?.gpsSimulado === false, vista()?.gpsSimulado);
+  }
+
   console.log('\nVACIAR ATRASO NO ES ESTAR MUERTO');
   // Salió de los logs de producción: la app vaciaba su cola tras un corte
   // —posiciones viejas con su hora real, que el servidor acepta a propósito

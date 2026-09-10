@@ -101,6 +101,8 @@
           emit('chat', msg);
         } else if (msg.type === 'voice_msg') {
           emit('voice', msg);
+        } else if (msg.type === 'photo_msg') {
+          emit('photo', msg);
         } else if (msg.type === 'sos_alert') {
           emit('sos', msg);
         } else if (msg.type === 'sos_tipo') {

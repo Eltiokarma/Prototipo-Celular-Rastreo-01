@@ -96,5 +96,20 @@ console.log('\nP7. LOS TIEMPOS RELATIVOS CORREN AUNQUE CAIGA EL SOCKET');
   ok('el reloj atrasado del teléfono se dice', /EL RELOJ DEL TELÉFONO ATRASA/.test(lista) && /relojAtrasadoS >= 30/.test(lista));
 }
 
+console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
+{
+  ok('gapMeta lleva el tráfico de los dos lados',
+     /aheadTrafico:\s*\{ enTrafico: !!myGaps\?\.aheadEnTrafico/.test(prototipo) && /behindTrafico:\s*\{ enTrafico: !!myGaps\?\.behindEnTrafico/.test(prototipo));
+  ok('el modelo del HUD lo calcula por lado (traficoMin, traficoConfirmado)', /traficoMin: Math\.max\(0, Math\.round/.test(prototipo) && /\.\.\.trafico\(t\)/.test(prototipo));
+  ok('la instrucción tiene la rama «mantené» hacia el embotellamiento', /Mantené: no te apures hacia el embotellamiento/.test(prototipo) && /hud\.front\.enTrafico/.test(prototipo));
+  ok('y el rótulo del lado dice «en tráfico N min» / «parada N min»', /'en tráfico' : 'parada'\} \$\{lado\.traficoMin\} min/.test(prototipo));
+  ok('realtime.js emite las fotos', /msg\.type === 'photo_msg'/.test(realtime) && /emit\('photo', msg\)/.test(realtime));
+  ok('y la web las pone en el hilo (en vivo y del historial)',
+     /RealtimeClient\.on\('photo'/.test(prototipo) && /it\.kind === 'photo'/.test(prototipo) && /<img src=\{msg\.photo\}/.test(prototipo));
+  ok('Despacho dice cuando el GPS viene simulado', /u\.gpsSimulado && \(/.test(despacho) && /GPS SIMULADO/.test(despacho));
+  const v = (sw.match(/CACHE_NAME = 'coop-r14-v(\d+)'/) || [])[1];
+  ok('CACHE_NAME subió (v55 o más)', Number(v) >= 55, v);
+}
+
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
 process.exit(fallas ? 1 : 0);

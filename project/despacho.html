@@ -3726,6 +3726,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                       Math.max(0, Math.round((ahora - (u.trafico ? u.traficoDesde : u.paradoDesde)) / 60000))
                     } MIN{u.trafico ? ' · AVISÓ EL CHOFER' : ''}</div>
                 )}
+                {/* Android marcó la posición como SIMULADA: una app de
+                    «fake GPS». No se esconde la unidad —se dice—, y queda en
+                    la auditoría. Ver TRUCOS-2026-09-10.md. */}
+                {u.gpsSimulado && (
+                  <div title="Android marca estas posiciones como salidas de una app de ubicación simulada (fake GPS). Quedó en la auditoría."
+                    style={{
+                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
+                      color: HUD.ambarTinta, background: HUD.ambarFondo,
+                      border: `1px solid ${HUD.ambarBorde}`, borderRadius: 6,
+                      padding: '3px 6px', marginTop: 8, display: 'inline-block',
+                    }}>GPS SIMULADO · ANDROID LO MARCA COMO FALSO</div>
+                )}
                 {/* Dejó de reportar. La posición que se ve en el mapa es la
                     última conocida, así que se dice desde cuándo: sin eso,
                     Despacho manda a alguien a un lugar donde la combi estuvo

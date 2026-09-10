@@ -2,7 +2,7 @@
   "expo": {
     "name": "Control de ruta",
     "slug": "coop-r14",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -10,7 +10,7 @@
     "android": {
       "package": "com.microstempo.chofer",
       "allowBackup": false,
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#2580CF"
@@ -36,9 +36,6 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/icon.png",
-          "imageWidth": 160,
-          "resizeMode": "contain",
           "backgroundColor": "#0A1A2E"
         }
       ],

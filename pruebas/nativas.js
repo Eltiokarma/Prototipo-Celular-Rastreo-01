@@ -262,6 +262,17 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   ok('el reintento del socket sobrevive a un `new WebSocket` que revienta', /try \{ abrir\(\); \} catch \{ programarReintento\(\); \}/.test(cliente));
   ok('la presentación no espera para siempre a SecureStore', /Promise\.race\(\[\s*SecureStore\.getItemAsync\(gps\.LLAVE_SESION\)/.test(app));
   ok('el APK es otro: versionCode subió', config.expo.android.versionCode >= 3, config.expo.android.versionCode);
+
+  // 10/9: una sola pantalla de arranque. La nativa es sólo el fondo (sin
+  // `image`): con el ícono encima se veían dos —el cuadrado azul con el logo
+  // y después la presentación con el nombre—, y la cooperativa eligió la
+  // segunda. Y el flag de GPS simulado de Android viaja en cada posición.
+  const splash = (config.expo.plugins || []).find(p => Array.isArray(p) && p[0] === 'expo-splash-screen');
+  ok('la pantalla nativa de arranque es sólo el fondo, sin ícono',
+     !!splash && !splash[1].image && splash[1].backgroundColor === '#0A1A2E', splash && splash[1]);
+  ok('la presentación sigue con el nombre y «Control de ruta»', /MICROS TEMPO/.test(app) && /Control de ruta/.test(app));
+  ok('otro APK más: versionCode 4 o más', config.expo.android.versionCode >= 4, config.expo.android.versionCode);
+  ok('la tarea manda `simulado: true` cuando Android marca la posición como falsa', /l\.mocked === true \? \{ simulado: true \}/.test(servicio));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

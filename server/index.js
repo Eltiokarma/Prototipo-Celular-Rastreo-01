@@ -3250,6 +3250,8 @@ app.post('/gps', (req, res) => {
     .map(p => ({
       lat: p.lat, lng: p.lng, speed: Number(p.speed) || 0,
       cuando: Number(p.timestamp) || ahora,
+      // Android dice si la posición salió de una app de ubicación simulada
+      simulado: p.simulado === true,
     }))
     .filter(p => p.cuando <= ahora + 120_000 && p.cuando >= ahora - ATRASO_MAXIMO_MS)
     .sort((a, b) => a.cuando - b.cuando);
@@ -5925,6 +5927,7 @@ wss.on('connection', (ws) => {
         lat: msg.lat, lng: msg.lng,
         speed: Number.isFinite(msg.speed) && msg.speed >= 0 ? msg.speed : 0,
         routeProgress: progresoValido(msg.routeProgress),
+        simulado: msg.simulado === true,
       });
     }
 
@@ -6678,6 +6681,16 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     activa, !!(desvio && desvio.fuera));
   const traf = traficos.get(vehicleId) || null;
 
+  // GPS simulado: Android marcó esta posición como salida de una app de
+  // «ubicación simulada». No se descarta —sería esconderle a Despacho justo
+  // lo que tiene que ver— pero queda en la unidad y en la auditoría, una vez
+  // por episodio. Ver TRUCOS-2026-09-10.md.
+  const simulado = pos.simulado === true;
+  if (simulado && !unit.gpsSimulado) {
+    console.warn(`GPS simulado: ${vehicleId} manda posiciones marcadas como falsas por Android`);
+    audit('sistema', 'gps_simulado', vehicleId, 'Android marcó la posición como simulada (fake GPS)', routeId);
+  }
+
   ponerUnidad(vehicleId, {
     ...unit,
     unitId: vehicleId,
@@ -6703,6 +6716,8 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     paradoDesde: parada.desde,
     trafico: !!traf,
     traficoDesde: traf ? traf.desde : null,
+    // La última posición vino marcada como simulada (fake GPS)
+    gpsSimulado: simulado,
     // Volvió la señal (si la posición es de ahora). Se limpia explícitamente
     // porque el spread de arriba arrastra el `sinSenal` de la vuelta
     // anterior, y una unidad que reapareció seguiría en gris para siempre.
