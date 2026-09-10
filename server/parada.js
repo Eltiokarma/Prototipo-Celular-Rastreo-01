@@ -51,13 +51,19 @@ function crearDetectorDeParada({
   const estados = new Map();
 
   function avanceDesde(muestras, tDesde) {
-    // Cuánto avanzó desde la primera muestra de la ventana hasta la última.
+    // Cuánto avanzó desde el principio de la ventana hasta la última muestra.
     // Se mira el MÁXIMO, no la última: una proyección que titubea entre dos
     // tramos no puede convertir "avanzó 200 m" en "retrocedió".
-    let primera = null, max = -Infinity;
+    //
+    // El principio de la ventana es la última muestra ANTERIOR a `tDesde`, si
+    // la hay: así la ventana mide de verdad N minutos y no "N minutos menos
+    // un paso". Con la primera muestra DE ADENTRO, las posiciones de cada
+    // 10 s nunca caían justo en el borde y la ventana medía 2:50 — y la
+    // parada no se detectaba nunca (ver `posicion`).
+    let primera = null, max = -Infinity, previa = null;
     for (const s of muestras) {
-      if (s.t < tDesde) continue;
-      if (primera === null) primera = s.m;
+      if (s.t < tDesde) { previa = s; continue; }
+      if (primera === null) primera = previa === null ? s.m : previa.m;
       if (s.m > max) max = s.m;
     }
     return primera === null ? 0 : Math.max(0, max - primera);
@@ -82,9 +88,15 @@ function crearDetectorDeParada({
       e.muestras = [];
     }
     e.muestras.push({ t: cuando, m: recorridoM });
-    // Sólo se guarda lo que entra en la ventana más larga
+    // Sólo se guarda lo que entra en la ventana más larga, MÁS la última
+    // muestra de antes del borde. Sin ésa, la primera muestra guardada era
+    // siempre más nueva que N minutos —salvo que una cayera justo en el
+    // borde, que con posiciones cada 10 s no pasa nunca— y la condición de
+    // entrada de abajo («la primera tiene N minutos») no se cumplía jamás:
+    // la parada no se detectó en la calle hasta que se probó con posiciones
+    // que no caían en múltiplos exactos (suite `trucos`, 10/9).
     const corte = cuando - Math.max(paradaMs, libreMs);
-    while (e.muestras.length && e.muestras[0].t < corte) e.muestras.shift();
+    while (e.muestras.length > 1 && e.muestras[1].t <= corte) e.muestras.shift();
 
     // "Anda": avanzó lo suyo en el último minuto. Sirve para salir de la
     // parada, y para que la palabra del chofer ("estoy en tráfico") se apague

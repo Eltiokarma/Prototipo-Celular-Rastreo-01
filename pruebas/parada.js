@@ -153,6 +153,30 @@ console.log('\nCADA UNIDAD POR SU LADO, Y EL OLVIDO');
   ok('olvidar a quien no estaba no rompe', d.olvidar('M-77').estabaParado === false);
 }
 
+console.log('\nLAS POSICIONES NO CAEN JUSTO EN EL BORDE DE LA VENTANA');
+{
+  // Encontrado el 10/9 con la suite `trucos`: la ventana descartaba toda
+  // muestra más vieja que N minutos y exigía que la primera guardada tuviera
+  // N minutos. Con posiciones cada 10 s exactos una caía justo en el borde y
+  // funcionaba; con cada 10,037 s —que es lo que manda un GPS— la primera
+  // guardada tenía siempre 2:50 y la parada no se detectaba NUNCA.
+  for (const paso of [10_037, 9_500, 11_300]) {
+    const d = crearDetectorDeParada();
+    let r = null, marco = null;
+    for (let i = 0; i < 40 && !marco; i++) {
+      r = d.posicion('M-01', { cuando: T0 + i * paso, recorridoM: 5000 });
+      if (r.parado) marco = i * paso;
+    }
+    ok(`cada ${paso} ms clavada: parada a los ${marco ? Math.round(marco / 1000) : '—'} s, desde el principio`,
+       marco !== null && marco >= PARADA_MS && marco < PARADA_MS + paso && r.desde === T0, { marco, desde: r && r.desde });
+  }
+  // Y andando con el mismo paso irregular, nada
+  const d = crearDetectorDeParada();
+  let r = null;
+  for (let i = 0; i < 40; i++) r = d.posicion('M-01', { cuando: T0 + i * 10_037, recorridoM: 1000 + 8.3 * i * 10.037 });
+  ok('andando a 30 km/h con paso irregular, nada', r.parado === false, r);
+}
+
 console.log('\nLOS PLAZOS SE INYECTAN');
 {
   const d = crearDetectorDeParada({ paradaMs: 3000, avanceM: 10, libreMs: 1000, libreAvanceM: 5 });

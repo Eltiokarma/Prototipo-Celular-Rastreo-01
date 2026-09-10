@@ -107,8 +107,12 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   ok('y la web las pone en el hilo (en vivo y del historial)',
      /RealtimeClient\.on\('photo'/.test(prototipo) && /it\.kind === 'photo'/.test(prototipo) && /<img src=\{msg\.photo\}/.test(prototipo));
   ok('Despacho dice cuando el GPS viene simulado', /u\.gpsSimulado && \(/.test(despacho) && /GPS SIMULADO/.test(despacho));
+  // TRUCOS pasos 2 y 3: el sospechoso con su motivo, el impreciso con sus metros
+  ok('y cuando es sospechoso, con el motivo', /u\.gpsSospechoso && !u\.gpsSimulado && \(/.test(despacho) && /GPS SOSPECHOSO · /.test(despacho) && /CLAVADO EN EL TRAZADO/.test(despacho));
+  ok('y cuando es impreciso, con los metros', /u\.gpsImpreciso && \(/.test(despacho) && /GPS IMPRECISO · ±\{u\.precisionM\} M/.test(despacho));
+  ok('la tabla «Señal y presencia» tiene GPS y Tráfico', /'GPS', 'Tráfico'\]/.test(despacho) && /avisosSinParada \? `/.test(despacho));
   const v = (sw.match(/CACHE_NAME = 'coop-r14-v(\d+)'/) || [])[1];
-  ok('CACHE_NAME subió (v55 o más)', Number(v) >= 55, v);
+  ok('CACHE_NAME subió (v57 o más)', Number(v) >= 57, v);
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
