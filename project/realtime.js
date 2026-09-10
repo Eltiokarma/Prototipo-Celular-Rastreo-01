@@ -227,7 +227,7 @@
       // dónde está esta persona) pero no se manda posición de la unidad.
       if (!reportaGps) return;
 
-      const { latitude, longitude, speed } = lastPosition.coords;
+      const { latitude, longitude, speed, accuracy } = lastPosition.coords;
 
       // routeProgress: estimamos qué tan avanzado está en la ruta
       // usando la latitud (simplificación para Juliaca).
@@ -240,6 +240,9 @@
         lng: longitude,
         speed: speed ? Math.round(speed * 3.6) : 0, // m/s → km/h
         routeProgress,
+        // Los metros de error del GPS, como manda la app nativa: con más de
+        // 100 m el servidor no juzga desvío ni parada (TRUCOS, T11).
+        ...(Number.isFinite(accuracy) && accuracy >= 0 ? { precision: Math.round(accuracy) } : {}),
       });
     }, 3000);
   }

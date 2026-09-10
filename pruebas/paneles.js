@@ -111,8 +111,9 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   ok('y cuando es sospechoso, con el motivo', /u\.gpsSospechoso && !u\.gpsSimulado && \(/.test(despacho) && /GPS SOSPECHOSO · /.test(despacho) && /CLAVADO EN EL TRAZADO/.test(despacho));
   ok('y cuando es impreciso, con los metros', /u\.gpsImpreciso && \(/.test(despacho) && /GPS IMPRECISO · ±\{u\.precisionM\} M/.test(despacho));
   ok('la tabla «Señal y presencia» tiene GPS y Tráfico', /'GPS', 'Tráfico'\]/.test(despacho) && /avisosSinParada \? `/.test(despacho));
+  ok('la web del chofer también manda `precision` con cada posición', /precision: Math\.round\(accuracy\)/.test(realtime));
   const v = (sw.match(/CACHE_NAME = 'coop-r14-v(\d+)'/) || [])[1];
-  ok('CACHE_NAME subió (v57 o más)', Number(v) >= 57, v);
+  ok('CACHE_NAME subió (v58 o más)', Number(v) >= 58, v);
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
