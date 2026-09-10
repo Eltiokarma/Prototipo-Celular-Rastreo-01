@@ -1814,11 +1814,18 @@ function abrirTurno(personId, vehicleId, routeId, role) {
   }
   // ¿Ya tenía uno abierto? (dos celulares con la misma cuenta)
   const abierto = db.prepare(
-    'SELECT id FROM shifts WHERE personId = ? AND endedAt IS NULL ORDER BY id DESC LIMIT 1'
+    'SELECT id, vehicleId FROM shifts WHERE personId = ? AND endedAt IS NULL ORDER BY id DESC LIMIT 1'
   ).get(personId);
-  if (abierto) {
+  if (abierto && abierto.vehicleId === vehicleId) {
     db.prepare('UPDATE shifts SET lastSeenAt = ? WHERE id = ?').run(ahora, abierto.id);
     return abierto.id;
+  }
+  if (abierto) {
+    // Cambió de combi con el turno anterior abierto (REVISION-2026-09-10.md,
+    // L12): ése se cierra con la última señal que se le vio, y el de la combi
+    // nueva empieza ahora. Antes se le tocaba `lastSeenAt` al viejo y el día
+    // entero en la combi nueva quedaba como horas de la anterior.
+    db.prepare('UPDATE shifts SET endedAt = lastSeenAt WHERE id = ?').run(abierto.id);
   }
   const r = db.prepare(`
     INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, lastSeenAt)
@@ -1832,13 +1839,44 @@ function cerrarTurno(personId) {
     .run(Date.now(), Date.now(), personId);
 }
 
+// Los turnos de los que dejaron de oírse se cierran con la ÚLTIMA SEÑAL que
+// se les vio, no con ahora. Corre en cada barrido (REVISION-2026-09-10.md,
+// L1): `cerrarTurno` sólo corría al cerrarse el WebSocket, y con la pantalla
+// apagada el socket ya está muerto — el chofer que trabaja por `POST /gps`,
+// sale de ruta y apaga el teléfono dejaba el turno abierto hasta el próximo
+// reinicio, y Turnos y el CSV de horas se lo contaban «hasta ahora». Si
+// vuelve dentro de `RECONEXION_MS`, `abrirTurno` retoma la misma fila.
+function cerrarTurnosMudos(ahora, plazoMs) {
+  return db.prepare('UPDATE shifts SET endedAt = lastSeenAt WHERE endedAt IS NULL AND lastSeenAt < ?')
+    .run(ahora - plazoMs).changes;
+}
+
+// La duración de un turno dentro de una ventana. UNA sola función para las
+// cuatro lecturas —el perfil, el resumen del gerente, la pestaña Turnos y
+// el CSV de horas— porque tenían tres fórmulas distintas y el CSV, que es el
+// que se liquida, era el que contaba «hasta ahora» un turno que nadie cerró
+// (REVISION-2026-09-10.md, L1 y L11). El turno abierto cuenta hasta la
+// última señal que se le vio; el que cruza el borde de la ventana se recorta
+// a los dos lados.
+function duracionTurnoSec(t, desde = -Infinity, hasta = Infinity) {
+  const fin = Math.min(t.endedAt || t.lastSeenAt || Date.now(), hasta);
+  const ini = Math.max(t.startedAt, desde);
+  return fin > ini ? Math.round((fin - ini) / 1000) : 0;
+}
+// Los turnos que TOCAN una ventana (empezaron antes de que termine y
+// terminaron —o siguen— después de que empiece). `startedAt BETWEEN` dejaba
+// afuera al que arrancó a las 23:40 del día anterior.
+const TURNOS_EN_VENTANA = 's.startedAt <= @hasta AND (s.endedAt IS NULL OR s.endedAt >= @desde)';
+
 // Se marca que la persona sigue arriba. No en cada posición GPS (llegan cada
 // 3 s): alcanza con una vez por minuto para que el cierre por reinicio no
 // pierda más de un minuto.
 const ultimaMarca = new Map();
 function marcarVivo(personId) {
   const ahora = Date.now();
-  if (ahora - (ultimaMarca.get(personId) || 0) < 60_000) return;
+  // Con el olvido acortado (las suites) la marca tiene que ser más seguida
+  // que el plazo con el que `cerrarTurnosMudos` cierra.
+  if (ahora - (ultimaMarca.get(personId) || 0) < Math.min(60_000, Math.max(1000, Math.floor(OLVIDAR_MS / 3)))) return;
   ultimaMarca.set(personId, ahora);
   db.prepare('UPDATE shifts SET lastSeenAt = ? WHERE personId = ? AND endedAt IS NULL')
     .run(ahora, personId);
@@ -2769,6 +2807,9 @@ app.post('/presencia', (req, res) => {
   if (!estado) return res.status(400).json({ error: 'Estado inválido: ruta, ausente o fuera' });
   const vehicleId = user.vehicleId || user.unitId;
   fijarPresencia(vehicleId, user.routeId || DEFAULT_ROUTE, estado);
+  // «Fuera» es el fin del turno del chofer, y por HTTP no hay socket que se
+  // cierre para cerrarlo (REVISION-2026-09-10.md, L1).
+  if (estado === 'fuera') cerrarTurno(user.unitId);
   res.json({ ok: true, estado });
 });
 
@@ -2891,15 +2932,7 @@ app.get('/perfil', (req, res) => {
   `).all({ veh: vehicleId, desde, hoy: hoy0.getTime() });
   const tramoDe = (leg) => tramos.find(t => t.leg === leg) || {};
 
-  const turnos = db.prepare(`
-    SELECT startedAt, endedAt, lastSeenAt FROM shifts
-    WHERE personId = @p AND startedAt >= @desde
-  `).all({ p: user.unitId, desde });
-  const horasSec = (corte) => turnos.reduce((a, t) => {
-    const fin = t.endedAt || t.lastSeenAt || ahora;
-    const ini = Math.max(t.startedAt, corte);
-    return fin > ini ? a + Math.round((fin - ini) / 1000) : a;
-  }, 0);
+  const horasSec = (corte) => horasDe(user.unitId, corte, ahora);
 
   res.json({
     persona: { unitId: user.unitId, name: user.name, alias: user.alias || null, role: user.role },
@@ -3035,6 +3068,9 @@ app.post('/auth/logout', (req, res) => {
   const cerradas = todas
     ? db.prepare('DELETE FROM sessions WHERE unitId = ?').run(sesion.unitId).changes
     : db.prepare('DELETE FROM sessions WHERE token = ?').run(token).changes;
+  // Cerrar sesión es bajarse: el turno se cierra acá, no cuando alguien se
+  // acuerde de reiniciar el servidor (REVISION-2026-09-10.md, L1).
+  cerrarTurno(sesion.unitId);
   if (todas) {
     // Los WebSocket abiertos con esos tokens también: si no, la pantalla del
     // que se llevó el teléfono sigue recibiendo el mapa y el chat en vivo.
@@ -3084,16 +3120,11 @@ function choferPropio(req, res) {
 }
 
 // Las horas de una persona en una ventana, con el MISMO criterio que el
-// perfil y que el panel del gerente: un turno abierto cuenta hasta ahora.
-function horasDe(personId, desde) {
-  const ahora = Date.now();
-  return db.prepare('SELECT startedAt, endedAt, lastSeenAt FROM shifts WHERE personId = ? AND startedAt >= ?')
-    .all(personId, desde)
-    .reduce((a, t) => {
-      const fin = t.endedAt || t.lastSeenAt || ahora;
-      const ini = Math.max(t.startedAt, desde);
-      return fin > ini ? a + Math.round((fin - ini) / 1000) : a;
-    }, 0);
+// perfil, el panel del gerente, Turnos y el CSV (`duracionTurnoSec`).
+function horasDe(personId, desde, hasta = Date.now()) {
+  return db.prepare(`SELECT startedAt, endedAt, lastSeenAt FROM shifts s WHERE personId = @p AND ${TURNOS_EN_VENTANA}`)
+    .all({ p: personId, desde, hasta })
+    .reduce((a, t) => a + duracionTurnoSec(t, desde, hasta), 0);
 }
 
 function cobradoresDe(vehicleId, desde) {
@@ -4610,22 +4641,25 @@ const INFORMES = {
              u.name, u.alias
       FROM shifts s
       LEFT JOIN users u ON u.unitId = s.personId
-      WHERE s.startedAt BETWEEN @desde AND @hasta
+      WHERE ${TURNOS_EN_VENTANA}
         AND s.routeId IN ${RUTAS_DE_LA_EMPRESA}
         AND (@ruta IS NULL OR s.routeId = @ruta)
       ORDER BY s.startedAt
     `).all(filtro);
-    const ahora = Date.now();
+    // Las horas son las DEL PERÍODO: el turno que cruza el borde se recorta,
+    // y el abierto cuenta hasta la última señal que se le vio, nunca hasta
+    // el momento de bajar el archivo (REVISION-2026-09-10.md, L1 y L11).
     return {
       nombre: 'horas',
-      cabecera: ['Persona', 'Nombre', 'Alias', 'Rol', 'Unidad', 'Ruta', 'Entrada', 'Salida', 'Horas (h:mm)', 'Abierto'],
+      cabecera: ['Persona', 'Nombre', 'Alias', 'Rol', 'Unidad', 'Ruta', 'Entrada', 'Salida', 'Horas en el período (h:mm)', 'Abierto', 'Última señal'],
       filas: filas.map(t => [
         t.personId, t.name, t.alias,
         t.role === 'collector' ? 'cobrador' : 'chofer',
         t.vehicleId, t.routeId,
         fechaHora(t.startedAt), fechaHora(t.endedAt),
-        duracionHm(Math.round(((t.endedAt || ahora) - t.startedAt) / 1000)),
+        duracionHm(duracionTurnoSec(t, filtro.desde, filtro.hasta)),
         t.endedAt ? 'no' : 'sí',
+        fechaHora(t.lastSeenAt),
       ]),
     };
   },
@@ -4828,25 +4862,27 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
   })();
 
+  const hasta = Date.now();
   const filas = db.prepare(`
     SELECT s.id, s.personId, s.vehicleId, s.routeId, s.role,
            s.startedAt, s.endedAt, s.lastSeenAt,
            u.name, u.alias
     FROM shifts s
     LEFT JOIN users u ON u.unitId = s.personId
-    WHERE s.startedAt >= @inicio
+    WHERE ${TURNOS_EN_VENTANA}
       AND s.routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@scope IS NULL OR s.routeId = @scope)
     ORDER BY s.startedAt DESC
     LIMIT 500
-  `).all({ inicio, empresa: req.empresa, scope: req.scope });
+  `).all({ desde: inicio, hasta, empresa: req.empresa, scope: req.scope });
 
-  const ahora = Date.now();
   const turnos = filas.map(t => ({
     ...t,
     abierto: t.endedAt === null,
-    // Lo que lleva arriba: si sigue conectado, hasta ahora
-    duracionSec: Math.max(0, Math.round(((t.endedAt || ahora) - t.startedAt) / 1000)),
+    // Lo que lleva arriba, con el mismo criterio que el gerente y el CSV: el
+    // abierto cuenta hasta la última señal, y el que empezó antes del día se
+    // recorta (REVISION-2026-09-10.md, L1 y L11).
+    duracionSec: duracionTurnoSec(t, inicio, hasta),
   }));
 
   // Total por persona, que es el número que le interesa a la cooperativa
@@ -5256,16 +5292,18 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   // Horas por unidad, de los turnos. Van acá y no en una consulta aparte
   // porque la comparación entre unidades no se lee sin ellas: veinte vueltas
   // en cuatro horas y veinte en diez no son lo mismo.
+  // Sólo los turnos DEL CHOFER: las del cobrador son de la persona (van en
+  // `porPersona`) y sumarlas acá daba la unidad al doble (REVISION-2026-09-10.md, L2).
   const turnos = db.prepare(`
-    SELECT vehicleId, startedAt, endedAt, lastSeenAt FROM shifts
-    WHERE startedAt BETWEEN @desde AND @hasta
+    SELECT vehicleId, startedAt, endedAt, lastSeenAt FROM shifts s
+    WHERE ${TURNOS_EN_VENTANA} AND s.role = 'driver'
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
   `).all(filtro);
   const ahora = Date.now();
   const horasDe = new Map();
   for (const t of turnos) {
-    const sec = Math.max(0, Math.round(((t.endedAt || t.lastSeenAt || ahora) - t.startedAt) / 1000));
+    const sec = duracionTurnoSec(t, filtro.desde, filtro.hasta);
     horasDe.set(t.vehicleId, (horasDe.get(t.vehicleId) || 0) + sec);
   }
 
@@ -5362,7 +5400,9 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     unidades.get(l.unitId).push(l);
   }
   // Las que sólo dejaron señal o presencia que contar también van al cuadro
-  for (const id of [...senalDe.keys(), ...ausenteDe.keys(), ...anomaliasDe.keys(), ...traficoDe.keys()]) if (!unidades.has(id)) unidades.set(id, []);
+  // Y las que sólo tienen horas (un turno de chofer sin vuelta cerrada):
+  // sin esto la unidad con horas y sin vueltas no aparecía en el cuadro.
+  for (const id of [...senalDe.keys(), ...ausenteDe.keys(), ...anomaliasDe.keys(), ...traficoDe.keys(), ...horasDe.keys()]) if (!unidades.has(id)) unidades.set(id, []);
   // La unidad que hizo SOLO idas no cierra ninguna vuelta entera, y armando
   // el cuadro únicamente con `vueltas` desaparecía del listado: el gerente
   // veía una combi menos, no una combi que no volvió. Se agregan también las
@@ -5423,7 +5463,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
            u.name, u.alias
     FROM shifts s
     LEFT JOIN users u ON u.unitId = s.personId
-    WHERE s.startedAt BETWEEN @desde AND @hasta
+    WHERE ${TURNOS_EN_VENTANA}
       AND s.routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR s.routeId = @ruta)
   `).all(filtro);
@@ -5437,7 +5477,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     }
     const p = porPersona.get(t.personId);
     p.turnos++;
-    p.horasSec += Math.max(0, Math.round(((t.endedAt || t.lastSeenAt || ahora) - t.startedAt) / 1000));
+    p.horasSec += duracionTurnoSec(t, filtro.desde, filtro.hasta);
     if (t.vehicleId) p.unidades.add(t.vehicleId);
   }
 
@@ -6083,7 +6123,10 @@ wss.on('connection', (ws) => {
   // El latido: vivo hasta que un ping quede sin contestar (ver el intervalo
   // de más abajo). Empieza en true para que el primer barrido no lo mate.
   ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
+  // El latido también marca el turno como vivo: el cobrador no manda GPS, y
+  // sin esto su `lastSeenAt` era el de subirse — cero horas al cerrarse por
+  // reinicio u olvido (REVISION-2026-09-10.md, L1).
+  ws.on('pong', () => { ws.isAlive = true; const id = clients.get(ws); if (id) marcarVivo(id); });
 
   // El reloj de arena del `identify`: si no se presenta a tiempo, afuera. Se
   // limpia apenas se identifica (unas líneas más abajo) o al cerrarse.
@@ -6300,6 +6343,7 @@ wss.on('connection', (ws) => {
       // combi que sigue manejando otro — descartándole la vuelta en curso.
       if (vehicleId && estado && prof.role === 'driver') {
         fijarPresencia(vehicleId, prof.routeId || DEFAULT_ROUTE, estado);
+        if (estado === 'fuera') cerrarTurno(personId);
       }
     }
 
@@ -7411,6 +7455,10 @@ const reloj = crearEstimadorDeReloj({ lapsoMs: 2 * SIN_SENAL_MS, ventanaMs: 10 *
 setInterval(() => {
   const ahora = Date.now();
   const rutasAfectadas = new Set();
+  // Los turnos de los que dejaron de oírse (el chofer por HTTP que apagó el
+  // teléfono sin «fuera», el cobrador cuyo socket murió sin `close`).
+  const mudos = cerrarTurnosMudos(ahora, OLVIDAR_MS);
+  if (mudos) console.log(`Turnos cerrados por silencio: ${mudos}`);
   for (const [unitId, unit] of units) {
     // Dos edades distintas, y confundirlas se midió en producción:
     //
