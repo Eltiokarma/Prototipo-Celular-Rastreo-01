@@ -664,6 +664,13 @@ function otherPinHtml() {
   const borde = HUD.resplandor ? HUD.bg : '#fff';
   return `<div style="width:10px;height:10px;border-radius:50%;background:${HUD.dim3};border:2px solid ${borde};box-sizing:content-box;"></div>`;
 }
+// La unidad que dejó de reportar: hueca y apagada, como en Despacho. Su
+// posición es la última conocida, no la de ahora — dibujarla igual que a
+// las demás mandaba al chofer a mirar una combi que ya no estaba ahí
+// (PROTOCOLO §3.2; REVISION-2026-09-10.md, C7).
+function sinSenalPinHtml() {
+  return `<div title="Sin señal: última posición conocida" style="width:12px;height:12px;border-radius:50%;background:transparent;border:2px dashed ${HUD.dim3};box-sizing:border-box;opacity:.7;"></div>`;
+}
 
 function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, routeId, modo, trazado }) {
   const leafletRef = React.useRef(null);
@@ -697,7 +704,10 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
     otherUnits.forEach(unit => {
       if (!unit.lat || !unit.lng) return;
       let html, size, anchor;
-      if (unit.unitId === gapMeta?.aheadUnit) {
+      if (unit.sinSenal) {
+        html = sinSenalPinHtml();
+        size = [12, 12]; anchor = [6, 6];
+      } else if (unit.unitId === gapMeta?.aheadUnit) {
         html = gapPinHtml(hud.front.color, hud.front.display);
         size = [16, 16]; anchor = [8, 8];
       } else if (unit.unitId === gapMeta?.behindUnit) {
@@ -1917,7 +1927,7 @@ function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) 
 // Pantalla RUTA — propuesta 2a "Temporizador".
 // Un solo dato dominante: la unidad más desviada del objetivo. El color de
 // estado tiñe el halo, la barra superior y el lavado de fondo.
-function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFireSos, presencia, onPresencia }) {
+function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFireSos, presencia, onPresencia, miEstado, onTrafico }) {
   const hud = buildHudModel(tweaks, gapMeta);
   const { hero, sec, target } = hud;
 
@@ -2137,6 +2147,21 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
           cadena sin salir del mapa; SALIR DE RUTA borra del mapa en el
           acto — y por eso pide un segundo toque: apretarlo sin querer a
           mitad de vuelta te saca del mapa de todos. */}
+      {/* «Estoy en tráfico», de un toque, como en la app nativa: al de atrás
+          le cambia la instrucción a «mantené». Si el servidor ya vio la
+          parada, el botón pregunta. Se apaga solo al andar (C16). */}
+      {onTrafico && (
+        <div style={{ padding: '0 18px 8px' }}>
+          <button data-noswipe="trafico" onClick={() => onTrafico(!miEstado?.trafico)} style={{
+            width: '100%', height: 42, borderRadius: 12, cursor: 'pointer',
+            border: `1px solid ${HUD.amber}`,
+            background: miEstado?.trafico ? HUD.amber : 'transparent',
+            color: miEstado?.trafico ? HUD.bg : HUD.amber,
+            fontSize: 12, fontWeight: 800, letterSpacing: 1,
+            fontFamily: 'system-ui, sans-serif',
+          }}>{miEstado?.trafico ? 'EN TRÁFICO · TOCÁ PARA QUITAR' : miEstado?.parado ? '¿ESTÁS EN TRÁFICO? · TOCÁ PARA AVISAR' : 'ESTOY EN TRÁFICO'}</button>
+        </div>
+      )}
       {onPresencia && (
         <div style={{ padding: '0 18px 10px', position: 'relative', display: 'flex', gap: 8 }}>
           <button data-noswipe="presencia" onClick={() => onPresencia('ausente')} style={{
@@ -2168,7 +2193,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   );
 }
 
-function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia }) {
+function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -2186,6 +2211,8 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
   const lockedAxis = React.useRef(null);
   const containerRef = React.useRef(null);
   const [emergencyFired, setEmergencyFired] = React.useState(false);
+  // El SOS que NO salió: se dice, en rojo, en vez de mentir «enviada» (C3)
+  const [sosFallo, setSosFallo] = React.useState(false);
 
   React.useEffect(() => {
     if (emergencyFired) {
@@ -2193,6 +2220,12 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
       return () => clearTimeout(t);
     }
   }, [emergencyFired]);
+  React.useEffect(() => {
+    if (sosFallo) {
+      const t = setTimeout(() => setSosFallo(false), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [sosFallo]);
 
   const onDown = (x, y) => {
     setDragging(true);
@@ -2244,7 +2277,10 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
 
   const sun = !HUD.resplandor;   // fondo claro (día o sol extremo)
   const hud = buildHudModel(tweaks, gapMeta);
-  const unitsOnRoute = otherUnits.length + 1;
+  // Las que están EN LA CADENA, contadas por el servidor (`totalOnRoute`
+  // excluye ausentes y «yendo»), el mismo número que Despacho. Antes se
+  // contaba `otherUnits + 1` y los dos paneles decían cosas distintas (C17).
+  const unitsOnRoute = Number.isFinite(totalOnRoute) ? totalOnRoute : otherUnits.length + 1;
   const w = containerRef.current?.offsetWidth || 380;
   const translateX = -page * w + (lockedAxis.current === 'x' ? dragDx : 0);
 
@@ -2277,6 +2313,20 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
           </div>
         </div>
       )}
+      {sosFallo && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 99,
+          background: HUD.bg, border: `6px solid ${HUD.red}`, boxSizing: 'border-box',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+        }}>
+          <div style={{
+            color: HUD.red, fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 30, fontWeight: 900, letterSpacing: 2, textAlign: 'center', lineHeight: 1.2,
+          }}>
+            SOS<br/>NO SALIÓ<br/><span style={{ fontSize: 15, letterSpacing: 1, color: HUD.fg, fontFamily: 'system-ui, sans-serif' }}>Sin conexión. Volvé a deslizar, o llamá.</span>
+          </div>
+        </div>
+      )}
 
       <div style={{
         display: 'flex',
@@ -2302,9 +2352,15 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
             connected={connected}
             unitsOnRoute={unitsOnRoute}
             gpsRole={gpsRole}
-            onFireSos={() => { setEmergencyFired(true); onSos && onSos(); }}
+            onFireSos={async () => {
+              // El cartel rojo sólo cuando LLEGÓ: el servidor contestó (C3)
+              const r = onSos ? await onSos() : null;
+              if (r && r.ok) setEmergencyFired(true); else setSosFallo(true);
+            }}
             presencia={presencia}
             onPresencia={onPresencia}
+            miEstado={miEstado}
+            onTrafico={onTrafico}
           />
         </div>
         <div style={{ width: `${w}px`, height: '100%', flexShrink: 0, background: HUD.bg }} />
@@ -2555,6 +2611,9 @@ function Root() {
   const [lap, setLap] = React.useState(1);
   const [connected, setConnected] = React.useState(false);
   const [otherUnits, setOtherUnits] = React.useState([]);
+  const [totalOnRoute, setTotalOnRoute] = React.useState(null); // las de la cadena, contadas por el servidor
+  const [miEstado, setMiEstado] = React.useState({ trafico: false, parado: false });
+  const [gpsAviso, setGpsAviso] = React.useState(null); // «sin GPS», con el motivo
   const [gapMeta, setGapMeta] = React.useState(null); // { aheadUnit, behindUnit }
   const [routeId, setRouteId] = React.useState(null); // ruta del chofer, la manda el servidor
   const [messages, setMessages] = React.useState(CHAT_SEED);
@@ -2666,6 +2725,8 @@ function Root() {
       connectedRef.current = connected;
       setConnected(connected);
     });
+    // Sin GPS (permiso denegado, sin fix): se dice, no se inventa (C4)
+    window.RealtimeClient.on('gps', ({ ok, motivo }) => setGpsAviso(ok ? null : (motivo || 'sin GPS')));
 
     window.RealtimeClient.on('state', (state) => {
       // La ruta y su objetivo de brecha los define el servidor, no la app:
@@ -2688,7 +2749,9 @@ function Root() {
       // chofer detenido en el paradero veía que iba a 28.
       if (miUnidad) {
         setTweaks(t => ({ ...t, avgSpeed: Math.round(miUnidad.speed || 0) }));
+        setMiEstado({ trafico: !!miUnidad.trafico, parado: !!miUnidad.parado });
       }
+      setTotalOnRoute(Number.isFinite(state.totalOnRoute) ? state.totalOnRoute : null);
       // `vivo` le dice al HUD que a partir de acá manda el servidor, null
       // incluido: sin esta marca no hay forma de distinguir "no hay nadie
       // atrás" del valor de arranque de la maqueta. Se pone con el primer
@@ -2858,8 +2921,13 @@ function Root() {
     }
   };
 
-  const fireSos = () => {
-    if (connectedRef.current) window.RealtimeClient.sendSos();
+  // Devuelve { ok, sosId }: el cartel de «enviada» lo pinta el que llama,
+  // sólo si llegó. Con el id, la barra «¿qué pasó?» arranca de inmediato
+  // aunque el eco del socket no venga (salió por HTTP).
+  const fireSos = async () => {
+    const r = await window.RealtimeClient.sendSos();
+    if (r && r.ok && r.sosId != null) setSosPropio(r.sosId);
+    return r;
   };
 
 
@@ -2907,6 +2975,9 @@ function Root() {
       onSendText={sendText}
       onSendVoice={sendVoice}
       onSos={fireSos}
+      totalOnRoute={totalOnRoute}
+      miEstado={miEstado}
+      onTrafico={(activo) => window.RealtimeClient.setTrafico(activo)}
       presencia={presencia}
       onPresencia={(nueva) => {
         declararPresencia(nueva);
@@ -2925,6 +2996,20 @@ function Root() {
             descartada, Despacho lo sigue viendo quieto. La barra vive
             arriba de todas las páginas porque el estado no es de una
             pantalla — es de la persona. */}
+        {/* Sin GPS: la combi no está en el mapa de nadie, y hay que decirlo
+            en vez de dibujar una posición inventada (C4). */}
+        {screen === 'app' && gpsAviso && (
+          <div style={{
+            position: 'absolute', left: 10, right: 10, top: presencia === 'ausente' ? 112 : 40, zIndex: 96,
+            background: HUD.surface, border: `2px solid ${HUD.red}`,
+            borderRadius: 12, padding: '10px 12px',
+          }}>
+            <div style={{ color: HUD.red, fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>SIN GPS</div>
+            <div style={{ color: HUD.dim2, fontSize: 11, lineHeight: 1.35 }}>
+              {gpsAviso}. Tu combi no está en el mapa: activá la ubicación y dale permiso a esta página.
+            </div>
+          </div>
+        )}
         {screen === 'app' && presencia === 'ausente' && (
           <div style={{
             position: 'absolute', left: 10, right: 10, top: 40, zIndex: 97,

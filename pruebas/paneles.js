@@ -112,8 +112,17 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   ok('y cuando es impreciso, con los metros', /u\.gpsImpreciso && \(/.test(despacho) && /GPS IMPRECISO · ±\{u\.precisionM\} M/.test(despacho));
   ok('la tabla «Señal y presencia» tiene GPS y Tráfico', /'GPS', 'Tráfico'\]/.test(despacho) && /avisosSinParada \? `/.test(despacho));
   ok('la web del chofer también manda `precision` con cada posición', /precision: Math\.round\(accuracy\)/.test(realtime));
+  // Tanda 4 de la revisión del 10/9: la web del chofer a la par de la app nativa
+  ok('el SOS de la web va por POST /sos y sólo dice «enviada» si llegó', /HTTP_URL \+ '\/sos'/.test(realtime) && /async function sendSos/.test(realtime) && /if \(r && r\.ok\) setEmergencyFired\(true\); else setSosFallo\(true\);/.test(prototipo) && /NO SALIÓ/.test(prototipo));
+  ok('el GPS simulado sólo existe en demo, y va marcado como simulado', /const DEMO = !!window\.MODO_DEMO/.test(realtime) && /if \(DEMO\) \{ startSimulatedGps\(\); return; \}/.test(realtime) && /simulado: true,/.test(realtime));
+  ok('y el servidor le dice a la web si está en demo', /window\.MODO_DEMO = \$\{ES_DEMO\}/.test(leer('server/index.js')));
+  ok('sin GPS la web lo dice en vez de inventar', /emit\('gps', \{ ok: false, motivo \}\)/.test(realtime) && /SIN GPS/.test(prototipo));
+  ok('las unidades sin señal van huecas y apagadas en el mapa del chofer', /if \(unit\.sinSenal\) \{/.test(prototipo) && /function sinSenalPinHtml/.test(prototipo));
+  ok('el watchPosition se guarda y se para; startGps no se duplica', /watchId = navigator\.geolocation\.watchPosition/.test(realtime) && /clearWatch\(watchId\)/.test(realtime) && /if \(watchId !== null \|\| gpsInterval\) return;/.test(realtime));
+  ok('el chofer web puede avisar tráfico (WS o POST /trafico)', /function setTrafico/.test(realtime) && /HTTP_URL \+ '\/trafico'/.test(realtime) && /ESTOY EN TRÁFICO/.test(prototipo));
+  ok('«EN VIVO · N» usa totalOnRoute del servidor', /state\.totalOnRoute/.test(prototipo) && /Number\.isFinite\(totalOnRoute\) \? totalOnRoute/.test(prototipo));
   const v = (sw.match(/CACHE_NAME = 'coop-r14-v(\d+)'/) || [])[1];
-  ok('CACHE_NAME subió (v60 o más)', Number(v) >= 60, v);
+  ok('CACHE_NAME subió (v61 o más)', Number(v) >= 61, v);
   // Tanda 1 de la revisión del 10/9: las horas por persona, en pantalla
   ok('Números tiene la tabla «Por persona» con las horas que se liquidan', /resumenGer\.porPersona\.map\(p =>/.test(despacho) && /'Persona', 'Rol', 'Turnos', 'Horas', 'Unidades'/.test(despacho));
 }

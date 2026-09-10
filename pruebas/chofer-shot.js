@@ -171,7 +171,10 @@ const pedir = (ruta, opts = {}) =>
   // pantalla tiene que decirlo, y sobre todo NO puede pasar a medirse contra
   // otro ni mandar a apurar.
   ws8.close();
-  await p.waitForTimeout(9000);
+  // Desde el 8/9 (L7) cerrar el socket ya no marca «sin señal» en el acto:
+  // lo hace el barrido (cada 10 s) cuando la posición pasa de SIN_SENAL_MS
+  // (3 s acá). O sea, hasta 13 s.
+  await p.waitForTimeout(14000);
   await p.screenshot({ path: SALIDA + '/c3-sin-senal.png' });
   const perdida = await p.evaluate(() => document.body.innerText);
   if (!/sin señal/i.test(perdida)) fallos.push('no avisa que la unidad de adelante perdió la señal');

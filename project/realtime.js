@@ -17,6 +17,12 @@
   let gpsInterval = null;
   let reconnectTimeout = null;
   let authToken = null;
+  let authUnitId = null;   // quién soy: para reconocer el eco de MI SOS
+  // El GPS simulado sólo existe para la demo (el servidor en MODO=demo lo
+  // dice en config.js, o `?demo=1` en la URL). En producción, sin fix no se
+  // manda nada: antes un chofer con el permiso colgado metía una combi
+  // fantasma en el mapa real (REVISION-2026-09-10.md, C4).
+  const DEMO = !!window.MODO_DEMO || /[?&]demo=1/.test(location.search);
   let authFailed = false;
 
   // Callbacks — la app los registra para recibir actualizaciones
@@ -55,6 +61,7 @@
       err.status = res.status;
       throw err;
     }
+    authUnitId = data.unitId || null;
     return data;
   }
 
@@ -104,6 +111,8 @@
         } else if (msg.type === 'photo_msg') {
           emit('photo', msg);
         } else if (msg.type === 'sos_alert') {
+          // El eco de MI disparo por el socket: es lo que confirma que salió
+          if (msg.unitId && msg.unitId === authUnitId && ecoSos) { const r = ecoSos; ecoSos = null; r(msg); }
           emit('sos', msg);
         } else if (msg.type === 'sos_tipo') {
           // El tipo elegido después del disparo: actualiza el SOS ya
@@ -182,39 +191,49 @@
 
   let lastPosition = null;
   let simTimer = null;
+  let watchId = null;        // el watchPosition vivo, para poder pararlo
+  let fallbackTimer = null;  // el plazo del primer fix
+
+  // Sin fix, la demo simula y la producción avisa (C4)
+  function sinGps(motivo) {
+    if (DEMO) { startSimulatedGps(); return; }
+    console.warn('Sin GPS: ' + motivo);
+    emit('gps', { ok: false, motivo });
+  }
 
   function startGps() {
+    // Corre en cada `onopen`: con la señal intermitente se reconecta cada
+    // pocos segundos, y antes cada vez abría OTRO watchPosition de alta
+    // precisión que nadie paraba —decenas en una hora, batería— (C9).
+    if (watchId !== null || gpsInterval) return;
     if (!navigator.geolocation) {
-      console.warn('GPS no disponible en este dispositivo');
-      // Mandar posición simulada para desarrollo en escritorio
-      startSimulatedGps();
+      sinGps('este dispositivo no tiene GPS');
       return;
     }
 
     // En escritorio el permiso puede quedar "colgado" (prompt ignorado o
     // headless): watchPosition no dispara ni éxito ni error. Si en 12s no
-    // hay primer fix, arranca el GPS simulado para que la demo siga viva.
+    // hay primer fix, la demo sigue viva con el simulado; en producción se
+    // dice «sin GPS».
     let gotFix = false;
-    const fallback = setTimeout(() => {
-      if (!gotFix) {
-        console.warn('GPS sin respuesta en 12s — usando simulado');
-        startSimulatedGps();
-      }
+    fallbackTimer = setTimeout(() => {
+      if (!gotFix) sinGps('sin respuesta en 12 s');
     }, 12000);
 
     // Pedir permiso de GPS y empezar a rastrear
-    navigator.geolocation.watchPosition(
+    watchId = navigator.geolocation.watchPosition(
       (pos) => {
         gotFix = true;
-        clearTimeout(fallback);
+        clearTimeout(fallbackTimer);
         stopSimulatedGps(); // si la demo ya había arrancado, gana el GPS real
+        if (!lastPosition) emit('gps', { ok: true });
         lastPosition = pos;
       },
       (err) => {
         console.warn('Error GPS:', err.message);
         if (!gotFix) {
-          clearTimeout(fallback);
-          startSimulatedGps();
+          clearTimeout(fallbackTimer);
+          sinGps(err.code === 1 ? 'permiso de ubicación denegado' : err.message);
         }
       },
       { enableHighAccuracy: true, maximumAge: 2000 }
@@ -249,6 +268,8 @@
 
   function stopGps() {
     if (gpsInterval) { clearInterval(gpsInterval); gpsInterval = null; }
+    if (watchId !== null) { try { navigator.geolocation.clearWatch(watchId); } catch {} watchId = null; }
+    clearTimeout(fallbackTimer);
     stopSimulatedGps();
   }
 
@@ -275,11 +296,14 @@
       const lat = BASE_LAT + simProgress * 0.05;
       const lng = BASE_LNG + simProgress * 0.03;
 
+      // Marcada como simulada, igual que la marca Android: el servidor la
+      // anota y Despacho la ve como lo que es.
       send({
         type: 'gps',
         lat, lng,
         speed: 25 + Math.round(Math.random() * 15),
         routeProgress: simProgress,
+        simulado: true,
       });
     }, 3000);
   }
@@ -329,14 +353,48 @@
     send({ type: 'voice', data: dataUrl, duration, privado: !!privado, timestamp: Date.now() });
   }
 
-  function sendSos() {
+  // El SOS, con confirmación: devuelve { ok, via, sosId } y `ok` quiere decir
+  // que LLEGÓ. Primero por HTTP (`POST /sos`, que contesta con la alerta y
+  // su id — el socket no siempre está); si la red HTTP falla y el socket
+  // está vivo, por el socket esperando el eco propio. Antes `send()`
+  // descartaba en silencio sin socket y la pantalla decía «ALERTA ENVIADA»
+  // igual (REVISION-2026-09-10.md, C3).
+  let ecoSos = null;
+  async function sendSos() {
     const coords = lastPosition?.coords;
-    send({
-      type: 'sos',
+    const cuerpo = {
       lat: coords ? coords.latitude : null,
       lng: coords ? coords.longitude : null,
       timestamp: Date.now(),
-    });
+    };
+    if (authToken) {
+      try {
+        const ctl = new AbortController();
+        const t = setTimeout(() => ctl.abort(), 6000);
+        const res = await fetch(HTTP_URL + '/sos', {
+          method: 'POST', signal: ctl.signal,
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
+          body: JSON.stringify(cuerpo),
+        });
+        clearTimeout(t);
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return { ok: true, via: 'http', sosId: data.sosId ?? data.alerta?.sosId ?? null };
+        }
+        // 429 (más de 5 por minuto) o un 4xx: el servidor dijo que no
+        if (res.status >= 400 && res.status < 500) return { ok: false, via: 'http', error: res.status };
+      } catch {}
+    }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const eco = new Promise((resolve) => {
+        ecoSos = resolve;
+        setTimeout(() => { if (ecoSos === resolve) { ecoSos = null; resolve(null); } }, 4000);
+      });
+      send({ type: 'sos', ...cuerpo });
+      const m = await eco;
+      if (m) return { ok: true, via: 'ws', sosId: m.sosId ?? null };
+    }
+    return { ok: false, via: null };
   }
 
   // Ponerle nombre al SOS YA disparado ('mecanica' | 'accidente' |
@@ -365,6 +423,21 @@
     }
   }
 
+  // «Estoy en tráfico» / «ya no»: el mismo camino que la presencia, por el
+  // socket si está vivo y por HTTP si no (C16: la web no podía avisarlo).
+  function setTrafico(activo) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'trafico', activo: !!activo })); return; } catch {}
+    }
+    if (authToken) {
+      fetch(HTTP_URL + '/trafico', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
+        body: JSON.stringify({ activo: !!activo }),
+      }).catch(() => {});
+    }
+  }
+
   function isConnected() {
     return !!ws && ws.readyState === WebSocket.OPEN;
   }
@@ -383,6 +456,7 @@
     sendSos,
     sendSosTipo,
     setPresencia,
+    setTrafico,
     isConnected,
     isReportingGps,
     on: (event, fn) => { listeners[event] = [fn]; }, // reemplaza — un handler por evento
