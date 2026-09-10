@@ -2429,6 +2429,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 ['tramos', 'Medias vueltas: idas y retornos (CSV)', false],
                 ['horas', 'Turnos por persona (CSV)', false],
                 ['desvios', 'Salidas del recorrido (CSV)', false],
+                ['senal', 'Cortes de señal (CSV)', false],
+                ['anomalias', 'Anomalías: saltos, ausente en marcha, reloj, GPS simulado (CSV)', false],
                 ['sos', 'Emergencias (CSV)', false],
                 ['actividad', 'Actividad de administración (CSV)', false],
               ];
@@ -2607,7 +2609,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     pantalla: "turnos" no existe y el botón devolvía 404 con un
                     "No se pudo descargar" que no decía nada. El de horas se
                     llama `horas`. */}
-                {[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas']].map(([tipo, rotulo]) => (
+                {[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas'], ['senal', 'señal'], ['anomalias', 'anomalías']].map(([tipo, rotulo]) => (
                   <button key={tipo} style={btnSecundario(36)} onClick={async () => {
                     try {
                       const hasta = Date.now(), desde = hasta - diasGer * 86400000;
@@ -2643,6 +2645,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     ['Horas trabajadas', `${(resumenGer.totales.horasSec / 3600).toFixed(1)} h`],
                     ['Unidades', resumenGer.totales.unidades],
                     ['Salidas del recorrido', resumenGer.totales.desvios ?? 0],
+                    ['Cortes de señal', resumenGer.totales.cortes ?? 0],
+                    ['Horas sin señal', `${((resumenGer.totales.sinSenalSec || 0) / 3600).toFixed(1)} h`],
+                    ['Horas ausente', `${((resumenGer.totales.ausenteSec || 0) / 3600).toFixed(1)} h`],
                     ['SOS', resumenGer.totales.sos],
                   ].map(([etiqueta, valor]) => (
                     <div key={etiqueta} style={{ ...tarjeta(14), background: HUD.bg }}>
@@ -2706,6 +2711,63 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                       </div>
                     ))}
                   </Tabla>
+                )}
+
+                {/* ─── Señal y presencia ────────────────────────────
+                    Lo de TRUCOS-2026-09-10.md, que hasta ahora sólo estaba en
+                    el log: cuántas veces se quedó sin señal cada unidad y por
+                    cuánto, si los datos del corte llegaron después (la red)
+                    o no (el teléfono apagado, la app muerta), cuánto estuvo
+                    ausente, y las anomalías. Se anota, no se acusa: es para
+                    la reunión, no para la pantalla en vivo. */}
+                {resumenGer.porUnidad.some(u => u.senal && (u.senal.cortes || u.senal.ausencias || u.senal.saltos ||
+                    u.senal.ausenteEnMarcha || u.senal.reloj || u.senal.gpsSimulado || u.senal.descartadas)) && (
+                  <div style={{ marginTop: 18 }}>
+                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Señal y presencia</div>
+                    <Tabla cols="110px 1fr 1fr 1fr 1fr 1fr 1fr 1fr" ancho={860}
+                      cabeceras={['Unidad', 'Cortes', 'Sin señal', 'Sin datos', 'Ausente', 'Saltos', 'Reloj', 'GPS falso']}>
+                      {resumenGer.porUnidad.filter(u => u.senal).map(u => {
+                        const s = u.senal;
+                        const min = (sec) => sec ? `${Math.round(sec / 60)}′` : '—';
+                        return (
+                          <div key={'senal-' + u.unitId} style={{
+                            display: 'grid', gridTemplateColumns: '110px 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
+                            gap: 12, alignItems: 'center', padding: '11px 14px',
+                            borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                          }}>
+                            <div style={{ fontFamily: mono, fontWeight: 800 }}>{u.unitId}</div>
+                            <div title={s.corteMaxSec ? `El más largo: ${Math.round(s.corteMaxSec / 60)} min` : undefined}
+                              style={{ fontFamily: mono, color: s.cortes ? HUD.fg : HUD.dim3 }}>{s.cortes || '—'}</div>
+                            <div style={{ fontFamily: mono, color: s.sinSenalSec ? HUD.fg : HUD.dim3 }}>{min(s.sinSenalSec)}</div>
+                            {/* Cortes cuyas posiciones NO llegaron después: la
+                                app no las tenía en cola —el teléfono estaba
+                                apagado, la app muerta, o el corte pasó de 25
+                                min—. Un corte de red las trae al volver. */}
+                            <div title={s.noVolvio ? `${s.noVolvio} corte(s) sin volver en 2 h` : 'Cortes cuyas posiciones no llegaron después'}
+                              style={{ fontFamily: mono, color: s.sinDatos ? HUD.amber : HUD.dim3 }}>{s.sinDatos || '—'}</div>
+                            <div title={s.ausenteEnMarcha ? `${s.ausenteEnMarcha} vez/veces ausente y en marcha sobre el trazado` : undefined}
+                              style={{ fontFamily: mono, color: s.ausenteEnMarcha ? HUD.amber : s.ausenteSec ? HUD.fg : HUD.dim3 }}>
+                              {s.ausencias ? `${s.ausencias} · ${min(s.ausenteSec)}` : '—'}{s.ausenteEnMarcha ? ' · en marcha' : ''}</div>
+                            <div title="Saltos de más de 120 km/h entre dos posiciones: dos teléfonos con la misma cuenta, o un GPS que inventa"
+                              style={{ fontFamily: mono, color: s.saltos ? HUD.amber : HUD.dim3 }}>{s.saltos || '—'}</div>
+                            <div title={s.descartadas ? `${s.descartadas} posición(es) con hora imposible` : 'Veces que el reloj del teléfono apareció atrasado'}
+                              style={{ fontFamily: mono, color: (s.reloj || s.descartadas) ? HUD.amber : HUD.dim3 }}>
+                              {s.reloj || s.descartadas ? `${s.reloj}${s.descartadas ? ` · ${s.descartadas} desc.` : ''}` : '—'}</div>
+                            <div title="Episodios en que Android marcó las posiciones como simuladas (fake GPS)"
+                              style={{ fontFamily: mono, fontWeight: s.gpsSimulado ? 800 : 400, color: s.gpsSimulado ? HUD.amber : HUD.dim3 }}>{s.gpsSimulado || '—'}</div>
+                          </div>
+                        );
+                      })}
+                    </Tabla>
+                    <Pie>
+                      <strong>Cortes</strong> son las veces que la unidad se quedó sin señal más de 30 s;
+                      {' '}<strong>Sin datos</strong>, cuántos de esos cortes no trajeron después las posiciones
+                      que faltaban (con la red cortada la app las guarda y las manda al volver; si no llegan,
+                      el teléfono estaba apagado o la app muerta). <strong>Ausente</strong> es veces y minutos
+                      declarados; «en marcha» es que se movió por el trazado estando ausente.
+                      Nada de esto acusa a nadie: es lo que pasó, para preguntarlo.
+                    </Pie>
+                  </div>
                 )}
 
                 <Pie>
