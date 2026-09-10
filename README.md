@@ -1145,7 +1145,10 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
 > que encontró y el orden en que conviene arreglarlo. Y los **trucos del
 > chofer contra el control** —cambiar la hora, GPS falso, modo avión,
 > marcarse ausente— están en `TRUCOS-2026-09-10.md`, con qué se ve, qué se
-> detecta y qué no se va a impedir.
+> detecta y qué no se va a impedir. La revisión del 10/9 —lógica,
+> comunicación entre dispositivos, el perfil del chofer y las estadísticas
+> del gerente— está en `REVISION-2026-09-10.md`; lo primero que señala son
+> **las horas**, que hoy se calculan de cuatro formas distintas.
 
 ### Lo que se cerró en la revisión del 8/8
 
