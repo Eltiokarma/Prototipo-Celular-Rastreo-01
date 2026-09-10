@@ -95,9 +95,19 @@ let servidor = null;
     await sleep(600);
     const a = (await anomalias()).filter(x => x.tipo === 'gps_impreciso' && x.vehicleId === 'M-01');
     ok('y queda anotado UNA vez por episodio, con los metros', a.length === 1 && a[0].valor === 250, a);
+    // Histéresis: 70 m no alcanza para salir (el 60 % de 100), 50 m sí
+    await gps('M-01', 0.1025, { precision: 70 });
+    await sleep(600);
+    ok('a 70 m sigue impreciso (histéresis: sale recién por debajo de 60)', vista('M-01')?.gpsImpreciso === true, vista('M-01')?.gpsImpreciso);
     await gps('M-01', 0.103, { precision: 6 });
     await sleep(600);
     ok('con el GPS bueno otra vez, la marca se va', vista('M-01')?.gpsImpreciso === false, vista('M-01')?.gpsImpreciso);
+    // Y el que oscila 95/110 no escribe una fila por posición: una por minuto
+    for (let i = 0; i < 6; i++) { await gps('M-01', 0.1031 + i * 0.0001, { precision: i % 2 ? 110 : 95 }); await sleep(150); }
+    await sleep(500);
+    const a2 = (await anomalias()).filter(x => x.tipo === 'gps_impreciso' && x.vehicleId === 'M-01');
+    ok('oscilando en 95/110 m no se anota una fila por posición (una por minuto)', a2.length === 1, a2.length);
+    ok('y la unidad dice el chofer aunque nunca abrió el WebSocket', vista('M-01')?.driverName === 'Chofer M-01', vista('M-01')?.driverName);
   }
   {
     // Doce posiciones a 600 m del trazado con 400 m de error: con eso no se
@@ -110,6 +120,17 @@ let servidor = null;
     for (let i = 0; i < 12; i++) { await mandar('M-01', [{ lat: afuera.lat + gr * (12 + i), lng: afuera.lng, speed: 20, timestamp: Date.now(), precision: 10 }]); await sleep(150); }
     await sleep(600);
     ok('las mismas doce con 10 m de error: salida de ruta, como siempre', vista('M-01')?.fueraDeRuta === true, vista('M-01') && vista('M-01').fueraDeRuta);
+    // Se declara ausente mientras el GPS sigue impreciso: el episodio se
+    // cierra igual (la revisión del 10/9, L4: antes el atajo de la
+    // imprecisión se tomaba antes de mirar si estaba en la cadena, y el
+    // desvío quedaba abierto y emitido hasta el olvido).
+    await pedir('/presencia', { method: 'POST', headers: { Authorization: 'Bearer ' + ses['M-01'].token }, body: JSON.stringify({ estado: 'ausente' }) });
+    await sleep(200);
+    await mandar('M-01', [{ lat: afuera.lat + gr * 30, lng: afuera.lng, speed: 20, timestamp: Date.now(), precision: 400 }]);
+    await sleep(600);
+    ok('ausente con el GPS impreciso: la salida de ruta se cierra igual', vista('M-01')?.fueraDeRuta === false && vista('M-01')?.presencia === 'ausente', vista('M-01') && { fuera: vista('M-01').fueraDeRuta, presencia: vista('M-01').presencia });
+    await pedir('/presencia', { method: 'POST', headers: { Authorization: 'Bearer ' + ses['M-01'].token }, body: JSON.stringify({ estado: 'ruta' }) });
+    await sleep(200);
   }
   {
     // M-05 quieta a mitad del tramo con 500 m de error durante más de PARADA_MS (3 s)
@@ -209,9 +230,10 @@ let servidor = null;
     ok('y el aviso con parada de M-05', u5 && u5.senal.avisosTrafico === 1 && u5.senal.avisosSinParada === 0, u5 && u5.senal);
     const u1 = (res.porUnidad || []).find(u => u.unitId === 'M-01');
     const u3 = (res.porUnidad || []).find(u => u.unitId === 'M-03');
-    // M-01 tuvo DOS episodios imprecisos (250 m y después las doce de 400 m), M-05 uno
-    ok('y los dos episodios de GPS impreciso de M-01 y el sospechoso de M-03', u1 && u1.senal.gpsImpreciso === 2 && u3 && u3.senal.gpsSospechoso === 1, { u1: u1 && u1.senal, u3: u3 && u3.senal });
-    ok('con los totales', res.totales.avisosTrafico === 2 && res.totales.avisosSinParada === 1 && res.totales.gpsSospechoso === 1 && res.totales.gpsImpreciso === 3, res.totales);
+    // M-01 tuvo dos episodios imprecisos en el mismo minuto (250 m y después
+    // las doce de 400 m): se anota UNO por minuto. M-05, uno.
+    ok('el GPS impreciso de M-01 (uno por minuto) y el sospechoso de M-03', u1 && u1.senal.gpsImpreciso === 1 && u3 && u3.senal.gpsSospechoso === 1, { u1: u1 && u1.senal, u3: u3 && u3.senal });
+    ok('con los totales', res.totales.avisosTrafico === 2 && res.totales.avisosSinParada === 1 && res.totales.gpsSospechoso === 1 && res.totales.gpsImpreciso === 2, res.totales);
     const csv = await fetch(`${API}/admin/informe/anomalias.csv?desde=${Date.now() - 3600e3}&hasta=${Date.now()}`, { headers: HD }).then(r => r.text());
     ok('anomalias.csv dice qué son las dos nuevas', /GPS sospechoso/.test(csv) && /GPS impreciso/.test(csv));
   }

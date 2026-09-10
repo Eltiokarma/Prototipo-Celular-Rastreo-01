@@ -119,6 +119,15 @@ const profiles = new Map();
 
 const gpsOwner = new Map();
 // gpsOwner = { vehicleId → websocket que reporta la posición de ese vehículo }
+// Y la PERSONA que tiene el mando, por cualquier canal (REVISION-2026-09-10.md,
+// C2): con la pantalla apagada el socket muere y el chofer sigue por HTTP,
+// así que el dueño no puede ser sólo un socket. `oidoEn` es la última
+// posición aceptada; el mando se toma con un acto explícito —identificarse
+// por WS o declarar «ruta» por HTTP— o cuando el dueño lleva `OLVIDAR_MS`
+// callado. Al relevado se le contesta `gpsRole: false` en su próximo POST y
+// se le descartan las posiciones: dos teléfonos ya no se intercalan.
+const duenoDe = new Map();
+// duenoDe = { vehicleId → { personId, oidoEn } }
 // Solo una conexión por vehículo: si el chofer y el cobrador reportaran
 // los dos, la unidad saltaría entre los dos celulares.
 
@@ -1501,6 +1510,7 @@ const huecosAbiertos = new Map();   // vehicleId → { id, startedAt, lat, lng }
 // puede saltar en cada posición y eso es UNA anomalía, no doscientas.
 const ultimoSaltoAnotado = new Map();
 const ultimaDescartadaAnotada = new Map();
+const ultimaImprecisaAnotada = new Map();
 // Ausente y en marcha sobre el trazado, sostenido: vehicleId → { desde, anotado }
 const ausenteEnMarcha = new Map();
 const AUSENTE_MARCHA_MS = Number(process.env.AUSENTE_MARCHA_MS || 120_000);
@@ -1837,6 +1847,29 @@ function abrirTurno(personId, vehicleId, routeId, role) {
 function cerrarTurno(personId) {
   db.prepare('UPDATE shifts SET endedAt = ?, lastSeenAt = ? WHERE personId = ? AND endedAt IS NULL')
     .run(Date.now(), Date.now(), personId);
+}
+
+// Una persona toma el mando del GPS de un vehículo (ver `duenoDe`). Al que
+// lo tenía —si es otro— se le avisa por su socket si lo tiene, se le cierra
+// el turno (fue relevado: se bajó), y su próximo POST /gps recibe
+// `gpsRole: false`. La misma persona por otro canal no es un relevo.
+function tomarMando(vehicleId, personId, como) {
+  const previo = duenoDe.get(vehicleId);
+  duenoDe.set(vehicleId, { personId, oidoEn: Date.now() });
+  if (!previo || previo.personId === personId) return false;
+  const wsPrevio = gpsOwner.get(vehicleId);
+  if (wsPrevio && clients.get(wsPrevio) === previo.personId) {
+    if (wsPrevio.readyState === 1) {
+      try {
+        wsPrevio.send(JSON.stringify({ type: 'gps_role', reporting: false,
+          reason: 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa.' }));
+      } catch {}
+    }
+    gpsOwner.delete(vehicleId);
+  }
+  cerrarTurno(previo.personId);
+  console.log(`GPS de ${vehicleId}: lo toma ${personId} (${como}), relevó a ${previo.personId}`);
+  return true;
 }
 
 // Los turnos de los que dejaron de oírse se cierran con la ÚLTIMA SEÑAL que
@@ -2258,6 +2291,7 @@ function fijarPresencia(vehicleId, routeId, estado) {
     cerrarHueco(vehicleId, 'fuera');
     ausenteEnMarcha.delete(vehicleId);
     farsa.olvidar(vehicleId);
+    duenoDe.delete(vehicleId);
     // Se va del mapa EN EL ACTO, no a los 3 minutos del olvido: lo pidió él.
     presencias.delete(vehicleId);
     lapState.delete(vehicleId);
@@ -2806,6 +2840,10 @@ app.post('/presencia', (req, res) => {
   const estado = ['ruta', 'ausente', 'fuera'].includes(req.body?.estado) ? req.body.estado : null;
   if (!estado) return res.status(400).json({ error: 'Estado inválido: ruta, ausente o fuera' });
   const vehicleId = user.vehicleId || user.unitId;
+  // Declarar «ruta» es el acto explícito de empezar: el que lo hace toma el
+  // mando del GPS de la combi (C2). «Fuera» lo suelta.
+  if (estado === 'ruta') tomarMando(vehicleId, user.unitId, 'declaró ruta por HTTP');
+  if (estado === 'fuera' && duenoDe.get(vehicleId)?.personId === user.unitId) duenoDe.delete(vehicleId);
   fijarPresencia(vehicleId, user.routeId || DEFAULT_ROUTE, estado);
   // «Fuera» es el fin del turno del chofer, y por HTTP no hay socket que se
   // cierre para cerrarlo (REVISION-2026-09-10.md, L1).
@@ -3439,16 +3477,28 @@ app.post('/gps', (req, res) => {
   // las mismas reglas que el relevo por WebSocket, que ya funciona así.
   // (REVISION-2026-09-08.md, L6). El caso de DOS choferes mandando por HTTP a
   // la vez (L9) sigue sin resolverse — es de baja probabilidad.
-  const duenoWs = gpsOwner.get(vehicleId);
-  if (duenoWs && clients.get(duenoWs) && clients.get(duenoWs) !== user.unitId) {
-    if (duenoWs.readyState === 1) {
-      try {
-        duenoWs.send(JSON.stringify({ type: 'gps_role', reporting: false,
-          reason: 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa.' }));
-      } catch {}
+  // ¿Quién tiene el mando de esta combi? (ver `duenoDe`). Si es otro y se lo
+  // oyó hace poco, este teléfono es el relevado: se le contesta que su GPS ya
+  // no se usa —200, para que la app lo lea y se apague— y no se le procesa
+  // nada. Si el dueño lleva OLVIDAR_MS callado, o no hay dueño, el que manda
+  // toma el mando. (Antes, al detectar a otro dueño por WS, se le pasaba el
+  // mando al que posteaba y desde ahí nadie lo tenía: dos teléfonos en la
+  // misma combi entraban los dos y la unidad saltaba entre ambos.)
+  {
+    const dueno = duenoDe.get(vehicleId);
+    if (dueno && dueno.personId !== user.unitId) {
+      const wsDueno = gpsOwner.get(vehicleId);
+      const vivo = Date.now() - dueno.oidoEn <= OLVIDAR_MS ||
+        (wsDueno && clients.get(wsDueno) === dueno.personId && wsDueno.readyState === 1);
+      if (vivo) {
+        cerrarTurno(user.unitId);
+        return res.json({ ok: true, aceptadas: 0, yaVistas: 0, descartadas: 0, routeId: user.routeId || DEFAULT_ROUTE,
+          gpsRole: false, motivo: 'Otro chofer tiene la unidad: tu GPS ya no se usa' });
+      }
+      tomarMando(vehicleId, user.unitId, `por HTTP, el dueño callado hace ${Math.round((Date.now() - dueno.oidoEn) / 1000)} s`);
+    } else if (!dueno) {
+      duenoDe.set(vehicleId, { personId: user.unitId, oidoEn: Date.now() });
     }
-    console.log(`GPS de ${vehicleId} por HTTP: lo toma ${user.unitId}, relevó a ${clients.get(duenoWs)}`);
-    gpsOwner.delete(vehicleId);
   }
 
   // La presencia puede venir pegada a las posiciones: con la pantalla
@@ -3471,10 +3521,16 @@ app.post('/gps', (req, res) => {
   // una demasiado vieja ya no le sirve a nadie.
   const ahora = Date.now();
   const buenas = crudas
-    .filter(p => typeof p?.lat === 'number' && typeof p?.lng === 'number')
+    // La misma validación que el WebSocket (`coordenadaValida`): antes acá
+    // bastaba con que fueran números, y un `lat: 999` ordenaba la cadena de
+    // brechas de toda la ruta (REVISION-2026-09-10.md, C1).
+    .filter(p => p && coordenadaValida(p.lat, p.lng))
     .map(p => ({
       lat: p.lat, lng: p.lng, speed: Number(p.speed) || 0,
       cuando: Number(p.timestamp) || ahora,
+      // El progreso que estima el cliente, como respaldo para una ruta sin
+      // trazado — por HTTP se perdía y la flota quedaba toda en 0 (C12).
+      routeProgress: progresoValido(p.routeProgress),
       // Android dice si la posición salió de una app de ubicación simulada
       simulado: p.simulado === true,
       // Y con cuántos metros de error la dio (`accuracy`). null si el APK
@@ -3484,7 +3540,24 @@ app.post('/gps', (req, res) => {
     .filter(p => p.cuando <= ahora + 120_000 && p.cuando >= ahora - ATRASO_MAXIMO_MS)
     .sort((a, b) => a.cuando - b.cuando);
 
-  if (!buenas.length) return res.status(400).json({ error: 'Ninguna posición utilizable' });
+  if (!buenas.length) {
+    // Un reloj ADELANTADO manda todo del futuro y no queda nada: antes era un
+    // 400 mudo que la app tiraba sin reintentar, y el chofer quedaba
+    // invisible todo el turno sin que nadie le dijera por qué (C5). Se le
+    // dice cuánto, para que la app lo muestre.
+    const futuras = crudas.map(p => Number(p?.timestamp)).filter(t => Number.isFinite(t) && t > ahora + 120_000);
+    if (futuras.length) {
+      const adelantoSec = Math.round((Math.min(...futuras) - ahora) / 1000);
+      if ((ultimaDescartadaAnotada.get(vehicleId) || 0) < ahora - 60_000) {
+        ultimaDescartadaAnotada.set(vehicleId, ahora);
+        console.log(`Reloj adelantado: el teléfono de ${vehicleId} manda con la hora ~${adelantoSec} s adelante; se descarta`);
+        anotarAnomalia(vehicleId, user.routeId || DEFAULT_ROUTE, user.companyId, 'reloj',
+          { valor: -adelantoSec, detalle: `reloj ~${adelantoSec} s adelantado: posiciones descartadas`, cuando: ahora });
+      }
+      return res.status(400).json({ error: `El reloj del teléfono está ${Math.round(adelantoSec / 60)} min adelantado`, reloj: 'adelantado', adelantoSec });
+    }
+    return res.status(400).json({ error: 'Ninguna posición utilizable' });
+  }
 
   const prof = profiles.get(user.unitId) || {
     routeId: user.routeId, vehicleId, role: user.role,
@@ -3554,6 +3627,8 @@ app.post('/gps', (req, res) => {
   for (const p of nuevas) {
     routeId = anotarPosicion(vehicleId, user.unitId, prof, p, p.cuando);
   }
+  // Se lo oyó: el mando sigue siendo suyo
+  { const d = duenoDe.get(vehicleId); if (d && d.personId === user.unitId) d.oidoEn = Date.now(); }
   if (!nuevas.length && viva) {
     // Nada nuevo, pero el teléfono habló: que el olvido no lo borre y que el
     // panel vea que sigue mandando.
@@ -3603,6 +3678,7 @@ app.post('/gps', (req, res) => {
   const g = estado?.gaps?.[vehicleId] || null;
   res.json({
     ok: true, aceptadas: nuevas.length, yaVistas, descartadas: crudas.length - buenas.length, routeId,
+    gpsRole: true,
     ...(g ? { brecha: { ...g, objetivoMin: estado.targetGapMin ?? null } } : {}),
     ...(pedirGrabar ? { grabar: true } : {}),
   });
@@ -6254,6 +6330,9 @@ wss.on('connection', (ws) => {
             }
           }
           gpsOwner.set(vehicleId, ws);
+          // Y el mando por PERSONA (C2): si otro lo tenía por HTTP, su
+          // próximo POST recibe `gpsRole: false`.
+          tomarMando(vehicleId, user.unitId, 'se identificó por WS');
           ws.send(JSON.stringify({ type: 'gps_role', reporting: true }));
         } else {
           // Acompañante: ve todo, no aporta posición
@@ -6317,6 +6396,7 @@ wss.on('connection', (ws) => {
       // El celular del cobrador (o del chofer relevado) sigue conectado y
       // recibiendo todo, pero su GPS se ignora: así la unidad no salta.
       if (gpsOwner.get(vehicleId) !== ws) return;
+      { const d = duenoDe.get(vehicleId); if (d && d.personId === personId) d.oidoEn = Date.now(); }
 
       // Se valida igual que en POST /gps: era la misma información entrando
       // por dos puertas y sólo una miraba lo que le daban.
@@ -6342,6 +6422,8 @@ wss.on('connection', (ws) => {
       // cobrador, cerrar SU app mandaría 'fuera' y borraría del mapa una
       // combi que sigue manejando otro — descartándole la vuelta en curso.
       if (vehicleId && estado && prof.role === 'driver') {
+        if (estado === 'ruta') { tomarMando(vehicleId, personId, 'declaró ruta por WS'); if (gpsOwner.get(vehicleId) !== ws) gpsOwner.set(vehicleId, ws); }
+        if (estado === 'fuera' && duenoDe.get(vehicleId)?.personId === personId) duenoDe.delete(vehicleId);
         fijarPresencia(vehicleId, prof.routeId || DEFAULT_ROUTE, estado);
         if (estado === 'fuera') cerrarTurno(personId);
       }
@@ -7077,8 +7159,14 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   // inventa salidas y paradas que no pasaron. Se la deja pasar al mapa (es
   // lo mejor que se sabe) pero no se la juzga: el desvío y la parada se
   // quedan como estaban. Sin `precision` (APK viejo) no hay con qué dudar.
-  const imprecisa = pos.precision != null && pos.precision > PRECISION_MAX_M;
-  if (imprecisa && !unit.gpsImpreciso) {
+  // Con histéresis: entra a más de PRECISION_MAX_M y sale recién por debajo
+  // del 60 %, para que un teléfono que oscila en 95/110 m no abra y cierre
+  // un episodio por posición. Y la anotación, una por minuto como mucho,
+  // como el salto (REVISION-2026-09-10.md, L5).
+  const imprecisa = pos.precision != null &&
+    (pos.precision > PRECISION_MAX_M || (!!unit.gpsImpreciso && pos.precision > PRECISION_MAX_M * 0.6));
+  if (imprecisa && !unit.gpsImpreciso && (ultimaImprecisaAnotada.get(vehicleId) || 0) < cuando - 60_000) {
+    ultimaImprecisaAnotada.set(vehicleId, cuando);
     console.log(`GPS impreciso: ${vehicleId} manda posiciones con ${pos.precision} m de error — no se juzga desvío ni parada`);
     anotarAnomalia(vehicleId, routeId, prof.companyId, 'gps_impreciso',
       { valor: pos.precision, detalle: `${pos.precision} m de error declarado`, lat: pos.lat, lng: pos.lng, cuando });
@@ -7086,13 +7174,18 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
 
   // ¿Se salió del recorrido? Solo cuenta si se sostiene (ver arriba), y
   // sólo a las de la cadena, con la hora de la posición.
-  const desvio = imprecisa ? (desvios.get(vehicleId) || null)
+  // El atajo de la imprecisión vale SÓLO con la unidad en la cadena: fuera
+  // de ella son los evaluadores los que cierran el episodio abierto y apagan
+  // el aviso de tráfico, y saltearlos dejaba el desvío y la parada abiertos
+  // mientras el aparato siguiera impreciso (REVISION-2026-09-10.md, L4).
+  const sinJuzgar = activa && imprecisa;
+  const desvio = sinJuzgar ? (desvios.get(vehicleId) || null)
     : evaluarDesvio(vehicleId, routeId, proy ? proy.desvioM : null, cuando, activa);
 
   // La parada sostenida y la palabra del chofer, con esta posición. Sólo
   // se mide a las confirmadas en ruta: el que va yendo o está ausente puede
   // estar parado todo lo que quiera.
-  const parada = imprecisa
+  const parada = sinJuzgar
     ? (() => { const e = detectorParadas.estadoDe(vehicleId); return { parado: !!e.parado, desde: e.parado ? e.desde : null }; })()
     : evaluarParada(vehicleId, routeId, prof.companyId || null, pos, proy, cuando, activa, !!(desvio && desvio.fuera));
   const traf = traficos.get(vehicleId) || null;
@@ -7174,6 +7267,11 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   ponerUnidad(vehicleId, {
     ...unit,
     unitId: vehicleId,
+    // El nombre y el rótulo los ponía sólo el `identify` del WS: la unidad
+    // que renacía por HTTP tras un reinicio quedaba sin chofer todo el turno
+    // (REVISION-2026-09-10.md, C11).
+    driverName: unit.driverName ?? prof.driverName ?? vehicleId,
+    label: unit.label ?? (vehicleOf(vehicleId)?.label || null),
     routeId,
     lat: pos.lat,
     lng: pos.lng,
@@ -7495,6 +7593,8 @@ setInterval(() => {
       // Y la ventana de la farsa: doce posiciones de antes del corte no
       // dicen nada de las de después.
       farsa.olvidar(unitId);
+      // Y el mando del GPS: el que vuelva a mandar lo toma.
+      duenoDe.delete(unitId);
       // Y la CONFIRMACIÓN se pierde con el olvido: si mató la app sin
       // "salir de ruta" y reaparece mañana desde su casa, tiene que volver
       // a pisar el trazado — no entrar a la cadena por un true de ayer.
