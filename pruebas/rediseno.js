@@ -251,9 +251,16 @@ const errores = [];
   }
   await p.screenshot({ path: SALIDA + '/02-sin-senal.png' });
   const txt = await p.evaluate(() => document.body.innerText);
-  const calladas = (txt.match(/SIN SEÑAL/gi) || []).length;
+  // Se cuentan las FILAS de unidad («SIN SEÑAL DESDE hh:mm»), no todas las
+  // apariciones del texto: la cabecera de la ruta también dice «1 SIN SEÑAL»
+  // —el contador que manda el servidor— así que contar a secas daba siempre
+  // dos y este banco venía avisando de una unidad de más que no existía. La
+  // cabecera se comprueba aparte, que para eso está.
+  const calladas = (txt.match(/SIN SEÑAL DESDE/gi) || []).length;
+  const enCabecera = (txt.match(/(\d+) SIN SEÑAL/i) || [])[1];
   if (calladas === 0) errores.push('Despacho no marca la unidad que perdió señal');
   if (calladas > 1) errores.push(`Despacho marca ${calladas} unidades sin señal y solo una lo está`);
+  if (enCabecera !== '1') errores.push(`la cabecera dice «${enCabecera ?? 'nada'} SIN SEÑAL» y es una`);
 
   const cel = await abrir(412, 900);
   await cel.screenshot({ path: SALIDA + '/99-celular.png' });

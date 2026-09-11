@@ -121,7 +121,28 @@ async function arrancar() {
     return p;
   };
 
-  // Sus números viven en Gestión ▸ Números, que solo existe para el gerente
+  // Sus números viven en Gestión ▸ Números, que solo existe para el gerente.
+  //
+  // Y hay que entrar de dos formas, porque la pantalla tiene dos: bajo 900 px
+  // el riel de secciones NO es una lista de botones sino un desplegable (está
+  // en las invariantes de diseño). Este banco venía clickeando el botón
+  // siempre, así que la captura de celular —la única que mira esa mitad de la
+  // pantalla— se caía con un timeout de 30 s y se llevaba el banco entero
+  // puesto, sin sacar ninguna de las capturas. Pasaba desde que el riel se
+  // volvió desplegable; nadie lo vio porque este banco no corre en la
+  // regresión.
+  // Se buscan TODOS los `select` y se elige el que tiene la sección adentro:
+  // el primero de la página no es el del riel sino el selector de ruta del
+  // mapa, que sigue montado abajo del panel de Gestión (es una capa fija por
+  // encima, no otra página).
+  const irASeccion = async (pag, etiqueta, valor) => {
+    for (const sel of await pag.$$('select')) {
+      const esRiel = await sel.evaluate(
+        (el, v) => Array.from(el.options).some(o => o.value === v), valor);
+      if (esRiel) { await sel.selectOption(valor); return; }
+    }
+    await pag.click(`button:has-text("${etiqueta}")`);
+  };
   const entrar = async (pag) => {
     const inputs = await pag.$$('input');
     await inputs[0].fill('GERENTE-1');
@@ -130,7 +151,7 @@ async function arrancar() {
     await pag.waitForTimeout(3500);
     await pag.click('button:has-text("Gestión")');
     await pag.waitForTimeout(1000);
-    await pag.click('button:has-text("Números")');
+    await irASeccion(pag, 'Números', 'gerencia');
     await pag.waitForTimeout(2500);
   };
 
