@@ -859,6 +859,50 @@ db.exec(`
 // vistazo quién nunca entró (típico de un alta con la clave mal dictada).
 addColumnIfMissing('users', 'lastLogin', 'INTEGER');
 
+// Qué APK tiene cada teléfono (REVISION-2026-09-10.md, P5). Lo declara la
+// app al entrar (`app: { version, versionCode }` en el cuerpo del login) y
+// en cada pedido con la cabecera `X-App-Version: 0.2.3/5`. Sin esto, cuando
+// un APK cambia lo que manda (`simulado`, `precision`) no hay forma de saber
+// quién tiene cuál, y Despacho no puede decirle a nadie «actualizá».
+addColumnIfMissing('users', 'appVersion', 'TEXT');
+addColumnIfMissing('users', 'appVersionCode', 'INTEGER');
+
+// El APK que se reparte hoy y el más viejo que todavía sirve, por el entorno.
+// La app compara su `versionCode` con los dos: por debajo del actual avisa
+// «hay una nueva»; por debajo del mínimo dice que ésa ya no sirve. Sin las
+// variables no avisa nada — no se inventa un número.
+const APP_VERSION_ACTUAL = Number(process.env.APP_VERSION_ACTUAL) || null;
+const APP_VERSION_MIN = Number(process.env.APP_VERSION_MIN) || null;
+const APP_URL = String(process.env.APP_URL || '').trim() || null;
+function loQueSeReparte() {
+  return { versionCodeActual: APP_VERSION_ACTUAL, versionCodeMin: APP_VERSION_MIN, url: APP_URL };
+}
+// Lo que dice el teléfono de sí mismo: en el cuerpo (`app: { version,
+// versionCode }`) o en la cabecera (`X-App-Version: 0.2.3/5`). `null` si no
+// dice nada o dice cualquier cosa.
+function versionDeApp(req) {
+  let version = null, code = null;
+  const c = req.body && req.body.app;
+  if (c && typeof c === 'object') { version = c.version; code = c.versionCode; }
+  else {
+    const m = String(req.headers['x-app-version'] || '').match(/^\s*([\w.+-]{1,20})\/(\d{1,6})\s*$/);
+    if (m) { version = m[1]; code = m[2]; }
+  }
+  code = Number(code);
+  if (!Number.isInteger(code) || code <= 0) return null;
+  return { version: String(version || '').slice(0, 20) || null, versionCode: code };
+}
+// Se anota sólo si cambió: el que actualizó el APK sin volver a entrar (la
+// sesión dura 30 días) queda al día con su primer POST /gps.
+function anotarVersionDeApp(user, req) {
+  const v = versionDeApp(req);
+  if (!v || (user.appVersionCode === v.versionCode && user.appVersion === v.version)) return;
+  db.prepare('UPDATE users SET appVersion = ?, appVersionCode = ? WHERE unitId = ?')
+    .run(v.version, v.versionCode, user.unitId);
+  user.appVersion = v.version;
+  user.appVersionCode = v.versionCode;
+}
+
 // Migración a multi-ruta. En users, routeId significa:
 //   chofer      → la ruta en la que trabaja (obligatoria)
 //   dispatch    → la ruta que administra, o NULL = supervisor de todas
@@ -967,7 +1011,7 @@ function sessionUser(token) {
     .get(token, Date.now());
   if (!s) return null;
   return db.prepare(
-    'SELECT unitId, driverName, name, alias, role, routeId, vehicleId, companyId FROM users WHERE unitId = ?'
+    'SELECT unitId, driverName, name, alias, role, routeId, vehicleId, companyId, appVersion, appVersionCode FROM users WHERE unitId = ?'
   ).get(s.unitId) || null;
 }
 
@@ -2736,6 +2780,7 @@ app.post('/auth/login', (req, res) => {
   loginAttempts.delete(unitId);
   const token = createSession(user.unitId);
   db.prepare('UPDATE users SET lastLogin = ? WHERE unitId = ?').run(Date.now(), user.unitId);
+  anotarVersionDeApp(user, req);
   audit(user.unitId, 'login', null, created ? 'primer registro' : null, user.routeId);
   const ruta = user.routeId ? routeOf(user.routeId) : null;
   const empresa = companyOf(user.companyId);
@@ -2763,6 +2808,9 @@ app.post('/auth/login', (req, res) => {
     // Y las zonas con mapa propio, por la misma razón: el WebView del mapa
     // decide con esto qué tiles pedir acá y cuáles al proveedor.
     tilesZonas: zonasDisponibles(),
+    // Qué APK se reparte y cuál es el más viejo que sirve (P5): la app se
+    // compara y avisa. Con las variables sin poner, todo null y no dice nada.
+    app: loQueSeReparte(),
     created,
   });
 });
@@ -2929,20 +2977,32 @@ function usuarioPropio(req, res) {
   return user;
 }
 
+// Cuántos días mira el perfil: 7 por defecto (la semana) y hasta 31 (el mes,
+// que es como se liquida). Sin ventana el chofer no podía cotejar su
+// liquidación con la de Despacho (REVISION-2026-09-10.md, P7).
+function diasDelPerfil(req) {
+  const d = Number(req.query?.dias);
+  return Number.isInteger(d) && d >= 1 && d <= 31 ? d : 7;
+}
+
 app.get('/perfil', (req, res) => {
   const user = usuarioPropio(req, res);
   if (!user) return;
+  anotarVersionDeApp(user, req);
   const vehicleId = user.vehicleId || user.unitId;
   const ruta = routeOf(user.routeId || DEFAULT_ROUTE);
   const veh = vehicleOf(vehicleId);
   const ahora = Date.now();
-  const desde = ahora - 7 * 86400_000;
+  const dias = diasDelPerfil(req);
+  const desde = ahora - dias * 86400_000;
   const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
 
   // Las vueltas son del VEHÍCULO (la vuelta es de la combi, la maneje
   // quien la maneje); las horas son de la PERSONA. Mismo criterio que el
   // panel del gerente — si acá dijera otra cosa, alguien tendría razón y
-  // alguien no, y no habría forma de saber quién.
+  // alguien no, y no habría forma de saber quién. Y aparte, con la misma
+  // regla del gerente, las vueltas PROPIAS: las que se cerraron mientras
+  // esta persona tenía el turno (`vueltasPropias`, más abajo).
   // Las parciales se cuentan APARTE y no entran en ningún promedio: son el
   // pedazo del que se metió a mitad de ruta, y sumarlas al conteo le regala
   // una vuelta que no hizo mientras le baja la duración promedio.
@@ -2956,7 +3016,9 @@ app.get('/perfil', (req, res) => {
                      AND ABS(brechaProm - objetivoSec) <= objetivoSec * @tol
                THEN 1 ELSE 0 END) enObjetivo,
            SUM(CASE WHEN parcial = 0 AND brechaProm IS NOT NULL AND objetivoSec IS NOT NULL
-               THEN 1 ELSE 0 END) juzgables
+               THEN 1 ELSE 0 END) juzgables,
+           MIN(CASE WHEN parcial = 0 THEN objetivoSec END) varaMin,
+           MAX(CASE WHEN parcial = 0 THEN objetivoSec END) varaMax
     FROM laps WHERE unitId = @veh AND finishedAt >= @desde
   `).get({ veh: vehicleId, desde, hoy: hoy0.getTime(), tol: TOLERANCIA_CUMPLE });
 
@@ -2975,14 +3037,88 @@ app.get('/perfil', (req, res) => {
 
   const horasSec = (corte) => horasDe(user.unitId, corte, ahora);
 
+  // Los turnos propios, uno por uno, recortados a la ventana: es con lo que
+  // se coteja una liquidación. Antes el perfil sumaba segundos y no devolvía
+  // ni un turno (REVISION-2026-09-10.md, P3).
+  const turnosPropios = db.prepare(`
+    SELECT id, personId, vehicleId, role, startedAt, endedAt, lastSeenAt FROM shifts s
+    WHERE personId = @p AND ${TURNOS_EN_VENTANA}
+    ORDER BY startedAt DESC LIMIT 100
+  `).all({ p: user.unitId, desde, hasta: ahora });
+
+  // Las vueltas PROPIAS, con la MISMA regla que el gerente (`porPersona`):
+  // al chofer, las que se cerraron mientras tenía el turno de chofer en esa
+  // combi —con dos turnos pisados gana el que empezó después—; al cobrador,
+  // las de la combi mientras iba arriba. Se miran todas las combis en las
+  // que tuvo turno en la ventana, no sólo la de hoy.
+  const combis = Array.from(new Set([vehicleId, ...turnosPropios.map(t => t.vehicleId)]));
+  const enCombis = `(${combis.map(() => '?').join(', ')})`;
+  const turnosQueAtribuyen = user.role === 'driver'
+    ? db.prepare(`
+        SELECT id, personId, vehicleId, startedAt, endedAt, lastSeenAt FROM shifts s
+        WHERE vehicleId IN ${enCombis} AND role = 'driver'
+          AND s.startedAt <= ? AND (s.endedAt IS NULL OR s.endedAt >= ?)
+      `).all(...combis, ahora, desde)
+    : turnosPropios.filter(t => t.role === 'collector');
+  const turnoDe = atribuidorDeVueltas(turnosQueAtribuyen);
+  const enteras = db.prepare(`
+    SELECT unitId, finishedAt FROM laps
+    WHERE unitId IN ${enCombis} AND parcial = 0 AND finishedAt >= ?
+  `).all(...combis, desde);
+  const vueltasPorTurno = new Map();
+  let vueltasPropias = 0;
+  for (const l of enteras) {
+    const t = turnoDe(l.unitId, l.finishedAt);
+    if (!t || t.personId !== user.unitId) continue;
+    vueltasPropias++;
+    vueltasPorTurno.set(t.id, (vueltasPorTurno.get(t.id) || 0) + 1);
+  }
+
+  // Lo de la COMBI en la ventana —cortes de señal, ausencias, anomalías,
+  // salidas de ruta, avisos de tráfico, entradas tardías— con la MISMA cuenta
+  // que el cuadro del gerente (`medirUnidades`). Despacho puede reclamarle
+  // por un desvío o un corte y ahora tiene dónde mirarlo (P3). Son de la
+  // combi, no de la persona: la pantalla lo dice.
+  const medidas = medirUnidades({ desde, hasta: ahora, empresa: user.companyId, ruta: null, veh: vehicleId });
+  const desviosCombi = medidas.desviosDe.get(vehicleId) || { veces: 0, segundos: 0, maxM: 0, aparte: 0 };
+  let desviosPropios = 0;
+  for (const d of medidas.desviosPeriodo) {
+    if (!medidas.esSalida(d)) continue;
+    const t = turnoDe(d.vehicleId, d.startedAt);
+    if (t && t.personId === user.unitId) desviosPropios++;
+  }
+  const sosPropios = db.prepare(
+    "SELECT COUNT(*) n FROM messages WHERE kind = 'sos' AND unitId = ? AND timestamp >= ?"
+  ).get(user.unitId, desde).n;
+  const grabacionesPropias = db.prepare(
+    'SELECT COUNT(*) n FROM recordings WHERE personId = ? AND createdAt >= ?'
+  ).get(user.unitId, desde).n;
+
+  // La vara que rige hoy en su ruta (P4): ve «68 %» y ahora también contra
+  // qué. Y entre qué valores anduvo la vara en la ventana, que con el
+  // objetivo automático se mueve.
+  const objetivo = ruta ? objetivoDe(ruta.routeId) : null;
+
+  // Los cobradores de la combi. Al chofer, con sus horas —los administra—;
+  // al cobrador, sólo quiénes son y si están en línea: las horas de sus
+  // compañeros no son suyas (P6).
+  const cobradores = user.role === 'driver'
+    ? cobradoresDe(vehicleId, desde)
+    : cobradoresDe(vehicleId, desde).map(c => ({ name: c.name, alias: c.alias, enLinea: c.enLinea }));
+
   res.json({
     persona: { unitId: user.unitId, name: user.name, alias: user.alias || null, role: user.role },
     vehiculo: { vehicleId, label: veh?.label || null },
     ruta: { routeId: ruta?.routeId || null, name: ruta?.name || null },
+    periodo: { desde, hasta: ahora, dias },
     metricas: {
-      dias: 7,
+      dias,
       vueltas: vueltas.n || 0,
       vueltasHoy: vueltas.hoy || 0,
+      // Las que se cerraron con esta persona arriba (chofer con el turno de
+      // chofer; cobrador con su turno). Las de la combi que no cayeron en
+      // su turno son de otro, o de nadie — no se le inventan.
+      vueltasPropias,
       // Las vueltas que arrancaron con la ruta empezada. Se muestran porque
       // esconderlas sería la versión amable de mentir: el chofer ve el mismo
       // número que ve Despacho, y así puede explicarlo si hay algo que
@@ -3002,13 +3138,36 @@ app.get('/perfil', (req, res) => {
       cumplimiento: vueltas.juzgables
         ? Math.round((vueltas.enObjetivo / vueltas.juzgables) * 100) : null,
       juzgables: vueltas.juzgables || 0,
+      objetivoSec: objetivo ? Math.round(objetivo.min * 60) : null,
+      objetivoModo: objetivo ? objetivo.modo : null,
+      varaMin: vueltas.varaMin ?? null,
+      varaMax: vueltas.varaMax ?? null,
       horasSec: horasSec(desde),
       horasHoySec: horasSec(hoy0.getTime()),
     },
+    // Lo de la COMBI en la ventana, con la misma cuenta que el gerente
+    combi: {
+      vehicleId,
+      senal: senalDeUnidad(vehicleId, medidas),
+      desvios: { veces: desviosCombi.veces, segundos: desviosCombi.segundos, maxM: desviosCombi.maxM, aparte: desviosCombi.aparte },
+    },
+    // Y lo que es de la PERSONA, con la regla de atribución del gerente
+    propios: { vueltas: vueltasPropias, desvios: desviosPropios, sos: sosPropios, grabaciones: grabacionesPropias },
+    turnos: turnosPropios.map(t => ({
+      id: t.id,
+      vehicleId: t.vehicleId,
+      role: t.role,
+      startedAt: t.startedAt,
+      endedAt: t.endedAt,
+      abierto: !t.endedAt,
+      // Recortado a la ventana: el mismo número que suma `horasSec`
+      duracionSec: duracionTurnoSec(t, desde, ahora),
+      vueltas: vueltasPorTurno.get(t.id) || 0,
+    })),
     // Quiénes van arriba de esta combi además de él. Al chofer le sirve
     // para administrarlos; al cobrador, para saber con quién anda — y que
     // la pantalla no le ofrezca botones que el servidor le va a negar.
-    cobradores: cobradoresDe(vehicleId, desde),
+    cobradores,
     puedeGestionar: user.role === 'driver',
     chofer: user.role === 'collector'
       ? (() => {
@@ -3019,6 +3178,9 @@ app.get('/perfil', (req, res) => {
         })()
       : null,
     toleranciaCumple: TOLERANCIA_CUMPLE,
+    // La versión de app que el servidor tiene anotada de este teléfono, y la
+    // que se reparte (P5): la app se compara y avisa «hay una nueva».
+    app: { ...loQueSeReparte(), version: user.appVersion || null, versionCode: user.appVersionCode || null },
   });
 });
 
@@ -3467,6 +3629,7 @@ app.post('/gps', (req, res) => {
   const auth = String(req.headers.authorization || '');
   const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
   if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  anotarVersionDeApp(user, req);
 
   // Las mismas reglas que por WebSocket: solo el chofer reporta, el cobrador
   // nunca, y si otro chofer tomó la unidad manda el otro.
@@ -4370,7 +4533,8 @@ app.get('/admin/users', requireDispatch, (req, res) => {
   // de la cooperativa que mira los números esté a la vista es parte de que se
   // sepa quién mira. Esconderlos sería peor que mostrarlos sin botones.
   const users = db.prepare(`
-    SELECT unitId, driverName, name, alias, role, routeId, vehicleId, createdAt, lastLogin FROM users
+    SELECT unitId, driverName, name, alias, role, routeId, vehicleId, createdAt, lastLogin,
+           appVersion, appVersionCode FROM users
     WHERE companyId = @empresa
       AND (@scope IS NULL OR routeId = @scope OR role IN ('dispatch', 'manager'))
     ORDER BY CASE role WHEN 'dispatch' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END,
@@ -5304,6 +5468,197 @@ function requireManager(req, res, next) {
 // aparte, para que la pantalla pueda decirlo en vez de mezclarlas callada.
 const TOLERANCIA_CUMPLE = 0.15;
 
+// ─── LA MEDIDA DE CADA UNIDAD EN UN RANGO ────────────────────
+// Lo que el cuadro del gerente cuenta por unidad —salidas de ruta, cortes de
+// señal, ausencias, anomalías, avisos de tráfico, entradas tardías— sale de
+// acá, y el perfil del chofer lee LA MISMA cuenta para su combi
+// (REVISION-2026-09-10.md, P3): si Despacho le reclama un corte, el número
+// que él ve es el mismo con el que se lo evalúa.
+//
+// `f` es el filtro: { desde, hasta, empresa, ruta (o null), veh (o null) }.
+function medirUnidades(filtro) {
+  const f = { ...filtro, ruta: filtro.ruta ?? null, veh: filtro.veh ?? null };
+  // Salidas del recorrido del período. Es lo que le faltaba a este cuadro:
+  // hasta ahora el desvío se veía en vivo y se perdía, así que el gerente
+  // podía saber cuántas vueltas dio cada unidad pero no cuántas veces se
+  // salió. Un desvío aislado es una obra; el mismo desvío todos los días es
+  // otra cosa, y sin el histórico las dos se ven igual.
+  const desviosPeriodo = db.prepare(`
+    SELECT vehicleId, routeId, startedAt, endedAt, durationSec, maxM, silenciado, cierre
+    FROM deviations
+    WHERE startedAt BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+      AND (@veh IS NULL OR vehicleId = @veh)
+    ORDER BY startedAt DESC
+  `).all(f);
+  // Silenciar es «ya lo sé, no me avises» y `'trazado'` es «cambió contra qué
+  // se medía»: ninguno de los dos es una salida que contarle al chofer. Van
+  // aparte (REVISION-2026-09-10.md, E7). El CSV trae las dos columnas.
+  const esSalida = (d) => !d.silenciado && d.cierre !== 'trazado';
+  const desviosDe = new Map();
+  for (const d of desviosPeriodo) {
+    if (!desviosDe.has(d.vehicleId)) desviosDe.set(d.vehicleId, { veces: 0, segundos: 0, maxM: 0, aparte: 0 });
+    const x = desviosDe.get(d.vehicleId);
+    if (!esSalida(d)) { x.aparte++; continue; }
+    x.veces++;
+    // Los cortados (dejó de reportar) cuentan como salida pero su duración no
+    // se sabe: sumarla como cero es más honesto que inventar hasta cuándo.
+    x.segundos += d.durationSec || 0;
+    x.maxM = Math.max(x.maxM, d.maxM);
+  }
+
+  // Señal y presencia del período (TRUCOS-2026-09-10.md): cortes de señal
+  // por unidad, minutos ausente, y las anomalías contadas por tipo.
+  const huecosPeriodo = db.prepare(`
+    SELECT vehicleId, durationSec, recuperadas, cierre FROM huecos
+    WHERE startedAt BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+      AND (@veh IS NULL OR vehicleId = @veh)
+  `).all(f);
+  const senalDe = new Map();
+  for (const h of huecosPeriodo) {
+    if (!senalDe.has(h.vehicleId)) senalDe.set(h.vehicleId, { cortes: 0, sinDatos: 0, segundos: 0, maxSec: 0, noVolvio: 0 });
+    const x = senalDe.get(h.vehicleId);
+    x.cortes++;
+    if (!h.recuperadas) x.sinDatos++;
+    if (h.cierre === 'no_volvio') x.noVolvio++;
+    x.segundos += h.durationSec || 0;
+    x.maxSec = Math.max(x.maxSec, h.durationSec || 0);
+  }
+  // Minutos ausente: cada 'ausente' dura hasta el siguiente cambio de esa
+  // unidad, o hasta el fin del rango (o ahora) si no hubo otro.
+  // Con el último estado de cada unidad ANTES del rango: la que se declaró
+  // ausente a las 22:40 y volvió a ruta a las 6:30 estaba ausente las
+  // primeras 6,5 h del día, y sin esto daba cero (REVISION-2026-09-10.md, L9).
+  // El olvido también queda en el registro ('olvido'): la ausencia de un
+  // teléfono que se murió no dura hasta el fin del rango.
+  const cambios = db.prepare(`
+    SELECT vehicleId, estado, cuando FROM presencia_log
+    WHERE cuando BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+      AND (@veh IS NULL OR vehicleId = @veh)
+    UNION ALL
+    SELECT p.vehicleId, p.estado, @desde AS cuando FROM presencia_log p
+    WHERE p.id IN (
+      SELECT MAX(id) FROM presencia_log
+      WHERE cuando < @desde
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+        AND (@ruta IS NULL OR routeId = @ruta)
+        AND (@veh IS NULL OR vehicleId = @veh)
+      GROUP BY vehicleId
+    ) AND p.estado = 'ausente'
+    ORDER BY vehicleId, cuando
+  `).all(f);
+  const ausenteDe = new Map();
+  const finRango = Math.min(f.hasta, Date.now());
+  for (let i = 0; i < cambios.length; i++) {
+    const c = cambios[i];
+    if (c.estado !== 'ausente') continue;
+    const sig = cambios[i + 1];
+    const hasta = sig && sig.vehicleId === c.vehicleId ? sig.cuando : finRango;
+    const a = ausenteDe.get(c.vehicleId) || { veces: 0, segundos: 0 };
+    a.veces++;
+    a.segundos += Math.max(0, Math.round((hasta - c.cuando) / 1000));
+    ausenteDe.set(c.vehicleId, a);
+  }
+  const anomaliasPeriodo = db.prepare(`
+    SELECT vehicleId, tipo, COUNT(*) n, SUM(COALESCE(valor, 0)) suma FROM anomalias
+    WHERE cuando BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+      AND (@veh IS NULL OR vehicleId = @veh)
+    GROUP BY vehicleId, tipo
+  `).all(f);
+  const anomaliasDe = new Map();
+  for (const a of anomaliasPeriodo) {
+    if (!anomaliasDe.has(a.vehicleId)) anomaliasDe.set(a.vehicleId, {});
+    anomaliasDe.get(a.vehicleId)[a.tipo] = { n: a.n, suma: a.suma };
+  }
+  // El botón de tráfico (T7): cuántas veces lo dijo cada unidad y cuántas de
+  // ésas el servidor NO vio la parada. Un aviso sin parada es una excusa o un
+  // dedo apurado; diez por semana es otra cosa.
+  const avisosPeriodo = db.prepare(`
+    SELECT vehicleId, COUNT(*) avisos, SUM(CASE WHEN medida = 0 THEN 1 ELSE 0 END) sinParada FROM paradas
+    WHERE confirmado = 1 AND startedAt BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+      AND (@veh IS NULL OR vehicleId = @veh)
+    GROUP BY vehicleId
+  `).all(f);
+  const traficoDe = new Map(avisosPeriodo.map(a => [a.vehicleId, { avisos: a.avisos, sinParada: a.sinParada }]));
+  // Entradas a la ruta empezada, contadas: estaban sólo en la auditoría (E13)
+  const tardiasDe = new Map(db.prepare(`
+    SELECT target vehicleId, COUNT(*) n FROM audit
+    WHERE action = 'entrada_tardia' AND timestamp BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+      AND (@veh IS NULL OR target = @veh)
+    GROUP BY target
+  `).all(f).map(r => [r.vehicleId, r.n]));
+  return { desviosPeriodo, huecosPeriodo, anomaliasPeriodo, avisosPeriodo,
+           esSalida, desviosDe, senalDe, ausenteDe, anomaliasDe, traficoDe, tardiasDe };
+}
+
+// El bloque `senal` de una unidad, con lo que midió `medirUnidades`
+function senalDeUnidad(unitId, m) {
+  const s = m.senalDe.get(unitId) || {};
+  const a = m.anomaliasDe.get(unitId) || {};
+  const au = m.ausenteDe.get(unitId) || {};
+  const tr = m.traficoDe.get(unitId) || {};
+  return {
+    cortes: s.cortes || 0,
+    sinDatos: s.sinDatos || 0,
+    noVolvio: s.noVolvio || 0,
+    sinSenalSec: s.segundos || 0,
+    corteMaxSec: s.maxSec || 0,
+    ausencias: au.veces || 0,
+    ausenteSec: au.segundos || 0,
+    saltos: (a.salto || {}).n || 0,
+    ausenteEnMarcha: (a.ausente_en_marcha || {}).n || 0,
+    reloj: (a.reloj || {}).n || 0,
+    descartadas: (a.descartadas || {}).suma || 0,
+    gpsSimulado: (a.gps_simulado || {}).n || 0,
+    gpsSospechoso: (a.gps_sospechoso || {}).n || 0,
+    gpsImpreciso: (a.gps_impreciso || {}).n || 0,
+    avisosTrafico: tr.avisos || 0,
+    avisosSinParada: tr.sinParada || 0,
+    entradasTardias: m.tardiasDe.get(unitId) || 0,
+  };
+}
+
+// A quién se le atribuye lo que pasó en una combi a cierta hora (E2, P2):
+// al turno que estaba abierto en esa combi en ese momento. Con dos turnos
+// que se pisan (un relevo) gana el que empezó después. El turno cerrado por
+// silencio termina en la última señal, y la vuelta que se cerró un minuto
+// después sigue siendo suya (RECONEXION_MS). Devuelve el TURNO (con su
+// `personId`) o null si no cae en ninguno: lo que no cae no se inventa.
+//
+// `turnos`: filas de `shifts` ya filtradas por el que llama (el gerente pasa
+// los de chofer; el perfil del cobrador, los suyos).
+function atribuidorDeVueltas(turnos) {
+  const porCombi = new Map();
+  for (const t of turnos) {
+    if (!t.vehicleId) continue;
+    if (!porCombi.has(t.vehicleId)) porCombi.set(t.vehicleId, []);
+    porCombi.get(t.vehicleId).push(t);
+  }
+  for (const lista of porCombi.values()) lista.sort((a, b) => a.startedAt - b.startedAt);
+  return (vehicleId, cuando) => {
+    const lista = porCombi.get(vehicleId);
+    if (!lista) return null;
+    let mejor = null;
+    for (const t of lista) {
+      if (t.startedAt > cuando) break;
+      const fin = (t.endedAt || t.lastSeenAt || Infinity) + RECONEXION_MS;
+      if (fin >= cuando) mejor = t;
+    }
+    return mejor;
+  };
+}
+
 app.get('/gerencia/resumen', requireManager, (req, res) => {
   const rango = rangoDe(req);
   const pedida = idLimpio(req.query?.routeId);
@@ -5443,111 +5798,12 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     horasDe.set(t.vehicleId, (horasDe.get(t.vehicleId) || 0) + sec);
   }
 
-  // Salidas del recorrido del período. Es lo que le faltaba a este cuadro:
-  // hasta ahora el desvío se veía en vivo y se perdía, así que el gerente
-  // podía saber cuántas vueltas dio cada unidad pero no cuántas veces se
-  // salió. Un desvío aislado es una obra; el mismo desvío todos los días es
-  // otra cosa, y sin el histórico las dos se ven igual.
-  const desviosPeriodo = db.prepare(`
-    SELECT vehicleId, routeId, startedAt, endedAt, durationSec, maxM, silenciado, cierre
-    FROM deviations
-    WHERE startedAt BETWEEN @desde AND @hasta
-      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
-      AND (@ruta IS NULL OR routeId = @ruta)
-    ORDER BY startedAt DESC
-  `).all(filtro);
-  // Silenciar es «ya lo sé, no me avises» y `'trazado'` es «cambió contra qué
-  // se medía»: ninguno de los dos es una salida que contarle al chofer. Van
-  // aparte (REVISION-2026-09-10.md, E7). El CSV trae las dos columnas.
-  const esSalida = (d) => !d.silenciado && d.cierre !== 'trazado';
-  const desviosDe = new Map();
-  for (const d of desviosPeriodo) {
-    if (!desviosDe.has(d.vehicleId)) desviosDe.set(d.vehicleId, { veces: 0, segundos: 0, maxM: 0, aparte: 0 });
-    const x = desviosDe.get(d.vehicleId);
-    if (!esSalida(d)) { x.aparte++; continue; }
-    x.veces++;
-    // Los cortados (dejó de reportar) cuentan como salida pero su duración no
-    // se sabe: sumarla como cero es más honesto que inventar hasta cuándo.
-    x.segundos += d.durationSec || 0;
-    x.maxM = Math.max(x.maxM, d.maxM);
-  }
-
-  // Señal y presencia del período (TRUCOS-2026-09-10.md): cortes de señal
-  // por unidad, minutos ausente, y las anomalías contadas por tipo.
-  const huecosPeriodo = db.prepare(`
-    SELECT vehicleId, durationSec, recuperadas, cierre FROM huecos
-    WHERE startedAt BETWEEN @desde AND @hasta
-      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
-      AND (@ruta IS NULL OR routeId = @ruta)
-  `).all(filtro);
-  const senalDe = new Map();
-  for (const h of huecosPeriodo) {
-    if (!senalDe.has(h.vehicleId)) senalDe.set(h.vehicleId, { cortes: 0, sinDatos: 0, segundos: 0, maxSec: 0, noVolvio: 0 });
-    const x = senalDe.get(h.vehicleId);
-    x.cortes++;
-    if (!h.recuperadas) x.sinDatos++;
-    if (h.cierre === 'no_volvio') x.noVolvio++;
-    x.segundos += h.durationSec || 0;
-    x.maxSec = Math.max(x.maxSec, h.durationSec || 0);
-  }
-  // Minutos ausente: cada 'ausente' dura hasta el siguiente cambio de esa
-  // unidad, o hasta el fin del rango (o ahora) si no hubo otro.
-  // Con el último estado de cada unidad ANTES del rango: la que se declaró
-  // ausente a las 22:40 y volvió a ruta a las 6:30 estaba ausente las
-  // primeras 6,5 h del día, y sin esto daba cero (REVISION-2026-09-10.md, L9).
-  // El olvido también queda en el registro ('olvido'): la ausencia de un
-  // teléfono que se murió no dura hasta el fin del rango.
-  const cambios = db.prepare(`
-    SELECT vehicleId, estado, cuando FROM presencia_log
-    WHERE cuando BETWEEN @desde AND @hasta
-      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
-      AND (@ruta IS NULL OR routeId = @ruta)
-    UNION ALL
-    SELECT p.vehicleId, p.estado, @desde AS cuando FROM presencia_log p
-    WHERE p.id IN (
-      SELECT MAX(id) FROM presencia_log
-      WHERE cuando < @desde
-        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
-        AND (@ruta IS NULL OR routeId = @ruta)
-      GROUP BY vehicleId
-    ) AND p.estado = 'ausente'
-    ORDER BY vehicleId, cuando
-  `).all(filtro);
-  const ausenteDe = new Map();
-  const finRango = Math.min(rango.hasta, Date.now());
-  for (let i = 0; i < cambios.length; i++) {
-    const c = cambios[i];
-    if (c.estado !== 'ausente') continue;
-    const sig = cambios[i + 1];
-    const hasta = sig && sig.vehicleId === c.vehicleId ? sig.cuando : finRango;
-    const a = ausenteDe.get(c.vehicleId) || { veces: 0, segundos: 0 };
-    a.veces++;
-    a.segundos += Math.max(0, Math.round((hasta - c.cuando) / 1000));
-    ausenteDe.set(c.vehicleId, a);
-  }
-  const anomaliasPeriodo = db.prepare(`
-    SELECT vehicleId, tipo, COUNT(*) n, SUM(COALESCE(valor, 0)) suma FROM anomalias
-    WHERE cuando BETWEEN @desde AND @hasta
-      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
-      AND (@ruta IS NULL OR routeId = @ruta)
-    GROUP BY vehicleId, tipo
-  `).all(filtro);
-  const anomaliasDe = new Map();
-  for (const a of anomaliasPeriodo) {
-    if (!anomaliasDe.has(a.vehicleId)) anomaliasDe.set(a.vehicleId, {});
-    anomaliasDe.get(a.vehicleId)[a.tipo] = { n: a.n, suma: a.suma };
-  }
-  // El botón de tráfico (T7): cuántas veces lo dijo cada unidad y cuántas de
-  // ésas el servidor NO vio la parada. Un aviso sin parada es una excusa o un
-  // dedo apurado; diez por semana es otra cosa.
-  const avisosPeriodo = db.prepare(`
-    SELECT vehicleId, COUNT(*) avisos, SUM(CASE WHEN medida = 0 THEN 1 ELSE 0 END) sinParada FROM paradas
-    WHERE confirmado = 1 AND startedAt BETWEEN @desde AND @hasta
-      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
-      AND (@ruta IS NULL OR routeId = @ruta)
-    GROUP BY vehicleId
-  `).all(filtro);
-  const traficoDe = new Map(avisosPeriodo.map(a => [a.vehicleId, { avisos: a.avisos, sinParada: a.sinParada }]));
+  // Salidas de ruta, señal, presencia, anomalías, tráfico y entradas tardías
+  // por unidad, en `medirUnidades`: la misma cuenta que lee el perfil del
+  // chofer (REVISION-2026-09-10.md, P3).
+  const medidas = medirUnidades(filtro);
+  const { desviosPeriodo, huecosPeriodo, anomaliasPeriodo, avisosPeriodo,
+          esSalida, desviosDe, senalDe, ausenteDe, anomaliasDe, traficoDe, tardiasDe } = medidas;
 
   const unidades = new Map();
   for (const l of vueltas) {
@@ -5584,14 +5840,6 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       AND (@ruta IS NULL OR s.routeId = @ruta)
     GROUP BY vehicleId
   `).all(filtro).map(r => [r.vehicleId, r.t]));
-  // Entradas a la ruta empezada, contadas: estaban sólo en la auditoría (E13)
-  const tardiasDe = new Map(db.prepare(`
-    SELECT target vehicleId, COUNT(*) n FROM audit
-    WHERE action = 'entrada_tardia' AND timestamp BETWEEN @desde AND @hasta
-      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
-      AND (@ruta IS NULL OR routeId = @ruta)
-    GROUP BY target
-  `).all(filtro).map(r => [r.vehicleId, r.n]));
 
   const rutaDeUnidad = (unitId, ls) => ls.length ? ls[0].routeId
     : (tramosPorUnidad.find(t => t.unitId === unitId) || {}).routeId
@@ -5622,25 +5870,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       desvioSec: (desviosDe.get(unitId) || { segundos: 0 }).segundos,
       desviosAparte: (desviosDe.get(unitId) || { aparte: 0 }).aparte,
       // Señal y presencia (ver TRUCOS-2026-09-10.md)
-      senal: {
-        cortes: (senalDe.get(unitId) || {}).cortes || 0,
-        sinDatos: (senalDe.get(unitId) || {}).sinDatos || 0,
-        noVolvio: (senalDe.get(unitId) || {}).noVolvio || 0,
-        sinSenalSec: (senalDe.get(unitId) || {}).segundos || 0,
-        corteMaxSec: (senalDe.get(unitId) || {}).maxSec || 0,
-        ausencias: (ausenteDe.get(unitId) || {}).veces || 0,
-        ausenteSec: (ausenteDe.get(unitId) || {}).segundos || 0,
-        saltos: ((anomaliasDe.get(unitId) || {}).salto || {}).n || 0,
-        ausenteEnMarcha: ((anomaliasDe.get(unitId) || {}).ausente_en_marcha || {}).n || 0,
-        reloj: ((anomaliasDe.get(unitId) || {}).reloj || {}).n || 0,
-        descartadas: ((anomaliasDe.get(unitId) || {}).descartadas || {}).suma || 0,
-        gpsSimulado: ((anomaliasDe.get(unitId) || {}).gps_simulado || {}).n || 0,
-        gpsSospechoso: ((anomaliasDe.get(unitId) || {}).gps_sospechoso || {}).n || 0,
-        gpsImpreciso: ((anomaliasDe.get(unitId) || {}).gps_impreciso || {}).n || 0,
-        avisosTrafico: (traficoDe.get(unitId) || {}).avisos || 0,
-        avisosSinParada: (traficoDe.get(unitId) || {}).sinParada || 0,
-        entradasTardias: tardiasDe.get(unitId) || 0,
-      },
+      senal: senalDeUnidad(unitId, medidas),
     };
   }).sort((a, b) => b.vueltas - a.vueltas || b.idas - a.idas);
 
@@ -5673,30 +5903,11 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   // ella tenía el turno de chofer en esa combi. Con dos turnos que se pisan
   // (un relevo) gana el que empezó después. Lo que no cae en ningún turno
   // queda sin dueño y se cuenta aparte (`sinAtribuir`), no se inventa.
-  const turnosDeChofer = new Map();   // vehicleId → turnos de chofer, por inicio
-  for (const t of personas) {
-    if (t.role !== 'driver' || !t.vehicleId) continue;
-    if (!turnosDeChofer.has(t.vehicleId)) turnosDeChofer.set(t.vehicleId, []);
-    turnosDeChofer.get(t.vehicleId).push(t);
-  }
-  for (const lista of turnosDeChofer.values()) lista.sort((a, b) => a.startedAt - b.startedAt);
-  const quienManejaba = (vehicleId, cuando) => {
-    const lista = turnosDeChofer.get(vehicleId);
-    if (!lista) return null;
-    let mejor = null;
-    for (const t of lista) {
-      if (t.startedAt > cuando) break;
-      // El turno cerrado por silencio termina en la última señal; la vuelta
-      // que se cerró un minuto después sigue siendo suya (RECONEXION_MS).
-      const fin = (t.endedAt || t.lastSeenAt || Infinity) + RECONEXION_MS;
-      if (fin >= cuando) mejor = t;
-    }
-    return mejor ? mejor.personId : null;
-  };
+  const turnoDe = atribuidorDeVueltas(personas.filter(t => t.role === 'driver' && t.vehicleId));
   let sinAtribuir = 0;
   for (const l of vueltas) {
-    const personId = quienManejaba(l.unitId, l.finishedAt);
-    const p = personId ? porPersona.get(personId) : null;
+    const t = turnoDe(l.unitId, l.finishedAt);
+    const p = t ? porPersona.get(t.personId) : null;
     if (!p) { sinAtribuir++; continue; }
     p.vueltas++;
     if (l.brechaProm !== null) p.brechas.push(l.brechaProm);
@@ -5704,7 +5915,8 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   }
   for (const d of desviosPeriodo) {
     if (!esSalida(d)) continue;
-    const p = porPersona.get(quienManejaba(d.vehicleId, d.startedAt));
+    const t = turnoDe(d.vehicleId, d.startedAt);
+    const p = t ? porPersona.get(t.personId) : null;
     if (p) p.desvios++;
   }
 

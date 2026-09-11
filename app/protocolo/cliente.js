@@ -52,11 +52,13 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // ─── Entrar ────────────────────────────────────────────────
   // Devuelve la sesión completa (token, unitId, vehicleId, routeId…). El
   // token dura 30 días: se guarda en el dispositivo y se reusa.
-  async function entrar(usuario, password) {
+  // `app` es `{ version, versionCode }` del APK (lo lee App.js de la
+  // instalación): el servidor anota quién tiene cuál y contesta qué reparte.
+  async function entrar(usuario, password, app = null) {
     const r = await fetch(servidor + '/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user: usuario, password }),
+      body: JSON.stringify({ user: usuario, password, ...(app ? { app } : {}) }),
     });
     const cuerpo = await r.json().catch(() => ({}));
     if (!r.ok) {

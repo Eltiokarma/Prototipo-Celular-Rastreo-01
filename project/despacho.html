@@ -1827,6 +1827,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                           </span>
                           <span style={{ fontFamily: mono, fontSize: 11, color: u.lastLogin || u.online ? HUD.dim3 : HUD.amber }}>
                             {u.online ? 'conectado' : u.lastLogin ? fmtWhen(u.lastLogin) : 'nunca entró'}
+                            {/* Qué APK tiene (lo declara la app al entrar y en cada envío):
+                                sin esto no se sabe quién tiene cuál cuando un APK cambia
+                                lo que manda (REVISION-2026-09-10.md, P5) */}
+                            {u.appVersionCode ? ` · app ${u.appVersionCode}` : ''}
                           </span>
                           <span style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                             <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setResetPass(''); }}

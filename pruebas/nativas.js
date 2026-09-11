@@ -39,6 +39,7 @@ const ok = (n, c, e) => {
 const SDK = '54';
 const ESPERADO = {
   'expo':              '~54.0.36',
+  'expo-application':  '~7.0.8',
   'expo-asset':        '~12.0.13',
   'expo-audio':        '~1.1.1',
   'expo-battery':      '~10.0.8',

@@ -206,6 +206,9 @@ calle. Suite `renovacion`.
 | `RESPALDO_CONSERVAR` | Cuántos respaldos se guardan antes de rotar (28 ≈ una semana) |
 | `RESPALDO_DIR` | Dónde se guardan (por defecto `respaldos/` junto a la base, adentro del volumen) |
 | `OLVIDAR_MS` | A los cuántos ms se la borra de verdad y se descarta su vuelta en curso (180 000). El número bueno sale de la calle: tres minutos aguantan una llamada o un semáforo largo |
+| `APP_VERSION_ACTUAL` | El `versionCode` del APK que se reparte hoy. La app compara el suyo y avisa «hay una versión nueva». Sin poner, no avisa |
+| `APP_VERSION_MIN` | El `versionCode` más viejo que todavía sirve. Por debajo, la app dice en rojo «esta app ya no sirve». Sin poner, no avisa |
+| `APP_URL` | De dónde bajar el APK; va en el aviso. Opcional |
 
 **Persistencia:** el historial del grupo (últimos 200 mensajes: texto, notas
 de voz y SOS) vive en SQLite (`server/r14.db`). En Railway, para que

@@ -24,11 +24,20 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Application from 'expo-application';
 import { crearVigia } from '../ausencia.js';
 import { crearVigiaDeEnvio, mezclarCola, filtrarEntregadas } from '../envio.js';
 import { crearPedidor } from '../pedido.js';
 import { notificarBrecha, notificarGrabacionPedida, limpiarNotificacion } from '../notificacion.js';
 import { crearGrabador } from '../grabador.js';
+import { cabeceraDeApp } from '../version.js';
+
+// Qué APK es éste, para que el servidor lo anote con cada envío: el que
+// actualizó sin volver a entrar (la sesión dura 30 días) queda al día así.
+const CABECERA_APP = cabeceraDeApp({
+  version: Application.nativeApplicationVersion || null,
+  versionCode: Number(Application.nativeBuildVersion) || null,
+});
 
 export const TAREA_GPS = 'coop-r14-gps';
 
@@ -514,7 +523,7 @@ async function subirAhora(nuevas) {
 
     const r = await pedirConCorte(servidor + '/gps', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...CABECERA_APP },
       body: JSON.stringify({
         posiciones,
         ...(presenciaEfectiva === 'ruta' || presenciaEfectiva === 'ausente'
