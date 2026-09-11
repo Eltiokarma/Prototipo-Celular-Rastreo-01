@@ -65,7 +65,6 @@ app/                La app del chofer, nativa (Expo). El servidor no cambia.
                       GPS, brechas, reconexión y freno de cadencia
   hud.js              Qué mostrarle al chofer a partir de las brechas
   chat.js             Qué mensaje va en qué canal y quién lo firma
-  cola.js             Las posiciones cuando no hay datos
   margenes.js         Dónde terminan las barras de Android, que cambia por
                       teléfono. Un margen fijo dejó el botón de CHAT debajo
                       de los botones del sistema
@@ -96,7 +95,7 @@ herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
                       corre a mano y SOLO al subir la versión de Leaflet; la
                       suite `vendor` falla si alguien se olvida
 
-pruebas/            Sesenta y nueve suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Sesenta y ocho suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -147,7 +146,7 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 
 ```bash
 cd pruebas && npm install    # solo la primera vez
-cd .. && npm test            # las sesenta y nueve suites, ~20 minutos
+cd .. && npm test            # las sesenta y ocho suites, ~20 minutos
 ```
 
 Corren contra el servidor de verdad —levantan el proceso, abren WebSockets,

@@ -1445,7 +1445,7 @@ db.exec(`
     progreso REAL,               -- y en qué punto del circuito
     tramo TEXT,
     confirmado INTEGER NOT NULL DEFAULT 0,   -- 1 si el chofer dijo "tráfico"
-    cierre TEXT                  -- 'movio' | 'chofer' | 'corte' | 'trazado'
+    cierre TEXT                  -- 'movio' | 'chofer' | 'ausente' | 'corte' | 'trazado'
   )
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_paradas_ruta ON paradas (routeId, startedAt)');
@@ -1542,6 +1542,23 @@ db.exec(`
     lat REAL, lng REAL
   );
   CREATE INDEX IF NOT EXISTS idx_anomalias_ruta ON anomalias (routeId, cuando);
+
+  -- La vara de cada ruta, cuando cambia. El objetivo automático se mueve con
+  -- las vueltas y con las unidades que hay en ruta, y laps.objetivoSec
+  -- promete «la vara que regía cuando se cerró esta vuelta». Se cumplía
+  -- salvo en un caso: al vaciar un atraso de horas, las vueltas se cierran
+  -- todas juntas y objetivoDe() se evaluaba con las unidades de AHORA, así
+  -- que se les ponía la vara de ahora (revisión del 10/9, L22). Con esto se
+  -- puede preguntar cuál regía en un momento dado. Una fila por cambio, no
+  -- por cálculo: el suavizado hace que cambie pocas veces por día.
+  CREATE TABLE IF NOT EXISTS objetivo_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    routeId TEXT NOT NULL,
+    cuando INTEGER NOT NULL,
+    objetivoMin REAL NOT NULL,
+    modo TEXT NOT NULL             -- 'auto' | 'manual' | 'esperando'
+  );
+  CREATE INDEX IF NOT EXISTS idx_objetivo_log ON objetivo_log (routeId, cuando);
 `);
 {
   const abiertos = db.prepare(
@@ -1583,8 +1600,17 @@ function anotarAnomalia(vehicleId, routeId, companyId, tipo, { valor = null, det
 
 function registrarPresencia(vehicleId, routeId, companyId, estado, u, cuando = Date.now()) {
   try {
+    // La empresa se saca de la RUTA si no vino: los objetos de `units` no
+    // llevan `companyId`, y todos los que llaman acá le pasan
+    // `u && u.companyId`, así que la columna quedaba siempre en NULL. Hoy no
+    // rompe nada —las lecturas filtran por ruta—, pero cualquier consulta
+    // futura que copie el `WHERE companyId = @empresa` de `/admin/huecos`
+    // habría devuelto vacío para siempre (revisión del 10/9, L19). La ruta es
+    // la fuente de verdad de a quién pertenece cada cosa, igual que en
+    // `abrirHueco`.
+    const empresa = companyId || (routeOf(routeId) || {}).companyId || null;
     db.prepare('INSERT INTO presencia_log (vehicleId, routeId, companyId, estado, cuando, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(vehicleId, routeId, companyId || null, estado, cuando, u?.lat ?? null, u?.lng ?? null);
+      .run(vehicleId, routeId, empresa, estado, cuando, u?.lat ?? null, u?.lng ?? null);
   } catch (e) { console.warn(`No se pudo registrar la presencia de ${vehicleId}: ${e.message}`); }
 }
 
@@ -1656,8 +1682,10 @@ function olvidarParada(vehicleId, cierre, cuando = Date.now()) {
 }
 
 // Se llama con cada posición. `activo` es "confirmada en ruta": fuera de la
-// cadena (yendo, ausente) no hay parada que medir.
-function evaluarParada(vehicleId, routeId, companyId, pos, proy, cuando, activo, fueraDeRuta) {
+// cadena (yendo, ausente) no hay parada que medir. `causaInactiva` es POR QUÉ
+// no está activa —la presencia declarada— y sirve para cerrar el episodio
+// diciendo la verdad (revisión del 10/9, L14).
+function evaluarParada(vehicleId, routeId, companyId, pos, proy, cuando, activo, fueraDeRuta, causaInactiva = null) {
   let r;
   if (!activo) {
     const o = detectorParadas.olvidar(vehicleId);
@@ -1680,6 +1708,21 @@ function evaluarParada(vehicleId, routeId, companyId, pos, proy, cuando, activo,
     console.log(`Parada: ${vehicleId} lleva ${Math.round((cuando - r.desde) / 60000)} min sin avanzar` +
       (proy ? ` al ${Math.round(proy.progreso * 100)} % del circuito` : '') + (traf ? ' (el chofer ya avisó tráfico)' : ''));
   }
+  // Salir de la cadena no es «volvió a andar»: es que se dejó de medir. El
+  // CSV de paradas decía `movio` de una combi que se había declarado ausente
+  // —una causa que no ocurrió— porque con `!activo` el detector devuelve
+  // siempre `cambio: 'termino'` (L14). Y el aviso de tráfico tampoco se
+  // apagaba: con `!activo`, `r.andando` es siempre `false`, así que el que
+  // avisó tráfico y se declaró ausente quedaba con `trafico: true` hasta el
+  // «fuera» o el olvido (L15). Se retira la palabra junto con el hecho.
+  if (!activo) {
+    if (traf) traficos.delete(vehicleId);
+    if (r.cambio === 'termino' || traf) {
+      cerrarParada(vehicleId, causaInactiva === 'ausente' ? 'ausente' : 'corte', cuando);
+    }
+    return { parado: false, desde: null };
+  }
+
   // La palabra del chofer se apaga sola al volver a andar — pasado el minuto
   // de gracia — aunque la parada automática nunca haya llegado a marcarse.
   const seFue = r.cambio === 'termino' || (traf && r.andando && cuando - traf.desde >= TRAFICO_GRACIA_MS);
@@ -2254,6 +2297,13 @@ function podarHistorico() {
   const senalVieja = db.prepare('DELETE FROM huecos WHERE startedAt < ?').run(corteSenal).changes
     + db.prepare('DELETE FROM presencia_log WHERE cuando < ?').run(corteSenal).changes
     + db.prepare('DELETE FROM anomalias WHERE cuando < ?').run(corteSenal).changes;
+  // La vara vieja se poda con las VUELTAS y no con la señal: existe para
+  // poder decir contra qué se juzgó cada vuelta, así que tiene que
+  // sobrevivir tanto como ellas. Se deja siempre la última de cada ruta —la
+  // vigente puede ser de hace meses en una ruta tranquila— porque borrarla
+  // dejaría sin respuesta a toda vuelta anterior a la siguiente.
+  db.prepare(`DELETE FROM objetivo_log WHERE cuando < ? AND id NOT IN
+                (SELECT MAX(id) FROM objetivo_log GROUP BY routeId)`).run(corte);
   if (senalVieja) console.log(`Historial podado: ${senalVieja} fila(s) de señal y presencia`);
   // Los turnos, con su propio plazo (más largo: se liquidan horas con ellos).
   // Sólo los CERRADOS: un turno abierto es alguien que está arriba de la
@@ -2326,6 +2376,19 @@ const presencias = new Map();
 // (REVISION-2026-09-08.md, A5).
 const salidas = new Map();   // vehicleId → hora del último «fuera»
 
+// Por qué puerta entró la última posición de cada combi: 'ws' o 'http'.
+//
+// Existe para poder DECIR una cosa que si no es indistinguible de una falla:
+// el mismo chofer con la web abierta (que manda por WebSocket, sellado con
+// la hora del servidor) y la app en el teléfono (que manda por HTTP, con la
+// hora del aparato) reporta la misma combi por dos canales con dos relojes.
+// Si el reloj del teléfono atrasa aunque sea unos segundos, TODO lo que
+// manda cae en `p.cuando <= conocidaHasta` y vuelve como «ya vista»: 200 con
+// `aceptadas: 0`, para siempre, sin que nada explique por qué (revisión del
+// 10/9, C20). No se cambia quién gana —la posición más nueva es la más
+// nueva— pero se dice qué está pasando, que es lo que faltaba.
+const canalDe = new Map();   // vehicleId → { canal, cuando }
+
 function fijarPresencia(vehicleId, routeId, estado) {
   if (estado === 'fuera') {
     salidas.set(vehicleId, Date.now());
@@ -2389,7 +2452,9 @@ function fijarPresencia(vehicleId, routeId, estado) {
   // marca de antes (ausente → yendo, por ejemplo), se conserva.
   const estabaEnRuta = previa ? previa.enRuta : !!(u && u.lat != null && u.enRuta !== false);
   const perdidaEn = estabaEnRuta ? ((u && u.timestamp) || Date.now()) : (previa && previa.perdidaEn) || null;
-  presencias.set(vehicleId, { estado, enRuta: false, perdidaEn });
+  // `tocadaEn` es sólo para la poda de abajo: sin una hora, este mapa no
+  // tiene forma de saber qué entradas son de combis que ya no existen.
+  presencias.set(vehicleId, { estado, enRuta: false, perdidaEn, tocadaEn: Date.now() });
   registrarPresencia(vehicleId, (u && u.routeId) || routeId, u && u.companyId, estado, u);
   if (estado !== 'ausente') ausenteEnMarcha.delete(vehicleId);
   lapState.delete(vehicleId);
@@ -2410,8 +2475,22 @@ const lapState = new Map();
 // lo que duró el corte.
 function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
   let st = lapState.get(unitId);
+  // La vuelta se mide contra UNA ruta. Si la unidad cambió de ruta a mitad de
+  // camino, lo que venía midiéndose es de la anterior y no se puede cerrar
+  // acá: `lapState` no llevaba `routeId` y no se limpiaba, así que la vuelta
+  // medida sobre A se insertaba con `routeId` = B —con la variante, el
+  // objetivo y el promedio de B— (revisión del 10/9, L16). Se descarta y se
+  // empieza de nuevo: media vuelta repartida entre dos rutas no es una
+  // vuelta de ninguna de las dos. Lo que SÍ se guarda es el tramo terminado,
+  // que lo hace `trackTramo`.
+  if (st && st.routeId !== routeId) {
+    console.log(`Vuelta descartada: ${unitId} cambió de ruta (${st.routeId} → ${routeId}) a mitad de medición`);
+    lapState.delete(unitId);
+    st = null;
+  }
   if (!st) {
     lapState.set(unitId, {
+      routeId,
       lapStart: cuando, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
       // Por dónde arrancó esta medición. Es lo que después decide si la
       // vuelta que se cierre es entera o es el pedazo del que se metió.
@@ -2448,7 +2527,7 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
     // cambia con las unidades que hay en ruta, y dentro de un mes nadie puede
     // reconstruir cuántas había este martes a las 7. Sin ruta no hay objetivo
     // que valga —el progreso vino estimado por el cliente—, y queda NULL.
-    const objetivoSec = routeId ? Math.round(objetivoDe(routeId).min * 60) : null;
+    const objetivoSec = objetivoSecEn(routeId, now);
     // ¿Es una vuelta o es el pedazo del que se metió a mitad de ruta? Se
     // decide por dónde EMPEZÓ a medirse, que es lo único que lo distingue:
     // el final es idéntico en los dos casos.
@@ -2469,6 +2548,7 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
       objetivoCache.delete(routeId);   // hay un dato nuevo: que se recalcule
     }
     lapState.set(unitId, {
+      routeId,
       lapStart: now, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
       // La que arranca ahora SÍ empieza donde termina la anterior: cruzó el
       // inicio del circuito recién, así que nace entera.
@@ -2542,6 +2622,12 @@ function trackTramo(unitId, routeId, proy, cuando = Date.now()) {
   if (!proy || !proy.tramo) return;
   let st = tramoState.get(unitId);
   if (!st || st.routeId !== routeId) {
+    // Cambió de ruta. El tramo que venía haciendo es de la ruta ANTERIOR y
+    // no se puede seguir midiendo acá — pero si ya estaba terminado, es
+    // trabajo hecho y se guarda, igual que hace el olvido. Antes se
+    // descartaba el estado sin mirarlo y una ida completa se perdía en
+    // silencio (revisión del 10/9, L16).
+    if (st) cerrarTramo(unitId, st, cuando);
     tramoState.set(unitId, nuevoTramo(routeId, proy.tramo, proy.progresoTramo, cuando));
     return;
   }
@@ -3879,9 +3965,17 @@ app.post('/gps', (req, res) => {
   // emitido — cero cálculo por pedido — y son ~80 bytes más por respuesta.
   const estado = routeId ? ultimoEstado.get(routeId) : null;
   const g = estado?.gaps?.[vehicleId] || null;
+  // Todo el lote volvió como «ya visto» y lo último que entró vino por el
+  // OTRO canal, recién: es el caso de arriba (C20). Se dice, y el que manda
+  // lo muestra en su diagnóstico en vez de ver ceros sin explicación.
+  const otroCanal = canalDe.get(vehicleId);
+  const porOtroAparato = !nuevas.length && yaVistas > 0 &&
+    otroCanal && otroCanal.canal === 'ws' && ahora - otroCanal.cuando < 60_000;
+  if (nuevas.length) canalDe.set(vehicleId, { canal: 'http', cuando: ahora });
   res.json({
     ok: true, aceptadas: nuevas.length, yaVistas, descartadas: crudas.length - buenas.length, routeId,
     gpsRole: true,
+    ...(porOtroAparato ? { motivo: 'Otro aparato tuyo está reportando esta combi, y sus posiciones son más nuevas' } : {}),
     ...(g ? { brecha: { ...g, objetivoMin: estado.targetGapMin ?? null } } : {}),
     ...(pedirGrabar ? { grabar: true } : {}),
   });
@@ -5061,7 +5155,9 @@ const INFORMES = {
         AND (@ruta IS NULL OR routeId = @ruta)
       ORDER BY startedAt
     `).all(filtro);
-    const COMO_TERMINO = { movio: 'volvió a andar', chofer: 'el chofer retiró el aviso', corte: 'dejó de reportar', trazado: 'le cambiaron el trazado' };
+    const COMO_TERMINO = { movio: 'volvió a andar', chofer: 'el chofer retiró el aviso',
+                           ausente: 'el chofer se declaró ausente', corte: 'dejó de reportar',
+                           trazado: 'le cambiaron el trazado' };
     return {
       nombre: 'paradas',
       cabecera: ['Unidad', 'Ruta', 'Empezó', 'Terminó', 'Minutos', 'Tramo', 'Punto del circuito (%)', 'Lat.', 'Lng.',
@@ -6932,6 +7028,7 @@ wss.on('connection', (ws) => {
       // por dos puertas y sólo una miraba lo que le daban.
       if (!coordenadaValida(msg.lat, msg.lng)) return;
 
+      canalDe.set(vehicleId, { canal: 'ws', cuando: Date.now() });
       anotarPosicion(vehicleId, personId, prof, {
         lat: msg.lat, lng: msg.lng,
         speed: Number.isFinite(msg.speed) && msg.speed >= 0 ? msg.speed : 0,
@@ -7011,20 +7108,22 @@ wss.on('connection', (ws) => {
       const destino = destinoPrivado(prof, msg);
       if (!destino) return;
       const { toVehicleId } = destino;
+      // Un privado va con la ruta de la combi de destino (C19)
+      const rutaDelMensaje = destino.routeId || routeId;
 
       const entry = {
         unitId,
         driverName: prof.driverName || 'Conductor',
         vehicleId: prof.vehicleId || null,
         toVehicleId,
-        routeId,
+        routeId: rutaDelMensaje,
         text: String(msg.text || '').slice(0, 500),
         timestamp: horaDeclarada(msg.timestamp),
       };
       remember({ kind: 'chat', ...entry });
       const payload = { type: 'chat_msg', role: prof.role || 'driver', ...entry };
       if (toVehicleId) {
-        enviarPrivado(routeId, toVehicleId, payload);
+        enviarPrivado(rutaDelMensaje, toVehicleId, payload, ws);
         console.log(`Privado ${prof.role === 'dispatch' ? 'Despacho → ' + toVehicleId : toVehicleId + ' → Despacho'}`);
       } else {
         broadcastToRoute(routeId, payload);
@@ -7046,20 +7145,22 @@ wss.on('connection', (ws) => {
       const destino = destinoPrivado(prof, msg);
       if (!destino) return;
       const { toVehicleId } = destino;
+      // Un privado va con la ruta de la combi de destino (C19)
+      const rutaDelMensaje = destino.routeId || routeId;
 
       const entry = {
         unitId,
         driverName: prof.driverName || 'Conductor',
         vehicleId: prof.vehicleId || null,
         toVehicleId,
-        routeId,
+        routeId: rutaDelMensaje,
         duration: Math.max(1, Math.min(120, Math.round(msg.duration || 0))),
         data,
         timestamp: horaDeclarada(msg.timestamp),
       };
       remember({ kind: 'voice', ...entry });
       const payload = { type: 'voice_msg', role: prof.role || 'driver', ...entry };
-      if (toVehicleId) enviarPrivado(routeId, toVehicleId, payload);
+      if (toVehicleId) enviarPrivado(rutaDelMensaje, toVehicleId, payload, ws);
       else broadcastToRoute(routeId, payload);
     }
 
@@ -7084,20 +7185,22 @@ wss.on('connection', (ws) => {
       const destino = destinoPrivado(prof, msg);
       if (!destino) return;
       const { toVehicleId } = destino;
+      // Un privado va con la ruta de la combi de destino (C19)
+      const rutaDelMensaje = destino.routeId || routeId;
 
       const entry = {
         unitId,
         driverName: prof.driverName || 'Conductor',
         vehicleId: prof.vehicleId || null,
         toVehicleId,
-        routeId,
+        routeId: rutaDelMensaje,
         text: String(msg.text || '').slice(0, 200),   // pie de foto, opcional
         data,
         timestamp: horaDeclarada(msg.timestamp),
       };
       remember({ kind: 'photo', ...entry });
       const payload = { type: 'photo_msg', role: prof.role || 'driver', ...entry };
-      if (toVehicleId) enviarPrivado(routeId, toVehicleId, payload);
+      if (toVehicleId) enviarPrivado(rutaDelMensaje, toVehicleId, payload, ws);
       else broadcastToRoute(routeId, payload);
     }
   };
@@ -7360,20 +7463,35 @@ function destinoPrivado(prof, msg) {
     if (!veh) return null;
     const suya = prof.companyId || empresaBase();
     if ((veh.companyId || empresaBase()) !== suya) return null;
-    return { toVehicleId: destino };
+    // El mensaje se guarda con la ruta DE LA COMBI, no con la que Despacho
+    // está mirando. Un privado a una combi de otra ruta quedaba con la ruta
+    // del emisor, y el historial del chofer —que se filtra por SU ruta— no lo
+    // traía: el mensaje se veía en vivo y desaparecía al reconectar
+    // (revisión del 10/9, C19). Desde la pantalla hoy no se puede elegir una
+    // combi de otra ruta, pero el borde va en el servidor, que es donde
+    // importa.
+    return { toVehicleId: destino, routeId: veh.routeId || null };
   }
   if (msg.to || msg.privado) {
     const propio = prof.vehicleId || null;
     if (!propio) return null;
-    return { toVehicleId: propio };
+    return { toVehicleId: propio, routeId: null };
   }
-  return { toVehicleId: null };
+  return { toVehicleId: null, routeId: null };
 }
 
 // Reparto de un mensaje privado: los que van ARRIBA de ese vehículo (chofer y
-// cobrador) y Despacho mirando esa ruta. Nadie más — ni los otros choferes.
-function enviarPrivado(routeId, toVehicleId, payload) {
+// cobrador), Despacho mirando esa ruta, y SIEMPRE el que lo mandó. Nadie más
+// — ni los otros choferes.
+//
+// Lo del emisor no es un detalle: el mensaje entra al hilo por el eco del
+// servidor, así que sin esto el que escribe no ve lo que escribió. Pasa
+// cuando la ruta del mensaje no es la que el emisor está mirando — un
+// privado de Despacho a una combi de OTRA ruta, que desde el arreglo de C19
+// se guarda y se reparte con la ruta de la combi.
+function enviarPrivado(routeId, toVehicleId, payload, emisorWs = null) {
   const crudo = JSON.stringify(payload);
+  const mandados = new Set();
   for (const [ws, personId] of clients) {
     if (ws.readyState !== 1) continue;
     const prof = profiles.get(personId);
@@ -7382,7 +7500,11 @@ function enviarPrivado(routeId, toVehicleId, payload) {
     const esDespachoDeLaRuta = (prof.role === 'dispatch' || prof.role === 'manager') && watching.get(ws) === routeId;
     if (esDeEsaCombi || esDespachoDeLaRuta) {
       try { ws.send(crudo); } catch {}
+      mandados.add(ws);
     }
+  }
+  if (emisorWs && emisorWs.readyState === 1 && !mandados.has(emisorWs)) {
+    try { emisorWs.send(crudo); } catch {}
   }
 }
 
@@ -7481,7 +7603,12 @@ function objetivoDe(routeId) {
   const ruta = routeOf(routeId);
   const manual = ruta ? ruta.targetGapMin : 2;
   if (!ruta || !ruta.autoTarget) {
-    return { min: manual, modo: 'manual', motivo: null, vueltas: 0, unidades: 0, dia: null };
+    const fijo = { min: manual, modo: 'manual', motivo: null, vueltas: 0, unidades: 0, dia: null };
+    // También se anota: la vara a mano no se mueve sola, pero SE CAMBIA, y
+    // una ruta que pasó de 6 a 4 minutos tiene que poder decir cuál regía en
+    // cada vuelta igual que una automática.
+    anotarObjetivo(routeId, fijo);
+    return fijo;
   }
 
   const previo = objetivoCache.get(routeId);
@@ -7526,7 +7653,46 @@ function objetivoDe(routeId) {
   }
   resultado.calculadoEn = Date.now();
   objetivoCache.set(routeId, resultado);
+  anotarObjetivo(routeId, resultado);
   return resultado;
+}
+
+// Una fila en `objetivo_log` cada vez que la vara CAMBIA, para poder
+// preguntar después cuál regía en un momento dado. No una por cálculo: con
+// el suavizado y `RECALCULO_MS`, el objetivo automático cambia unas pocas
+// veces por día.
+const ultimoObjetivoAnotado = new Map();   // routeId → { min, modo }
+function anotarObjetivo(routeId, o) {
+  if (!routeId || !o) return;
+  const previo = ultimoObjetivoAnotado.get(routeId);
+  if (previo && previo.min === o.min && previo.modo === o.modo) return;
+  // La primera vez de este arranque se compara contra lo último guardado,
+  // para no escribir una fila igual a la anterior en cada reinicio.
+  if (!previo) {
+    const ultima = db.prepare(
+      'SELECT objetivoMin, modo FROM objetivo_log WHERE routeId = ? ORDER BY cuando DESC, id DESC LIMIT 1').get(routeId);
+    if (ultima && ultima.objetivoMin === o.min && ultima.modo === o.modo) {
+      ultimoObjetivoAnotado.set(routeId, { min: o.min, modo: o.modo });
+      return;
+    }
+  }
+  ultimoObjetivoAnotado.set(routeId, { min: o.min, modo: o.modo });
+  db.prepare('INSERT INTO objetivo_log (routeId, cuando, objetivoMin, modo) VALUES (?, ?, ?, ?)')
+    .run(routeId, Date.now(), o.min, o.modo);
+}
+
+// La vara que regía EN UN MOMENTO, en segundos. Es lo que se guarda con cada
+// vuelta, y por eso no puede salir de `objetivoDe()` a secas: al vaciar un
+// atraso de horas las vueltas se cierran todas juntas y todas se llevaban la
+// vara de ahora (revisión del 10/9, L22). Sin historia todavía —una ruta
+// recién dada de alta— vale la de ahora, que es lo único que se sabe.
+function objetivoSecEn(routeId, cuando) {
+  if (!routeId) return null;
+  const fila = db.prepare(
+    'SELECT objetivoMin FROM objetivo_log WHERE routeId = ? AND cuando <= ? ORDER BY cuando DESC, id DESC LIMIT 1')
+    .get(routeId, cuando);
+  if (fila) return Math.round(fila.objetivoMin * 60);
+  return Math.round(objetivoDe(routeId).min * 60);
 }
 
 // El estado es SIEMPRE de una ruta: las unidades de otras rutas no
@@ -7649,6 +7815,7 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     if (!proy || proy.desvioM <= umbral) {
       enRuta = true;
       decl.enRuta = true;
+      decl.tocadaEn = Date.now();
       // POR DÓNDE entró. La confirmación sólo exige pisar el trazado, y el
       // trazado son 20 km: pisarlo en el paradero inicial y pisarlo a mitad
       // de ruta son la misma cuenta y hasta ahora daban el mismo resultado.
@@ -7749,7 +7916,8 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   // estar parado todo lo que quiera.
   const parada = sinJuzgar
     ? (() => { const e = detectorParadas.estadoDe(vehicleId); return { parado: !!e.parado, desde: e.parado ? e.desde : null }; })()
-    : evaluarParada(vehicleId, routeId, prof.companyId || null, pos, proy, cuando, activa, !!(desvio && desvio.fuera));
+    : evaluarParada(vehicleId, routeId, prof.companyId || null, pos, proy, cuando, activa,
+                    !!(desvio && desvio.fuera), decl ? decl.estado : null);
   const traf = traficos.get(vehicleId) || null;
 
   // GPS simulado: Android marcó esta posición como salida de una app de
@@ -7822,7 +7990,15 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
       anotarAnomalia(vehicleId, routeId, prof.companyId, 'ausente_en_marcha',
         { valor: Math.round((cuando - e.desde) / 1000), detalle: 'ausente, moviéndose sobre el trazado', lat: pos.lat, lng: pos.lng, cuando });
     }
-  } else if (ausenteEnMarcha.has(vehicleId) && (!decl || decl.estado !== 'ausente' || (pos.speed || 0) <= AUSENTE_MARCHA_KMH)) {
+  } else if (ausenteEnMarcha.has(vehicleId)) {
+    // CUALQUIER posición que no cumpla lo de arriba reinicia la ventana, no
+    // sólo la que frena o la que deja de estar ausente. Antes la unidad que
+    // se salía del trazado —o la de una ruta sin trazado cargado, donde no
+    // hay `proy`— no entraba ni al `if` ni al `else if`, así que `e.desde`
+    // se conservaba: al volver podía superar `AUSENTE_MARCHA_MS` de una sin
+    // haberse sostenido nunca (revisión del 10/9, L18). Lo que se anota es
+    // «ausente y en marcha SOBRE EL TRAZADO, sostenido»; si deja de verse,
+    // deja de estar sostenido.
     ausenteEnMarcha.delete(vehicleId);
   }
 
@@ -8176,6 +8352,7 @@ setInterval(() => {
         // trazado no se le está cortando ninguna corrida.
         if (decl.enRuta) decl.perdidaEn = unit.timestamp || ahora;
         decl.enRuta = false;
+        decl.tocadaEn = ahora;
         // El ausente que se murió sin volver: la ausencia termina acá, no
         // al fin del rango del resumen (L9).
         if (decl.estado === 'ausente') registrarPresencia(unitId, unit.routeId, unit.companyId, 'olvido', unit, unit.timestamp || ahora);
@@ -8205,9 +8382,45 @@ setInterval(() => {
   for (const [vehicleId, h] of huecosAbiertos) {
     if (!units.has(vehicleId) && ahora - h.startedAt > REANUDA_MS) cerrarHueco(vehicleId, 'no_volvio');
   }
+  podarMapasEnMemoria(ahora);
   // Sin este envío, si todas dejan de reportar el mapa queda congelado
   rutasAfectadas.forEach(r => scheduleStateBroadcast(r, true));
 }, 10_000);
+
+// Los mapas que guardan algo POR VEHÍCULO y no tienen quién los borre.
+//
+// Ninguno crece rápido —una entrada por combi que pasó alguna vez— pero
+// ninguno tenía techo: un servidor de meses con cooperativas que entran y
+// salen acumula entradas de combis que ya no existen, y eso no se nota hasta
+// que se nota (revisión del 10/9, L20). Cada uno se poda con SU plazo, que es
+// el tiempo durante el cual todavía puede hacer falta:
+//
+//   - `salidas`: la hora del último «fuera», contra la que se filtran las
+//     posiciones que llegan atrasadas. Más viejo que `ATRASO_MAXIMO_MS` no
+//     puede filtrar nada: esas posiciones ya se descartan por viejas.
+//   - `presencias`: lo que el chofer declaró. Mientras la combi está en el
+//     mapa no se toca; después, un día — el que vuelve al otro día declara
+//     «ruta» de nuevo, que es lo que hace cada mañana.
+//   - `ultimoSaltoAnotado`, `ultimaDescartadaAnotada`, `ultimaMarca`: son
+//     antirrebotes de una anotación por minuto. Pasada una hora no frenan nada.
+//   - `sosPorHttp`: el cupo de cinco por minuto. Sin marcas vivas, sobra.
+//   - `canalDe`: por qué puerta entró la última posición. Pasada una hora ya
+//     no explica nada de lo que está llegando ahora.
+const PODA_PRESENCIAS_MS = 24 * 3600_000;
+const PODA_ANTIRREBOTE_MS = 3600_000;
+function podarMapasEnMemoria(ahora = Date.now()) {
+  for (const [id, t] of salidas) if (ahora - t > ATRASO_MAXIMO_MS) salidas.delete(id);
+  for (const [id, c] of canalDe) if (ahora - c.cuando > PODA_ANTIRREBOTE_MS) canalDe.delete(id);
+  for (const [id, p] of presencias) {
+    if (!units.has(id) && ahora - (p.tocadaEn || 0) > PODA_PRESENCIAS_MS) presencias.delete(id);
+  }
+  for (const m of [ultimoSaltoAnotado, ultimaDescartadaAnotada, ultimaMarca]) {
+    for (const [id, t] of m) if (ahora - t > PODA_ANTIRREBOTE_MS) m.delete(id);
+  }
+  for (const [id, marcas] of sosPorHttp) {
+    if (!marcas.length || ahora - marcas[marcas.length - 1] > 60_000) sosPorHttp.delete(id);
+  }
+}
 
 // ─── RESPALDO AUTOMÁTICO ─────────────────────────────────────
 // Uno cada RESPALDO_CADA_H horas (6 por defecto) en `respaldos/` junto a la

@@ -6,7 +6,8 @@
 // combi quedaba muda. Un POST no necesita nada vivo del lado del cliente.
 //
 // Y como acepta varias posiciones con su hora, es también lo que le faltaba
-// a `app/cola.js` para poder vaciar el atraso de una zona sin datos.
+// a la cola de la app (`app/envio.js` + `pendientes` en `app/gps/servicio.js`)
+// para poder vaciar el atraso de una zona sin datos.
 const RAIZ = require('path').join(__dirname, '..');
 const S = __dirname;
 const { spawn } = require('child_process');
@@ -82,7 +83,7 @@ async function hasta(cond, ms = 4000) {
   const HG = { 'Content-Type': 'application/json',
     Authorization: 'Bearer ' + await require('./gerente.js')(API, DB) };
   for (const [u, n] of [['M-08', 'Rufino Quispe'], ['M-12', 'Elmer Ccama'], ['M-13', 'Reloj Atrasado'],
-                        ['M-14', 'Reloj Que Sale']]) {
+                        ['M-14', 'Reloj Que Sale'], ['M-15', 'Dos Aparatos']]) {
     await fetch(`${API}/admin/users`, { method: 'POST', headers: HG,
       body: JSON.stringify({ unitId: u, name: n, personRole: 'driver', password: 'clave1234' }) });
   }
@@ -410,6 +411,38 @@ async function hasta(cond, ms = 4000) {
      vuelto.status === 200 && vuelto.body.aceptadas === 1, vuelto.body);
   await sleep(700);
   ok('y la combi vuelve al mapa', !!vista14(), (estado?.units || []).map(u => u.unitId));
+
+  console.log('\nDOS APARATOS DEL MISMO CHOFER: SE DICE, NO SE CALLA');
+  // De la revisión del 10/9 (C20). El mismo chofer con la web abierta —que
+  // manda por WebSocket, sellado con la hora del SERVIDOR— y la app en el
+  // teléfono —que manda por HTTP, con la hora del APARATO— reporta la misma
+  // combi por dos relojes. Si el del teléfono atrasa unos segundos, todo lo
+  // que manda cae en «ya visto» y vuelve 200 con `aceptadas: 0`, para
+  // siempre, sin que nada explique por qué. Lo que se arregló no es quién
+  // gana —la posición más nueva es la más nueva— sino que se pueda saber.
+  {
+    const s15 = await login('M-15', 'clave1234');
+    const wsWeb = new WebSocket(`ws://localhost:${P}`);
+    await new Promise(res => wsWeb.on('open', res));
+    wsWeb.send(JSON.stringify({ type: 'identify', token: s15.token }));
+    await sleep(600);
+    // La web manda por el socket: el servidor le pone SU hora.
+    const p15 = anillo(0.5);
+    wsWeb.send(JSON.stringify({ type: 'gps', lat: p15.lat, lng: p15.lng, speed: 20 }));
+    await sleep(600);
+    // Y el teléfono manda por HTTP con su reloj un poco atrás.
+    const r = await mandar(s15.token, [{ lat: p15.lat, lng: p15.lng, speed: 20, timestamp: Date.now() - 5000 }]);
+    ok('el lote del teléfono vuelve entero como «ya visto»',
+       r.status === 200 && r.body.aceptadas === 0 && r.body.yaVistas === 1, r.body);
+    ok('y el servidor DICE que es otro aparato suyo, en vez de contestar ceros mudos',
+       typeof r.body.motivo === 'string' && /[Oo]tro aparato/.test(r.body.motivo), r.body.motivo);
+    // Con una posición más nueva que la de la web, entra y el motivo se va.
+    const r2 = await mandar(s15.token, [{ lat: p15.lat, lng: p15.lng, speed: 21, timestamp: Date.now() + 2000 }]);
+    ok('y en cuanto manda una más nueva, entra y no hay motivo que dar',
+       r2.body.aceptadas === 1 && r2.body.motivo === undefined, r2.body);
+    wsWeb.close();
+    await sleep(300);
+  }
 
   console.log('\nCERRAR EL SOCKET CON EL HTTP VIVO NO ES QUEDARSE MUDO');
   // De la revisión del 8/9 (L7). La app nativa manda el GPS por HTTP y usa

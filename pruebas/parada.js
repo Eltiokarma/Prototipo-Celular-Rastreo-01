@@ -140,6 +140,32 @@ console.log('\nEL CAMBIO DE VUELTA NO ES MARCHA ATRÁS');
   ok('el salto de 20 000 m a 0 no marca parada', r.parado === false, r);
 }
 
+console.log('\nY SI ESTABA PARADA, EL CAMBIO DE VUELTA CIERRA EL EPISODIO');
+{
+  // Revisión del 10/9, L17. El reinicio por cambio de vuelta vaciaba las
+  // muestras pero dejaba puestos `e.parado` y `e.desde`: el episodio
+  // sobrevivía con el `desde` de la vuelta anterior hasta que la combi
+  // avanzara 100 m, y su duración salía inflada con toda esa vuelta.
+  const d = crearDetectorDeParada();
+  // Cuatro minutos clavada cerca del final del circuito: parada.
+  const clavada = correr(d, { segundos: 240, m0: 19_500 });
+  ok('primero queda parada, como corresponde',
+     clavada.r.parado === true && clavada.cambios.some(c => c.cambio === 'empezo'), clavada.cambios);
+  // Y ahora el circuito vuelve a cero: dio la vuelta entera.
+  const vuelta = d.posicion('M-01', { cuando: T0 + seg(250), recorridoM: 40 });
+  ok('el cambio de vuelta cierra el episodio en el acto',
+     vuelta.parado === false && vuelta.cambio === 'termino', vuelta);
+  ok('y lo cierra con el `desde` de VERDAD, no con el de ahora',
+     vuelta.desde === T0, { desde: vuelta.desde, T0 });
+  ok('la unidad queda sin parada abierta', d.estadoDe('M-01').parado === false, d.estadoDe('M-01'));
+  // Y la muestra del cambio de vuelta NO se pierde: es la primera de la
+  // ventana nueva, así que tres minutos clavada ahí vuelven a ser parada.
+  let r2 = null;
+  for (let s = 260; s <= 440; s += 10) r2 = d.posicion('M-01', { cuando: T0 + seg(s), recorridoM: 40 });
+  ok('y la ventana nueva arranca en el cambio de vuelta, no se pierde esa muestra',
+     r2.parado === true && r2.desde === T0 + seg(250), { desde: r2.desde, esperado: T0 + seg(250) });
+}
+
 console.log('\nCADA UNIDAD POR SU LADO, Y EL OLVIDO');
 {
   const d = crearDetectorDeParada();

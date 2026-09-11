@@ -283,6 +283,45 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   ok('enviadas son las ACEPTADAS por el servidor, y las no usadas se cuentan aparte', /diagnostico\.enviadas \+= Number\.isFinite\(cuerpo\.aceptadas\)/.test(servicio) && /diagnostico\.rechazadas \+= \(cuerpo\.yaVistas \|\| 0\)/.test(servicio));
   ok('y el reloj adelantado llega a la pantalla', /cuerpo\.reloj === 'adelantado'/.test(servicio) && /relojAdelantadoSec/.test(app) && /fecha y hora automáticas/.test(app));
   ok('otro APK más: versionCode 5 o más', config.expo.android.versionCode >= 5, config.expo.android.versionCode);
+
+  // ── Tanda 7 de la revisión del 10/9, por lectura ──────────────────────
+  const notif = fs.readFileSync(RAIZ + '/app/notificacion.js', 'utf8');
+
+  // C14: la segunda implementación de POST /gps en el cliente, borrada
+  ok('no quedó una segunda implementación de POST /gps en el cliente',
+     !/function subirPosiciones/.test(cliente) && !/subirPosiciones,/.test(cliente));
+
+  // C18/P12: `app/cola.js` era una TERCERA cola, muerta y con la cabecera
+  // mintiendo («el servidor no acepta posiciones viejas», que sí acepta).
+  ok('`app/cola.js` no existe: la cola vive en envio.js + `pendientes`',
+     !fs.existsSync(RAIZ + '/app/cola.js') && /mezclarCola\(pendientes, posiciones, TOPE_PENDIENTES\)/.test(servicio));
+
+  // C21: el pedido de grabación de Despacho no se da por cumplido cuando el
+  // chofer aprieta PARAR, sino cuando la grabación llega o se descarta.
+  ok('«grabando» incluye la grabación parada y todavía sin enviar',
+     /grabando: flagGrabando === '1' \|\| archivoGrabacion\?\.exists === true/.test(servicio) &&
+     /FileSystem\.getInfoAsync\(ARCHIVO_GRABACION\(\)\)/.test(servicio));
+
+  // C22: al chofer relevado no se le borra la notificación y ya: se le dice
+  ok('el relevado ve «modo acompañante» en la notificación, no un vacío',
+     /export async function notificarSinRol/.test(notif) && /MODO ACOMPAÑANTE/.test(notif) &&
+     /notificarSinRol\(cuerpo\.motivo\)/.test(servicio));
+  ok('y la reemplaza, no suma una segunda (mismo identificador y canal)',
+     /identifier: ID,[\s\S]{0,400}?MODO ACOMPAÑANTE|MODO ACOMPAÑANTE[\s\S]{0,400}?identifier: ID/.test(notif) ||
+     /notificarSinRol[\s\S]*?identifier: ID/.test(notif));
+
+  // C20: los ceros sin explicación de dos aparatos del mismo chofer
+  ok('el motivo de «no se usó ninguna» llega a la pantalla',
+     /diagnostico\.motivoNoUsadas = cuerpo\.motivo \|\| null/.test(servicio) && /diag\.motivoNoUsadas/.test(app));
+
+  // C10: el chat y la voz dejan de perderse en silencio, y el cupo se dice
+  ok('la pantalla dice por qué no salió el texto y la nota de voz',
+     /el mensaje no salió/.test(app) && /la nota no salió/.test(app));
+  ok('y el cupo por minuto del servidor se muestra', /c\.on\('cupo'/.test(app) && /CUPO_ES/.test(app));
+
+  // C8: el tipo de SOS sale por HTTP con el socket caído
+  ok('el tipo de SOS cae a POST /sos/:id/tipo', /pedirHttp\(`\/sos\/\$\{miUltimoSos\}\/tipo`/.test(cliente));
+  ok('y si no salió, la pantalla lo dice', /no pudo decir QUÉ pasó/.test(app));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

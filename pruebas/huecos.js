@@ -10,6 +10,7 @@
 const RAIZ = require('path').join(__dirname, '..');
 const { spawn } = require('child_process');
 const WebSocket = require(RAIZ + '/server/node_modules/ws');
+const Database = require(RAIZ + '/server/node_modules/better-sqlite3');
 const fs = require('fs');
 
 const S = __dirname;
@@ -59,7 +60,7 @@ let servidor = null;
   const tokenG = await require('./gerente.js')(API, DB);
   const HG = { Authorization: 'Bearer ' + tokenG };
   const ses = {};
-  for (const u of ['M-01', 'M-02', 'M-03']) {
+  for (const u of ['M-01', 'M-02', 'M-03', 'M-04']) {
     await pedir('/admin/users', { method: 'POST', headers: HG,
       body: JSON.stringify({ unitId: u, name: 'Chofer ' + u, password: 'chofer1234' }) });
     ses[u] = await login(u, 'chofer1234');
@@ -160,6 +161,19 @@ let servidor = null;
     ok('con los cortes de M-01 contados, todos sin datos (nunca mandó cola)', u1 && u1.senal.cortes >= 1 && u1.senal.sinDatos === u1.senal.cortes, u1 && u1.senal);
     ok('y su ausencia: una vez, unos segundos', u1 && u1.senal.ausencias === 1 && u1.senal.ausenteSec >= 2 && u1.senal.ausenteSec < 60, u1 && u1.senal);
     ok('y el ausente en marcha', u1 && u1.senal.ausenteEnMarcha === 1);
+    // Revisión del 10/9, L19. `registrarPresencia` recibía `u && u.companyId`
+    // y los objetos de `units` no llevan `companyId`: la columna quedaba
+    // siempre en NULL. Hoy no rompe nada —las lecturas filtran por ruta—,
+    // pero cualquier consulta futura que copie el `WHERE companyId =
+    // @empresa` de `/admin/huecos` habría devuelto vacío para siempre.
+    {
+      const base = new Database(DB, { readonly: true });
+      const filas = base.prepare('SELECT companyId, estado FROM presencia_log').all();
+      base.close();
+      ok('cada cambio de presencia queda con la empresa de su ruta, no en NULL',
+         filas.length > 0 && filas.every(f => !!f.companyId),
+         { filas: filas.length, sinEmpresa: filas.filter(f => !f.companyId).map(f => f.estado) });
+    }
     const u2 = (r.porUnidad || []).find(u => u.unitId === 'M-02');
     ok('el de M-02 fue de red: al menos un corte con datos recuperados', u2 && u2.senal.cortes >= 1 && u2.senal.sinDatos < u2.senal.cortes, u2 && { senal: u2.senal, anomalias: (await anomalias()).filter(a => a.vehicleId === 'M-02') });
     const u3 = (r.porUnidad || []).find(u => u.unitId === 'M-03');
@@ -193,6 +207,42 @@ let servidor = null;
     const r = await resumen();
     const u3 = (r.porUnidad || []).find(u => u.unitId === 'M-03');
     ok('y el resumen lo cuenta como corte que no volvió', u3 && u3.senal.noVolvio === 1, u3 && u3.senal);
+  }
+
+  // Va al FINAL de la suite a propósito: el bloque de los huecos de más
+  // arriba mide contra el olvido (15 s) con un margen de cuatro segundos, y
+  // éste suma varios en sus esperas. Puesto antes, hacía que el hueco de
+  // M-02 se cerrara por olvido en vez de por el «fuera».
+  console.log('\nY LO QUE NO SE SOSTUVO NO SE ANOTA');
+  // Revisión del 10/9, L18. Lo que se anota es «ausente y en marcha SOBRE EL
+  // TRAZADO, sostenido». La unidad que se salía del trazado no entraba ni al
+  // `if` ni al `else if`, así que el `desde` se conservaba: al volver podía
+  // superar el plazo de una sin haberse sostenido nunca. Un rato adentro, un
+  // rato afuera y otro rato adentro, cada tramo por debajo del plazo, no es
+  // haberlo sostenido.
+  {
+    // 700 m al costado del anillo: fuera del recorrido, pero cerca — un salto
+    // de kilómetros sería otra anomalía distinta.
+    const afuera = (t) => { const q = anillo(t); return { lat: q.lat + gr * 700, lng: q.lng }; };
+    await presencia('M-04', 'ausente');
+    await sleep(300);
+    for (let i = 0; i < 2; i++) { await gps('M-04', 0.20 + i * 0.001); await sleep(400); }
+    const f = afuera(0.203);
+    await pedir('/gps', { method: 'POST', headers: { Authorization: 'Bearer ' + ses['M-04'].token },
+      body: JSON.stringify({ posiciones: [{ lat: f.lat, lng: f.lng, speed: 20, timestamp: Date.now() }] }) });
+    await sleep(400);
+    for (let i = 0; i < 2; i++) { await gps('M-04', 0.205 + i * 0.001); await sleep(400); }
+    await sleep(500);
+    const a4 = (await anomalias()).filter(x => x.tipo === 'ausente_en_marcha' && x.vehicleId === 'M-04');
+    ok('salirse del trazado en el medio reinicia la cuenta: no se anota nada', a4.length === 0, a4);
+    // Y si DESPUÉS se sostiene de verdad, sí se anota: lo que se arregló es
+    // la cuenta, no la detección.
+    for (let i = 0; i < 6; i++) { await gps('M-04', 0.21 + i * 0.001); await sleep(400); }
+    await sleep(500);
+    const a4b = (await anomalias()).filter(x => x.tipo === 'ausente_en_marcha' && x.vehicleId === 'M-04');
+    ok('y sostenido de verdad sí se anota', a4b.length === 1, a4b);
+    await presencia('M-04', 'ruta');
+    await sleep(300);
   }
 
   console.log(fallas === 0 ? '\nTODO EN ORDEN\n' : `\n${fallas} FALLA(S)\n`);

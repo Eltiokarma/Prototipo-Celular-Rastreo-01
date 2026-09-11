@@ -29,7 +29,7 @@ const Database = require(RAIZ + '/server/node_modules/better-sqlite3');
 const fs = require('fs');
 
 const DB = S + '/trabas-test.db';
-const P = 3197;
+const P = 3200;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 let fallas = 0;

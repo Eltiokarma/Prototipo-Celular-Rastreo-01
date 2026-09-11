@@ -239,6 +239,49 @@ const avanzando = (t0, metros, n, desdeMs, pasoMs = 500) =>
     ok('sin sesión, 401', r3 === 401, r3);
   }
 
+  console.log('\nDECLARARSE AUSENTE NO ES «VOLVIÓ A ANDAR»');
+  // Revisión del 10/9, L14 y L15. Con la unidad fuera de la cadena el
+  // detector devuelve siempre `cambio: 'termino'`, así que el episodio se
+  // cerraba como `movio` —una causa que NO ocurrió, y el CSV la afirmaba—; y
+  // como con `!activo` el detector nunca dice `andando`, el aviso de tráfico
+  // del que se declaraba ausente quedaba encendido hasta el «fuera» o el
+  // olvido.
+  {
+    // M-12 vuelve a trabarse, en un punto nuevo, y lo confirma. Dos cuidados
+    // que no son del arreglo sino de cómo se siembra: las posiciones nuevas
+    // tienen que ser POSTERIORES a la última que el servidor ya tiene (si no
+    // vuelven como «ya vistas» y no se procesan), y hace falta una andando
+    // que la vuelva a confirmar en ruta después de la ausencia de más arriba
+    // —hasta que no está en la cadena no se la mide y la ventana no arranca—.
+    const t0 = (vista()?.timestamp || Date.now() - 9000) + 500;
+    await post('/gps', s12.token, { posiciones: avanzando(0.38, 200, 2, t0) });
+    await sleep(400);
+    const t = t0 + 1500;
+    await post('/gps', s12.token, { posiciones: quieto(0.40, 5, t) });
+    await sleep(400);
+    await post('/gps', s12.token, { posiciones: quieto(0.40, 4, t + 2500) });
+    await sleep(500);
+    ok('queda parada otra vez', vista()?.parado === true, vista()?.parado);
+    await post('/trafico', s12.token, { activo: true });
+    await sleep(400);
+    ok('y con el aviso del chofer puesto', vista()?.trafico === true, vista());
+
+    // Se declara ausente: se va de la cadena sin haberse movido.
+    await post('/presencia', s12.token, { estado: 'ausente' });
+    await post('/gps', s12.token, { posiciones: quieto(0.40, 2, (vista()?.timestamp || Date.now()) + 500) });
+    await sleep(600);
+    ok('el aviso de tráfico se apaga con la ausencia, no queda encendido',
+       vista()?.trafico === false, vista());
+    ok('y la parada tampoco queda abierta', vista()?.parado === false, vista()?.parado);
+    const db3 = new Database(DB, { readonly: true });
+    const fila = db3.prepare("SELECT * FROM paradas WHERE vehicleId = 'M-12' ORDER BY id DESC LIMIT 1").get();
+    db3.close();
+    ok('el episodio se cierra diciendo la verdad: «ausente», no «movio»',
+       fila && fila.cierre === 'ausente', fila && { cierre: fila.cierre, confirmado: fila.confirmado });
+    await post('/presencia', s12.token, { estado: 'ruta' });
+    await sleep(300);
+  }
+
   console.log('\nLOS EPISODIOS SE PUEDEN LEER');
   {
     const r = await fetch(API + '/admin/paradas?dias=7', { headers: H }).then(async x => ({ status: x.status, body: await x.json() }));

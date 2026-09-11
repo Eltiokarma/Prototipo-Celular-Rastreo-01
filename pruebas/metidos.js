@@ -46,9 +46,14 @@ let servidor = null;
            // segundo (en producción, los primeros minutos tras un reinicio
            // no se juzgan — ver presencia.js).
            ARRANQUE_GRACIA_MS: '0' },
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  servidor.stderr.on('data', d => process.stderr.write('[srv] ' + d));
+  // El log del servidor, para poder afirmar lo que NO deja rastro en la base:
+  // una vuelta descartada no inserta nada, y «no hay fila» también es lo que
+  // se ve cuando la medición nunca arrancó.
+  let salida = '';
+  servidor.stdout.on('data', d => { salida += d; });
+  servidor.stderr.on('data', d => { salida += d; process.stderr.write('[srv] ' + d); });
   for (let i = 0; i < 80; i++) { await sleep(250); try { await fetch(API + '/ping'); break; } catch {} }
 
   const pedir = (ruta, opts = {}) => fetch(API + ruta, {
@@ -234,6 +239,92 @@ let servidor = null;
     const met1 = p1.body.metricas || {};
     ok('el que se metió ve su vuelta entera', met1.vueltas >= 1, met1.vueltas);
     ok('y su parcial contada aparte', met1.parciales === 1, met1.parciales);
+  }
+
+  console.log('\nCAMBIAR DE RUTA A MITAD DE VUELTA NO MEZCLA LAS DOS');
+  // Revisión del 10/9, L16. `lapState` no llevaba `routeId` y no se limpiaba
+  // al cambiar de ruta: la vuelta medida sobre A se insertaba con la ruta B
+  // —y con la variante, el objetivo y el promedio de B—. Y `trackTramo` sí
+  // lo detectaba, pero descartaba el estado sin mirarlo: una ida completa se
+  // perdía en silencio.
+  {
+    const { execFileSync } = require('child_process');
+    execFileSync('node', [RAIZ + '/server/empresa.js', 'ruta', 'R14', 'R-20', 'La otra ruta'],
+      { env: { ...process.env, DB_FILE: DB }, encoding: 'utf8' });
+    // Con el mismo trazado, para que en las dos haya progreso que medir
+    await pedir('/admin/routes/R-20/points', {
+      method: 'PUT', headers: HD, body: JSON.stringify({ tramos: { ida, vuelta } }),
+    });
+    await pedir('/admin/users', { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: 'M-03', name: 'Chofer M-03', personRole: 'driver', password: 'chofer1234' }) });
+    const s3 = await login('M-03', 'chofer1234');
+    await presencia(s3, 'ruta');
+    // La IDA ENTERA en R-14, y la vuelta arrancada: eso es lo que está a
+    // medio medir cuando lo cambian de ruta.
+    await recorrer(s3, [0.02, 0.15, 0.35, 0.55, 0.75, 0.9, 0.99]);
+    await recorrer(s3, [0.9, 0.8, 0.7]);
+    await sleep(400);
+    const tramosAntes = legsDe('M-03').length;
+    const desdeAca = salida.length;
+
+    // Lo pasan a la otra ruta. Se re-identifica por WebSocket, que es el
+    // camino por el que la unidad cambia de ruta en vivo.
+    const escritura = new Database(DB);
+    escritura.prepare("UPDATE users SET routeId = 'R-20' WHERE unitId = 'M-03'").run();
+    escritura.close();
+    const s3b = await login('M-03', 'chofer1234');
+    const ws3 = new WebSocket(`ws://localhost:${P}`);
+    await new Promise(r2 => ws3.on('open', r2));
+    ws3.send(JSON.stringify({ type: 'identify', token: s3b.token }));
+    await sleep(600);
+    await recorrer(s3b, [0.6, 0.5, 0.4]);
+    await sleep(600);
+
+    const tramos3 = legsDe('M-03');
+    ok('la ida terminada en la ruta anterior NO se pierde', tramos3.length === tramosAntes + 1,
+       { antes: tramosAntes, ahora: tramos3.length, tramos: tramos3.map(t => `${t.leg}@${t.routeId}`) });
+    ok('y queda guardada con la ruta en la que se hizo, no con la nueva',
+       tramos3.length > 0 && tramos3[tramos3.length - 1].routeId === 'R-14',
+       tramos3.map(t => `${t.leg}@${t.routeId}`));
+    ok('y la vuelta a medio medir se descarta en vez de cerrarse con la ruta nueva',
+       /Vuelta descartada: M-03 cambió de ruta \(R-14 → R-20\)/.test(salida.slice(desdeAca)),
+       salida.slice(desdeAca).split('\n').filter(l => /M-03/.test(l)).slice(0, 4));
+    ok('ninguna vuelta de M-03 quedó anotada contra la ruta equivocada',
+       lapsDe('M-03').every(l => l.routeId === 'R-14'), lapsDe('M-03').map(l => l.routeId));
+    ws3.close();
+  }
+
+  console.log('\nLA VARA DE LA VUELTA ES LA QUE REGÍA, NO LA DE AHORA');
+  // Revisión del 10/9, L22. `laps.objetivoSec` promete «la vara que regía
+  // cuando se cerró esta vuelta», y se evaluaba con `Date.now()` y las
+  // unidades del momento del replay: al vaciar un atraso de horas, todas las
+  // vueltas se llevaban la vara de ahora. Ahora el objetivo se anota cada vez
+  // que cambia (`objetivo_log`) y la vuelta se lleva la de SU momento.
+  {
+    const HACE_2H = Date.now() - 2 * 3600_000;
+    const escritura = new Database(DB);
+    // La vara que regía hace tres horas: 6 minutos. La de ahora, 2.
+    escritura.prepare('INSERT INTO objetivo_log (routeId, cuando, objetivoMin, modo) VALUES (?, ?, ?, ?)')
+      .run('R-14', Date.now() - 3 * 3600_000, 6, 'manual');
+    escritura.prepare("UPDATE routes SET autoTarget = 0, targetGapMin = 2 WHERE routeId = 'R-14'").run();
+    escritura.close();
+
+    await pedir('/admin/users', { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: 'M-05', name: 'Chofer M-05', personRole: 'driver', password: 'chofer1234' }) });
+    const s5 = await login('M-05', 'chofer1234');
+    await presencia(s5, 'ruta');
+    // Un atraso de dos horas que llega de golpe: el circuito entero en un
+    // solo envío, con la hora REAL de cada posición.
+    const fracs = [0.02, 0.15, 0.35, 0.55, 0.75, 0.9, 0.99, 0.9, 0.7, 0.5, 0.3, 0.1, 0.02, 0.06, 0.2];
+    await pedir('/gps', { method: 'POST', headers: { Authorization: 'Bearer ' + s5.token },
+      body: JSON.stringify({ posiciones: fracs.map((f, i) => ({
+        lat: LAT0 + g * f, lng: LNG, speed: 20, timestamp: HACE_2H + i * 60_000 })) }) });
+    await sleep(800);
+
+    const ls5 = lapsDe('M-05').filter(l => l.parcial === 0);
+    ok('el atraso cierra su vuelta igual', ls5.length >= 1, lapsDe('M-05').map(l => l.parcial));
+    ok('y se la juzga con la vara que regía entonces (6 min), no con la de ahora (2)',
+       ls5.length >= 1 && ls5[0].objetivoSec === 360, ls5[0] && ls5[0].objetivoSec);
   }
 
   console.log('\nEL INFORME DE MEDIAS VUELTAS EXISTE Y SALE');

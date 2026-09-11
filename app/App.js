@@ -981,6 +981,12 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
             hay que ver cuando "último hace" crece y no hay ningún error. */}
         {diag.enVueloDesde ? ` · enviando hace ${Math.round((Date.now() - diag.enVueloDesde) / 1000)}s` : ''}
       </Text>
+      {/* Por qué no se usó ninguna. El caso real: la web abierta y la app en
+          el teléfono reportando la misma combi, cada una con su reloj — sin
+          esto son ceros sin explicación (REVISION-2026-09-10.md, C20). */}
+      {diag.motivoNoUsadas && (
+        <Text style={[s.diagnostico, { color: C.ambar }]}>{diag.motivoNoUsadas}</Text>
+      )}
       {/* Los motivos, con su cuenta. Es lo que dice DÓNDE está el problema:
           "sin red" es el teléfono, un HTTP 4xx es el servidor rechazando. */}
       {Object.keys(diag.motivos || {}).length > 0 && (

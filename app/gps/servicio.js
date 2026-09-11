@@ -28,7 +28,7 @@ import * as Application from 'expo-application';
 import { crearVigia } from '../ausencia.js';
 import { crearVigiaDeEnvio, mezclarCola, filtrarEntregadas } from '../envio.js';
 import { crearPedidor } from '../pedido.js';
-import { notificarBrecha, notificarGrabacionPedida, limpiarNotificacion } from '../notificacion.js';
+import { notificarBrecha, notificarGrabacionPedida, notificarSinRol, limpiarNotificacion } from '../notificacion.js';
 import { crearGrabador } from '../grabador.js';
 import { cabeceraDeApp } from '../version.js';
 
@@ -79,6 +79,7 @@ export const diagnostico = {
   // se contaban como enviadas y el diagnóstico decía «todo bien» con la
   // combi invisible (REVISION-2026-09-10.md, C13).
   rechazadas: 0,
+  motivoNoUsadas: null,
   // El servidor dijo que el reloj del teléfono está adelantado N segundos y
   // descartó todo: la pantalla lo muestra, porque el chofer no tiene otra
   // forma de enterarse (C5).
@@ -375,6 +376,7 @@ export function limpiarSesion() {
   diagnostico.detenidoPor = null;
   diagnostico.sesionRechazada = false;
   diagnostico.rechazadas = 0;
+  diagnostico.motivoNoUsadas = null;
   diagnostico.relojAdelantadoSec = null;
   descartarGrabacion().catch(() => {});
 }
@@ -457,11 +459,14 @@ async function subirAhora(nuevas) {
   const gen = generacion;
   const guardarSiSigue = (p) => { if (gen === generacion) guardar(p); };
   try {
-    const [crudo, servidor, presencia, flagGrabando] = await Promise.all([
+    const [crudo, servidor, presencia, flagGrabando, archivoGrabacion] = await Promise.all([
       SecureStore.getItemAsync(LLAVE_SESION),
       SecureStore.getItemAsync(LLAVE_SERVIDOR),
       SecureStore.getItemAsync(LLAVE_PRESENCIA).catch(() => null),
       SecureStore.getItemAsync(LLAVE_GRABANDO).catch(() => null),
+      // Una grabación PARADA y todavía sin enviar: el archivo sigue ahí.
+      // Ver abajo por qué importa.
+      FileSystem.getInfoAsync(ARCHIVO_GRABACION()).catch(() => null),
     ]);
     if (!crudo || !servidor || !JSON.parse(crudo)?.token) {
       guardarSiSigue(posiciones);
@@ -531,7 +536,17 @@ async function subirAhora(nuevas) {
         // Si se está grabando, para que un pedido de Despacho (4.5) se dé
         // por levantado; si no, para que el servidor sepa que la grabación
         // que pidió ya terminó. Un booleano explícito en cada envío.
-        grabando: flagGrabando === '1',
+        //
+        // «Grabando» incluye la grabación PARADA que todavía no se envió.
+        // `pararGrabacion()` borra el flag ANTES del `POST /grabacion`, así
+        // que con el envío fallado —mala señal, justo lo normal en la calle—
+        // el siguiente `POST /gps` mandaba `grabando: false`, el servidor
+        // daba el pedido por cumplido y borraba la fila: Despacho veía el
+        // pedido cumplido y no llegaba nada nunca, mientras la app decía «la
+        // grabación quedó guardada, probá ENVIAR de nuevo» (revisión del
+        // 10/9, C21). El pedido se levanta cuando la grabación LLEGA o
+        // cuando el chofer la descarta, no cuando se aprieta parar.
+        grabando: flagGrabando === '1' || archivoGrabacion?.exists === true,
       }),
     }, control);
     if (r.ok) {
@@ -548,7 +563,10 @@ async function subirAhora(nuevas) {
         diagnostico.servicio = 'detenido: sin rol de GPS';
         pendientes = [];
         diagnostico.enEspera = 0;
-        limpiarNotificacion().catch(() => {});
+        // La notificación no se borra: se REEMPLAZA por la que dice qué pasó.
+        // Borrarla dejaba la última brecha vista como lo último que el chofer
+        // sabe, sin nada que la desmienta (C22).
+        notificarSinRol(cuerpo.motivo).catch(() => {});
         try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
         return;
       }
@@ -556,6 +574,9 @@ async function subirAhora(nuevas) {
       // se cuenta aparte (C13). Un servidor viejo no manda `aceptadas`.
       diagnostico.enviadas += Number.isFinite(cuerpo.aceptadas) ? cuerpo.aceptadas : posiciones.length;
       diagnostico.rechazadas += (cuerpo.yaVistas || 0) + (cuerpo.descartadas || 0);
+      // Por qué no se usó nada: hoy el único motivo es «otro aparato tuyo
+      // está reportando esta combi» (C20). Se limpia en cuanto entra algo.
+      diagnostico.motivoNoUsadas = cuerpo.motivo || null;
       diagnostico.relojAdelantadoSec = null;
       diagnostico.ultimoEnvio = Date.now();
       diagnostico.ultimoError = null;

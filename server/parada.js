@@ -84,8 +84,17 @@ function crearDetectorDeParada({
     }
     const ultima = e.muestras[e.muestras.length - 1];
     if (ultima && ultima.m - recorridoM > SALTO_ATRAS_M) {
-      // Cambió de vuelta (el circuito volvió a cero): ventana nueva
-      e.muestras = [];
+      // Cambió de vuelta (el circuito volvió a cero): ventana nueva. Y si
+      // estaba marcada como parada, el episodio TERMINA acá: la ventana que
+      // lo sostenía se vació, y para que el recorrido vuelva a cero la combi
+      // tuvo que dar el circuito entero. Antes sólo se vaciaban las muestras
+      // —`e.parado` y `e.desde` quedaban puestos—, así que el episodio
+      // sobrevivía con el `desde` de la vuelta anterior hasta que avanzara
+      // 100 m, y su duración salía inflada con toda esa vuelta
+      // (REVISION-2026-09-10.md, L17).
+      const r = terminar(vehicleId, e, cuando);
+      e.muestras.push({ t: cuando, m: recorridoM });
+      return r;
     }
     if (ultima && cuando - ultima.t > paradaMs) {
       // Un hueco de datos más largo que la ventana: no se puede sostener una
