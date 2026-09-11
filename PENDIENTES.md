@@ -290,8 +290,17 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
 - [ ] Cargar el recorrido real con el trazador.
 - [ ] **`TZ=America/Lima` en las variables del despliegue** — sin eso la
       vigencia semanal de variantes (3.9) cambia de recorrido el sábado a
-      las 19:00 en vez del domingo a medianoche. El servidor lo avisa en el
-      arranque si detecta la combinación.
+      las 19:00 en vez del domingo a medianoche, y «hoy», los días de la
+      tendencia y las horas de los CSV van con cinco horas de corrimiento.
+      Desde el 10/9 el servidor lo avisa SIEMPRE al arrancar si corre en UTC
+      (revisión del 10/9, E14; suite `numeros`).
+- [ ] **`APP_VERSION_ACTUAL` cuando se reparta el APK 5** — es el
+      `versionCode` que se está repartiendo (5). Con eso el chofer que tiene
+      uno viejo ve «hay una versión nueva» en su pantalla, y Despacho ve la
+      versión de cada teléfono en Unidades. `APP_VERSION_MIN` (el más viejo
+      que todavía sirve; por debajo la app lo dice en rojo) y `APP_URL` (de
+      dónde bajarlo) son opcionales. Sin ninguna de las tres, la app no
+      avisa nada — no se inventa un número (revisión del 10/9, P5).
 - [ ] **Conectar el dominio** — `microstempo.com` ya está comprado (3/9),
       con `soporte@microstempo.com` andando. Los pasos DNS, las variables
       (`DOMINIO_LANDING`, `CONTACTO_PRIVACIDAD=soporte@microstempo.com`) y

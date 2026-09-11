@@ -1165,8 +1165,11 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
 > marcarse ausente— están en `TRUCOS-2026-09-10.md`, con qué se ve, qué se
 > detecta y qué no se va a impedir. La revisión del 10/9 —lógica,
 > comunicación entre dispositivos, el perfil del chofer y las estadísticas
-> del gerente— está en `REVISION-2026-09-10.md`; lo primero que señala son
-> **las horas**, que hoy se calculan de cuatro formas distintas.
+> del gerente— está en `REVISION-2026-09-10.md`; lo primero que señalaba eran
+> **las horas**, que se calculaban de cuatro formas distintas. De sus 77
+> hallazgos se arreglaron 45 en cinco tandas (10 y 11/9); **qué quedó abierto,
+> y qué hay que probar en la calle con el APK 5, está en la sección «Estado al
+> cerrar» del final de ese mismo archivo**.
 
 ### Lo que se cerró en la revisión del 8/8
 
