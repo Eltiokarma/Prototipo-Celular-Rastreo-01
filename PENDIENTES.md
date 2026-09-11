@@ -450,6 +450,31 @@ apareció midiendo —**la palabra al lado del color**— también (3.2), y la q
 salió de usar el SOS en un teléfono de verdad —**el tipo de emergencia**—
 quedó cerrada el 6/8 (ver 3.1).
 
+### Una decisión pendiente, y es de alcance: EL LEGAJO
+
+Salió de la revisión del 10/9 y no es un bug: es algo que el sistema **no
+guarda a propósito hasta que alguien decida que sí**. Hoy `users` tiene
+`unitId`, nombre, alias, rol, ruta, empresa y vehículo; `vehicles` tiene
+código, `label`, ruta y empresa. No hay **DNI, teléfono, brevete y su
+vencimiento, ni contacto de emergencia** de la persona; ni **placa como campo
+propio, SOAT, revisión técnica, permiso de ruta ni propietario** de la combi.
+
+El propio texto del alta dice «el vehículo es un ACTIVO: placa, permiso de
+ruta, seguro» y no guarda ninguno de los tres. Para una cooperativa real, sin
+eso no hay legajo.
+
+**Por qué está acá y no hecho:** guardar DNI y brevete es empezar a guardar
+datos personales de terceros, con lo que eso trae (quién los ve, cuánto se
+conservan, qué pasa cuando alguien se va). Es una decisión del dueño del
+producto, no del que escribe el código.
+
+**Si se toma, es una tanda sola:** columnas nuevas en `users` y `vehicles`,
+los campos en el alta y en la corrección de identidad, una ficha en Despacho,
+y los vencimientos en Números (que es lo que de verdad se quiere: saber a
+quién se le vence el brevete el mes que viene). Detalle en
+`REVISION-2026-09-10.md`, «lo que la base no sabe de la gente ni de las
+combis».
+
 ---
 
 ## Lo que quedó afuera del rediseño, y por qué
