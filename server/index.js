@@ -5653,6 +5653,26 @@ function medirUnidades(filtro) {
     GROUP BY vehicleId
   `).all(f);
   const traficoDe = new Map(avisosPeriodo.map(a => [a.vehicleId, { avisos: a.avisos, sinParada: a.sinParada }]));
+  // Y las paradas que MIDIÓ EL SERVIDOR, las haya avisado el chofer o no.
+  // La consulta de arriba lleva `confirmado = 1`: son los avisos del botón de
+  // tráfico. Un embotellamiento real que el chofer no avisó —`medida = 1,
+  // confirmado = 0`— no aparecía en ninguna tarjeta ni columna, que es
+  // justamente lo que se quiere ver para saber dónde se traba la ruta
+  // (REVISION-2026-09-10.md, E10). El aviso del chofer sin parada medida
+  // sigue contándose aparte, en `traficoDe`: son dos cosas distintas.
+  const paradasPeriodo = db.prepare(`
+    SELECT vehicleId, COUNT(*) veces, SUM(COALESCE(durationSec, 0)) segundos,
+           MAX(COALESCE(durationSec, 0)) maxSec,
+           SUM(CASE WHEN confirmado = 1 THEN 1 ELSE 0 END) avisadas
+    FROM paradas
+    WHERE medida = 1 AND startedAt BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+      AND (@veh IS NULL OR vehicleId = @veh)
+    GROUP BY vehicleId
+  `).all(f);
+  const paradasDe = new Map(paradasPeriodo.map(p => [p.vehicleId,
+    { veces: p.veces, segundos: p.segundos, maxSec: p.maxSec, avisadas: p.avisadas }]));
   // Entradas a la ruta empezada, contadas: estaban sólo en la auditoría (E13)
   const tardiasDe = new Map(db.prepare(`
     SELECT target vehicleId, COUNT(*) n FROM audit
@@ -5662,8 +5682,8 @@ function medirUnidades(filtro) {
       AND (@veh IS NULL OR target = @veh)
     GROUP BY target
   `).all(f).map(r => [r.vehicleId, r.n]));
-  return { desviosPeriodo, huecosPeriodo, anomaliasPeriodo, avisosPeriodo,
-           esSalida, desviosDe, senalDe, ausenteDe, anomaliasDe, traficoDe, tardiasDe };
+  return { desviosPeriodo, huecosPeriodo, anomaliasPeriodo, avisosPeriodo, paradasPeriodo,
+           esSalida, desviosDe, senalDe, ausenteDe, anomaliasDe, traficoDe, tardiasDe, paradasDe };
 }
 
 // El bloque `senal` de una unidad, con lo que midió `medirUnidades`
@@ -5672,6 +5692,7 @@ function senalDeUnidad(unitId, m) {
   const a = m.anomaliasDe.get(unitId) || {};
   const au = m.ausenteDe.get(unitId) || {};
   const tr = m.traficoDe.get(unitId) || {};
+  const pa = m.paradasDe.get(unitId) || {};
   return {
     cortes: s.cortes || 0,
     sinDatos: s.sinDatos || 0,
@@ -5689,6 +5710,13 @@ function senalDeUnidad(unitId, m) {
     gpsImpreciso: (a.gps_impreciso || {}).n || 0,
     avisosTrafico: tr.avisos || 0,
     avisosSinParada: tr.sinParada || 0,
+    // Las paradas MEDIDAS por el servidor, las haya avisado el chofer o no
+    // (E10). `paradasAvisadas` son las que además llevan el botón de tráfico:
+    // la resta es el embotellamiento que nadie contó.
+    paradas: pa.veces || 0,
+    paradasSec: pa.segundos || 0,
+    paradaMaxSec: pa.maxSec || 0,
+    paradasAvisadas: pa.avisadas || 0,
     entradasTardias: m.tardiasDe.get(unitId) || 0,
   };
 }
@@ -5893,7 +5921,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   // por unidad, en `medirUnidades`: la misma cuenta que lee el perfil del
   // chofer (REVISION-2026-09-10.md, P3).
   const medidas = medirUnidades(filtro);
-  const { desviosPeriodo, huecosPeriodo, anomaliasPeriodo, avisosPeriodo,
+  const { desviosPeriodo, huecosPeriodo, anomaliasPeriodo, avisosPeriodo, paradasPeriodo,
           esSalida, desviosDe, senalDe, ausenteDe, anomaliasDe, traficoDe, tardiasDe } = medidas;
 
   const unidades = new Map();
@@ -6083,6 +6111,13 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       gpsImpreciso: anomaliasPeriodo.filter(a => a.tipo === 'gps_impreciso').reduce((a, x) => a + x.n, 0),
       avisosTrafico: avisosPeriodo.reduce((a, x) => a + x.avisos, 0),
       avisosSinParada: avisosPeriodo.reduce((a, x) => a + x.sinParada, 0),
+      // Las paradas MEDIDAS de la cooperativa entera y cuánto tiempo se fue
+      // en ellas. Es la pregunta de la ruta, no la de un chofer: si todos los
+      // días se pierden cuatro horas paradas en el mismo lado, eso es un
+      // problema del recorrido o del horario (E10).
+      paradas: paradasPeriodo.reduce((a, x) => a + x.veces, 0),
+      paradasSec: paradasPeriodo.reduce((a, x) => a + x.segundos, 0),
+      paradasAvisadas: paradasPeriodo.reduce((a, x) => a + x.avisadas, 0),
     },
     porDia,
     porUnidad,

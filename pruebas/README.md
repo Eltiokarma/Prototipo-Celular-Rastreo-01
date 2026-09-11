@@ -1,6 +1,6 @@
 # Pruebas — COOP-R14
 
-Sesenta y siete suites, todas en una pasada con `node regresion.js`. La mayoría corre contra el servidor de verdad: levantan un proceso,
+Sesenta y nueve suites, todas en una pasada con `node regresion.js`. La mayoría corre contra el servidor de verdad: levantan un proceso,
 abren WebSockets, mandan posiciones GPS y leen la base. **No hay mocks.** Es a
 propósito: casi todo lo que se rompió en este proyecto se rompió en la juntura
 entre el servidor, la base y el tiempo real, y un mock de cualquiera de los
@@ -96,6 +96,8 @@ Tres detalles que cuestan una tarde si no están escritos:
 | `privado` | El mensaje directo Despacho ↔ unidad: que lo vean los dos y nadie más |
 | `seguridad` | Inyección por identificadores, fuerza bruta y cupo de mensajes por conexión |
 | `rotacion` | **Rotar `DISPATCH_PASSWORD`**, que es la ruta de recuperación cuando la clave de Despacho se perdió o se filtró. Lo que se prueba no es que la nueva entre —eso es lo fácil— sino que la VIEJA deje de servir para todo, incluido lo que ya había abierto: un token dura 30 días y antes sobrevivía a la rotación, así que la cuenta que administra a todos seguía accesible un mes más con la clave que se estaba quemando |
+| `trabas` | **Dónde se traba la ruta**: la pantalla de Despacho abierta de verdad, con paradas, cortes de señal y anomalías sembrados. Lo que defiende es que AGRUPE por punto del circuito en vez de mostrar puntos sueltos (dos combis nunca frenan en el mismo metro), que cuente las paradas MEDIDAS y no sólo las que el chofer avisó, y que distinga el corte que trajo después sus posiciones del que no —la antena contra el teléfono apagado—. Ver *Bancos visuales* |
+| `numeros-ui` | Lo que el servidor mandaba y ninguna pantalla mostraba: duración promedio y mejor vuelta por unidad, velocidad, las rutas con su objetivo, las emergencias con nombre y tipo, las salidas del recorrido una por una —con la silenciada marcada y fuera del total— y, en Vueltas, desde cuándo no trabaja cada combi. Con navegador: todo se arma en tiempo de ejecución, así que leer el HTML probaría la plantilla |
 | `chofer-shot` | La app del chofer abierta de verdad en Chromium, con dos unidades en ruta y GPS falso: **verifica** que lo que se ve venga del servidor y falla con cualquier error de JavaScript de la página. Corre en la regresión desde el 10/9. Ver *Bancos visuales* |
 | `empresas` | Que dos cooperativas no se vean **nada**: ni panel, ni mapa, ni chat, ni SOS. Incluido el privado de Despacho, que era la puerta que faltaba mirar: el código de vehículo es único en TODO el servidor y el envío solo comprobaba que existiera, así que acertar el código de una combi ajena alcanzaba para escribirle a su chofer — medido cruzando un mensaje de una empresa a otra, hoy cerrado y con la prueba puesta |
 | `cobradores` | Que el chofer administre a los cobradores de SU combi —clave y baja—, y que ahí termine. Lo que se prueba no es que funcione sino dónde corta: **el alta por esta puerta no existe** (se le pega al endpoint, no se mira la pantalla: que un botón no esté no prueba nada), el cobrador del de al lado no se toca (404, y el error no confirma que exista), un cobrador no administra cobradores ni a su compañero, y el vecino no ve lo que no es suyo. Más lo que queda escrito: clave y baja auditadas —del cambio de clave, QUE la cambió y nunca cuál—, ninguna alta a nombre de un chofer, y la gerencia siguiendo viendo a todos |
@@ -173,6 +175,8 @@ node gerencia-shot.js   # los números del gerente, con tres semanas de historia
                         # (entra por despacho.html: gerencia se fusionó con Despacho)
 node creador-ui-run.js  # el panel del creador (esta sí verifica, no solo mira)
 node chofer-shot.js     # la app del chofer (esta también verifica; desde el 10/9 corre en la regresión)
+node trabas.js          # «Dónde se traba» (verifica; corre en la regresión)
+node numeros-ui.js      # Números y Vueltas del gerente (verifica; corre en la regresión)
 ```
 
 `chofer-shot.js` es la que más tardó en existir y la que más encontró: entra

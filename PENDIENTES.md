@@ -292,8 +292,10 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
       vigencia semanal de variantes (3.9) cambia de recorrido el sábado a
       las 19:00 en vez del domingo a medianoche, y «hoy», los días de la
       tendencia y las horas de los CSV van con cinco horas de corrimiento.
-      Desde el 10/9 el servidor lo avisa SIEMPRE al arrancar si corre en UTC
-      (revisión del 10/9, E14; suite `numeros`).
+      Desde el 10/9 el servidor lo avisa SIEMPRE al arrancar si corre en UTC,
+      y desde el 11/9 los CSV declaran en qué huso están sus columnas
+      (revisión del 10/9, E14 y E15; suites `numeros` e `informes`). Nada de
+      eso reemplaza la variable: sólo hace que el corrimiento se vea.
 - [ ] **`APP_VERSION_ACTUAL` cuando se reparta el APK 5** — es el
       `versionCode` que se está repartiendo (5). Con eso el chofer que tiene
       uno viejo ve «hay una versión nueva» en su pantalla, y Despacho ve la

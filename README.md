@@ -96,7 +96,7 @@ herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
                       corre a mano y SOLO al subir la versión de Leaflet; la
                       suite `vendor` falla si alguien se olvida
 
-pruebas/            Treinta y cuatro suites de regresión. La mayoría contra el servidor de verdad.
+pruebas/            Sesenta y nueve suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
 TEORIA.md           Teoría del sistema de brechas
@@ -107,6 +107,8 @@ PROMPT-DISENO.md    Encargo para rediseñar la interfaz: qué se puede tocar y,
                     sobre todo, qué parece estético y no lo es
 PROMPT-REACT-NATIVE.md  Encargo para la app nativa: por qué, qué mantener y
                     qué leer primero
+REPASO-PENDIENTE.md Cola de revisión: lo que ya está hecho, probado y
+                    mergeado, y todavía no repasó otro par de ojos
 ```
 
 **Importante:** no hay archivos `.jsx` sueltos ni paso de build — todos los
@@ -145,7 +147,7 @@ de `realtime.js`, o el que se fije con `window.REALTIME_SERVER_URL`.
 
 ```bash
 cd pruebas && npm install    # solo la primera vez
-cd .. && npm test            # las treinta y cuatro suites, ~7 minutos
+cd .. && npm test            # las sesenta y nueve suites, ~20 minutos
 ```
 
 Corren contra el servidor de verdad —levantan el proceso, abren WebSockets,
@@ -283,9 +285,10 @@ aparece como unidad en ruta. En producción fijar su clave con la variable
 de entorno `DISPATCH_PASSWORD` (crea/actualiza la cuenta al arrancar).
 
 **Administración (botón Gestión):** un espacio de trabajo aparte, con un
-riel a la izquierda que agrupa las ocho secciones por para qué sirven —
+riel a la izquierda que agrupa las nueve secciones por para qué sirven —
 *operación del día* (Personas, Vehículos, Turnos), *ruta y medición*
-(Rutas, Vueltas, Informes) y *la cooperativa* (Empresa, Actividad). Cada
+(Rutas, Vueltas, Dónde se traba, Informes) y *la cooperativa* (Empresa,
+Actividad). Cada
 sección abre diciendo qué se hace ahí. Bajo 900 px el riel se convierte en
 un desplegable. Todo contra los endpoints `/admin/*` del servidor
 (protegidos por rol `dispatch` vía `Authorization: Bearer`).
@@ -300,7 +303,8 @@ un desplegable. Todo contra los endpoints `/admin/*` del servidor
 - **Vehículos** — alta de combis con su placa y quién va arriba de cada una.
 - **Rutas** — una tarjeta por ruta con el objetivo de brecha, el recorrido
   cargado y con cuál de los trazados se está midiendo.
-- **Turnos** — entradas y salidas de la jornada, con hoy / ayer / esta semana.
+- **Turnos** — entradas y salidas de la jornada, con hoy / ayer / esta semana,
+  con un rótulo por día y «+1» en el turno que cruza la medianoche.
 - **Vueltas** — cada vuelta cerrada con su duración y su brecha promedio, más
   el cuadro **por unidad**, que muestra el período elegido arriba (7, 30 o 90
   días, o todo el historial retenido como elección explícita). El servidor
@@ -310,6 +314,14 @@ un desplegable. Todo contra los endpoints `/admin/*` del servidor
   `legs`), que es lo que queda del chofer que hizo la ida y no volvió, y las
   vueltas **parciales**, que son las del que se metió a mitad de ruta: se
   listan marcadas y no entran en ningún promedio.
+- **Dónde se traba** — la pregunta de la RUTA, no de un chofer: en qué punto
+  del recorrido y a qué hora se detienen las combis, y en qué tramo se corta
+  siempre la señal. Agrupa por franjas de 5 % del circuito —dos combis nunca
+  frenan en el mismo metro, y el patrón está en la franja— con veces, tiempo
+  perdido, cuántas combis distintas y cuántas lo avisaron con el botón de
+  tráfico; una barra por hora del día; los cortes de señal por franja,
+  separando el que trajo después sus posiciones del que no (la antena contra
+  el teléfono apagado); las paradas más largas una por una; y las anomalías.
 - **Actividad** — la auditoría: quién inició sesión, quién dio de alta/baja o
   reseteó claves, bloqueos por intentos fallidos y SOS.
 
@@ -745,7 +757,7 @@ de arriba, la operación del día es de abajo.
 | Umbral de desvío y silenciarlo | — | ✅ | ✅ | — |
 | Dibujar el recorrido (trazador) | — | ✅ | ✅ | ✅ |
 | **Elegir** con qué trazado se mide | — | ✅ | ✅ | — |
-| Turnos, vueltas, informes | — | ✅ | ✅ | — |
+| Turnos, vueltas, dónde se traba, informes | — | ✅ | ✅ | — |
 | Datos de su cooperativa (nombre, RUC, contacto) y logo | — | — | ✅ | — |
 | Números del período (cumplimiento) | — | — | ✅ | — |
 | Actividad **de su cooperativa** | — | ✅ | ✅ | — |
@@ -1050,15 +1062,18 @@ evitar. Despacho ve `EN TRÁFICO · 6 MIN · AVISÓ EL CHOFER` (o `PARADA · 4 M
 en la fila de la unidad. Cada episodio queda guardado en `paradas` con dónde,
 en qué punto del circuito, cuánto duró y si el chofer lo confirmó
 (`GET /admin/paradas`): con meses de eso se puede decir dónde y a qué hora se
-traba cada ruta. Protocolo en `PROTOCOLO.md` §4quater; suites `parada`,
-`trafico` y `hud`.
+traba cada ruta, y desde el 11/9 eso se lee en el panel — Gestión → **Dónde se
+traba**, agrupado por franja del circuito y por hora del día. Protocolo en
+`PROTOCOLO.md` §4quater; suites `parada`, `trafico`, `hud` y `trabas`.
 
 ## Turnos
 
 Quién manejó qué unidad y cuánto tiempo. Se registra **solo lo que el sistema
 ya ve solo**: el turno se abre cuando alguien entra a su unidad y se cierra
 cuando se va. Panel → Gestión → **Turnos**, con hoy, ayer o esta semana: por unidad,
-quién iba arriba, hora de entrada, de salida y cuánto llevó en ruta.
+quién iba arriba, hora de entrada, de salida y cuánto llevó en ruta. Con un
+rótulo por día —«esta semana» son hasta 500 filas, y «08:12» sin fecha no se
+puede discutir con nadie— y «+1» en el turno que cierra al día siguiente.
 
 Dos cosas que lo hacen utilizable en la calle y no solo en la demo:
 
@@ -1167,9 +1182,11 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
 > comunicación entre dispositivos, el perfil del chofer y las estadísticas
 > del gerente— está en `REVISION-2026-09-10.md`; lo primero que señalaba eran
 > **las horas**, que se calculaban de cuatro formas distintas. De sus 77
-> hallazgos se arreglaron 45 en cinco tandas (10 y 11/9); **qué quedó abierto,
-> y qué hay que probar en la calle con el APK 5, está en la sección «Estado al
-> cerrar» del final de ese mismo archivo**.
+> hallazgos se arreglaron 55 en seis tandas (10 y 11/9) —ninguna media queda
+> abierta—; **lo que sigue abierto, y qué hay que probar en la calle con el
+> APK 5, está en la sección «Estado al cerrar» del final de ese mismo
+> archivo**. Lo de la última tanda está hecho y probado pero **todavía sin
+> repasar**: de qué conviene dudar, y por qué, está en `REPASO-PENDIENTE.md`.
 
 ### Lo que se cerró en la revisión del 8/8
 

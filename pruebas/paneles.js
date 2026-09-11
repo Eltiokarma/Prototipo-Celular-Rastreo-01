@@ -110,7 +110,12 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   // TRUCOS pasos 2 y 3: el sospechoso con su motivo, el impreciso con sus metros
   ok('y cuando es sospechoso, con el motivo', /u\.gpsSospechoso && !u\.gpsSimulado && \(/.test(despacho) && /GPS SOSPECHOSO · /.test(despacho) && /CLAVADO EN EL TRAZADO/.test(despacho));
   ok('y cuando es impreciso, con los metros', /u\.gpsImpreciso && \(/.test(despacho) && /GPS IMPRECISO · ±\{u\.precisionM\} M/.test(despacho));
-  ok('la tabla «Señal y presencia» tiene GPS y Tráfico', /'GPS', 'Tráfico', 'Tardías'\]/.test(despacho) && /avisosSinParada \? `/.test(despacho));
+  // Desde el 11/9 va «Paradas» entre GPS y Tráfico: las que MIDIÓ el servidor,
+  // las haya avisado el chofer o no. Son dos columnas distintas a propósito y
+  // la diferencia entre las dos es el dato (revisión del 10/9, E10).
+  ok('la tabla «Señal y presencia» tiene GPS, Paradas y Tráfico',
+     /'GPS', 'Paradas', 'Tráfico', 'Tardías'\]/.test(despacho) && /avisosSinParada \? `/.test(despacho) &&
+     /s\.paradas \? `\$\{s\.paradas\}/.test(despacho));
   ok('la web del chofer también manda `precision` con cada posición', /precision: Math\.round\(accuracy\)/.test(realtime));
   // Tanda 4 de la revisión del 10/9: la web del chofer a la par de la app nativa
   ok('el SOS de la web va por POST /sos y sólo dice «enviada» si llegó', /HTTP_URL \+ '\/sos'/.test(realtime) && /async function sendSos/.test(realtime) && /if \(r && r\.ok\) setEmergencyFired\(true\); else setSosFallo\(true\);/.test(prototipo) && /NO SALIÓ/.test(prototipo));

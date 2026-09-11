@@ -92,8 +92,13 @@ let servidor = null;
     .run(hoy(15), hoy(15) + 120_000);
   w.prepare(`INSERT INTO audit (actor, action, target, detail, timestamp, routeId, companyId) VALUES ('sistema', 'entrada_tardia', 'M-01', 'entró al 40 %', ?, 'R-14', ?)`)
     .run(hoy(13) + 60_000, w.prepare("SELECT companyId FROM routes WHERE routeId = 'R-14'").get().companyId);
+  const empresaR14 = w.prepare("SELECT companyId FROM routes WHERE routeId = 'R-14'").get().companyId;
   w.prepare(`INSERT INTO paradas (vehicleId, routeId, companyId, startedAt, endedAt, durationSec, lat, lng, progreso, tramo, confirmado, medida, cierre) VALUES ('M-01', 'R-14', ?, ?, ?, 240, -15.49, -70.13, 0.42, 'ida', 1, 1, 'movio')`)
-    .run(w.prepare("SELECT companyId FROM routes WHERE routeId = 'R-14'").get().companyId, hoy(10), hoy(10) + 240_000);
+    .run(empresaR14, hoy(10), hoy(10) + 240_000);
+  // Y un embotellamiento REAL que el chofer no avisó: medido por el servidor,
+  // sin el botón de tráfico. Es el que no se contaba en ningún lado (E10).
+  w.prepare(`INSERT INTO paradas (vehicleId, routeId, companyId, startedAt, endedAt, durationSec, lat, lng, progreso, tramo, confirmado, medida, cierre) VALUES ('M-01', 'R-14', ?, ?, ?, 600, -15.49, -70.13, 0.55, 'ida', 0, 1, 'movio')`)
+    .run(empresaR14, hoy(12), hoy(12) + 600_000);
   w.close();
 
   console.log('\nLAS VUELTAS SON DE LA PERSONA QUE MANEJABA');
@@ -119,6 +124,20 @@ let servidor = null;
     ok('la que trabajó está activa, con su última señal', !!u1 && u1.activa === true && u1.ultimaVez === hoy(17), u1 && { activa: u1.activa, ultimaVez: u1.ultimaVez - hoy(17) });
     ok('flota y activas en los totales', r.totales.flota >= 2 && r.totales.unidadesActivas === 1 && r.totales.unidades === 1, { flota: r.totales.flota, activas: r.totales.unidadesActivas });
     ok('las entradas tardías, contadas por unidad y en el total', !!u1 && u1.senal.entradasTardias === 1 && r.totales.entradasTardias === 1, u1 && u1.senal.entradasTardias);
+    // E10, la otra mitad: las paradas MEDIDAS por el servidor se cuentan,
+    // las avise el chofer o no. Antes la única consulta llevaba
+    // `confirmado = 1` —los avisos del botón de tráfico— y un embotellamiento
+    // real que nadie avisó no aparecía en ninguna tarjeta ni columna.
+    ok('las paradas MEDIDAS se cuentan por unidad, con su tiempo',
+       !!u1 && u1.senal.paradas === 2 && u1.senal.paradasSec === 840 && u1.senal.paradaMaxSec === 600,
+       u1 && { paradas: u1.senal.paradas, sec: u1.senal.paradasSec });
+    ok('y se dice cuántas de ésas avisó el chofer: una de dos',
+       !!u1 && u1.senal.paradasAvisadas === 1, u1 && u1.senal.paradasAvisadas);
+    ok('y van también en los totales de la cooperativa',
+       r.totales.paradas === 2 && r.totales.paradasSec === 840 && r.totales.paradasAvisadas === 1,
+       { paradas: r.totales.paradas, sec: r.totales.paradasSec });
+    ok('el aviso de tráfico sigue contándose aparte: son dos cosas distintas',
+       !!u1 && u1.senal.avisosTrafico === 1, u1 && u1.senal.avisosTrafico);
     ok('la tendencia por día trae el día con sus 6 vueltas', (r.porDia || []).some(x => x.vueltas === 6), r.porDia);
     ok('y el resumen dice su alcance (toda la cooperativa)', r.alcance && r.alcance.routeId === null && r.alcance.fijo === false, r.alcance);
     const r2 = await resumen(ahora - 26 * H, ahora + H, 'R-14');
