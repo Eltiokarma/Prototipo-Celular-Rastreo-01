@@ -3110,7 +3110,12 @@ app.get('/perfil', (req, res) => {
   if (!user) return;
   anotarVersionDeApp(user, req);
   const vehicleId = user.vehicleId || user.unitId;
-  const ruta = routeOf(user.routeId || DEFAULT_ROUTE);
+  // La ruta del chofer, o NINGUNA. Con el `|| DEFAULT_ROUTE` de antes, un
+  // usuario sin `routeId` veía el nombre de la ruta por defecto —que en un
+  // servidor con varias cooperativas puede ser de OTRA empresa— como si
+  // fuera la suya (revisión del 10/9, P8). Sin ruta, la pantalla dice que no
+  // tiene: es la verdad, y es lo que hay que arreglar dándosela.
+  const ruta = user.routeId ? routeOf(user.routeId) : null;
   const veh = vehicleOf(vehicleId);
   const ahora = Date.now();
   const dias = diasDelPerfil(req);
@@ -3314,6 +3319,24 @@ app.post('/perfil/alias', (req, res) => {
   const user = usuarioPropio(req, res);
   if (!user) return;
   const alias = String(req.body?.alias || '').trim().slice(0, 30) || null;
+  // Dos «el Chino» en la misma ruta son dos unidades con el mismo nombre en
+  // el mapa de Despacho: el alias pisa `driverName`, que es lo que se emite,
+  // así que no hay forma de saber a cuál le están hablando (revisión del
+  // 10/9, P9). Se compara sin distinguir mayúsculas ni espacios de sobra,
+  // que es como se lee en la pantalla, y sólo dentro de la MISMA ruta: dos
+  // rutas distintas no se ven entre sí y en cada una hay un solo Chino.
+  if (alias) {
+    const chocado = db.prepare(`
+      SELECT unitId FROM users
+      WHERE unitId != @yo AND routeId IS @ruta AND companyId IS @empresa
+        AND (LOWER(TRIM(COALESCE(alias, ''))) = @alias OR LOWER(TRIM(COALESCE(name, ''))) = @alias)
+      LIMIT 1
+    `).get({ yo: user.unitId, ruta: user.routeId ?? null, empresa: user.companyId ?? null,
+             alias: alias.toLowerCase() });
+    if (chocado) {
+      return res.status(409).json({ error: 'Ya hay alguien con ese nombre en tu ruta: elegí otro' });
+    }
+  }
   db.prepare('UPDATE users SET alias = ?, driverName = ? WHERE unitId = ?')
     .run(alias, alias || user.name, user.unitId);
 
@@ -5109,6 +5132,48 @@ const INFORMES = {
     };
   },
 
+  // Los mensajes: chat, notas de voz y fotos. El único informe que tocaba
+  // `messages` era el de SOS, así que una foto de un accidente o el chat de
+  // la mañana en que se decidió algo no quedaban en ningún papel
+  // (REVISION-2026-09-10.md, E18).
+  //
+  // El CONTENIDO de la voz y de la foto NO va en el CSV, y no es un olvido:
+  // son data-URL en base64 de hasta 2 MB cada una, y una sola fila de esas
+  // hace un archivo que no abre en ninguna planilla. Va lo que sirve para
+  // encontrarlas y contarlas —cuándo, quién, de qué combi, si fue al grupo o
+  // en privado, cuánto dura la nota, el pie de la foto— y la marca de si el
+  // medio TODAVÍA está: el chat guarda las últimas 30 con audio y las
+  // anteriores quedan sin él, y eso hay que decirlo antes de que alguien vaya
+  // a buscar una de hace un mes.
+  mensajes: (filtro) => {
+    const filas = db.prepare(`
+      SELECT kind, unitId, driverName, vehicleId, toVehicleId, routeId, text, duration,
+             CASE WHEN data IS NULL OR data = '' THEN 0 ELSE 1 END AS tieneMedio,
+             timestamp
+      FROM messages
+      WHERE kind IN ('chat', 'voice', 'photo') AND timestamp BETWEEN @desde AND @hasta
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY timestamp
+    `).all(filtro);
+    const QUE = { chat: 'texto', voice: 'nota de voz', photo: 'foto' };
+    return {
+      nombre: 'mensajes',
+      cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Qué', 'Para',
+                 'Texto o pie de foto', 'Duración (s)', 'El audio o la foto siguen guardados'],
+      filas: filas.map(m => [
+        fechaHora(m.timestamp), m.driverName, m.unitId, m.vehicleId, m.routeId,
+        QUE[m.kind] || m.kind,
+        // Al grupo de la ruta, o en privado con una combi. Lo primero que se
+        // pregunta de un mensaje es quién lo vio.
+        m.toVehicleId ? `privado con ${m.toVehicleId}` : 'al grupo de la ruta',
+        m.text || '',
+        m.kind === 'voice' ? (m.duration ?? '') : '',
+        m.kind === 'chat' ? '' : (m.tieneMedio ? 'sí' : 'no (se podó)'),
+      ]),
+    };
+  },
+
   // Salidas del recorrido. Una fila por episodio, no por posición: lo que se
   // quiere contestar es "cuántas veces y por cuánto tiempo", no "dónde estuvo
   // cada tres segundos".
@@ -5118,7 +5183,7 @@ const INFORMES = {
   senal: (filtro) => {
     const filas = db.prepare(`
       SELECT vehicleId, routeId, startedAt, endedAt, durationSec, latDesde, lngDesde, latHasta, lngHasta,
-             metros, kmh, presencia, recuperadas, cierre
+             progresoDesde, progresoHasta, metros, kmh, presencia, recuperadas, cierre
       FROM huecos
       WHERE startedAt BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -5131,13 +5196,21 @@ const INFORMES = {
     };
     return {
       nombre: 'senal',
+      // El PUNTO DEL CIRCUITO de los dos extremos va con las coordenadas, y
+      // es el que sirve para la pregunta de la ruta: dos combis nunca se
+      // cortan en el mismo metro, pero «siempre entre el 65 y el 70 %» es un
+      // tramo sin antena. Se calculaba, se guardaba y no salía en el CSV
+      // (revisión del 10/9, E20).
       cabecera: ['Unidad', 'Ruta', 'Se cortó', 'Volvió', 'Minutos sin señal', 'Estaba',
-        'Lat. corte', 'Lng. corte', 'Lat. vuelta', 'Lng. vuelta', 'Metros entre los dos', 'Velocidad implícita (km/h)',
+        'Lat. corte', 'Lng. corte', 'Punto del circuito al cortarse (%)',
+        'Lat. vuelta', 'Lng. vuelta', 'Punto del circuito al volver (%)',
+        'Metros entre los dos', 'Velocidad implícita (km/h)',
         'Posiciones del corte que llegaron después', 'Cómo terminó'],
       filas: filas.map(h => [
         h.vehicleId, h.routeId, fechaHora(h.startedAt), h.endedAt ? fechaHora(h.endedAt) : '',
         h.durationSec === null ? '' : Math.round(h.durationSec / 60), h.presencia || '',
-        h.latDesde ?? '', h.lngDesde ?? '', h.latHasta ?? '', h.lngHasta ?? '',
+        h.latDesde ?? '', h.lngDesde ?? '', h.progresoDesde == null ? '' : Math.round(h.progresoDesde * 100),
+        h.latHasta ?? '', h.lngHasta ?? '', h.progresoHasta == null ? '' : Math.round(h.progresoHasta * 100),
         h.metros ?? '', h.kmh ?? '', h.recuperadas,
         COMO_TERMINO[h.cierre] || (h.endedAt ? h.cierre : 'sigue sin señal'),
       ]),

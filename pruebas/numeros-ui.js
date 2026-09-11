@@ -67,6 +67,14 @@ let servidor = null, browser = null;
   const H = 3600_000, DIA = 86400_000;
   turno.run('M-02', 'M-02', 'collector', medianoche - DIA + 22 * H, medianoche + 1 * H, medianoche + 1 * H);
   turno.run('M-03', 'M-03', 'driver', medianoche - 3 * DIA + 9 * H, medianoche - 3 * DIA + 15 * H, medianoche - 3 * DIA + 15 * H);
+  // Acciones de auditoría de las que se mostraban como slug crudo (E17)
+  const anotar = w.prepare(`INSERT INTO audit (actor, action, target, detail, timestamp, routeId, companyId)
+                            VALUES (?, ?, ?, ?, ?, 'R-14', ?)`);
+  anotar.run('sistema', 'entrada_tardia', 'M-01', 'entró al 40 %', hoy(15), companyId);
+  anotar.run('sistema', 'gps_sospechoso', 'M-01', 'clavado en el trazado', hoy(16), companyId);
+  anotar.run('M-01', 'cerrar_todo', 'M-01', '3 sesión(es)', hoy(17), companyId);
+  anotar.run('GERENTE-1', 'objetivo', 'R-14', 'a mano: 6 min', hoy(18), companyId);
+
   // Un SOS con tipo y otro sin: el genérico es como nace cada uno y no se le
   // inventa una causa.
   const sos = w.prepare(`INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, sosTipo, lat, lng, timestamp)
@@ -184,6 +192,49 @@ let servidor = null, browser = null;
        t.split('\n').filter(l => /01:00/.test(l)));
     ok('y sus horas siguen siendo 3, no 23', /3 h 00 min/.test(t),
        t.split('\n').filter(l => / h \d\d min/.test(l)));
+  }
+
+  console.log('\nY EN ACTIVIDAD, EN CASTELLANO Y NO EN SLUG');
+  // Revisión del 10/9, E17. De las 29 acciones que el servidor anota, el mapa
+  // de la pantalla cubría 11: las otras 18 se leían como `entrada_tardia` o
+  // `gps_sospechoso`, que es el nombre de la columna en la base y no algo que
+  // alguien pueda leer en una reunión.
+  {
+    await p.click('button:has-text("Actividad")');
+    await p.waitForTimeout(2500);
+    const t = await texto();
+    for (const [slug, dicho] of [
+      ['entrada_tardia', 'entró a la ruta empezada'],
+      ['gps_sospechoso', 'mandó GPS con firma de simulador'],
+      ['cerrar_todo', 'cerró todas sus sesiones'],
+      ['objetivo', 'cambió el objetivo de brecha'],
+    ]) {
+      // El slug crudo no puede aparecer. Se mira sólo en los que tienen
+      // guión bajo: «objetivo» es también una palabra del texto en castellano.
+      ok(`«${slug}» se lee como «${dicho}»`,
+         t.includes(dicho) && (!slug.includes('_') || !t.includes(slug)),
+         t.split('\n').filter(l => l.includes(slug)).slice(0, 2));
+    }
+  }
+
+  console.log('\nY LOS INFORMES AVISAN ANTES DE RECORTAR EL RANGO');
+  // Revisión del 10/9, E19. El servidor recorta a 90 días y lo dice en la
+  // primera línea del archivo — recién cuando ya se bajó. La pantalla no
+  // decía nada: se elegían seis meses y salía un CSV de tres.
+  {
+    await p.click('button:has-text("Informes")');
+    await p.waitForTimeout(2000);
+    const antes = await texto();
+    ok('con el rango por defecto no avisa nada', !/período máximo son 90 días: el informe/i.test(antes));
+    const fechas = await p.$$('input[type="date"]');
+    const iso = (t) => new Date(t).toISOString().slice(0, 10);
+    await fechas[0].fill(iso(Date.now() - 200 * 86400e3));
+    await fechas[1].fill(iso(Date.now()));
+    await p.waitForTimeout(800);
+    const t = await texto();
+    ok('con doscientos días, la pantalla lo dice ANTES de bajar nada',
+       /período máximo son 90 días/i.test(t) && /no con los 20[01]\./i.test(t),
+       t.split('\n').filter(l => /90 días/i.test(l)));
   }
 
   ok('la página no tiró ningún error', errores.length === 0, errores.slice(0, 4));

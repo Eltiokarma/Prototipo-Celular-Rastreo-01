@@ -75,12 +75,67 @@ Regresión completa verde.
    revisar si alguna otra suite tiene la misma trampa — esta se encontró de
    casualidad.
 
+---
+
+## Tanda 7 — las bajas de la revisión del 10/9 (11 de septiembre)
+
+Veinticuatro hallazgos: L14–L22, C18–C22, P8–P13, E17–E20. Con esto la
+revisión del 10/9 queda cerrada entera. Regresión completa verde.
+
+### Lo que más conviene mirar, en orden
+
+1. **La tabla `objetivo_log` (L22).** Es lo único de esta tanda que agrega
+   ESTADO NUEVO al sistema: una fila por cada cambio de objetivo de cada
+   ruta, para poder contestar «cuál era la vara cuando se cerró esta
+   vuelta». **La duda:** se escribe desde `objetivoDe()`, que se llama en
+   cada emisión de estado; el suavizado y `RECALCULO_MS` hacen que cambie
+   pocas veces por día, pero nadie midió cuántas filas son con veinte rutas
+   y un objetivo automático que oscila. Vale mirar el conteo después de una
+   semana de uso real.
+
+2. **Quién gana entre dos aparatos del mismo chofer (C20).** Se decidió NO
+   cambiar quién gana —la posición más nueva es la más nueva— y sólo DECIR
+   lo que pasa. **La duda:** es una decisión de producto disfrazada de
+   arreglo. La alternativa era que el dueño del GPS fuera un aparato y no
+   una persona, y eso choca con el diseño de la tanda 2, donde la app usa
+   WebSocket y HTTP a la vez a propósito. Si alguna vez pasa de verdad en la
+   calle, esto se vuelve a discutir con datos.
+
+3. **La poda de los mapas en memoria (L20), sin suite.** Los plazos —seis
+   horas para `salidas`, un día para `presencias`, una hora para los
+   antirrebotes— salieron del razonamiento de para qué sirve cada mapa, no
+   de una medición. El de `presencias` es el que puede molestar: el que se
+   declara ausente y vuelve 25 horas después tiene que declarar «ruta» otra
+   vez. **La duda:** no hay forma de mirar esto desde afuera, así que si el
+   plazo está mal nadie se va a enterar. Se aceptó a propósito: inventarle
+   una puerta al servidor para poder probarlo sería peor.
+
+4. **El alias único por ruta (P9).** Ahora un alias repetido da 409.
+   **La duda:** la comparación incluye el NOMBRE REAL de los demás, no sólo
+   sus alias. Es lo correcto para el mapa —lo que se ve es `driverName`—
+   pero significa que si en la ruta hay un «Elmer Ccama», nadie más puede
+   ponerse ese alias, y el mensaje de error no distingue los dos casos.
+
+5. **El privado a una combi de otra ruta (C19).** Cambió DÓNDE se guarda el
+   mensaje y a quién se le reparte. **La duda:** el reparto ahora incluye
+   siempre al emisor, que es un camino nuevo en `enviarPrivado`; el caso
+   normal (misma ruta) no cambia, pero conviene releer esa función entera y
+   no sólo el diff.
+
+6. **El informe de mensajes (E18).** Deja fuera el contenido de la voz y de
+   la foto a propósito. **La duda:** alguien va a pedir las fotos. La
+   respuesta correcta probablemente sea un ZIP o un enlace por mensaje, no
+   meter base64 en un CSV — pero eso hay que decidirlo, no improvisarlo
+   cuando lo pidan.
+
 ### Lo que NO se tocó, y por qué
 
-- **Las 24 bajas** de la revisión del 10/9 (C18–C22, L14–L22, P8–P13,
-  E17–E20). Siguen abiertas y anotadas en su archivo.
 - **El legajo** (DNI, brevete, placa, SOAT, revisión técnica, propietario).
   No es un bug, es alcance: la decisión es del dueño del producto.
+- **P13**, la grabación sin enviar que se pierde al reinstalar el APK. Se
+  decidió NO arreglarlo: `allowBackup: false` está puesto a propósito. Lo que
+  se hizo fue decirlo, en la pantalla y en `LIMITACIONES.md` §F.
 - **Todo lo que necesita el teléfono y la calle**: el APK 5, el relevo con
-  dos aparatos, el GPS impreciso, una parada real, el botón de tráfico y el
-  tipo de SOS con el socket caído. Está en `REVISION-2026-09-10.md`.
+  dos aparatos, el GPS impreciso, una parada real, el botón de tráfico, el
+  tipo de SOS con el socket caído y una grabación que falla al enviarse.
+  Está en `REVISION-2026-09-10.md`.

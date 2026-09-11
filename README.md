@@ -1109,7 +1109,7 @@ informe de horas trabajadas.
 ## Informes
 
 Panel → Gestión → **Informes**. Se elige un rango de fechas y se bajan los
-seis informes de ese período:
+diez informes de ese período:
 
 | Informe | Qué trae |
 | --- | --- |
@@ -1117,7 +1117,11 @@ seis informes de ese período:
 | **Medias vueltas** | Cada ida y cada retorno que se completó. Es el informe que contesta "hizo la ida y se fue": un día con muchas más idas que retornos tiene una explicación |
 | **Horas por persona** | Turnos: entrada, salida y horas de cada chofer y cobrador |
 | **Salidas del recorrido** | Cada desvío: cuándo salió, cuándo volvió, cuánto duró, a cuánto llegó y cómo terminó |
+| **Paradas y avisos de tráfico** | Dónde y a qué hora se traba la ruta: cada parada con su punto del circuito, si la midió el servidor, si la avisó el chofer y cómo terminó |
+| **Cortes de señal** | Cada corte con dónde empezó, dónde volvió y si las posiciones que faltaban llegaron después |
+| **Anomalías** | Saltos imposibles, ausente en marcha, reloj del teléfono, GPS simulado o impreciso |
 | **Emergencias** | Cada SOS con quién lo disparó, desde qué unidad y dónde |
+| **Chat, notas de voz y fotos** | Cuándo, quién, de qué combi, si fue al grupo o en privado, el texto o el pie de foto, y si el audio o la imagen siguen guardados. El contenido de la voz y de la foto **no** va en el CSV: son hasta 2 MB en base64 cada una y harían un archivo que no abre en ninguna planilla |
 | **Actividad de administración** | Altas, bajas, reseteos de clave y cambios de configuración |
 
 Bajan en **CSV** y no en PDF a propósito: se abren en Excel, se pueden sumar y
@@ -1181,11 +1185,13 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
 > comunicación entre dispositivos, el perfil del chofer y las estadísticas
 > del gerente— está en `REVISION-2026-09-10.md`; lo primero que señalaba eran
 > **las horas**, que se calculaban de cuatro formas distintas. De sus 77
-> hallazgos se arreglaron 55 en seis tandas (10 y 11/9) —ninguna media queda
-> abierta—; **lo que sigue abierto, y qué hay que probar en la calle con el
-> APK 5, está en la sección «Estado al cerrar» del final de ese mismo
-> archivo**. Lo de la última tanda está hecho y probado pero **todavía sin
-> repasar**: de qué conviene dudar, y por qué, está en `REPASO-PENDIENTE.md`.
+> hallazgos se cerraron **los 77 en siete tandas** (10 y 11/9): 75 arreglados,
+> uno que ya estaba curado por otro arreglo y uno que se decidió NO hacer y
+> quedó escrito en `LIMITACIONES.md`. **Lo que queda —la decisión del legajo y
+> lo que hay que probar en la calle con el APK 5— está en la sección «Estado
+> al cerrar» del final de ese mismo archivo.** Todo eso está hecho y probado
+> pero **todavía sin repasar**: de qué conviene dudar, y por qué, está en
+> `REPASO-PENDIENTE.md`.
 
 ### Lo que se cerró en la revisión del 8/8
 

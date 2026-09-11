@@ -213,6 +213,74 @@ let servidor = null;
     ok('Turnos también los trae los dos', !!s11 && (s11.roles || []).join(',') === 'driver,collector', s11 && s11.roles);
   }
 
+  console.log('\nEL CHAT, LA VOZ Y LAS FOTOS TAMBIÉN BAJAN (E18)');
+  // El único informe que tocaba `messages` era el de SOS: una foto de un
+  // accidente o el chat de la mañana en que se decidió algo no quedaban en
+  // ningún papel. El CONTENIDO de la voz y de la foto NO va —son data-URL de
+  // hasta 2 MB y harían un archivo que no abre en ninguna planilla— pero sí
+  // todo lo que sirve para encontrarlas, y si el medio todavía está.
+  {
+    const w4 = new Database(DB);
+    const msg = w4.prepare(`INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, toVehicleId, text, duration, data, timestamp)
+                            VALUES (?, 'M-01', 'Chofer M-01', 'R-14', 'M-01', ?, ?, ?, ?, ?)`);
+    msg.run('chat', null, 'bloqueo en el óvalo', null, null, hoy(9));
+    msg.run('chat', 'M-01', 'volvé al terminal', null, null, hoy(10));
+    msg.run('voice', null, null, 12, 'data:audio/mp4;base64,AAAA', hoy(11));
+    msg.run('voice', null, null, 40, null, hoy(12));            // podada: sin audio
+    msg.run('photo', null, 'el choque', null, 'data:image/jpeg;base64,AAAA', hoy(13));
+    w4.close();
+    const csv = await fetch(`${API}/admin/informe/mensajes.csv?desde=${hoy(0)}&hasta=${ahora + H}`, { headers: HD })
+      .then(r => r.text());
+    const filas = csv.split('\r\n');
+    ok('mensajes.csv existe y trae las tres clases', /Informe de mensajes/.test(csv) &&
+       /;texto;/.test(csv) && /;nota de voz;/.test(csv) && /;foto;/.test(csv),
+       filas.slice(5, 7));
+    ok('dice si fue al grupo o en privado, y con quién',
+       /al grupo de la ruta/.test(csv) && /privado con M-01/.test(csv),
+       filas.filter(l => /privado|grupo/.test(l)).slice(0, 2));
+    ok('la nota de voz lleva su duración', /;nota de voz;[^;]*;;12;/.test(csv),
+       filas.filter(l => /nota de voz/.test(l)));
+    ok('y se dice cuál ya no tiene el audio guardado', /;nota de voz;[^;]*;;40;no \(se podó\)/.test(csv),
+       filas.filter(l => /40/.test(l)));
+    ok('la foto va con su pie y sin el base64 adentro',
+       /;foto;[^;]*;el choque;;sí/.test(csv) && !/base64/.test(csv),
+       filas.filter(l => /foto/.test(l)));
+  }
+
+  console.log('\nEL CORTE DE SEÑAL DICE EN QUÉ PUNTO DEL CIRCUITO FUE (E20)');
+  {
+    const w5 = new Database(DB);
+    const empresa = w5.prepare("SELECT companyId FROM routes WHERE routeId = 'R-14'").get().companyId;
+    w5.prepare(`INSERT INTO huecos (vehicleId, routeId, companyId, startedAt, endedAt, durationSec,
+                                    latDesde, lngDesde, progresoDesde, latHasta, lngHasta, progresoHasta,
+                                    metros, kmh, presencia, recuperadas, cierre)
+                VALUES ('M-01', 'R-14', ?, ?, ?, 180, -15.49, -70.13, 0.68, -15.48, -70.12, 0.72, 300, 20, 'ruta', 2, 'volvio')`)
+      .run(empresa, hoy(20), hoy(23));
+    w5.close();
+    const csv = await fetch(`${API}/admin/informe/senal.csv?desde=${hoy(0)}&hasta=${ahora + H}`, { headers: HD })
+      .then(r => r.text());
+    ok('senal.csv trae el punto del circuito de los dos extremos',
+       /Punto del circuito al cortarse \(%\)/.test(csv) && /Punto del circuito al volver \(%\)/.test(csv),
+       csv.split('\r\n')[6]);
+    ok('con sus valores, que es lo que dice en qué tramo no hay antena',
+       /;68;/.test(csv) && /;72;/.test(csv), csv.split('\r\n').filter(l => l.startsWith('M-01')).slice(0, 2));
+  }
+
+  console.log('\nEL CREADOR VE LOS AVISOS QUE NADIE LEYÓ (E20)');
+  {
+    const coop = require(RAIZ + '/server/cooperativas.js');
+    const w6 = new Database(DB);
+    const empresa = w6.prepare("SELECT companyId FROM routes WHERE routeId = 'R-14'").get().companyId;
+    coop.aviso(w6, { companyId: empresa, texto: 'Hay que renovar el SOAT de dos combis' });
+    coop.aviso(w6, { companyId: empresa, texto: 'Este ya lo vieron' });
+    w6.prepare('UPDATE notices SET vistoEn = ?, vistoPor = ? WHERE texto = ?')
+      .run(Date.now(), 'DESPACHO', 'Este ya lo vieron');
+    const e = coop.listar(w6).find(x => x.companyId === empresa);
+    w6.close();
+    ok('el listado cuenta los avisos sin ver, y sólo ésos',
+       !!e && e.avisosPendientes === 1, e && e.avisosPendientes);
+  }
+
   console.log(fallas === 0 ? '\nTODO EN ORDEN\n' : `\n${fallas} FALLA(S)\n`);
   servidor.kill();
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }

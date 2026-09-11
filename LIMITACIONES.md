@@ -322,16 +322,23 @@ limitación se resuelva o aparezca una nueva.
   datos, el contador arranca de cero.
 - Tampoco hay **notificación con la app cerrada** para un mensaje directo:
   vale la misma limitación que para el SOS (ver fila 2).
-- **El cumplimiento del panel del gerente se mide contra el objetivo de hoy**,
-  no contra el que regía cuando se cerró cada vuelta: ese número no se guarda
-  con la vuelta. Con objetivo automático puede haber cambiado dentro del mismo
-  período, así que un cumplimiento de hace tres semanas está juzgado con la
-  vara de hoy. La pantalla lo dice en la propia tarjeta.
-- **El panel del gerente no informa desvíos de ruta.** El desvío se detecta y
-  se gestiona en vivo, pero **no se guarda**: no hay tabla de eventos de
-  desvío, así que no se puede decir cuántas veces se salió del recorrido una
-  unidad la semana pasada. Es un dato que habría que empezar a guardar; hasta
-  entonces no se muestra, en vez de mostrar un cero que no significa nada.
+- ~~**El cumplimiento del panel del gerente se mide contra el objetivo de
+  hoy**~~ — **ya no**: cada vuelta guarda la vara contra la que se juzgó
+  (`laps.objetivoSec`), y desde el 11/9 esa vara es la que regía EN SU
+  MOMENTO y no la de ahora, también al vaciar un atraso de horas (tabla
+  `objetivo_log`; revisión del 10/9, L22). La pantalla dice cuántas vueltas
+  del período son anteriores al último cambio de objetivo.
+- ~~**El panel del gerente no informa desvíos de ruta**~~ — **ya no**: los
+  desvíos se guardan (`deviations`), se cuentan por unidad, se listan uno por
+  uno en Números y bajan en CSV. Las silenciadas y las cerradas por un cambio
+  de trazado van marcadas y NO cuentan como salidas.
+- **Una grabación de recorrido sin enviar vive sólo en ese teléfono.** El
+  archivo está en el almacenamiento de la app y `allowBackup` está en `false`
+  a propósito (una grabación es un recorrido con horas: no va al backup de
+  Google). Actualizar el APK la conserva; **desinstalar y volver a instalar
+  la pierde**. La sesión, el alias y los números sobreviven porque son del
+  servidor. La pantalla del grabador lo dice; no se va a arreglar guardándola
+  en la nube del teléfono (revisión del 10/9, P13).
 - **Los días sin servicio no aparecen en la tendencia.** El eje del gráfico es
   una banda por día *con vueltas*, no una línea de tiempo continua: un domingo
   sin servicio no es un día de cero cumplimiento y no se dibuja como tal.

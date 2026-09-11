@@ -319,6 +319,16 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
      /el mensaje no salió/.test(app) && /la nota no salió/.test(app));
   ok('y el cupo por minuto del servidor se muestra', /c\.on\('cupo'/.test(app) && /CUPO_ES/.test(app));
 
+  // P10: el perfil sin conexión no es «no se pudo cargar» y nada más
+  ok('sin conexión el perfil sigue dando el grabador y un reintento',
+     /const bloqueGrabador = /.test(app) && /\{!datos && error && \(<>/.test(app) && /REINTENTAR/.test(app));
+  // P11: cerrar todas las sesiones existe en la pantalla
+  ok('«cerrar todas mis sesiones» existe y pide dos toques',
+     /CERRAR TODAS MIS SESIONES/.test(app) && /todas: true/.test(app) && /confirmarCerrarTodo/.test(app));
+  // P13: la grabación sin enviar vive sólo en ese teléfono, y se dice
+  ok('la pantalla avisa que la grabación sin enviar vive sólo en el teléfono',
+     /vive SOLO en este teléfono/.test(app));
+
   // C8: el tipo de SOS sale por HTTP con el socket caído
   ok('el tipo de SOS cae a POST /sos/:id/tipo', /pedirHttp\(`\/sos\/\$\{miUltimoSos\}\/tipo`/.test(cliente));
   ok('y si no salió, la pantalla lo dice', /no pudo decir QUÉ pasó/.test(app));

@@ -1429,10 +1429,18 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   // la pantalla: a las 15:00, «7 días» empezaba el lunes a las 15:00, y la
   // tendencia por día abría con una barra de nueve horas comparada contra
   // seis días enteros. El único día parcial tiene que ser hoy.
+  // Dónde empieza un período de N días, en días de CALENDARIO contando hoy.
+  // Lo usan el resumen y los CSV de Números, que antes no coincidían: el
+  // resumen contaba una cosa y el archivo que el gerente bajaba al lado,
+  // otra (REVISION-2026-09-10.md, E19).
+  const inicioDePeriodo = (dias) => {
+    const d = new Date(inicioDeHoy());
+    d.setDate(d.getDate() - (Math.max(1, dias) - 1));
+    return d.getTime();
+  };
   const loadGerencia = (dias = diasGer, ruta = rutaGer) => {
     const hasta = Date.now();
-    const d = new Date(inicioDeHoy()); d.setDate(d.getDate() - (Math.max(1, dias) - 1));
-    const desde = d.getTime();
+    const desde = inicioDePeriodo(dias);
     return api(`/gerencia/resumen?desde=${desde}&hasta=${hasta}${ruta ? `&routeId=${encodeURIComponent(ruta)}` : ''}`)
       .then(setResumenGer).catch(e => setError(e.message));
   };
@@ -2872,6 +2880,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 ['senal', 'Cortes de señal (CSV)', false],
                 ['anomalias', 'Anomalías: saltos, ausente en marcha, reloj, GPS simulado (CSV)', false],
                 ['sos', 'Emergencias (CSV)', false],
+                ['mensajes', 'Chat, notas de voz y fotos (CSV)', false],
                 ['actividad', 'Actividad de administración (CSV)', false],
               ];
               const aMs = (iso, fin) => {
@@ -2926,6 +2935,18 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                         {' · '}{(vehicles || []).length} unidades
                         {' · '}{esSupervisor && currentRoute ? currentRoute : `${routeList.length} ruta${routeList.length === 1 ? '' : 's'}`}
                       </div>
+                      {/* El servidor recorta el rango a 90 días y lo dice en
+                          la primera línea del archivo — pero recién cuando ya
+                          se bajó. La pantalla no decía nada: se elegían seis
+                          meses, se bajaba un CSV de tres, y el que lo abría
+                          tenía que leer la cabecera para enterarse
+                          (REVISION-2026-09-10.md, E19). */}
+                      {dias > 90 && (
+                        <div style={{ fontSize: 12, color: HUD.amber, marginTop: 8, fontWeight: 700 }}>
+                          El período máximo son 90 días: el informe va a salir con
+                          los últimos 90 del rango que elegiste, no con los {dias}.
+                        </div>
+                      )}
                     </div>
 
                     <div style={tarjeta(18)}>
@@ -3065,11 +3086,16 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 {/* Los nombres son los del servidor (`INFORMES`), no los de la
                     pantalla: "turnos" no existe y el botón devolvía 404 con un
                     "No se pudo descargar" que no decía nada. El de horas se
-                    llama `horas`. */}
-                {[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas'], ['paradas', 'paradas'], ['senal', 'señal'], ['anomalias', 'anomalías']].map(([tipo, rotulo]) => (
+                    llama `horas`. Los de SOS y mensajes existían en el
+                    servidor y no tenían botón acá: el gerente tenía las
+                    emergencias en pantalla y ninguna forma de llevárselas
+                    (REVISION-2026-09-10.md, E20). */}
+                {[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas'], ['paradas', 'paradas'], ['senal', 'señal'], ['anomalias', 'anomalías'], ['sos', 'SOS'], ['mensajes', 'mensajes']].map(([tipo, rotulo]) => (
                   <button key={tipo} style={btnSecundario(36)} onClick={async () => {
                     try {
-                      const hasta = Date.now(), desde = hasta - diasGer * 86400000;
+                      // El MISMO período que el cuadro de arriba: días de
+                      // calendario, no las últimas N × 24 h (E19).
+                      const hasta = Date.now(), desde = inicioDePeriodo(diasGer);
                       const r = await fetch(`${HTTP_URL}/gerencia/informe/${tipo}.csv?desde=${desde}&hasta=${hasta}`,
                         { headers: { Authorization: 'Bearer ' + session.token } });
                       if (!r.ok) throw new Error('No se pudo descargar');
@@ -3533,9 +3559,34 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
                   baja: { label: 'dio de baja a', color: HUD.red },
                   sos: { label: 'disparó un SOS', color: HUD.red },
-                  // Las dos del perfil del chofer (se edita él, desde la app)
+                  // Las tres del perfil del chofer (se editan desde la app)
                   alias_propio: { label: 'se puso el alias', color: HUD.bright },
                   clave_propia: { label: 'cambió su propia contraseña', color: HUD.amber },
+                  cerrar_todo: { label: 'cerró todas sus sesiones', color: HUD.amber },
+                  // Lo que el chofer administra de SU combi
+                  clave_cobrador: { label: 'le cambió la clave al cobrador', color: HUD.amber },
+                  baja_cobrador: { label: 'sacó de su combi a', color: HUD.red },
+                  // Lo que anota el SISTEMA solo, mirando las posiciones. No
+                  // acusa a nadie: es lo que pasó, para poder preguntarlo.
+                  desvio: { label: 'se salió del recorrido', color: HUD.amber },
+                  entrada_tardia: { label: 'entró a la ruta empezada', color: HUD.amber },
+                  vuelta_parcial: { label: 'cerró una vuelta parcial', color: HUD.dim },
+                  gps_simulado: { label: 'mandó GPS marcado como falso por Android', color: HUD.red },
+                  gps_sospechoso: { label: 'mandó GPS con firma de simulador', color: HUD.amber },
+                  // Configuración de la ruta y de la medición
+                  objetivo: { label: 'cambió el objetivo de brecha', color: HUD.bright },
+                  desvio_config: { label: 'cambió el umbral de desvío', color: HUD.bright },
+                  recorrido: { label: 'cargó el recorrido de', color: HUD.bright },
+                  variante: { label: 'cambió el trazado con el que se mide', color: HUD.bright },
+                  alta_ruta: { label: 'creó la ruta', color: HUD.green },
+                  // La empresa, el logo y las grabaciones
+                  editar_empresa: { label: 'cambió los datos de la cooperativa', color: HUD.bright },
+                  logo: { label: 'cambió el logo', color: HUD.bright },
+                  grabacion: { label: 'envió un recorrido grabado', color: HUD.green },
+                  grabacion_pedida: { label: 'le pidió una grabación a', color: HUD.bright },
+                  grabacion_pedido_cancelado: { label: 'canceló el pedido de grabación a', color: HUD.dim },
+                  aviso_visto: { label: 'marcó como visto el aviso', color: HUD.dim },
+                  login_empresa_inactiva: { label: 'intentó entrar con la cooperativa suspendida', color: HUD.red },
                 };
                 const cols = '120px 150px 1fr';
                 return (
