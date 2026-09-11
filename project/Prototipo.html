@@ -923,6 +923,8 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
 // ya salió— desde la barra "¿qué pasó?"; sin elegir queda el SOS genérico.
 // Las claves son las que viajan por el cable; los textos, lo que se dibuja.
 const TIPOS_SOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
+// Cómo se llama lo que el servidor limita por minuto, para el aviso de cupo
+const CUPO_ES = { chat: 'Mensajes de texto', voice: 'Notas de voz', photo: 'Fotos', sos: 'SOS' };
 
 const CHAT_SEED = [
   { from: 'Chofer 08', role: 'driver', text: 'Voy lleno, paso directo',    time: '14:05', tone: 'normal' },
@@ -2857,6 +2859,17 @@ function Root() {
       });
     });
 
+    // El cupo por minuto del servidor: lo que se mandó de más se descartó.
+    // Antes se descartaba sin decir nada y el chofer veía que su nota de voz
+    // no aparecía, sin explicación (REVISION-2026-09-10.md, C10).
+    window.RealtimeClient.on('cupo', (m) => {
+      pushMsg({
+        from: 'SISTEMA', role: 'admin', tone: 'warn',
+        text: `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, esperá un momento.`,
+        time: nowTime(),
+      });
+    });
+
     // SOS de otra unidad: entra al hilo y dispara el aviso a pantalla completa
     window.RealtimeClient.on('sos', (a) => {
       if (a.unitId === myUnitId) {
@@ -3047,9 +3060,19 @@ function Root() {
             }}>ALERTA ENVIADA — ¿QUÉ PASÓ?</div>
             <div style={{ display: 'flex', gap: 8 }}>
               {Object.entries(TIPOS_SOS).map(([clave, etiqueta]) => (
-                <button key={clave} onClick={() => {
-                  window.RealtimeClient.sendSosTipo(sosPropio, clave);
+                <button key={clave} onClick={async () => {
+                  // La barra se cierra en el acto —el chofer está en una
+                  // emergencia— pero si el tipo NO salió se le dice: de eso
+                  // depende que salga una ambulancia o una grúa
+                  // (REVISION-2026-09-10.md, C8).
+                  const id = sosPropio;
                   setSosPropio(null);
+                  const r = await window.RealtimeClient.sendSosTipo(id, clave);
+                  if (r) pushMsg({
+                    from: 'SISTEMA', role: 'admin', tone: 'warn',
+                    text: 'Tu SOS salió, pero no pudo decir QUÉ pasó. Avisá por acá si es ambulancia o grúa.',
+                    time: nowTime(),
+                  });
                 }} style={{
                   flex: 1, minHeight: 48, borderRadius: 10, cursor: 'pointer',
                   border: `1px solid ${HUD.divider}`, background: HUD.bg,

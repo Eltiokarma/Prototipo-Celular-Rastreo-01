@@ -61,6 +61,13 @@ function listar(db) {
     ultimoGps: (db.prepare(`
       SELECT MAX(COALESCE(s.endedAt, s.lastSeenAt)) AS t FROM shifts s JOIN routes r ON r.routeId = s.routeId
       WHERE r.companyId = ? AND s.role = 'driver'`).get(e.companyId) || {}).t || null,
+    // Avisos colgados sin que nadie los haya visto todavía. El creador los
+    // manda y después tenía que entrar cooperativa por cooperativa para
+    // saber si alguien los leyó: en el listado no aparecía nada
+    // (REVISION-2026-09-10.md, E20). Los pendientes NO caducan, así que un
+    // número que no baja es un aviso que nadie está mirando.
+    avisosPendientes: db.prepare(
+      'SELECT COUNT(*) AS c FROM notices WHERE companyId = ? AND vistoEn IS NULL').get(e.companyId).c,
     despacho: db.prepare("SELECT unitId, routeId, lastLogin FROM users WHERE companyId = ? AND role = 'dispatch' ORDER BY unitId")
       .all(e.companyId),
     gerencia: db.prepare("SELECT unitId, routeId, lastLogin FROM users WHERE companyId = ? AND role = 'manager' ORDER BY unitId")

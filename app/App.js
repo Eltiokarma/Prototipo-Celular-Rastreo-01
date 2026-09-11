@@ -150,6 +150,16 @@ function ConTema({ children }) {
 // nativa no se puede quitar del todo (Android muestra algo antes de que
 // corra el JavaScript), así que se la deja lisa y el pase no se nota.
 SplashScreen.preventAutoHideAsync().catch(() => {});
+// Cómo se llama en castellano lo que el servidor limita por minuto, para el
+// aviso de cupo. `gps` no aparece: ese cupo lo maneja el servicio de fondo y
+// no es algo que el chofer esté haciendo con el dedo.
+const CUPO_ES = {
+  chat: 'Mensajes de texto',
+  voice: 'Notas de voz',
+  photo: 'Fotos',
+  sos: 'SOS',
+};
+
 const PRESENTACION_MIN_MS = 1200;
 
 function Presentacion({ mostrando }) {
@@ -266,6 +276,11 @@ function Aplicacion() {
       }),
       c.on('voz',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('foto', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
+      // El cupo por minuto del servidor. Lo que se manda de más se descarta,
+      // y antes se descartaba sin decir nada: la burbuja no aparecía y no
+      // había explicación en ninguna pantalla (C10).
+      c.on('cupo', (m) => setAviso(
+        `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, esperá un momento`)),
     ];
     return () => off.forEach(f => f());
   }, []);
@@ -591,17 +606,39 @@ function Aplicacion() {
         onTrafico={(activo) => cliente.current.marcarTrafico(activo)}
         onSos={() => cliente.current.mandarSos(ultimaPos.current)}
         tipificarSos={tipificarSos}
-        onTipoSos={(tipo) => {
-          if (tipo) cliente.current.marcarTipoSos(tipo);
+        onTipoSos={async (tipo) => {
+          // El diálogo se cierra en el acto: el chofer está en una
+          // emergencia y no espera a nadie. Pero si el tipo NO salió, se le
+          // dice, porque de eso depende que salga una ambulancia o una grúa.
+          // Antes se descartaba el retorno y el diálogo se cerraba igual
+          // (REVISION-2026-09-10.md, C8).
           setTipificarSos(false);
+          if (!tipo) return;
+          const r = await cliente.current.marcarTipoSos(tipo);
+          if (r === 'sin-sos') setAviso('No hay ninguna emergencia tuya abierta para calificar');
+          else if (r) setAviso('Tu SOS salió, pero no pudo decir QUÉ pasó. Avisá por el chat si es ambulancia o grúa');
         }}
         onPerfil={() => setVerPerfil(true)} />
       <Chat {...comun}
         mensajes={hilo(mensajes, canal)}
         canal={canal}
         onCanal={(cual) => { setCanal(cual); marcarVisto(cual); }}
-        onEnviar={(texto) => cliente.current.mandarChat(texto, { privado: canal === 'directo' })}
-        onVoz={(data, duration) => cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' })}
+        onEnviar={(texto) => {
+          // El mensaje entra al hilo sólo por el eco del servidor, así que
+          // sin socket no pasa NADA: ni burbuja, ni error. Antes el retorno
+          // se descartaba (C10).
+          if (!cliente.current.mandarChat(texto, { privado: canal === 'directo' })) {
+            setAviso('Sin conexión: el mensaje no salió, probá de nuevo');
+          }
+        }}
+        onVoz={(data, duration) => {
+          // Ídem la nota de voz, que es peor: el chofer graba cuarenta
+          // segundos, suelta, y no pasa nada.
+          const r = cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' });
+          if (r === 'muy-larga') setAviso('La nota es muy larga y no salió: grabá una más corta');
+          else if (r === 'sin-conexion') setAviso('Sin conexión: la nota no salió, probá de nuevo');
+          else if (r) setAviso('Eso no es una nota de voz');
+        }}
         onFoto={(data) => {
           // Si no salió, se dice por qué. Antes la pantalla ignoraba el
           // retorno y una foto pesada o sin conexión se perdía en silencio.
@@ -613,7 +650,8 @@ function Aplicacion() {
     </Carrusel>
     {/* Fuera del carrusel: el perfil no es una página más, es un alto */}
     {verPerfil && (
-      <Perfil sesion={sesion} marca={marca} onCerrar={() => setVerPerfil(false)} />
+      <Perfil sesion={sesion} marca={marca} onCerrar={() => setVerPerfil(false)}
+        onCerrarTodo={() => { setVerPerfil(false); comun.onSalir(); }} />
     )}
     {presentacion}
     </>
@@ -944,6 +982,12 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
             hay que ver cuando "último hace" crece y no hay ningún error. */}
         {diag.enVueloDesde ? ` · enviando hace ${Math.round((Date.now() - diag.enVueloDesde) / 1000)}s` : ''}
       </Text>
+      {/* Por qué no se usó ninguna. El caso real: la web abierta y la app en
+          el teléfono reportando la misma combi, cada una con su reloj — sin
+          esto son ceros sin explicación (REVISION-2026-09-10.md, C20). */}
+      {diag.motivoNoUsadas && (
+        <Text style={[s.diagnostico, { color: C.ambar }]}>{diag.motivoNoUsadas}</Text>
+      )}
       {/* Los motivos, con su cuenta. Es lo que dice DÓNDE está el problema:
           "sin red" es el teléfono, un HTTP 4xx es el servidor rechazando. */}
       {Object.keys(diag.motivos || {}).length > 0 && (
@@ -1045,7 +1089,7 @@ function TipoSos({ onElegir }) {
 // vueltas, mismas horas, misma vara— pedido a /perfil, que solo contesta
 // lo del que pregunta. El alias se edita acá porque es cómo lo llaman en
 // la ruta; el nombre no, porque con ese se liquidan las horas.
-function Perfil({ sesion, marca, onCerrar }) {
+function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
   const { s, C } = usarTema();
   const margen = margenes(useSafeAreaInsets(), { conBarra: false });
   const [datos, setDatos] = React.useState(null);
@@ -1056,6 +1100,8 @@ function Perfil({ sesion, marca, onCerrar }) {
   const [aviso, setAviso] = React.useState(null);
   // La ventana: la semana o el mes, que es como se liquida (P7)
   const [dias, setDias] = React.useState(7);
+  // Cerrar todas las sesiones cierra ESTA también: dos toques (P11)
+  const [confirmarCerrarTodo, setConfirmarCerrarTodo] = React.useState(false);
 
   // Se recarga entero después de tocar un cobrador: el servidor es el que
   // sabe cuántos quedan y cuántas horas llevan, no esta pantalla.
@@ -1199,6 +1245,53 @@ function Perfil({ sesion, marca, onCerrar }) {
   // «Hay una nueva» / «ésta ya no sirve», con lo que contestó el perfil
   const avisoApp = avisoDeApp(datos && datos.app, APP);
 
+  // El grabador de recorridos (3.4): manejar la vuelta y que el trazado salga
+  // de la calle, no del ojo sobre el mapa.
+  //
+  // Va en una constante y no suelto en el JSX porque se dibuja en DOS
+  // lugares: en el perfil entero y en el perfil SIN CONEXIÓN. El grabador no
+  // necesita red —graba contra el GPS y guarda en el teléfono— y antes, con
+  // el `fetch` del perfil fallado, la pantalla entera se reducía a «No se
+  // pudo cargar» y el chofer se quedaba justo sin la única herramienta que
+  // ahí sí le servía (REVISION-2026-09-10.md, P10).
+  const bloqueGrabador = (<>
+            <View style={s.divisor} />
+            <Text style={s.perfilSeccion}>GRABADOR DE RECORRIDO</Text>
+            <Text style={s.diagnostico}>
+              Con la salida a ruta activa, manejá la vuelta entera: se guarda
+              un punto cada 30 metros (parar en un semáforo no ensucia). Al
+              terminar se envía, y Despacho lo importa desde su trazador.
+              {'\n'}Hasta que se envía vive SOLO en este teléfono: si
+              desinstalás la app, se pierde.
+            </Text>
+            {!grabacion && (
+              <Pressable style={[s.botonAncho, {
+                backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, marginTop: 12,
+              }]} onPress={() => gps.empezarGrabacion().then(() => setGrabacion({ puntos: 0, largoM: 0 }))}>
+                <Text style={[s.botonAnchoTexto, { color: C.brillante }]}>GRABAR RECORRIDO</Text>
+              </Pressable>
+            )}
+            {grabacion && (<>
+              <Text style={[s.diagnostico, { marginTop: 12 }]}>
+                {grabacion.parada ? 'Grabación parada (sin enviar)'
+                  : grabacion.pedida ? '● Grabando (la pidió Despacho)' : '● Grabando'}
+                {` · ${grabacion.puntos} punto${grabacion.puntos === 1 ? '' : 's'}`}
+                {` · ${((grabacion.largoM || 0) / 1000).toFixed(1)} km`}
+              </Text>
+              <Pressable disabled={mandandoGrabacion}
+                style={[s.botonAncho, { backgroundColor: C.verde, marginTop: 10 }]}
+                onPress={terminarYMandar}>
+                <Text style={s.botonAnchoTexto}>
+                  {mandandoGrabacion ? 'ENVIANDO…' : grabacion.parada ? 'ENVIAR' : 'TERMINAR Y ENVIAR'}
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => gps.descartarGrabacion().then(() => setGrabacion(null))}
+                style={s.tipoSosCerrar}>
+                <Text style={s.tipoSosCerrarTexto}>Descartar la grabación</Text>
+              </Pressable>
+            </>)}
+  </>);
+
   return (
     <Modal animationType="slide" onRequestClose={onCerrar}>
       <View style={[s.pantalla, margen]}>
@@ -1210,6 +1303,26 @@ function Perfil({ sesion, marca, onCerrar }) {
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 30 }}>
           {error && <Text style={s.avisoBarra}>{error}</Text>}
           {!datos && !error && <ActivityIndicator style={{ marginTop: 40 }} />}
+          {/* Sin conexión el perfil no es «no se pudo cargar» y listo: los
+              números, el alias y los cobradores necesitan al servidor, pero
+              el GRABADOR no —graba contra el GPS y guarda en el teléfono— y
+              es lo único de acá que sirve justo cuando no hay señal
+              (REVISION-2026-09-10.md, P10). */}
+          {!datos && error && (<>
+            <Text style={[s.ladoEtiqueta, { color: C.brillante, marginTop: 16 }]}>
+              {(sesion.alias || sesion.name || sesion.unitId || '').toUpperCase()}
+            </Text>
+            <Text style={s.diagnostico}>
+              Tus números, tu alias y tus cobradores se piden al servidor y
+              ahora no se puede. Lo de abajo funciona igual.
+            </Text>
+            <Pressable style={[s.botonAncho, {
+              backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, marginTop: 12,
+            }]} onPress={() => { setError(null); cargar(); }}>
+              <Text style={[s.botonAnchoTexto, { color: C.brillante }]}>REINTENTAR</Text>
+            </Pressable>
+            {bloqueGrabador}
+          </>)}
           {datos && (<>
             <Text style={[s.ladoEtiqueta, { color: C.brillante, marginTop: 16 }]}>
               {(datos.persona.alias || datos.persona.name).toUpperCase()}
@@ -1451,41 +1564,35 @@ function Perfil({ sesion, marca, onCerrar }) {
               <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>CAMBIAR</Text>
             </Pressable>
 
-            {/* El grabador de recorridos (3.4): manejar la vuelta y que el
-                trazado salga de la calle, no del ojo sobre el mapa */}
-            <View style={s.divisor} />
-            <Text style={s.perfilSeccion}>GRABADOR DE RECORRIDO</Text>
-            <Text style={s.diagnostico}>
-              Con la salida a ruta activa, manejá la vuelta entera: se guarda
-              un punto cada 30 metros (parar en un semáforo no ensucia). Al
-              terminar se envía, y Despacho lo importa desde su trazador.
-            </Text>
-            {!grabacion && (
-              <Pressable style={[s.botonAncho, {
-                backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, marginTop: 12,
-              }]} onPress={() => gps.empezarGrabacion().then(() => setGrabacion({ puntos: 0, largoM: 0 }))}>
-                <Text style={[s.botonAnchoTexto, { color: C.brillante }]}>GRABAR RECORRIDO</Text>
-              </Pressable>
-            )}
-            {grabacion && (<>
-              <Text style={[s.diagnostico, { marginTop: 12 }]}>
-                {grabacion.parada ? 'Grabación parada (sin enviar)'
-                  : grabacion.pedida ? '● Grabando (la pidió Despacho)' : '● Grabando'}
-                {` · ${grabacion.puntos} punto${grabacion.puntos === 1 ? '' : 's'}`}
-                {` · ${((grabacion.largoM || 0) / 1000).toFixed(1)} km`}
+            {/* Cerrar TODAS las sesiones. El servidor lo soporta desde que
+                existe el cambio de clave —es el remedio para el teléfono
+                perdido o prestado— y la app sólo llamaba al logout simple, que
+                cierra ésta y ninguna más (REVISION-2026-09-10.md, P11).
+                Lo que da acceso no es la contraseña: es el TOKEN, que vive 30
+                días. Pide confirmación de dos toques porque también cierra
+                ESTA sesión: el chofer vuelve al login y tiene que entrar de
+                nuevo — que es exactamente lo que quiere el que perdió el
+                teléfono, y una molestia seria para el que lo tocó sin querer. */}
+            <Pressable style={[s.botonAncho, {
+              backgroundColor: C.panel, borderWidth: 1,
+              borderColor: confirmarCerrarTodo ? C.rojo : C.linea, marginTop: 10,
+            }]} onPress={async () => {
+              if (!confirmarCerrarTodo) { setConfirmarCerrarTodo(true); return; }
+              setConfirmarCerrarTodo(false);
+              const fue = await post('/auth/logout', { todas: true }, null);
+              // Si salió, esta sesión también murió: se sale del todo, que es
+              // lo honesto — quedarse en una pantalla con un token muerto
+              // muestra números viejos como si fueran de ahora.
+              if (fue) onCerrarTodo();
+            }}>
+              <Text style={[s.botonAnchoTexto, { color: confirmarCerrarTodo ? C.rojo : C.tenue }]}>
+                {confirmarCerrarTodo
+                  ? '¿SEGURO? TAMBIÉN CIERRA ESTA — TOCÁ DE NUEVO'
+                  : 'CERRAR TODAS MIS SESIONES'}
               </Text>
-              <Pressable disabled={mandandoGrabacion}
-                style={[s.botonAncho, { backgroundColor: C.verde, marginTop: 10 }]}
-                onPress={terminarYMandar}>
-                <Text style={s.botonAnchoTexto}>
-                  {mandandoGrabacion ? 'ENVIANDO…' : grabacion.parada ? 'ENVIAR' : 'TERMINAR Y ENVIAR'}
-                </Text>
-              </Pressable>
-              <Pressable onPress={() => gps.descartarGrabacion().then(() => setGrabacion(null))}
-                style={s.tipoSosCerrar}>
-                <Text style={s.tipoSosCerrarTexto}>Descartar la grabación</Text>
-              </Pressable>
-            </>)}
+            </Pressable>
+
+            {bloqueGrabador}
 
             {/* Qué APK es éste, y si hay uno nuevo (P5). Antes no se dibujaba
                 en ningún lado, justo cuando cada APK cambia lo que manda. */}

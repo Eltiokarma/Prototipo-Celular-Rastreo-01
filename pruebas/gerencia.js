@@ -302,7 +302,7 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
     const csv = await fetch(`${API}/gerencia/informe/vueltas.csv?desde=${Date.now() - 86400e3}&hasta=${Date.now()}`,
       { headers: { Authorization: 'Bearer ' + G.token } }).then(r => r.text());
     ok('baja el mismo archivo que Despacho', /Informe de vueltas/.test(csv));
-    ok('firmado por quien lo pidió', /GER-EMPRESA/.test(csv), csv.split('\r\n')[3]);
+    ok('firmado por quien lo pidió', /GER-EMPRESA/.test(csv), csv.split('\r\n')[4]);
     ok('con el nombre de su cooperativa', /Cooperativa de Transportes Juliaca/.test(csv), csv.split('\r\n')[0]);
 
     // La brecha sin el objetivo al lado es un número sin vara: el que abre el

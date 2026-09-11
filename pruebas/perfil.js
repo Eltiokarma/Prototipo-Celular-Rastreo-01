@@ -181,6 +181,68 @@ const dias = n => Date.now() - n * 86400_000;
     ok('auditado QUE la cambió, nunca cuál es', fila !== undefined && !fila.detail, fila);
   }
 
+  console.log('\nDOS «EL CHINO» EN LA MISMA RUTA, NO');
+  // Revisión del 10/9, P9. El alias PISA `driverName`, que es lo que se
+  // emite: dos con el mismo alias son dos unidades con el mismo nombre en el
+  // mapa de Despacho, y nadie sabe a cuál le está hablando.
+  {
+    const s2 = await login('M-02', 'clave1234');
+    let r = await pedir('/perfil/alias', s2.token, { method: 'POST',
+      body: JSON.stringify({ alias: 'El Puma' }) });
+    ok('un alias que ya tiene un compañero de ruta, 409', r.status === 409, { status: r.status, body: r.body });
+    // Ni con otras mayúsculas ni con espacios de sobra: se compara como se lee
+    r = await pedir('/perfil/alias', s2.token, { method: 'POST',
+      body: JSON.stringify({ alias: '  el puma ' }) });
+    ok('ni cambiándole las mayúsculas o los espacios', r.status === 409, r.status);
+    // Tampoco el NOMBRE de otro: en la pantalla se lee igual
+    r = await pedir('/perfil/alias', s2.token, { method: 'POST',
+      body: JSON.stringify({ alias: 'Elmer Ccama' }) });
+    ok('ni el nombre real de otro', r.status === 409, r.status);
+    r = await pedir('/perfil/alias', s2.token, { method: 'POST',
+      body: JSON.stringify({ alias: 'El Zorro' }) });
+    ok('uno libre entra sin drama', r.status === 200 && r.body.alias === 'El Zorro', r.body);
+    // Y el suyo propio no choca consigo mismo: volver a guardarlo vale
+    r = await pedir('/perfil/alias', s2.token, { method: 'POST',
+      body: JSON.stringify({ alias: 'El Zorro' }) });
+    ok('y guardar el suyo de nuevo no choca consigo mismo', r.status === 200, r.status);
+  }
+
+  console.log('\nSIN RUTA NO SE LE INVENTA UNA');
+  // Revisión del 10/9, P8. `routeOf(user.routeId || DEFAULT_ROUTE)` le hacía
+  // ver el nombre de la ruta por defecto —que en un servidor con varias
+  // cooperativas puede ser de OTRA empresa— como si fuera la suya.
+  {
+    const b = new Database(DB);
+    b.prepare("UPDATE users SET routeId = NULL WHERE unitId = 'M-02'").run();
+    b.close();
+    const s2 = await login('M-02', 'clave1234');
+    const r = await pedir('/perfil', s2.token);
+    ok('el perfil sale igual', r.status === 200, r.status);
+    ok('y su ruta viene vacía, no la de al lado',
+       r.body.ruta && r.body.ruta.routeId === null && r.body.ruta.name === null, r.body.ruta);
+  }
+
+  console.log('\nCERRAR TODAS LAS SESIONES');
+  // Revisión del 10/9, P11. El servidor lo soporta desde que existe el cambio
+  // de clave —lo que da acceso no es la contraseña sino el TOKEN, que vive 30
+  // días— y la app sólo llamaba al logout simple.
+  {
+    const a1 = await login('M-01', 'nueva-clave-9');
+    const a2 = await login('M-01', 'nueva-clave-9');
+    const a3 = await login('M-01', 'nueva-clave-9');
+    ok('tres sesiones abiertas del mismo teléfono perdido', !!a1.token && !!a2.token && !!a3.token);
+    const r = await pedir('/auth/logout', a1.token, { method: 'POST', body: JSON.stringify({ todas: true }) });
+    ok('cerrar todas contesta cuántas cerró', r.status === 200 && r.body.cerradas >= 3, r.body);
+    for (const [n, t] of [['la que pidió', a1.token], ['la segunda', a2.token], ['la tercera', a3.token]]) {
+      const q = await pedir('/perfil', t);
+      ok(`y ${n} ya no vale`, q.status === 401, q.status);
+    }
+    const b = new Database(DB, { readonly: true });
+    const auditado = b.prepare("SELECT COUNT(*) n FROM audit WHERE action = 'cerrar_todo' AND actor = 'M-01'").get().n;
+    b.close();
+    ok('y queda auditado', auditado === 1, auditado);
+  }
+
   servidor.kill();
   console.log(fallas ? `\n${fallas} FALLAS` : '\nTODO EN ORDEN');
   process.exit(fallas ? 1 : 0);

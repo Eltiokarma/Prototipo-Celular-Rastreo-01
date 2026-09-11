@@ -87,7 +87,12 @@ const login = (u, p, ip) => fetch(API + '/auth/login', { method: 'POST',
   const ws = new WebSocket('ws://localhost:3001');
   await new Promise(res => ws.on('open', res));
   let recibidos = 0;
-  ws.on('message', raw => { if (JSON.parse(raw).type === 'chat_msg') recibidos++; });
+  const avisosCupo = [];
+  ws.on('message', raw => {
+    const m = JSON.parse(raw);
+    if (m.type === 'chat_msg') recibidos++;
+    if (m.type === 'cupo') avisosCupo.push(m);
+  });
   ws.send(JSON.stringify({ type: 'identify', token: s.body.token }));
   await sleep(600);
   for (let i = 0; i < 200; i++) {
@@ -96,6 +101,14 @@ const login = (u, p, ip) => fetch(API + '/auth/login', { method: 'POST',
   await sleep(2500);
   ok('9. Corta la inundación de chat de una sesión válida', recibidos > 0 && recibidos <= 30,
      `${recibidos} de 200 mensajes pasaron`);
+  // Y SE LO DICE al que mandó (revisión del 10/9, C10). Cortar sin avisar es
+  // lo que hacía que el chofer grabara una nota de voz, la viera salir y no
+  // saliera, sin nada en ninguna pantalla que lo explicara. Uno por ventana,
+  // no uno por mensaje descartado: 170 avisos serían otra inundación.
+  ok('9b. Y le avisa UNA vez qué cupo se pasó y cuál es',
+     avisosCupo.length === 1 && avisosCupo[0].que === 'chat' && avisosCupo[0].max === 30 &&
+     avisosCupo[0].ventanaSec === 60,
+     avisosCupo.length + ' avisos: ' + JSON.stringify(avisosCupo[0]));
 
   // Un mensaje descomunal no tumba nada
   const enorme = 'x'.repeat(3_000_000);

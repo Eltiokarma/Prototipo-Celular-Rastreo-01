@@ -89,6 +89,41 @@ const conectar = async (user, clave = 'clave1234') => {
   ok('14. Un destinatario inexistente se descarta',
      despacho.rec.chats.filter(m => m.text === 'hola?').length === 0);
 
-  [despacho, chofer, cobrador, otro, nuevoOtro, nuevoChofer, nuevoCobrador, nuevoDespacho].forEach(c => c.ws.close());
+  // 7. Un privado a una combi de OTRA ruta se guarda con la ruta de ELLA
+  //
+  // Revisión del 10/9, C19. El mensaje se guardaba con la ruta del emisor —la
+  // que Despacho está mirando— y el historial del chofer, que se filtra por
+  // SU ruta, no lo traía: se veía en vivo y desaparecía al reconectar. Desde
+  // la pantalla hoy no se puede elegir una combi de otra ruta; el borde va
+  // igual en el servidor, que es donde importa.
+  const vecinos = [];
+  {
+    const { execFileSync } = require('child_process');
+    const DBF = process.env.DBFILE || process.env.DB_FILE;
+    execFileSync('node', [RAIZ + '/server/empresa.js', 'ruta', 'R14', 'R-30', 'La ruta de al lado'],
+      { env: { ...process.env, DB_FILE: DBF }, encoding: 'utf8' });
+    await alta({ unitId: 'V-30', name: 'Chofer de al lado', personRole: 'driver', routeId: 'R-30', password: 'clave1234' });
+    const vecino = await conectar('V-30');
+    vecinos.push(vecino);
+    despacho.ws.send(JSON.stringify({ type: 'chat', to: 'V-30', text: 'pasá por el taller', timestamp: Date.now() }));
+    await sleep(1200);
+    const suyo = vecino.rec.chats.filter(m => m.text === 'pasá por el taller');
+    ok('15. El privado a una combi de otra ruta le llega en vivo', suyo.length === 1,
+       suyo[0] && 'con ruta ' + suyo[0].routeId);
+    ok('16. Y va con la ruta de ESA combi, no con la que Despacho mira',
+       suyo.length === 1 && suyo[0].routeId === 'R-30', suyo[0] && suyo[0].routeId);
+    ok('17. Despacho ve su propio mensaje igual, aunque esté mirando otra ruta',
+       despacho.rec.chats.filter(m => m.text === 'pasá por el taller').length === 1);
+    ok('18. Y no se le filtra a la otra unidad de la ruta del emisor',
+       otro.rec.chats.filter(m => m.text === 'pasá por el taller').length === 0);
+    const devuelta = await conectar('V-30');
+    vecinos.push(devuelta);
+    ok('19. Y al reconectar sigue estando en su historial — que es lo que se perdía',
+       (devuelta.rec.historial || []).map(i => i.text).includes('pasá por el taller'),
+       JSON.stringify((devuelta.rec.historial || []).map(i => i.text)));
+  }
+
+  [despacho, chofer, cobrador, otro, nuevoOtro, nuevoChofer, nuevoCobrador, nuevoDespacho, ...vecinos]
+    .forEach(c => c.ws.close());
   process.exit(0);
 })();

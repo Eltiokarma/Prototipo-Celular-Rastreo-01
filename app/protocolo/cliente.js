@@ -239,6 +239,10 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
         emitir('sos', m);
         break;
       case 'sos_tipo':     emitir('sosTipo', m); break;
+      // El servidor avisa que se pasó el cupo de ese tipo de mensaje por
+      // minuto. Lo que se mandó de más se descartó, y sin este aviso se
+      // descartaba en silencio (C10).
+      case 'cupo':         emitir('cupo', m); break;
       case 'unit_joined':  emitir('unidadEntro', m.unitId); break;
       case 'unit_left':    emitir('unidadSalio', m.unitId); break;
       case 'routes':       emitir('rutas', m); break;
@@ -303,30 +307,12 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     try { ws.send(JSON.stringify(obj)); return true; } catch { return false; }
   }
 
-  // ─── Mandar posiciones por HTTP ────────────────────────────
-  // El camino que usa el servicio de fondo. NO depende de que el WebSocket
-  // esté vivo, y ese es todo el punto: se midió en un teléfono real que al
-  // bloquear la pantalla Android suspende el JavaScript y el socket se cae,
-  // aunque el servicio de ubicación siga corriendo. La combi quedaba muda.
-  //
-  // Acepta varias posiciones con su hora, así que también sirve para vaciar
-  // el atraso juntado en una zona sin datos.
-  async function subirPosiciones(posiciones) {
-    if (!token || !posiciones?.length) return { ok: false, motivo: 'nada-que-mandar' };
-    try {
-      const r = await fetch(servidor + '/gps', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ posiciones }),
-      });
-      const cuerpo = await r.json().catch(() => ({}));
-      if (!r.ok) return { ok: false, status: r.status, motivo: cuerpo.error || 'rechazado' };
-      return { ok: true, aceptadas: cuerpo.aceptadas || 0 };
-    } catch (e) {
-      // Sin datos. El que llama guarda en la cola y reintenta al volver.
-      return { ok: false, motivo: 'sin-red' };
-    }
-  }
+  // Mandar posiciones por HTTP no vive acá: vive en el servicio de fondo
+  // (`app/gps/servicio.js`, con `pedirConCorte`). Hubo una segunda
+  // implementación acá (`subirPosiciones`, con `fetch`) que nadie llamaba y
+  // que estaba rota justo para lo que existe el camino HTTP —`fetch` con la
+  // pantalla apagada no resuelve, lo documenta `pedido.js`— y además no
+  // mandaba `presencia` ni `grabando`. Se borró (revisión del 10/9, C14).
 
   // Devuelve por qué NO se mandó, o null si se mandó. Se devuelve el motivo
   // en vez de un booleano pelado porque las dos razones de rechazo son cosas
@@ -483,10 +469,31 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // sin preguntar nada; esto va después, cuando el chofer puede. El id del
   // disparo lo anotó `sos_alert` al rebotar — si no hay ninguno anotado, no
   // hay SOS propio que calificar.
+  //
+  // Devuelve una promesa con `null` si salió, o el motivo por el que no. Y
+  // tiene la MISMA puerta de atrás que el disparo: con el socket caído va
+  // por `POST /sos/:id/tipo`. El socket caído es justamente el escenario
+  // para el que existe el SOS por HTTP, así que era ahí —y sólo ahí— donde
+  // «accidente» o «falla mecánica» se perdía: quien moviliza recibía un SOS
+  // genérico y tenía que adivinar entre una ambulancia y una grúa
+  // (REVISION-2026-09-10.md, C8).
+  //
+  // Por el socket no se espera eco: el servidor contesta el `sos_tipo` a
+  // toda la ruta, pero un eco que no viene dejaría al chofer con el diálogo
+  // abierto en una emergencia. Se manda, y si el socket no está, HTTP.
   let miUltimoSos = null;
-  function marcarTipoSos(tipo) {
+  async function marcarTipoSos(tipo) {
     if (miUltimoSos == null) return 'sin-sos';
-    return enviar({ type: 'sos_tipo', sosId: miUltimoSos, tipo }) ? null : 'sin-conexion';
+    if (enviar({ type: 'sos_tipo', sosId: miUltimoSos, tipo })) return null;
+    if (!token) return 'sin-conexion';
+    try {
+      const r = await pedirHttp(`/sos/${miUltimoSos}/tipo`, { tipo }, SOS_HTTP_MS);
+      if (r.ok) return null;
+      const cuerpo = await r.json().catch(() => ({}));
+      return cuerpo.error || 'sin-conexion';
+    } catch {
+      return 'sin-conexion';
+    }
   }
 
   function salir() {
@@ -531,7 +538,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
 
   return {
     entrar, conectar, salir, cerrarSesion,
-    mandarGps, subirPosiciones, mandarChat, mandarVoz, mandarFoto, mandarSos,
+    mandarGps, mandarChat, mandarVoz, mandarFoto, mandarSos,
     marcarTipoSos, pedirMarca, marcarPresencia, marcarTrafico,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {

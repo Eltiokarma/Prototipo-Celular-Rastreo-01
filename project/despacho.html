@@ -237,6 +237,21 @@ function nowTime(ts) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+// Los roles que una persona tuvo en un período, para leer de un vistazo. El
+// servidor manda `roles` (lista) y `role` (en el que puso más horas); con una
+// pantalla vieja o un turno sin rol, se cae al `role` de siempre.
+const ROL_ES = { driver: 'chofer', collector: 'cobrador' };
+function rolesTexto(p) {
+  const lista = (p.roles && p.roles.length ? p.roles : [p.role]).filter(Boolean);
+  if (!lista.length) return '—';
+  return lista.map(r => ROL_ES[r] || r).join(' · ');
+}
+// Si en todo el período manejó alguna vez. Lo que decide si las vueltas y
+// las salidas de ruta de la fila son suyas o son un «—».
+function manejo(p) {
+  return (p.roles && p.roles.length ? p.roles : [p.role]).includes('driver');
+}
+
 // "hoy 14:05" / "ayer 09:12" / "12/07 18:40" — para la última conexión
 function fmtWhen(ts) {
   if (!ts) return '—';
@@ -248,6 +263,43 @@ function fmtWhen(ts) {
   if (dias === 1) return `ayer ${hora}`;
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${hora}`;
 }
+
+// Los tres diccionarios de Números, para no repetir literales sueltos por la
+// pantalla. El servidor manda el slug; acá se dice en castellano.
+const MODO_OBJETIVO = {
+  auto: 'automático',
+  esperando: 'automático (esperando vueltas)',
+  manual: 'fijado a mano',
+};
+const TIPOS_SOS_ES = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
+// Cómo terminó una salida del recorrido. `trazado` no es que volviera: es que
+// cambió el recorrido con el que se medía, así que de esa salida ya no se
+// puede afirmar nada.
+// Cómo terminó una parada, y qué vio el servidor de raro. Los slugs son los
+// del servidor; acá se dicen en castellano (lo que significa cada anomalía
+// está en TRUCOS-2026-09-10.md).
+const CIERRE_PARADA = {
+  movio: 'VOLVIÓ A ANDAR',
+  ausente: 'SE DECLARÓ AUSENTE',
+  chofer: 'LO APAGÓ EL CHOFER',
+  corte: 'SE CORTÓ LA SEÑAL',
+  trazado: 'CAMBIÓ EL TRAZADO MEDIDO',
+};
+const ANOMALIA_ES = {
+  salto: 'salto imposible',
+  ausente_en_marcha: 'ausente y en marcha',
+  reloj: 'reloj del teléfono',
+  descartadas: 'posiciones con hora imposible',
+  gps_simulado: 'GPS falso (lo dijo Android)',
+  gps_sospechoso: 'GPS sospechoso',
+  gps_impreciso: 'GPS impreciso',
+};
+
+const CIERRE_DESVIO = {
+  regreso: 'VOLVIÓ AL RECORRIDO',
+  corte: 'SE CORTÓ LA SEÑAL',
+  trazado: 'CAMBIÓ EL TRAZADO MEDIDO',
+};
 
 const mono = 'JetBrains Mono, ui-monospace, monospace';
 const black = '"Archivo Black", system-ui, sans-serif';
@@ -1268,6 +1320,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   const [empForm, setEmpForm] = React.useState({ name: '', ruc: '', contacto: '' });
   // Los números de gerencia (pestaña Números, solo del gerente)
   const [resumenGer, setResumenGer] = React.useState(null);
+  // Dónde se traba la ruta (E9): las paradas, los cortes de señal y las
+  // anomalías, que el servidor servía en `/admin/paradas`, `/admin/huecos` y
+  // `/admin/anomalias` sin que ninguna pantalla los pidiera.
+  const [trabas, setTrabas] = React.useState(null);
+  const [diasTrabas, setDiasTrabas] = React.useState(7);
   const [diasGer, setDiasGer] = React.useState(7);
   // La ruta que mira el gerente de cooperativa en Números ('' = todas). El
   // gerente de ruta no elige: el servidor lo ata a la suya (`alcance.fijo`).
@@ -1367,11 +1424,38 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
       .catch(e => setError(e.message));
   };
 
+  // Días de CALENDARIO, no rodantes (revisión del 10/9, E14). Con
+  // `hasta - dias × 86400000` el período arrancaba a la hora en que se abrió
+  // la pantalla: a las 15:00, «7 días» empezaba el lunes a las 15:00, y la
+  // tendencia por día abría con una barra de nueve horas comparada contra
+  // seis días enteros. El único día parcial tiene que ser hoy.
+  // Dónde empieza un período de N días, en días de CALENDARIO contando hoy.
+  // Lo usan el resumen y los CSV de Números, que antes no coincidían: el
+  // resumen contaba una cosa y el archivo que el gerente bajaba al lado,
+  // otra (REVISION-2026-09-10.md, E19).
+  const inicioDePeriodo = (dias) => {
+    const d = new Date(inicioDeHoy());
+    d.setDate(d.getDate() - (Math.max(1, dias) - 1));
+    return d.getTime();
+  };
   const loadGerencia = (dias = diasGer, ruta = rutaGer) => {
     const hasta = Date.now();
-    return api(`/gerencia/resumen?desde=${hasta - dias * 86400000}&hasta=${hasta}${ruta ? `&routeId=${encodeURIComponent(ruta)}` : ''}`)
+    const desde = inicioDePeriodo(dias);
+    return api(`/gerencia/resumen?desde=${desde}&hasta=${hasta}${ruta ? `&routeId=${encodeURIComponent(ruta)}` : ''}`)
       .then(setResumenGer).catch(e => setError(e.message));
   };
+  // Los tres en una sola pasada: se miran juntos o no se miran. Un tramo que
+  // aparece en las tres listas —se para, se corta la señal y saltan
+  // anomalías— es un lugar, no tres problemas.
+  const loadTrabas = (dias = diasTrabas) => {
+    const q = `?dias=${dias}`;
+    return Promise.all([
+      api('/admin/paradas' + q), api('/admin/huecos' + q), api('/admin/anomalias' + q),
+    ]).then(([p, h, a]) => setTrabas({
+      dias, paradas: p.paradas || [], huecos: h.huecos || [], anomalias: a.anomalias || [],
+    })).catch(e => setError(e.message));
+  };
+
   const loadEmpresa = () => api('/admin/company')
     .then(d => {
       setEmpresa(d);
@@ -1391,6 +1475,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     if (tab === 'shifts') loadShifts();
     if (tab === 'empresa') loadEmpresa();
     if (tab === 'gerencia') loadGerencia();
+    if (tab === 'trabas') loadTrabas();
   }, [tab]);
 
   const run = async (fn, ok) => {
@@ -1515,6 +1600,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     ['Ruta y medición', [
       ['routes', 'Rutas', routeList.length || null],
       ['metrics', 'Vueltas', vueltas ? vueltas.resumen.cerradas : null],
+      ['trabas', 'Dónde se traba', trabas ? trabas.paradas.length || null : null],
       ['informes', 'Informes', null],
     ]],
     ['La cooperativa', [
@@ -1532,6 +1618,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     routes: ['Rutas', 'Objetivo de brecha, recorrido cargado y con cuál de los trazados se está midiendo. Los trazados los crea el nivel de arriba; acá se elige.'],
     shifts: ['Turnos', 'Entradas y salidas de la jornada, por unidad.'],
     metrics: ['Vueltas', 'Cada vuelta cerrada con su duración y la brecha promedio que mantuvo.'],
+    trabas: ['Dónde se traba', 'En qué punto del recorrido y a qué hora se detienen las combis, y en qué tramo se corta siempre la señal. Es de la RUTA, no de un chofer.'],
     informes: ['Informes', 'Descargas para la cooperativa: vueltas, brechas y turnos en un rango de fechas.'],
     empresa: ['Empresa', 'Datos de la cooperativa que se muestran en el panel y en la app del chofer.'],
     audit: ['Actividad', 'Todo lo que se hizo en el panel de esta cooperativa. Solo la de ustedes.'],
@@ -2150,10 +2237,31 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
                 };
                 const cols = '110px 1fr 110px 110px 120px';
-                return (
-                  <Tabla cols={cols} ancho={700}
-                    cabeceras={['Unidad', 'Tripulación', 'Entrada', 'Salida', 'En ruta']}>
-                    {turnos.map(t => (
+                // De qué día es cada fila. «Esta semana» son hasta 500 filas
+                // con la hora sola: «08:12» no dice si fue hoy o el martes, y
+                // sin eso la lista no se puede leer ni discutir con nadie
+                // (REVISION-2026-09-10.md, E12). Se pone UN rótulo por día, no
+                // una columna más en cada fila: los turnos ya vienen ordenados
+                // del más nuevo al más viejo, así que el día cambia de a
+                // bloques. En «Hoy» no se muestra —sobra— y en los otros
+                // rangos sí, incluso si todo cayó el mismo día.
+                const claveDia = (ts) => {
+                  const d = new Date(ts);
+                  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+                };
+                const DIAS = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+                const rotuloDia = (ts) => {
+                  const d = new Date(ts);
+                  const hoy0 = inicioDeHoy();
+                  const delDia = new Date(ts); delDia.setHours(0, 0, 0, 0);
+                  const dif = Math.round((hoy0 - delDia.getTime()) / 86400e3);
+                  const fecha = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+                  if (dif === 0) return `HOY · ${fecha}`;
+                  if (dif === 1) return `AYER · ${fecha}`;
+                  return `${DIAS[d.getDay()]} ${fecha}`;
+                };
+                const conDia = rangoTurnos !== 'hoy';
+                const fila = (t) => (
                       <FilaTabla key={t.id} cols={cols}>
                         <span style={{ fontFamily: black, fontSize: 14 }}>{t.vehicleId}</span>
                         <span style={{
@@ -2169,12 +2277,39 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                         <span style={{
                           fontFamily: mono, fontSize: 12, fontWeight: 700,
                           color: t.abierto ? HUD.green : HUD.dim2,
-                        }}>{t.abierto ? 'en ruta' : hhmm(t.endedAt)}</span>
+                        }}>
+                          {t.abierto ? 'en ruta' : hhmm(t.endedAt)}
+                          {/* El turno que cruza la medianoche cierra en el día
+                              SIGUIENTE al del rótulo. Sin esta marca, «22:40 →
+                              01:15» se lee como un turno de veintitrés horas. */}
+                          {!t.abierto && t.endedAt && claveDia(t.endedAt) !== claveDia(t.startedAt) &&
+                            <span style={{ color: HUD.dim3 }}> +1</span>}
+                        </span>
                         <span style={{ fontFamily: black, fontSize: 14, textAlign: 'right' }}>
                           {horas(t.duracionSec)}
                         </span>
                       </FilaTabla>
-                    ))}
+                );
+                let diaImpreso = null;
+                const filas = [];
+                for (const t of turnos) {
+                  const k = claveDia(t.startedAt);
+                  if (conDia && k !== diaImpreso) {
+                    diaImpreso = k;
+                    filas.push(
+                      <div key={'dia-' + k} style={{
+                        ...rotulo(9, HUD.dim2), letterSpacing: 1.6,
+                        padding: '8px 14px', background: HUD.hueco,
+                        borderBottom: `1px solid ${HUD.divider}`,
+                      }}>{rotuloDia(t.startedAt)}</div>
+                    );
+                  }
+                  filas.push(fila(t));
+                }
+                return (
+                  <Tabla cols={cols} ancho={700}
+                    cabeceras={['Unidad', 'Tripulación', 'Entrada', 'Salida', 'En ruta']}>
+                    {filas}
                   </Tabla>
                 );
               })()}
@@ -2401,7 +2536,25 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                             color: m.idas > m.retornos ? HUD.amber : HUD.dim,
                           }} title={m.idas > m.retornos
                             ? `${m.idas - m.retornos} ida(s) sin su retorno` : undefined}>{m.retornos}</span>
-                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>{fmtSeg(m.lastSec)}</span>
+                          {/* «Última» decía sólo cuánto DURÓ la última
+                              vuelta. El servidor manda también CUÁNDO fue
+                              (`lastFinish`) y se tiraba: «¿desde cuándo esta
+                              combi no trabaja?» es la primera pregunta de
+                              quien mira este cuadro, y la duración no la
+                              contesta (REVISION-2026-09-10.md, E16). */}
+                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>
+                            {fmtSeg(m.lastSec)}
+                            {m.lastFinish && (
+                              <span title={`Última vuelta cerrada: ${new Date(m.lastFinish).toLocaleString()}`}
+                                style={{
+                                  display: 'block', fontFamily: mono, fontSize: 9, fontWeight: 700,
+                                  // Más de un día sin cerrar una vuelta no es
+                                  // una alarma, pero es lo que hay que ver.
+                                  color: Date.now() - m.lastFinish > 86400e3 ? HUD.amber : HUD.dim3,
+                                  marginTop: 2,
+                                }}>{fmtWhen(m.lastFinish).toUpperCase()}</span>
+                            )}
+                          </span>
                           <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>{fmtSeg(m.avgSec)}</span>
                           <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.bright, textAlign: 'right' }}>{fmtSeg(m.bestSec)}</span>
                         </FilaTabla>
@@ -2429,6 +2582,293 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               </Pie>
             </div>)}
 
+            {/* ─── DÓNDE SE TRABA ───────────────────────────────
+                Los tres endpoints que el servidor servía y ninguna pantalla
+                pedía: `/admin/paradas`, `/admin/huecos` y `/admin/anomalias`
+                (REVISION-2026-09-10.md, E9). Existían, estaban probados,
+                traían lat/lng/progreso/tramo/kmh, y nadie los miraba.
+
+                Lo que contesta esta pantalla es una pregunta DE LA RUTA, no
+                de un chofer: dónde y a qué hora se detienen las combis, y en
+                qué tramo se corta siempre la señal. Por eso lo primero que se
+                ve son los AGRUPADOS —el punto del circuito y la hora del
+                día—, y las listas crudas van después: una parada suelta no
+                dice nada, veinte en el mismo punto son una obra, un semáforo
+                o un paradero mal puesto.
+
+                Agrupar por punto del circuito y no por coordenada es a
+                propósito: dos combis nunca frenan en el mismo metro, y un
+                mapa de puntos sueltos no muestra el patrón que sí muestra
+                «entre el 40 % y el 45 % de la ida». */}
+            {tab === 'trabas' && (<div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 14 }}>
+                <div style={{ flex: 1 }} />
+                {[[1, 'Hoy'], [7, '7 días'], [30, '30 días']].map(([d, etiqueta]) => (
+                  <button key={d} disabled={busy}
+                    onClick={() => { setDiasTrabas(d); setTrabas(null); loadTrabas(d); }}
+                    style={{
+                      ...btnSecundario(30),
+                      background: diasTrabas === d ? HUD.bright : 'transparent',
+                      color: diasTrabas === d ? '#fff' : HUD.dim,
+                    }}>{etiqueta}</button>
+                ))}
+              </div>
+
+              {!trabas && <Vacio>Cargando…</Vacio>}
+              {trabas && (() => {
+                // El punto del circuito, en franjas de 5 %. El progreso viene
+                // 0..1; sin progreso (una ruta sin trazado cargado) no hay
+                // punto que agrupar y va a su propia franja.
+                const franja = (p) => {
+                  if (p == null || !Number.isFinite(p)) return null;
+                  const i = Math.min(19, Math.max(0, Math.floor(p * 20)));
+                  return i;
+                };
+                const nombreFranja = (i) => i == null ? 'Sin recorrido cargado'
+                  : `${i * 5} – ${(i + 1) * 5} %`;
+                const min = (sec) => `${Math.max(1, Math.round((sec || 0) / 60))}′`;
+                const agrupar = (filas, clave) => {
+                  const m = new Map();
+                  for (const f of filas) {
+                    const k = clave(f);
+                    if (!m.has(k)) m.set(k, []);
+                    m.get(k).push(f);
+                  }
+                  return m;
+                };
+
+                // ── Dónde: paradas MEDIDAS por franja y tramo
+                const medidas = trabas.paradas.filter(p => p.medida);
+                const porPunto = Array.from(
+                  agrupar(medidas, p => `${p.tramo || '—'}|${franja(p.progreso)}`).entries()
+                ).map(([k, ls]) => {
+                  const [tramo, f] = k.split('|');
+                  return {
+                    k, tramo,
+                    franja: f === 'null' ? null : Number(f),
+                    veces: ls.length,
+                    segundos: ls.reduce((a, x) => a + (x.durationSec || 0), 0),
+                    unidades: new Set(ls.map(x => x.vehicleId)).size,
+                    avisadas: ls.filter(x => x.confirmado).length,
+                    ejemplo: ls[0],
+                  };
+                }).sort((a, b) => b.segundos - a.segundos || b.veces - a.veces);
+
+                // ── A qué hora: la hora del día en que empezó cada parada
+                const porHora = Array.from(agrupar(medidas, p => new Date(p.startedAt).getHours()).entries())
+                  .map(([h, ls]) => ({
+                    hora: Number(h), veces: ls.length,
+                    segundos: ls.reduce((a, x) => a + (x.durationSec || 0), 0),
+                  }))
+                  .sort((a, b) => a.hora - b.hora);
+                const picoHora = porHora.reduce((a, x) => Math.max(a, x.segundos), 0);
+
+                // ── Dónde se corta la señal: los huecos por franja
+                const porCorte = Array.from(
+                  agrupar(trabas.huecos, h => String(franja(h.progresoDesde))).entries()
+                ).map(([k, ls]) => ({
+                  k,
+                  franja: k === 'null' ? null : Number(k),
+                  veces: ls.length,
+                  segundos: ls.reduce((a, x) => a + (x.durationSec || 0), 0),
+                  unidades: new Set(ls.map(x => x.vehicleId)).size,
+                  // Los que NO trajeron después las posiciones que faltaban:
+                  // con la red cortada la app las guarda y las manda al
+                  // volver. Si no llegan, el teléfono estaba apagado o la app
+                  // muerta — y eso no es un problema de la ruta.
+                  sinDatos: ls.filter(x => !x.recuperadas).length,
+                })).sort((a, b) => b.veces - a.veces || b.segundos - a.segundos);
+
+                const hayAlgo = medidas.length || trabas.huecos.length || trabas.anomalias.length;
+                if (!hayAlgo) {
+                  return (
+                    <Vacio>
+                      Nada que mostrar en {diasTrabas === 1 ? 'el día de hoy' : `los últimos ${diasTrabas} días`}:
+                      ninguna parada medida, ningún corte de señal y ninguna anomalía.
+                    </Vacio>
+                  );
+                }
+                return (
+                  <div>
+                    {/* ── DÓNDE SE PARA ── */}
+                    {porPunto.length > 0 && (
+                      <div>
+                        <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                          Dónde se para · {medidas.length} parada(s) medidas
+                        </div>
+                        <Tabla cols="90px 140px 1fr 1fr 1fr 1.4fr" ancho={760}
+                          cabeceras={['Tramo', 'Punto del circuito', 'Veces', 'Tiempo', 'Combis', 'Avisadas por el chofer']}>
+                          {porPunto.map(g => (
+                            <div key={'punto-' + g.k} style={{
+                              display: 'grid', gridTemplateColumns: '90px 140px 1fr 1fr 1fr 1.4fr',
+                              gap: 12, alignItems: 'center', padding: '11px 14px',
+                              borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                            }}>
+                              <div style={{ ...rotulo(9, HUD.dim2) }}>{g.tramo === '—' ? '—' : g.tramo}</div>
+                              <div style={{ fontFamily: mono, fontWeight: 800 }}>{nombreFranja(g.franja)}</div>
+                              <div style={{ fontFamily: mono }}>{g.veces}</div>
+                              <div style={{ fontFamily: mono, fontWeight: 800 }}>{min(g.segundos)}</div>
+                              {/* Una combi veinte veces es una combi; ocho
+                                  combis veinte veces es la ruta. */}
+                              <div title={g.unidades === 1 ? 'Una sola combi: puede ser de ella, no de la ruta' : undefined}
+                                style={{ fontFamily: mono, color: g.unidades > 1 ? HUD.fg : HUD.dim3 }}>{g.unidades}</div>
+                              <div style={{ fontFamily: mono, color: g.avisadas ? HUD.fg2 : HUD.dim3 }}>
+                                {g.avisadas} de {g.veces}
+                              </div>
+                            </div>
+                          ))}
+                        </Tabla>
+                        <Pie>
+                          El servidor abre una parada cuando la combi lleva más de tres minutos
+                          detenida sobre el recorrido, la avise el chofer o no. <strong>Combis</strong> es
+                          cuántas distintas se pararon ahí: una sola veinte veces puede ser un problema de
+                          esa combi; ocho combis en el mismo punto es la ruta.
+                          {' '}<strong>Avisadas</strong> son las que además llevan el botón de tráfico del chofer.
+                        </Pie>
+                      </div>
+                    )}
+
+                    {/* ── A QUÉ HORA ── */}
+                    {porHora.length > 0 && (
+                      <div style={{ marginTop: 22 }}>
+                        <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>A qué hora</div>
+                        <div style={{
+                          border: `1px solid ${HUD.divider}`, borderRadius: 12,
+                          padding: '14px 16px', background: HUD.surface,
+                        }}>
+                          {porHora.map(h => (
+                            <div key={'hora-' + h.hora} style={{
+                              display: 'grid', gridTemplateColumns: '52px 1fr 90px',
+                              gap: 10, alignItems: 'center', marginBottom: 6,
+                            }}>
+                              <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2 }}>
+                                {String(h.hora).padStart(2, '0')}:00
+                              </div>
+                              {/* Barra proporcional al tiempo perdido, no a
+                                  las veces: cinco paradas de un minuto no son
+                                  lo mismo que una de media hora. */}
+                              <div style={{ height: 10, background: HUD.hueco, borderRadius: 5, overflow: 'hidden' }}>
+                                <div style={{
+                                  width: `${picoHora ? Math.max(3, (h.segundos / picoHora) * 100) : 0}%`,
+                                  height: '100%', background: HUD.bright, borderRadius: 5,
+                                }} />
+                              </div>
+                              <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, textAlign: 'right' }}>
+                                {min(h.segundos)} · {h.veces}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <Pie>
+                          La hora en que EMPEZÓ cada parada, en la hora local del servidor. La barra
+                          mide el tiempo perdido, no la cantidad: cinco paradas de un minuto no son lo
+                          mismo que una de media hora.
+                        </Pie>
+                      </div>
+                    )}
+
+                    {/* ── DÓNDE SE CORTA LA SEÑAL ── */}
+                    {porCorte.length > 0 && (
+                      <div style={{ marginTop: 22 }}>
+                        <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                          Dónde se corta la señal · {trabas.huecos.length} corte(s)
+                        </div>
+                        <Tabla cols="140px 1fr 1fr 1fr 1.4fr" ancho={700}
+                          cabeceras={['Punto del circuito', 'Veces', 'Tiempo', 'Combis', 'Sin datos después']}>
+                          {porCorte.map(g => (
+                            <div key={'corte-' + g.k} style={{
+                              display: 'grid', gridTemplateColumns: '140px 1fr 1fr 1fr 1.4fr',
+                              gap: 12, alignItems: 'center', padding: '11px 14px',
+                              borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                            }}>
+                              <div style={{ fontFamily: mono, fontWeight: 800 }}>{nombreFranja(g.franja)}</div>
+                              <div style={{ fontFamily: mono }}>{g.veces}</div>
+                              <div style={{ fontFamily: mono }}>{min(g.segundos)}</div>
+                              <div style={{ fontFamily: mono, color: g.unidades > 1 ? HUD.fg : HUD.dim3 }}>{g.unidades}</div>
+                              <div title="Cortes que no trajeron después las posiciones que faltaban: el teléfono estaba apagado o la app muerta, no es la antena"
+                                style={{ fontFamily: mono, color: g.sinDatos ? HUD.amber : HUD.dim3 }}>
+                                {g.sinDatos || '—'}
+                              </div>
+                            </div>
+                          ))}
+                        </Tabla>
+                        <Pie>
+                          El punto donde EMPEZÓ el corte. Varias combis cortándose siempre en la misma
+                          franja es un tramo sin antena; una sola, un teléfono.
+                          {' '}<strong>Sin datos después</strong> son los cortes que no trajeron las posiciones
+                          que faltaban al volver: con la red caída la app las guarda y las manda después,
+                          así que esos no son la antena — es el teléfono apagado o la app muerta.
+                        </Pie>
+                      </div>
+                    )}
+
+                    {/* ── LAS PARADAS MÁS LARGAS, UNA POR UNA ── */}
+                    {medidas.length > 0 && (
+                      <div style={{ marginTop: 22 }}>
+                        <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                          Las más largas
+                        </div>
+                        <Tabla cols="150px 110px 80px 130px 90px 1.2fr" ancho={800}
+                          cabeceras={['Cuándo', 'Unidad', 'Duró', 'Punto', 'Avisó', 'Cómo terminó']}>
+                          {medidas.slice().sort((a, b) => (b.durationSec || 0) - (a.durationSec || 0)).slice(0, 20).map(p => (
+                            <div key={'parada-' + p.id} style={{
+                              display: 'grid', gridTemplateColumns: '150px 110px 80px 130px 90px 1.2fr',
+                              gap: 12, alignItems: 'center', padding: '11px 14px',
+                              borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                            }}>
+                              <div style={{ fontFamily: mono, color: HUD.dim2 }}>{fmtWhen(p.startedAt)}</div>
+                              <div style={{ fontFamily: mono, fontWeight: 800 }}>{p.vehicleId}</div>
+                              <div style={{ fontFamily: mono }}>{p.durationSec == null ? 'abierta' : min(p.durationSec)}</div>
+                              <div style={{ fontFamily: mono, color: HUD.dim2 }}>
+                                {p.tramo ? `${p.tramo} · ` : ''}{p.progreso == null ? '—' : `${Math.round(p.progreso * 100)} %`}
+                              </div>
+                              <div style={{ ...rotulo(9, p.confirmado ? HUD.fg2 : HUD.dim3) }}>{p.confirmado ? 'SÍ' : 'NO'}</div>
+                              <div style={{ ...rotulo(9, HUD.dim2) }}>{CIERRE_PARADA[p.cierre] || p.cierre || 'ABIERTA'}</div>
+                            </div>
+                          ))}
+                        </Tabla>
+                      </div>
+                    )}
+
+                    {/* ── ANOMALÍAS ── */}
+                    {trabas.anomalias.length > 0 && (
+                      <div style={{ marginTop: 22 }}>
+                        <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                          Anomalías · {trabas.anomalias.length}
+                        </div>
+                        <Tabla cols="150px 110px 170px 1.6fr" ancho={760}
+                          cabeceras={['Cuándo', 'Unidad', 'Qué', 'Detalle']}>
+                          {trabas.anomalias.slice(0, 60).map(a => (
+                            <div key={'anom-' + a.id} style={{
+                              display: 'grid', gridTemplateColumns: '150px 110px 170px 1.6fr',
+                              gap: 12, alignItems: 'center', padding: '11px 14px',
+                              borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                            }}>
+                              <div style={{ fontFamily: mono, color: HUD.dim2 }}>{fmtWhen(a.cuando)}</div>
+                              <div style={{ fontFamily: mono, fontWeight: 800 }}>{a.vehicleId}</div>
+                              <div style={{ ...rotulo(9, HUD.dim2) }}>{ANOMALIA_ES[a.tipo] || a.tipo}</div>
+                              <div style={{ color: HUD.fg2 }}>{a.detalle || '—'}</div>
+                            </div>
+                          ))}
+                        </Tabla>
+                        <Pie>
+                          Se anota, no se acusa: es lo que el servidor vio raro en las posiciones, para
+                          poder preguntarlo. Lo que cada una significa está en <strong>TRUCOS-2026-09-10.md</strong>.
+                        </Pie>
+                      </div>
+                    )}
+
+                    <Pie>
+                      Todo esto es de la <strong>ruta</strong>, no de un chofer: para lo de cada combi
+                      está «Señal y presencia» en Números. Las paradas y los cortes se guardan
+                      {' '}<strong>30 días</strong>; para llevárselo a una planilla, el CSV de paradas está en
+                      Informes.
+                    </Pie>
+                  </div>
+                );
+              })()}
+            </div>)}
+
             {/* ─── INFORMES ─────────────────────────────────────── */}
             {tab === 'informes' && (() => {
               const informes = [
@@ -2440,6 +2880,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 ['senal', 'Cortes de señal (CSV)', false],
                 ['anomalias', 'Anomalías: saltos, ausente en marcha, reloj, GPS simulado (CSV)', false],
                 ['sos', 'Emergencias (CSV)', false],
+                ['mensajes', 'Chat, notas de voz y fotos (CSV)', false],
                 ['actividad', 'Actividad de administración (CSV)', false],
               ];
               const aMs = (iso, fin) => {
@@ -2494,6 +2935,18 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                         {' · '}{(vehicles || []).length} unidades
                         {' · '}{esSupervisor && currentRoute ? currentRoute : `${routeList.length} ruta${routeList.length === 1 ? '' : 's'}`}
                       </div>
+                      {/* El servidor recorta el rango a 90 días y lo dice en
+                          la primera línea del archivo — pero recién cuando ya
+                          se bajó. La pantalla no decía nada: se elegían seis
+                          meses, se bajaba un CSV de tres, y el que lo abría
+                          tenía que leer la cabecera para enterarse
+                          (REVISION-2026-09-10.md, E19). */}
+                      {dias > 90 && (
+                        <div style={{ fontSize: 12, color: HUD.amber, marginTop: 8, fontWeight: 700 }}>
+                          El período máximo son 90 días: el informe va a salir con
+                          los últimos 90 del rango que elegiste, no con los {dias}.
+                        </div>
+                      )}
                     </div>
 
                     <div style={tarjeta(18)}>
@@ -2633,11 +3086,16 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 {/* Los nombres son los del servidor (`INFORMES`), no los de la
                     pantalla: "turnos" no existe y el botón devolvía 404 con un
                     "No se pudo descargar" que no decía nada. El de horas se
-                    llama `horas`. */}
-                {[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas'], ['paradas', 'paradas'], ['senal', 'señal'], ['anomalias', 'anomalías']].map(([tipo, rotulo]) => (
+                    llama `horas`. Los de SOS y mensajes existían en el
+                    servidor y no tenían botón acá: el gerente tenía las
+                    emergencias en pantalla y ninguna forma de llevárselas
+                    (REVISION-2026-09-10.md, E20). */}
+                {[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas'], ['paradas', 'paradas'], ['senal', 'señal'], ['anomalias', 'anomalías'], ['sos', 'SOS'], ['mensajes', 'mensajes']].map(([tipo, rotulo]) => (
                   <button key={tipo} style={btnSecundario(36)} onClick={async () => {
                     try {
-                      const hasta = Date.now(), desde = hasta - diasGer * 86400000;
+                      // El MISMO período que el cuadro de arriba: días de
+                      // calendario, no las últimas N × 24 h (E19).
+                      const hasta = Date.now(), desde = inicioDePeriodo(diasGer);
                       const r = await fetch(`${HTTP_URL}/gerencia/informe/${tipo}.csv?desde=${desde}&hasta=${hasta}`,
                         { headers: { Authorization: 'Bearer ' + session.token } });
                       if (!r.ok) throw new Error('No se pudo descargar');
@@ -2674,6 +3132,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     ['Cortes de señal', resumenGer.totales.cortes ?? 0],
                     ['Horas sin señal', `${((resumenGer.totales.sinSenalSec || 0) / 3600).toFixed(1)} h`],
                     ['Horas ausente', `${((resumenGer.totales.ausenteSec || 0) / 3600).toFixed(1)} h`],
+                    ['Paradas medidas', resumenGer.totales.paradas != null
+                      ? `${resumenGer.totales.paradas} · ${Math.round((resumenGer.totales.paradasSec || 0) / 60)} min` : '—'],
                     ['SOS', resumenGer.totales.sos],
                   ].map(([etiqueta, valor]) => (
                     <div key={etiqueta} style={{ ...tarjeta(14), background: HUD.bg }}>
@@ -2687,11 +3147,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   <Vacio>Sin vueltas cerradas en el período.</Vacio>
                 )}
                 {resumenGer.porUnidad.length > 0 && (
-                  <Tabla cols="110px 90px 1fr 1fr 1fr 1fr 1fr 1fr 1fr" ancho={860}
-                    cabeceras={['Unidad', 'Ruta', 'Vueltas', 'Idas', 'Retornos', 'Cumple', 'Brecha prom.', 'Horas', 'Salidas']}>
+                  <Tabla cols="110px 90px 1fr 1fr 1fr 1fr 1fr 1.2fr 1fr 1fr 1fr" ancho={1000}
+                    cabeceras={['Unidad', 'Ruta', 'Vueltas', 'Idas', 'Retornos', 'Cumple', 'Brecha prom.', 'Duración', 'Vel. prom.', 'Horas', 'Salidas']}>
                     {resumenGer.porUnidad.map(u => (
                       <div key={u.unitId} style={{
-                        display: 'grid', gridTemplateColumns: '110px 90px 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
+                        display: 'grid', gridTemplateColumns: '110px 90px 1fr 1fr 1fr 1fr 1fr 1.2fr 1fr 1fr 1fr',
                         gap: 12, alignItems: 'center', padding: '11px 14px',
                         borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
                         // La que no tuvo nada en el período: está en la flota,
@@ -2734,6 +3194,25 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                         <div style={{ fontFamily: mono }}>
                           {u.brechaProm === null ? '—' : fmtSeg(u.brechaProm)}
                         </div>
+                        {/* CUÁNTO TARDA, no sólo cuántas hizo. El servidor lo
+                            mandaba (`duracionProm`, `duracionMejor`,
+                            `velocidadProm`) y ninguna pantalla lo mostraba: el
+                            gerente veía cuántas vueltas hizo cada combi y no
+                            cuánto le lleva darlas, que es la mitad de la
+                            comparación (REVISION-2026-09-10.md, E16). */}
+                        <div title={u.duracionMejor == null ? undefined
+                          : `La mejor vuelta del período: ${fmtSeg(u.duracionMejor)}`}
+                          style={{ fontFamily: mono }}>
+                          {u.duracionProm == null ? '—' : fmtSeg(u.duracionProm)}
+                          {u.duracionMejor != null && (
+                            <div style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, color: HUD.dim3 }}>
+                              MEJOR {fmtSeg(u.duracionMejor)}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ fontFamily: mono, color: u.velocidadProm == null ? HUD.dim3 : HUD.fg }}>
+                          {u.velocidadProm == null ? '—' : `${Math.round(u.velocidadProm)} km/h`}
+                        </div>
                         <div>{(u.horasSec / 3600).toFixed(1)} h</div>
                         {/* Cuántas veces se salió del recorrido y cuánto duró
                             en total. Una salida es una obra; la misma salida
@@ -2771,15 +3250,20 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                             <div style={{ fontWeight: 700 }}>{p.alias || p.name || p.personId}</div>
                             {(p.alias || p.name) && <div style={{ ...rotulo(9, HUD.dim3), marginTop: 2 }}>{p.alias ? p.name : p.personId}</div>}
                           </div>
-                          <div style={{ ...rotulo(9, HUD.dim2) }}>{p.role === 'collector' ? 'cobrador' : 'chofer'}</div>
+                          {/* Los roles DEL PERÍODO. El que hizo de cobrador
+                              a la mañana y de chofer a la tarde tiene los
+                              dos, y con uno solo —el del primer turno— la
+                              fila le tapaba las vueltas que había manejado
+                              (REVISION-2026-09-10.md, E12). */}
+                          <div style={{ ...rotulo(9, HUD.dim2) }}>{rolesTexto(p)}</div>
                           <div style={{ fontFamily: mono }}>{p.turnos}</div>
                           <div style={{ fontFamily: mono, fontWeight: 800 }}>{`${Math.floor(Math.round(p.horasSec / 60) / 60)}:${String(Math.round(p.horasSec / 60) % 60).padStart(2, '0')} h`}</div>
                           {/* Las vueltas que cerró la combi mientras esta
-                              persona tenía el turno de chofer (E2). El
-                              cobrador no maneja: queda en «—». */}
-                          <div style={{ fontFamily: mono, color: p.role === 'collector' ? HUD.dim3 : HUD.fg }}>{p.role === 'collector' ? '—' : (p.vueltas || 0)}</div>
+                              persona tenía el turno de chofer (E2). El que
+                              en todo el período no manejó queda en «—». */}
+                          <div style={{ fontFamily: mono, color: manejo(p) ? HUD.fg : HUD.dim3 }}>{manejo(p) ? (p.vueltas || 0) : '—'}</div>
                           <div style={{ fontFamily: mono, color: p.cumplimiento == null ? HUD.dim3 : HUD.fg }}>{p.cumplimiento == null ? '—' : `${p.cumplimiento}%`}</div>
-                          <div style={{ fontFamily: mono, color: p.desvios ? HUD.amber : HUD.dim3 }}>{p.role === 'collector' ? '—' : (p.desvios || '—')}</div>
+                          <div style={{ fontFamily: mono, color: p.desvios ? HUD.amber : HUD.dim3 }}>{manejo(p) ? (p.desvios || '—') : '—'}</div>
                           <div style={{ fontFamily: mono, color: HUD.dim2 }}>{(p.unidades || []).join(' · ') || '—'}</div>
                         </div>
                       ))}
@@ -2826,6 +3310,106 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   </div>
                 )}
 
+                {/* ─── Las rutas del período ────────────────────────
+                    Contra qué se juzgó cada vuelta. El servidor manda
+                    `rutas[]` con el objetivo, de dónde sale y la duración
+                    declarada, y no se mostraba: un gerente de tres rutas veía
+                    cumplimientos mezclados sin saber que cada uno se midió
+                    contra una vara distinta (REVISION-2026-09-10.md, E16). */}
+                {(resumenGer.rutas || []).length > 0 && (
+                  <div style={{ marginTop: 18 }}>
+                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Contra qué se midió</div>
+                    <Tabla cols="110px 1.6fr 110px 1.2fr 120px" ancho={660}
+                      cabeceras={['Ruta', 'Nombre', 'Objetivo', 'De dónde sale', 'Duración decl.']}>
+                      {resumenGer.rutas.map(r => (
+                        <div key={'ruta-' + r.routeId} style={{
+                          display: 'grid', gridTemplateColumns: '110px 1.6fr 110px 1.2fr 120px',
+                          gap: 12, alignItems: 'center', padding: '11px 14px',
+                          borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                        }}>
+                          <div style={{ fontFamily: mono, fontWeight: 800 }}>{r.routeId}</div>
+                          <div style={{ color: HUD.fg2 }}>{r.name && r.name !== r.routeId ? r.name : '—'}</div>
+                          <div style={{ fontFamily: mono }}>{r.objetivoSec ? fmtSeg(r.objetivoSec) : '—'}</div>
+                          <div style={{ ...rotulo(9, HUD.dim2) }}>{MODO_OBJETIVO[r.objetivoModo] || r.objetivoModo || '—'}</div>
+                          <div style={{ fontFamily: mono, color: HUD.dim2 }}>{r.durationMin ? `${r.durationMin} min` : '—'}</div>
+                        </div>
+                      ))}
+                    </Tabla>
+                  </div>
+                )}
+
+                {/* ─── Las emergencias, una por una ─────────────────
+                    «Hubo tres SOS» abre una conversación que «hubo SOS» no
+                    abre, y el servidor mandaba la lista con persona y tipo
+                    sin que ninguna pantalla la mostrara (E16). */}
+                {(resumenGer.sos || []).length > 0 && (
+                  <div style={{ marginTop: 18 }}>
+                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                      Emergencias · {resumenGer.sos.length}{resumenGer.sos.length >= 50 ? ' (las últimas 50)' : ''}
+                    </div>
+                    <Tabla cols="150px 110px 1.6fr 1.2fr" ancho={660}
+                      cabeceras={['Cuándo', 'Unidad', 'Quién', 'Qué pasó']}>
+                      {resumenGer.sos.map((e, i) => (
+                        <div key={'sos-' + i} style={{
+                          display: 'grid', gridTemplateColumns: '150px 110px 1.6fr 1.2fr',
+                          gap: 12, alignItems: 'center', padding: '11px 14px',
+                          borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                        }}>
+                          <div style={{ fontFamily: mono, color: HUD.dim2 }}>{fmtWhen(e.timestamp)}</div>
+                          <div style={{ fontFamily: mono, fontWeight: 800 }}>{e.vehicleId || e.unitId}</div>
+                          <div style={{ color: HUD.fg2 }}>{e.driverName || e.unitId}</div>
+                          {/* Sin tipo elegido queda el SOS genérico, que es
+                              como nace cada uno: no se inventa una causa. */}
+                          <div style={{ fontWeight: 700, color: e.sosTipo ? HUD.red : HUD.dim2 }}>
+                            {TIPOS_SOS_ES[e.sosTipo] || 'SOS sin detallar'}
+                          </div>
+                        </div>
+                      ))}
+                    </Tabla>
+                  </div>
+                )}
+
+                {/* ─── Las salidas del recorrido, una por una ───────
+                    El número suelto dice que hubo catorce; la lista dice
+                    cuáles, de quién y cuánto (E16). Silenciadas y cerradas
+                    por cambio de trazado van marcadas y NO cuentan como
+                    salidas, igual que en los totales (E7). */}
+                {(resumenGer.desvios || []).length > 0 && (
+                  <div style={{ marginTop: 18 }}>
+                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                      Salidas del recorrido · {resumenGer.desvios.length}{resumenGer.desvios.length >= 50 ? ' (las últimas 50)' : ''}
+                    </div>
+                    <Tabla cols="150px 110px 90px 100px 1.4fr" ancho={720}
+                      cabeceras={['Cuándo', 'Unidad', 'Duró', 'Máx.', 'Cómo terminó']}>
+                      {resumenGer.desvios.map((d, i) => {
+                        const aparte = d.silenciado || d.cierre === 'trazado';
+                        return (
+                          <div key={'desvio-' + i} style={{
+                            display: 'grid', gridTemplateColumns: '150px 110px 90px 100px 1.4fr',
+                            gap: 12, alignItems: 'center', padding: '11px 14px',
+                            borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                            opacity: aparte ? 0.55 : 1,
+                          }}>
+                            <div style={{ fontFamily: mono, color: HUD.dim2 }}>{fmtWhen(d.startedAt)}</div>
+                            <div style={{ fontFamily: mono, fontWeight: 800 }}>{d.vehicleId}</div>
+                            <div style={{ fontFamily: mono }}>{d.durationSec == null ? 'abierta' : `${Math.max(1, Math.round(d.durationSec / 60))}′`}</div>
+                            <div style={{ fontFamily: mono, color: HUD.dim2 }}>{d.maxM ? `${Math.round(d.maxM)} m` : '—'}</div>
+                            <div style={{ ...rotulo(9, aparte ? HUD.dim3 : HUD.amber) }}>
+                              {d.silenciado ? 'SILENCIADA POR DESPACHO'
+                                : CIERRE_DESVIO[d.cierre] || d.cierre || 'ABIERTA'}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </Tabla>
+                    <Pie>
+                      Las <strong>silenciadas</strong> («ya lo sé») y las cerradas por un
+                      <strong> cambio de trazado</strong> («no se puede afirmar») van en gris y no
+                      cuentan como salidas en los totales ni en la columna de cada unidad.
+                    </Pie>
+                  </div>
+                )}
+
                 {/* ─── Señal y presencia ────────────────────────────
                     Lo de TRUCOS-2026-09-10.md, que hasta ahora sólo estaba en
                     el log: cuántas veces se quedó sin señal cada unidad y por
@@ -2838,8 +3422,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     u.senal.gpsSospechoso || u.senal.gpsImpreciso || u.senal.avisosTrafico)) && (
                   <div style={{ marginTop: 18 }}>
                     <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Señal y presencia</div>
-                    <Tabla cols="110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.2fr 1fr" ancho={1060}
-                      cabeceras={['Unidad', 'Cortes', 'Sin señal', 'Sin datos', 'Ausente', 'Saltos', 'Reloj', 'GPS', 'Tráfico', 'Tardías']}>
+                    <Tabla cols="110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.3fr 1.2fr 1fr" ancho={1160}
+                      cabeceras={['Unidad', 'Cortes', 'Sin señal', 'Sin datos', 'Ausente', 'Saltos', 'Reloj', 'GPS', 'Paradas', 'Tráfico', 'Tardías']}>
                       {resumenGer.porUnidad.filter(u => u.senal).map(u => {
                         const s = u.senal;
                         const min = (sec) => sec ? `${Math.round(sec / 60)}′` : '—';
@@ -2850,7 +3434,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                                      s.gpsImpreciso && `${s.gpsImpreciso} impr.`].filter(Boolean);
                         return (
                           <div key={'senal-' + u.unitId} style={{
-                            display: 'grid', gridTemplateColumns: '110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.2fr 1fr',
+                            display: 'grid', gridTemplateColumns: '110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.3fr 1.2fr 1fr',
                             gap: 12, alignItems: 'center', padding: '11px 14px',
                             borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
                           }}>
@@ -2878,6 +3462,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                             {/* Avisos de tráfico del chofer, y cuántos sin que el
                                 servidor viera la parada (T7): la excusa, o el
                                 dedo apurado. Diez por semana es otra cosa. */}
+                            {/* Las paradas que MIDIÓ el servidor, las haya
+                                avisado el chofer o no. Un embotellamiento
+                                real que nadie avisó no aparecía en ninguna
+                                tarjeta ni columna (E10). */}
+                            <div title={s.paradas
+                              ? `${s.paradas} parada(s) medidas, ${Math.round((s.paradasSec || 0) / 60)} min en total` +
+                                (s.paradaMaxSec ? `; la más larga ${Math.round(s.paradaMaxSec / 60)} min` : '') +
+                                `; el chofer avisó ${s.paradasAvisadas || 0}`
+                              : 'Paradas de más de tres minutos medidas por el servidor'}
+                              style={{ fontFamily: mono, color: s.paradas ? HUD.fg : HUD.dim3 }}>
+                              {s.paradas ? `${s.paradas} · ${Math.round((s.paradasSec || 0) / 60)}′` : '—'}</div>
                             <div title={s.avisosTrafico ? `${s.avisosTrafico} aviso(s) de tráfico; ${s.avisosSinParada} sin parada medida por el servidor` : 'Avisos de tráfico del chofer'}
                               style={{ fontFamily: mono, color: s.avisosSinParada ? HUD.amber : s.avisosTrafico ? HUD.fg : HUD.dim3 }}>
                               {s.avisosTrafico ? `${s.avisosTrafico}${s.avisosSinParada ? ` · ${s.avisosSinParada} sin parada` : ''}` : '—'}</div>
@@ -2897,7 +3492,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                       declarados; «en marcha» es que se movió por el trazado estando ausente.
                       {' '}<strong>GPS</strong>: «falso» lo marcó Android, «sosp.» es la firma de un simulador
                       sin marca (se sospecha, no se afirma), «impr.» es más de 100 m de error declarado.
-                      {' '}<strong>Tráfico</strong>: avisos del chofer, y cuántos sin que se midiera la parada.
+                      {' '}<strong>Paradas</strong> son las que MIDIÓ el servidor —más de tres minutos
+                      detenido sobre el recorrido—, las haya avisado el chofer o no: veces y minutos
+                      en total. <strong>Tráfico</strong>: avisos del chofer, y cuántos sin que se
+                      midiera la parada. Las dos columnas cuentan cosas distintas y la diferencia
+                      es el dato: paradas sin aviso es lo que nadie estaba contando.
                       Nada de esto acusa a nadie: es lo que pasó, para preguntarlo.
                     </Pie>
                   </div>
@@ -2960,9 +3559,34 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
                   baja: { label: 'dio de baja a', color: HUD.red },
                   sos: { label: 'disparó un SOS', color: HUD.red },
-                  // Las dos del perfil del chofer (se edita él, desde la app)
+                  // Las tres del perfil del chofer (se editan desde la app)
                   alias_propio: { label: 'se puso el alias', color: HUD.bright },
                   clave_propia: { label: 'cambió su propia contraseña', color: HUD.amber },
+                  cerrar_todo: { label: 'cerró todas sus sesiones', color: HUD.amber },
+                  // Lo que el chofer administra de SU combi
+                  clave_cobrador: { label: 'le cambió la clave al cobrador', color: HUD.amber },
+                  baja_cobrador: { label: 'sacó de su combi a', color: HUD.red },
+                  // Lo que anota el SISTEMA solo, mirando las posiciones. No
+                  // acusa a nadie: es lo que pasó, para poder preguntarlo.
+                  desvio: { label: 'se salió del recorrido', color: HUD.amber },
+                  entrada_tardia: { label: 'entró a la ruta empezada', color: HUD.amber },
+                  vuelta_parcial: { label: 'cerró una vuelta parcial', color: HUD.dim },
+                  gps_simulado: { label: 'mandó GPS marcado como falso por Android', color: HUD.red },
+                  gps_sospechoso: { label: 'mandó GPS con firma de simulador', color: HUD.amber },
+                  // Configuración de la ruta y de la medición
+                  objetivo: { label: 'cambió el objetivo de brecha', color: HUD.bright },
+                  desvio_config: { label: 'cambió el umbral de desvío', color: HUD.bright },
+                  recorrido: { label: 'cargó el recorrido de', color: HUD.bright },
+                  variante: { label: 'cambió el trazado con el que se mide', color: HUD.bright },
+                  alta_ruta: { label: 'creó la ruta', color: HUD.green },
+                  // La empresa, el logo y las grabaciones
+                  editar_empresa: { label: 'cambió los datos de la cooperativa', color: HUD.bright },
+                  logo: { label: 'cambió el logo', color: HUD.bright },
+                  grabacion: { label: 'envió un recorrido grabado', color: HUD.green },
+                  grabacion_pedida: { label: 'le pidió una grabación a', color: HUD.bright },
+                  grabacion_pedido_cancelado: { label: 'canceló el pedido de grabación a', color: HUD.dim },
+                  aviso_visto: { label: 'marcó como visto el aviso', color: HUD.dim },
+                  login_empresa_inactiva: { label: 'intentó entrar con la cooperativa suspendida', color: HUD.red },
                 };
                 const cols = '120px 150px 1fr';
                 return (

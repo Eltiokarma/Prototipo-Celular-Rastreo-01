@@ -614,6 +614,17 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
               {e.ultimoGps
                 ? <span> · última señal {fecha(e.ultimoGps)}</span>
                 : <span style={{ color: 'var(--amber)' }}> · nunca reportó GPS</span>}
+              {/* Avisos que este panel mandó y nadie leyó todavía. Los
+                  pendientes no caducan, así que un número que no baja es un
+                  aviso que nadie está mirando — y antes había que entrar
+                  cooperativa por cooperativa para enterarse
+                  (REVISION-2026-09-10.md, E20). */}
+              {e.avisosPendientes > 0 && (
+                <span style={{ color: 'var(--amber)' }}>
+                  {' · '}<span className="mono" style={{ fontWeight: 800 }}>{e.avisosPendientes}</span>
+                  {' '}aviso(s) sin ver
+                </span>
+              )}
               {' · '}
               {e.despacho.length
                 ? `despacho: ${e.despacho.map(d => d.unitId).join(', ')}`

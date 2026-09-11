@@ -249,16 +249,32 @@ justamente hace falta escuchar.
 | `photo` | `{ data, text?, timestamp, to? }` | 6 |
 | `sos` | `{ lat, lng, timestamp }` | 6 |
 
-**Pasado el cupo, el mensaje se descarta en silencio.** No hay respuesta de
-error: el cliente cree que mandó y no mandó. El GPS a 3 s son 20/min, la mitad
-del cupo — hay margen, pero un reintento agresivo tras una reconexión lo
-puede quemar.
+**Pasado el cupo, el mensaje se descarta** — pero ya no en silencio. Desde el
+11/9 el servidor manda, UNA vez por ventana y por tipo:
+
+```json
+{ "type": "cupo", "que": "voice", "max": 10, "ventanaSec": 60 }
+```
+
+Lo descartado no vuelve: el aviso no es un reintento, es una explicación. Sin
+él, el chofer grababa una nota de voz de cuarenta segundos, la veía salir y no
+pasaba nada —el mensaje entra al hilo sólo por el eco— sin nada en ninguna
+pantalla que lo dijera (revisión del 10/9, C10). Un cliente que no conozca el
+tipo `cupo` lo ignora y queda como antes.
+
+El GPS a 3 s son 20/min, la mitad del cupo — hay margen, pero un reintento
+agresivo tras una reconexión lo puede quemar.
 
 - `gps`: **el cliente NO manda `routeProgress`.** Se acepta como respaldo solo
   para rutas sin trazado cargado. Con geometría, el servidor lo ignora.
 - `chat` privado: **un chofer solo puede escribirle a Despacho.** Cualquier
   `to` que mande se reemplaza por su propio vehículo. Chofer ↔ chofer privado
-  no existe a propósito. Despacho sí elige destinatario.
+  no existe a propósito. Despacho sí elige destinatario, y el mensaje se
+  guarda y se reparte con **la ruta de la combi de destino**, no con la que
+  Despacho está mirando: el historial del chofer se filtra por SU ruta, así
+  que con la del emisor el privado a una combi de otra ruta se veía en vivo y
+  desaparecía al reconectar (C19). El que lo manda recibe siempre su propio
+  eco, esté mirando la ruta que esté.
 - `voice`: data-URL (`data:audio/…;base64,…`), máximo 2 MB, y el servidor solo
   valida el prefijo y el tamaño — **no el formato**. La web graba webm/opus;
   una app nativa graba m4a/aac. Como quien lo escucha es Chrome en el panel,
@@ -298,6 +314,14 @@ Devuelve `{ ok, aceptadas, yaVistas, descartadas, routeId, gpsRole }` (más
 usó**: lo repetido (`yaVistas`) y lo de hora imposible (`descartadas`) no
 cuentan, y la app lo muestra aparte de «enviadas».
 
+**Lo que el cliente pega al lote**, además de las posiciones: `presencia`
+(ver 4ter) y `grabando` (ver 4septies). `grabando` es `true` mientras se está
+grabando **y también mientras hay una grabación parada que todavía no se
+envió**: el pedido de Despacho se levanta cuando la grabación LLEGA o cuando
+el chofer la descarta, no cuando aprieta PARAR. Mandando `false` ahí, con el
+envío fallado por mala señal, el servidor daba el pedido por cumplido y no
+llegaba nada nunca (revisión del 10/9, C21).
+
 **Quién manda la posición de una combi (el mando del GPS).** Una sola
 persona por vehículo, por cualquier canal. Se toma con un acto explícito:
 identificarse por WebSocket, o declarar `ruta` (`POST /presencia` o el
@@ -313,7 +337,26 @@ saltaba entre ambos.
 **El reloj adelantado.** Si TODO el lote viene del futuro (más de 2 min), la
 respuesta es `400 { reloj: 'adelantado', adelantoSec }`: la app lo muestra
 («el reloj del teléfono está N min adelantado: activá la hora automática») y
-no reintenta ese lote. El atrasado se compensa solo (`relojAtrasadoS`).
+no reintenta ese lote. El atrasado se compensa solo (`relojAtrasadoS`), y ese
+sesgo **sobrevive al «fuera»**: es del teléfono, y el teléfono es el mismo en
+el turno siguiente. Olvidarlo ahí hacía que los primeros N segundos del turno
+que empezaba cayeran en el filtro de salidas y se descartaran con un `200` que
+parecía un envío perfecto (revisión del 10/9, C6).
+
+**Todo el lote «ya visto» y nada aceptado.** Es lo normal cuando el mismo
+chofer tiene la web abierta —que manda por WebSocket, sellado con la hora del
+SERVIDOR— y la app en el teléfono —que manda por HTTP, con la hora del
+APARATO—: si el del teléfono atrasa unos segundos, todo lo que manda queda por
+detrás de la última posición conocida y vuelve `200 { aceptadas: 0 }` para
+siempre. No se cambia quién gana (la posición más nueva es la más nueva), pero
+la respuesta lo DICE:
+
+```json
+{ "ok": true, "aceptadas": 0, "yaVistas": 3,
+  "motivo": "Otro aparato tuyo está reportando esta combi, y sus posiciones son más nuevas" }
+```
+
+El campo es opcional y sólo aparece en ese caso (revisión del 10/9, C20).
 
 - **Un POST no necesita nada vivo del lado del cliente**, así que la tarea de
   fondo puede mandar con la app dormida.
@@ -387,6 +430,17 @@ entera (`porUnidad[].activa`, `ultimaVez`; `totales.flota`,
 tenía el turno de chofer; `totales.sinAtribuir` las que no cayeron en ningún
 turno), `porDia` y `alcance`. Y el CSV `paradas`.
 
+Desde el 11/9 el bloque `senal` trae además las **paradas medidas** por el
+servidor, las haya avisado el chofer o no (`paradas`, `paradasSec`,
+`paradaMaxSec`, `paradasAvisadas`, y los mismos en `totales`): la consulta que
+había llevaba `confirmado = 1` —los avisos del botón de tráfico— así que un
+embotellamiento real que nadie avisó no aparecía en ninguna tarjeta ni columna
+(revisión del 10/9, E10). Son dos cosas distintas y la diferencia entre las dos
+es el dato. Y `porPersona[]` trae `roles[]` (todo lo que la persona hizo en el
+período) además de `role`, que se conserva y ahora es aquel en el que puso más
+horas y no el del primer turno que devolvió la consulta (E12): con uno solo, al
+que manejó media jornada se le tapaban las vueltas.
+
 ## 4quinquies. El SOS por HTTP: `POST /sos`
 
 El SOS por el WebSocket (`{ "type": "sos", "lat", "lng", "timestamp" }`)
@@ -403,6 +457,27 @@ El cliente (`app/protocolo/cliente.js`, `mandarSos`) devuelve `{ ok, via,
 sosId }` y `ok` quiere decir que LLEGÓ: por el socket espera el eco propio
 (`sos_alert` con mi unidad) hasta 8 s; sin socket o sin eco, va por HTTP. La
 pantalla no dice «ALERTA ENVIADA» hasta ese `ok`.
+
+**Y el TIPO también tiene camino HTTP: `POST /sos/:id/tipo`** con
+`{ "tipo": "mecanica" | "accidente" | "policia" }`. El escenario para el que
+existe `POST /sos` —el socket caído— era exactamente aquel en el que el tipo
+no salía: `sos_tipo` viajaba sólo por el socket, devolvía `'sin-conexion'` y
+la app cerraba el diálogo como si hubiera salido, así que quien moviliza veía
+un SOS genérico y tenía que adivinar entre una ambulancia y una grúa
+(revisión del 10/9, C8). Los bordes son los mismos que por el socket, pero
+acá se CONTESTAN, que es todo el punto:
+
+| Caso | Respuesta |
+|---|---|
+| Salió | `200 { ok: true, sosId, tipo }` |
+| Un tipo que no existe | `400` |
+| La emergencia de otro, o una que no existe | `404` (el error no confirma que exista) |
+| Pasada la ventana de `SOS_TIPO_VENTANA_MS` | `409` — después es editar historia |
+| Despacho o gerencia | `403`; sin sesión, `401` |
+
+El aviso `sos_tipo` sale a la ruta y a los supervisores igual que por el
+socket. El cliente manda por el socket si lo tiene y cae a HTTP si no; si no
+salió por ninguno de los dos, **lo dice**.
 
 Y una regla del lado de `/gps` que va con la presencia: **un lote cuyas
 posiciones son todas anteriores al último «fuera» de la unidad se descarta
@@ -440,14 +515,24 @@ dice igual.
 
 Cada episodio queda en la tabla `paradas` (unidad, ruta, dónde, en qué punto
 del circuito, cuánto duró, si el chofer lo confirmó, y cómo terminó:
-`movio` | `chofer` | `corte` | `trazado`). `GET /admin/paradas?dias=N` los
-lista para la cooperativa (o la ruta del despachador atado a una). Es la
-materia prima de "dónde se traba esta ruta y a qué hora".
+`movio` | `chofer` | `ausente` | `corte` | `trazado`). `GET /admin/paradas?dias=N`
+los lista para la cooperativa (o la ruta del despachador atado a una), y desde
+el 11/9 Despacho los lee en **Gestión ▸ Dónde se traba**, agrupados por franja
+del circuito y por hora del día.
+
+`ausente` es de la revisión del 10/9 (L14): salir de la cadena —declararse
+ausente, dejar de estar confirmado— no es «volvió a andar», y el CSV lo
+afirmaba. El aviso de tráfico se retira junto con el hecho (L15).
 
 ## 4septies. El perfil: `GET /perfil?dias=7`
 
 Lo del que pregunta y nada más (sin parámetro de unidad ni de persona; sólo
-chofer y cobrador, los paneles reciben 403). `dias` de 1 a 31, 7 por defecto.
+chofer y cobrador, los paneles reciben 403). `dias` de 1 a 31, 7 por defecto,
+y son días de **calendario** contando hoy: el único día parcial es hoy, que lo
+es porque todavía no terminó (revisión del 10/9, E14). Es la misma cuenta que
+usa el panel del gerente — si acá dijera otra cosa, alguien tendría razón y
+alguien no, y no habría forma de saber quién.
+
 Devuelve `persona`, `vehiculo`, `ruta`, `periodo { desde, hasta, dias }` y:
 
 - `metricas`: `vueltas` (de la COMBI, la maneje quien la maneje),
@@ -471,6 +556,20 @@ Devuelve `persona`, `vehiculo`, `ruta`, `periodo { desde, hasta, dias }` y:
   `enLinea`; al cobrador sólo `name`, `alias`, `enLinea`.
 - `app`: lo que se reparte (como en el login) más `version`/`versionCode`
   que el servidor tiene anotados de este teléfono.
+
+`ruta` puede venir **vacía** (`{ routeId: null, name: null }`): un usuario sin
+`routeId` no tiene ruta, y antes se le mostraba el nombre de la ruta por
+defecto —que en un servidor con varias cooperativas puede ser de otra
+empresa— como si fuera la suya (revisión del 10/9, P8).
+
+Dos cosas más del perfil, por HTTP y con la misma regla de «lo suyo y nada
+más»: `POST /perfil/alias` contesta **409** si en su ruta ya hay alguien con
+ese nombre —alias o nombre real, sin distinguir mayúsculas ni espacios de
+sobra—, porque el alias pisa `driverName` y dos iguales son dos unidades con
+el mismo nombre en el mapa (P9); y `POST /auth/logout` con `{ "todas": true }`
+cierra TODAS las sesiones de esa persona, incluida la que lo pide, y corta sus
+WebSocket abiertos. Es el remedio para el teléfono perdido: lo que da acceso
+no es la contraseña sino el token, que vive 30 días (P11).
 
 ## 5. Reconexión y caídas
 

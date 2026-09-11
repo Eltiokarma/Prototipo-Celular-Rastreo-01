@@ -109,6 +109,34 @@ export async function notificarGrabacionPedida() {
 
 // Al salir de ruta o cerrar sesión, la brecha vieja no puede quedar colgada
 // en la bandeja diciendo un número de hace una hora.
+// El teléfono quedó RELEVADO: otro chofer tomó la unidad y este GPS ya no se
+// usa. La pantalla lo dice («modo acompañante»), pero con la pantalla apagada
+// la única superficie es esta notificación — y antes se la borraba y ya, así
+// que la última brecha que el chofer había visto se quedaba en su memoria sin
+// nada que la desmintiera, o peor, la notificación seguía ahí con un número
+// que ya no es suyo (revisión del 10/9, C22).
+//
+// Va con el MISMO identificador que la brecha, así que la reemplaza en vez de
+// sumar una segunda. Mismo canal de importancia baja: no suena ni salta.
+export async function notificarSinRol(motivo) {
+  await preparar();
+  if (!preparado) return;
+  const titulo = 'MODO ACOMPAÑANTE';
+  if (titulo === ultimo) return;
+  try {
+    await Notifications.scheduleNotificationAsync({
+      identifier: ID,
+      content: {
+        title: titulo,
+        body: motivo || 'Otro chofer tomó la unidad: tu GPS ya no se usa.',
+        sound: false,
+      },
+      trigger: { channelId: CANAL },
+    });
+    ultimo = titulo;
+  } catch {}
+}
+
 export async function limpiarNotificacion() {
   ultimo = null;
   try { await Notifications.dismissNotificationAsync(ID); } catch {}

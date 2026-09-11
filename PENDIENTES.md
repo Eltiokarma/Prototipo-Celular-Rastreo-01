@@ -292,8 +292,10 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
       vigencia semanal de variantes (3.9) cambia de recorrido el sábado a
       las 19:00 en vez del domingo a medianoche, y «hoy», los días de la
       tendencia y las horas de los CSV van con cinco horas de corrimiento.
-      Desde el 10/9 el servidor lo avisa SIEMPRE al arrancar si corre en UTC
-      (revisión del 10/9, E14; suite `numeros`).
+      Desde el 10/9 el servidor lo avisa SIEMPRE al arrancar si corre en UTC,
+      y desde el 11/9 los CSV declaran en qué huso están sus columnas
+      (revisión del 10/9, E14 y E15; suites `numeros` e `informes`). Nada de
+      eso reemplaza la variable: sólo hace que el corrimiento se vea.
 - [ ] **`APP_VERSION_ACTUAL` cuando se reparta el APK 5** — es el
       `versionCode` que se está repartiendo (5). Con eso el chofer que tiene
       uno viejo ve «hay una versión nueva» en su pantalla, y Despacho ve la
@@ -447,6 +449,38 @@ cada vuelta** y **guardar los desvíos**— ya están hechas (2.3 y 2.4), la que
 apareció midiendo —**la palabra al lado del color**— también (3.2), y la que
 salió de usar el SOS en un teléfono de verdad —**el tipo de emergencia**—
 quedó cerrada el 6/8 (ver 3.1).
+
+### EL LEGAJO: decidido que NO (11/9)
+
+Salió de la revisión del 10/9 y nunca fue un bug: era una decisión de alcance
+esperando a que alguien la tomara. Hoy `users` tiene
+`unitId`, nombre, alias, rol, ruta, empresa y vehículo; `vehicles` tiene
+código, `label`, ruta y empresa. No hay **DNI, teléfono, brevete y su
+vencimiento, ni contacto de emergencia** de la persona; ni **placa como campo
+propio, SOAT, revisión técnica, permiso de ruta ni propietario** de la combi.
+
+El propio texto del alta dice «el vehículo es un ACTIVO: placa, permiso de
+ruta, seguro» y no guarda ninguno de los tres. Para una cooperativa real, sin
+eso no hay legajo.
+
+**Decidido el 11/9: no se guardan datos personales, al menos no a esta
+escala.** El sistema sigue sabiendo lo que necesita para medir la rueda —quién
+iba arriba, en qué combi, cuántas horas— y nada más. No hay DNI, ni brevete,
+ni contacto de emergencia, ni SOAT: no se guardan porque no se van a guardar,
+no porque falte hacerlo.
+
+**Qué significa en la práctica:** la cooperativa sigue llevando sus legajos
+donde los lleva hoy. Este sistema no es el registro de personal y no va a
+decir quién tiene el brevete vencido. Queda escrito en `LIMITACIONES.md` §F
+para que nadie lo prometa en una venta.
+
+**La puerta no está cerrada para siempre** —«a esta escala» es la parte que
+importa—, y si algún día se abre, el alcance está medido: columnas nuevas en
+`users` y `vehicles`, los campos en el alta y en la corrección de identidad,
+una ficha en Despacho, y los vencimientos en Números. Con eso viene lo otro,
+que es la razón de no hacerlo hoy: quién los ve, cuánto se conservan y qué
+pasa cuando alguien se va. Detalle en `REVISION-2026-09-10.md`, «lo que la
+base no sabe de la gente ni de las combis».
 
 ---
 

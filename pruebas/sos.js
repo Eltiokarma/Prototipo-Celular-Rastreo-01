@@ -155,8 +155,8 @@ const tipoEnBase = (id) =>
     const d = await login('DESPACHO', 'despacho99');
     const csv = await fetch(`${API}/admin/informe/sos.csv`, {
       headers: { Authorization: 'Bearer ' + d.token } }).then(r => r.text());
-    ok('el CSV tiene la columna Tipo', /Tipo/.test(csv), csv.split('\r\n')[5]);
-    ok('y la fila dice qué fue', /Falla mecánica/.test(csv), csv.split('\r\n').slice(6, 8));
+    ok('el CSV tiene la columna Tipo', /Tipo/.test(csv), csv.split('\r\n')[6]);
+    ok('y la fila dice qué fue', /Falla mecánica/.test(csv), csv.split('\r\n').slice(7, 9));
   }
 
   console.log('\nY POR HTTP, CUANDO EL SOCKET NO ESTÁ');
@@ -198,6 +198,58 @@ const tipoEnBase = (id) =>
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s1.token }, body: '{}' })).status;
     }
     ok('más de cinco por minuto, 429: un cliente roto no inunda a Despacho', ultimo === 429, ultimo);
+  }
+
+  console.log('\nEL TIPO TAMBIÉN POR HTTP: SIN ESO, AMBULANCIA O GRÚA SE ADIVINA');
+  // De la revisión del 10/9 (C8). `POST /sos` existe para el socket caído, y
+  // era ahí —y sólo ahí— donde el tipo no salía: el cliente lo mandaba por el
+  // socket, recibía 'sin-conexion' y cerraba el diálogo como si hubiera
+  // salido. Despacho veía un SOS genérico y tenía que adivinar entre una
+  // ambulancia y una grúa. M-02 dispara por HTTP y tipifica por HTTP, con el
+  // socket abierto sólo para MIRAR que el aviso llegue igual a la ruta.
+  {
+    const tipoHttp = (token, id, tipo) => fetch(`${API}/sos/${id}/tipo`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ tipo }) }).then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+
+    const antes = uno.visto.tipos.length;
+    const disparo = await fetch(`${API}/sos`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s2.token },
+      body: JSON.stringify({ lat: -15.49, lng: -70.13, timestamp: Date.now() }) }).then(r => r.json());
+    ok('M-02 dispara por HTTP y le vuelve el id', Number.isInteger(disparo.sosId), disparo);
+
+    const r = await tipoHttp(s2.token, disparo.sosId, 'accidente');
+    ok('POST /sos/:id/tipo lo toma', r.status === 200 && r.body.tipo === 'accidente', r.body);
+    ok('y la base lo guarda', tipoEnBase(disparo.sosId) === 'accidente', tipoEnBase(disparo.sosId));
+    ok('y la ruta se entera igual que por el socket',
+       await hasta(() => uno.visto.tipos.length > antes &&
+                         uno.visto.tipos.at(-1).sosId === disparo.sosId &&
+                         uno.visto.tipos.at(-1).tipo === 'accidente'),
+       uno.visto.tipos.at(-1));
+
+    // Los mismos bordes que por el socket, pero ACÁ se contestan: el cliente
+    // tiene que poder distinguir «no salió» de «salió».
+    const ajena = await tipoHttp(s1.token, disparo.sosId, 'policia');
+    ok('la emergencia del de al lado no se toca, y el error no confirma que exista',
+       ajena.status === 404, ajena);
+    ok('y sigue diciendo lo que dijo su dueño', tipoEnBase(disparo.sosId) === 'accidente', tipoEnBase(disparo.sosId));
+    const inventado = await tipoHttp(s2.token, disparo.sosId, 'ovni');
+    ok('un tipo inventado, 400', inventado.status === 400, inventado);
+    const noExiste = await tipoHttp(s2.token, 999999, 'policia');
+    ok('un id que no existe, 404', noExiste.status === 404, noExiste);
+    const sinSesion = await fetch(`${API}/sos/${disparo.sosId}/tipo`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: '{"tipo":"policia"}' });
+    ok('sin sesión, 401', sinSesion.status === 401, sinSesion.status);
+    const d2 = await login('DESPACHO', 'despacho99');
+    const despacho = await tipoHttp(d2.token, disparo.sosId, 'policia');
+    ok('Despacho no califica emergencias ajenas: 403', despacho.status === 403, despacho);
+
+    // Y cuando la emergencia se cerró, se DICE que se cerró: antes de esto
+    // el cliente no tenía forma de distinguirlo de un éxito.
+    await sleep(VENTANA_MS + 300);
+    const tarde = await tipoHttp(s2.token, disparo.sosId, 'policia');
+    ok('pasada la ventana, 409 y no se reescribe la historia',
+       tarde.status === 409 && tipoEnBase(disparo.sosId) === 'accidente', tarde);
   }
 
   for (const c of [uno, dos]) { try { c.ws.close(); } catch {} }

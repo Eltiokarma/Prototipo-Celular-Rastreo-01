@@ -61,7 +61,17 @@ const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
 
   const lineas = r.texto.split('\r\n');
   ok('2. Dice el período y quién lo generó',
-     /^Período;/.test(lineas[1]) && /Generado;/.test(lineas[3]), lineas[1]);
+     /^Período;/.test(lineas[1]) && /Generado;/.test(lineas[4]), lineas[1]);
+  // Y EN QUÉ HORA están esas columnas (revisión del 10/9, E15). Un informe
+  // impreso no tiene cómo preguntárselo al servidor, y si el despliegue corre
+  // sin TZ las horas van cinco atrás sin que nada en el papel lo diga. Se
+  // compara contra el huso con el que corre ESTA suite, sea cual sea.
+  const husoAca = (() => {
+    const min = -new Date().getTimezoneOffset(), s = min < 0 ? '-' : '+', a = Math.abs(min);
+    return `UTC${s}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`;
+  })();
+  ok('2b. Y en qué huso están las horas de las columnas',
+     /^Horas en;/.test(lineas[3]) && lineas[3].includes(husoAca), lineas[3]);
   // Sin pedir una ruta, un supervisor ve varias: la precisión depende de cada
   // una y el informe lo dice así.
   ok('3. Sin elegir ruta, avisa que la precisión depende de cada una',

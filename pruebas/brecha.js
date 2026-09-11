@@ -163,7 +163,7 @@ const punto = (m) => ({ lat: LAT + gLat * m, lng: LNG });
   {
     const csv = await fetch(`http://localhost:${P}/admin/informe/vueltas.csv?desde=${Date.now() - 86400e3}&hasta=${Date.now()}`,
       { headers: { Authorization: 'Bearer ' + D.token } }).then(r => r.text());
-    ok('el CSV trae la columna', /Brecha promedio \(m:ss\)/.test(csv), csv.split('\r\n')[5]);
+    ok('el CSV trae la columna', /Brecha promedio \(m:ss\)/.test(csv), csv.split('\r\n')[6]);
     const filaSinDato = csv.split('\r\n').find(l => l.startsWith('B-09'));
     ok('y la deja vacía cuando no hay dato, en vez de poner 0:00',
       !!filaSinDato && filaSinDato.endsWith(';'), filaSinDato);

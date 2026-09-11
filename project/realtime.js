@@ -114,6 +114,11 @@
           // El eco de MI disparo por el socket: es lo que confirma que salió
           if (msg.unitId && msg.unitId === authUnitId && ecoSos) { const r = ecoSos; ecoSos = null; r(msg); }
           emit('sos', msg);
+        } else if (msg.type === 'cupo') {
+          // El servidor avisa que se pasó el cupo por minuto de ese tipo de
+          // mensaje: lo que se mandó de más se descartó. Antes se descartaba
+          // sin decir nada (REVISION-2026-09-10.md, C10).
+          emit('cupo', msg);
         } else if (msg.type === 'sos_tipo') {
           // El tipo elegido después del disparo: actualiza el SOS ya
           // mostrado, no agrega otro.
@@ -400,8 +405,33 @@
   // Ponerle nombre al SOS YA disparado ('mecanica' | 'accidente' |
   // 'policia'). El id del disparo viene en el eco del sos_alert; solo el
   // que disparó puede — el servidor lo verifica igual.
-  function sendSosTipo(sosId, tipo) {
-    send({ type: 'sos_tipo', sosId, tipo });
+  // Devuelve una promesa: `null` si salió, o el motivo. Con la MISMA puerta
+  // de atrás que el disparo — `POST /sos/:id/tipo` — porque el socket caído
+  // es justo el escenario para el que existe el SOS por HTTP, y era ahí
+  // donde «accidente» o «falla mecánica» se perdía: quien moviliza veía un
+  // SOS genérico y tenía que adivinar entre ambulancia y grúa
+  // (REVISION-2026-09-10.md, C8).
+  async function sendSosTipo(sosId, tipo) {
+    if (sosId == null) return 'sin-sos';
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'sos_tipo', sosId, tipo })); return null; } catch {}
+    }
+    if (!authToken) return 'sin-conexion';
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 6000);
+      const res = await fetch(`${HTTP_URL}/sos/${encodeURIComponent(sosId)}/tipo`, {
+        method: 'POST', signal: ctl.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
+        body: JSON.stringify({ tipo }),
+      });
+      clearTimeout(t);
+      if (res.ok) return null;
+      const cuerpo = await res.json().catch(() => ({}));
+      return cuerpo.error || 'sin-conexion';
+    } catch {
+      return 'sin-conexion';
+    }
   }
 
   // Declarar el estado: en ruta, ausente, fuera — el mismo protocolo que la
