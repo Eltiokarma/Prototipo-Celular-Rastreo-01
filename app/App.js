@@ -26,8 +26,10 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import * as SecureStore from 'expo-secure-store';
 import * as Battery from 'expo-battery';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Application from 'expo-application';
 
 import { crearCliente } from './protocolo/cliente';
+import { cabeceraDeApp, avisoDeApp } from './version';
 import { limpiarNotificacion } from './notificacion.js';
 import { construirHud, textoNotificacion } from './hud';
 import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
@@ -49,6 +51,16 @@ import * as gps from './gps/servicio';
 // Dónde se guarda el modo elegido. En SecureStore como el resto, no porque
 // sea secreto sino para no sumar otra librería de almacenamiento por un dato.
 const LLAVE_TEMA = 'r14_tema';
+
+// Qué APK es éste, de la instalación misma y no de app.json (con
+// `appVersionSource: remote` el versionCode lo pone EAS al compilar). Va en
+// el login y en la cabecera de cada pedido: el servidor anota quién tiene
+// cuál, y contesta qué reparte para que la app avise «hay una nueva» (P5).
+const APP = {
+  version: Application.nativeApplicationVersion || null,
+  versionCode: Number(Application.nativeBuildVersion) || null,
+};
+const CABECERA_APP = cabeceraDeApp(APP);
 
 const SERVIDOR = process.env.EXPO_PUBLIC_SERVIDOR
   || 'https://prototipo-celular-rastreo-01-production.up.railway.app';
@@ -572,6 +584,7 @@ function Aplicacion() {
       <Mapa {...comun} estado={estado} geometria={geometria}
         yo={cliente.current?.sesion} activo={pantalla === 'mapa'} />
       <Ruta {...comun} hud={hud} reporta={reporta}
+        avisoApp={avisoDeApp(sesion && sesion.app, APP)}
         confirmada={enRutaConfirmada}
         onPresencia={cambiarPresencia}
         yo={cliente.current?.miUnidad ? cliente.current.miUnidad() : null}
@@ -700,7 +713,7 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
   const enviar = async () => {
     setError(null); setCargando(true);
     try {
-      onEntrar(await clienteRef.current.entrar(usuario.trim(), clave));
+      onEntrar(await clienteRef.current.entrar(usuario.trim(), clave, APP));
     } catch (e) {
       // El mensaje del servidor ya dice el intento y cuántos quedan: se
       // muestra tal cual en vez de inventar uno genérico.
@@ -738,7 +751,7 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
       <Pressable style={[s.boton, cargando && { opacity: 0.6 }]} onPress={enviar} disabled={cargando}>
         {cargando ? <ActivityIndicator color="#fff" /> : <Text style={s.botonTexto}>INGRESAR</Text>}
       </Pressable>
-      <Text style={s.pie}>{servidor}</Text>
+      <Text style={s.pie}>{servidor}{APP.versionCode ? ` · app ${APP.version} (${APP.versionCode})` : ''}</Text>
     </View>
   );
 }
@@ -754,7 +767,7 @@ function abrirOptimizacionDeBateria() {
     .catch(() => Linking.openSettings().catch(() => {}));
 }
 
-function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
+function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
                 tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol }) {
   const { s, C } = usarTema();
@@ -886,6 +899,12 @@ function Ruta({ hud, conectado, reporta, aviso, diag, pantalla, noLeidos, marca,
           servicio de ubicación ni arrancó por falta de permiso — la única
           pista visible era la línea roja del servicio. */}
       {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
+
+      {/* «Hay una versión nueva» / «ésta ya no sirve»: lo dice el servidor
+          con el login (P5). Se queda a la vista; no es un toast. */}
+      {avisoApp && (
+        <Text style={[s.avisoBarra, avisoApp.grave && { color: C.rojo }]}>{avisoApp.texto}</Text>
+      )}
 
       {/* Declarado en ruta pero el GPS todavía no lo vio sobre el trazado:
           se dice, para que "no tengo brecha" no parezca una falla. */}
@@ -1035,11 +1054,13 @@ function Perfil({ sesion, marca, onCerrar }) {
   const [claveActual, setClaveActual] = React.useState('');
   const [claveNueva, setClaveNueva] = React.useState('');
   const [aviso, setAviso] = React.useState(null);
+  // La ventana: la semana o el mes, que es como se liquida (P7)
+  const [dias, setDias] = React.useState(7);
 
   // Se recarga entero después de tocar un cobrador: el servidor es el que
   // sabe cuántos quedan y cuántas horas llevan, no esta pantalla.
   const cargar = React.useCallback(() => (
-    fetch(SERVIDOR + '/perfil', { headers: { Authorization: 'Bearer ' + sesion.token } })
+    fetch(SERVIDOR + '/perfil?dias=' + dias, { headers: { Authorization: 'Bearer ' + sesion.token, ...CABECERA_APP } })
       .then(async r => {
         const cuerpo = await r.json();
         if (!r.ok) throw new Error(cuerpo.error || 'HTTP ' + r.status);
@@ -1047,7 +1068,7 @@ function Perfil({ sesion, marca, onCerrar }) {
         setAlias(cuerpo.persona.alias || '');
       })
       .catch(e => setError('No se pudo cargar: ' + String(e.message || e)))
-  ), [sesion]);
+  ), [sesion, dias]);
   React.useEffect(() => { cargar(); }, [cargar]);
 
   const post = async (ruta, body, hecho) => {
@@ -1129,21 +1150,54 @@ function Perfil({ sesion, marca, onCerrar }) {
   };
 
   const m = datos?.metricas;
+  const D = `${dias} DÍAS`;
+  const combi = datos?.vehiculo?.vehicleId || 'LA COMBI';
   const tarjetas = m ? [
-    ['VUELTAS · 7 DÍAS', String(m.vueltas)],
+    // Las vueltas son de la COMBI, la maneje quien la maneje; las «tuyas»
+    // son las que se cerraron con vos arriba, con la misma regla que usa el
+    // gerente. Antes decía «vueltas» a secas, y el que tomó la combi
+    // anteayer veía siete días de vueltas de otro al lado de SUS horas (P2).
+    [`VUELTAS DE ${combi}`, String(m.vueltas)],
+    ['TUYAS', m.vueltasPropias == null ? '—' : String(m.vueltasPropias)],
     ['HOY', String(m.vueltasHoy)],
     // Las medias vueltas. Una VUELTA es el circuito entero (ida y retorno);
     // el que hizo la ida y no volvió no cerraba ninguna y su trabajo no
     // aparecía en ningún lado — quedaban las horas y nada que dijera qué
     // hizo con ellas. Ahora las mitades se cuentan por separado.
-    ['IDAS · 7 DÍAS', String(m.idas ?? 0)],
-    ['RETORNOS · 7 DÍAS', String(m.retornos ?? 0)],
-    ['HORAS · 7 DÍAS', hm(m.horasSec)],
+    [`IDAS · ${D}`, String(m.idas ?? 0)],
+    [`RETORNOS · ${D}`, String(m.retornos ?? 0)],
+    [`HORAS · ${D}`, hm(m.horasSec)],
     ['HORAS HOY', hm(m.horasHoySec)],
     ['BRECHA PROM.', mmss(m.brechaProm)],
+    // La vara contra la que se juzga (P4): «68 %» sin saber si eran 8 o
+    // 12 minutos no le sirve a nadie
+    ['OBJETIVO', mmss(m.objetivoSec)],
     // Sin vueltas con vara guardada no hay porcentaje que inventar
     ['EN OBJETIVO', m.cumplimiento == null ? '—' : `${m.cumplimiento} %`],
   ] : [];
+
+  // Lo que Despacho puede reclamarle, a la vista (P3). Lo de la COMBI en la
+  // ventana —con la misma cuenta que el cuadro del gerente— y lo que es de
+  // la persona (vueltas, salidas de ruta en su turno, SOS, grabaciones).
+  const sn = datos?.combi?.senal, dv = datos?.combi?.desvios, pr = datos?.propios;
+  const miSemana = sn && dv && pr ? [
+    ['Vueltas con vos arriba', String(pr.vueltas)],
+    ['Salidas de ruta de la combi', `${dv.veces}${dv.veces ? ` · la más lejos, ${dv.maxM} m` : ''}`],
+    ['   de ésas, en tu turno', String(pr.desvios)],
+    ['Cortes de señal', `${sn.cortes}${sn.cortes ? ` · el más largo ${mmss(sn.corteMaxSec)}` : ''}`],
+    ['   sin datos (no se recuperó nada)', String(sn.sinDatos)],
+    ['Ausencias declaradas', `${sn.ausencias}${sn.ausencias ? ` · ${hm(sn.ausenteSec)}` : ''}`],
+    ['Entradas con la ruta empezada', String(sn.entradasTardias)],
+    ['Avisos de tráfico', `${sn.avisosTrafico}${sn.avisosSinParada ? ` · ${sn.avisosSinParada} sin parada medida` : ''}`],
+    ['GPS impreciso / sospechoso / simulado', `${sn.gpsImpreciso} / ${sn.gpsSospechoso} / ${sn.gpsSimulado}`],
+    ['Saltos de posición · reloj corrido', `${sn.saltos} · ${sn.reloj}`],
+    ['SOS tuyos', String(pr.sos)],
+    ['Recorridos grabados', String(pr.grabaciones)],
+  ] : [];
+  const horaCorta = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const fechaCorta = (t) => { const d = new Date(t); return `${d.getDate()}/${d.getMonth() + 1}`; };
+  // «Hay una nueva» / «ésta ya no sirve», con lo que contestó el perfil
+  const avisoApp = avisoDeApp(datos && datos.app, APP);
 
   return (
     <Modal animationType="slide" onRequestClose={onCerrar}>
@@ -1168,6 +1222,18 @@ function Perfil({ sesion, marca, onCerrar }) {
               {datos.ruta.name ? ` · ${datos.ruta.name}` : ''}
             </Text>
 
+            {/* La ventana: la semana o el mes, que es como se liquida (P7) */}
+            <View style={s.cobradorBotones}>
+              {[7, 30].map(n => (
+                <Pressable key={n} onPress={() => setDias(n)}
+                  style={[s.cobradorBoton, dias === n && { borderColor: C.brillante }]}>
+                  <Text style={[s.cobradorBotonTexto, { color: dias === n ? C.brillante : C.tenue }]}>
+                    ÚLTIMOS {n} DÍAS
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
             {/* Cómo me fue: los mismos números que mira el gerente */}
             <View style={s.perfilGrilla}>
               {tarjetas.map(([etiqueta, valor]) => (
@@ -1183,6 +1249,26 @@ function Perfil({ sesion, marca, onCerrar }) {
                 vara que regía en cada vuelta ({m.juzgables} juzgable{m.juzgables === 1 ? '' : 's'}).
               </Text>
             )}
+            {/* La vara de hoy, y si se movió en la ventana: con el objetivo
+                automático cambia con las unidades en ruta, y el chofer tiene
+                que poder saber contra qué se lo midió cada día (P4). */}
+            {m && m.objetivoSec != null && (
+              <Text style={s.diagnostico}>
+                La vara de hoy en tu ruta es {mmss(m.objetivoSec)} de brecha
+                {m.objetivoModo === 'auto' ? ' (automática, según cuántas unidades hay en ruta)'
+                  : m.objetivoModo === 'esperando' ? ' (automática, todavía sin datos: rige la fijada)'
+                  : ' (la fijó Despacho)'}
+                {m.varaMin != null && m.varaMax != null && m.varaMin !== m.varaMax
+                  ? `. En estos ${dias} días se movió entre ${mmss(m.varaMin)} y ${mmss(m.varaMax)}` : ''}.
+              </Text>
+            )}
+            {m && m.vueltasPropias != null && m.vueltas !== m.vueltasPropias && (
+              <Text style={s.diagnostico}>
+                Las vueltas son de {combi}, la maneje quien la maneje. «Tuyas» son las
+                {datos.persona.role === 'collector' ? ' que se cerraron con vos arriba' : ' que se cerraron con vos al volante'}:
+                las otras {m.vueltas - m.vueltasPropias} son de otro turno.
+              </Text>
+            )}
             {/* Una VUELTA es salir y volver. Las idas y los retornos son las
                 mitades: si hiciste la ida y no volviste, la ida está contada
                 igual. */}
@@ -1190,7 +1276,7 @@ function Perfil({ sesion, marca, onCerrar }) {
               <Text style={s.diagnostico}>
                 Una vuelta es el circuito entero. Las idas y los retornos se cuentan
                 aparte: {m.idas} ida{m.idas === 1 ? '' : 's'} y {m.retornos} retorno
-                {m.retornos === 1 ? '' : 's'} en 7 días.
+                {m.retornos === 1 ? '' : 's'} en {dias} días.
               </Text>
             )}
             {/* Se le dice al chofer lo mismo que ve Despacho. Esconderlo sería
@@ -1209,6 +1295,48 @@ function Perfil({ sesion, marca, onCerrar }) {
                 para el objetivo.
               </Text>
             )}
+
+            {/* Lo mismo que ve Despacho de esta combi, con la misma cuenta
+                (P3). Si le reclaman un corte o una salida, acá está. */}
+            {miSemana.length > 0 && (<>
+              <View style={s.divisor} />
+              <Text style={s.perfilSeccion}>{dias === 7 ? 'MI SEMANA' : `MIS ${dias} DÍAS`}</Text>
+              <Text style={s.diagnostico}>
+                Lo que Despacho ve de {combi} en estos {dias} días, con la misma cuenta.
+                Lo de la combi es de la combi; «en tu turno» y «tuyos» son de vos.
+              </Text>
+              {miSemana.map(([etiqueta, valor]) => (
+                <View key={etiqueta} style={s.semanaFila}>
+                  <Text style={[s.cobradorDato, { flex: 1, marginTop: 0 }]}>{etiqueta}</Text>
+                  <Text style={s.semanaValor}>{valor}</Text>
+                </View>
+              ))}
+            </>)}
+
+            {/* Los turnos uno por uno: es con lo que se coteja una
+                liquidación. La suma es lo que dice HORAS, y es el mismo
+                número que tiene Despacho en TURNOS y en el CSV. */}
+            {(datos.turnos || []).length > 0 && (<>
+              <View style={s.divisor} />
+              <Text style={s.perfilSeccion}>TUS TURNOS · {D}</Text>
+              <Text style={s.diagnostico}>
+                Cada turno con lo que dura dentro de estos {dias} días. La suma es HORAS,
+                y es el mismo número que tiene Despacho.
+              </Text>
+              {datos.turnos.map(t => (
+                <View key={t.id} style={s.semanaFila}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.cobradorNombre}>
+                      {fechaCorta(t.startedAt)} · {horaCorta(t.startedAt)}–{t.endedAt ? horaCorta(t.endedAt) : 'sigue abierto'}
+                    </Text>
+                    <Text style={s.cobradorDato}>
+                      {t.vehicleId}{t.role === 'collector' ? ' · de cobrador' : ''} · {t.vueltas} vuelta{t.vueltas === 1 ? '' : 's'}
+                    </Text>
+                  </View>
+                  <Text style={s.semanaValor}>{hm(t.duracionSec)}</Text>
+                </View>
+              ))}
+            </>)}
 
             {aviso && <Text style={[s.avisoBarra, { marginTop: 14 }]}>{aviso}</Text>}
 
@@ -1256,14 +1384,19 @@ function Perfil({ sesion, marca, onCerrar }) {
               </Text>
             )}
 
-            {(datos.cobradores || []).map(c => (
-              <View key={c.unitId} style={s.cobradorFila}>
+            {(datos.cobradores || []).map((c, i) => (
+              <View key={c.unitId || `${c.name}-${i}`} style={s.cobradorFila}>
                 <Text style={s.cobradorNombre}>
                   {c.alias || c.name}{c.enLinea ? ' · en línea' : ''}
                 </Text>
-                <Text style={s.cobradorDato}>
-                  {c.name} · entra como {c.unitId} · {hm(c.horasSec)} en 7 días
-                </Text>
+                {/* Las horas y el usuario de login de los otros cobradores
+                    sólo se los da el servidor al chofer (P6): al cobrador le
+                    llega quién es y si está en línea, nada más. */}
+                {c.horasSec != null && (
+                  <Text style={s.cobradorDato}>
+                    {c.name} · entra como {c.unitId} · {hm(c.horasSec)} en {dias} días
+                  </Text>
+                )}
 
                 {datos.puedeGestionar && c.unitId !== datos.persona.unitId && (<>
                   <View style={s.cobradorBotones}>
@@ -1353,6 +1486,19 @@ function Perfil({ sesion, marca, onCerrar }) {
                 <Text style={s.tipoSosCerrarTexto}>Descartar la grabación</Text>
               </Pressable>
             </>)}
+
+            {/* Qué APK es éste, y si hay uno nuevo (P5). Antes no se dibujaba
+                en ningún lado, justo cuando cada APK cambia lo que manda. */}
+            <View style={s.divisor} />
+            <Text style={s.perfilSeccion}>LA APP</Text>
+            <Text style={s.diagnostico}>
+              Versión {APP.version || '?'} ({APP.versionCode || '?'})
+              {datos.app && datos.app.versionCodeActual ? ` · la que se reparte es la ${datos.app.versionCodeActual}` : ''}
+              {'\n'}{SERVIDOR}
+            </Text>
+            {avisoApp && (
+              <Text style={[s.avisoBarra, avisoApp.grave && { color: C.rojo }]}>{avisoApp.texto}</Text>
+            )}
           </>)}
         </ScrollView>
       </View>
@@ -2104,6 +2250,12 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.fondo, alignItems: 'center', justifyContent: 'center',
   },
   cobradorBotonTexto: { fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
+  // Mi semana / mis turnos: una fila por dato, el número a la derecha
+  semanaFila: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8,
+    borderBottomWidth: 1, borderBottomColor: C.linea,
+  },
+  semanaValor: { color: C.brillante, fontSize: 14, fontWeight: '900', fontFamily: 'monospace', textAlign: 'right' },
 
   // ── Presencia ────────────────────────────────────────────────
   filaPresencia: { flexDirection: 'row', gap: 10, marginTop: 12 },

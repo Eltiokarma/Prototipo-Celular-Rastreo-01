@@ -12,8 +12,14 @@ Para regenerar el volcado, ver *Cómo se verificó* al final.
 ## 1. Entrar: `POST /auth/login`
 
 ```json
-{ "user": "M-12", "password": "chofer1234" }
+{ "user": "M-12", "password": "chofer1234", "app": { "version": "0.2.3", "versionCode": 5 } }
 ```
+
+`app` es opcional y es lo que la app nativa manda de sí misma (leído de la
+instalación con `expo-application`); el servidor lo anota en `users` y
+Despacho lo ve en Unidades. Cualquier pedido autenticado puede traer lo
+mismo en la cabecera `X-App-Version: 0.2.3/5` (el perfil y cada `POST /gps`
+la llevan): así el que actualizó sin volver a entrar queda al día.
 
 Devuelve, tal cual:
 
@@ -31,9 +37,17 @@ Devuelve, tal cual:
   "companyId": "R14",
   "companyName": "Señor de Huayllani",
   "supervisor": false,
+  "app": { "versionCodeActual": 6, "versionCodeMin": 4, "url": "https://…/chofer.apk" },
   "created": false
 }
 ```
+
+- **`app` dice qué APK se reparte** (`APP_VERSION_ACTUAL`), cuál es el más
+  viejo que sirve (`APP_VERSION_MIN`) y de dónde bajarlo (`APP_URL`). La app
+  compara su `versionCode`: por debajo del actual avisa «hay una versión
+  nueva»; por debajo del mínimo, en rojo, «esta app ya no sirve». Con las
+  variables sin poner llega todo `null` y la app no dice nada
+  (`app/version.js`).
 
 - **El token dura 30 días** (`SESSION_DAYS`). Se guarda en el dispositivo y se
   reusa; no hace falta pedir contraseña cada turno.
@@ -429,6 +443,34 @@ del circuito, cuánto duró, si el chofer lo confirmó, y cómo terminó:
 `movio` | `chofer` | `corte` | `trazado`). `GET /admin/paradas?dias=N` los
 lista para la cooperativa (o la ruta del despachador atado a una). Es la
 materia prima de "dónde se traba esta ruta y a qué hora".
+
+## 4septies. El perfil: `GET /perfil?dias=7`
+
+Lo del que pregunta y nada más (sin parámetro de unidad ni de persona; sólo
+chofer y cobrador, los paneles reciben 403). `dias` de 1 a 31, 7 por defecto.
+Devuelve `persona`, `vehiculo`, `ruta`, `periodo { desde, hasta, dias }` y:
+
+- `metricas`: `vueltas` (de la COMBI, la maneje quien la maneje),
+  `vueltasPropias` (las que se cerraron con esta persona arriba: al chofer
+  con su turno de chofer y la regla de relevo del gerente; al cobrador, las
+  de la combi mientras iba arriba), `vueltasHoy`, `parciales`, `idas`,
+  `retornos`, `duracionProm`, `brechaProm`, `cumplimiento`, `juzgables`,
+  `objetivoSec` y `objetivoModo` (la vara que rige hoy), `varaMin`/`varaMax`
+  (entre qué anduvo la vara de las vueltas de la ventana), `horasSec`,
+  `horasHoySec`.
+- `combi { vehicleId, senal, desvios }`: lo de la combi en la ventana con la
+  MISMA cuenta que `porUnidad[]` del resumen del gerente (`senal` es el mismo
+  objeto; `desvios { veces, segundos, maxM, aparte }`).
+- `propios { vueltas, desvios, sos, grabaciones }`: lo de la persona
+  (las salidas de ruta atribuidas a su turno, sus SOS, sus grabaciones).
+- `turnos[]`: los suyos en la ventana, del más nuevo al más viejo (tope
+  100): `{ id, vehicleId, role, startedAt, endedAt, abierto, duracionSec,
+  vueltas }`. `duracionSec` va recortado a la ventana: la suma es
+  `horasSec`, el mismo número de Turnos y del CSV.
+- `cobradores[]`: al chofer con `unitId`, `horasSec`, `ultimoIngreso`,
+  `enLinea`; al cobrador sólo `name`, `alias`, `enLinea`.
+- `app`: lo que se reparte (como en el login) más `version`/`versionCode`
+  que el servidor tiene anotados de este teléfono.
 
 ## 5. Reconexión y caídas
 
