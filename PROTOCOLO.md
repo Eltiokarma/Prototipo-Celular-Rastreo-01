@@ -364,9 +364,14 @@ al fin del rango). `GET /admin/anomalias?dias=N` lista lo puntual: `tipo` en `sa
 `detalle`) y `gps_impreciso` (`valor` en metros). Los mismos datos bajan como
 `senal.csv` y `anomalias.csv`, y `/gerencia/resumen` trae un bloque `senal`
 por unidad y en los totales — con `gpsSospechoso`, `gpsImpreciso`,
-`avisosTrafico` y `avisosSinParada` (avisos de tráfico del chofer sin que el
+`avisosTrafico`, `avisosSinParada` (avisos de tráfico del chofer sin que el
 servidor midiera la parada: `paradas.medida = 0`; `GET /admin/paradas`
-también trae `medida`).
+también trae `medida`) y `entradasTardias`. El resumen trae además la flota
+entera (`porUnidad[].activa`, `ultimaVez`; `totales.flota`,
+`totales.unidadesActivas`), las vueltas por persona (`porPersona[].vueltas`,
+`brechaProm`, `cumplimiento`, `desvios`: las de la combi mientras la persona
+tenía el turno de chofer; `totales.sinAtribuir` las que no cayeron en ningún
+turno), `porDia` y `alcance`. Y el CSV `paradas`.
 
 ## 4quinquies. El SOS por HTTP: `POST /sos`
 
