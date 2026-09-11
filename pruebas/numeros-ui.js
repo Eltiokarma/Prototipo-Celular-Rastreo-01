@@ -1,6 +1,10 @@
 // Lo que el servidor mandaba y ninguna pantalla mostraba (REVISION-2026-09-10.md,
 // E16), mirado en un navegador de verdad.
 //
+// Y de paso la otra mitad de E12, que también es de pantalla: Turnos pintaba
+// sólo `hhmm(startedAt)`, así que «esta semana» eran hasta 500 filas que
+// decían «08:12» sin decir de qué día.
+//
 // `/gerencia/resumen` ya viajaba con la lista de SOS (con persona y tipo), la
 // de salidas del recorrido, las rutas con su objetivo, y la duración promedio,
 // la mejor y la velocidad de cada unidad. Nada de eso se dibujaba: el gerente
@@ -54,8 +58,15 @@ let servidor = null, browser = null;
   vuelta.run(hoy(8), hoy(9), 1800, 24);
   vuelta.run(hoy(10), hoy(11), 2400, 20);
   vuelta.run(hoy(12), hoy(13), 3000, 16);
-  w.prepare(`INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, endedAt, lastSeenAt)
-             VALUES ('M-01', 'M-01', 'R-14', 'driver', ?, ?, ?)`).run(hoy(7), hoy(14), hoy(14));
+  const turno = w.prepare(`INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, endedAt, lastSeenAt)
+                           VALUES (?, ?, 'R-14', ?, ?, ?, ?)`);
+  turno.run('M-01', 'M-01', 'driver', hoy(7), hoy(14), hoy(14));
+  // Para la lista de Turnos: uno de anteayer y uno que CRUZA la medianoche.
+  // Éstos van con horas de verdad —no comprimidas— porque lo que se mira es
+  // justamente de qué día es cada fila.
+  const H = 3600_000, DIA = 86400_000;
+  turno.run('M-02', 'M-02', 'collector', medianoche - DIA + 22 * H, medianoche + 1 * H, medianoche + 1 * H);
+  turno.run('M-03', 'M-03', 'driver', medianoche - 3 * DIA + 9 * H, medianoche - 3 * DIA + 15 * H, medianoche - 3 * DIA + 15 * H);
   // Un SOS con tipo y otro sin: el genérico es como nace cada uno y no se le
   // inventa una causa.
   const sos = w.prepare(`INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, sosTipo, lat, lng, timestamp)
@@ -148,6 +159,31 @@ let servidor = null, browser = null;
     // `lastFinish` se tiraba: la columna «Última» decía sólo cuánto duró.
     ok('la última vuelta dice CUÁNDO fue, no sólo cuánto duró',
        /hoy \d{2}:\d{2}/i.test(t), t.split('\n').filter(l => /hoy /i.test(l)).slice(0, 5));
+  }
+
+  console.log('\nY EN TURNOS, DE QUÉ DÍA ES CADA FILA');
+  {
+    await p.click('button:has-text("Turnos")');
+    await p.waitForTimeout(1500);
+    await p.click('button:has-text("Esta semana")');
+    await p.waitForTimeout(2000);
+    const t = await texto();
+    const dia = (ts) => { const d = new Date(ts); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`; };
+    const DIAS = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+    const anteayer = new Date(medianoche - 3 * 86400_000);
+    ok('hay un rótulo por día, y el de hoy dice HOY', new RegExp(`HOY · ${dia(medianoche)}`).test(t),
+       t.split('\n').filter(l => /HOY|AYER|\d\d\/\d\d/.test(l)).slice(0, 6));
+    ok('el de ayer dice AYER', new RegExp(`AYER · ${dia(medianoche - 86400_000)}`).test(t));
+    ok('y el de más atrás dice qué día de la semana fue',
+       new RegExp(`${DIAS[anteayer.getDay()]} ${dia(anteayer.getTime())}`).test(t),
+       t.split('\n').filter(l => /LUN|MAR|MIÉ|JUE|VIE|SÁB|DOM/.test(l)));
+    // El turno que empieza a las 22:00 y cierra a la 01:00 va bajo el rótulo
+    // del día en que EMPEZÓ: sin la marca, «22:00 → 01:00» se lee como un
+    // turno de veintitrés horas.
+    ok('el turno que cruza la medianoche lo dice con «+1»', /01:00 \+1/.test(t),
+       t.split('\n').filter(l => /01:00/.test(l)));
+    ok('y sus horas siguen siendo 3, no 23', /3 h 00 min/.test(t),
+       t.split('\n').filter(l => / h \d\d min/.test(l)));
   }
 
   ok('la página no tiró ningún error', errores.length === 0, errores.slice(0, 4));
