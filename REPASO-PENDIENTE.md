@@ -146,7 +146,9 @@ revisión del 10/9 queda cerrada entera. Regresión completa verde.
 ### Lo que NO se tocó, y por qué
 
 - **El legajo** (DNI, brevete, placa, SOAT, revisión técnica, propietario).
-  No es un bug, es alcance: la decisión es del dueño del producto.
+  **Decidido el 11/9: no se hace**, al menos no a esta escala — no se guardan
+  datos personales. No es una deuda: es el alcance del sistema. En
+  `LIMITACIONES.md` §F y en `PENDIENTES.md`.
 - **P13**, la grabación sin enviar que se pierde al reinstalar el APK. Se
   decidió NO arreglarlo: `allowBackup: false` está puesto a propósito. Lo que
   se hizo fue decirlo, en la pantalla y en `LIMITACIONES.md` §F.

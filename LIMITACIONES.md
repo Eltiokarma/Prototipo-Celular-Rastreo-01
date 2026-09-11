@@ -332,6 +332,16 @@ limitación se resuelva o aparezca una nueva.
   desvíos se guardan (`deviations`), se cuentan por unidad, se listan uno por
   uno en Números y bajan en CSV. Las silenciadas y las cerradas por un cambio
   de trazado van marcadas y NO cuentan como salidas.
+- **No hay legajo, y es una decisión, no una falta.** Decidido el 11/9: este
+  sistema **no guarda datos personales** de la gente ni papeles de las combis,
+  al menos no a esta escala. Guarda lo que necesita para medir la rueda —quién
+  iba arriba, en qué combi, cuántas horas— y nada más. **No hay** DNI,
+  teléfono, brevete ni su vencimiento, ni contacto de emergencia; **ni** placa
+  como campo propio, SOAT, revisión técnica, permiso de ruta o propietario.
+  La cooperativa sigue llevando sus legajos donde los lleva hoy: esto no es un
+  registro de personal y no va a decir quién tiene el brevete vencido. **No se
+  promete en una venta.** El alcance de hacerlo, si algún día se decide que sí,
+  está medido en `PENDIENTES.md`.
 - **Una grabación de recorrido sin enviar vive sólo en ese teléfono.** El
   archivo está en el almacenamiento de la app y `allowBackup` está en `false`
   a propósito (una grabación es un recorrido con horas: no va al backup de

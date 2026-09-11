@@ -1187,9 +1187,11 @@ El detalle de lo que **no** cubre está en `LIMITACIONES.md`, sección E.
 > **las horas**, que se calculaban de cuatro formas distintas. De sus 77
 > hallazgos se cerraron **los 77 en siete tandas** (10 y 11/9): 75 arreglados,
 > uno que ya estaba curado por otro arreglo y uno que se decidió NO hacer y
-> quedó escrito en `LIMITACIONES.md`. **Lo que queda —la decisión del legajo y
-> lo que hay que probar en la calle con el APK 5— está en la sección «Estado
-> al cerrar» del final de ese mismo archivo.** Todo eso está hecho y probado
+> quedó escrito en `LIMITACIONES.md`. **Lo que queda —el APK 5 y lo que hay
+> que probar en la calle con él— está en la sección «Estado al cerrar» del
+> final de ese mismo archivo.** La otra cosa que estaba abierta, el legajo,
+> se decidió el 11/9: **no se hace** — este sistema no guarda datos personales
+> (`LIMITACIONES.md` §F). Todo eso está hecho y probado
 > pero **todavía sin repasar**: de qué conviene dudar, y por qué, está en
 > `REPASO-PENDIENTE.md`.
 
