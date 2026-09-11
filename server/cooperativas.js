@@ -23,6 +23,10 @@ const CLAVE_MINIMA = 6;
 // aguanta cuando esto escale. Trae con qué DIBUJAR el escudo —iniciales,
 // color y si tiene logo o no— y el logo se pide por cooperativa, solo cuando
 // se abre la suya.
+function inicioDelMes() {
+  const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d.getTime();
+}
+
 function listar(db) {
   const marca = require('./marca');
   return db.prepare('SELECT * FROM companies ORDER BY createdAt').all().map(e => ({
@@ -43,6 +47,20 @@ function listar(db) {
     // acá hacía que "34 personas" no coincidiera con nadie.
     personas: db.prepare("SELECT COUNT(*) AS c FROM users WHERE companyId = ? AND role NOT IN ('dispatch', 'manager')")
       .get(e.companyId).c,
+    // Lo que se cobra: unidades-día del mes en curso (combis distintas con
+    // turno de chofer, por día), y cuándo fue la última señal de la
+    // cooperativa entera. Sin esto el creador veía altas, no uso
+    // (REVISION-2026-09-10.md, E4). El día es el local del servidor
+    // (TZ=America/Lima), como en el resto de los informes.
+    unidadesDiaMes: db.prepare(`
+      SELECT COUNT(*) AS c FROM (
+        SELECT DISTINCT s.vehicleId, date(s.startedAt / 1000, 'unixepoch', 'localtime') AS dia
+        FROM shifts s JOIN routes r ON r.routeId = s.routeId
+        WHERE r.companyId = ? AND s.role = 'driver' AND s.startedAt >= ?
+      )`).get(e.companyId, inicioDelMes()).c,
+    ultimoGps: (db.prepare(`
+      SELECT MAX(COALESCE(s.endedAt, s.lastSeenAt)) AS t FROM shifts s JOIN routes r ON r.routeId = s.routeId
+      WHERE r.companyId = ? AND s.role = 'driver'`).get(e.companyId) || {}).t || null,
     despacho: db.prepare("SELECT unitId, routeId, lastLogin FROM users WHERE companyId = ? AND role = 'dispatch' ORDER BY unitId")
       .all(e.companyId),
     gerencia: db.prepare("SELECT unitId, routeId, lastLogin FROM users WHERE companyId = ? AND role = 'manager' ORDER BY unitId")

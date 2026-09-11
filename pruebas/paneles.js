@@ -110,7 +110,7 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   // TRUCOS pasos 2 y 3: el sospechoso con su motivo, el impreciso con sus metros
   ok('y cuando es sospechoso, con el motivo', /u\.gpsSospechoso && !u\.gpsSimulado && \(/.test(despacho) && /GPS SOSPECHOSO · /.test(despacho) && /CLAVADO EN EL TRAZADO/.test(despacho));
   ok('y cuando es impreciso, con los metros', /u\.gpsImpreciso && \(/.test(despacho) && /GPS IMPRECISO · ±\{u\.precisionM\} M/.test(despacho));
-  ok('la tabla «Señal y presencia» tiene GPS y Tráfico', /'GPS', 'Tráfico'\]/.test(despacho) && /avisosSinParada \? `/.test(despacho));
+  ok('la tabla «Señal y presencia» tiene GPS y Tráfico', /'GPS', 'Tráfico', 'Tardías'\]/.test(despacho) && /avisosSinParada \? `/.test(despacho));
   ok('la web del chofer también manda `precision` con cada posición', /precision: Math\.round\(accuracy\)/.test(realtime));
   // Tanda 4 de la revisión del 10/9: la web del chofer a la par de la app nativa
   ok('el SOS de la web va por POST /sos y sólo dice «enviada» si llegó', /HTTP_URL \+ '\/sos'/.test(realtime) && /async function sendSos/.test(realtime) && /if \(r && r\.ok\) setEmergencyFired\(true\); else setSosFallo\(true\);/.test(prototipo) && /NO SALIÓ/.test(prototipo));
@@ -121,10 +121,18 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   ok('el watchPosition se guarda y se para; startGps no se duplica', /watchId = navigator\.geolocation\.watchPosition/.test(realtime) && /clearWatch\(watchId\)/.test(realtime) && /if \(watchId !== null \|\| gpsInterval\) return;/.test(realtime));
   ok('el chofer web puede avisar tráfico (WS o POST /trafico)', /function setTrafico/.test(realtime) && /HTTP_URL \+ '\/trafico'/.test(realtime) && /ESTOY EN TRÁFICO/.test(prototipo));
   ok('«EN VIVO · N» usa totalOnRoute del servidor', /state\.totalOnRoute/.test(prototipo) && /Number\.isFinite\(totalOnRoute\) \? totalOnRoute/.test(prototipo));
+  // Tanda 5a: lo que el gerente y el creador no veían
+  ok('Números elige la ruta y dice su alcance', /routeId=\$\{encodeURIComponent\(ruta\)\}/.test(despacho) && /Toda la cooperativa/.test(despacho));
+  ok('Unidades activas sobre la flota, y la inactiva apagada con «hace N d»', /'Unidades activas'/.test(despacho) && /SIN ACTIVIDAD/.test(despacho));
+  ok('vueltas, cumplimiento y salidas por persona', /'Persona', 'Rol', 'Turnos', 'Horas', 'Vueltas', 'Cumple', 'Salidas', 'Unidades'/.test(despacho) && /sinAtribuir/.test(despacho));
+  ok('la tendencia por día se dibuja', /resumenGer\.porDia\.map\(d =>/.test(despacho));
+  ok('el pie dice de cuántas vueltas sale el cumplimiento (sinBrecha)', /no tuvieron con quién/.test(despacho));
+  ok('entradas tardías en «Señal y presencia» y el CSV de paradas', /'Tardías'\]/.test(despacho) && /\['paradas', 'paradas'\]/.test(despacho));
+  ok('el creador ve unidades-día del mes y la última señal', /unidadesDiaMes/.test(leer('server/creador.html')) && /nunca reportó GPS/.test(leer('server/creador.html')));
   const v = (sw.match(/CACHE_NAME = 'coop-r14-v(\d+)'/) || [])[1];
-  ok('CACHE_NAME subió (v61 o más)', Number(v) >= 61, v);
+  ok('CACHE_NAME subió (v62 o más)', Number(v) >= 62, v);
   // Tanda 1 de la revisión del 10/9: las horas por persona, en pantalla
-  ok('Números tiene la tabla «Por persona» con las horas que se liquidan', /resumenGer\.porPersona\.map\(p =>/.test(despacho) && /'Persona', 'Rol', 'Turnos', 'Horas', 'Unidades'/.test(despacho));
+  ok('Números tiene la tabla «Por persona» con las horas que se liquidan', /resumenGer\.porPersona\.map\(p =>/.test(despacho) && /'Persona', 'Rol', 'Turnos', 'Horas', 'Vueltas', 'Cumple', 'Salidas', 'Unidades'/.test(despacho));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

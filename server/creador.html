@@ -606,6 +606,14 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
             </div>
             <div>
               {e.vehiculos} vehículo(s) · {e.personas} persona(s)
+              {/* Lo que se cobra: cuántas combis trabajaron cada día de este
+                  mes, y cuándo fue la última señal de la cooperativa. */}
+              {e.unidadesDiaMes != null && (
+                <span> · <span className="mono" style={{ fontWeight: 800 }}>{e.unidadesDiaMes}</span> unidades-día este mes</span>
+              )}
+              {e.ultimoGps
+                ? <span> · última señal {fecha(e.ultimoGps)}</span>
+                : <span style={{ color: 'var(--amber)' }}> · nunca reportó GPS</span>}
               {' · '}
               {e.despacho.length
                 ? `despacho: ${e.despacho.map(d => d.unitId).join(', ')}`

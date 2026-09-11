@@ -4085,6 +4085,13 @@ function activarVariante(routeId, variantId, quien, motivo) {
 // de medianoche — antes de que salga la primera combi, así el descarte de
 // vueltas en curso no descarta nada.
 let avisoHusoDado = false;
+// Al arrancar, siempre: los informes, «hoy» y los días de la tendencia se
+// cortan con la hora LOCAL del servidor. En UTC, el día del gerente empieza
+// a las 19:00 de Perú (REVISION-2026-09-10.md, E14). No frena nada.
+if (new Date().getTimezoneOffset() === 0) {
+  console.warn('TZ: el servidor corre en UTC. Poné TZ=America/Lima en las variables del despliegue: ' +
+    'sin eso «hoy», los días de la tendencia y las horas de los CSV van con cinco horas de corrimiento.');
+}
 function revisarVigencias() {
   const ahora = Date.now();
   // Día 0-6 en hora LOCAL del servidor (ver la nota sobre TZ en la columna)
@@ -4826,6 +4833,32 @@ const INFORMES = {
       ]),
     };
   },
+  // Las paradas y los avisos de tráfico: dónde y a qué hora se traba la
+  // ruta, que es para lo que existe la tabla y no salía en ningún informe
+  // (REVISION-2026-09-10.md, E10).
+  paradas: (filtro) => {
+    const filas = db.prepare(`
+      SELECT vehicleId, routeId, startedAt, endedAt, durationSec, lat, lng, progreso, tramo, confirmado, medida, cierre
+      FROM paradas
+      WHERE startedAt BETWEEN @desde AND @hasta
+        AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+        AND (@ruta IS NULL OR routeId = @ruta)
+      ORDER BY startedAt
+    `).all(filtro);
+    const COMO_TERMINO = { movio: 'volvió a andar', chofer: 'el chofer retiró el aviso', corte: 'dejó de reportar', trazado: 'le cambiaron el trazado' };
+    return {
+      nombre: 'paradas',
+      cabecera: ['Unidad', 'Ruta', 'Empezó', 'Terminó', 'Minutos', 'Tramo', 'Punto del circuito (%)', 'Lat.', 'Lng.',
+        'La midió el servidor', 'La avisó el chofer', 'Cómo terminó'],
+      filas: filas.map(p => [
+        p.vehicleId, p.routeId, fechaHora(p.startedAt), p.endedAt ? fechaHora(p.endedAt) : '',
+        p.durationSec === null ? '' : Math.round(p.durationSec / 60), p.tramo || '',
+        p.progreso === null ? '' : Math.round(p.progreso * 100), p.lat ?? '', p.lng ?? '',
+        p.medida ? 'sí' : 'no', p.confirmado ? 'sí' : 'no',
+        COMO_TERMINO[p.cierre] || (p.endedAt ? p.cierre : 'sigue parada'),
+      ]),
+    };
+  },
   // Lo puntual que se anota y no se avisa: saltos imposibles, ausente en
   // marcha, reloj atrasado, posiciones descartadas, GPS simulado.
   anomalias: (filtro) => {
@@ -5532,6 +5565,33 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   // vacía — los promedios les quedan en null, que es lo que corresponde.
   for (const t of tramosPorUnidad) if (!unidades.has(t.unitId)) unidades.set(t.unitId, []);
   for (const unitId of parcialesPorUnidad.keys()) if (!unidades.has(unitId)) unidades.set(unitId, []);
+  // Las que tuvieron ALGO en el período son las activas. Después entra la
+  // flota entera: una combi con cero actividad no aparecía en ningún lado, y
+  // «unidades» no era la flota (REVISION-2026-09-10.md, E5). Quien cobra por
+  // unidad/día pregunta primero cuántas hay y cuántas trabajaron.
+  const activas = new Set(unidades.keys());
+  const flota = db.prepare(`
+    SELECT vehicleId, routeId FROM vehicles
+    WHERE companyId = @empresa AND (@ruta IS NULL OR routeId = @ruta)
+  `).all({ empresa: req.empresa, ruta });
+  for (const v of flota) if (!unidades.has(v.vehicleId)) unidades.set(v.vehicleId, []);
+  // ¿Desde cuándo no trabaja? La última señal de un turno de chofer, sin
+  // límite de fecha: para la que no tuvo nada en el período es lo único que
+  // se puede decir.
+  const ultimaVezDe = new Map(db.prepare(`
+    SELECT vehicleId, MAX(COALESCE(endedAt, lastSeenAt)) t FROM shifts s
+    WHERE s.role = 'driver' AND s.routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR s.routeId = @ruta)
+    GROUP BY vehicleId
+  `).all(filtro).map(r => [r.vehicleId, r.t]));
+  // Entradas a la ruta empezada, contadas: estaban sólo en la auditoría (E13)
+  const tardiasDe = new Map(db.prepare(`
+    SELECT target vehicleId, COUNT(*) n FROM audit
+    WHERE action = 'entrada_tardia' AND timestamp BETWEEN @desde AND @hasta
+      AND routeId IN ${RUTAS_DE_LA_EMPRESA}
+      AND (@ruta IS NULL OR routeId = @ruta)
+    GROUP BY target
+  `).all(filtro).map(r => [r.vehicleId, r.n]));
 
   const rutaDeUnidad = (unitId, ls) => ls.length ? ls[0].routeId
     : (tramosPorUnidad.find(t => t.unitId === unitId) || {}).routeId
@@ -5555,6 +5615,9 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       retornos: tramoDeUnidad(unitId, 'vuelta'),
       parciales: parcialesPorUnidad.get(unitId) || 0,
       horasSec: horasDe.get(unitId) || 0,
+      // Tuvo algo en el período; si no, desde cuándo no se la ve
+      activa: activas.has(unitId),
+      ultimaVez: ultimaVezDe.get(unitId) ?? null,
       desvios: (desviosDe.get(unitId) || { veces: 0 }).veces,
       desvioSec: (desviosDe.get(unitId) || { segundos: 0 }).segundos,
       desviosAparte: (desviosDe.get(unitId) || { aparte: 0 }).aparte,
@@ -5576,6 +5639,7 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
         gpsImpreciso: ((anomaliasDe.get(unitId) || {}).gps_impreciso || {}).n || 0,
         avisosTrafico: (traficoDe.get(unitId) || {}).avisos || 0,
         avisosSinParada: (traficoDe.get(unitId) || {}).sinParada || 0,
+        entradasTardias: tardiasDe.get(unitId) || 0,
       },
     };
   }).sort((a, b) => b.vueltas - a.vueltas || b.idas - a.idas);
@@ -5596,12 +5660,52 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
       porPersona.set(t.personId, {
         personId: t.personId, name: t.name, alias: t.alias, role: t.role,
         turnos: 0, horasSec: 0, unidades: new Set(),
+        vueltas: 0, brechas: [], juzgadas: [], desvios: 0,
       });
     }
     const p = porPersona.get(t.personId);
     p.turnos++;
     p.horasSec += duracionTurnoSec(t, filtro.desde, filtro.hasta);
     if (t.vehicleId) p.unidades.add(t.vehicleId);
+  }
+  // Las vueltas y las salidas POR PERSONA (REVISION-2026-09-10.md, E2). La
+  // vuelta es del vehículo; a la persona se le atribuye la que cerró mientras
+  // ella tenía el turno de chofer en esa combi. Con dos turnos que se pisan
+  // (un relevo) gana el que empezó después. Lo que no cae en ningún turno
+  // queda sin dueño y se cuenta aparte (`sinAtribuir`), no se inventa.
+  const turnosDeChofer = new Map();   // vehicleId → turnos de chofer, por inicio
+  for (const t of personas) {
+    if (t.role !== 'driver' || !t.vehicleId) continue;
+    if (!turnosDeChofer.has(t.vehicleId)) turnosDeChofer.set(t.vehicleId, []);
+    turnosDeChofer.get(t.vehicleId).push(t);
+  }
+  for (const lista of turnosDeChofer.values()) lista.sort((a, b) => a.startedAt - b.startedAt);
+  const quienManejaba = (vehicleId, cuando) => {
+    const lista = turnosDeChofer.get(vehicleId);
+    if (!lista) return null;
+    let mejor = null;
+    for (const t of lista) {
+      if (t.startedAt > cuando) break;
+      // El turno cerrado por silencio termina en la última señal; la vuelta
+      // que se cerró un minuto después sigue siendo suya (RECONEXION_MS).
+      const fin = (t.endedAt || t.lastSeenAt || Infinity) + RECONEXION_MS;
+      if (fin >= cuando) mejor = t;
+    }
+    return mejor ? mejor.personId : null;
+  };
+  let sinAtribuir = 0;
+  for (const l of vueltas) {
+    const personId = quienManejaba(l.unitId, l.finishedAt);
+    const p = personId ? porPersona.get(personId) : null;
+    if (!p) { sinAtribuir++; continue; }
+    p.vueltas++;
+    if (l.brechaProm !== null) p.brechas.push(l.brechaProm);
+    p.juzgadas.push(juzgar(l));
+  }
+  for (const d of desviosPeriodo) {
+    if (!esSalida(d)) continue;
+    const p = porPersona.get(quienManejaba(d.vehicleId, d.startedAt));
+    if (p) p.desvios++;
   }
 
 
@@ -5625,13 +5729,19 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     rutas,
     totales: {
       vueltas: vueltas.length,
-      unidades: unidades.size,
+      unidades: activas.size,
       personas: porPersona.size,
       duracionProm: prom(vueltas, 'durationSec'),
       brechaProm: prom(conBrecha, 'brechaProm'),
       cumplimiento: porcentaje(vueltas.map(juzgar)),
       sinBrecha: vueltas.length - conBrecha.length,
       horasSec: Array.from(horasDe.values()).reduce((a, x) => a + x, 0),
+      // La flota entera y las que trabajaron en el período (E5)
+      flota: flota.length,
+      unidadesActivas: activas.size,
+      // Vueltas que no cayeron en ningún turno de chofer (E2)
+      sinAtribuir,
+      entradasTardias: Array.from(tardiasDe.values()).reduce((a, x) => a + x, 0),
       sos: sos.length,
       // Cuántas de las vueltas juzgadas se midieron contra el objetivo de SU
       // momento y cuántas contra el de hoy porque son anteriores a que se
@@ -5666,7 +5776,12 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     porDia,
     porUnidad,
     porPersona: Array.from(porPersona.values())
-      .map(p => ({ ...p, unidades: Array.from(p.unidades) }))
+      .map(p => ({
+        ...p, unidades: Array.from(p.unidades),
+        brechaProm: p.brechas.length ? Math.round(p.brechas.reduce((a, x) => a + x, 0) / p.brechas.length) : null,
+        cumplimiento: porcentaje(p.juzgadas),
+        brechas: undefined, juzgadas: undefined,
+      }))
       .sort((a, b) => b.horasSec - a.horasSec),
     sos,
     // Los últimos, con nombre y apellido: el número suelto dice que hubo

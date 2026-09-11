@@ -1269,6 +1269,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   // Los números de gerencia (pestaña Números, solo del gerente)
   const [resumenGer, setResumenGer] = React.useState(null);
   const [diasGer, setDiasGer] = React.useState(7);
+  // La ruta que mira el gerente de cooperativa en Números ('' = todas). El
+  // gerente de ruta no elige: el servidor lo ata a la suya (`alcance.fijo`).
+  const [rutaGer, setRutaGer] = React.useState('');
   const [nuevoVeh, setNuevoVeh] = React.useState({ vehicleId: '', label: '' });
   // Ruta cuyo recorrido se está trazando (null = trazador cerrado)
   const [trazando, setTrazando] = React.useState(null);
@@ -1364,9 +1367,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
       .catch(e => setError(e.message));
   };
 
-  const loadGerencia = (dias = diasGer) => {
+  const loadGerencia = (dias = diasGer, ruta = rutaGer) => {
     const hasta = Date.now();
-    return api(`/gerencia/resumen?desde=${hasta - dias * 86400000}&hasta=${hasta}`)
+    return api(`/gerencia/resumen?desde=${hasta - dias * 86400000}&hasta=${hasta}${ruta ? `&routeId=${encodeURIComponent(ruta)}` : ''}`)
       .then(setResumenGer).catch(e => setError(e.message));
   };
   const loadEmpresa = () => api('/admin/company')
@@ -2429,6 +2432,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 ['tramos', 'Medias vueltas: idas y retornos (CSV)', false],
                 ['horas', 'Turnos por persona (CSV)', false],
                 ['desvios', 'Salidas del recorrido (CSV)', false],
+                ['paradas', 'Paradas y avisos de tráfico: dónde y a qué hora se traba la ruta (CSV)', false],
                 ['senal', 'Cortes de señal (CSV)', false],
                 ['anomalias', 'Anomalías: saltos, ausente en marcha, reloj, GPS simulado (CSV)', false],
                 ['sos', 'Emergencias (CSV)', false],
@@ -2604,12 +2608,29 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                       color: diasGer === d ? '#fff' : HUD.dim,
                     }}>{d} días</button>
                 ))}
+                {/* Por ruta o toda la cooperativa (E8). El servidor ya lo
+                    aceptaba y devolvía `alcance`; la pantalla no lo pedía ni
+                    lo decía: el gerente de tres rutas las veía siempre
+                    mezcladas sin saberlo. */}
+                {resumenGer && !resumenGer.alcance?.fijo && (resumenGer.rutas || []).length > 1 && (
+                  <select value={rutaGer} disabled={busy}
+                    onChange={e => { setRutaGer(e.target.value); setResumenGer(null); loadGerencia(diasGer, e.target.value); }}
+                    style={{ ...btnSecundario(36), padding: '0 10px', fontFamily: 'inherit' }}>
+                    <option value="">Toda la cooperativa</option>
+                    {resumenGer.rutas.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}{r.name && r.name !== r.routeId ? ` · ${r.name}` : ''}</option>)}
+                  </select>
+                )}
+                {resumenGer && (
+                  <span style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.2 }}>
+                    {resumenGer.alcance?.routeId ? `Ruta ${resumenGer.alcance.routeId}${resumenGer.alcance.fijo ? ' (la tuya)' : ''}` : 'Toda la cooperativa'}
+                  </span>
+                )}
                 <div style={{ flex: 1 }} />
                 {/* Los nombres son los del servidor (`INFORMES`), no los de la
                     pantalla: "turnos" no existe y el botón devolvía 404 con un
                     "No se pudo descargar" que no decía nada. El de horas se
                     llama `horas`. */}
-                {[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas'], ['senal', 'señal'], ['anomalias', 'anomalías']].map(([tipo, rotulo]) => (
+                {[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas'], ['paradas', 'paradas'], ['senal', 'señal'], ['anomalias', 'anomalías']].map(([tipo, rotulo]) => (
                   <button key={tipo} style={btnSecundario(36)} onClick={async () => {
                     try {
                       const hasta = Date.now(), desde = hasta - diasGer * 86400000;
@@ -2643,7 +2664,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     ['Cumplimiento', resumenGer.totales.cumplimiento === null ? '—' : `${resumenGer.totales.cumplimiento}%`],
                     ['Brecha promedio', resumenGer.totales.brechaProm === null ? '—' : `${Math.floor(resumenGer.totales.brechaProm / 60)}:${String(resumenGer.totales.brechaProm % 60).padStart(2, '0')}`],
                     ['Horas trabajadas', `${(resumenGer.totales.horasSec / 3600).toFixed(1)} h`],
-                    ['Unidades', resumenGer.totales.unidades],
+                    // Las que trabajaron en el período, sobre la flota entera (E5)
+                    ['Unidades activas', resumenGer.totales.flota != null ? `${resumenGer.totales.unidadesActivas ?? resumenGer.totales.unidades} de ${resumenGer.totales.flota}` : resumenGer.totales.unidades],
                     ['Salidas del recorrido', resumenGer.totales.desvios ?? 0],
                     ['Cortes de señal', resumenGer.totales.cortes ?? 0],
                     ['Horas sin señal', `${((resumenGer.totales.sinSenalSec || 0) / 3600).toFixed(1)} h`],
@@ -2668,9 +2690,18 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                         display: 'grid', gridTemplateColumns: '110px 90px 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
                         gap: 12, alignItems: 'center', padding: '11px 14px',
                         borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                        // La que no tuvo nada en el período: está en la flota,
+                        // no trabajó. Antes directamente no aparecía.
+                        opacity: u.activa === false ? 0.55 : 1,
                       }}>
                         <div style={{ fontFamily: mono, fontWeight: 800 }}>
                           {u.unitId}
+                          {u.activa === false && (
+                            <div title={u.ultimaVez ? `Última señal: ${new Date(u.ultimaVez).toLocaleString()}` : 'Nunca reportó'}
+                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, color: HUD.dim3 }}>
+                              SIN ACTIVIDAD{u.ultimaVez ? ` · HACE ${Math.max(1, Math.round((Date.now() - u.ultimaVez) / 86400000))} D` : ''}
+                            </div>
+                          )}
                           {/* Cuántas veces entró a la ruta empezada. Es el
                               contador del "se metió en el medio": una vez es
                               un día raro, todas las semanas es otra cosa. */}
@@ -2724,11 +2755,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                 {(resumenGer.porPersona || []).length > 0 && (
                   <div style={{ marginTop: 18 }}>
                     <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Por persona</div>
-                    <Tabla cols="1.6fr 90px 80px 100px 1.4fr" ancho={620}
-                      cabeceras={['Persona', 'Rol', 'Turnos', 'Horas', 'Unidades']}>
+                    <Tabla cols="1.6fr 90px 80px 100px 80px 80px 80px 1.4fr" ancho={900}
+                      cabeceras={['Persona', 'Rol', 'Turnos', 'Horas', 'Vueltas', 'Cumple', 'Salidas', 'Unidades']}>
                       {resumenGer.porPersona.map(p => (
                         <div key={'persona-' + p.personId} style={{
-                          display: 'grid', gridTemplateColumns: '1.6fr 90px 80px 100px 1.4fr',
+                          display: 'grid', gridTemplateColumns: '1.6fr 90px 80px 100px 80px 80px 80px 1.4fr',
                           gap: 12, alignItems: 'center', padding: '11px 14px',
                           borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
                         }}>
@@ -2739,6 +2770,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                           <div style={{ ...rotulo(9, HUD.dim2) }}>{p.role === 'collector' ? 'cobrador' : 'chofer'}</div>
                           <div style={{ fontFamily: mono }}>{p.turnos}</div>
                           <div style={{ fontFamily: mono, fontWeight: 800 }}>{`${Math.floor(Math.round(p.horasSec / 60) / 60)}:${String(Math.round(p.horasSec / 60) % 60).padStart(2, '0')} h`}</div>
+                          {/* Las vueltas que cerró la combi mientras esta
+                              persona tenía el turno de chofer (E2). El
+                              cobrador no maneja: queda en «—». */}
+                          <div style={{ fontFamily: mono, color: p.role === 'collector' ? HUD.dim3 : HUD.fg }}>{p.role === 'collector' ? '—' : (p.vueltas || 0)}</div>
+                          <div style={{ fontFamily: mono, color: p.cumplimiento == null ? HUD.dim3 : HUD.fg }}>{p.cumplimiento == null ? '—' : `${p.cumplimiento}%`}</div>
+                          <div style={{ fontFamily: mono, color: p.desvios ? HUD.amber : HUD.dim3 }}>{p.role === 'collector' ? '—' : (p.desvios || '—')}</div>
                           <div style={{ fontFamily: mono, color: HUD.dim2 }}>{(p.unidades || []).join(' · ') || '—'}</div>
                         </div>
                       ))}
@@ -2747,7 +2784,41 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                       Las horas de cada persona en el período, salidas de sus turnos: el mismo número
                       que el CSV de horas y que el chofer ve en su perfil. Un turno abierto cuenta hasta
                       la última señal que se le vio, y el que empezó antes del período se recorta.
+                      {' '}<strong>Vueltas</strong>, <strong>Cumple</strong> y <strong>Salidas</strong> son las de la combi
+                      mientras la persona tenía el turno de chofer.
+                      {resumenGer.totales.sinAtribuir > 0 && (
+                        <span style={{ color: HUD.amber }}>
+                          {' '}{resumenGer.totales.sinAtribuir} vuelta(s) del período no cayeron en el turno de nadie y no se le atribuyen a ninguna persona.
+                        </span>
+                      )}
                     </Pie>
+                  </div>
+                )}
+
+                {/* ─── Por día ──────────────────────────────────────
+                    La tendencia que el servidor calculaba (`porDia`) y nadie
+                    dibujaba (E11). Un día sin vueltas no aparece: un feriado
+                    no es un día de cero cumplimiento, es un día sin datos. */}
+                {(resumenGer.porDia || []).length > 0 && (
+                  <div style={{ marginTop: 18 }}>
+                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Por día</div>
+                    <Tabla cols="120px 1fr 1fr 1fr 1fr 1fr" ancho={620}
+                      cabeceras={['Día', 'Vueltas', 'Unidades', 'Duración prom.', 'Brecha prom.', 'Cumple']}>
+                      {resumenGer.porDia.map(d => (
+                        <div key={'dia-' + d.dia} style={{
+                          display: 'grid', gridTemplateColumns: '120px 1fr 1fr 1fr 1fr 1fr',
+                          gap: 12, alignItems: 'center', padding: '11px 14px',
+                          borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
+                        }}>
+                          <div style={{ fontFamily: mono, fontWeight: 800 }}>{d.dia}</div>
+                          <div style={{ fontFamily: mono }}>{d.vueltas}</div>
+                          <div style={{ fontFamily: mono }}>{d.unidades}</div>
+                          <div style={{ fontFamily: mono }}>{d.duracionProm == null ? '—' : fmtSeg(d.duracionProm)}</div>
+                          <div style={{ fontFamily: mono }}>{d.brechaProm == null ? '—' : fmtSeg(d.brechaProm)}</div>
+                          <div style={{ fontFamily: mono, color: d.cumplimiento == null ? HUD.dim3 : HUD.fg }}>{d.cumplimiento == null ? '—' : `${d.cumplimiento}%`}</div>
+                        </div>
+                      ))}
+                    </Tabla>
                   </div>
                 )}
 
@@ -2763,8 +2834,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     u.senal.gpsSospechoso || u.senal.gpsImpreciso || u.senal.avisosTrafico)) && (
                   <div style={{ marginTop: 18 }}>
                     <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Señal y presencia</div>
-                    <Tabla cols="110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.2fr" ancho={980}
-                      cabeceras={['Unidad', 'Cortes', 'Sin señal', 'Sin datos', 'Ausente', 'Saltos', 'Reloj', 'GPS', 'Tráfico']}>
+                    <Tabla cols="110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.2fr 1fr" ancho={1060}
+                      cabeceras={['Unidad', 'Cortes', 'Sin señal', 'Sin datos', 'Ausente', 'Saltos', 'Reloj', 'GPS', 'Tráfico', 'Tardías']}>
                       {resumenGer.porUnidad.filter(u => u.senal).map(u => {
                         const s = u.senal;
                         const min = (sec) => sec ? `${Math.round(sec / 60)}′` : '—';
@@ -2775,7 +2846,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                                      s.gpsImpreciso && `${s.gpsImpreciso} impr.`].filter(Boolean);
                         return (
                           <div key={'senal-' + u.unitId} style={{
-                            display: 'grid', gridTemplateColumns: '110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.2fr',
+                            display: 'grid', gridTemplateColumns: '110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.2fr 1fr',
                             gap: 12, alignItems: 'center', padding: '11px 14px',
                             borderBottom: `1px solid ${HUD.hueco}`, fontSize: 13,
                           }}>
@@ -2806,6 +2877,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                             <div title={s.avisosTrafico ? `${s.avisosTrafico} aviso(s) de tráfico; ${s.avisosSinParada} sin parada medida por el servidor` : 'Avisos de tráfico del chofer'}
                               style={{ fontFamily: mono, color: s.avisosSinParada ? HUD.amber : s.avisosTrafico ? HUD.fg : HUD.dim3 }}>
                               {s.avisosTrafico ? `${s.avisosTrafico}${s.avisosSinParada ? ` · ${s.avisosSinParada} sin parada` : ''}` : '—'}</div>
+                            {/* Entradas a la ruta empezada (se metió en el
+                                medio): estaban sólo en la auditoría (E13). */}
+                            <div title="Veces que entró a la ruta con el circuito ya avanzado, en vez de desde el inicio"
+                              style={{ fontFamily: mono, color: s.entradasTardias ? HUD.amber : HUD.dim3 }}>{s.entradasTardias || '—'}</div>
                           </div>
                         );
                       })}
@@ -2833,6 +2908,16 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   {' '}<strong>Vueltas</strong> son circuitos enteros;
                   {' '}<strong>Idas</strong> y <strong>Retornos</strong> son las mitades,
                   y una unidad puede tener idas sin vueltas si hizo la salida y no volvió.
+                  {/* El denominador del cumplimiento son las juzgables, no
+                      las vueltas: si la mayoría no tuvo con quién medirse el
+                      porcentaje sale de pocas, y hay que decirlo (E6). */}
+                  {resumenGer.totales.sinBrecha > 0 && (
+                    <span style={{ color: HUD.amber }}>
+                      {' '}El cumplimiento sale de {resumenGer.totales.vueltas - resumenGer.totales.sinBrecha} de las
+                      {' '}{resumenGer.totales.vueltas} vueltas: {resumenGer.totales.sinBrecha} no tuvieron con quién
+                      medir la brecha (unidad sola en su tramo) y no se juzgan.
+                    </span>
+                  )}
                   {resumenGer.totales.parciales > 0 && (
                     <span style={{ color: HUD.amber }}>
                       {' '}{resumenGer.totales.parciales} vuelta(s) del período empezaron con la
