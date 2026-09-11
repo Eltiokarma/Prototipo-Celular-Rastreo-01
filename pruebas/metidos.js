@@ -242,7 +242,7 @@ let servidor = null;
     const r = await fetch(`${API}/admin/informe/tramos.csv?desde=${desde}&hasta=${hasta}`, { headers: HD });
     const csv = await r.text();
     ok('el CSV se genera', r.status === 200, r.status);
-    ok('trae la columna del tramo', csv.includes('Tramo'), csv.split('\r\n')[5]);
+    ok('trae la columna del tramo', csv.includes('Tramo'), csv.split('\r\n')[6]);
     ok('y las filas de las dos unidades', csv.includes('M-01') && csv.includes('M-02'),
        csv.split('\r\n').length + ' líneas');
 

@@ -171,10 +171,10 @@ let servidor = null;
   console.log('\nLOS DOS CSV');
   {
     const csv = await fetch(`${API}/admin/informe/senal.csv?desde=${Date.now() - 3600e3}&hasta=${Date.now()}`, { headers: HD }).then(r => r.text());
-    ok('senal.csv existe y trae los cortes', /Informe de senal/.test(csv) && /M-01;R-14;/.test(csv) && /Posiciones del corte que llegaron después/.test(csv), csv.split('\r\n')[5]);
+    ok('senal.csv existe y trae los cortes', /Informe de senal/.test(csv) && /M-01;R-14;/.test(csv) && /Posiciones del corte que llegaron después/.test(csv), csv.split('\r\n')[6]);
     ok('con «volvió» y los metros', /volvió/.test(csv));
     const csv2 = await fetch(`${API}/admin/informe/anomalias.csv?desde=${Date.now() - 3600e3}&hasta=${Date.now()}`, { headers: HD }).then(r => r.text());
-    ok('anomalias.csv existe y dice qué es cada una', /salto imposible/.test(csv2) && /ausente y en marcha/.test(csv2), csv2.split('\r\n').slice(6, 8));
+    ok('anomalias.csv existe y dice qué es cada una', /salto imposible/.test(csv2) && /ausente y en marcha/.test(csv2), csv2.split('\r\n').slice(7, 9));
   }
 
   console.log('\nSALIR DE RUTA CIERRA EL HUECO, Y EL QUE NO VUELVE QUEDA SIN FIN');

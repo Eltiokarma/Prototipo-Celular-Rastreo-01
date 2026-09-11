@@ -271,7 +271,18 @@ async function hasta(cond, ms = 6000) {
     ok('la ruta lo recibe igual', await hasta(() => sos.length > antes && sos.at(-1).unitId === 'M-20'), sos.at(-1));
     ok('y el cliente emite el eco él mismo, para que la pantalla abra el «¿qué pasó?»',
        propios.length === 1 && propios[0].sosId === r.sosId, propios);
-    ok('con ese id se puede tipificar', solo.marcarTipoSos('mecanica') !== 'sin-sos');
+    // Y el TIPO también sale sin socket (revisión del 10/9, C8): antes se
+    // mandaba sólo por el WebSocket y devolvía 'sin-conexion' —justo en el
+    // escenario para el que existe el SOS por HTTP—, así que Despacho veía
+    // la emergencia sin saber si buscaba una ambulancia o una grúa.
+    ok('y con ese id el tipo SALE, por HTTP y sin socket ninguno',
+       (await solo.marcarTipoSos('mecanica')) === null);
+    ok('y queda guardado contra ESE disparo',
+       new Database(DB, { readonly: true })
+         .prepare('SELECT sosTipo FROM messages WHERE id = ?').get(r.sosId)?.sosTipo === 'mecanica');
+    // Sin ningún SOS propio anotado no hay nada que calificar, y se dice
+    ok('sin SOS propio, dice sin-sos en vez de mandar cualquier cosa',
+       (await nuevo().marcarTipoSos('mecanica')) === 'sin-sos');
     ok('la presencia sin socket también se puede ESPERAR: «fuera» por HTTP contesta',
        (await solo.marcarPresencia('fuera')) === true);
     // Cerrar sesión de verdad: el token muere en el servidor

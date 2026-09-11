@@ -237,6 +237,21 @@ function nowTime(ts) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+// Los roles que una persona tuvo en un período, para leer de un vistazo. El
+// servidor manda `roles` (lista) y `role` (en el que puso más horas); con una
+// pantalla vieja o un turno sin rol, se cae al `role` de siempre.
+const ROL_ES = { driver: 'chofer', collector: 'cobrador' };
+function rolesTexto(p) {
+  const lista = (p.roles && p.roles.length ? p.roles : [p.role]).filter(Boolean);
+  if (!lista.length) return '—';
+  return lista.map(r => ROL_ES[r] || r).join(' · ');
+}
+// Si en todo el período manejó alguna vez. Lo que decide si las vueltas y
+// las salidas de ruta de la fila son suyas o son un «—».
+function manejo(p) {
+  return (p.roles && p.roles.length ? p.roles : [p.role]).includes('driver');
+}
+
 // "hoy 14:05" / "ayer 09:12" / "12/07 18:40" — para la última conexión
 function fmtWhen(ts) {
   if (!ts) return '—';
@@ -1367,9 +1382,16 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
       .catch(e => setError(e.message));
   };
 
+  // Días de CALENDARIO, no rodantes (revisión del 10/9, E14). Con
+  // `hasta - dias × 86400000` el período arrancaba a la hora en que se abrió
+  // la pantalla: a las 15:00, «7 días» empezaba el lunes a las 15:00, y la
+  // tendencia por día abría con una barra de nueve horas comparada contra
+  // seis días enteros. El único día parcial tiene que ser hoy.
   const loadGerencia = (dias = diasGer, ruta = rutaGer) => {
     const hasta = Date.now();
-    return api(`/gerencia/resumen?desde=${hasta - dias * 86400000}&hasta=${hasta}${ruta ? `&routeId=${encodeURIComponent(ruta)}` : ''}`)
+    const d = new Date(inicioDeHoy()); d.setDate(d.getDate() - (Math.max(1, dias) - 1));
+    const desde = d.getTime();
+    return api(`/gerencia/resumen?desde=${desde}&hasta=${hasta}${ruta ? `&routeId=${encodeURIComponent(ruta)}` : ''}`)
       .then(setResumenGer).catch(e => setError(e.message));
   };
   const loadEmpresa = () => api('/admin/company')
@@ -2150,10 +2172,31 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                   return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
                 };
                 const cols = '110px 1fr 110px 110px 120px';
-                return (
-                  <Tabla cols={cols} ancho={700}
-                    cabeceras={['Unidad', 'Tripulación', 'Entrada', 'Salida', 'En ruta']}>
-                    {turnos.map(t => (
+                // De qué día es cada fila. «Esta semana» son hasta 500 filas
+                // con la hora sola: «08:12» no dice si fue hoy o el martes, y
+                // sin eso la lista no se puede leer ni discutir con nadie
+                // (REVISION-2026-09-10.md, E12). Se pone UN rótulo por día, no
+                // una columna más en cada fila: los turnos ya vienen ordenados
+                // del más nuevo al más viejo, así que el día cambia de a
+                // bloques. En «Hoy» no se muestra —sobra— y en los otros
+                // rangos sí, incluso si todo cayó el mismo día.
+                const claveDia = (ts) => {
+                  const d = new Date(ts);
+                  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+                };
+                const DIAS = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+                const rotuloDia = (ts) => {
+                  const d = new Date(ts);
+                  const hoy0 = inicioDeHoy();
+                  const delDia = new Date(ts); delDia.setHours(0, 0, 0, 0);
+                  const dif = Math.round((hoy0 - delDia.getTime()) / 86400e3);
+                  const fecha = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+                  if (dif === 0) return `HOY · ${fecha}`;
+                  if (dif === 1) return `AYER · ${fecha}`;
+                  return `${DIAS[d.getDay()]} ${fecha}`;
+                };
+                const conDia = rangoTurnos !== 'hoy';
+                const fila = (t) => (
                       <FilaTabla key={t.id} cols={cols}>
                         <span style={{ fontFamily: black, fontSize: 14 }}>{t.vehicleId}</span>
                         <span style={{
@@ -2169,12 +2212,39 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                         <span style={{
                           fontFamily: mono, fontSize: 12, fontWeight: 700,
                           color: t.abierto ? HUD.green : HUD.dim2,
-                        }}>{t.abierto ? 'en ruta' : hhmm(t.endedAt)}</span>
+                        }}>
+                          {t.abierto ? 'en ruta' : hhmm(t.endedAt)}
+                          {/* El turno que cruza la medianoche cierra en el día
+                              SIGUIENTE al del rótulo. Sin esta marca, «22:40 →
+                              01:15» se lee como un turno de veintitrés horas. */}
+                          {!t.abierto && t.endedAt && claveDia(t.endedAt) !== claveDia(t.startedAt) &&
+                            <span style={{ color: HUD.dim3 }}> +1</span>}
+                        </span>
                         <span style={{ fontFamily: black, fontSize: 14, textAlign: 'right' }}>
                           {horas(t.duracionSec)}
                         </span>
                       </FilaTabla>
-                    ))}
+                );
+                let diaImpreso = null;
+                const filas = [];
+                for (const t of turnos) {
+                  const k = claveDia(t.startedAt);
+                  if (conDia && k !== diaImpreso) {
+                    diaImpreso = k;
+                    filas.push(
+                      <div key={'dia-' + k} style={{
+                        ...rotulo(9, HUD.dim2), letterSpacing: 1.6,
+                        padding: '8px 14px', background: HUD.hueco,
+                        borderBottom: `1px solid ${HUD.divider}`,
+                      }}>{rotuloDia(t.startedAt)}</div>
+                    );
+                  }
+                  filas.push(fila(t));
+                }
+                return (
+                  <Tabla cols={cols} ancho={700}
+                    cabeceras={['Unidad', 'Tripulación', 'Entrada', 'Salida', 'En ruta']}>
+                    {filas}
                   </Tabla>
                 );
               })()}
@@ -2771,15 +2841,20 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                             <div style={{ fontWeight: 700 }}>{p.alias || p.name || p.personId}</div>
                             {(p.alias || p.name) && <div style={{ ...rotulo(9, HUD.dim3), marginTop: 2 }}>{p.alias ? p.name : p.personId}</div>}
                           </div>
-                          <div style={{ ...rotulo(9, HUD.dim2) }}>{p.role === 'collector' ? 'cobrador' : 'chofer'}</div>
+                          {/* Los roles DEL PERÍODO. El que hizo de cobrador
+                              a la mañana y de chofer a la tarde tiene los
+                              dos, y con uno solo —el del primer turno— la
+                              fila le tapaba las vueltas que había manejado
+                              (REVISION-2026-09-10.md, E12). */}
+                          <div style={{ ...rotulo(9, HUD.dim2) }}>{rolesTexto(p)}</div>
                           <div style={{ fontFamily: mono }}>{p.turnos}</div>
                           <div style={{ fontFamily: mono, fontWeight: 800 }}>{`${Math.floor(Math.round(p.horasSec / 60) / 60)}:${String(Math.round(p.horasSec / 60) % 60).padStart(2, '0')} h`}</div>
                           {/* Las vueltas que cerró la combi mientras esta
-                              persona tenía el turno de chofer (E2). El
-                              cobrador no maneja: queda en «—». */}
-                          <div style={{ fontFamily: mono, color: p.role === 'collector' ? HUD.dim3 : HUD.fg }}>{p.role === 'collector' ? '—' : (p.vueltas || 0)}</div>
+                              persona tenía el turno de chofer (E2). El que
+                              en todo el período no manejó queda en «—». */}
+                          <div style={{ fontFamily: mono, color: manejo(p) ? HUD.fg : HUD.dim3 }}>{manejo(p) ? (p.vueltas || 0) : '—'}</div>
                           <div style={{ fontFamily: mono, color: p.cumplimiento == null ? HUD.dim3 : HUD.fg }}>{p.cumplimiento == null ? '—' : `${p.cumplimiento}%`}</div>
-                          <div style={{ fontFamily: mono, color: p.desvios ? HUD.amber : HUD.dim3 }}>{p.role === 'collector' ? '—' : (p.desvios || '—')}</div>
+                          <div style={{ fontFamily: mono, color: p.desvios ? HUD.amber : HUD.dim3 }}>{manejo(p) ? (p.desvios || '—') : '—'}</div>
                           <div style={{ fontFamily: mono, color: HUD.dim2 }}>{(p.unidades || []).join(' · ') || '—'}</div>
                         </div>
                       ))}

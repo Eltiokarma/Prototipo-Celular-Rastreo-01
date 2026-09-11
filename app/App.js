@@ -150,6 +150,16 @@ function ConTema({ children }) {
 // nativa no se puede quitar del todo (Android muestra algo antes de que
 // corra el JavaScript), así que se la deja lisa y el pase no se nota.
 SplashScreen.preventAutoHideAsync().catch(() => {});
+// Cómo se llama en castellano lo que el servidor limita por minuto, para el
+// aviso de cupo. `gps` no aparece: ese cupo lo maneja el servicio de fondo y
+// no es algo que el chofer esté haciendo con el dedo.
+const CUPO_ES = {
+  chat: 'Mensajes de texto',
+  voice: 'Notas de voz',
+  photo: 'Fotos',
+  sos: 'SOS',
+};
+
 const PRESENTACION_MIN_MS = 1200;
 
 function Presentacion({ mostrando }) {
@@ -266,6 +276,11 @@ function Aplicacion() {
       }),
       c.on('voz',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('foto', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
+      // El cupo por minuto del servidor. Lo que se manda de más se descarta,
+      // y antes se descartaba sin decir nada: la burbuja no aparecía y no
+      // había explicación en ninguna pantalla (C10).
+      c.on('cupo', (m) => setAviso(
+        `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, esperá un momento`)),
     ];
     return () => off.forEach(f => f());
   }, []);
@@ -591,17 +606,39 @@ function Aplicacion() {
         onTrafico={(activo) => cliente.current.marcarTrafico(activo)}
         onSos={() => cliente.current.mandarSos(ultimaPos.current)}
         tipificarSos={tipificarSos}
-        onTipoSos={(tipo) => {
-          if (tipo) cliente.current.marcarTipoSos(tipo);
+        onTipoSos={async (tipo) => {
+          // El diálogo se cierra en el acto: el chofer está en una
+          // emergencia y no espera a nadie. Pero si el tipo NO salió, se le
+          // dice, porque de eso depende que salga una ambulancia o una grúa.
+          // Antes se descartaba el retorno y el diálogo se cerraba igual
+          // (REVISION-2026-09-10.md, C8).
           setTipificarSos(false);
+          if (!tipo) return;
+          const r = await cliente.current.marcarTipoSos(tipo);
+          if (r === 'sin-sos') setAviso('No hay ninguna emergencia tuya abierta para calificar');
+          else if (r) setAviso('Tu SOS salió, pero no pudo decir QUÉ pasó. Avisá por el chat si es ambulancia o grúa');
         }}
         onPerfil={() => setVerPerfil(true)} />
       <Chat {...comun}
         mensajes={hilo(mensajes, canal)}
         canal={canal}
         onCanal={(cual) => { setCanal(cual); marcarVisto(cual); }}
-        onEnviar={(texto) => cliente.current.mandarChat(texto, { privado: canal === 'directo' })}
-        onVoz={(data, duration) => cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' })}
+        onEnviar={(texto) => {
+          // El mensaje entra al hilo sólo por el eco del servidor, así que
+          // sin socket no pasa NADA: ni burbuja, ni error. Antes el retorno
+          // se descartaba (C10).
+          if (!cliente.current.mandarChat(texto, { privado: canal === 'directo' })) {
+            setAviso('Sin conexión: el mensaje no salió, probá de nuevo');
+          }
+        }}
+        onVoz={(data, duration) => {
+          // Ídem la nota de voz, que es peor: el chofer graba cuarenta
+          // segundos, suelta, y no pasa nada.
+          const r = cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' });
+          if (r === 'muy-larga') setAviso('La nota es muy larga y no salió: grabá una más corta');
+          else if (r === 'sin-conexion') setAviso('Sin conexión: la nota no salió, probá de nuevo');
+          else if (r) setAviso('Eso no es una nota de voz');
+        }}
         onFoto={(data) => {
           // Si no salió, se dice por qué. Antes la pantalla ignoraba el
           // retorno y una foto pesada o sin conexión se perdía en silencio.

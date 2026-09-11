@@ -62,18 +62,32 @@ let servidor = null;
 
   // Un día de trabajo, sembrado a mano: M-01 manejó la combi M-01 de 8 a 12
   // (3 vueltas), M-02 la misma combi de 13 a 17 (2 vueltas y una salida de
-  // ruta), y una vuelta a las 19 que no cayó en el turno de nadie.
+  // ruta), y una vuelta temprana que no cayó en el turno de nadie.
   const ahora = Date.now();
-  const hoy = (h) => ahora - (24 - h) * H;
+  // Las horas del día de trabajo, ANCLADAS a la medianoche de hoy y
+  // comprimidas a minutos: «las 8» es 00:08. Con `ahora - (24 - h) × 3600000`
+  // el día sembrado cruzaba la medianoche según la hora a la que se corriera
+  // la suite, y entonces la tendencia por día salía partida en dos y las
+  // unidades-día del creador contaban dos: la suite sólo pasaba de noche. Lo
+  // que estas pruebas miran es el ORDEN de las horas dentro de un mismo día
+  // —quién manejaba cuándo—, no que sean las ocho de la mañana.
+  const medianoche = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
+  const hoy = (h) => medianoche + h * 60_000;
   const w = new Database(DB);
   const turno = w.prepare(`INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, endedAt, lastSeenAt) VALUES (?, ?, 'R-14', ?, ?, ?, ?)`);
   turno.run('M-01', 'M-01', 'driver', hoy(8), hoy(12), hoy(12));
   turno.run('C-01', 'M-01', 'collector', hoy(8), hoy(12), hoy(12));
   turno.run('M-02', 'M-01', 'driver', hoy(13), hoy(17), hoy(17));
   const vuelta = w.prepare(`INSERT INTO laps (unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, parcial, objetivoSec) VALUES ('M-01', 'R-14', ?, ?, 3000, 20, ?, 0, 600)`);
-  for (const h of [9, 10, 11]) vuelta.run(hoy(h) - 3000_000, hoy(h), 600);      // dentro del objetivo
-  for (const h of [14, 16]) vuelta.run(hoy(h) - 3000_000, hoy(h), 900);         // fuera del objetivo
-  vuelta.run(hoy(19) - 3000_000, hoy(19), null);                                // de nadie, y sin brecha
+  for (const h of [9, 10, 11]) vuelta.run(hoy(h) - 30_000, hoy(h), 600);        // dentro del objetivo
+  for (const h of [14, 16]) vuelta.run(hoy(h) - 30_000, hoy(h), 900);           // fuera del objetivo
+  // La vuelta que no es de nadie va ANTES del primer turno, no después del
+  // último: la atribución le perdona al turno cerrado los 15 min de
+  // `RECONEXION_MS` —una vuelta que cierra al ratito de que el chofer se
+  // desconecte sigue siendo suya—, y en esta escala comprimida «dos horas
+  // después» son dos minutos, adentro de ese perdón. Antes del primer turno
+  // no hay tolerancia que valga: no había nadie.
+  vuelta.run(hoy(5) - 30_000, hoy(5), null);                                    // de nadie, y sin brecha
   w.prepare(`INSERT INTO deviations (vehicleId, routeId, startedAt, endedAt, durationSec, maxM, umbralM, silenciado, cierre) VALUES ('M-01', 'R-14', ?, ?, 120, 400, 300, 0, 'regreso')`)
     .run(hoy(15), hoy(15) + 120_000);
   w.prepare(`INSERT INTO audit (actor, action, target, detail, timestamp, routeId, companyId) VALUES ('sistema', 'entrada_tardia', 'M-01', 'entró al 40 %', ?, 'R-14', ?)`)
@@ -115,13 +129,69 @@ let servidor = null;
   console.log('\nEL CSV DE PARADAS Y LO QUE VE EL CREADOR');
   {
     const csv = await fetch(`${API}/admin/informe/paradas.csv?desde=${ahora - 26 * H}&hasta=${ahora}`, { headers: HD }).then(r => r.text());
-    ok('paradas.csv existe y trae la parada con punto del circuito, medida y avisada', /Informe de paradas/.test(csv) && /M-01;R-14;.*;4;ida;42;.*;sí;sí;volvió a andar/.test(csv), csv.split('\r\n').slice(4, 7));
+    ok('paradas.csv existe y trae la parada con punto del circuito, medida y avisada', /Informe de paradas/.test(csv) && /M-01;R-14;.*;4;ida;42;.*;sí;sí;volvió a andar/.test(csv), csv.split('\r\n').slice(5, 8));
     const coop = require(RAIZ + '/server/cooperativas.js');
     const r = new Database(DB, { readonly: true });
     const e = coop.listar(r).find(x => x.rutas.some(rt => rt.routeId === 'R-14'));
     r.close();
     ok('el creador ve las unidades-día del mes (una combi, un día)', !!e && e.unidadesDiaMes === 1, e && e.unidadesDiaMes);
     ok('y la última señal de la cooperativa', !!e && e.ultimoGps === hoy(17), e && e.ultimoGps);
+  }
+
+  console.log('\nEL PERÍODO SON DÍAS DE CALENDARIO, NO RODANTES');
+  // La otra mitad de E14. `ahora - N × 86400000` arranca a la hora en que se
+  // abrió la pantalla: el primer día del período es un día PARTIDO, y la
+  // tendencia abre con una barra que vale unas horas comparada contra días
+  // enteros. Con días de calendario, «1 día» es HOY, y la vuelta de anoche
+  // —que está adentro de las últimas 24 h— queda afuera.
+  //
+  // El servidor corre en UTC en esta suite, así que la medianoche que corta
+  // es la de UTC; lo que se prueba es el corte, no el huso.
+  {
+    const w2 = new Database(DB);
+    await pedir('/admin/users', { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: 'M-10', name: 'Chofer M-10', password: 'chofer1234' }) });
+    const v = w2.prepare(`INSERT INTO laps (unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, parcial, objetivoSec) VALUES ('M-10', 'R-14', ?, ?, 3000, 20, 600, 0, 600)`);
+    v.run(medianoche - 3_060_000, medianoche - 60_000);   // anoche, 23:59
+    v.run(medianoche + 60_000, medianoche + 3_060_000);   // hoy, 00:01
+    w2.close();
+    const m = (await pedir('/admin/metrics?dias=1', { headers: HD })).body;
+    const u10 = (m.metrics || []).find(x => x.unitId === 'M-10');
+    ok('«1 día» son las vueltas de HOY, no las de las últimas 24 horas',
+       !!u10 && u10.lapsTotal === 1, u10 && { lapsTotal: u10.lapsTotal });
+    ok('y el período servido lo dice', m.periodo && m.periodo.dias === 1, m.periodo);
+    const m2 = (await pedir('/admin/metrics?dias=2', { headers: HD })).body;
+    const u10b = (m2.metrics || []).find(x => x.unitId === 'M-10');
+    ok('con 2 días entra el día de ayer ENTERO, no las 24 h anteriores',
+       !!u10b && u10b.lapsTotal === 2, u10b && { lapsTotal: u10b.lapsTotal });
+  }
+
+  console.log('\nEL ROL NO SE CONGELA CON EL PRIMER TURNO');
+  // E12. Quien hizo de cobrador a la mañana y de chofer a la tarde salía con
+  // un rol solo —el del primer turno que devolvía la consulta—, y con
+  // «cobrador» la pantalla le tapaba las vueltas que había manejado.
+  {
+    await pedir('/admin/users', { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: 'M-11', name: 'Los Dos Roles', password: 'chofer1234' }) });
+    const w3 = new Database(DB);
+    const t3 = w3.prepare(`INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, endedAt, lastSeenAt) VALUES ('M-11', 'M-11', 'R-14', ?, ?, ?, ?)`);
+    t3.run('collector', hoy(20), hoy(24), hoy(24));   // cobrador, 4 min
+    t3.run('driver',    hoy(25), hoy(31), hoy(31));   // chofer, 6 min: manda
+    w3.prepare(`INSERT INTO laps (unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm, parcial, objetivoSec) VALUES ('M-11', 'R-14', ?, ?, 3000, 20, 600, 0, 600)`)
+      .run(hoy(26), hoy(28));
+    w3.close();
+    const r = await resumen(ahora - 26 * H, ahora + H);
+    const p11 = (r.porPersona || []).find(p => p.personId === 'M-11');
+    ok('la persona trae los DOS roles del período, el chofer primero',
+       !!p11 && Array.isArray(p11.roles) && p11.roles.join(',') === 'driver,collector', p11 && p11.roles);
+    ok('y el `role` suelto es en el que puso más horas, no el del primer turno',
+       !!p11 && p11.role === 'driver', p11 && p11.role);
+    ok('la vuelta que manejó es suya, no queda sin atribuir',
+       !!p11 && p11.vueltas === 1, p11 && p11.vueltas);
+    // Y lo mismo en la lista de Despacho, que es la otra pantalla que lo usa
+    const sh = (await pedir(`/admin/shifts?desde=${hoy(0)}`, { headers: HD })).body;
+    const s11 = (sh.personas || []).find(p => p.personId === 'M-11');
+    ok('Turnos también los trae los dos', !!s11 && (s11.roles || []).join(',') === 'driver,collector', s11 && s11.roles);
   }
 
   console.log(fallas === 0 ? '\nTODO EN ORDEN\n' : `\n${fallas} FALLA(S)\n`);

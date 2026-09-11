@@ -81,7 +81,8 @@ async function hasta(cond, ms = 4000) {
   db.close();
   const HG = { 'Content-Type': 'application/json',
     Authorization: 'Bearer ' + await require('./gerente.js')(API, DB) };
-  for (const [u, n] of [['M-08', 'Rufino Quispe'], ['M-12', 'Elmer Ccama'], ['M-13', 'Reloj Atrasado']]) {
+  for (const [u, n] of [['M-08', 'Rufino Quispe'], ['M-12', 'Elmer Ccama'], ['M-13', 'Reloj Atrasado'],
+                        ['M-14', 'Reloj Que Sale']]) {
     await fetch(`${API}/admin/users`, { method: 'POST', headers: HG,
       body: JSON.stringify({ unitId: u, name: n, personRole: 'driver', password: 'clave1234' }) });
   }
@@ -375,6 +376,40 @@ async function hasta(cond, ms = 4000) {
   await mandar(s12.token, [{ lat: fresca.lat, lng: fresca.lng, speed: 20, timestamp: Date.now() }]);
   await sleep(700);
   ok('una posición fresca saca del gris a M-12', vista()?.sinSenal === false, vista()?.sinSenal);
+
+  console.log('\nEL «FUERA» NO BORRA EL RELOJ DEL TELÉFONO');
+  // De la revisión del 10/9 (C6). El filtro de salidas del POST /gps
+  // descuenta el sesgo del reloj de la hora del «fuera» —si no, las primeras
+  // posiciones del turno siguiente de un teléfono atrasado quedan «antes de
+  // salir»—, y `fijarPresencia('fuera')` acababa de olvidar ese sesgo. El
+  // turno siguiente arrancaba con el servidor contestando 200 y aceptando
+  // cero, y la app contándolo como enviado.
+  const s14 = await login('M-14', 'clave1234');
+  const vista14 = () => (estado?.units || []).find(u => u.unitId === 'M-14');
+  const ATRASO = 60_000;                     // el reloj del M-14, un minuto atrás
+  for (let i = 0; i <= 4; i++) {
+    const p = anillo(0.40 + i * 0.001);
+    await mandar(s14.token, [{ lat: p.lat, lng: p.lng, speed: 15, timestamp: Date.now() - ATRASO }]);
+    await sleep(1500);
+  }
+  ok('el servidor le tomó el sesgo al reloj: ~60 s',
+     vista14()?.relojAtrasadoS >= 58 && vista14()?.relojAtrasadoS <= 63, vista14()?.relojAtrasadoS);
+
+  // Fin del turno, por el mismo camino HTTP que usa el botón SALIR DE RUTA.
+  await fetch(API + '/presencia', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s14.token },
+    body: JSON.stringify({ estado: 'fuera' }) });
+  await sleep(600);
+  ok('el «fuera» la saca del mapa', !vista14(), (estado?.units || []).map(u => u.unitId));
+
+  // Y el turno siguiente, con el mismo teléfono y el mismo reloj atrasado.
+  const p14 = anillo(0.42);
+  const vuelto = await mandar(s14.token, [{ lat: p14.lat, lng: p14.lng, speed: 18,
+    timestamp: Date.now() - ATRASO }], );
+  ok('la primera posición del turno siguiente NO se descarta por el «fuera»',
+     vuelto.status === 200 && vuelto.body.aceptadas === 1, vuelto.body);
+  await sleep(700);
+  ok('y la combi vuelve al mapa', !!vista14(), (estado?.units || []).map(u => u.unitId));
 
   console.log('\nCERRAR EL SOCKET CON EL HTTP VIVO NO ES QUEDARSE MUDO');
   // De la revisión del 8/9 (L7). La app nativa manda el GPS por HTTP y usa

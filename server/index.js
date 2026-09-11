@@ -2356,7 +2356,16 @@ function fijarPresencia(vehicleId, routeId, estado) {
     // Dejarlo abierto lo haría durar hasta que alguien lo mire.
     olvidarDesvio(vehicleId, 'corte', (u && u.timestamp) || Date.now());
     olvidarParada(vehicleId, 'corte', (u && u.timestamp) || Date.now());
-    reloj.olvidar(vehicleId);
+    // El reloj NO se olvida acá. Es del teléfono, y el teléfono es el mismo
+    // en el turno siguiente: el filtro de salidas del `POST /gps` descuenta
+    // `reloj.sesgoDe()` de la hora del «fuera» justamente para no tirar las
+    // primeras posiciones del turno siguiente de un aparato atrasado, y
+    // olvidarlo acá lo volvía a 0 —con tres muestras y un minuto por
+    // delante para volver a estimarlo—. Con N segundos de atraso, los
+    // primeros N segundos del turno que empieza caían en `p.cuando <=
+    // salioEn` y se descartaban junto con la presencia, con el servidor
+    // contestando 200 (revisión del 10/9, C6). Se olvida en el olvido, que
+    // es donde la unidad deja de existir.
     quitarUnidad(vehicleId);
     // El mismo aviso que manda el olvido: los mapas que borran por evento
     // no tienen por qué esperar al próximo estado completo.
@@ -2924,6 +2933,31 @@ function diasPedidos(req) {
   const pedido = Number(req.query.dias);
   return Number.isFinite(pedido) && pedido > 0 ? Math.min(365, Math.max(1, Math.round(pedido))) : 7;
 }
+
+// Dónde empieza un período de N días. **Días de calendario, no rodantes**
+// (revisión del 10/9, E14): `ahora - N × 86400000` arranca a la hora en que
+// alguien abrió la pantalla, así que el primer día del período es un día
+// PARTIDO —a las 15:00, «7 días» empieza el lunes a las 15:00— y la
+// tendencia por día abre con una barra que vale nueve horas y se compara
+// contra seis días enteros. Con esto, N días son los N últimos días del
+// calendario contando hoy: el único parcial es hoy, que lo es porque todavía
+// no terminó.
+//
+// La medianoche es la LOCAL del servidor, que es la misma que corta «hoy» y
+// los días de `porDia`. Si el despliegue corre sin `TZ`, las tres se corren
+// juntas —y el servidor lo avisa al arrancar—; lo que no puede pasar es que
+// se corran distinto entre sí.
+function inicioDeDia(ts = Date.now()) {
+  const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime();
+}
+function desdeEnDias(dias, ahora = Date.now()) {
+  // `setDate` con un número negativo retrocede de mes y de año solo; y al
+  // hacerlo sobre una fecha ya puesta a medianoche, un cambio de horario de
+  // verano en el medio no corre el corte.
+  const d = new Date(inicioDeDia(ahora));
+  d.setDate(d.getDate() - (Math.max(1, dias) - 1));
+  return d.getTime();
+}
 app.get('/admin/huecos', requireDispatch, (req, res) => {
   const dias = diasPedidos(req);
   const huecos = db.prepare(`
@@ -2932,7 +2966,7 @@ app.get('/admin/huecos', requireDispatch, (req, res) => {
     FROM huecos
     WHERE companyId = @empresa AND (@scope IS NULL OR routeId = @scope) AND startedAt >= @desde
     ORDER BY startedAt DESC LIMIT 500
-  `).all({ empresa: req.empresa, scope: req.scope || null, desde: Date.now() - dias * 86400_000 });
+  `).all({ empresa: req.empresa, scope: req.scope || null, desde: desdeEnDias(dias) });
   res.json({ dias, huecos });
 });
 app.get('/admin/anomalias', requireDispatch, (req, res) => {
@@ -2942,7 +2976,7 @@ app.get('/admin/anomalias', requireDispatch, (req, res) => {
     FROM anomalias
     WHERE companyId = @empresa AND (@scope IS NULL OR routeId = @scope) AND cuando >= @desde
     ORDER BY cuando DESC LIMIT 500
-  `).all({ empresa: req.empresa, scope: req.scope || null, desde: Date.now() - dias * 86400_000 });
+  `).all({ empresa: req.empresa, scope: req.scope || null, desde: desdeEnDias(dias) });
   res.json({ dias, anomalias });
 });
 
@@ -2954,7 +2988,7 @@ app.get('/admin/paradas', requireDispatch, (req, res) => {
     FROM paradas
     WHERE companyId = @empresa AND (@scope IS NULL OR routeId = @scope) AND startedAt >= @desde
     ORDER BY startedAt DESC LIMIT 500
-  `).all({ empresa: req.empresa, scope: req.scope || null, desde: Date.now() - dias * 86400_000 });
+  `).all({ empresa: req.empresa, scope: req.scope || null, desde: desdeEnDias(dias) });
   res.json({ dias, paradas });
 });
 
@@ -2994,7 +3028,10 @@ app.get('/perfil', (req, res) => {
   const veh = vehicleOf(vehicleId);
   const ahora = Date.now();
   const dias = diasDelPerfil(req);
-  const desde = ahora - dias * 86400_000;
+  // Días de calendario, la misma cuenta que el panel del gerente (E14): si
+  // acá fueran rodantes, «Mi semana» y la liquidación de Despacho saldrían
+  // distintas y nadie tendría cómo saber cuál está bien.
+  const desde = desdeEnDias(dias, ahora);
   const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
 
   // Las vueltas son del VEHÍCULO (la vuelta es de la combi, la maneje
@@ -4803,6 +4840,21 @@ function fechaHora(ts) {
   const p = (n) => String(n).padStart(2, '0');
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+// En qué hora están las columnas del informe. Un CSV impreso y llevado a una
+// reunión no tiene cómo decirlo, y las horas de `fechaHora` son las LOCALES
+// del servidor: si el despliegue corre sin `TZ`, son cinco horas corridas y
+// nada en el papel lo delata (revisión del 10/9, E15). Se escribe el nombre
+// de la zona tal como la ve Node y el corrimiento contra UTC.
+function husoDelServidor(ts = Date.now()) {
+  let zona = '';
+  try { zona = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch {}
+  const min = -new Date(ts).getTimezoneOffset();
+  const signo = min < 0 ? '-' : '+';
+  const abs = Math.abs(min);
+  const off = `UTC${signo}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+  return zona ? `${zona} (${off})` : off;
+}
+
 function duracionHm(sec) {
   if (sec === null || sec === undefined) return '';
   // Se redondea a minutos PRIMERO y después se parte en horas: al revés,
@@ -5133,6 +5185,9 @@ function servirInforme(req, res, { tipo, empresa, scope, quien }) {
     csvLinea([emp ? emp.name : empresa, `Informe de ${informe.nombre}`]),
     csvLinea(['Período', `${fechaHora(rango.desde)} a ${fechaHora(rango.hasta)}`]),
     csvLinea(['Medido sobre', base]),
+    // En qué hora están las columnas: el informe se imprime y se discute en
+    // una reunión, donde nadie tiene cómo preguntárselo al servidor (E15).
+    csvLinea(['Horas en', husoDelServidor(rango.hasta)]),
     csvLinea(['Generado', fechaHora(Date.now()), 'por', quien]),
     '',
     csvLinea(informe.cabecera),
@@ -5185,18 +5240,22 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
     duracionSec: duracionTurnoSec(t, inicio, hasta),
   }));
 
-  // Total por persona, que es el número que le interesa a la cooperativa
+  // Total por persona, que es el número que le interesa a la cooperativa.
+  // Con los roles del rango, no con el del primer turno (E12).
   const porPersona = {};
   for (const t of turnos) {
     const k = t.personId;
     if (!porPersona[k]) {
       porPersona[k] = {
-        personId: k, name: t.name, alias: t.alias, role: t.role,
+        personId: k, name: t.name, alias: t.alias,
+        roles: new Set(), segPorRol: new Map(),
         turnos: 0, totalSec: 0, vehiculos: new Set(),
       };
     }
     porPersona[k].turnos++;
     porPersona[k].totalSec += t.duracionSec;
+    porPersona[k].roles.add(t.role);
+    porPersona[k].segPorRol.set(t.role, (porPersona[k].segPorRol.get(t.role) || 0) + t.duracionSec);
     porPersona[k].vehiculos.add(t.vehicleId);
   }
 
@@ -5204,7 +5263,12 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
     desde: inicio,
     turnos,
     personas: Object.values(porPersona)
-      .map(p => ({ ...p, vehiculos: Array.from(p.vehiculos) }))
+      .map(p => ({
+        ...p, vehiculos: Array.from(p.vehiculos),
+        roles: rolesOrdenados(p.roles),
+        role: rolPredominante(p.segPorRol, p.roles),
+        segPorRol: undefined,
+      }))
       .sort((a, b) => b.totalSec - a.totalSec),
   });
 });
@@ -5345,7 +5409,7 @@ app.get('/admin/metrics', requireDispatch, (req, res) => {
   const dias = Math.min(Math.max(Math.round(Number(req.query?.dias) || 7), 1), 365);
   // `desde = 0` es "desde el principio del tiempo": la condición queda
   // verdadera para todas las filas y el SQL no necesita dos versiones.
-  const desde = todo ? 0 : Date.now() - dias * 86400_000;
+  const desde = todo ? 0 : desdeEnDias(dias);
 
   // Todos los agregados miran solo las vueltas ENTERAS: una parcial dura una
   // fracción y arrastraría el promedio y el "mejor tiempo" de la unidad hacia
@@ -5638,6 +5702,33 @@ function senalDeUnidad(unitId, m) {
 //
 // `turnos`: filas de `shifts` ya filtradas por el que llama (el gerente pasa
 // los de chofer; el perfil del cobrador, los suyos).
+// El rol de una persona en un período no es un dato: es una lista. El que
+// hizo de cobrador a la mañana y de chofer a la tarde tiene los dos, y
+// quedarse con el primer turno que devolvió la consulta le tapaba las vueltas
+// que había manejado (revisión del 10/9, E12).
+//
+// `rolesOrdenados` los devuelve con el chofer primero —es el que manda para
+// leer la fila— y `rolPredominante` elige uno solo para quien necesita uno
+// solo: aquel en el que puso más horas, con el chofer ganando el empate.
+const ORDEN_ROLES = ['driver', 'collector'];
+function rolesOrdenados(roles) {
+  const lista = Array.from(roles || []).filter(Boolean);
+  return lista.sort((a, b) => {
+    const ia = ORDEN_ROLES.indexOf(a), ib = ORDEN_ROLES.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || (a < b ? -1 : 1);
+  });
+}
+function rolPredominante(segPorRol, roles) {
+  const lista = rolesOrdenados(roles);
+  if (lista.length <= 1) return lista[0] || null;
+  let mejor = lista[0], mejorSec = -1;
+  for (const r of lista) {
+    const sec = (segPorRol && segPorRol.get(r)) || 0;
+    if (sec > mejorSec) { mejor = r; mejorSec = sec; }
+  }
+  return mejor;
+}
+
 function atribuidorDeVueltas(turnos) {
   const porCombi = new Map();
   for (const t of turnos) {
@@ -5888,14 +5979,22 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
   for (const t of personas) {
     if (!porPersona.has(t.personId)) {
       porPersona.set(t.personId, {
-        personId: t.personId, name: t.name, alias: t.alias, role: t.role,
+        personId: t.personId, name: t.name, alias: t.alias,
+        // Los roles del PERÍODO, no el del primer turno que salió de la
+        // consulta. El que hizo de cobrador a la mañana y de chofer a la
+        // tarde salía con uno solo, y con el rol de cobrador la pantalla le
+        // tapaba las vueltas que había manejado (revisión del 10/9, E12).
+        roles: new Set(), segPorRol: new Map(),
         turnos: 0, horasSec: 0, unidades: new Set(),
         vueltas: 0, brechas: [], juzgadas: [], desvios: 0,
       });
     }
     const p = porPersona.get(t.personId);
     p.turnos++;
-    p.horasSec += duracionTurnoSec(t, filtro.desde, filtro.hasta);
+    const sec = duracionTurnoSec(t, filtro.desde, filtro.hasta);
+    p.horasSec += sec;
+    p.roles.add(t.role);
+    p.segPorRol.set(t.role, (p.segPorRol.get(t.role) || 0) + sec);
     if (t.vehicleId) p.unidades.add(t.vehicleId);
   }
   // Las vueltas y las salidas POR PERSONA (REVISION-2026-09-10.md, E2). La
@@ -5990,6 +6089,13 @@ app.get('/gerencia/resumen', requireManager, (req, res) => {
     porPersona: Array.from(porPersona.values())
       .map(p => ({
         ...p, unidades: Array.from(p.unidades),
+        // `roles` es la lista de lo que hizo; `role` se conserva y es el rol
+        // en el que puso MÁS HORAS, no el del primer turno. Quien lo lea
+        // suelto —un CSV, una pantalla vieja— sigue teniendo un rol que
+        // significa algo, y el que quiera la verdad entera tiene `roles`.
+        roles: rolesOrdenados(p.roles),
+        role: rolPredominante(p.segPorRol, p.roles),
+        segPorRol: undefined,
         brechaProm: p.brechas.length ? Math.round(p.brechas.reduce((a, x) => a + x, 0) / p.brechas.length) : null,
         cumplimiento: porcentaje(p.juzgadas),
         brechas: undefined, juzgadas: undefined,
@@ -6556,6 +6662,16 @@ function dentroDelCupo(ws, tipo) {
     if (!e.avisado) {
       e.avisado = true;
       console.warn(`Cupo excedido (${tipo}) por ${clients.get(ws) || 'sin identificar'}`);
+      // Y SE LE DICE al que mandó, una vez por ventana. Antes el mensaje se
+      // descartaba sin respuesta: el chofer grababa una nota de voz, la veía
+      // salir y no salía —el cupo de voz son 10 por minuto— y no había nada
+      // en ninguna pantalla que lo dijera (revisión del 10/9, C10). Es el
+      // único aviso que manda el servidor sin que nadie lo pida, y cuesta un
+      // mensaje por minuto en el peor caso.
+      try {
+        ws.send(JSON.stringify({ type: 'cupo', que: tipo,
+          max: regla.max, ventanaSec: Math.round(regla.ventanaMs / 1000) }));
+      } catch {}
     }
     return false;
   }
@@ -6846,22 +6962,7 @@ wss.on('connection', (ws) => {
     if (msg.type === 'sos_tipo') {
       const unitId = clients.get(ws);
       if (!unitId) return;
-      if (!SOS_TIPOS[msg.tipo]) return;        // tipo inventado: se ignora
-      const fila = db.prepare(
-        "SELECT id, unitId, routeId, vehicleId, timestamp FROM messages WHERE id = ? AND kind = 'sos'")
-        .get(Number(msg.sosId) || -1);
-      if (!fila) return;
-      // Solo quien disparó puede calificar SU emergencia. Sin este borde,
-      // cualquiera de la ruta podía reescribir la emergencia de otro.
-      if (fila.unitId !== unitId) return;
-      // Y solo mientras la emergencia está viva. Después es editar historia.
-      if (Date.now() - fila.timestamp > SOS_TIPO_VENTANA_MS) return;
-      db.prepare('UPDATE messages SET sosTipo = ? WHERE id = ?').run(msg.tipo, fila.id);
-      console.log(`🚨 SOS de ${unitId}: ${SOS_TIPOS[msg.tipo]}`);
-      const aviso = { type: 'sos_tipo', sosId: fila.id, unitId,
-                      vehicleId: fila.vehicleId, routeId: fila.routeId, tipo: msg.tipo };
-      broadcastToRoute(fila.routeId, aviso);
-      broadcastToSupervisors(aviso, fila.routeId);
+      marcarTipoDeSos(unitId, msg.sosId, msg.tipo);
     }
 
     // TIPO: chat — mensaje de texto entre choferes de la MISMA ruta
@@ -7092,6 +7193,32 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
   return { sosId, ...alert };
 }
 
+// Ponerle nombre a una emergencia ya enviada, por cualquiera de las dos
+// puertas. Devuelve `{ ok: true, tipo }` o `{ error, status }` — el WebSocket
+// tira el error a la basura, como siempre hizo; el HTTP lo contesta.
+function marcarTipoDeSos(unitId, sosIdCrudo, tipo) {
+  if (!SOS_TIPOS[tipo]) return { status: 400, error: 'Ese tipo de emergencia no existe' };
+  const fila = db.prepare(
+    "SELECT id, unitId, routeId, vehicleId, timestamp FROM messages WHERE id = ? AND kind = 'sos'")
+    .get(Number(sosIdCrudo) || -1);
+  if (!fila) return { status: 404, error: 'Esa emergencia no existe' };
+  // Solo quien disparó puede calificar SU emergencia. Sin este borde,
+  // cualquiera de la ruta podía reescribir la emergencia de otro. El 404 y
+  // no un 403: el que pregunta por una ajena no se entera de que existe.
+  if (fila.unitId !== unitId) return { status: 404, error: 'Esa emergencia no existe' };
+  // Y solo mientras la emergencia está viva. Después es editar historia.
+  if (Date.now() - fila.timestamp > SOS_TIPO_VENTANA_MS) {
+    return { status: 409, error: 'La emergencia ya se cerró' };
+  }
+  db.prepare('UPDATE messages SET sosTipo = ? WHERE id = ?').run(tipo, fila.id);
+  console.log(`🚨 SOS de ${unitId}: ${SOS_TIPOS[tipo]}`);
+  const aviso = { type: 'sos_tipo', sosId: fila.id, unitId,
+                  vehicleId: fila.vehicleId, routeId: fila.routeId, tipo };
+  broadcastToRoute(fila.routeId, aviso);
+  broadcastToSupervisors(aviso, fila.routeId);
+  return { ok: true, sosId: fila.id, tipo };
+}
+
 // El SOS por HTTP: la puerta que sobrevive a la pantalla apagada y al
 // socket caído, como la presencia y el tráfico. El escenario real: la
 // pantalla estuvo apagada (el socket murió), el chofer desbloquea, el
@@ -7121,6 +7248,24 @@ app.post('/sos', (req, res) => {
   };
   const alert = dispararSos(user.unitId, prof, user.routeId || DEFAULT_ROUTE, req.body || {});
   res.json({ ok: true, ...alert });
+});
+
+// Y el TIPO por HTTP, que es la otra mitad de la misma puerta. El escenario
+// para el que existe `POST /sos` —socket caído— es exactamente aquel en el
+// que «accidente» o «falla mecánica» no salía: `marcarTipoSos` mandaba por
+// el socket y devolvía 'sin-conexion', y la app cerraba el diálogo como si
+// hubiera salido. Ambulancia o grúa, decidido con la respuesta perdida
+// (REVISION-2026-09-10.md, C8).
+app.post('/sos/:id/tipo', (req, res) => {
+  const auth = String(req.headers.authorization || '');
+  const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
+  if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  if (user.role !== 'driver' && user.role !== 'collector') {
+    return res.status(403).json({ error: 'El SOS lo manda la gente de la combi' });
+  }
+  const r = marcarTipoDeSos(user.unitId, req.params.id, req.body?.tipo);
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  res.json({ ok: true, sosId: r.sosId, tipo: r.tipo });
 });
 
 // Topes de lo que viaja incrustado en el mensaje, en caracteres del data-URL
