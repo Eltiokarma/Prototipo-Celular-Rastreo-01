@@ -128,6 +128,21 @@ revisión del 10/9 queda cerrada entera. Regresión completa verde.
    meter base64 en un CSV — pero eso hay que decidirlo, no improvisarlo
    cuando lo pidan.
 
+### Lo que se revisó después, y salió limpio
+
+- **Auditoría visual** (skill `auditoria-visual`) sobre las tres pantallas:
+  ninguna invariante rota. `contraste.js` verde, los tres HTML compilan, los
+  cuatro avisos de seguridad en pie, el SOS sigue siendo deslizable, ningún
+  color literal nuevo esquivando los tokens, ningún externo nuevo, `CACHE_NAME`
+  subido. Los pares de color que agregué —rótulo sobre el fondo hueco de los
+  rótulos por día— dan 5,06 en día y 5,23 en noche, sobre AA.
+- **Revisión de seguridad** de la rama entera: sin hallazgos nuevos. Lo que se
+  miró con nombre y apellido: el endpoint nuevo (`POST /sos/:id/tipo`), la
+  tabla nueva (`objetivo_log`), el informe de mensajes —que expone texto de
+  chat, así que se verificó que el borde de empresa y de ruta sea el mismo que
+  el de los otros ocho informes—, la consulta del alias, el cambio de ruta del
+  privado, y si la poda de los mapas en memoria reabre algún control. Nada.
+
 ### Lo que NO se tocó, y por qué
 
 - **El legajo** (DNI, brevete, placa, SOAT, revisión técnica, propietario).
