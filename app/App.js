@@ -239,7 +239,13 @@ function Aplicacion() {
         setReporta(reporta); setAviso(motivo);
         // Si el servicio se había apagado por un 409 (otro chofer tomó la
         // unidad) y el rol volvió, el vigilante puede rearrancarlo.
-        if (reporta) gps.diagnostico.detenidoPor = null;
+        //
+        // Y la notificación de «MODO ACOMPAÑANTE» se va con el relevo: la
+        // ponía el servicio al perder el rol (C22) y sólo la reemplazaba la
+        // próxima brecha — que al que va solo en la ruta no le llega nunca,
+        // así que la bandeja seguía diciendo «tu GPS ya no se usa» al que
+        // volvía a ser el que reporta (repaso del 21/9).
+        if (reporta) { gps.diagnostico.detenidoPor = null; limpiarNotificacion().catch(() => {}); }
       }),
       // La presencia vuelve a 'fuera' con la sesión: sin esto, el próximo
       // login saltaba la puerta y mostraba el HUD sin GPS corriendo.
@@ -616,7 +622,7 @@ function Aplicacion() {
           if (!tipo) return;
           const r = await cliente.current.marcarTipoSos(tipo);
           if (r === 'sin-sos') setAviso('No hay ninguna emergencia tuya abierta para calificar');
-          else if (r) setAviso('Tu SOS salió, pero no pudo decir QUÉ pasó. Avisá por el chat si es ambulancia o grúa');
+          else if (r) setAviso('SOS ENVIADO. El tipo no salió: decí por chat si es ambulancia o grúa');
         }}
         onPerfil={() => setVerPerfil(true)} />
       <Chat {...comun}

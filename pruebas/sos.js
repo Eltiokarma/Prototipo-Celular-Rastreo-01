@@ -114,6 +114,19 @@ const tipoEnBase = (id) =>
     uno.ws.send(JSON.stringify({ type: 'sos_tipo', sosId, tipo: 'mecanica' }));
     ok('corregir dentro de la ventana vale', await hasta(() => tipoEnBase(sosId) === 'mecanica'),
        tipoEnBase(sosId));
+    // El MISMO tipo otra vez es una sola cosa (repaso del 21/9): la app lo
+    // manda por el socket y, si el eco no vuelve, repite por HTTP. La ruta
+    // no tiene por qué enterarse dos veces.
+    const avisosAntes = dos.visto.tipos.length;
+    uno.ws.send(JSON.stringify({ type: 'sos_tipo', sosId, tipo: 'mecanica' }));
+    await sleep(500);
+    ok('repetir el mismo tipo no vuelve a avisar a la ruta', dos.visto.tipos.length === avisosAntes,
+       dos.visto.tipos.length - avisosAntes);
+    const rep = await fetch(`${API}/sos/${sosId}/tipo`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s1.token },
+      body: JSON.stringify({ tipo: 'mecanica' }) });
+    ok('y por HTTP contesta que sí, sin ruido tampoco', rep.status === 200 && dos.visto.tipos.length === avisosAntes,
+       { status: rep.status, avisos: dos.visto.tipos.length - avisosAntes });
   }
 
   console.log('\nLOS BORDES: QUIÉN, QUÉ Y HASTA CUÁNDO');

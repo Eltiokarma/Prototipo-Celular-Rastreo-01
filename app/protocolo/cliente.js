@@ -234,11 +234,16 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
         // prueba de que LLEGÓ: `mandarSos` espera este eco.
         if (sesion && m.unitId === sesion.unitId) {
           miUltimoSos = m.sosId ?? null;
+          viaUltimoSos = 'ws';
           if (esperandoEcoSos) esperandoEcoSos();
         }
         emitir('sos', m);
         break;
-      case 'sos_tipo':     emitir('sosTipo', m); break;
+      case 'sos_tipo':
+        // El eco del tipo de MI emergencia: `marcarTipoSos` lo espera.
+        if (esperandoEcoTipo && m.sosId === miUltimoSos) esperandoEcoTipo();
+        emitir('sosTipo', m);
+        break;
       // El servidor avisa que se pasó el cupo de ese tipo de mensaje por
       // minuto. Lo que se mandó de más se descartó, y sin este aviso se
       // descartaba en silencio (C10).
@@ -419,6 +424,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       const alerta = await r.json().catch(() => ({}));
       if (!r.ok) return { ok: false, via: 'http', error: alerta.error || ('HTTP ' + r.status) };
       miUltimoSos = alerta.sosId ?? null;
+      viaUltimoSos = 'http';
       // El eco que el socket no va a dar: la pantalla lo trata igual que el
       // de verdad (abre el «¿qué pasó?» y lo pone en el hilo).
       emitir('sos', { type: 'sos_alert', ...alerta });
@@ -478,13 +484,38 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // genérico y tenía que adivinar entre una ambulancia y una grúa
   // (REVISION-2026-09-10.md, C8).
   //
-  // Por el socket no se espera eco: el servidor contesta el `sos_tipo` a
-  // toda la ruta, pero un eco que no viene dejaría al chofer con el diálogo
-  // abierto en una emergencia. Se manda, y si el socket no está, HTTP.
+  // Y por el socket SE ESPERA EL ECO (repaso del 21/9). La versión anterior
+  // daba por salido el tipo cuando `enviar()` devolvía true, y `enviar()`
+  // devuelve true con el socket en readyState 1 aunque esté muerto —que es
+  // exactamente el estado en que queda tras la pantalla apagada, hasta que
+  // el servidor lo termina a los dos pings sin respuesta—. El disparo ya lo
+  // sabía: `mandarSos` espera el `sos_alert` y, si no viene, va por HTTP.
+  // Pero el tipo no esperaba nada, así que en el escenario de C8 (SOS que
+  // salió por HTTP porque el socket no contestó) «accidente» se escribía en
+  // un socket muerto y se perdía en silencio, con la pantalla sin aviso.
+  //
+  // Esperar no le cuesta nada al chofer: el diálogo ya se cerró (la
+  // pantalla lo cierra antes de llamar acá), y lo único que llega tarde es
+  // el aviso de que no salió. Dos reglas: si el disparo mismo fue por HTTP
+  // —el socket ya no contestó una vez—, no se le insiste y se va derecho
+  // por HTTP; si fue por el socket, se manda y se espera el `sos_tipo` de
+  // vuelta; sin eco, HTTP. El servidor no repite el aviso a la ruta si el
+  // tipo ya estaba puesto, así que un eco perdido no duplica nada.
+  const SOS_TIPO_ECO_MS = 5000;
   let miUltimoSos = null;
+  let viaUltimoSos = null;   // 'ws' | 'http': por dónde se confirmó el disparo
+  let esperandoEcoTipo = null;
+  function esperarEcoTipo(ms) {
+    return new Promise((res) => {
+      const t = setTimeout(() => { esperandoEcoTipo = null; res(false); }, ms);
+      esperandoEcoTipo = () => { clearTimeout(t); esperandoEcoTipo = null; res(true); };
+    });
+  }
   async function marcarTipoSos(tipo) {
     if (miUltimoSos == null) return 'sin-sos';
-    if (enviar({ type: 'sos_tipo', sosId: miUltimoSos, tipo })) return null;
+    if (viaUltimoSos !== 'http' && enviar({ type: 'sos_tipo', sosId: miUltimoSos, tipo })) {
+      if (await esperarEcoTipo(SOS_TIPO_ECO_MS)) return null;
+    }
     if (!token) return 'sin-conexion';
     try {
       const r = await pedirHttp(`/sos/${miUltimoSos}/tipo`, { tipo }, SOS_HTTP_MS);
@@ -504,6 +535,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     conectado = false;
     reportaGps = false;
     miUltimoSos = null;   // el SOS calificable no sobrevive a la sesión
+    viaUltimoSos = null;
   }
 
   // Declarar el estado: en ruta, ausente, fuera. Por el WebSocket si está

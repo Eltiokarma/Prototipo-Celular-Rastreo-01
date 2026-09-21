@@ -130,8 +130,6 @@ mapa.js                Qué se dibuja en el mapa y la página del WebView.
                        JS puro, probado en pruebas/mapa.js
 gestos.js              Pasar de pantalla deslizando, sin robarle el gesto
                        al SOS. JS puro, probado en pruebas/gestos.js
-cola.js                Las posiciones cuando no hay datos. Probada en
-                       pruebas/cola.js
 pedido.js              El pedido HTTP de la tarea de fondo: XMLHttpRequest
                        con timeout nativo, sin fetch ni timers. JS puro,
                        probado en pruebas/pedido.js
@@ -144,7 +142,7 @@ App.js                 Las pantallas. Solo dibujan lo que les dan
 ```
 
 **La lógica está afuera de los componentes a propósito.** `cliente.js`,
-`hud.js`, `chat.js`, `cola.js`, `margenes.js`, `gestos.js`, `imagen.js`,
+`hud.js`, `chat.js`, `margenes.js`, `gestos.js`, `imagen.js`,
 `tema.js` y `mapa.js` son JavaScript puro y corren en Node, así que tienen
 suites de verdad y no hace falta un teléfono para saber si andan. Es donde
 vivieron todos los bugs de esta pantalla —la unidad inventada, el lado vacío,

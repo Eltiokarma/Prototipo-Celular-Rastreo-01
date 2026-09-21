@@ -282,6 +282,47 @@ const avanzando = (t0, metros, n, desdeMs, pasoMs = 500) =>
     await sleep(300);
   }
 
+  console.log('\nEL AVISO DEL QUE TODAVÍA NO PISÓ EL TRAZADO NO SE BORRA');
+  // Repaso del 21/9. La primera versión del arreglo de L15 retiraba el
+  // aviso de tráfico con CUALQUIER causa de inactividad, y el que declaró
+  // «ruta» desde fuera del trazado —todavía sin confirmar— lo perdía en la
+  // posición siguiente, cerrado como «dejó de reportar» con el teléfono
+  // reportando bien. Sólo el ausente retira la palabra.
+  {
+    // Hasta acá la suite corrió SIN trazado (la base de demo no trae
+    // puntos), y sin trazado toda posición confirma. Para que «todavía no
+    // pisó el trazado» exista, se carga el anillo como recorrido de R-14.
+    const anilloCargado = await fetch(API + '/admin/routes/R-14/points', { method: 'PUT', headers: H,
+      body: JSON.stringify({ tramos: { ida: Array.from({ length: 48 }, (_, i) => anillo(i / 48)), vuelta: [] } }) });
+    ok('R-14 tiene ahora el anillo como trazado', anilloCargado.status === 200, anilloCargado.status);
+    await sleep(300);
+    // A 2,5 km del centro: 1,6 km fuera del anillo, lejos de cualquier umbral
+    const lejos = (n, desdeMs) => Array.from({ length: n }, (_, i) => ({
+      lat: LAT0 + gr * 2500 * Math.cos(0.40 * 2 * Math.PI),
+      lng: LNG0 + gr * 2500 * Math.sin(0.40 * 2 * Math.PI) / Math.cos(LAT0 * Math.PI / 180),
+      speed: 0, timestamp: desdeMs + i * 500,
+    }));
+    const t0 = (vista()?.timestamp || Date.now()) + 500;
+    await post('/gps', s12.token, { posiciones: lejos(3, t0) });
+    await sleep(400);
+    ok('M-12 declaró «ruta» pero está a un kilómetro del trazado: sin confirmar', vista()?.enRuta === false, vista()?.enRuta);
+    await post('/trafico', s12.token, { activo: true });
+    await sleep(300);
+    ok('avisa tráfico igual', vista()?.trafico === true, vista()?.trafico);
+    await post('/gps', s12.token, { posiciones: lejos(2, t0 + 2000) });
+    await sleep(500);
+    ok('y la posición siguiente NO se lo borra', vista()?.trafico === true, vista());
+    const db4 = new Database(DB, { readonly: true });
+    const abierta = db4.prepare("SELECT cierre, confirmado, endedAt FROM paradas WHERE vehicleId = 'M-12' ORDER BY id DESC LIMIT 1").get();
+    db4.close();
+    ok('su episodio sigue abierto, no cerrado como «dejó de reportar»',
+       abierta && abierta.endedAt === null && abierta.confirmado === 1, abierta);
+    // Lo retira él, que es lo suyo
+    await post('/trafico', s12.token, { activo: false });
+    await sleep(300);
+    ok('y lo retira cuando quiere', vista()?.trafico === false, vista()?.trafico);
+  }
+
   console.log('\nLOS EPISODIOS SE PUEDEN LEER');
   {
     const r = await fetch(API + '/admin/paradas?dias=7', { headers: H }).then(async x => ({ status: x.status, body: await x.json() }));

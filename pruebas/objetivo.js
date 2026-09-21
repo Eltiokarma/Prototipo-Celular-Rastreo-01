@@ -168,6 +168,20 @@ const meterVuelta = (unitId, minutos, cuandoMs, routeId = 'R-14') => {
      ultimo().objetivo.modo === 'manual' && ultimo().targetGapMin === 3.5,
      `${ultimo().targetGapMin} min`);
 
+  // Repaso del 21/9: un ida y vuelta de la vara en menos de cinco minutos
+  // es un parpadeo, y `objetivo_log` no lo guarda: la fila del medio se
+  // borra en vez de sumar otra. Con la automática lo provoca una combi con
+  // mala cobertura entrando y saliendo de «sin señal» cada minuto.
+  const filasLog = () => db.prepare("SELECT objetivoMin, modo FROM objetivo_log WHERE routeId = 'R-14' ORDER BY id DESC LIMIT 3").all();
+  await objetivo({ targetGapMin: 4 });
+  const conCuatro = filasLog();
+  await objetivo({ targetGapMin: 3.5 });
+  const sinCuatro = filasLog();
+  ok('7b. Cambiar la vara escribe su fila (4 min)', conCuatro[0]?.objetivoMin === 4 && conCuatro[0]?.modo === 'manual',
+     JSON.stringify(conCuatro));
+  ok('7c. Volver enseguida a la de antes borra esa fila en vez de sumar otra',
+     sinCuatro[0]?.objetivoMin === 3.5 && !sinCuatro.some(f => f.objetivoMin === 4), JSON.stringify(sinCuatro));
+
   r = await objetivo({ targetGapMin: 99 });
   ok('8. Rechaza un objetivo manual fuera de rango', r.status === 400, JSON.stringify(r.body));
   r = await objetivo({ targetGapMin: 0.2 });

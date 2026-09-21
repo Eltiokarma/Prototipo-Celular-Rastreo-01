@@ -331,7 +331,21 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
 
   // C8: el tipo de SOS sale por HTTP con el socket caído
   ok('el tipo de SOS cae a POST /sos/:id/tipo', /pedirHttp\(`\/sos\/\$\{miUltimoSos\}\/tipo`/.test(cliente));
-  ok('y si no salió, la pantalla lo dice', /no pudo decir QUÉ pasó/.test(app));
+  ok('y si no salió, la pantalla lo dice', /SOS ENVIADO\. El tipo no salió/.test(app));
+
+  // ── Repaso del 21/9 ─────────────────────────────────────────────────
+  // Un socket abierto no es un socket vivo: el tipo espera su eco, y si el
+  // disparo ya tuvo que salir por HTTP no se insiste con el socket.
+  ok('el tipo de SOS espera el eco por el socket y cae a HTTP sin él',
+     /esperarEcoTipo\(SOS_TIPO_ECO_MS\)/.test(cliente) && /viaUltimoSos !== 'http' && enviar\(/.test(cliente));
+  // La grabación parada y sin enviar sobrevive al reinicio del proceso
+  // también en la pantalla, no sólo en el disco.
+  ok('la grabación parada se hidrata desde el disco al arrancar',
+     /export async function hidratarGrabacionGuardada/.test(servicio) &&
+     /hidratarGrabacionGuardada\(\)\.catch/.test(servicio));
+  // Y la notificación de «modo acompañante» se va cuando el rol vuelve.
+  ok('la notificación de relevo se borra cuando vuelve el rol de GPS',
+     /if \(reporta\) \{ gps\.diagnostico\.detenidoPor = null; limpiarNotificacion\(\)/.test(app));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

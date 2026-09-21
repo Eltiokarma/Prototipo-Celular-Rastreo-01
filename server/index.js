@@ -1715,10 +1715,17 @@ function evaluarParada(vehicleId, routeId, companyId, pos, proy, cuando, activo,
   // apagaba: con `!activo`, `r.andando` es siempre `false`, así que el que
   // avisó tráfico y se declaró ausente quedaba con `trafico: true` hasta el
   // «fuera» o el olvido (L15). Se retira la palabra junto con el hecho.
+  //
+  // Pero sólo el AUSENTE retira la palabra. El que declaró «ruta» y todavía
+  // no pisó el trazado también está inactivo, y su aviso de tráfico vale:
+  // la primera versión de esto se lo borraba en la siguiente posición y lo
+  // cerraba como «dejó de reportar» con el teléfono reportando bien (repaso
+  // del 21/9). Ése se apaga como siempre, cuando confirme y vuelva a andar.
   if (!activo) {
-    if (traf) traficos.delete(vehicleId);
-    if (r.cambio === 'termino' || traf) {
-      cerrarParada(vehicleId, causaInactiva === 'ausente' ? 'ausente' : 'corte', cuando);
+    const seRetira = causaInactiva === 'ausente';
+    if (seRetira && traf) traficos.delete(vehicleId);
+    if (r.cambio === 'termino' || (seRetira && traf)) {
+      cerrarParada(vehicleId, seRetira ? 'ausente' : 'corte', cuando);
     }
     return { parado: false, desde: null };
   }
@@ -3325,16 +3332,33 @@ app.post('/perfil/alias', (req, res) => {
   // 10/9, P9). Se compara sin distinguir mayúsculas ni espacios de sobra,
   // que es como se lee en la pantalla, y sólo dentro de la MISMA ruta: dos
   // rutas distintas no se ven entre sí y en cada una hay un solo Chino.
+  //
+  // La comparación se hace acá y no en SQL (repaso del 21/9): el `LOWER` de
+  // SQLite sólo baja las mayúsculas ASCII, así que «ÑATO» y «ñato» —o «JOSÉ»
+  // y «josé»— no chocaban. Se pliegan también los acentos: «Jose» y «José»
+  // son la misma persona en el mapa. Una ruta tiene decenas de personas, no
+  // miles, y la lista se lee una vez por cambio de alias.
+  //
+  // Y se dice CUÁL de las dos cosas chocó: no es lo mismo «ese apodo ya lo
+  // usa alguien» que «alguien se llama así de nombre» — con lo segundo, el
+  // chofer entiende que no hay apodo que valga y elige otro sin dar vueltas.
   if (alias) {
-    const chocado = db.prepare(`
-      SELECT unitId FROM users
+    const plano = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().replace(/\s+/g, ' ').trim();
+    const buscado = plano(alias);
+    const vecinos = db.prepare(`
+      SELECT unitId, name, alias FROM users
       WHERE unitId != @yo AND routeId IS @ruta AND companyId IS @empresa
-        AND (LOWER(TRIM(COALESCE(alias, ''))) = @alias OR LOWER(TRIM(COALESCE(name, ''))) = @alias)
-      LIMIT 1
-    `).get({ yo: user.unitId, ruta: user.routeId ?? null, empresa: user.companyId ?? null,
-             alias: alias.toLowerCase() });
-    if (chocado) {
-      return res.status(409).json({ error: 'Ya hay alguien con ese nombre en tu ruta: elegí otro' });
+    `).all({ yo: user.unitId, ruta: user.routeId ?? null, empresa: user.companyId ?? null });
+    const porAlias = vecinos.find(v => v.alias && plano(v.alias) === buscado);
+    const porNombre = porAlias ? null : vecinos.find(v => plano(v.name) === buscado);
+    if (porAlias || porNombre) {
+      return res.status(409).json({
+        error: porAlias
+          ? 'Ese apodo ya lo usa alguien en tu ruta: elegí otro'
+          : 'Alguien en tu ruta se llama así de nombre: elegí otro apodo',
+        choca: porAlias ? 'alias' : 'nombre',
+      });
     }
   }
   db.prepare('UPDATE users SET alias = ?, driverName = ? WHERE unitId = ?')
@@ -7410,7 +7434,7 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
 function marcarTipoDeSos(unitId, sosIdCrudo, tipo) {
   if (!SOS_TIPOS[tipo]) return { status: 400, error: 'Ese tipo de emergencia no existe' };
   const fila = db.prepare(
-    "SELECT id, unitId, routeId, vehicleId, timestamp FROM messages WHERE id = ? AND kind = 'sos'")
+    "SELECT id, unitId, routeId, vehicleId, timestamp, sosTipo FROM messages WHERE id = ? AND kind = 'sos'")
     .get(Number(sosIdCrudo) || -1);
   if (!fila) return { status: 404, error: 'Esa emergencia no existe' };
   // Solo quien disparó puede calificar SU emergencia. Sin este borde,
@@ -7421,6 +7445,10 @@ function marcarTipoDeSos(unitId, sosIdCrudo, tipo) {
   if (Date.now() - fila.timestamp > SOS_TIPO_VENTANA_MS) {
     return { status: 409, error: 'La emergencia ya se cerró' };
   }
+  // El mismo tipo dos veces es una sola cosa: la app manda por el socket y,
+  // si el eco no vuelve, repite por HTTP (repaso del 21/9). Se contesta que
+  // sí y no se vuelve a avisar a la ruta.
+  if (fila.sosTipo === tipo) return { ok: true, sosId: fila.id, tipo };
   db.prepare('UPDATE messages SET sosTipo = ? WHERE id = ?').run(tipo, fila.id);
   console.log(`🚨 SOS de ${unitId}: ${SOS_TIPOS[tipo]}`);
   const aviso = { type: 'sos_tipo', sosId: fila.id, unitId,
@@ -7679,8 +7707,10 @@ function objetivoDe(routeId) {
     const fijo = { min: manual, modo: 'manual', motivo: null, vueltas: 0, unidades: 0, dia: null };
     // También se anota: la vara a mano no se mueve sola, pero SE CAMBIA, y
     // una ruta que pasó de 6 a 4 minutos tiene que poder decir cuál regía en
-    // cada vuelta igual que una automática.
-    anotarObjetivo(routeId, fijo);
+    // cada vuelta igual que una automática. Sólo si la ruta EXISTE: la que
+    // no está dada de alta devuelve el valor de fábrica y no tiene historia
+    // que llevar (repaso del 21/9).
+    if (ruta) anotarObjetivo(routeId, fijo);
     return fijo;
   }
 
@@ -7735,6 +7765,7 @@ function objetivoDe(routeId) {
 // el suavizado y `RECALCULO_MS`, el objetivo automático cambia unas pocas
 // veces por día.
 const ultimoObjetivoAnotado = new Map();   // routeId → { min, modo }
+const PARPADEO_MS = 5 * 60_000;   // ver adentro: un ida y vuelta más corto que esto no es historia
 function anotarObjetivo(routeId, o) {
   if (!routeId || !o) return;
   const previo = ultimoObjetivoAnotado.get(routeId);
@@ -7750,6 +7781,22 @@ function anotarObjetivo(routeId, o) {
     }
   }
   ultimoObjetivoAnotado.set(routeId, { min: o.min, modo: o.modo });
+  // Un PARPADEO no es historia. El suavizado sólo frena cambios chicos en
+  // modo automático; un aparato con mala cobertura que entra y sale de «sin
+  // señal» mueve la cuenta de unidades cada minuto, y con una sola combi
+  // alterna «esperando» y «auto» en cada cálculo: una fila por minuto, sin
+  // techo más que la poda por fecha (repaso del 21/9). Si la vara vuelve a
+  // lo que era hace menos de `PARPADEO_MS`, la fila del medio se borra en
+  // vez de sumar otra: la vuelta que se cerró en ese minuto se lleva la vara
+  // de antes, que es la que rigió de verdad.
+  const [ultima, anterior] = db.prepare(
+    'SELECT id, cuando, objetivoMin, modo FROM objetivo_log WHERE routeId = ? ORDER BY cuando DESC, id DESC LIMIT 2')
+    .all(routeId);
+  if (ultima && anterior && Date.now() - ultima.cuando < PARPADEO_MS &&
+      anterior.objetivoMin === o.min && anterior.modo === o.modo) {
+    db.prepare('DELETE FROM objetivo_log WHERE id = ?').run(ultima.id);
+    return;
+  }
   db.prepare('INSERT INTO objetivo_log (routeId, cuando, objetivoMin, modo) VALUES (?, ?, ?, ?)')
     .run(routeId, Date.now(), o.min, o.modo);
 }
@@ -8474,9 +8521,12 @@ setInterval(() => {
 //   - `presencias`: lo que el chofer declaró. Mientras la combi está en el
 //     mapa no se toca; después, un día — el que vuelve al otro día declara
 //     «ruta» de nuevo, que es lo que hace cada mañana.
-//   - `ultimoSaltoAnotado`, `ultimaDescartadaAnotada`, `ultimaMarca`: son
-//     antirrebotes de una anotación por minuto. Pasada una hora no frenan nada.
+//   - `ultimoSaltoAnotado`, `ultimaDescartadaAnotada`, `ultimaImprecisaAnotada`,
+//     `ultimaMarca`: son antirrebotes de una anotación por minuto. Pasada una
+//     hora no frenan nada.
 //   - `sosPorHttp`: el cupo de cinco por minuto. Sin marcas vivas, sobra.
+//   - `ausenteEnMarcha`: la ventana de dos minutos del ausente en marcha; la
+//     de una combi que ya no está en el mapa no va a cerrar nada.
 //   - `canalDe`: por qué puerta entró la última posición. Pasada una hora ya
 //     no explica nada de lo que está llegando ahora.
 const PODA_PRESENCIAS_MS = 24 * 3600_000;
@@ -8487,11 +8537,19 @@ function podarMapasEnMemoria(ahora = Date.now()) {
   for (const [id, p] of presencias) {
     if (!units.has(id) && ahora - (p.tocadaEn || 0) > PODA_PRESENCIAS_MS) presencias.delete(id);
   }
-  for (const m of [ultimoSaltoAnotado, ultimaDescartadaAnotada, ultimaMarca]) {
+  // `ultimaImprecisaAnotada` es el cuarto antirrebote, y la primera versión
+  // de esta poda lo dejó afuera (repaso del 21/9): mismo plazo que los otros.
+  for (const m of [ultimoSaltoAnotado, ultimaDescartadaAnotada, ultimaImprecisaAnotada, ultimaMarca]) {
     for (const [id, t] of m) if (ahora - t > PODA_ANTIRREBOTE_MS) m.delete(id);
   }
   for (const [id, marcas] of sosPorHttp) {
     if (!marcas.length || ahora - marcas[marcas.length - 1] > 60_000) sosPorHttp.delete(id);
+  }
+  // `ausenteEnMarcha`: la ventana del ausente que se mueve. Se borra sola
+  // con la posición que no cumple, pero el que se olvidó moviéndose y no
+  // volvió no manda ninguna (repaso del 21/9).
+  for (const [id, e] of ausenteEnMarcha) {
+    if (!units.has(id) && ahora - (e.desde || 0) > PODA_ANTIRREBOTE_MS) ausenteEnMarcha.delete(id);
   }
 }
 
