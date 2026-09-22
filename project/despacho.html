@@ -455,8 +455,14 @@ function Login({ onSuccess, notice }) {
 // ═══════════════════════════════════════════════════════════════
 // CHAT (columna derecha)
 // ═══════════════════════════════════════════════════════════════
+// Una clave por mensaje, puesta al recibirlo. La lista se recorta a 150 y
+// con el índice como key cada mensaje nuevo corría a todos un lugar: la nota
+// de voz que se estaba escuchando cambiaba de audio a mitad (barrido 22/9).
+let SEQ_MSG = 0;
+
 function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) {
   const [draft, setDraft] = React.useState('');
+  const [noSalio, setNoSalio] = React.useState(false);
   const scrollRef = React.useRef(null);
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -465,7 +471,10 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
   const send = () => {
     const text = draft.trim();
     if (!text) return;
-    onSend(text);
+    // Sin conexión el mensaje no sale: el borrador se queda y se dice.
+    // Antes se borraba igual y la instrucción se perdía (barrido del 22/9).
+    if (onSend(text) === false) { setNoSalio(true); return; }
+    setNoSalio(false);
     setDraft('');
   };
 
@@ -504,7 +513,7 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
           const own = m.role === 'dispatch-self';
           const sos = m.tone === 'sos';
           return (
-            <div key={i} style={{ display: 'flex', justifyContent: own ? 'flex-end' : 'flex-start' }}>
+            <div key={m.k ?? i} style={{ display: 'flex', justifyContent: own ? 'flex-end' : 'flex-start' }}>
               <div style={{
                 maxWidth: '82%', padding: '9px 11px', borderRadius: 12,
                 background: sos ? HUD.rojoFondo : own ? HUD.azulFondo : HUD.surface,
@@ -545,10 +554,15 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
         })}
       </div>
 
+      {noSalio && (
+        <div style={{ padding: '8px 14px 0', fontSize: 12, fontWeight: 700, color: HUD.amber }}>
+          Sin conexión: el mensaje no salió. Queda escrito para mandarlo cuando vuelva.
+        </div>
+      )}
       <div style={{ padding: '12px 14px', borderTop: `1px solid ${HUD.divider}`, display: 'flex', gap: 8 }}>
         <input
           value={draft}
-          onChange={e => setDraft(e.target.value)}
+          onChange={e => { setDraft(e.target.value); setNoSalio(false); }}
           onKeyDown={e => { if (e.key === 'Enter') send(); }}
           placeholder={privadoCon ? `Mensaje solo para ${privadoCon}…` : 'Escribí al canal de la ruta…'}
           style={{ ...campo(40), flex: 1 }}
@@ -637,10 +651,25 @@ function leerRecorrido(texto) {
     if (!p) throw new Error('El GeoJSON no tiene un LineString');
     return p;
   }
-  const puntos = [];
-  const re = /<(?:trkpt|rtept|wpt)\s[^>]*?lat="([-\d.]+)"[^>]*?lon="([-\d.]+)"/gi;
-  let m;
-  while ((m = re.exec(t))) puntos.push([Number(m[1]), Number(m[2])]);
+  // Primero el TRACK, si no la RUTA, y los waypoints sólo si no hay otra
+  // cosa: un GPX trae sus <wpt> —marcadores sueltos— al principio, y
+  // mezclarlos pegaba puntos ajenos al comienzo del trazado. Y `lat` y `lon`
+  // se leen cada uno por su lado: con `lon="…" lat="…"`, en ese orden, no
+  // se encontraba ningún punto (barrido del 22/9).
+  const leer = (etiqueta) => {
+    const ps = [];
+    const re = new RegExp('<' + etiqueta + '\\s([^>]*)>', 'gi');
+    let m;
+    while ((m = re.exec(t))) {
+      const la = /\blat\s*=\s*["']([-\d.]+)["']/i.exec(m[1]);
+      const lo = /\blon\s*=\s*["']([-\d.]+)["']/i.exec(m[1]);
+      if (la && lo) ps.push([Number(la[1]), Number(lo[1])]);
+    }
+    return ps;
+  };
+  let puntos = leer('trkpt');
+  if (!puntos.length) puntos = leer('rtept');
+  if (!puntos.length) puntos = leer('wpt');
   if (!puntos.length) throw new Error('No se encontraron puntos en el archivo');
   return puntos;
 }
@@ -718,21 +747,36 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   React.useEffect(() => { tramoRef.current = tramo; }, [tramo]);
 
   const puntos = tramos ? tramos[tramo] : null;
-  const setPuntos = (fn) => setTramos(t => ({ ...t, [tramoRef.current]:
-    typeof fn === 'function' ? fn(t[tramoRef.current]) : fn }));
+  // Sin tramos cargados no se dibuja: tocar el mapa mientras carga (o tras
+  // cambiar de variante) tiraba un TypeError y dejaba la pantalla en blanco.
+  const setPuntos = (fn) => setTramos(t => t ? ({ ...t, [tramoRef.current]:
+    typeof fn === 'function' ? fn(t[tramoRef.current]) : fn }) : t);
 
   // El recorrido que ya tenía esa variante. Se recarga al cambiar de una a
   // otra: cada una tiene su propio dibujo.
+  //
+  // Dos cuidados (barrido del 22/9). Si la carga FALLA, `tramos` queda en
+  // null —trabado—: antes quedaba vacío, y Guardar sobre eso borraba el
+  // recorrido real. Y la respuesta de una variante que ya no es la elegida
+  // se descarta: si la de A llegaba después que la de B, se guardaba el
+  // dibujo de A dentro de B.
   React.useEffect(() => {
+    let vigente = true;
     setTramos(null);
+    capaRef.current && capaRef.current.clearLayers();
     const q = variantId ? `?variantId=${variantId}` : '';
     api(`/admin/routes/${encodeURIComponent(routeId)}/points${q}`)
-      .then(d => setTramos({
+      .then(d => { if (vigente) setTramos({
         ida: (d.tramos?.ida || []).map(p => [p.lat, p.lng]),
         vuelta: (d.tramos?.vuelta || []).map(p => [p.lat, p.lng]),
-      }))
-      .catch(e => { setError(e.message); setTramos({ ida: [], vuelta: [] }); });
+      }); })
+      .catch(e => { if (vigente) setError(`No se pudo cargar el recorrido: ${e.message}. Cerrá y volvé a abrir antes de dibujar.`); });
+    return () => { vigente = false; };
   }, [routeId, variantId]);
+
+  // El mapa se libera al cerrar: Leaflet deja colgado su listener de resize
+  // y con él el mapa entero, cada vez que se abría y cerraba el trazador.
+  React.useEffect(() => () => { mapRef.current && mapRef.current.remove(); mapRef.current = null; }, []);
 
   const initMap = React.useCallback((node) => {
     if (!node || mapRef.current) return;
@@ -829,7 +873,19 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     }
   };
 
+  // Guardar sobre el trazado que ESTÁ MIDIENDO es cambiar el trazado con el
+  // que se mide la ruta: el servidor descarta las vueltas en curso. Eso se
+  // confirma nombrando qué pasa, igual que el cambio de variante; y guardar
+  // un recorrido vacío es borrarlo, que también (barrido del 22/9).
+  const [confirmarGuardar, setConfirmarGuardar] = React.useState(false);
+  const midiendoEsta = !variantId || !!(variante && variante.activa);
+  const pedirGuardar = () => {
+    const vacio = tramos && !tramos.ida.length && !tramos.vuelta.length;
+    if (midiendoEsta || vacio) setConfirmarGuardar(true);
+    else guardar();
+  };
   const guardar = async () => {
+    setConfirmarGuardar(false);
     setGuardando(true); setError(null);
     try {
       const aPuntos = (ps) => ps.map(p => ({ lat: p[0], lng: p[1] }));
@@ -888,11 +944,30 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
           </span>
         )}
         <button onClick={onClose} style={btnSecundario(36)}>Cancelar</button>
-        <button onClick={guardar} disabled={trabado}
+        <button onClick={pedirGuardar} disabled={trabado}
           style={{ ...btnPrimario(36), opacity: trabado ? .5 : 1, cursor: trabado ? 'not-allowed' : 'pointer' }}>
           {guardando ? 'Guardando…' : 'Guardar recorrido'}
         </button>
       </div>
+
+      {confirmarGuardar && tramos && (
+        <Confirmacion
+          kicker="Confirmar recorrido"
+          tono={!tramos.ida.length ? 'red' : 'amber'}
+          titulo={!tramos.ida.length
+            ? `Vas a BORRAR el recorrido de ${routeName || routeId}${variante ? ` («${variante.name}»)` : ''}`
+            : `${routeName || routeId} va a medirse con este dibujo`}
+          cuerpo={<>
+            {!tramos.ida.length
+              ? <>La ruta queda <strong>sin trazado</strong>: nadie se mide contra nada hasta que se cargue otro.</>
+              : <>Es el trazado que está midiendo ahora: les cambia el mapa a las unidades en ruta.</>}
+            {midiendoEsta && <>{' '}Y <strong>descarta las vueltas en curso</strong> — se venían midiendo con el dibujo anterior.</>}
+          </>}
+          aceptar={!tramos.ida.length ? 'Sí, borrar el recorrido' : 'Sí, guardar y medir con esto'}
+          onAceptar={guardar}
+          onCancelar={() => setConfirmarGuardar(false)}
+        />
+      )}
 
       {/* Dibujar un trazado guardado es lo normal cuando se prepara un desvío
           antes de que empiece la obra. Pero hay que decirlo, y decirlo acá:
@@ -1075,7 +1150,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                       <div style={{ fontFamily: mono, fontSize: 10,
                         color: p.estado === 'grabando' ? HUD.green : HUD.dim3 }}>
                         {p.estado === 'grabando' ? '● grabando' : 'esperando a la app'}
-                        {' · pedida '}{new Date(p.pedidaEn).toLocaleTimeString().slice(0, 5)}
+                        {' · pedida '}{nowTime(p.pedidaEn)}
                       </div>
                     </div>
                     <button onClick={() => cancelarPedido(p.vehicleId)}
@@ -1286,7 +1361,7 @@ function Confirmacion({ kicker, tono, titulo, cuerpo, aceptar, onAceptar, onCanc
   );
 }
 
-function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
+function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca, refrescarMarca }) {
   const [tab, setTab] = React.useState('users'); // users | vehicles | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
   const [events, setEvents] = React.useState(null);
@@ -1303,7 +1378,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   // Rango de los informes, en fechas y no en botones de "últimos N días":
   // la cooperativa pide "del 1 al 15", no "los últimos 14 días".
   const [rangoInf, setRangoInf] = React.useState(() => {
-    const iso = (t) => new Date(t).toISOString().slice(0, 10);
+    // Fecha LOCAL: `toISOString` es UTC, y después de las 19:00 en Juliaca
+    // el «hasta» por defecto era mañana (barrido del 22/9).
+    const iso = (t) => { const d = new Date(t);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
     return { desde: iso(Date.now() - 29 * 86400e3), hasta: iso(Date.now()) };
   });
   // Cambio del trazado con el que se mide: { ruta, v, actual }
@@ -1392,8 +1470,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
   // pedido a [1, 365]: si alguna vez los dos no coinciden, gana el que trajo
   // los datos. Un rótulo tiene que describir lo que hay en la tabla.
   const [periodoMetrics, setPeriodoMetrics] = React.useState(null);
+  // Con la MISMA ruta que la tabla de vueltas: el supervisor veía los
+  // números de su ruta arriba y todas mezcladas abajo (barrido del 22/9).
   const loadMetrics = (dias = diasMetrics) => api(
-    '/admin/metrics' + (dias === null ? '?todo=1' : `?dias=${dias}`))
+    '/admin/metrics' + (dias === null ? '?todo=1' : `?dias=${dias}`) +
+    (esSupervisor && currentRoute ? `&routeId=${encodeURIComponent(currentRoute)}` : ''))
     .then(d => { setMetrics(d.metrics); setPeriodoMetrics(d.periodo || null); })
     .catch(e => setError(e.message));
 
@@ -1405,14 +1486,14 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
     .then(d => { setVehicles(d.vehicles || []); })
     .catch(e => setError(e.message));
 
-  // Los tres rangos se piden con el mismo `desde`. "Ayer" se recorta acá
-  // porque el endpoint no toma un `hasta`, y no vale la pena inventarle uno
-  // a la API para acotar una lista de 500 filas.
+  // «Ayer» se pide con su `hasta` (la medianoche de hoy): sin él, el turno de
+  // ayer 22:00 a hoy 02:00 sumaba las horas de hoy, y la lista de 500 más
+  // nuevas podía dejar afuera los de ayer (barrido del 22/9).
   const inicioDeHoy = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
   const loadShifts = (rango = rangoTurnos) => {
     const hoy = inicioDeHoy();
     const desde = rango === 'hoy' ? hoy : rango === 'ayer' ? hoy - 86400e3 : hoy - 6 * 86400e3;
-    return api(`/admin/shifts?desde=${desde}`)
+    return api(`/admin/shifts?desde=${desde}${rango === 'ayer' ? `&hasta=${hoy}` : ''}`)
       .then(d => setShifts({ ...d, rango }))
       .catch(e => setError(e.message));
   };
@@ -1738,7 +1819,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 10,
                     fontSize: 13, fontWeight: 700, color: HUD.fg2, whiteSpace: 'nowrap',
                   }}>
-                    {{ '': 'Todos los roles', driver: 'Choferes', collector: 'Cobradores', dispatch: 'Despacho' }[filtroRol]}
+                    {{ '': 'Todos los roles', driver: 'Choferes', collector: 'Cobradores', dispatch: 'Despacho', manager: 'Gerencia' }[filtroRol]}
                     <span style={{ fontSize: 11, color: HUD.dim3 }}>▾</span>
                   </span>
                   <select value={filtroRol} onChange={e => setFiltroRol(e.target.value)}
@@ -1747,6 +1828,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     <option value="driver">Choferes</option>
                     <option value="collector">Cobradores</option>
                     <option value="dispatch">Despacho</option>
+                    <option value="manager">Gerencia</option>
                   </select>
                 </span>
                 <button onClick={() => setAltaAbierta(a => !a)} style={btnPrimario(40)}>
@@ -1879,7 +1961,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
               {!users && <Vacio>Cargando…</Vacio>}
               {users && (() => {
                 const q = filter.trim().toLowerCase();
+                // La gerencia es su propio rol: se listaba como «Chofer» y con
+                // Editar y Baja, que el servidor rechaza (barrido del 22/9).
                 const rolDe = (u) => u.role === 'dispatch' ? 'dispatch'
+                  : u.role === 'manager' ? 'manager'
                   : u.role === 'collector' ? 'collector' : 'driver';
                 const lista = users.filter(u =>
                   (!q || coincide(u, q)) && (!filtroRol || rolDe(u) === filtroRol));
@@ -1907,7 +1992,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                               : (u.name || u.driverName || '—')}
                           </span>
                           <span style={rotulo(10, HUD.dim2)}>
-                            {u.role === 'dispatch' ? 'Despacho' : u.role === 'collector' ? 'Cobrador' : 'Chofer'}
+                            {u.role === 'dispatch' ? 'Despacho' : u.role === 'manager' ? 'Gerencia' : u.role === 'collector' ? 'Cobrador' : 'Chofer'}
                           </span>
                           <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>
                             {u.vehicleId || '—'}
@@ -1920,9 +2005,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                             {u.appVersionCode ? ` · app ${u.appVersionCode}` : ''}
                           </span>
                           <span style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            {u.role !== 'manager' && (
                             <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setResetPass(''); }}
                               style={btnChico(HUD.fg2)}>Clave</button>
-                            {u.role !== 'dispatch' && (
+                            )}
+                            {u.role !== 'dispatch' && u.role !== 'manager' && (
                               <button title="Corregir nombre o alias"
                                 onClick={() => {
                                   setEditFor(u.unitId);
@@ -1931,7 +2018,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                                 }}
                                 style={btnChico(HUD.fg2)}>Editar</button>
                             )}
-                            {u.role !== 'dispatch' && (
+                            {u.role !== 'dispatch' && u.role !== 'manager' && (
                               confirmDel === u.unitId ? (
                                 <button onClick={() => remove(u.unitId)} disabled={busy}
                                   style={{ ...btnChico('#fff', HUD.red), background: HUD.red }}>¿Confirmar?</button>
@@ -2122,7 +2209,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                               modo === 'auto'
                                 ? `Vuelta promedio de ${r.objetivo.dia || 'todos los días'} sobre ${r.objetivo.unidades} unidades en ruta`
                                 : modo === 'esperando'
-                                  ? `Por ahora vale el manual de ${r.objetivo.manual} min`
+                                  ? `Por ahora vale el manual de ${r.targetGapMin} min`
                                   : 'Fijado a mano'
                             } style={{
                               ...rotulo(10, chip[2]), letterSpacing: .8,
@@ -2444,7 +2531,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                               </span>
                               <span style={{ fontFamily: black, fontSize: 14, textAlign: 'right' }}>
                                 {fmtSeg(l.durationSec)}
-                                {l.parcial && (
+                                {!!l.parcial && (
                                   <span title={`Entró a la ruta al ${Math.round((l.progresoInicial || 0) * 100)} % del circuito: esto no es una vuelta entera`}
                                     style={{
                                       display: 'block', fontFamily: mono, fontSize: 9,
@@ -3104,12 +3191,16 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                     aceptaba y devolvía `alcance`; la pantalla no lo pedía ni
                     lo decía: el gerente de tres rutas las veía siempre
                     mezcladas sin saberlo. */}
-                {resumenGer && !resumenGer.alcance?.fijo && (resumenGer.rutas || []).length > 1 && (
+                {/* Las opciones salen de la lista de rutas de la cooperativa y no
+                    de la respuesta: el servidor filtra `rutas` a la elegida, y
+                    con una sola el selector desaparecía y no había cómo volver a
+                    «Toda la cooperativa» (barrido del 22/9). */}
+                {resumenGer && !resumenGer.alcance?.fijo && routeList.length > 1 && (
                   <select value={rutaGer} disabled={busy}
                     onChange={e => { setRutaGer(e.target.value); setResumenGer(null); loadGerencia(diasGer, e.target.value); }}
                     style={{ ...btnSecundario(36), padding: '0 10px', fontFamily: 'inherit' }}>
                     <option value="">Toda la cooperativa</option>
-                    {resumenGer.rutas.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}{r.name && r.name !== r.routeId ? ` · ${r.name}` : ''}</option>)}
+                    {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}{r.name && r.name !== r.routeId ? ` · ${r.name}` : ''}</option>)}
                   </select>
                 )}
                 {resumenGer && (
@@ -3131,15 +3222,20 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute }) {
                       // El MISMO período que el cuadro de arriba: días de
                       // calendario, no las últimas N × 24 h (E19).
                       const hasta = Date.now(), desde = inicioDePeriodo(diasGer);
-                      const r = await fetch(`${HTTP_URL}/gerencia/informe/${tipo}.csv?desde=${desde}&hasta=${hasta}`,
+                      // Y la MISMA ruta: con una elegida en pantalla, el CSV
+                      // bajaba la cooperativa entera (barrido del 22/9).
+                      const conRuta = rutaGer ? `&routeId=${encodeURIComponent(rutaGer)}` : '';
+                      const r = await fetch(`${HTTP_URL}/gerencia/informe/${tipo}.csv?desde=${desde}&hasta=${hasta}${conRuta}`,
                         { headers: { Authorization: 'Bearer ' + session.token } });
                       if (!r.ok) throw new Error('No se pudo descargar');
                       const url = URL.createObjectURL(await r.blob());
                       const a = document.createElement('a');
                       a.href = url;
-                      a.download = `${(session.companyId || 'gerencia').toLowerCase()}-${tipo}-${diasGer}d.csv`;
+                      a.download = `${(session.companyId || 'gerencia').toLowerCase()}-${rutaGer ? rutaGer.toLowerCase() + '-' : ''}${tipo}-${diasGer}d.csv`;
                       a.click();
-                      URL.revokeObjectURL(url);
+                      // Diferido, como en Informes: revocar en el acto puede
+                      // cancelar la descarga en algunos navegadores.
+                      setTimeout(() => URL.revokeObjectURL(url), 5000);
                     } catch (e) { setError(e.message); }
                   }}>CSV {rotulo}</button>
                 ))}
@@ -3823,7 +3919,16 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const [units, setUnits] = React.useState([]);
   const [gaps, setGaps] = React.useState({});
   const [messages, setMessages] = React.useState([]);
-  const [sos, setSos] = React.useState(null); // alerta activa hasta que se atienda
+  // Las emergencias SIN ATENDER, en el orden en que llegaron. Era una sola:
+  // un segundo SOS a los pocos segundos pisaba al primero en el cartel, y
+  // ATENDIDO sobre el segundo hacía desaparecer el primero de la pantalla
+  // (barrido 22/9). El cartel muestra la más vieja y dice cuántas esperan.
+  const [sosLista, setSosLista] = React.useState([]);
+  const sos = sosLista[0] || null;
+  // La combi en emergencia se reconoce por el VEHÍCULO: `unitId` del SOS es
+  // la persona, y en el estado `unitId` es la combi. Con un cobrador o un
+  // chofer cuyo usuario no es el código de la combi, nunca se pintaba.
+  const enSos = (unitId) => sosLista.some(s => (s.vehicleId || s.unitId) === unitId);
   const [adminOpen, setAdminOpen] = React.useState(false);
   // Multi-ruta: la ruta que se está mirando y los datos que llegan de ella
   const [routes, setRoutes] = React.useState([]);
@@ -3931,8 +4036,21 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const fittedRef = React.useRef(false);
 
   const pushMsg = (m) => setMessages(ms => [...ms.slice(-149), m]);
+  // Un privado de una unidad que no estoy mirando queda marcado. Vale para el
+  // texto, la voz y la foto: sólo el texto sumaba, y la foto privada de un
+  // accidente no aparecía en ningún lado si no se abría ese privado (22/9).
+  const marcarNoLeido = (msg) => {
+    if (!msg.toVehicleId || msg.role === 'dispatch' || msg.role === 'manager') return;
+    setPrivadoCon(actual => {
+      if (actual !== msg.toVehicleId) {
+        setNoLeidos(n => ({ ...n, [msg.toVehicleId]: (n[msg.toVehicleId] || 0) + 1 }));
+      }
+      return actual;
+    });
+  };
 
-  const mapMsg = (m, kind) => {
+  const mapMsg = (m, kind) => ({ ...mapMsgSinClave(m, kind), k: ++SEQ_MSG });
+  const mapMsgSinClave = (m, kind) => {
     const own = m.unitId === session.unitId;
     if (kind === 'sos') {
       return {
@@ -3980,6 +4098,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         let msg;
         try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.type === 'state') {
+          // Al reconectar, el servidor manda primero el estado de la ruta
+          // inicial y recién después atiende el `watch`: ese estado no es de
+          // la ruta que se está mirando, y tomarlo cerraba el privado,
+          // borraba los no leídos y reencuadraba el mapa (barrido 22/9).
+          if (rutaMiradaRef.current && msg.routeId !== rutaMiradaRef.current) return;
           // Cambió la ruta: la conversación privada abierta era de la OTRA,
           // y los no leídos también. Se compara contra un ref y NO desde
           // adentro de un `setRouteInfo(prev => …)`: ahí `prev` ya es el
@@ -3990,6 +4113,10 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           if (rutaPreviaRef.current && rutaPreviaRef.current !== msg.routeId) {
             setPrivadoCon(null);
             setNoLeidos({});
+            // Reencuadrar SÓLO al cambiar de ruta. Estaba afuera de este if y
+            // corría con cada estado: cada ~3 s el mapa volvía a la flota
+            // entera y no había forma de quedarse mirando un SOS (22/9).
+            fittedRef.current = false;
           }
           rutaPreviaRef.current = msg.routeId;
           setUnits(msg.units || []);
@@ -4010,7 +4137,6 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             yendo: msg.yendo ?? 0,
             ausentes: msg.ausentes ?? 0,
           });
-          fittedRef.current = false; // reencuadrar el mapa al cambiar de ruta
         } else if (msg.type === 'routes') {
           setRoutes(msg.routes || []);
         } else if (msg.type === 'route_geometry') {
@@ -4019,30 +4145,24 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           setTrazado(msg.tramos || { ida: [], vuelta: [] });
         } else if (msg.type === 'chat_msg') {
           pushMsg(mapMsg(msg, 'chat'));
-          // Privado de una unidad que no estoy mirando: queda marcado
-          if (msg.toVehicleId && msg.role !== 'dispatch') {
-            setPrivadoCon(actual => {
-              if (actual !== msg.toVehicleId) {
-                setNoLeidos(n => ({ ...n, [msg.toVehicleId]: (n[msg.toVehicleId] || 0) + 1 }));
-              }
-              return actual;
-            });
-          }
+          marcarNoLeido(msg);
         } else if (msg.type === 'voice_msg') {
           pushMsg(mapMsg(msg, 'voice'));
+          marcarNoLeido(msg);
         } else if (msg.type === 'photo_msg') {
           pushMsg(mapMsg(msg, 'photo'));
+          marcarNoLeido(msg);
         } else if (msg.type === 'sos_alert') {
           pushMsg(mapMsg(msg, 'sos'));
-          setSos({ ...msg, receivedAt: Date.now() });
+          setSosLista(l => l.some(x => x.sosId != null && x.sosId === msg.sosId)
+            ? l : [...l, { ...msg, receivedAt: Date.now() }]);
         } else if (msg.type === 'sos_tipo') {
           // El chofer le puso nombre a la emergencia ya disparada: "falla
           // mecánica" pide una grúa, "accidente" una ambulancia, "policía"
           // otra llamada. Se actualizan el cartel y la línea del hilo — la
           // emergencia sigue siendo UNA, ahora con más información.
           if (TIPOS_SOS[msg.tipo]) {
-            setSos(actual => (actual && actual.sosId === msg.sosId)
-              ? { ...actual, sosTipo: msg.tipo } : actual);
+            setSosLista(l => l.map(x => x.sosId === msg.sosId ? { ...x, sosTipo: msg.tipo } : x));
             // El sufijo viejo se quita con un patrón DERIVADO de TIPOS_SOS:
             // una copia a mano de las etiquetas era una segunda lista que se
             // separaba sola al agregar un tipo — y las correcciones del
@@ -4088,6 +4208,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     mapRef.current = map;
     setTimeout(() => map.invalidateSize(), 100);
   }, []);
+  // Al salir del panel el mapa se libera: Leaflet deja su listener de resize
+  // colgado y con él el mapa entero, uno por cada salida y entrada (22/9).
+  React.useEffect(() => () => {
+    if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+    markersRef.current = {};
+  }, []);
 
   // Marcadores: un pin con etiqueta por unidad en ruta
   React.useEffect(() => {
@@ -4102,7 +4228,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
 
     units.forEach(u => {
       if (!u.lat || !u.lng) return;
-      const isSos = sos && sos.unitId === u.unitId;
+      const isSos = enSos(u.unitId);
       // El pin lleva el mismo color que la fila: mirando el mapa se ve dónde
       // está el pelotón sin cruzar con la lista.
       const g = gaps[u.unitId] || {};
@@ -4150,7 +4276,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       const bounds = L.latLngBounds(withGps.map(u => [u.lat, u.lng]));
       map.fitBounds(bounds.pad(0.4), { maxZoom: 15 });
     }
-  }, [units, sos, gaps, routeInfo.targetGapMin, modo]);
+  }, [units, sosLista, gaps, routeInfo.targetGapMin, modo]);
 
   const focusUnit = (u) => {
     if (u.lat && mapRef.current) mapRef.current.panTo([u.lat, u.lng], { animate: true });
@@ -4160,10 +4286,14 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       // Con una conversación abierta el mensaje va solo a esa unidad
-      ws.send(JSON.stringify({
-        type: 'chat', text, to: privadoCon || undefined, timestamp: Date.now(),
-      }));
+      try {
+        ws.send(JSON.stringify({
+          type: 'chat', text, to: privadoCon || undefined, timestamp: Date.now(),
+        }));
+        return true;
+      } catch { return false; }
     }
+    return false;
   };
 
   const silenciarDesvio = async (minutos) => {
@@ -4338,6 +4468,10 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           onAuthError={onAuthError}
           routes={routes}
           currentRoute={routeInfo.routeId}
+          // La pestaña Empresa sube el logo: sin estas dos, el gerente que la
+          // abría tumbaba el panel entero con un ReferenceError (barrido 22/9).
+          marca={marca}
+          refrescarMarca={refrescarMarca}
         />
       )}
 
@@ -4356,6 +4490,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             {TIPOS_SOS[sos.sosTipo] ? ` — ${TIPOS_SOS[sos.sosTipo].toUpperCase()}` : ''} · {nowTime(sos.timestamp)}
             {sos.routeId && sos.routeId !== routeInfo.routeId ? ` · RUTA ${sos.routeId}` : ''}
             {sos.lat ? ` · ${sos.lat.toFixed(4)}, ${sos.lng.toFixed(4)}` : ''}
+            {sosLista.length > 1 ? ` · Y ${sosLista.length - 1} MÁS ESPERANDO` : ''}
           </span>
           <div style={{ flex: 1 }} />
           {sos.lat && (
@@ -4365,7 +4500,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
               color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
             }}>Ver en mapa</button>
           )}
-          <button onClick={() => setSos(null)} style={{
+          <button onClick={() => setSosLista(l => l.slice(1))} style={{
             height: 34, padding: '0 12px', background: '#fff', border: 'none', borderRadius: 8,
             color: HUD.red, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
           }}>ATENDIDO</button>
@@ -4498,7 +4633,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           )}
           {units.map(u => {
             const g = gaps[u.unitId] || {};
-            const isSos = sos && sos.unitId === u.unitId;
+            const isSos = enSos(u.unitId);
             const cAdelante = gapColor(g.toAhead, routeInfo.targetGapMin);
             const cAtras = gapColor(g.toBehind, routeInfo.targetGapMin);
             // El borde y el fondo de la fila los manda el peor de los dos

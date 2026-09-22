@@ -90,18 +90,22 @@ function codigoTotp(clave, paso) {
 // Se aceptan el paso actual y el anterior: el reloj del celular casi nunca
 // coincide al segundo con el del servidor, y rechazar por 3 segundos de
 // diferencia lo vuelve inusable.
-function totpValido(clave, codigo) {
+//
+// Devuelve el PASO que coincidió (o -1), para que quien llama pueda no
+// aceptar dos veces el mismo código.
+function totpPaso(clave, codigo) {
   const limpio = String(codigo || '').replace(/\D/g, '');
-  if (limpio.length !== 6) return false;
+  if (limpio.length !== 6) return -1;
   const paso = Math.floor(Date.now() / 30_000);
-  let vale = false;
+  let vale = -1;
   for (const p of [paso, paso - 1]) {
     // Sin cortar el bucle al primer acierto: comparar siempre la misma
     // cantidad de veces no le dice al de afuera cuál de los dos pasos entró.
-    if (igualesEnTiempoConstante(codigoTotp(clave, p), limpio)) vale = true;
+    if (igualesEnTiempoConstante(codigoTotp(clave, p), limpio) && p > vale) vale = p;
   }
   return vale;
 }
+const totpValido = (clave, codigo) => totpPaso(clave, codigo) >= 0;
 
 function igualesEnTiempoConstante(a, b) {
   const ba = Buffer.from(String(a));
@@ -146,18 +150,25 @@ function montarPanelDelCreador(app, deps) {
   // Sesiones EN MEMORIA a propósito: un reinicio las cierra todas, y no queda
   // ningún rastro en la base que sirva para entrar.
   const sesiones = new Map();          // token → { expira, ip, desde }
-  const intentos = new Map();          // ip → { n, hasta }
+  const intentos = new Map();          // ip → { n, hasta, enVuelo }
+  let ultimoPasoTotp = -1;             // el último paso de 30 s que ya entró
 
   const anotar = (accion, sobre, detalle, companyId) =>
     audit('CREADOR', accion, sobre || null, detalle || null, null, companyId || null);
 
+  // Bloqueada también cuenta los intentos EN VUELO: el fallo se anotaba
+  // recién después del retardo de medio segundo, así que N pedidos en
+  // paralelo pasaban todos el control antes de que se anotara ninguno, y el
+  // tope de intentos no ponía techo — lo que importa para el código de seis
+  // dígitos una vez que la clave se conoce (barrido del 22/9).
   function ipBloqueada(ip) {
     const e = intentos.get(ip);
-    return !!(e && e.hasta > Date.now());
+    if (!e) return false;
+    return e.hasta > Date.now() || (e.n + (e.enVuelo || 0)) >= INTENTOS_MAX;
   }
 
   function anotarFallo(ip) {
-    const e = intentos.get(ip) || { n: 0, hasta: 0 };
+    const e = intentos.get(ip) || { n: 0, hasta: 0, enVuelo: 0 };
     e.n++;
     if (e.n >= INTENTOS_MAX) {
       e.hasta = Date.now() + BLOQUEO_MS;
@@ -181,13 +192,19 @@ function montarPanelDelCreador(app, deps) {
     if (ipBloqueada(ip)) {
       return res.status(429).json({ error: 'Demasiados intentos. Esperá 15 minutos.' });
     }
+    const vuelo = intentos.get(ip) || { n: 0, hasta: 0, enVuelo: 0 };
+    vuelo.enVuelo = (vuelo.enVuelo || 0) + 1;
+    intentos.set(ip, vuelo);
     // El retardo va ANTES de mirar nada: así el tiempo de respuesta es el
     // mismo para una clave corta, una larga y una correcta.
-    await esperar();
+    try { await esperar(); } finally { vuelo.enVuelo--; }
 
     const enviada = String(req.body?.password || '');
     const claveOk = igualesEnTiempoConstante(clave, enviada);
-    const segundoOk = !totpClave || totpValido(totpClave, req.body?.codigo);
+    // Un código ya usado no vuelve a entrar: sin esto, el que lo viera
+    // (por encima del hombro, en una captura) tenía un minuto para reusarlo.
+    const paso = totpClave ? totpPaso(totpClave, req.body?.codigo) : 0;
+    const segundoOk = !totpClave || (paso >= 0 && paso > ultimoPasoTotp);
 
     if (!claveOk || !segundoOk) {
       anotarFallo(ip);
@@ -197,6 +214,7 @@ function montarPanelDelCreador(app, deps) {
     }
 
     intentos.delete(ip);
+    if (totpClave) ultimoPasoTotp = paso;
     limpiarSesiones();
     // Una sesión olvidada en otra máquina es una puerta abierta. Si se
     // acumulan, se cierra la más vieja.

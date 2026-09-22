@@ -456,12 +456,30 @@ const pedir = (puerto, ruta, opts = {}) =>
     ok('con un código inventado tampoco', codigoMalo.status === 401);
     ok('el mensaje no dice cuál de las dos falló',
       soloClave.body.error === codigoMalo.body.error, [soloClave.body.error, codigoMalo.body.error]);
+    const codigo = totp(SECRETO);
     const bien = await pedir(Q, '/creador/login', {
-      method: 'POST', body: JSON.stringify({ password: CLAVE, codigo: totp(SECRETO) }),
+      method: 'POST', body: JSON.stringify({ password: CLAVE, codigo }),
     });
     ok('con el código del celular entra', bien.status === 200 && !!bien.body.token, bien.body.error);
     ok('y el panel lo declara',
       (await pedir(Q, '/creador/sistema', { headers: { Authorization: 'Bearer ' + bien.body.token } })).body.segundoFactor === true);
+    // El MISMO código no entra dos veces (barrido del 22/9): el que lo viera
+    // por encima del hombro tenía un minuto para reusarlo.
+    const otraVez = await pedir(Q, '/creador/login', {
+      method: 'POST', body: JSON.stringify({ password: CLAVE, codigo }),
+    });
+    ok('un código ya usado no vuelve a entrar', otraVez.status === 401, otraVez.status);
+
+    // Y los intentos EN PARALELO cuentan: el fallo se anotaba recién después
+    // del retardo, y diez pedidos a la vez pasaban todos el control. El login
+    // bueno de arriba vació la cuenta y el código repetido sumó uno: quedan
+    // cuatro lugares antes del tope de cinco.
+    const rafaga = await Promise.all(Array.from({ length: 10 }, () => pedir(Q, '/creador/login', {
+      method: 'POST', body: JSON.stringify({ password: 'no-es-la-clave', codigo: '123456' }),
+    })));
+    const cuentas = rafaga.reduce((a, r) => ({ ...a, [r.status]: (a[r.status] || 0) + 1 }), {});
+    ok('diez intentos a la vez: como mucho cuatro llegan a probar, el resto 429',
+       (cuentas[401] || 0) <= 4 && (cuentas[429] || 0) >= 6, cuentas);
 
     // Un secreto mal escrito no puede degradar a "sin segundo factor"
     const R = 3025;

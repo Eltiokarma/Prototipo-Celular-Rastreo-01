@@ -86,23 +86,52 @@ async function respaldar(db, Database, { dir, cuando = new Date(), conservar = C
   const carpeta = dir || dirDe(db.name);
   fs.mkdirSync(carpeta, { recursive: true });
   const destino = path.join(carpeta, nombreDe(cuando));
+  // Se escribe con un nombre TEMPORAL —que `listar` no reconoce— y recién
+  // verificado se renombra al definitivo, que en el mismo disco es atómico.
+  // Escrito en su lugar final, un apagado a mitad de `backup` dejaba un
+  // archivo roto con nombre de respaldo: `listar` lo contaba como el último,
+  // el arranque decía «todavía vale» y no respaldaba, y el panel lo ofrecía
+  // para bajar. Y dos pedidos en el mismo segundo escribían el mismo archivo:
+  // el que fallaba borraba el que el otro acababa de verificar (22/9).
+  const temporal = `${destino}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  limpiarTemporales(carpeta);
 
   try {
-    await db.backup(destino);
+    await db.backup(temporal);
   } catch (e) {
-    try { fs.unlinkSync(destino); } catch {}
+    try { fs.unlinkSync(temporal); } catch {}
     return { ok: false, motivo: 'backup: ' + e.message };
   }
 
-  const v = verificar(Database, destino);
+  const v = verificar(Database, temporal);
   if (!v.ok) {
-    try { fs.unlinkSync(destino); } catch {}
+    try { fs.unlinkSync(temporal); } catch {}
     return { ok: false, motivo: 'verificación: ' + v.motivo };
+  }
+  try {
+    fs.renameSync(temporal, destino);
+  } catch (e) {
+    try { fs.unlinkSync(temporal); } catch {}
+    return { ok: false, motivo: 'renombrar: ' + e.message };
   }
 
   const borrados = rotar(carpeta, conservar);
   const bytes = fs.statSync(destino).size;
   return { ok: true, archivo: path.basename(destino), bytes, borrados };
+}
+
+// Los temporales de un respaldo que se cortó (el proceso murió a mitad). Se
+// borran los de más de una hora: uno más nuevo puede ser de otro respaldo
+// que está corriendo ahora mismo.
+function limpiarTemporales(carpeta) {
+  let nombres = [];
+  try { nombres = fs.readdirSync(carpeta); } catch { return; }
+  const hace1h = Date.now() - 3600_000;
+  for (const n of nombres) {
+    if (!/^respaldo-.*\.db\.tmp-/.test(n)) continue;
+    const ruta = path.join(carpeta, n);
+    try { if (fs.statSync(ruta).mtimeMs < hace1h) fs.unlinkSync(ruta); } catch {}
+  }
 }
 
 // Se van los MÁS VIEJOS. El nombre ordena cronológicamente como texto.

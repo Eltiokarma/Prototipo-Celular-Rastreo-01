@@ -55,11 +55,21 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // `app` es `{ version, versionCode }` del APK (lo lee App.js de la
   // instalación): el servidor anota quién tiene cuál y contesta qué reparte.
   async function entrar(usuario, password, app = null) {
-    const r = await fetch(servidor + '/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user: usuario, password, ...(app ? { app } : {}) }),
-    });
+    // Con corte: con la conexión trabada el INGRESAR quedaba girando para
+    // siempre y el botón bloqueado (barrido del 22/9). Es pantalla prendida,
+    // así que el timer corre.
+    const control = new AbortController();
+    const corte = setTimeout(() => control.abort(), 20_000);
+    let r;
+    try {
+      r = await fetch(servidor + '/auth/login', {
+        method: 'POST', signal: control.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: usuario, password, ...(app ? { app } : {}) }),
+      });
+    } catch (e) {
+      throw new Error(e?.name === 'AbortError' ? 'El servidor no contesta: probá de nuevo' : 'Sin conexión con el servidor');
+    } finally { clearTimeout(corte); }
     const cuerpo = await r.json().catch(() => ({}));
     if (!r.ok) {
       const e = new Error(cuerpo.error || 'No se pudo entrar');
@@ -184,6 +194,9 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
         // El servidor cierra después de esto. No se reintenta: el token no
         // va a mejorar solo, y un gerente nunca va a poder entrar acá.
         cerradoAdrede = true;
+        // Lo declarado era de esta sesión: el próximo login en este mismo
+        // teléfono no puede entrar declarando la presencia del anterior.
+        presenciaDeclarada = null;
         emitir('authError', m.error);
         break;
 
@@ -536,6 +549,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     reportaGps = false;
     miUltimoSos = null;   // el SOS calificable no sobrevive a la sesión
     viaUltimoSos = null;
+    presenciaDeclarada = null;   // ni lo declarado (barrido del 22/9)
   }
 
   // Declarar el estado: en ruta, ausente, fuera. Por el WebSocket si está
@@ -547,13 +561,30 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // fire-and-forget y `onSalir` cerraba el socket enseguida: sin señal en
   // ese instante, el «fuera» se perdía y la combi quedaba en el mapa hasta
   // el olvido (REVISION, A5). Ahora se puede esperar, y por HTTP reintenta.
+  //
+  // «Fuera» va SIEMPRE también por HTTP: por un socket medio muerto —el que
+  // queda tras la pantalla apagada, en `OPEN` hasta que el servidor lo
+  // termina— se escribía en la nada y la combi seguía en el mapa hasta el
+  // olvido. El servidor acepta el repetido (barrido del 22/9).
   let presenciaDeclarada = null;
   async function marcarPresencia(estado) {
     presenciaDeclarada = estado;
     if (ws && conectado) {
-      try { ws.send(JSON.stringify({ type: 'presencia', estado })); return true; } catch {}
+      let salio = false;
+      try { ws.send(JSON.stringify({ type: 'presencia', estado })); salio = true; } catch {}
+      if (salio && estado !== 'fuera') return true;
     }
     return declararPorHttp('/presencia', { estado }, estado === 'fuera' ? 3 : 1);
+  }
+
+  // La presencia que cambió SIN pasar por acá: la tarea de fondo la declara
+  // sola —volvió a andar estando ausente, o lleva dos horas ausente y la
+  // saca de ruta— y el servidor ya se enteró por HTTP. Acá sólo se anota,
+  // para que la próxima reconexión no vuelva a declarar la vieja: cada vez
+  // que se prendía la pantalla re-declaraba «ausente» y el servidor tiraba
+  // la vuelta en curso (barrido del 22/9).
+  function recordarPresencia(estado) {
+    presenciaDeclarada = estado;
   }
 
   // "Estoy en tráfico" / "ya no". Mismo camino que la presencia: WebSocket
@@ -571,7 +602,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   return {
     entrar, conectar, salir, cerrarSesion,
     mandarGps, mandarChat, mandarVoz, mandarFoto, mandarSos,
-    marcarTipoSos, pedirMarca, marcarPresencia, marcarTrafico,
+    marcarTipoSos, pedirMarca, marcarPresencia, recordarPresencia, marcarTrafico,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {
       if (!oyentes.has(evento)) oyentes.set(evento, new Set());

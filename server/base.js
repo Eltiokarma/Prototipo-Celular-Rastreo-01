@@ -78,4 +78,11 @@ function idLimpio(v) {
   return ID_VALIDO.test(s) ? s : null;
 }
 
-module.exports = { openDatabase, hashPassword, verifyPassword, idLimpio, ID_VALIDO };
+// Los nombres que firman en la auditoría sin ser una cuenta: el panel del
+// creador y el propio sistema. Una cuenta que se llamara así recibía en su
+// cooperativa la auditoría de la plataforma —con las IP del operador y los
+// nombres de los respaldos— (barrido del 22/9). No se dan de alta.
+const ID_RESERVADOS = new Set(['CREADOR', 'SISTEMA']);
+const idReservado = (id) => ID_RESERVADOS.has(String(id || '').toUpperCase());
+
+module.exports = { openDatabase, hashPassword, verifyPassword, idLimpio, idReservado, ID_VALIDO };

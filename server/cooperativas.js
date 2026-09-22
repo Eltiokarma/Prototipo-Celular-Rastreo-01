@@ -9,7 +9,7 @@
 // `{ error: 'texto' }` o `{ ok: true, ... }` y quien llama decide si eso es
 // un 400, una línea roja en la consola o un cartel en pantalla.
 
-const { hashPassword, idLimpio } = require('./base');
+const { hashPassword, idLimpio, idReservado } = require('./base');
 
 // El mismo mínimo que exige el panel de Despacho al fijar una contraseña
 const CLAVE_MINIMA = 6;
@@ -84,6 +84,10 @@ function alta(db, datos = {}) {
   if (!companyId) {
     return { error: 'El código de la empresa solo admite letras, números, punto, guion y guion bajo (hasta 24)' };
   }
+  // Lo que empieza con dos guiones bajos es del sistema: `__plataforma__` es
+  // el casillero de la auditoría del creador, y una cooperativa con ese
+  // código la vería entera (barrido del 22/9).
+  if (companyId.startsWith('__')) return { error: 'Ese código está reservado para el sistema' };
   const name = String(datos.name || '').trim().slice(0, 80);
   if (!name) return { error: 'Falta el nombre de la cooperativa' };
   if (db.prepare('SELECT companyId FROM companies WHERE companyId = ?').get(companyId)) {
@@ -147,6 +151,7 @@ function supervisor(db, { companyId, usuario, clave } = {}) {
   const empresa = idLimpio(companyId);
   const unitId = idLimpio(usuario);
   if (!empresa || !unitId) return { error: 'Falta la empresa o el usuario' };
+  if (idReservado(unitId)) return { error: `${unitId} es un nombre reservado del sistema` };
   if (!clave || String(clave).length < CLAVE_MINIMA) {
     return { error: `La clave necesita al menos ${CLAVE_MINIMA} caracteres` };
   }
@@ -154,11 +159,18 @@ function supervisor(db, { companyId, usuario, clave } = {}) {
     return { error: `No existe la empresa ${empresa}` };
   }
 
-  const existente = db.prepare('SELECT unitId, companyId FROM users WHERE unitId = ?').get(unitId);
+  const existente = db.prepare('SELECT unitId, companyId, role FROM users WHERE unitId = ?').get(unitId);
   if (existente && existente.companyId !== empresa) {
     // Mover una cuenta de una cooperativa a otra se parece demasiado a un
     // error de tipeo. Que se dé de baja y se cree de nuevo, a la vista.
     return { error: `El usuario ${unitId} ya existe y pertenece a ${existente.companyId}` };
+  }
+  // Y lo mismo DENTRO de la cooperativa: «crear o restablecer» sobre un
+  // chofer, un cobrador o la gerencia lo convertía en Despacho de toda la
+  // empresa, con clave nueva y a mitad de turno — un error de tipeo basta.
+  // `gerente()` ya lo rechazaba (barrido del 22/9).
+  if (existente && existente.role !== 'dispatch') {
+    return { error: `El usuario ${unitId} ya existe y no es una cuenta de Despacho` };
   }
 
   const hash = hashPassword(String(clave));
@@ -190,6 +202,7 @@ function gerente(db, { companyId, usuario, clave, routeId } = {}) {
   const empresa = idLimpio(companyId);
   const unitId = idLimpio(usuario);
   if (!empresa || !unitId) return { error: 'Falta la empresa o el usuario' };
+  if (idReservado(unitId)) return { error: `${unitId} es un nombre reservado del sistema` };
   if (!clave || String(clave).length < CLAVE_MINIMA) {
     return { error: `La clave necesita al menos ${CLAVE_MINIMA} caracteres` };
   }

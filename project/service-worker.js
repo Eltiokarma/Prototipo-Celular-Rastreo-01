@@ -6,7 +6,7 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v66';       // app: HTML, JS propio, iconos
+const CACHE_NAME = 'coop-r14-v67';       // app: HTML, JS propio, iconos
 // tiles-v2: las tiles ahora vienen de Geoapify — las de CARTO guardadas con
 // la v1 tienen URLs que ya nadie pide y solo ocupan los ~15 MB del tope.
 const TILE_CACHE = 'coop-r14-tiles-v2';  // tiles del mapa
@@ -145,9 +145,11 @@ async function redPrimero(request, cacheName) {
     // pedidos, como los de navegación) igual se sirve la copia fresca.
     // Se guarda una petición simple por URL, que es la que después
     // encuentra cache.match cuando no hay señal.
-    try {
-      await cache.put(pedido, respuesta.clone());
-    } catch {}
+    if (!noGuardar(respuesta)) {
+      try {
+        await cache.put(pedido, respuesta.clone());
+      } catch {}
+    }
     return respuesta;
   }
 
@@ -161,11 +163,26 @@ async function cachePrimero(request, cacheName, podar) {
   const guardado = await cache.match(request);
   if (guardado) return guardado;
   const respuesta = await fetch(request);
-  if (respuesta && (respuesta.ok || respuesta.type === 'opaque')) {
-    await cache.put(request, respuesta.clone());
-    if (podar) await podarTiles(cache);
+  if (respuesta && (respuesta.ok || respuesta.type === 'opaque') && !noGuardar(respuesta)) {
+    // En un try: con el almacenamiento lleno `put` rechaza, y ese rechazo
+    // convertía una respuesta buena en un error — la tile o el recurso no
+    // cargaba teniendo la red andando (barrido del 22/9).
+    try {
+      await cache.put(request, respuesta.clone());
+      if (podar) await podarTiles(cache);
+    } catch {}
   }
   return respuesta;
+}
+
+// Lo que el servidor marca `no-store` no se guarda, venga de donde venga. La
+// lista de arriba nombra el panel del creador por su ruta por defecto; con
+// `CREATOR_PATH` cambiado, su HTML y su trazador quedaban guardados —el
+// trazador para siempre, en «caché primero»— y un despliegue nuevo servía
+// el HTML fresco con el trazador viejo (barrido del 22/9).
+function noGuardar(respuesta) {
+  const cc = (respuesta.headers && respuesta.headers.get('cache-control')) || '';
+  return /no-store/i.test(cc);
 }
 
 self.addEventListener('fetch', (event) => {
