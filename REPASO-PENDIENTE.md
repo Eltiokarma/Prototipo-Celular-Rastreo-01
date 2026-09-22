@@ -212,10 +212,38 @@ revisión del 10/9 queda cerrada entera. Regresión completa verde.
 
 ---
 
-## Tanda 8 — el repaso del 21/9 (lo nuevo, sin repasar)
+## ~~Tanda 8 — el repaso del 21/9~~ — REPASADA el 22/9
 
 Lo que el repaso encontró y arregló, con suite. Es trabajo nuevo, así que
 entra a la cola. Regresión completa verde.
+
+**Segundo repaso, 22/9**, sobre el diff entero de esta tanda. Dos cosas
+cambiaron, las dos en la app:
+
+- **La notificación de relevo (punto 3) se llevaba también la brecha.** El
+  arreglo la borraba cuando el rol de GPS volvía, pero ese aviso (`gps_role`
+  con `reporting: true`) llega en CADA identificación del socket, no sólo al
+  terminar un relevo: cada reconexión borraba la notificación de la brecha
+  y la volvía a poner en el envío siguiente. Ahora `limpiarSiSinRol()` borra
+  sólo si lo puesto es «MODO ACOMPAÑANTE». Suite `nativas`.
+- **La hidratación de la grabación (punto 2) tenía una carrera chica**: si
+  el chofer apretaba GRABAR mientras se leía el disco, la grabación vieja
+  pisaba el rótulo de la nueva. Se vuelve a mirar antes de escribir.
+
+Lo demás se releyó y se sostiene: el eco del tipo de SOS en la app y en la
+web (un tipo que el servidor rechaza por el socket ahora cae a HTTP y
+vuelve con su error, que es mejor que antes), la idempotencia del servidor,
+`PARPADEO_MS`, el alias con acentos, la poda, y la agrupación por ruta de
+«Dónde se traba» (con la lista de rutas todavía sin cargar, cae al
+comportamiento viejo, no rompe). Una anotación: el aviso de tráfico del
+que declaró «ruta» sin confirmar vuelve a durar hasta que confirme y ande,
+el «fuera» o el olvido — es el comportamiento de antes de la tanda 7, no
+uno nuevo.
+
+**La cola de repaso queda vacía.** El archivo se conserva hasta que lo
+que la tanda 8 dice que es «del teléfono» —el socket medio muerto, la
+grabación tras un reinicio, la notificación de relevo— se vea con el APK 5;
+después se borra.
 
 ### Lo que más conviene mirar, en orden
 

@@ -345,7 +345,10 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
      /hidratarGrabacionGuardada\(\)\.catch/.test(servicio));
   // Y la notificación de «modo acompañante» se va cuando el rol vuelve.
   ok('la notificación de relevo se borra cuando vuelve el rol de GPS',
-     /if \(reporta\) \{ gps\.diagnostico\.detenidoPor = null; limpiarNotificacion\(\)/.test(app));
+     /if \(reporta\) \{ gps\.diagnostico\.detenidoPor = null; limpiarSiSinRol\(\)/.test(app));
+  // Y SÓLO esa: el rol vuelve en cada reconexión y la brecha no se borra
+  ok('limpiarSiSinRol sólo borra si lo puesto es «modo acompañante»',
+     /export async function limpiarSiSinRol\(\) \{\s*if \(ultimo !== 'MODO ACOMPAÑANTE'\) return;/.test(notif));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

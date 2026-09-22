@@ -354,6 +354,9 @@ export async function hidratarGrabacionGuardada() {
   let previos = null;
   try { previos = JSON.parse(await FileSystem.readAsStringAsync(ARCHIVO_GRABACION())); } catch {}
   if (!Array.isArray(previos) || !previos.length) return;
+  // Mientras se leía el disco el chofer pudo apretar GRABAR: la grabación
+  // nueva manda, y la vieja ya se borró (segundo repaso, 22/9).
+  if (diagnostico.grabacion) return;
   const g = crearGrabador(previos);
   diagnostico.grabacion = { puntos: g.cantidad, largoM: g.largoM, parada: true };
 }
