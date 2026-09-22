@@ -190,6 +190,7 @@ const dias = n => Date.now() - n * 86400_000;
     let r = await pedir('/perfil/alias', s2.token, { method: 'POST',
       body: JSON.stringify({ alias: 'El Puma' }) });
     ok('un alias que ya tiene un compañero de ruta, 409', r.status === 409, { status: r.status, body: r.body });
+    ok('y dice que lo que choca es un APODO', r.body.choca === 'alias' && /apodo/i.test(r.body.error || ''), r.body);
     // Ni con otras mayúsculas ni con espacios de sobra: se compara como se lee
     r = await pedir('/perfil/alias', s2.token, { method: 'POST',
       body: JSON.stringify({ alias: '  el puma ' }) });
@@ -198,6 +199,22 @@ const dias = n => Date.now() - n * 86400_000;
     r = await pedir('/perfil/alias', s2.token, { method: 'POST',
       body: JSON.stringify({ alias: 'Elmer Ccama' }) });
     ok('ni el nombre real de otro', r.status === 409, r.status);
+    ok('y ahí dice que lo que choca es un NOMBRE', r.body.choca === 'nombre' && /nombre/i.test(r.body.error || ''), r.body);
+    // Ni con mayúsculas que no son ASCII ni sin los acentos (repaso del
+    // 21/9): el LOWER de SQLite dejaba pasar «ÑATO» contra «ñato» y «JOSÉ»
+    // contra «josé», y «Jose» es «José» en cualquier pantalla.
+    r = await pedir('/perfil/alias', s1.token, { method: 'POST',
+      body: JSON.stringify({ alias: 'Ñato Pérez' }) });
+    ok('M-01 se pone «Ñato Pérez»', r.status === 200, r.status);
+    r = await pedir('/perfil/alias', s2.token, { method: 'POST',
+      body: JSON.stringify({ alias: 'ÑATO PÉREZ' }) });
+    ok('«ÑATO PÉREZ» choca con «Ñato Pérez»', r.status === 409, r.status);
+    r = await pedir('/perfil/alias', s2.token, { method: 'POST',
+      body: JSON.stringify({ alias: 'nato perez' }) });
+    ok('y «nato perez», sin acentos ni eñe, también', r.status === 409, r.status);
+    r = await pedir('/perfil/alias', s1.token, { method: 'POST',
+      body: JSON.stringify({ alias: 'El Puma' }) });
+    ok('M-01 vuelve a «El Puma»', r.status === 200, r.status);
     r = await pedir('/perfil/alias', s2.token, { method: 'POST',
       body: JSON.stringify({ alias: 'El Zorro' }) });
     ok('uno libre entra sin drama', r.status === 200 && r.body.alias === 'El Zorro', r.body);

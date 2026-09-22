@@ -479,6 +479,16 @@ El aviso `sos_tipo` sale a la ruta y a los supervisores igual que por el
 socket. El cliente manda por el socket si lo tiene y cae a HTTP si no; si no
 salió por ninguno de los dos, **lo dice**.
 
+Desde el 21/9 el cliente **espera el eco** también para el tipo: manda el
+`sos_tipo` por el socket y lo da por salido recién cuando vuelve el aviso con
+su `sosId` (hasta 5 s en la app, 4 en la web); sin eco, HTTP. Un socket en
+`readyState` abierto no es un socket vivo —tras la pantalla apagada queda
+abierto y muerto hasta que el servidor lo termina—, y era justo ahí donde el
+tipo se escribía en la nada. Y si el disparo mismo ya tuvo que salir por
+HTTP, el tipo no insiste con el socket. Del lado del servidor, **el mismo
+tipo dos veces es una sola cosa**: contesta `200 { ok: true }` y no vuelve a
+avisar a la ruta, así que un eco perdido no duplica nada.
+
 Y una regla del lado de `/gps` que va con la presencia: **un lote cuyas
 posiciones son todas anteriores al último «fuera» de la unidad se descarta
 entero, presencia incluida**. Es el `POST /gps` que venía en vuelo con
@@ -564,9 +574,12 @@ empresa— como si fuera la suya (revisión del 10/9, P8).
 
 Dos cosas más del perfil, por HTTP y con la misma regla de «lo suyo y nada
 más»: `POST /perfil/alias` contesta **409** si en su ruta ya hay alguien con
-ese nombre —alias o nombre real, sin distinguir mayúsculas ni espacios de
-sobra—, porque el alias pisa `driverName` y dos iguales son dos unidades con
-el mismo nombre en el mapa (P9); y `POST /auth/logout` con `{ "todas": true }`
+ese nombre —alias o nombre real, sin distinguir mayúsculas (tampoco las que
+no son ASCII: «ÑATO» es «ñato»), acentos ni espacios de sobra—, porque el
+alias pisa `driverName` y dos iguales son dos unidades con el mismo nombre en
+el mapa (P9). El cuerpo del 409 trae `choca: "alias" | "nombre"` y un `error`
+que lo dice en castellano: no es lo mismo «ese apodo ya lo usa alguien» que
+«alguien se llama así de nombre» (repaso del 21/9). Y `POST /auth/logout` con `{ "todas": true }`
 cierra TODAS las sesiones de esa persona, incluida la que lo pide, y corta sus
 WebSocket abiertos. Es el remedio para el teléfono perdido: lo que da acceso
 no es la contraseña sino el token, que vive 30 días (P11).

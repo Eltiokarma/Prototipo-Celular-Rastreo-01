@@ -276,6 +276,7 @@ async function grabar(posiciones) {
 // Lo que usa la pantalla del perfil. Todo pasa por el disco porque la
 // pantalla y la tarea pueden estar en procesos distintos.
 export async function empezarGrabacion() {
+  hidratada = true;   // lo que hubiera en disco se pisa a propósito
   grabador = crearGrabador();
   grabadoEnDisco = 0;
   grabacionPedida = false;
@@ -336,7 +337,32 @@ export async function pararGrabacion() {
   return puntos;
 }
 
+// Una grabación PARADA y sin enviar que sobrevivió a un reinicio del
+// proceso (repaso del 21/9). El archivo está en disco y el flag no, así que
+// `grabar()` no la retoma (bien: está parada) — pero `diagnostico.grabacion`
+// vive en memoria y nadie lo volvía a llenar. Perfil mostraba «GRABAR
+// RECORRIDO» como si no hubiera nada, y apretarlo borraba la vuelta grabada;
+// mientras tanto cada `POST /gps` decía `grabando: true` y un pedido de
+// Despacho se daba por arrancado sin que nada arrancara. Se lee el archivo
+// una vez y la pantalla vuelve a ofrecer ENVIAR o Descartar.
+let hidratada = false;
+export async function hidratarGrabacionGuardada() {
+  if (hidratada || diagnostico.grabacion) return;
+  hidratada = true;
+  const flag = await SecureStore.getItemAsync(LLAVE_GRABANDO).catch(() => null);
+  if (flag === '1') return;   // en curso: la retoma `grabar()`
+  let previos = null;
+  try { previos = JSON.parse(await FileSystem.readAsStringAsync(ARCHIVO_GRABACION())); } catch {}
+  if (!Array.isArray(previos) || !previos.length) return;
+  // Mientras se leía el disco el chofer pudo apretar GRABAR: la grabación
+  // nueva manda, y la vieja ya se borró (segundo repaso, 22/9).
+  if (diagnostico.grabacion) return;
+  const g = crearGrabador(previos);
+  diagnostico.grabacion = { puntos: g.cantidad, largoM: g.largoM, parada: true };
+}
+
 export async function descartarGrabacion() {
+  hidratada = false;
   grabador = null;
   grabacionPedida = false;
   diagnostico.grabacion = null;
@@ -468,6 +494,9 @@ async function subirAhora(nuevas) {
       // Ver abajo por qué importa.
       FileSystem.getInfoAsync(ARCHIVO_GRABACION()).catch(() => null),
     ]);
+    // Si hay archivo y no hay flag, es una grabación parada que la pantalla
+    // tiene que poder ver (ver `hidratarGrabacionGuardada`).
+    if (archivoGrabacion?.exists && flagGrabando !== '1') hidratarGrabacionGuardada().catch(() => {});
     if (!crudo || !servidor || !JSON.parse(crudo)?.token) {
       guardarSiSigue(posiciones);
       anotarFallo(!crudo || !servidor ? 'sin sesión guardada' : 'sesión sin token', posiciones);
@@ -691,6 +720,7 @@ export async function pedirPermisos() {
 // Y el caso que lo dispara es el más común de todos: **instalar una versión
 // nueva**. O sea que le iba a pasar a cada chofer en cada actualización.
 export async function arrancar({ textoNotificacion = 'Turno en curso' } = {}) {
+  hidratarGrabacionGuardada().catch(() => {});
   if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
     diagnostico.servicio = 'corriendo';
     return;

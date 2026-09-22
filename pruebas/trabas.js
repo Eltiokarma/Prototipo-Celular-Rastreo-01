@@ -54,6 +54,19 @@ let servidor = null, browser = null;
   const hoy = (h) => medianoche + h * 60_000;
   const w = new Database(DB);
   const companyId = w.prepare("SELECT companyId FROM routes WHERE routeId = 'R-14'").get().companyId;
+  // R-14 necesita un trazado: sin él no hay «punto del circuito» que medir y
+  // la pantalla —con razón— manda todo a «Sin recorrido cargado». Un anillo
+  // de 900 m de radio (unos 5,7 km), como en las suites de medición.
+  {
+    const variante = w.prepare("SELECT variantId FROM route_variants WHERE routeId = 'R-14' AND activa = 1").get().variantId;
+    const punto = w.prepare('INSERT INTO route_points (variantId, leg, seq, lat, lng) VALUES (?, ?, ?, ?, ?)');
+    const LAT0 = -15.4904, LNG0 = -70.1333, gr = 1 / 111320;
+    for (let i = 0; i < 48; i++) {
+      const t = i / 48;
+      punto.run(variante, 'ida', i, LAT0 + gr * 900 * Math.cos(t * 2 * Math.PI),
+                LNG0 + gr * 900 * Math.sin(t * 2 * Math.PI) / Math.cos(LAT0 * Math.PI / 180));
+    }
+  }
   const parada = w.prepare(`INSERT INTO paradas (vehicleId, routeId, companyId, startedAt, endedAt, durationSec, lat, lng, progreso, tramo, confirmado, medida, cierre)
                             VALUES (?, 'R-14', ?, ?, ?, ?, -15.49, -70.13, ?, ?, ?, 1, 'movio')`);
   // TRES combis distintas trabadas en la misma franja del circuito (42–44 %
@@ -173,6 +186,47 @@ let servidor = null, browser = null;
        /salto imposible/i.test(t) && /ausente y en marcha/i.test(t) && !/ausente_en_marcha/i.test(t),
        t.split('\n').filter(l => /salto|ausente/i.test(l)));
     ok('con su detalle', /saltó 900 m en 3 s/.test(t));
+  }
+
+  console.log('\nCADA LUGAR ES DE UNA RUTA');
+  // Repaso del 21/9. El 42 % de la ida de R-14 y el 42 % de la ida de otra
+  // ruta son dos lugares, y una cooperativa con varias rutas los veía sumados
+  // en una sola fila. Se agrega una segunda ruta SIN trazado cargado —lo que
+  // estimó su app no es un punto del circuito— con una combi parada «al
+  // 42 %», y la fila de R-14 tiene que seguir diciendo tres.
+  {
+    const coop = require(RAIZ + '/server/cooperativas.js');
+    const w2 = new Database(DB);
+    const alta = coop.altaRuta(w2, { companyId, routeId: 'R-20', name: 'Ruta 20' });
+    w2.prepare(`INSERT INTO paradas (vehicleId, routeId, companyId, startedAt, endedAt, durationSec, lat, lng, progreso, tramo, confirmado, medida, cierre)
+                VALUES ('M-21', 'R-20', ?, ?, ?, 240, -15.50, -70.10, 0.42, 'ida', 0, 1, 'movio')`)
+      .run(companyId, hoy(9), hoy(9) + 240_000);
+    w2.close();
+    ok('la segunda ruta existe', alta.ok === true, alta);
+    // La pantalla vuelve a leer las rutas (pestaña Rutas) y después los datos
+    await p.locator('button', { hasText: /^Rutas/ }).first().click();
+    await p.waitForTimeout(1200);
+    await p.click('button:has-text("Dónde se traba")');
+    await p.waitForTimeout(2500);
+    const t = await texto();
+    ok('aparece la columna Ruta', /\bRUTA\b/.test(t), t.split('\n').filter(l => /RUTA/.test(l)).slice(0, 3));
+    const fila = await p.evaluate(() => {
+      const div = Array.from(document.querySelectorAll('div'))
+        .find(d => d.children.length === 7 && d.children[2]?.innerText?.includes('40 – 45'));
+      return div ? Array.from(div.children).map(c => c.innerText.trim()) : null;
+    });
+    ok('la franja 40–45 % de R-14 sigue siendo de R-14, con sus tres combis',
+       fila && fila[0] === 'R-14' && fila[3] === '3' && fila[5] === '3', fila);
+    const filaR20 = await p.evaluate(() => {
+      const div = Array.from(document.querySelectorAll('div'))
+        .find(d => d.children.length === 7 && d.children[0]?.innerText?.trim() === 'R-20');
+      return div ? Array.from(div.children).map(c => c.innerText.trim()) : null;
+    });
+    ok('y la de R-20, sin trazado, va aparte y dice que no tiene recorrido cargado',
+       filaR20 && /Sin recorrido cargado/i.test(filaR20[2]) && filaR20[3] === '1', filaR20);
+    ok('el pie dice cuánto mide una franja en R-14 y no inventa una medida para R-20',
+       /Cada franja es el 5 % del circuito: en R-14, unos [\d,]+ (m|km)\./.test(t) && !/en R-20, unos/.test(t),
+       t.split('\n').filter(l => /Cada franja/.test(l)));
   }
 
   ok('la página no tiró ningún error', errores.length === 0, errores.slice(0, 4));

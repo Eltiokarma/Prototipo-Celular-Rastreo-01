@@ -137,6 +137,16 @@ export async function notificarSinRol(motivo) {
   } catch {}
 }
 
+// Borra la notificación SÓLO si la que está puesta es la del relevo. Lo
+// llama la pantalla cuando el rol de GPS vuelve, y ese aviso (`gps_role`
+// con `reporting: true`) llega en CADA identificación del socket, no sólo
+// al terminar un relevo: borrar a ciegas se llevaba también la brecha en
+// cada reconexión (segundo repaso, 22/9).
+export async function limpiarSiSinRol() {
+  if (ultimo !== 'MODO ACOMPAÑANTE') return;
+  await limpiarNotificacion();
+}
+
 export async function limpiarNotificacion() {
   ultimo = null;
   try { await Notifications.dismissNotificationAsync(ID); } catch {}

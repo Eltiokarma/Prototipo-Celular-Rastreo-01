@@ -121,7 +121,9 @@
           emit('cupo', msg);
         } else if (msg.type === 'sos_tipo') {
           // El tipo elegido después del disparo: actualiza el SOS ya
-          // mostrado, no agrega otro.
+          // mostrado, no agrega otro. Si es el de MI disparo, `sendSosTipo`
+          // lo está esperando como prueba de que salió.
+          if (ecoTipo && msg.sosId === ecoTipo.sosId) { const r = ecoTipo.resolve; ecoTipo = null; r(msg); }
           emit('sostipo', msg);
         } else if (msg.type === 'chat_history') {
           emit('history', msg.items || []);
@@ -411,10 +413,26 @@
   // donde «accidente» o «falla mecánica» se perdía: quien moviliza veía un
   // SOS genérico y tenía que adivinar entre ambulancia y grúa
   // (REVISION-2026-09-10.md, C8).
+  //
+  // Y por el socket SE ESPERA EL ECO (repaso del 21/9): `readyState === OPEN`
+  // no dice que el socket esté vivo —tras la pantalla apagada queda abierto
+  // y muerto hasta que el servidor lo termina—, y dar por salido un `send()`
+  // que no tiró era perder «accidente» en silencio justo en el caso de C8.
+  // Es lo mismo que ya hacía `sendSos` con el `sos_alert`. Sin eco en 4 s,
+  // HTTP; el servidor no repite el aviso si el tipo ya estaba puesto.
+  let ecoTipo = null;
   async function sendSosTipo(sosId, tipo) {
     if (sosId == null) return 'sin-sos';
     if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ type: 'sos_tipo', sosId, tipo })); return null; } catch {}
+      const eco = new Promise((resolve) => {
+        const mio = { sosId, resolve };
+        ecoTipo = mio;
+        setTimeout(() => { if (ecoTipo === mio) { ecoTipo = null; resolve(null); } }, 4000);
+      });
+      let mandado = true;
+      try { ws.send(JSON.stringify({ type: 'sos_tipo', sosId, tipo })); } catch { mandado = false; }
+      if (mandado && await eco) return null;
+      ecoTipo = null;
     }
     if (!authToken) return 'sin-conexion';
     try {

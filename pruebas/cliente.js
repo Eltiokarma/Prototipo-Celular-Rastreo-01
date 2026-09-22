@@ -253,6 +253,18 @@ async function hasta(cond, ms = 6000) {
      await hasta(() => sos.some(a => a.vehicleId === 'M-12')), sos);
   ok('y `mandarSos` recién resuelve con el ECO: llegó, por el socket, con su id',
      rSos && rSos.ok === true && rSos.via === 'ws' && Number.isInteger(rSos.sosId), rSos);
+  // Y el tipo, por el mismo socket, también se da por salido recién con SU
+  // eco (repaso del 21/9): un socket abierto no es un socket vivo, y darlo
+  // por salido al escribir era perder «accidente» en silencio.
+  {
+    const t0 = Date.now();
+    const rt = await relevo.marcarTipoSos('accidente');
+    ok('el tipo por el socket sale y resuelve con el eco, rápido',
+       rt === null && Date.now() - t0 < 3000, { rt, ms: Date.now() - t0 });
+    ok('y queda contra ese disparo',
+       new Database(DB, { readonly: true })
+         .prepare('SELECT sosTipo FROM messages WHERE id = ?').get(rSos.sosId)?.sosTipo === 'accidente');
+  }
 
   console.log('\nEL SOS SIN SOCKET SALE POR HTTP');
   // De la revisión del 8/9 (A1): con el socket muerto (pantalla recién

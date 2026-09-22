@@ -3070,7 +3070,7 @@ function Root() {
                   const r = await window.RealtimeClient.sendSosTipo(id, clave);
                   if (r) pushMsg({
                     from: 'SISTEMA', role: 'admin', tone: 'warn',
-                    text: 'Tu SOS salió, pero no pudo decir QUÉ pasó. Avisá por acá si es ambulancia o grúa.',
+                    text: 'SOS ENVIADO. El tipo no salió: decí por acá si es ambulancia o grúa.',
                     time: nowTime(),
                   });
                 }} style={{

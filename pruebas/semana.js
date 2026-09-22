@@ -97,6 +97,12 @@ let servidor = null;
   // cobrador arriba), M-02 de 13 a 17 (2 vueltas y una salida de ruta), una
   // vuelta a las 19 de nadie, y una vuelta de hace 20 días.
   const ahora = Date.now();
+  // OJO: `hoy(h)` es «hace (24 − h) horas», y eso CRUZA LA MEDIANOCHE según
+  // la hora a la que corra la suite (a las 15:00, `hoy(8)` es ayer a las
+  // 23:00). Por eso acá no se pregunta nunca por «hoy» (`dias=1`) ni por
+  // `porDia`: todo lo sembrado cae dentro de los 7 días de calendario a
+  // cualquier hora. Si hiciera falta preguntar por el día, sembrar como
+  // `numeros` y `trabas`: anclado a la medianoche de hoy y en minutos.
   const hoy = (h) => ahora - (24 - h) * H;
   const w = new Database(DB);
   const empresa = w.prepare("SELECT companyId FROM routes WHERE routeId = 'R-14'").get().companyId;
