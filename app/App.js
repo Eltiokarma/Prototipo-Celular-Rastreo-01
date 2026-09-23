@@ -258,6 +258,8 @@ function Aplicacion() {
       // primero el vigilante, después parar.
       c.on('authError', async (e) => {
         saliendo.current = true;
+        c.salir();
+        olvidarDeLaSesion();
         setAviso(e); setSesion(null); setPresencia('fuera');
         gps.limpiarSesion();
         try { await SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA); } catch {}
@@ -380,10 +382,26 @@ function Aplicacion() {
   // Acá solo se mira, para poder mostrar en pantalla qué está pasando.
   // El SOS vale mucho más con coordenadas: es lo primero que pregunta quien
   // sale a ayudar. Se guarda la última que pasó por la tarea.
-  const ultimaPos = React.useRef({ lat: null, lng: null });
+  //
+  // Con la HORA en que llegó: una posición de hace veinte minutos no es
+  // «dónde estoy», y mandarla como si lo fuera manda la ayuda adonde la
+  // combi ya no está. Sin una fresca el SOS sale igual, sin coordenadas. Y
+  // se olvida al salir: el siguiente en este teléfono mandaba la del
+  // anterior (barrido del 22/9).
+  const ultimaPos = React.useRef({ lat: null, lng: null, t: 0 });
   React.useEffect(() => {
-    gps.cuandoLlegueUnaPosicion((p) => { ultimaPos.current = { lat: p.lat, lng: p.lng }; });
+    gps.cuandoLlegueUnaPosicion((p) => { ultimaPos.current = { lat: p.lat, lng: p.lng, t: Date.now() }; });
   }, []);
+  const posicionParaSos = () => (Date.now() - ultimaPos.current.t <= 2 * 60_000
+    ? { lat: ultimaPos.current.lat, lng: ultimaPos.current.lng } : { lat: null, lng: null });
+  // Lo que es de ESTA persona y no puede pasar a la siguiente en el mismo
+  // teléfono: su última posición, su hilo (con el privado con Despacho) y el
+  // «¿qué pasó?» de un SOS suyo (barrido del 22/9).
+  const olvidarDeLaSesion = () => {
+    ultimaPos.current = { lat: null, lng: null, t: 0 };
+    setMensajes([]);
+    setTipificarSos(false);
+  };
 
   // El texto de la notificación va en un ref para que los oyentes se
   // suscriban UNA vez: si dependieran del hud, se re-suscribirían con cada
@@ -424,6 +442,9 @@ function Aplicacion() {
         gps.diagnostico.presenciaAuto = null;
         if (auto === 'fuera') saliendo.current = true;
         setPresencia(auto === 'ruta' ? 'ruta' : 'fuera');
+        // Que el cliente también lo sepa: si no, al reconectar re-declaraba
+        // la presencia vieja (barrido del 22/9).
+        if (cliente.current) cliente.current.recordarPresencia(auto === 'ruta' ? 'ruta' : 'fuera');
         setAviso(auto === 'ruta'
           ? 'Te vimos en movimiento: volviste a ruta'
           : 'Ausente más de 2 horas: te sacamos de ruta');
@@ -433,6 +454,10 @@ function Aplicacion() {
       if (gps.diagnostico.sesionRechazada) {
         gps.diagnostico.sesionRechazada = false;
         saliendo.current = true;
+        // El socket de la sesión rechazada se cierra, y con él lo que el
+        // cliente recordaba de ella (barrido del 22/9).
+        if (cliente.current) cliente.current.salir();
+        olvidarDeLaSesion();
         gps.limpiarSesion();
         setAviso('Tu sesión ya no vale: entrá de nuevo');
         setSesion(null); setPresencia('fuera');
@@ -591,6 +616,7 @@ function Aplicacion() {
       // Y el token deja de valer en el servidor, no sólo en este teléfono
       try { await cliente.current.cerrarSesion(); } catch {}
       cliente.current.salir();
+      olvidarDeLaSesion();
       setSesion(null);
     },
   };
@@ -611,7 +637,7 @@ function Aplicacion() {
         onPresencia={cambiarPresencia}
         yo={cliente.current?.miUnidad ? cliente.current.miUnidad() : null}
         onTrafico={(activo) => cliente.current.marcarTrafico(activo)}
-        onSos={() => cliente.current.mandarSos(ultimaPos.current)}
+        onSos={() => cliente.current.mandarSos(posicionParaSos())}
         tipificarSos={tipificarSos}
         onTipoSos={async (tipo) => {
           // El diálogo se cierra en el acto: el chofer está en una
@@ -636,7 +662,9 @@ function Aplicacion() {
           // se descartaba (C10).
           if (!cliente.current.mandarChat(texto, { privado: canal === 'directo' })) {
             setAviso('Sin conexión: el mensaje no salió, probá de nuevo');
+            return false;
           }
+          return true;
         }}
         onVoz={(data, duration) => {
           // Ídem la nota de voz, que es peor: el chofer graba cuarenta
@@ -645,6 +673,9 @@ function Aplicacion() {
           if (r === 'muy-larga') setAviso('La nota es muy larga y no salió: grabá una más corta');
           else if (r === 'sin-conexion') setAviso('Sin conexión: la nota no salió, probá de nuevo');
           else if (r) setAviso('Eso no es una nota de voz');
+          // Y se devuelve: `Grabar` y `Camara` lo muestran al lado del botón,
+          // que es donde está mirando el que mandó (barrido del 22/9).
+          return r;
         }}
         onFoto={(data) => {
           // Si no salió, se dice por qué. Antes la pantalla ignoraba el
@@ -653,6 +684,7 @@ function Aplicacion() {
           if (r === 'muy-pesada') setAviso('La foto pesa demasiado y no salió: sacala de más lejos');
           else if (r === 'sin-conexion') setAviso('Sin conexión: la foto no salió, probá de nuevo');
           else if (r) setAviso('Eso no es una foto');
+          return r;
         }} />
     </Carrusel>
     {/* Fuera del carrusel: el perfil no es una página más, es un alto */}
@@ -886,15 +918,24 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
             Mientras tanto el chat queda abierto y no se emite nada. Al
             salir de ruta, la ubicación se apaga.
           </Text>
+          {/* «Te sacamos de ruta» cae justo en esta pantalla, y no se veía */}
+          {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
         {/* El cobrador no emite: la unidad la lleva el chofer, y el servidor
             le contesta 403 a cada posición. Antes podía deslizar igual y
             quedaba con el GPS alto y un 403 cada 3 s todo el turno (A4). */}
         {rol === 'collector' ? (
-          <Text style={[s.diagnostico, { marginBottom: 12 }]}>
-            La ubicación la emite el teléfono del chofer. Vos tenés el chat, el
-            mapa y el SOS.
-          </Text>
+          <>
+            <Text style={[s.diagnostico, { marginBottom: 12 }]}>
+              La ubicación la emite el teléfono del chofer. Vos tenés el chat, el
+              mapa y el SOS.
+            </Text>
+            {/* Y el SOS tiene que ESTAR: el cobrador siempre está «fuera», y
+                el deslizador sólo aparecía en ausente y en ruta — la pantalla
+                le prometía un SOS que no tenía (barrido del 22/9). */}
+            {tipificarSos && <TipoSos onElegir={onTipoSos} />}
+            <SosDeslizable onDisparar={onSos} />
+          </>
         ) : (
           <Deslizable texto="DESLIZÁ PARA SALIR A RUTA  →" textoBoton="IR"
             colorListo={C.verde} onDisparar={() => onPresencia('ruta')} />
@@ -925,6 +966,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
           <Text style={s.diagnostico}>
             Al volver, entrás a la cadena cuando el GPS te vea sobre el trazado.
           </Text>
+          {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
         {tipificarSos && <TipoSos onElegir={onTipoSos} />}
         <SosDeslizable onDisparar={onSos} />
@@ -1112,8 +1154,18 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
 
   // Se recarga entero después de tocar un cobrador: el servidor es el que
   // sabe cuántos quedan y cuántas horas llevan, no esta pantalla.
+  // Todo lo de esta pantalla va con corte: con la conexión trabada, «ENVIANDO…»
+  // y la carga quedaban colgados para siempre (barrido del 22/9).
+  const conCorte = (url, opciones = {}) => {
+    const control = new AbortController();
+    const t = setTimeout(() => control.abort(), 20_000);
+    return fetch(url, { ...opciones, signal: control.signal }).finally(() => clearTimeout(t));
+  };
+  // Si el último `post` falló porque el servidor dijo que NO (y no por la
+  // red): reintentar no sirve, y la pantalla no tiene que decir que sí.
+  const fueRechazo = React.useRef(false);
   const cargar = React.useCallback(() => (
-    fetch(SERVIDOR + '/perfil?dias=' + dias, { headers: { Authorization: 'Bearer ' + sesion.token, ...CABECERA_APP } })
+    conCorte(SERVIDOR + '/perfil?dias=' + dias, { headers: { Authorization: 'Bearer ' + sesion.token, ...CABECERA_APP } })
       .then(async r => {
         const cuerpo = await r.json();
         if (!r.ok) throw new Error(cuerpo.error || 'HTTP ' + r.status);
@@ -1126,14 +1178,18 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
 
   const post = async (ruta, body, hecho) => {
     setAviso(null);
+    fueRechazo.current = false;
     try {
-      const r = await fetch(SERVIDOR + ruta, {
+      const r = await conCorte(SERVIDOR + ruta, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + sesion.token },
         body: JSON.stringify(body),
       });
       const cuerpo = await r.json().catch(() => ({}));
-      if (!r.ok) { setAviso(cuerpo.error || 'No se pudo guardar'); return false; }
+      if (!r.ok) {
+        fueRechazo.current = r.status >= 400 && r.status < 500;
+        setAviso(cuerpo.error || 'No se pudo guardar'); return false;
+      }
       setAviso(hecho);
       return true;
     } catch { setAviso('Sin conexión — probá de nuevo'); return false; }
@@ -1142,7 +1198,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
   const borrar = async (ruta, hecho) => {
     setAviso(null);
     try {
-      const r = await fetch(SERVIDOR + ruta, {
+      const r = await conCorte(SERVIDOR + ruta, {
         method: 'DELETE',
         headers: { Authorization: 'Bearer ' + sesion.token },
       });
@@ -1174,6 +1230,10 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
   // La grabación corre en la tarea de fondo (come de las mismas posiciones
   // que se mandan); acá solo se mira cada 2 s y se dan las órdenes.
   const [grabacion, setGrabacion] = React.useState(gps.diagnostico.grabacion);
+  // La grabación parada que quedó en el disco se ve también desde acá: si el
+  // chofer está «fuera», nadie más la hidrataba, y GRABAR la borraba
+  // (barrido del 22/9).
+  React.useEffect(() => { gps.hidratarGrabacionGuardada().catch(() => {}); }, []);
   React.useEffect(() => {
     const t = setInterval(() => setGrabacion(
       gps.diagnostico.grabacion ? { ...gps.diagnostico.grabacion } : null), 2000);
@@ -1198,7 +1258,10 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
         nombre: `${grabacion?.pedida ? 'Pedido por Despacho' : 'Recorrido'} ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString().slice(0, 5)}`,
       }, `Recorrido enviado (${puntos.length} puntos) — se importa desde el trazador de Despacho`);
       if (fue) await gps.descartarGrabacion();
-      else setAviso('No salió — la grabación quedó guardada. Probá ENVIAR de nuevo con señal.');
+      // Si el servidor la RECHAZÓ (demasiado grande, cupo del día) ya dijo
+      // por qué, y reintentar daría lo mismo: no se le pide que reintente
+      // (barrido del 22/9). Sólo la falla de red dice «probá de nuevo».
+      else if (!fueRechazo.current) setAviso('No salió — la grabación quedó guardada. Probá ENVIAR de nuevo con señal.');
     } finally { setMandandoGrabacion(false); }
   };
 
@@ -1705,27 +1768,6 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
   const [suelto, setSuelto] = React.useState(false);
   React.useEffect(() => { if (!activo) setSuelto(false); }, [activo]);
 
-  // Bloquear es volver al automático. Si no, el mapa queda congelado donde el
-  // chofer lo dejó y la combi se le va de la pantalla sin que él pueda
-  // arrastrarlo — porque acaba de bloquearlo.
-  const bloquear = React.useCallback(() => {
-    setSuelto(false);
-    mandar({ tipo: 'centrar', vista: vistaAhora() });
-  }, [mandar, vistaAhora]);
-
-  // Con el mapa suelto, el botón ATRÁS de Android bloquea el mapa — no saca
-  // de la app. Es lo que la mano hace sola: "terminé de mirar, atrás". Este
-  // manejador se registra recién al soltar el mapa, así que es más nuevo que
-  // el de navegación de la app y Android le pregunta primero a él.
-  React.useEffect(() => {
-    if (!suelto || !activo) return;
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      bloquear();
-      return true;
-    });
-    return () => sub.remove();
-  }, [suelto, activo, bloquear]);
-
   // La página NO depende del tema y se arma una sola vez. Los colores entran
   // después, por mensaje. Antes se armaba con la paleta del momento, así que
   // al pasar a modo noche —a las 18:30, en plena vuelta— cambiaba el `source`
@@ -1749,6 +1791,32 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
 
   const vistaAhora = React.useCallback(
     () => mapa.vista(estado, yo, geometria), [estado, yo, geometria]);
+
+  // (Va DESPUÉS de `mandar` y `vistaAhora`: estaba antes, y sus dependencias
+  // se leían cuando todavía no existían — `bloquear` quedaba congelado con
+  // la vista del primer render y LISTO mandaba el mapa a Juliaca vacío.
+  // Barrido del 22/9.)
+  // Bloquear es volver al automático. Si no, el mapa queda congelado donde el
+  // chofer lo dejó y la combi se le va de la pantalla sin que él pueda
+  // arrastrarlo — porque acaba de bloquearlo.
+  const bloquear = React.useCallback(() => {
+    setSuelto(false);
+    mandar({ tipo: 'centrar', vista: vistaAhora() });
+  }, [mandar, vistaAhora]);
+
+  // Con el mapa suelto, el botón ATRÁS de Android bloquea el mapa — no saca
+  // de la app. Es lo que la mano hace sola: "terminé de mirar, atrás". Este
+  // manejador se registra recién al soltar el mapa, así que es más nuevo que
+  // el de navegación de la app y Android le pregunta primero a él.
+  React.useEffect(() => {
+    if (!suelto || !activo) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      bloquear();
+      return true;
+    });
+    return () => sub.remove();
+  }, [suelto, activo, bloquear]);
+
 
   React.useEffect(() => {
     if (!listo) return;
@@ -2012,7 +2080,7 @@ function Barra({ pantalla, noLeidos, onIr }) {
 // El chat, con sus DOS canales. El grupo lo ven todos los de la ruta; el
 // directo, solo este chofer y Despacho. Chofer ↔ chofer privado no existe y
 // eso lo decide el servidor, no esta pantalla.
-function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnviar, onVoz, onFoto, onIr }) {
+function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, onEnviar, onVoz, onFoto, onIr }) {
   const { s, C } = usarTema();
   const [texto, setTexto] = React.useState('');
   const [verFoto, setVerFoto] = React.useState(null);
@@ -2024,7 +2092,8 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
   const enviar = () => {
     const t = texto.trim();
     if (!t) return;
-    onEnviar(t);
+    // Lo escrito se queda si no salió: antes se borraba igual (22/9).
+    if (onEnviar(t) === false) return;
     setTexto('');
   };
 
@@ -2106,6 +2175,9 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, onCanal, onEnvia
             </>}
       </View>
       {!conectado && <Text style={s.avisoBarra}>Sin conexión — lo que escribas no va a salir</Text>}
+      {/* El aviso de lo que no salió (cupo, sin conexión, foto pesada) se ve
+          ACÁ, donde se mandó: sólo lo pintaba la pantalla de la brecha. */}
+      {conectado && aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
 
       <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
 
@@ -2161,7 +2233,8 @@ function Camara({ onListo, habilitado }) {
       const r = await fn();
       if (!r) return;                              // canceló
       if (r.error) { setAviso(r.error); return; }
-      onListo?.(r.dataUrl);
+      const motivo = onListo?.(r.dataUrl);
+      if (motivo) { setAviso('La foto no salió'); return; }
       setAviso(comoTexto(r.bytes));
       setTimeout(() => setAviso(null), 3000);
     } catch (e) {
@@ -2195,8 +2268,19 @@ function Grabar({ onListo, habilitado }) {
   const [segundos, setSegundos] = React.useState(0);
   const [error, setError] = React.useState(null);
   const desdeRef = React.useRef(0);
+  // ¿Sigue el dedo apoyado? Soltar mientras `empezar` todavía esperaba —el
+  // permiso la primera vez, preparar el grabador— no hacía nada, y después
+  // `empezar` seguía y dejaba el micrófono grabando sin nadie apretando: a
+  // los 60 s se mandaba sola a toda la ruta (barrido del 22/9).
+  const apretadoRef = React.useRef(false);
+  const grabandoRef = React.useRef(false);
 
   const soltar = React.useCallback(async (cancelar = false) => {
+    apretadoRef.current = false;
+    // Sin grabación en curso no hay nada que parar ni que mandar: `empezar`
+    // ve el dedo levantado y se detiene solo.
+    if (!grabandoRef.current) return;
+    grabandoRef.current = false;
     setGrabando(false);
     const dur = Math.round((Date.now() - desdeRef.current) / 1000);
     try {
@@ -2219,17 +2303,23 @@ function Grabar({ onListo, habilitado }) {
   }, [grabando, soltar]);
 
   const empezar = async () => {
+    apretadoRef.current = true;
     setError(null);
     if (!habilitado) return;
     if (!(await pedirPermisoMicrofono())) { setError('Sin permiso de micrófono'); return; }
+    // El diálogo del permiso se lleva el toque: con el dedo levantado no se
+    // graba. La próxima vez que apriete, ya con permiso, graba normal.
+    if (!apretadoRef.current) return;
     try {
       await grabador.prepareToRecordAsync();
+      if (!apretadoRef.current) return;
       grabador.record();
+      grabandoRef.current = true;
       desdeRef.current = Date.now();
       setSegundos(0);
       setGrabando(true);
       Vibration.vibrate(40);
-    } catch (e) { setError('No se pudo grabar'); }
+    } catch (e) { grabandoRef.current = false; setError('No se pudo grabar'); }
   };
 
   return (

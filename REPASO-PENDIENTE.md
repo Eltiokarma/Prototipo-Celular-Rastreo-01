@@ -240,10 +240,9 @@ que declaró «ruta» sin confirmar vuelve a durar hasta que confirme y ande,
 el «fuera» o el olvido — es el comportamiento de antes de la tanda 7, no
 uno nuevo.
 
-**La cola de repaso queda vacía.** El archivo se conserva hasta que lo
-que la tanda 8 dice que es «del teléfono» —el socket medio muerto, la
-grabación tras un reinicio, la notificación de relevo— se vea con el APK 5;
-después se borra.
+La cola de la tanda 8 quedó vacía; lo que ella dice que es «del teléfono»
+—el socket medio muerto, la grabación tras un reinicio, la notificación de
+relevo— sigue esperando al APK 5. Lo nuevo está en la tanda 9.
 
 ### Lo que más conviene mirar, en orden
 
@@ -300,6 +299,92 @@ después se borra.
   «futura» para una vuelta: acotado por el rechazo de posiciones a más de
   120 s en el futuro, y el estimador no ve un reloj adelantado de todos
   modos.
+
+---
+
+## Tanda 9 — el barrido completo del 22/9 (sin repasar)
+
+No un diff: el código ENTERO, por primera vez desde la revisión del 10/9,
+repartido en seis frentes (el servidor en tres partes, la app nativa, la web
+del chofer con el panel del creador, y Despacho), cada hallazgo verificado
+contra el código antes de tocarlo. Unos setenta hallazgos; los que se
+descartaron o se dejaron a propósito están abajo. Suite nueva `barrido`
+(servidor), `creador`, `envio` y `nativas` ampliadas. Regresión completa
+verde.
+
+### Lo que más conviene mirar, en orden
+
+1. **Los bordes que se cruzaban.** Un Despacho daba de alta un chofer con el
+   código de una combi de OTRA cooperativa y quedaba subido a ella (el
+   camino sin vehículo explícito no miraba la empresa). El Despacho atado a
+   una ruta mandaba privados a otras. Una cuenta llamada `CREADOR` recibía
+   la auditoría de la plataforma, y el arranque asignaba las filas sin dueño
+   —el login del creador con su IP, los respaldos— a la cooperativa inicial:
+   su Despacho las veía. Ahora hay un casillero `__plataforma__` y los nombres
+   `CREADOR` y `SISTEMA` no se dan de alta. **La duda:** la migración mueve
+   sólo cuatro acciones conocidas del creador; si alguna otra quedó con
+   `companyId` de la cooperativa inicial, sigue ahí.
+
+2. **El mando del GPS entre dos personas.** El relevado que apretaba «Salir
+   de ruta» sacaba del mapa la combi que manejaba el otro. Al caerse el
+   socket del que tenía el mando (pantalla apagada, sigue por HTTP), el
+   socket pasaba a otro chofer conectado: dos teléfonos alimentando la misma
+   combi. Y el cierre de un socket viejo le cerraba el turno a alguien que ya
+   había reconectado por otro. `otroTieneElMando()` es ahora la única
+   prueba, usada por `/gps`, la presencia, el tráfico y el socket. **La
+   duda:** es la pieza con más caminos del servidor; conviene mirarla con
+   un relevo de verdad en la calle.
+
+3. **La vuelta que cerraba una sola lectura mala** (`trackLap`). Una posición
+   que proyectaba hacia atrás —trazado que se cruza, ida y vuelta por la
+   misma calle— cerraba la vuelta un 15 % corta y acusaba al chofer de entrar
+   tarde. Ahora la caída se sostiene dos posiciones (`VUELTA_MUESTRAS`) y se
+   cierra con la hora de la primera. **La duda:** dos y no cuatro (el tramo
+   usa cuatro) es un número elegido: filtra UNA lectura mala suelta, no dos
+   seguidas. Se probó con tres y rompía `brecha`, que cruza el inicio con
+   una sola posición detrás; en la calle hay muchas más.
+
+4. **El SOS.** Por el socket lo podía disparar Despacho. La hora era la del
+   teléfono, y uno con el reloj atrasado nacía con la ventana del tipo ya
+   cerrada. La web mandaba la posición de hace veinte minutos como si fuera
+   la de ahora, y la app también; un segundo deslizamiento mientras el
+   primero estaba en vuelo lo colgaba y duplicaba la alerta. En Despacho, un
+   segundo SOS pisaba al primero en el cartel y el de un cobrador nunca
+   pintaba su combi.
+
+5. **Los números.** El resumen de Vueltas salía de las últimas 300 y el de
+   Turnos de los últimos 500 turnos; «Ayer» contaba horas de hoy; un turno
+   podía quedar abierto dos veces (ir y volver de combi) y contar doble; el
+   CSV de Números no llevaba la ruta elegida.
+
+6. **La app nativa.** La presencia vieja se re-declaraba en cada reconexión
+   y el servidor tiraba la vuelta en curso cada vez que se prendía la
+   pantalla. La nota de voz quedaba grabando sola si se soltaba antes de que
+   arrancara, y se mandaba a toda la ruta a los 60 s. La cola mandaba las
+   150 más viejas en vez de la posición de ahora. Un reloj adelantado y
+   corregido dejaba el GPS mudo. El cobrador no tenía SOS. **La duda:** todo
+   esto se probó por lectura y con las piezas puras; el teléfono lo dice.
+
+7. **La web del chofer y el panel del creador.** Latido `ping`/`pong` para
+   el socket medio muerto, «fuera» siempre también por HTTP, la sesión
+   restaurada que no reconocía el eco de su SOS, estado que pasaba de un
+   usuario al siguiente en un teléfono compartido. El creador: el bloqueo de
+   intentos se esquivaba en paralelo, el código TOTP se podía reusar, el
+   recorrido que no cargaba se guardaba vacío encima del real, y un 401 a
+   mitad de un dibujo lo borraba.
+
+### Lo que se miró y se dejó como estaba, a conciencia
+
+- **El tiempo del login** ahora es parejo entre cuenta existente y no
+  existente, pero sólo en el camino normal: el bootstrap de `DESPACHO` sigue
+  siendo distinto, a propósito (sólo existe en un sistema sin administración).
+- **La carrera de respuestas tardías** en las pestañas de Despacho (ya
+  anotada en la tanda 8): igual, salvo en el trazador, donde sí se arregló
+  porque ahí la respuesta vieja se GUARDABA encima de otra variante.
+- **La franja de 5 %** de «Dónde se traba» se queda; la pantalla ya dice
+  cuántos metros son.
+- **El `LIMIT 500`** de paradas, huecos y anomalías sigue en el servidor; la
+  pantalla ahora avisa cuando lo toca.
 
 ### Lo que se revisó después, y salió limpio
 

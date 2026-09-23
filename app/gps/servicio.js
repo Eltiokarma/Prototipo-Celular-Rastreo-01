@@ -238,6 +238,7 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
 export const LLAVE_GRABANDO = 'grabando';
 const ARCHIVO_GRABACION = () => FileSystem.documentDirectory + 'grabacion.json';
 let grabador = null;
+const MAX_PUNTOS_GRABACION = 8000;   // el tope de POST /grabacion
 let grabadoEnDisco = 0;   // hasta qué punto está persistido (ver abajo)
 // Si la grabación en curso la pidió Despacho (4.5), para que la pantalla lo
 // diga. Solo memoria: si Android mata el proceso, la grabación sigue (flag y
@@ -257,6 +258,9 @@ async function grabar(posiciones) {
   }
   let huboNuevos = false;
   for (const p of posiciones) {
+    // El servidor no acepta más de 8000 puntos (240 km a 30 m): una grabación
+    // que nadie paró no crece más allá de lo que se puede mandar (22/9).
+    if (grabador.cantidad >= MAX_PUNTOS_GRABACION) break;
     if (grabador.posicion(p.lat, p.lng)) huboNuevos = true;
   }
   diagnostico.grabacion = { puntos: grabador.cantidad, largoM: grabador.largoM,
@@ -458,7 +462,9 @@ async function subir(nuevas) {
   if (r.accion === 'cortado') {
     // Las posiciones del envío colgado vuelven a la cola YA, para salir en
     // esta misma tanda. El `catch` del envío cortado no las vuelve a tocar.
-    guardar(r.vuelo.posiciones);
+    // Si siguen siendo de esta sesión: un vuelo colgado de la anterior no
+    // se mete en la cola del siguiente (barrido del 22/9).
+    if (r.vuelo.gen === undefined || r.vuelo.gen === generacion) guardar(r.vuelo.posiciones);
     anotarFallo('envío colgado (cortado por la tarea)', r.vuelo.posiciones);
   }
   await subirAhora(nuevas);
@@ -469,9 +475,15 @@ async function subirAhora(nuevas) {
   // hora de cada posición, así que el orden importa. Se manda como mucho una
   // tanda; lo que sobra espera al próximo envío y así la cola se drena de a
   // poco en vez de rebotar contra el límite.
+  //
+  // Lo que NO entra en un envío es lo más VIEJO, y se tira: la regla es que
+  // cada tanda lleve la posición de ahora (ver app/README.md, «La cola de
+  // posiciones es UNA tanda»). Se cortaba al revés —las 150 más viejas
+  // salían y las nuevas esperaban—, así que tras un corte el primer envío
+  // bueno llegaba con la combi atrasada (barrido del 22/9).
   const todas = [...pendientes, ...nuevas].sort((a, b) => a.timestamp - b.timestamp);
-  const posiciones = todas.slice(0, MAX_POR_ENVIO);
-  pendientes = todas.slice(MAX_POR_ENVIO);
+  const posiciones = todas.slice(-MAX_POR_ENVIO);
+  pendientes = [];
   diagnostico.enEspera = pendientes.length;
   if (!posiciones.length) return;
   // El vuelo se anota ANTES de tocar la red, y con el mismo `control` para
@@ -479,6 +491,7 @@ async function subirAhora(nuevas) {
   // a cortar si esto no vuelve.
   const control = new AbortController();
   const vuelo = vigiaEnvio.empezar(posiciones, control);
+  vuelo.gen = generacion;   // de qué sesión es, por si se corta (ver `subir`)
   diagnostico.enVueloDesde = vuelo.desde;
   // Lo que falle de este envío vuelve a la cola SÓLO si sigue siendo la
   // misma sesión: si en el medio se salió, esas posiciones son de nadie.
@@ -582,6 +595,11 @@ async function subirAhora(nuevas) {
       noAutorizadosSeguidos = 0;
       sinRolSeguidos = 0;
       const cuerpo = r.json() || {};
+      // La respuesta de un envío que salió ANTES de salir de la sesión no
+      // se aplica a la que vino después: volvía a poner la brecha en la
+      // bandeja tras el logout, arrancaba una grabación «pedida por
+      // Despacho» para el siguiente, o lo apagaba (barrido del 22/9).
+      if (gen !== generacion) return;
       // «Otro chofer tiene la unidad»: el servidor lo dice con 200 para que
       // este teléfono lo lea y se apague (REVISION-2026-09-10.md, C2). Antes
       // el relevado seguía mandando con la pantalla apagada y la combi
@@ -612,7 +630,14 @@ async function subirAhora(nuevas) {
       // La brecha vuelve en la misma respuesta: es lo que mantiene VIVA la
       // notificación con la pantalla apagada — el WebSocket ya murió y este
       // POST es el único canal. Mejor esfuerzo: si falla, el GPS ni se entera.
-      if (cuerpo?.brecha) notificarBrecha(cuerpo.brecha).catch(() => {});
+      //
+      // Sólo si SIGUE en ruta: el que apretó AUSENTE o SALIR DE RUTA con un
+      // envío en vuelo recibía la brecha de nuevo en la bandeja, y quedaba
+      // ahí todo el almuerzo — lo que App.js dice que evita (22/9).
+      if (cuerpo?.brecha) {
+        const sigue = await SecureStore.getItemAsync(LLAVE_PRESENCIA).catch(() => null);
+        if (sigue === 'ruta') notificarBrecha(cuerpo.brecha).catch(() => {});
+      }
       // Despacho pidió una grabación (4.5). Mejor esfuerzo, como todo lo que
       // cuelga de esta respuesta: si falla, el pedido sigue vivo en el
       // servidor y el próximo POST lo vuelve a traer.

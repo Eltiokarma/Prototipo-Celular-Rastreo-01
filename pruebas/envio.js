@@ -153,6 +153,16 @@ console.log('\nLO QUE LA TAREA YA ENTREGÓ NO SE ENTREGA DOS VECES');
   r = filtrarEntregadas([{ lat: 0, lng: 0 }, pos(9)], 1005);
   ok('una posición sin hora no pasa ni rompe', r.nuevas.length === 1 && r.nuevas[0].timestamp === 1009);
   ok('sin marca previa pasa todo', filtrarEntregadas([pos(0), pos(1)]).nuevas.length === 2);
+  // El reloj del teléfono estuvo 40 minutos adelantado y se corrigió: la
+  // marca quedó en el futuro, y toda posición nueva era «más vieja» que ella.
+  // El GPS quedaba mudo esos 40 minutos (barrido del 22/9).
+  const ahora = 5_000_000;
+  const futura = ahora + 40 * 60_000;
+  r = filtrarEntregadas([{ lat: 0, lng: 0, timestamp: ahora }], futura, ahora);
+  ok('una marca en el futuro no se respeta: la posición de ahora pasa',
+     r.nuevas.length === 1 && r.ultimaEntregada === ahora, r);
+  r = filtrarEntregadas([{ lat: 0, lng: 0, timestamp: ahora }], ahora + 60_000, ahora);
+  ok('pero una marca apenas adelantada (un minuto) sí', r.nuevas.length === 0, r);
 
   // Y la tarea la usa en la puerta, antes de la pantalla, el grabador y el envío
   const servicio = fs.readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');

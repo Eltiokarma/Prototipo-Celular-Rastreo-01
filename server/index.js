@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 // Compartido con las herramientas de consola (ver `base.js` y `empresa.js`)
-const { openDatabase, hashPassword, verifyPassword, idLimpio } = require('./base');
+const { openDatabase, hashPassword, verifyPassword, idLimpio, idReservado } = require('./base');
 const { montarPanelDelCreador } = require('./creador');
 const marca = require('./marca');
 const respaldo = require('./respaldo');
@@ -1088,10 +1088,14 @@ if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
   // creada pero imposible de usar. Mejor avisar y no tocar la que había.
   console.error('DISPATCH_PASSWORD tiene menos de 4 caracteres: el login la va a ' +
     'rechazar siempre. La cuenta DESPACHO queda como estaba — poné una clave más larga.');
-} else if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < CLAVE_MINIMA) {
-  console.warn(`DISPATCH_PASSWORD es más corta que ${CLAVE_MINIMA} caracteres. ` +
-    'Funciona, pero es la cuenta que administra a todos: conviene una más larga.');
 } else if (process.env.DISPATCH_PASSWORD) {
+  // El aviso de clave corta va ADENTRO de la rama que la aplica: estaba como
+  // un `else if` aparte, así que decía «funciona» y no la aplicaba — la
+  // cuenta no se creaba o quedaba con la clave vieja (barrido del 22/9).
+  if (process.env.DISPATCH_PASSWORD.length < CLAVE_MINIMA) {
+    console.warn(`DISPATCH_PASSWORD es más corta que ${CLAVE_MINIMA} caracteres. ` +
+      'Funciona, pero es la cuenta que administra a todos: conviene una más larga.');
+  }
   const hash = hashPassword(process.env.DISPATCH_PASSWORD);
   const exists = db.prepare('SELECT unitId, passHash FROM users WHERE unitId = ?').get(DISPATCH_ID);
   if (exists) {
@@ -1267,6 +1271,15 @@ db.exec(`
 `);
 
 addColumnIfMissing('audit', 'routeId', 'TEXT');
+// El casillero de la plataforma (ver `audit`). No es un código válido de
+// empresa —lleva guiones bajos a los costados—, así que ninguna cooperativa
+// puede llamarse así ni verlo. Y lo que ya se había asignado a la empresa
+// inicial por no tener dueño vuelve acá, ANTES de la ligadura de abajo.
+const EMPRESA_PLATAFORMA = '__plataforma__';
+addColumnIfMissing('audit', 'companyId', 'TEXT');   // base nueva: todavía no existe
+db.prepare(`UPDATE audit SET companyId = ? WHERE actor = 'CREADOR'
+              AND action IN ('creador_login', 'creador_bloqueo', 'respaldo_manual', 'respaldo_descargado')`)
+  .run(EMPRESA_PLATAFORMA);
 ligarAEmpresa('audit', true);
 
 // Cuántos movimientos se guardan POR EMPRESA. Antes el tope era global, y
@@ -1279,9 +1292,16 @@ function audit(actor, action, target, detail, routeId, companyId) {
   try {
     // Casi ningún llamador conoce la empresa: se deduce de la ruta y, si no
     // hay ruta (un login, por ejemplo), de la cuenta que hizo la acción.
+    // Lo que firma la plataforma y no es de ninguna cooperativa —el login del
+    // creador con su IP, los respaldos— va a su propio casillero. Antes caía
+    // a la cuenta que se llamara como el actor, o quedaba en NULL y el
+    // arranque lo asignaba a la cooperativa inicial: su Despacho veía las IP
+    // del operador (barrido del 22/9).
+    const plataforma = idReservado(actor);
     const empresa = companyId
       || (routeId ? (routeOf(routeId)?.companyId || null) : null)
-      || db.prepare('SELECT companyId FROM users WHERE unitId = ?').get(actor)?.companyId
+      || (plataforma ? EMPRESA_PLATAFORMA
+          : db.prepare('SELECT companyId FROM users WHERE unitId = ?').get(actor)?.companyId)
       || null;
     db.prepare('INSERT INTO audit (actor, action, target, detail, routeId, companyId, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(actor, action, target || null, detail || null, routeId || null, empresa, Date.now());
@@ -1750,6 +1770,10 @@ function fijarTrafico(vehicleId, routeId, companyId, activo) {
   const ruta = (u && u.routeId) || routeId;
   if (activo) {
     if (traficos.has(vehicleId)) return;
+    // Sin unidad en el mapa no hay dónde ni qué medir, y nada cerraría esa
+    // parada: el barrido sólo mira `units`. Quedaba abierta hasta el día
+    // siguiente y se cerraba con veinte horas (barrido del 22/9).
+    if (!u) return;
     const desde = Date.now();
     traficos.set(vehicleId, { desde });
     if (paradasAbiertas.has(vehicleId)) {
@@ -1827,6 +1851,10 @@ function evaluarDesvio(vehicleId, routeId, desvioM, cuando = Date.now(), activo 
   } else {
     e.seguidasDentro++;
     e.seguidasFuera = 0;
+    // Lo que se midió afuera SIN llegar a ser salida no es de la próxima:
+    // un pico de GPS de 2 km quedaba como `maxM` de un desvío real de 350 m
+    // horas después (barrido del 22/9).
+    if (!e.fuera) e.maxM = 0;
     if (e.fuera && e.seguidasDentro >= REGRESO_MUESTRAS) {
       const minutos = Math.round((cuando - e.desde) / 60000);
       console.log(`De vuelta en ruta: ${vehicleId} (estuvo ${minutos} min fuera)`);
@@ -1916,6 +1944,12 @@ function abrirTurno(personId, vehicleId, routeId, role) {
   `).get(personId, vehicleId, ahora - RECONEXION_MS);
 
   if (previo) {
+    // Antes de retomarlo, se cierra cualquier OTRO que tenga abierto. Sin
+    // esto, ir a M-02 y volver a M-01 dentro de los 15 minutos dejaba dos
+    // turnos abiertos a la vez, y cada hora del resto del día se contaba
+    // dos veces en Turnos y en el CSV de horas (barrido del 22/9).
+    db.prepare('UPDATE shifts SET endedAt = lastSeenAt WHERE personId = ? AND endedAt IS NULL AND id <> ?')
+      .run(personId, previo.id);
     db.prepare('UPDATE shifts SET endedAt = NULL, lastSeenAt = ? WHERE id = ?').run(ahora, previo.id);
     return previo.id;
   }
@@ -1950,6 +1984,27 @@ function cerrarTurno(personId) {
 // lo tenía —si es otro— se le avisa por su socket si lo tiene, se le cierra
 // el turno (fue relevado: se bajó), y su próximo POST /gps recibe
 // `gpsRole: false`. La misma persona por otro canal no es un relevo.
+// ¿Tiene el mando de esta combi OTRA persona, y se la oye? Es la misma
+// prueba que usa `POST /gps` para contestarle al relevado que su GPS ya no se
+// usa, sacada acá para que la presencia y el tráfico la usen igual (barrido
+// del 22/9): el relevado que al terminar su turno apretaba «Salir de ruta»
+// sacaba del mapa la combi que estaba manejando el otro, le tiraba la vuelta
+// en curso y le soltaba el mando.
+// La ruta de una COMBI: la de su unidad en el mapa, o la del vehículo dado
+// de alta. La de la persona es el último recurso — puede no coincidir, y
+// declarar presencia o tráfico con ella anotaba la combi en otra ruta.
+function rutaDeLaCombi(vehicleId, rutaPersona) {
+  return units.get(vehicleId)?.routeId || vehicleOf(vehicleId)?.routeId || rutaPersona || DEFAULT_ROUTE;
+}
+
+function otroTieneElMando(vehicleId, personId) {
+  const dueno = duenoDe.get(vehicleId);
+  if (!dueno || dueno.personId === personId) return false;
+  const wsDueno = gpsOwner.get(vehicleId);
+  return Date.now() - dueno.oidoEn <= OLVIDAR_MS ||
+    !!(wsDueno && clients.get(wsDueno) === dueno.personId && wsDueno.readyState === 1);
+}
+
 function tomarMando(vehicleId, personId, como) {
   const previo = duenoDe.get(vehicleId);
   duenoDe.set(vehicleId, { personId, oidoEn: Date.now() });
@@ -2081,6 +2136,15 @@ addColumnIfMissing('laps', 'objetivoSec', 'INTEGER');
 // diciendo lo que son.
 addColumnIfMissing('laps', 'parcial', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('laps', 'progresoInicial', 'REAL');
+// `laps.routeId` tiene que existir —y estar lleno— ANTES de la migración de
+// variantes de abajo, que liga cada vuelta a la variante de su ruta. Estaba
+// más abajo: una base vieja sin la columna tiraba «no such column» al
+// arrancar, y como la tabla de puntos ya se había rehecho, el arranque
+// siguiente se salteaba la ligadura para siempre (barrido del 22/9).
+addColumnIfMissing('laps', 'routeId', 'TEXT');
+if (db.prepare('SELECT COUNT(*) AS c FROM laps WHERE routeId IS NULL').get().c > 0) {
+  db.prepare('UPDATE laps SET routeId = ? WHERE routeId IS NULL').run(DEFAULT_ROUTE);
+}
 
 // Cuánto se le perdona a una salida normal antes de llamarla "se metió".
 //
@@ -2518,8 +2582,22 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
   // vuelta: salir y volver. Es también lo que corresponde para el objetivo
   // automático, porque la rueda que se reparte entre las combis es el
   // circuito entero.
+  //
+  // Y la caída se CONFIRMA, como el cambio de tramo (barrido del 22/9). Una
+  // sola posición mala —un trazado que se cruza consigo mismo, una ida y
+  // vuelta por la misma calle— proyecta el progreso hacia atrás, y sin esto
+  // cerraba una vuelta un 15 % corta, arrancaba otra desde el medio y la
+  // auditoría acusaba al chofer de haber entrado tarde. Se cierra con la
+  // hora y el progreso de la PRIMERA posición que vio la caída.
   if (st.lastProgress - progress > 0.5 && st.lastProgress > 0.8 && st.samples >= 5) {
-    const now = cuando;
+    if (!st.caidaSeguidas) {
+      st.caidaSeguidas = 1; st.caidaDesde = cuando; st.caidaProgreso = progress;
+    } else {
+      st.caidaSeguidas++;
+    }
+    if (st.caidaSeguidas < VUELTA_MUESTRAS) return;   // lastProgress queda arriba
+    const now = st.caidaDesde;
+    const progresoNuevo = st.caidaProgreso;
     const durationSec = Math.round((now - st.lapStart) / 1000);
     const avgSpeed = st.speedCount ? Math.round(st.speedSum / st.speedCount) : 0;
     // Con qué trazado se midió esta vuelta. La ruta sin geometría no tiene
@@ -2559,13 +2637,19 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
       lapStart: now, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
       // La que arranca ahora SÍ empieza donde termina la anterior: cruzó el
       // inicio del circuito recién, así que nace entera.
-      progresoInicial: progress,
+      progresoInicial: progresoNuevo,
       brechaSum: 0, brechaCount: 0,
     });
     return;
   }
+  // No se cumple: lo que parecía una caída era una lectura suelta.
+  st.caidaSeguidas = 0;
   st.lastProgress = progress;
 }
+// Cuántas posiciones seguidas tiene que sostenerse la caída del progreso
+// para cerrar la vuelta. Menos que el cambio de tramo (4): lo que se filtra
+// es UNA lectura mala suelta, y dos ya la filtran sin demorar el cierre.
+const VUELTA_MUESTRAS = 2;
 
 // ─── MEDIAS VUELTAS: LOS TRAMOS ──────────────────────────────
 // La tabla `legs` se crea más arriba, junto a `laps`: la poda del histórico
@@ -2700,6 +2784,9 @@ function trackTramo(unitId, routeId, proy, cuando = Date.now()) {
 
 // Intentos fallidos por unidad: 5 seguidos → bloqueo de 5 minutos
 const loginAttempts = new Map();
+// Un hash cualquiera contra el que verificar cuando la cuenta no existe, para
+// que las dos respuestas tarden lo mismo (ver el login).
+const HASH_DE_RELLENO = hashPassword(require('crypto').randomBytes(16).toString('hex'));
 
 // El bloqueo por cuenta no alcanza: alguien puede probar UNA contraseña
 // contra muchas cuentas distintas y nunca dispararlo. Por eso se cuenta
@@ -2770,7 +2857,12 @@ setInterval(() => {
 // idéntico en los dos casos. `user` es null cuando la cuenta no existe.
 function fallaLogin(res, unitId, user) {
   const a = loginAttempts.get(unitId);
-  const count = (a?.count || 0) + 1;
+  // Un bloqueo cumplido es borrón y cuenta nueva. El contador sólo volvía a
+  // cero con un login bueno, así que después de un primer bloqueo cada typo
+  // suelto —días después— volvía a bloquear la cuenta cinco minutos
+  // («intento 6 de 5») (barrido del 22/9).
+  const vencido = a && a.until && a.until <= Date.now();
+  const count = (vencido ? 0 : (a?.count || 0)) + 1;
   // Techo de memoria: un atacante que prueba diez mil usuarios inexistentes
   // no puede hacer crecer el mapa sin fin. Al pasar el tope se saca el más
   // viejo (el Map conserva el orden de inserción).
@@ -2849,6 +2941,11 @@ app.post('/auth/login', (req, res) => {
       // averiguar cuáles existen. Y la RESPUESTA es idéntica a la de una
       // contraseña incorrecta: si el mensaje distinguiera "no existe" de
       // "clave mala", probar usuarios diría cuáles existen (S6).
+      //
+      // Y TARDA lo mismo: la cuenta que existe paga el scrypt y la que no,
+      // no pagaba nada — unos 50 ms de diferencia que decían cuál existe
+      // igual que un mensaje distinto (barrido del 22/9).
+      verifyPassword(password, HASH_DE_RELLENO);
       anotarFalloIp(ip);
       return fallaLogin(res, unitId, null);
     }
@@ -2995,9 +3092,15 @@ app.post('/presencia', (req, res) => {
   const vehicleId = user.vehicleId || user.unitId;
   // Declarar «ruta» es el acto explícito de empezar: el que lo hace toma el
   // mando del GPS de la combi (C2). «Fuera» lo suelta.
+  // El relevado no declara por la combi: su «fuera» es el fin de SU turno,
+  // y su «ausente» no le corresponde (ver `otroTieneElMando`).
+  if (estado !== 'ruta' && otroTieneElMando(vehicleId, user.unitId)) {
+    if (estado === 'fuera') cerrarTurno(user.unitId);
+    return res.json({ ok: true, estado, ignorada: true, motivo: 'Otro chofer tiene la unidad' });
+  }
   if (estado === 'ruta') tomarMando(vehicleId, user.unitId, 'declaró ruta por HTTP');
   if (estado === 'fuera' && duenoDe.get(vehicleId)?.personId === user.unitId) duenoDe.delete(vehicleId);
-  fijarPresencia(vehicleId, user.routeId || DEFAULT_ROUTE, estado);
+  fijarPresencia(vehicleId, rutaDeLaCombi(vehicleId, user.routeId), estado);
   // «Fuera» es el fin del turno del chofer, y por HTTP no hay socket que se
   // cierre para cerrarlo (REVISION-2026-09-10.md, L1).
   if (estado === 'fuera') cerrarTurno(user.unitId);
@@ -3013,7 +3116,10 @@ app.post('/trafico', (req, res) => {
   if (user.role !== 'driver') return res.status(403).json({ error: 'El tráfico lo avisa el chofer' });
   if (typeof req.body?.activo !== 'boolean') return res.status(400).json({ error: 'Falta activo: true o false' });
   const vehicleId = user.vehicleId || user.unitId;
-  fijarTrafico(vehicleId, user.routeId || DEFAULT_ROUTE, user.companyId || null, req.body.activo);
+  if (otroTieneElMando(vehicleId, user.unitId)) {
+    return res.json({ ok: true, activo: req.body.activo, ignorada: true, motivo: 'Otro chofer tiene la unidad' });
+  }
+  fijarTrafico(vehicleId, rutaDeLaCombi(vehicleId, user.routeId), user.companyId || null, req.body.activo);
   res.json({ ok: true, activo: req.body.activo });
 });
 
@@ -3602,6 +3708,7 @@ db.exec(`
   )
 `);
 const GRABACIONES_MAX = 25;   // por empresa: las viejas se van solas
+const GRABACIONES_POR_DIA = 6; // por persona: ver POST /grabacion
 
 // Despacho puede PEDIR una grabación (PENDIENTES 4.5). Grabar sigue saliendo
 // solo de la app del que va arriba —Despacho no tiene GPS en la calle—, pero
@@ -3648,8 +3755,11 @@ app.post('/grabacion', (req, res) => {
   const user = usuarioPropio(req, res);   // chofer o cobrador: el que grabó iba arriba
   if (!user) return;
   const crudos = Array.isArray(req.body?.puntos) ? req.body.puntos : [];
+  // `coordenadaValida` y no sólo finitas: `lat: 1e308` hacía NaN el largo y
+  // el INSERT fallaba en 500, y `lat: 500` se guardaba y después rompía la
+  // importación entera en el trazador (barrido del 22/9).
   const puntos = crudos
-    .filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
+    .filter(p => coordenadaValida(p?.lat, p?.lng))
     .map(p => ({ lat: p.lat, lng: p.lng }));
   if (puntos.length < 2) {
     return res.status(400).json({ error: 'Una grabación necesita al menos dos puntos' });
@@ -3666,6 +3776,15 @@ app.post('/grabacion', (req, res) => {
   }
   const nombre = String(req.body?.nombre || '').trim().slice(0, 60) || null;
   const routeId = user.routeId || null;
+  // La poda es por empresa (25), así que una sola persona mandando
+  // grabaciones de dos puntos vaciaba las de toda la cooperativa. Cada una
+  // es una vuelta manejada: más de GRABACIONES_POR_DIA en un día no es
+  // trabajo de campo (barrido del 22/9).
+  const hoyGrab = db.prepare('SELECT COUNT(*) AS c FROM recordings WHERE personId = ? AND createdAt > ?')
+    .get(user.unitId, Date.now() - 86400_000).c;
+  if (hoyGrab >= GRABACIONES_POR_DIA) {
+    return res.status(429).json({ error: `Ya mandaste ${hoyGrab} grabaciones hoy: esperá a mañana o pedile a Despacho que borre alguna` });
+  }
   db.prepare(`INSERT INTO recordings (personId, companyId, routeId, nombre, puntos, cantidad, largoM, createdAt)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(user.unitId, user.companyId || null, routeId, nombre,
@@ -3823,10 +3942,7 @@ app.post('/gps', (req, res) => {
   {
     const dueno = duenoDe.get(vehicleId);
     if (dueno && dueno.personId !== user.unitId) {
-      const wsDueno = gpsOwner.get(vehicleId);
-      const vivo = Date.now() - dueno.oidoEn <= OLVIDAR_MS ||
-        (wsDueno && clients.get(wsDueno) === dueno.personId && wsDueno.readyState === 1);
-      if (vivo) {
+      if (otroTieneElMando(vehicleId, user.unitId)) {
         cerrarTurno(user.unitId);
         return res.json({ ok: true, aceptadas: 0, yaVistas: 0, descartadas: 0, routeId: user.routeId || DEFAULT_ROUTE,
           gpsRole: false, motivo: 'Otro chofer tiene la unidad: tu GPS ya no se usa' });
@@ -3862,7 +3978,10 @@ app.post('/gps', (req, res) => {
     // brechas de toda la ruta (REVISION-2026-09-10.md, C1).
     .filter(p => p && coordenadaValida(p.lat, p.lng))
     .map(p => ({
-      lat: p.lat, lng: p.lng, speed: Number(p.speed) || 0,
+      // Igual que por el socket: finita y no negativa. `-500` o `1e999`
+      // (Infinity para JSON.parse) entraban a la velocidad promedio de la
+      // vuelta y del informe (barrido 22/9).
+      lat: p.lat, lng: p.lng, speed: Number.isFinite(p.speed) && p.speed >= 0 ? p.speed : 0,
       cuando: Number(p.timestamp) || ahora,
       // El progreso que estima el cliente, como respaldo para una ruta sin
       // trazado — por HTTP se perdía y la flota quedaba toda en 0 (C12).
@@ -4744,6 +4863,7 @@ app.post('/admin/users', requireDispatch, (req, res) => {
   }
 
   if (!unitId) return res.status(400).json({ error: 'Falta el usuario con el que va a entrar' });
+  if (idReservado(unitId)) return res.status(400).json({ error: `${unitId} es un nombre reservado del sistema` });
   if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
   if (password.length < CLAVE_MINIMA || password.length > 64) {
     return res.status(400).json({ error: `La contraseña necesita entre ${CLAVE_MINIMA} y 64 caracteres` });
@@ -4755,6 +4875,7 @@ app.post('/admin/users', requireDispatch, (req, res) => {
   // El vehículo tiene que existir; si no se indica y es chofer, se crea uno
   // con su mismo código (el caso habitual: el chofer y su combi).
   let vehiculoFinal = vehicleId;
+  let rutaFinal = routeId;
   if (vehiculoFinal) {
     const veh = vehicleOf(vehiculoFinal);
     // Un vehículo de otra empresa se responde igual que uno inexistente: si
@@ -4765,9 +4886,31 @@ app.post('/admin/users', requireDispatch, (req, res) => {
     if (req.scope && veh.routeId !== req.scope) {
       return res.status(403).json({ error: 'Ese vehículo pertenece a otra ruta' });
     }
+    // La persona va a la ruta DE SU COMBI. Con la de otra, la unidad se
+    // medía contra el trazado equivocado y aparecía en el mapa de otra ruta
+    // (barrido del 22/9). Si se pidió una ruta explícita distinta, se dice.
+    const rutaPedida = String(req.body?.routeId || '').trim();
+    if (rutaPedida && veh.routeId && rutaPedida !== veh.routeId) {
+      return res.status(400).json({ error: `El vehículo ${vehiculoFinal} es de la ruta ${veh.routeId}, no de ${rutaPedida}` });
+    }
+    if (veh.routeId) rutaFinal = veh.routeId;
   } else if (role === 'driver') {
     vehiculoFinal = unitId;
-    if (!vehicleOf(vehiculoFinal)) {
+    const yaExiste = vehicleOf(vehiculoFinal);
+    // El vehículo con el código del usuario puede existir ya: se usa, pero
+    // con los MISMOS controles que el elegido a mano. Sin esto, un Despacho
+    // de otra cooperativa daba de alta un chofer con el código de una combi
+    // ajena y quedaba subido a ella (barrido del 22/9).
+    if (yaExiste) {
+      if (yaExiste.companyId !== req.empresa) {
+        return res.status(400).json({ error: `El vehículo ${vehiculoFinal} no existe` });
+      }
+      if (req.scope && yaExiste.routeId !== req.scope) {
+        return res.status(403).json({ error: 'Ese vehículo pertenece a otra ruta' });
+      }
+      if (yaExiste.routeId) rutaFinal = yaExiste.routeId;
+    }
+    if (!yaExiste) {
       // Crear el vehículo al vuelo es crear un ACTIVO, y eso es del gerente.
       // El admin da de alta a la persona y la sube a un vehículo que exista.
       if (!req.esGerente) {
@@ -4785,13 +4928,13 @@ app.post('/admin/users', requireDispatch, (req, res) => {
   db.prepare(`
     INSERT INTO users (unitId, driverName, name, alias, role, routeId, vehicleId, companyId, passHash, createdAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(unitId, alias || name, name, alias, role, routeId, vehiculoFinal, req.empresa, hashPassword(password), Date.now());
+  `).run(unitId, alias || name, name, alias, role, rutaFinal, vehiculoFinal, req.empresa, hashPassword(password), Date.now());
 
   const quien = alias ? `${name} (${alias})` : name;
   audit(req.dispatchUser.unitId, 'alta', unitId,
-    `${quien} · ${role === 'collector' ? 'cobrador' : 'chofer'} · ${vehiculoFinal} · ruta ${routeId}`, routeId);
-  console.log(`Alta de ${role}: ${quien} en ${vehiculoFinal} (${routeId})`);
-  res.json({ ok: true, unitId, routeId, vehicleId: vehiculoFinal, role });
+    `${quien} · ${role === 'collector' ? 'cobrador' : 'chofer'} · ${vehiculoFinal} · ruta ${rutaFinal}`, rutaFinal);
+  console.log(`Alta de ${role}: ${quien} en ${vehiculoFinal} (${rutaFinal})`);
+  res.json({ ok: true, unitId, routeId: rutaFinal, vehicleId: vehiculoFinal, role });
 });
 
 // Un despachador de ruta solo puede administrar cuentas de SU ruta
@@ -5011,6 +5154,11 @@ function rangoDe(req) {
   let hasta = Number(req.query?.hasta);
   if (!Number.isFinite(desde)) desde = hoy.getTime();
   if (!Number.isFinite(hasta)) hasta = Date.now();
+  // Dentro de lo que una fecha puede ser: `desde=1e20` terminaba en un
+  // `toISOString` que tiraba RangeError y el informe salía en 500 (22/9).
+  const tope = Date.now() + 86400_000;
+  desde = Math.min(Math.max(0, desde), tope);
+  hasta = Math.min(Math.max(0, hasta), tope);
   if (hasta < desde) [desde, hasta] = [hasta, desde];
   const TOPE = 90 * 86400_000;
   if (hasta - desde > TOPE) desde = hasta - TOPE;
@@ -5350,7 +5498,9 @@ const INFORMES = {
 // cambia es quién firma el "Generado por". Escrito dos veces, los dos lados
 // se habrían separado con el tiempo — y son justamente los que no pueden.
 function servirInforme(req, res, { tipo, empresa, scope, quien }) {
-  const armar = INFORMES[tipo];
+  // `hasOwn`: `constructor.csv` encontraba la función heredada y el handler
+  // reventaba con 500 (barrido 22/9).
+  const armar = Object.hasOwn(INFORMES, tipo) ? INFORMES[tipo] : null;
   if (!armar) return res.status(404).json({ error: 'Ese informe no existe' });
 
   const rango = rangoDe(req);
@@ -5410,7 +5560,14 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
   })();
 
-  const hasta = Date.now();
+  // `hasta` opcional: «ayer» termina a la medianoche de hoy. Sin él, el turno
+  // de ayer 22:00 a hoy 02:00 sumaba las horas de hoy (barrido del 22/9).
+  const hastaPedido = Number(req.query?.hasta);
+  const hasta = Number.isFinite(hastaPedido) && hastaPedido > inicio ? Math.min(hastaPedido, Date.now()) : Date.now();
+  // SIN tope en la consulta: los totales por persona son lo que se liquida y
+  // tienen que salir de TODOS los turnos del rango. El tope de 500 se aplica
+  // después, sólo a la lista que se dibuja — antes se aplicaba a las dos, y
+  // con más de 500 turnos en la semana las horas salían cortas.
   const filas = db.prepare(`
     SELECT s.id, s.personId, s.vehicleId, s.routeId, s.role,
            s.startedAt, s.endedAt, s.lastSeenAt,
@@ -5421,10 +5578,9 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
       AND s.routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@scope IS NULL OR s.routeId = @scope)
     ORDER BY s.startedAt DESC
-    LIMIT 500
   `).all({ desde: inicio, hasta, empresa: req.empresa, scope: req.scope });
 
-  const turnos = filas.map(t => ({
+  const todos = filas.map(t => ({
     ...t,
     abierto: t.endedAt === null,
     // Lo que lleva arriba, con el mismo criterio que el gerente y el CSV: el
@@ -5436,7 +5592,7 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
   // Total por persona, que es el número que le interesa a la cooperativa.
   // Con los roles del rango, no con el del primer turno (E12).
   const porPersona = {};
-  for (const t of turnos) {
+  for (const t of todos) {
     const k = t.personId;
     if (!porPersona[k]) {
       porPersona[k] = {
@@ -5454,7 +5610,9 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
 
   res.json({
     desde: inicio,
-    turnos,
+    hasta,
+    turnos: todos.slice(0, 500),
+    recortada: todos.length > 500,
     personas: Object.values(porPersona)
       .map(p => ({
         ...p, vehiculos: Array.from(p.vehiculos),
@@ -5491,8 +5649,12 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
     WHERE finishedAt >= @inicio
       AND routeId IN ${RUTAS_DE_LA_EMPRESA}
       AND (@ruta IS NULL OR routeId = @ruta)
-    ORDER BY finishedAt DESC LIMIT 300
+    ORDER BY finishedAt DESC
   `).all({ inicio, empresa: req.empresa, ruta });
+  // El resumen sale de TODAS las del período; el tope de 300 es sólo para la
+  // lista que se dibuja. Estaba en la consulta, y con 40 combis de 8 vueltas
+  // «cerradas hoy» no pasaba de 300 y los promedios eran de las últimas
+  // (barrido del 22/9).
 
   // Las parciales SE LISTAN —son el rastro de que alguien entró a la ruta
   // empezada, y es información— pero no entran en ningún promedio: duran una
@@ -5541,7 +5703,7 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
     desde: inicio,
     routeId: ruta,
     objetivoSec: objetivo ? Math.round(objetivo.min * 60) : null,
-    vueltas: filas,
+    vueltas: filas.slice(0, 300),
     resumen: {
       cerradas: enteras.length,
       unidades: new Set(enteras.map(l => l.unitId)).size,
@@ -6875,10 +7037,15 @@ const cupos = new WeakMap();
 const IDENTIFY_TIMEOUT_MS = Number(process.env.IDENTIFY_TIMEOUT_MS || 15_000);
 const WS_PING_MS = Number(process.env.WS_PING_MS || 30_000);
 
-function dentroDelCupo(ws, tipo) {
-  const regla = CUPO[tipo] || CUPO.otro;
+function dentroDelCupo(ws, tipoCrudo) {
+  // La clave es SIEMPRE una de las de `CUPO`. Venía de `msg.type`, que manda
+  // el cliente: cada tipo inventado abría su propio casillero —memoria sin
+  // techo, y un cupo que nunca se llenaba— y `"__proto__"` ponía
+  // `Object.prototype.n = NaN` en todo el proceso, sin token (barrido 22/9).
+  const tipo = Object.hasOwn(CUPO, tipoCrudo) ? tipoCrudo : 'otro';
+  const regla = CUPO[tipo];
   let porTipo = cupos.get(ws);
-  if (!porTipo) { porTipo = {}; cupos.set(ws, porTipo); }
+  if (!porTipo) { porTipo = Object.create(null); cupos.set(ws, porTipo); }
   const ahora = Date.now();
   const e = porTipo[tipo];
   if (!e || ahora - e.desde > regla.ventanaMs) {
@@ -6954,6 +7121,19 @@ wss.on('connection', (ws) => {
     if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
 
     if (!dentroDelCupo(ws, msg.type)) return;
+    // Un socket que ya no está ABIERTO no actúa. Al revocar una sesión se le
+    // manda `auth_error` y se lo cierra, pero mientras el cierre no termina
+    // `ws` sigue entregando mensajes: hasta 30 s más de GPS, chat o SOS de
+    // una sesión que ya no existe (barrido 22/9).
+    if (msg.type !== 'identify' && ws.readyState !== 1) return;
+
+    // El latido del cliente web: contesta y nada más. Es cómo la web se
+    // entera de que su socket sigue vivo — el ping de protocolo del
+    // servidor no lo ve el JavaScript del navegador (barrido del 22/9).
+    if (msg.type === 'ping') {
+      try { ws.send('{"type":"pong"}'); } catch {}
+      return;
+    }
 
     // TIPO: identificación — el cliente presenta su token de sesión.
     // Sin token válido no hay estado, ni historial, ni chat.
@@ -7017,7 +7197,10 @@ wss.on('connection', (ws) => {
           driverName: user.role === 'driver'
             ? displayName(user)
             : (previo?.driverName || vehicleId),
-          routeId: user.routeId || veh?.routeId || DEFAULT_ROUTE,
+          // La ruta de la COMBI primero: la de la persona puede no
+          // coincidir, y el cobrador que se conectaba mudaba la unidad al
+          // mapa de su ruta (barrido del 22/9).
+          routeId: veh?.routeId || user.routeId || DEFAULT_ROUTE,
           // La hora de la POSICIÓN sólo se toca si no había ninguna: al
           // reconectar (la pantalla que se prende) la unidad ya tiene una, y
           // ponerle la hora de ahora hacía que el próximo lote del teléfono
@@ -7063,7 +7246,7 @@ wss.on('connection', (ws) => {
         }
 
         // Queda registrado que esta persona subió a esta unidad
-        abrirTurno(user.unitId, vehicleId, user.routeId || veh?.routeId || rutaInicial, user.role);
+        abrirTurno(user.unitId, vehicleId, veh?.routeId || user.routeId || rutaInicial, user.role);
 
         if (!yaEstaba) {
           broadcastToRoute(rutaInicial, { type: 'unit_joined', unitId: vehicleId });
@@ -7119,6 +7302,10 @@ wss.on('connection', (ws) => {
       // El celular del cobrador (o del chofer relevado) sigue conectado y
       // recibiendo todo, pero su GPS se ignora: así la unidad no salta.
       if (gpsOwner.get(vehicleId) !== ws) return;
+      // Y el mando por PERSONA manda sobre el del socket: si otro lo tomó por
+      // HTTP y se lo oye, este socket es de un relevado aunque todavía figure
+      // como dueño del socket (barrido del 22/9).
+      if (otroTieneElMando(vehicleId, personId)) return;
       { const d = duenoDe.get(vehicleId); if (d && d.personId === personId) d.oidoEn = Date.now(); }
 
       // Se valida igual que en POST /gps: era la misma información entrando
@@ -7146,9 +7333,13 @@ wss.on('connection', (ws) => {
       // cobrador, cerrar SU app mandaría 'fuera' y borraría del mapa una
       // combi que sigue manejando otro — descartándole la vuelta en curso.
       if (vehicleId && estado && prof.role === 'driver') {
+        if (estado !== 'ruta' && otroTieneElMando(vehicleId, personId)) {
+          if (estado === 'fuera') cerrarTurno(personId);
+          return;
+        }
         if (estado === 'ruta') { tomarMando(vehicleId, personId, 'declaró ruta por WS'); if (gpsOwner.get(vehicleId) !== ws) gpsOwner.set(vehicleId, ws); }
         if (estado === 'fuera' && duenoDe.get(vehicleId)?.personId === personId) duenoDe.delete(vehicleId);
-        fijarPresencia(vehicleId, prof.routeId || DEFAULT_ROUTE, estado);
+        fijarPresencia(vehicleId, rutaDeLaCombi(vehicleId, prof.routeId), estado);
         if (estado === 'fuera') cerrarTurno(personId);
       }
     }
@@ -7159,8 +7350,9 @@ wss.on('connection', (ws) => {
       const personId = clients.get(ws);
       const prof = personId ? profiles.get(personId) : null;
       const vehicleId = prof?.vehicleId;
-      if (vehicleId && prof.role === 'driver' && typeof msg.activo === 'boolean') {
-        fijarTrafico(vehicleId, prof.routeId || DEFAULT_ROUTE, prof.companyId || null, msg.activo);
+      if (vehicleId && prof.role === 'driver' && typeof msg.activo === 'boolean' &&
+          !otroTieneElMando(vehicleId, personId)) {
+        fijarTrafico(vehicleId, rutaDeLaCombi(vehicleId, prof.routeId), prof.companyId || null, msg.activo);
       }
     }
 
@@ -7178,6 +7370,11 @@ wss.on('connection', (ws) => {
     if (msg.type === 'sos') {
       const unitId = clients.get(ws);
       if (!unitId) return;
+      // La misma regla que `POST /sos`: lo manda la gente de la combi. Por el
+      // socket no se miraba, y Despacho o la gerencia podían dispararle una
+      // emergencia a toda la ruta que miraban (barrido 22/9).
+      const rolSos = (profiles.get(unitId) || {}).role;
+      if (rolSos !== 'driver' && rolSos !== 'collector') return;
       dispararSos(unitId, profiles.get(unitId) || {}, rutaDelEmisor(), msg);
     }
 
@@ -7325,7 +7522,17 @@ wss.on('connection', (ws) => {
 
     // Se cierra el turno. Si vuelve en los próximos minutos —un túnel, una
     // zona sin señal— se retoma este mismo en vez de abrir otro.
-    cerrarTurno(personId);
+    //
+    // Pero NO si la misma persona sigue conectada por otro socket: al cambiar
+    // de red el cliente reconecta en segundos, y el socket viejo recién se
+    // cierra con el barrido de pings, 30 a 60 s después — cerrándole el
+    // turno a alguien que está conectado. Al cobrador y al chofer de la web
+    // nada se lo reabría, y el resto del día no contaba (barrido del 22/9).
+    let sigueConectado = false;
+    for (const [otroWs, otroId] of clients) {
+      if (otroId === personId && otroWs !== ws && otroWs.readyState === 1) { sigueConectado = true; break; }
+    }
+    if (!sigueConectado) cerrarTurno(personId);
 
     // ¿Queda alguien más de este vehículo conectado? (chofer + cobrador)
     const otrosDelVehiculo = [];
@@ -7337,11 +7544,21 @@ wss.on('connection', (ws) => {
 
     // Si el que se fue tenía el mando del GPS, lo toma un chofer que siga
     // conectado; si no queda ninguno, el vehículo deja de reportar.
+    //
+    // Salvo que el mando por PERSONA siga siendo del que se fue: con la
+    // pantalla apagada se le cae el socket pero sigue mandando por HTTP, y
+    // pasarle el socket a otro chofer conectado —el relevado de la mañana,
+    // con la web abierta en su casa— dejaba dos teléfonos alimentando la
+    // misma combi (barrido del 22/9).
     if (gpsOwner.get(vehicleId) === ws) {
       gpsOwner.delete(vehicleId);
-      const relevo = otrosDelVehiculo.find(o => o.prof.role === 'driver');
+      const dueno = duenoDe.get(vehicleId);
+      const sigueSiendoSuyo = dueno && dueno.personId === personId &&
+        Date.now() - dueno.oidoEn <= OLVIDAR_MS;
+      const relevo = sigueSiendoSuyo ? null : otrosDelVehiculo.find(o => o.prof.role === 'driver');
       if (relevo) {
         gpsOwner.set(vehicleId, relevo.ws);
+        tomarMando(vehicleId, clients.get(relevo.ws), 'el que tenía el mando se desconectó');
         try { relevo.ws.send(JSON.stringify({ type: 'gps_role', reporting: true })); } catch {}
       }
     }
@@ -7417,7 +7634,11 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
     routeId,
     lat: conPosicion ? lat : null,
     lng: conPosicion ? lng : null,
-    timestamp: horaDeclarada(timestamp),
+    // La hora del SERVIDOR. Un SOS se manda en vivo, siempre: no hay atraso
+    // que respetar. Con la del teléfono, uno con el reloj 20 minutos atrás
+    // nacía «viejo», y la ventana de 15 minutos para ponerle el tipo ya
+    // estaba cerrada — ni ambulancia ni grúa, nunca (barrido 22/9).
+    timestamp: Date.now(),
   };
   // El id viaja en la alerta: es el ancla para que el tipo elegido
   // después (sos_tipo) encuentre este disparo y no otro.
@@ -7432,7 +7653,7 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
 // puertas. Devuelve `{ ok: true, tipo }` o `{ error, status }` — el WebSocket
 // tira el error a la basura, como siempre hizo; el HTTP lo contesta.
 function marcarTipoDeSos(unitId, sosIdCrudo, tipo) {
-  if (!SOS_TIPOS[tipo]) return { status: 400, error: 'Ese tipo de emergencia no existe' };
+  if (!Object.hasOwn(SOS_TIPOS, tipo)) return { status: 400, error: 'Ese tipo de emergencia no existe' };
   const fila = db.prepare(
     "SELECT id, unitId, routeId, vehicleId, timestamp, sosTipo FROM messages WHERE id = ? AND kind = 'sos'")
     .get(Number(sosIdCrudo) || -1);
@@ -7564,6 +7785,9 @@ function destinoPrivado(prof, msg) {
     if (!veh) return null;
     const suya = prof.companyId || empresaBase();
     if ((veh.companyId || empresaBase()) !== suya) return null;
+    // Y el Despacho ATADO a una ruta no escribe fuera de ella: el borde de
+    // ruta vale acá igual que en el panel (barrido del 22/9).
+    if (prof.routeId && veh.routeId !== prof.routeId) return null;
     // El mensaje se guarda con la ruta DE LA COMBI, no con la que Despacho
     // está mirando. Un privado a una combi de otra ruta quedaba con la ruta
     // del emisor, y el historial del chofer —que se filtra por SU ruta— no lo

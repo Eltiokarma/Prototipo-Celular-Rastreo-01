@@ -402,6 +402,17 @@ cliente debe RE-DECLARAR su presencia al reconectar el WebSocket: el
 servidor la guarda en memoria. Un cliente que no declara nada se comporta
 como siempre: en cadena desde la primera posición.
 
+**El relevado no declara por la combi** (desde el 22/9). Si OTRA persona
+tiene el mando del GPS de ese vehículo y se la oye —la misma prueba con la
+que `POST /gps` le contesta `gpsRole: false`—, su `ausente` y su tráfico se
+ignoran, y su `fuera` sólo le cierra el turno a ÉL: `POST /presencia` y
+`POST /trafico` contestan `200 { ok: true, ignorada: true, motivo }`, y por el
+socket no pasa nada. Antes, el relevado que al terminar su turno apretaba
+«Salir de ruta» sacaba del mapa la combi que estaba manejando el otro y le
+tiraba la vuelta en curso. `ruta` sí vale: declararla es tomar el mando.
+Y la presencia y el tráfico se anotan con la ruta de la COMBI, no con la de
+la persona.
+
 ## 4sexies. Señal y presencia: `GET /admin/huecos`, `GET /admin/anomalias`
 
 Lo de `TRUCOS-2026-09-10.md`, para Despacho y el gerente (nunca para el
@@ -465,7 +476,9 @@ no salía: `sos_tipo` viajaba sólo por el socket, devolvía `'sin-conexion'` y
 la app cerraba el diálogo como si hubiera salido, así que quien moviliza veía
 un SOS genérico y tenía que adivinar entre una ambulancia y una grúa
 (revisión del 10/9, C8). Los bordes son los mismos que por el socket, pero
-acá se CONTESTAN, que es todo el punto:
+acá se CONTESTAN, que es todo el punto (y desde el 22/9 la hora del SOS es la
+del SERVIDOR: se manda siempre en vivo, y con la del teléfono uno con el reloj
+atrasado nacía con la ventana del tipo ya cerrada):
 
 | Caso | Respuesta |
 |---|---|
@@ -612,7 +625,24 @@ falla peligrosa y muda en una visible y honesta.
 
 - Los **turnos** toleran cortes de 15 minutos (`RECONEXION_MS`) antes de
   cerrarse: más que la posición, porque perder la señal un rato no significa
-  que la persona se haya bajado.
+  que la persona se haya bajado. Y el cierre de un socket **no** cierra el
+  turno si la misma persona sigue conectada por otro (el viejo se cierra
+  con el barrido de pings, a veces un minuto después de que el nuevo ya
+  entró).
+
+- **El latido de la web** (desde el 22/9): `{ "type": "ping" }` por el
+  socket se contesta `{ "type": "pong" }`, y nada más. `project/realtime.js`
+  lo manda cada 15 s y, si en 40 s no llegó NADA del servidor, da el socket
+  por muerto y reconecta. Un socket medio muerto —la red cambió, una zona
+  sin señal— sigue en `OPEN` hasta que el sistema se entera, que pueden ser
+  minutos; el ping de protocolo del servidor no lo ve el JavaScript del
+  navegador. La app nativa no lo usa: su canal con la pantalla apagada es
+  `POST /gps`.
+
+- **Un socket que no está abierto no actúa.** Al revocar una sesión se le
+  manda `auth_error` y se lo cierra; lo que llegue mientras el cierre no
+  termina se descarta. Y un `type` que no es de la tabla de cupos cuenta como
+  `otro`: antes cada tipo inventado abría su propio casillero.
 
 ## 6. Cómo se verificó
 

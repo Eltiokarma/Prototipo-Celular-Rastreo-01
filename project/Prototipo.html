@@ -1084,7 +1084,7 @@ function ChatMsg({ msg }) {
         <span style={{
           fontSize: 15, fontWeight: 700, color: nameColor,
           fontFamily: 'system-ui, sans-serif',
-        }}>{isYou ? 'Tú ✓✓' : msg.from}</span>
+        }}>{isYou ? (msg.noSalio ? 'Tú · NO SALIÓ (sin conexión)' : 'Tú ✓✓') : msg.from}</span>
         {/* La combi en la que va: el nombre dice quién habla, esto dice
             desde qué unidad — que es lo que le importa al que va manejando */}
         {!isYou && msg.unit && (
@@ -1411,8 +1411,14 @@ function SosSlider({ status, enableAnim, onFire }) {
     if (p >= 0.98) {
       setFired(true);
       setDragging(false);
-      onFire && onFire();
-      setTimeout(() => { setFired(false); setProgress(0); }, 2200);
+      // Disparado hasta que el envío TERMINA, y no un tiempo fijo: el envío
+      // puede tardar diez segundos (HTTP y después el socket) y el deslizador
+      // volvía a «DESLIZÁ PARA SOS» a los 2,2 s sin ningún resultado a la
+      // vista — y un segundo deslizamiento duplicaba la alerta (22/9).
+      const t0 = Date.now();
+      Promise.resolve(onFire && onFire()).catch(() => {}).finally(() => {
+        setTimeout(() => { setFired(false); setProgress(0); }, Math.max(0, 2200 - (Date.now() - t0)));
+      });
     }
   };
   const onUp = () => {
@@ -2688,10 +2694,16 @@ function Root() {
     declararPresencia('fuera');
     try { localStorage.removeItem('r14_session'); } catch {}
     if (window.RealtimeClient) {
-      // El token deja de valer en el servidor, no sólo en este navegador
-      if (window.RealtimeClient.logout) window.RealtimeClient.logout();
+      // El token deja de valer en el servidor, no sólo en este navegador.
+      // Con el token de la sesión: la restaurada nunca pasó por `connect()`
+      // si se sale desde la puerta (barrido del 22/9).
+      if (window.RealtimeClient.logout) window.RealtimeClient.logout(user && user.token);
       window.RealtimeClient.disconnect();
+      // Y en un teléfono compartido, el que entra después no hereda nada:
+      // ni el privado con Despacho, ni el SOS a medio calificar.
+      if (window.RealtimeClient.olvidarSesion) window.RealtimeClient.olvidarSesion();
     }
+    setMessages([]); setSosPropio(null);
     setUser(null);
     setScreen('login');
   };
@@ -2717,7 +2729,10 @@ function Root() {
 
     // Sesión rechazada (expirada o revocada): limpiar y volver al login
     window.RealtimeClient.on('autherror', () => {
-      try { localStorage.removeItem('r14_session'); } catch {}
+      try { localStorage.removeItem('r14_session'); localStorage.removeItem('r14_presencia'); } catch {}
+      // Lo de esta persona no pasa a la siguiente (barrido del 22/9)
+      if (window.RealtimeClient.olvidarSesion) window.RealtimeClient.olvidarSesion();
+      setMessages([]); setSosPropio(null); setPresencia('fuera');
       setUser(null);
       setAuthNotice('Tu sesión expiró. Ingresá de nuevo.');
       setScreen('login');
@@ -2910,7 +2925,7 @@ function Root() {
       setGpsRole({ reporting: r.reporting !== false, reason: r.reason || null });
     });
 
-    window.RealtimeClient.connect({ token: user.token });
+    window.RealtimeClient.connect({ token: user.token, unitId: user.unitId });
 
     return () => window.RealtimeClient.disconnect();
   }, [user, screen]);
@@ -2920,7 +2935,9 @@ function Root() {
     if (connectedRef.current) {
       window.RealtimeClient.sendChat(text, privado); // el eco del servidor lo agrega al hilo
     } else {
-      pushMsg({ from: 'TÚ', role: 'you', privado: !!privado, text, time: nowTime(), tone: 'normal' });
+      // Sin conexión NO salió, y se dice: se pintaba «Tú ✓✓» y desaparecía
+      // al volver la señal, sin haber salido nunca (barrido del 22/9).
+      pushMsg({ from: 'TÚ', role: 'you', privado: !!privado, text, time: nowTime(), tone: 'normal', noSalio: true });
     }
   };
 
@@ -2930,7 +2947,7 @@ function Root() {
     if (connectedRef.current && dataUrl) {
       window.RealtimeClient.sendVoice(dataUrl, seconds, privado);
     } else {
-      pushMsg({ from: 'TÚ', role: 'you', privado: !!privado, voice: seconds, audio: dataUrl || null, time: nowTime(), tone: 'normal' });
+      pushMsg({ from: 'TÚ', role: 'you', privado: !!privado, voice: seconds, audio: dataUrl || null, time: nowTime(), tone: 'normal', noSalio: true });
     }
   };
 

@@ -105,7 +105,13 @@ function mezclarCola(cola, posiciones, tope) {
 // nada. Se filtra por hora: sólo pasa lo más nuevo que lo último entregado.
 // Vive en memoria del proceso; si Android lo mata, se repite una vez y el
 // servidor lo descarta.
-function filtrarEntregadas(posiciones, ultimaEntregada = -Infinity) {
+//
+// Una marca en el FUTURO no se respeta (barrido del 22/9): con el reloj del
+// teléfono adelantado, lo entregado quedaba marcado con esa hora; al
+// corregirse el reloj, toda posición nueva era «más vieja» que la marca y se
+// filtraba — el GPS mudo tanto tiempo como el reloj había estado adelantado.
+function filtrarEntregadas(posiciones, ultimaEntregada = -Infinity, ahora = Date.now()) {
+  if (ultimaEntregada > ahora + 120_000) ultimaEntregada = -Infinity;
   const nuevas = posiciones
     .filter(p => typeof p?.timestamp === 'number' && p.timestamp > ultimaEntregada)
     .sort((a, b) => a.timestamp - b.timestamp);

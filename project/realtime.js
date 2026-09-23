@@ -66,8 +66,12 @@
   }
 
   // ─── CONEXIÓN ──────────────────────────────────────────────
-  function connect({ token }) {
+  function connect({ token, unitId }) {
     authToken = token;
+    // Quién soy, también con la sesión RESTAURADA: sólo `login()` lo ponía,
+    // así que al reabrir la app el eco del SOS nunca se reconocía y el
+    // respaldo por el socket decía «NO SALIÓ» de uno que sí salió (22/9).
+    if (unitId) authUnitId = unitId;
     authFailed = false;
 
     // El socket que se reemplaza no puede hablar más. Sin esto, su onclose
@@ -85,6 +89,8 @@
     ws.onopen = () => {
       console.log('WebSocket conectado');
       emit('status', { connected: true });
+      ultimoOido = Date.now();
+      arrancarLatido();
 
       // Presentar el token de sesión al servidor
       send({ type: 'identify', token: authToken });
@@ -100,8 +106,10 @@
     };
 
     ws.onmessage = (event) => {
+      ultimoOido = Date.now();
       try {
         const msg = JSON.parse(event.data);
+        if (msg.type === 'pong') return;
         if (msg.type === 'state') {
           emit('state', msg);
         } else if (msg.type === 'chat_msg') {
@@ -145,6 +153,7 @@
     };
 
     ws.onclose = () => {
+      pararLatido();
       emit('status', { connected: false });
       stopGps();
 
@@ -165,19 +174,71 @@
 
   // Cerrar sesión de verdad: revoca el token en el servidor (P5 de la
   // revisión del 8/9). Sin red, no importa: lo local se borra igual.
-  function logout() {
-    if (!authToken) return;
+  //
+  // Con el token que se le pase: la sesión restaurada desde el navegador no
+  // pasa por `connect()` si se sale desde la puerta, y `authToken` estaba en
+  // null — el token quedaba vivo 30 días (barrido del 22/9).
+  function logout(token) {
+    const t = token || authToken;
+    if (!t) return;
     try {
       fetch(HTTP_URL + '/auth/logout', {
         method: 'POST', keepalive: true,
-        headers: { Authorization: 'Bearer ' + authToken },
+        headers: { Authorization: 'Bearer ' + t },
       }).catch(() => {});
     } catch {}
   }
 
+  // Todo lo que es de la persona se olvida al salir: en un teléfono
+  // compartido, el siguiente heredaba el token, la presencia declarada y el
+  // «quién soy» del anterior (barrido del 22/9).
+  function olvidarSesion() {
+    authToken = null;
+    authUnitId = null;
+    presenciaDeclarada = null;
+    reportaGps = true;
+    lastPosition = null;
+  }
+
+  // El latido. Un socket medio muerto —la red cambió, una zona sin señal—
+  // sigue en `OPEN` hasta que el sistema se da cuenta, que pueden ser
+  // minutos: el HUD decía EN VIVO con brechas congeladas y nada salía. Se
+  // manda un `ping` cada 15 s y si en 40 s no llegó NADA del servidor, se
+  // da por muerto y se reconecta (barrido del 22/9).
+  const LATIDO_MS = 15_000, SILENCIO_MAX_MS = 40_000;
+  let latido = null, ultimoOido = 0;
+  function arrancarLatido() {
+    pararLatido();
+    latido = setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - ultimoOido > SILENCIO_MAX_MS) {
+        console.warn('WebSocket mudo: se reconecta');
+        const muerto = ws;
+        muerto.onmessage = muerto.onclose = muerto.onerror = null;
+        try { muerto.close(); } catch {}
+        ws = null;
+        pararLatido();
+        emit('status', { connected: false });
+        stopGps();
+        if (!authFailed && authToken) {
+          clearTimeout(reconnectTimeout);
+          reconnectTimeout = setTimeout(() => connect({ token: authToken }), 1000);
+        }
+        return;
+      }
+      send({ type: 'ping' });
+    }, LATIDO_MS);
+  }
+  function pararLatido() { if (latido) { clearInterval(latido); latido = null; } }
+
   function disconnect() {
     clearTimeout(reconnectTimeout);
+    pararLatido();
     stopGps();
+    // Lo emite para que la pantalla no crea que sigue conectada al volver:
+    // `sendText` mandaba al socket que todavía se estaba abriendo y el
+    // mensaje se perdía sin burbuja (barrido del 22/9).
+    emit('status', { connected: false });
     // Mudo antes de cerrar, por la misma razón que en connect(): que un
     // socket moribundo no agende reconexiones ni emita eventos viejos.
     if (ws) {
@@ -366,9 +427,24 @@
   // está vivo, por el socket esperando el eco propio. Antes `send()`
   // descartaba en silencio sin socket y la pantalla decía «ALERTA ENVIADA»
   // igual (REVISION-2026-09-10.md, C3).
+  //
+  // Dos cuidados más (barrido del 22/9). La posición sólo va si es FRESCA:
+  // con el socket caído el GPS se para, y el SOS salía con la posición de
+  // hace veinte minutos presentada como la de ahora — la ayuda iba adonde la
+  // combi ya no estaba. Sin posición la emergencia sale igual. Y un disparo
+  // a la vez: el segundo deslizamiento mientras el primero estaba en vuelo
+  // pisaba su eco, el primero no resolvía nunca y el servidor recibía dos.
+  const POSICION_SOS_MAX_MS = 60_000;
   let ecoSos = null;
-  async function sendSos() {
-    const coords = lastPosition?.coords;
+  let sosEnVuelo = null;
+  function sendSos() {
+    if (sosEnVuelo) return sosEnVuelo;
+    sosEnVuelo = dispararSos().finally(() => { sosEnVuelo = null; });
+    return sosEnVuelo;
+  }
+  async function dispararSos() {
+    const fresca = lastPosition && Date.now() - (lastPosition.timestamp || 0) <= POSICION_SOS_MAX_MS;
+    const coords = fresca ? lastPosition.coords : null;
     const cuerpo = {
       lat: coords ? coords.latitude : null,
       lng: coords ? coords.longitude : null,
@@ -386,6 +462,7 @@
         clearTimeout(t);
         if (res.ok) {
           const data = await res.json().catch(() => ({}));
+          ultimoSosVia = 'http';
           return { ok: true, via: 'http', sosId: data.sosId ?? data.alerta?.sosId ?? null };
         }
         // 429 (más de 5 por minuto) o un 4xx: el servidor dijo que no
@@ -399,7 +476,7 @@
       });
       send({ type: 'sos', ...cuerpo });
       const m = await eco;
-      if (m) return { ok: true, via: 'ws', sosId: m.sosId ?? null };
+      if (m) { ultimoSosVia = 'ws'; return { ok: true, via: 'ws', sosId: m.sosId ?? null }; }
     }
     return { ok: false, via: null };
   }
@@ -420,10 +497,15 @@
   // que no tiró era perder «accidente» en silencio justo en el caso de C8.
   // Es lo mismo que ya hacía `sendSos` con el `sos_alert`. Sin eco en 4 s,
   // HTTP; el servidor no repite el aviso si el tipo ya estaba puesto.
+  //
+  // Pero el disparo va primero por HTTP: si salió por ahí, el tipo también
+  // va derecho por HTTP, como dice PROTOCOLO — sin sumarle 4 s de espera
+  // de un eco por un socket del que no se sabe nada (barrido del 22/9).
   let ecoTipo = null;
+  let ultimoSosVia = null;
   async function sendSosTipo(sosId, tipo) {
     if (sosId == null) return 'sin-sos';
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    if (ultimoSosVia !== 'http' && ws && ws.readyState === WebSocket.OPEN) {
       const eco = new Promise((resolve) => {
         const mio = { sosId, resolve };
         ecoTipo = mio;
@@ -457,11 +539,17 @@
   // ruta" tiene que funcionar hasta con mala señal. Declarar 'ruta' NO mete
   // a la unidad en la cadena de brechas: eso lo confirma el servidor cuando
   // el GPS pisa el trazado.
+  //
+  // «Fuera» va SIEMPRE también por HTTP: la pantalla corta el socket en el
+  // acto, y por uno medio muerto el «fuera» no llegaba — la combi quedaba en
+  // el mapa tres minutos, hasta el olvido. El servidor acepta el repetido.
   function setPresencia(estado) {
     presenciaDeclarada = estado;
+    let porSocket = false;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ type: 'presencia', estado })); return; } catch {}
+      try { ws.send(JSON.stringify({ type: 'presencia', estado })); porSocket = true; } catch {}
     }
+    if (porSocket && estado !== 'fuera') return;
     if (authToken) {
       fetch(HTTP_URL + '/presencia', {
         method: 'POST',
@@ -505,6 +593,7 @@
     sendSosTipo,
     setPresencia,
     setTrafico,
+    olvidarSesion,
     isConnected,
     isReportingGps,
     on: (event, fn) => { listeners[event] = [fn]; }, // reemplaza — un handler por evento

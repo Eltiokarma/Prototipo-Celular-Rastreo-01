@@ -192,9 +192,17 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
     // 26 grabaciones más: el tope por empresa es 25, así que la primera
     // ("Vuelta al centro") tiene que haber salido de la lista.
     const dos = [{ lat: LAT, lng: LNG }, { lat: LAT + M * 40, lng: LNG }];
+    // Cada una se «envejece» un par de días después de mandarla: desde el
+    // barrido del 22/9 una misma persona manda como mucho seis por día, y lo
+    // que se prueba acá es el tope de la COOPERATIVA, no ése.
+    const Database = require(RAIZ + '/server/node_modules/better-sqlite3');
+    const envejecer = () => { const w = new Database(DB);
+      w.prepare('UPDATE recordings SET createdAt = createdAt - 2 * 86400000').run(); w.close(); };
+    envejecer();
     for (let i = 0; i < 26; i++) {
       await pedir('/grabacion', s1.token, { method: 'POST',
         body: JSON.stringify({ nombre: `relleno ${i}`, puntos: dos }) });
+      envejecer();
     }
     const r = await pedir('/admin/grabaciones', d.token);
     const nombres = (r.body.grabaciones || []).map(x => x.nombre);

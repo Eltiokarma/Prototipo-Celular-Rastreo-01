@@ -101,6 +101,11 @@ const punto = (m) => ({ lat: LAT + gLat * m, lng: LNG });
     mover(a, 5); mover(b, 10);
     await sleep(300);
     mover(a, 20); mover(b, 25);
+    // Una más después del cruce: el cierre de la vuelta se CONFIRMA con dos
+    // posiciones seguidas (barrido del 22/9), y en la calle el chofer sigue
+    // andando — la suite cortaba justo en la primera.
+    await sleep(300);
+    mover(a, 35); mover(b, 40);
     await sleep(900);
 
     const db = new Database(DB);
@@ -146,7 +151,9 @@ const punto = (m) => ({ lat: LAT + gLat * m, lng: LNG });
     const db = new Database(DB);
     db.prepare(`INSERT INTO laps (unitId, routeId, variantId, startedAt, finishedAt, durationSec, avgSpeed, brechaProm)
                 VALUES ('B-09','R-14',NULL,?,?,1800,20,NULL)`).run(Date.now() - 1800e3, Date.now());
-    const antes = db.prepare('SELECT brechaProm FROM laps WHERE brechaProm IS NOT NULL').all()
+    // Las ENTERAS de R-14, que es lo que promedia el resumen: una parcial
+    // (el que se metió a mitad) no entra en ningún promedio.
+    const antes = db.prepare("SELECT brechaProm FROM laps WHERE brechaProm IS NOT NULL AND parcial = 0 AND routeId = 'R-14'").all()
       .map(l => l.brechaProm);
     db.close();
     const esperado = Math.round(antes.reduce((a, x) => a + x, 0) / antes.length);
