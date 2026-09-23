@@ -2647,9 +2647,9 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
   st.lastProgress = progress;
 }
 // Cuántas posiciones seguidas tiene que sostenerse la caída del progreso
-// para cerrar la vuelta. Menos que el cambio de tramo (4): una lectura mala
-// suelta es lo que se filtra, y tres ya lo hacen sin demorar el cierre.
-const VUELTA_MUESTRAS = 3;
+// para cerrar la vuelta. Menos que el cambio de tramo (4): lo que se filtra
+// es UNA lectura mala suelta, y dos ya la filtran sin demorar el cierre.
+const VUELTA_MUESTRAS = 2;
 
 // ─── MEDIAS VUELTAS: LOS TRAMOS ──────────────────────────────
 // La tabla `legs` se crea más arriba, junto a `laps`: la poda del histórico

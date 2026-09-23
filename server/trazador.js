@@ -152,14 +152,15 @@
       if (!p) throw new Error('El GeoJSON no tiene un LineString');
       return p;
     }
-    // Primero el TRACK, si no la RUTA, y los waypoints sólo si no hay otra
-    // cosa: un GPX trae sus <wpt> —marcadores sueltos— al principio, y
-    // mezclarlos pegaba puntos ajenos al comienzo del trazado. Y `lat` y `lon`
-    // se leen cada uno por su lado: con `lon="…" lat="…"`, en ese orden, no
-    // se encontraba ningún punto (barrido del 22/9).
+    // El track y la ruta (<trkpt>, <rtept>) en el orden del archivo, y los
+    // waypoints sólo si no hay otra cosa: un GPX trae sus <wpt> —marcadores
+    // sueltos— al principio, y mezclarlos pegaba puntos ajenos al comienzo del
+    // trazado. Y `lat` y `lon` se leen cada uno por su lado: con
+    // `lon="…" lat="…"`, en ese orden, no se encontraba ningún punto
+    // (barrido del 22/9).
     const leer = (etiqueta) => {
       const ps = [];
-      const re = new RegExp('<' + etiqueta + '\\s([^>]*)>', 'gi');
+      const re = new RegExp('<(?:' + etiqueta + ')\\s([^>]*)>', 'gi');
       let m;
       while ((m = re.exec(t))) {
         const la = /\blat\s*=\s*["']([-\d.]+)["']/i.exec(m[1]);
@@ -168,8 +169,7 @@
       }
       return ps;
     };
-    let puntos = leer('trkpt');
-    if (!puntos.length) puntos = leer('rtept');
+    let puntos = leer('trkpt|rtept');
     if (!puntos.length) puntos = leer('wpt');
     if (!puntos.length) throw new Error('No se encontraron puntos en el archivo');
     return puntos;

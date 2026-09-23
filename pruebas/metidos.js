@@ -270,7 +270,10 @@ let servidor = null;
     // Lo pasan a la otra ruta. Se re-identifica por WebSocket, que es el
     // camino por el que la unidad cambia de ruta en vivo.
     const escritura = new Database(DB);
+    // La COMBI cambia de ruta (y la persona con ella): desde el barrido del
+    // 22/9 la unidad va a la ruta de su vehículo, no a la de la persona.
     escritura.prepare("UPDATE users SET routeId = 'R-20' WHERE unitId = 'M-03'").run();
+    escritura.prepare("UPDATE vehicles SET routeId = 'R-20' WHERE vehicleId = 'M-03'").run();
     escritura.close();
     const s3b = await login('M-03', 'chofer1234');
     const ws3 = new WebSocket(`ws://localhost:${P}`);

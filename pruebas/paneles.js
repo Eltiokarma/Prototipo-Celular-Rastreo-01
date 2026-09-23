@@ -71,8 +71,8 @@ console.log('\nP5. SALIR REVOCA EL TOKEN EN EL SERVIDOR');
   ok('Despacho llama a POST /auth/logout', /\/auth\/logout/.test(logout) && /method: 'POST'/.test(logout));
   ok('con el token de la sesión', /Authorization: 'Bearer ' \+ session\.token/.test(logout));
   ok('y borra lo local igual', /removeItem\('r14_dispatch_session'\)/.test(logout));
-  ok('la app web del chofer también (realtime.js)', /function logout\(\)[\s\S]*?\/auth\/logout/.test(realtime) && /\n    logout,\n/.test(realtime));
-  ok('y la llama al salir', /RealtimeClient\.logout\(\)/.test(prototipo));
+  ok('la app web del chofer también (realtime.js)', /function logout\([^)]*\)[\s\S]*?\/auth\/logout/.test(realtime) && /\n    logout,\n/.test(realtime));
+  ok('y la llama al salir', /RealtimeClient\.logout\(/.test(prototipo));
 }
 
 console.log('\nP6. «N EN RUTA» CUENTA LA CADENA, NO TODO LO QUE SE VE');
