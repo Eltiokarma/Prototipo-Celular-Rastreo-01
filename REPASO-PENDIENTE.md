@@ -338,10 +338,11 @@ verde.
 3. **La vuelta que cerraba una sola lectura mala** (`trackLap`). Una posición
    que proyectaba hacia atrás —trazado que se cruza, ida y vuelta por la
    misma calle— cerraba la vuelta un 15 % corta y acusaba al chofer de entrar
-   tarde. Ahora la caída se sostiene tres posiciones (`VUELTA_MUESTRAS`) y se
-   cierra con la hora de la primera. **La duda:** tres y no cuatro (el tramo
-   usa cuatro) es un número elegido; con posiciones cada 10 s son 30 s de
-   demora en cerrar, sin cambiar la hora del cierre.
+   tarde. Ahora la caída se sostiene dos posiciones (`VUELTA_MUESTRAS`) y se
+   cierra con la hora de la primera. **La duda:** dos y no cuatro (el tramo
+   usa cuatro) es un número elegido: filtra UNA lectura mala suelta, no dos
+   seguidas. Se probó con tres y rompía `brecha`, que cruza el inicio con
+   una sola posición detrás; en la calle hay muchas más.
 
 4. **El SOS.** Por el socket lo podía disparar Despacho. La hora era la del
    teléfono, y uno con el reloj atrasado nacía con la ventana del tipo ya
