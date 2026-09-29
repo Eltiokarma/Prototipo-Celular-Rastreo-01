@@ -4865,10 +4865,14 @@ function moverCombiDeRuta(vehicleId, origen, destino) {
     broadcastToRoute(origen, { type: 'unit_left', unitId: vehicleId });
   }
 
-  for (const [ws, personId] of clients) {
-    if (!personas.includes(personId)) continue;
+  // El perfil en memoria también, tenga o no un socket abierto: la app
+  // nativa con la pantalla apagada anda sólo por HTTP.
+  for (const personId of personas) {
     const prof = profiles.get(personId);
     if (prof) prof.routeId = destino;
+  }
+  for (const [ws, personId] of clients) {
+    if (!personas.includes(personId)) continue;
     if (ws.readyState !== 1) continue;
     watching.set(ws, destino);
     try {
