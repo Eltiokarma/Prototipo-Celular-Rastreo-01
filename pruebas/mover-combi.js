@@ -161,6 +161,53 @@ const enEstado = (c, ruta, veh) => !!(ultimoEstado(c, ruta)?.units || []).find(u
        turnos[turnos.length - 1].routeId === 'R-18B' && turnos[turnos.length - 1].endedAt === null, turnos);
   }
 
+  // La web del chofer guarda la sesión con la ruta del ingreso, y la puerta
+  // («¿salís a ruta?») la muestra desde ahí: sin corregirla, el cobrador
+  // vería la 18B al día siguiente de que su combi volvió a la 14.
+  console.log('\nLA WEB DEL COBRADOR SE ENTERA');
+  {
+    const nombre = id => base.prepare('SELECT name FROM routes WHERE routeId = ?').get(id).name;
+    const { chromium } = require('playwright-core');
+    const interceptarHttps = require(S + '/cdn.js');
+    const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+    const errores = [];
+    try {
+      const ctx = await browser.newContext({ viewport: { width: 412, height: 900 } });
+      await interceptarHttps(ctx);
+      const p = await ctx.newPage();
+      p.on('pageerror', e => errores.push(e.message));
+      await p.goto(`${API}/Prototipo.html`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await p.waitForTimeout(2500);
+      await p.fill('input[type="text"]', 'C-01');
+      await p.fill('input[type="password"]', 'clave1234');
+      await p.click('button:has-text("INGRESAR")');
+      await p.waitForTimeout(2500);
+      let puerta = await p.evaluate(() => document.body.innerText);
+      ok('al entrar, la puerta dice la ruta de ahora (18B)', puerta.includes(nombre('R-18B')), nombre('R-18B'));
+      await p.click('button:has-text("SALIR A RUTA")');
+      await p.waitForTimeout(2500);
+
+      const r = await mover(d.token, 'M-01', 'R-14');
+      ok('el supervisor la devuelve a la R-14', r.status === 200, r.body);
+      await p.waitForTimeout(2000);
+      const guardada = await p.evaluate(() => JSON.parse(localStorage.getItem('r14_session') || 'null'));
+      ok('la sesión guardada pasa a la R-14', guardada && guardada.routeId === 'R-14' && guardada.routeName === nombre('R-14'),
+         guardada && { routeId: guardada.routeId, routeName: guardada.routeName });
+      ok('sin perder el token', !!(guardada && guardada.token));
+
+      // Al día siguiente: la página se abre de nuevo, sin presencia guardada
+      await p.evaluate(() => localStorage.removeItem('r14_presencia'));
+      await p.reload({ waitUntil: 'domcontentloaded' });
+      await p.waitForTimeout(2500);
+      puerta = await p.evaluate(() => document.body.innerText);
+      ok('y la puerta del día siguiente dice la 14, no la 18B',
+         puerta.includes(nombre('R-14')) && !puerta.includes(nombre('R-18B')), puerta.slice(0, 200));
+      ok('sin errores en la página', errores.length === 0, errores);
+    } finally {
+      await browser.close();
+    }
+  }
+
   for (const c of [cc, mira14, mira18]) { try { c.ws.close(); } catch {} }
   base.close();
   servidor.kill();
