@@ -1937,11 +1937,15 @@ const RECONEXION_MS = 15 * 60_000;
 function abrirTurno(personId, vehicleId, routeId, role) {
   const ahora = Date.now();
   // ¿Venía de un corte de señal? Se retoma el turno anterior
+  //
+  // En la MISMA ruta: si en el medio a la combi la pasaron a otra ruta (la 18A
+  // a la 18B), lo que sigue es un turno nuevo en la ruta nueva, no la
+  // continuación del de la anterior — las horas de cada ruta van a su ruta.
   const previo = db.prepare(`
     SELECT id FROM shifts
-    WHERE personId = ? AND vehicleId = ? AND endedAt IS NOT NULL AND endedAt > ?
+    WHERE personId = ? AND vehicleId = ? AND routeId IS ? AND endedAt IS NOT NULL AND endedAt > ?
     ORDER BY id DESC LIMIT 1
-  `).get(personId, vehicleId, ahora - RECONEXION_MS);
+  `).get(personId, vehicleId, routeId || null, ahora - RECONEXION_MS);
 
   if (previo) {
     // Antes de retomarlo, se cierra cualquier OTRO que tenga abierto. Sin
@@ -4803,6 +4807,97 @@ app.post('/admin/vehicles', requireGerente, (req, res) => {
   audit(req.dispatchUser.unitId, 'alta_vehiculo', vehicleId, `ruta ${routeId}`, routeId);
   console.log(`Vehículo creado: ${vehicleId} en ${routeId}`);
   res.json({ ok: true, vehicleId, routeId });
+});
+
+// ─── MOVER UNA COMBI DE RUTA ──────────────────────────────────
+// Una cooperativa con la 18A y la 18B rota combis entre las dos. Hasta acá la
+// ruta de un vehículo se fijaba en el alta y no había forma de cambiarla.
+//
+// Mover es operación del día, no estructura: lo hace el supervisor (Despacho
+// o gerencia SIN ruta asignada), que es quien ve las dos. Un Despacho atado a
+// una ruta no puede sacar una combi de la suya ni meterla en otra.
+//
+// Lo que se mueve con la combi:
+//   - la gente asignada a ella (chofer y cobrador): la persona va a la ruta
+//     de su combi, la misma regla del alta;
+//   - si está en el mapa, sale del de la ruta vieja y entra al de la nueva
+//     SIN confirmar: vuelve a la cadena cuando pise el trazado nuevo, y como
+//     reanudación, no como entrada tardía;
+//   - lo que se venía midiendo contra el trazado viejo se cierra: la vuelta a
+//     medias se descarta (una vuelta repartida entre dos rutas no es de
+//     ninguna), la media vuelta terminada se guarda con su ruta, y el desvío,
+//     la parada y el corte abiertos se cierran como 'trazado';
+//   - el turno abierto se corta ahora y el siguiente arranca en la ruta nueva:
+//     las horas de cada ruta quedan en su ruta;
+//   - las pantallas conectadas reciben el trazado y el hilo de la ruta nueva.
+function moverCombiDeRuta(vehicleId, origen, destino) {
+  const ahora = Date.now();
+  db.prepare('UPDATE vehicles SET routeId = ? WHERE vehicleId = ?').run(destino, vehicleId);
+  const personas = db.prepare('SELECT unitId FROM users WHERE vehicleId = ?').all(vehicleId).map(u => u.unitId);
+  db.prepare('UPDATE users SET routeId = ? WHERE vehicleId = ?').run(destino, vehicleId);
+  db.prepare('UPDATE shifts SET endedAt = ?, lastSeenAt = MAX(lastSeenAt, ?) WHERE vehicleId = ? AND endedAt IS NULL')
+    .run(ahora, ahora, vehicleId);
+
+  const u = units.get(vehicleId);
+  const cuando = (u && u.timestamp) || ahora;
+  if (lapState.delete(vehicleId)) console.log(`Vuelta descartada: ${vehicleId} pasó de ${origen} a ${destino}`);
+  const tramo = tramoState.get(vehicleId);
+  if (tramo) { cerrarTramo(vehicleId, tramo, cuando); tramoState.delete(vehicleId); }
+  olvidarDesvio(vehicleId, 'trazado', cuando);
+  olvidarParada(vehicleId, 'trazado', cuando);
+  cerrarHueco(vehicleId, 'trazado');
+  traficos.delete(vehicleId);
+  ausenteEnMarcha.delete(vehicleId);
+  const decl = presencias.get(vehicleId);
+  if (decl) {
+    // Sin confirmar en la ruta nueva, y con la marca de «se lo perdió ahora»:
+    // al pisar el trazado nuevo cuenta como reanudación, no como meterse.
+    decl.enRuta = false;
+    decl.perdidaEn = ahora;
+    decl.tocadaEn = ahora;
+  }
+  if (u) {
+    ponerUnidad(vehicleId, {
+      ...u, routeId: destino, enRuta: false,
+      fueraDeRuta: false, fueraDesde: null, parado: false, paradoDesde: null,
+      trafico: false, traficoDesde: null, tramo: null, progresoTramo: null,
+    });
+    broadcastToRoute(origen, { type: 'unit_left', unitId: vehicleId });
+  }
+
+  // El perfil en memoria también, tenga o no un socket abierto: la app
+  // nativa con la pantalla apagada anda sólo por HTTP.
+  for (const personId of personas) {
+    const prof = profiles.get(personId);
+    if (prof) prof.routeId = destino;
+  }
+  for (const [ws, personId] of clients) {
+    if (!personas.includes(personId)) continue;
+    if (ws.readyState !== 1) continue;
+    watching.set(ws, destino);
+    try {
+      ws.send(mensajeGeometria(destino));
+      ws.send(JSON.stringify({ type: 'chat_history', routeId: destino, items: recentHistory(destino, vehicleId) }));
+    } catch {}
+  }
+  scheduleStateBroadcast(origen, true);
+  scheduleStateBroadcast(destino, true);
+  return { enVivo: !!u, personas };
+}
+
+app.post('/admin/vehicles/:vehicleId/ruta', requireSupervisor, (req, res) => {
+  const vehicleId = idLimpio(req.params.vehicleId);
+  const veh = vehicleId ? vehicleOf(vehicleId) : null;
+  // Uno de otra cooperativa es, para este panel, uno que no existe
+  if (!veh || veh.companyId !== req.empresa) return res.status(404).json({ error: 'Ese vehículo no existe' });
+  const destino = idLimpio(req.body?.routeId);
+  if (!destino || !rutaDeEmpresa(destino, req.empresa)) return res.status(404).json({ error: 'Esa ruta no existe' });
+  if (veh.routeId === destino) return res.json({ ok: true, vehicleId, routeId: destino, sinCambio: true });
+  const origen = veh.routeId;
+  const r = moverCombiDeRuta(vehicleId, origen, destino);
+  audit(req.dispatchUser.unitId, 'mover_combi', vehicleId, `${origen || '—'} → ${destino}`, destino);
+  console.log(`Combi ${vehicleId} pasa de ${origen} a ${destino}${r.enVivo ? ' (estaba en ruta)' : ''}`);
+  res.json({ ok: true, vehicleId, desde: origen, routeId: destino, enVivo: r.enVivo, personas: r.personas });
 });
 
 // Cierra en vivo las conexiones de una unidad (clave reseteada o baja)

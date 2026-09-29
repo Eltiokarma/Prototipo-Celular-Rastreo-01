@@ -2624,6 +2624,8 @@ function Root() {
   const [gpsAviso, setGpsAviso] = React.useState(null); // «sin GPS», con el motivo
   const [gapMeta, setGapMeta] = React.useState(null); // { aheadUnit, behindUnit }
   const [routeId, setRouteId] = React.useState(null); // ruta del chofer, la manda el servidor
+  // La ruta que el servidor dijo por última vez, si cambió desde el ingreso
+  const [rutaVigente, setRutaVigente] = React.useState(null);
   const [messages, setMessages] = React.useState(CHAT_SEED);
   const [incomingSos, setIncomingSos] = React.useState(null);
   // El id de MI último SOS, esperando (si puedo) que le ponga nombre. La
@@ -2681,6 +2683,7 @@ function Root() {
 
   const onLogin = (session) => {
     setUser(session);
+    setRutaVigente(null);
     setAuthNotice(null);
     try {
       if (session.token) localStorage.setItem('r14_session', JSON.stringify(session));
@@ -2703,7 +2706,7 @@ function Root() {
       // ni el privado con Despacho, ni el SOS a medio calificar.
       if (window.RealtimeClient.olvidarSesion) window.RealtimeClient.olvidarSesion();
     }
-    setMessages([]); setSosPropio(null);
+    setMessages([]); setSosPropio(null); setRutaVigente(null);
     setUser(null);
     setScreen('login');
   };
@@ -2732,7 +2735,7 @@ function Root() {
       try { localStorage.removeItem('r14_session'); localStorage.removeItem('r14_presencia'); } catch {}
       // Lo de esta persona no pasa a la siguiente (barrido del 22/9)
       if (window.RealtimeClient.olvidarSesion) window.RealtimeClient.olvidarSesion();
-      setMessages([]); setSosPropio(null); setPresencia('fuera');
+      setMessages([]); setSosPropio(null); setPresencia('fuera'); setRutaVigente(null);
       setUser(null);
       setAuthNotice('Tu sesión expiró. Ingresá de nuevo.');
       setScreen('login');
@@ -2749,6 +2752,21 @@ function Root() {
       // La ruta y su objetivo de brecha los define el servidor, no la app:
       // cada ruta tiene su propia separación ideal entre unidades.
       setRouteId(state.routeId || null);
+      // Si el supervisor pasó la combi a otra ruta (la 18A y la 18B rotan),
+      // la sesión guardada sigue diciendo la vieja, y es la que muestra la
+      // puerta al salir de ruta y al día siguiente. Se corrige con lo que
+      // dice el servidor. Sin tocar `user`: el socket depende de él y se
+      // reconectaría por una etiqueta.
+      if (state.routeId) {
+        setRutaVigente(r => (r && r.routeId === state.routeId) ? r
+          : { routeId: state.routeId, routeName: state.routeName || state.routeId });
+        try {
+          const s = JSON.parse(localStorage.getItem('r14_session') || 'null');
+          if (s && s.unitId === myUnitId && s.routeId !== state.routeId) {
+            localStorage.setItem('r14_session', JSON.stringify({ ...s, routeId: state.routeId, routeName: state.routeName || state.routeId }));
+          }
+        } catch {}
+      }
       if (state.targetGapMin) {
         setTweaks(t => t.targetGap === state.targetGapMin ? t : { ...t, targetGap: state.targetGapMin });
       }
@@ -2985,8 +3003,8 @@ function Root() {
     content = <StartRouteScreen
       user={(user?.driverName || user?.unitId || '').toUpperCase()}
       unidad={user?.vehicleId || user?.unitId || null}
-      ruta={user?.routeName || user?.routeId || null}
-      rutaId={user?.routeId || null}
+      ruta={rutaVigente?.routeName || user?.routeName || user?.routeId || null}
+      rutaId={rutaVigente?.routeId || user?.routeId || null}
       lapNumber={lap}
       onStart={() => { declararPresencia('ruta'); setScreen('app'); }}
       onRest={() => { declararPresencia('ausente'); setScreen('app'); }}

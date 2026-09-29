@@ -414,3 +414,49 @@ verde.
   dos aparatos, el GPS impreciso, una parada real, el botón de tráfico, el
   tipo de SOS con el socket caído y una grabación que falla al enviarse.
   Está en `REVISION-2026-09-10.md`.
+
+---
+
+## Tanda 10 — pasar una combi de una ruta a otra (29/9, sin repasar)
+
+La 18A y la 18B son dos rutas de una misma cooperativa y a veces rotan
+combis. Hasta ahora `vehicles.routeId` se fijaba al crear la combi y no había
+cómo cambiarlo. Ahora el supervisor la cambia desde la columna Ruta de
+Vehículos (`POST /admin/vehicles/:vehicleId/ruta`). Suite nueva
+`mover-combi`, con navegador.
+
+### Lo que más conviene mirar, en orden
+
+1. **Quién puede.** Sólo el supervisor (`requireSupervisor`): un Despacho
+   atado a la 18A no puede llevarse combis de la 18B ni traérselas. Es una
+   decisión, no un límite técnico: si en Juliaca o Puno lo hace el Despacho
+   de la terminal, hay que abrirlo con cuidado (que sólo mueva entre SUS
+   rutas).
+2. **Lo que se lleva la combi.** Todas las personas con `vehicleId` de esa
+   combi pasan a la ruta nueva (`users.routeId`), porque la persona sigue a
+   su combi desde el barrido del 22/9. Un chofer que manejaba esa combi pero
+   tiene otra asignada no se mueve.
+3. **Con la combi andando.** Sale del mapa de la ruta vieja, entra al de la
+   nueva, la vuelta a medias se DESCARTA (no se guarda con ninguna ruta:
+   medida en una y cerrada en otra no es una vuelta de ninguna), el tramo,
+   el desvío, la parada y el hueco se cierran con la hora de su última
+   señal. La presencia queda como perdida, así que al volver a la cadena en
+   la ruta nueva es una reanudación y no una «entrada tardía».
+4. **El turno se corta.** `abrirTurno` ahora sólo retoma un turno cerrado
+   hace menos de 15 min si es de la MISMA ruta; si no, abre otro. Así las
+   horas quedan repartidas por ruta, que es como las liquida cada una.
+5. **Los clientes.** Los sockets abiertos de la gente asignada pasan a mirar
+   la ruta nueva y reciben su trazado y su hilo. La app nativa no guarda la
+   ruta en ningún lado que muestre; la web del chofer sí la guardaba en la
+   sesión (la puerta la mostraba) y ahora la corrige con el `state`.
+
+### Lo que NO se tocó, y por qué
+
+- **El tronco compartido de la 18A y la 18B.** Donde las dos rutas van por
+  la misma calle, cada una mide sus brechas por separado; una combi de la
+  18A no cuenta como «la de adelante» de una 18B. Es lo correcto para el
+  HUD (cada una sigue su propio circuito), pero no se miró si Despacho
+  querría ver las dos juntas en ese tramo.
+- **Los códigos únicos en todo el servidor** (rutas, combis, personas). Para
+  Juliaca y Puno alcanza; el prefijo de ciudad o cooperativa con el número
+  corto visible queda para después, como se habló.

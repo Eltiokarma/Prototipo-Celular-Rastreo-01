@@ -639,6 +639,18 @@ falla peligrosa y muda en una visible y honesta.
   navegador. La app nativa no lo usa: su canal con la pantalla apagada es
   `POST /gps`.
 
+- **La combi puede cambiar de ruta con la sesión abierta** (desde el 29/9).
+  El supervisor la pasa de una ruta a otra de la misma cooperativa —la 18A
+  y la 18B rotan combis— con `POST /admin/vehicles/:vehicleId/ruta`
+  `{ routeId }`. A cada socket abierto de la gente asignada le llegan, sin
+  volver a entrar, el `route_geometry` y el `chat_history` de la ruta
+  nueva, y desde ahí los `state` son de ésa: el cliente toma la ruta de lo
+  que le llega, **nunca** de la sesión que guardó al ingresar. Los que
+  miraban la ruta vieja reciben `unit_left`. La vuelta en curso se
+  descarta y el turno se corta; el siguiente abre en la ruta nueva. La web
+  del chofer además corrige su sesión guardada, que es la que muestra la
+  puerta al día siguiente.
+
 - **Un socket que no está abierto no actúa.** Al revocar una sesión se le
   manda `auth_error` y se lo cierra; lo que llegue mientras el cierre no
   termina se descarta. Y un `type` que no es de la tabla de cupos cuenta como

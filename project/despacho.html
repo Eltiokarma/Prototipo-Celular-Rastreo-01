@@ -1386,6 +1386,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   });
   // Cambio del trazado con el que se mide: { ruta, v, actual }
   const [confirmVar, setConfirmVar] = React.useState(null);
+  // Mover una combi a otra ruta de la cooperativa: { v, destino }
+  const [confirmMover, setConfirmMover] = React.useState(null);
   // Bajo 900 px el riel no cabe al lado del contenido. No vuelve a ser una
   // fila de ocho pestañas: se convierte en un desplegable.
   const [angosto, setAngosto] = React.useState(window.innerWidth < 900);
@@ -1595,6 +1597,20 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
     });
     await loadRoutes();
   }, 'Objetivo actualizado');
+
+  // La 18A y la 18B rotan combis: el supervisor la pasa de una a otra. La
+  // gente asignada va con ella, y si está en ruta sale de un mapa y entra al
+  // otro (ver `moverCombiDeRuta` en el servidor).
+  const moverCombi = () => {
+    const { v, destino } = confirmMover;
+    setConfirmMover(null);
+    return run(async () => {
+      await api(`/admin/vehicles/${encodeURIComponent(v.vehicleId)}/ruta`, {
+        method: 'POST', body: JSON.stringify({ routeId: destino }),
+      });
+      await Promise.all([loadVehicles(), load()]);
+    }, `${v.vehicleId} ahora trabaja en ${destino}`);
+  };
 
   const crearVehiculo = () => run(async () => {
     await api('/admin/vehicles', {
@@ -2137,9 +2153,24 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             <Punto on={v.enLinea} title={v.enLinea ? 'En ruta ahora' : 'Fuera de ruta'} />
                             <span style={{ fontFamily: black, fontSize: 14 }}>{v.vehicleId}</span>
                           </span>
-                          <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.bright }}>
-                            {v.routeId || '—'}
-                          </span>
+                          {esSupervisor && routeList.length > 1 ? (
+                            <select value={v.routeId || ''} disabled={busy}
+                              title="Pasar esta combi a otra ruta de la cooperativa"
+                              onChange={e => {
+                                const destino = e.target.value;
+                                if (destino && destino !== v.routeId) setConfirmMover({ v, destino });
+                              }}
+                              style={{
+                                ...campo(30), width: '100%', padding: '0 4px', cursor: 'pointer',
+                                fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.bright,
+                              }}>
+                              {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}</option>)}
+                            </select>
+                          ) : (
+                            <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.bright }}>
+                              {v.routeId || '—'}
+                            </span>
+                          )}
                           <span style={{
                             fontSize: 13, color: v.label ? HUD.fg2 : HUD.dim3, minWidth: 0,
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -2166,6 +2197,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 <strong> Personas</strong> y se le asignan. Pueden ir dos arriba
                 (chofer y cobrador) pero <strong>solo el chofer reporta la
                 posición</strong>: así la unidad no salta entre dos celulares.
+                {esSupervisor && routeList.length > 1 && (
+                  <> Para pasar una combi a otra ruta de la cooperativa —la que rota
+                  entre la A y la B—, cambiá su ruta en la columna Ruta: va con su gente.</>
+                )}
               </Pie>
             </div>)}
 
@@ -3687,6 +3722,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   login_bloqueado: { label: 'bloqueado por intentos fallidos', color: HUD.amber },
                   alta: { label: 'dio de alta a', color: HUD.green },
                   alta_vehiculo: { label: 'creó el vehículo', color: HUD.green },
+                  mover_combi: { label: 'pasó a otra ruta la combi', color: HUD.bright },
                   alta_ruta: { label: 'creó la ruta', color: HUD.green },
                   editar_identidad: { label: 'corrigió los datos de', color: HUD.bright },
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
@@ -3759,6 +3795,28 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
 
       {/* Cambiar el trazado con el que se mide le cambia el mapa a quien está
           manejando ahora. Nombra la ruta y los dos trazados, siempre. */}
+      {/* Pasar una combi de ruta nombra la combi y las dos rutas, y dice lo
+          que cuesta si está andando: la vuelta a medias no se guarda. */}
+      {confirmMover && (
+        <Confirmacion
+          kicker="Confirmar cambio de ruta"
+          tono="amber"
+          titulo={`${confirmMover.v.vehicleId} pasa de ${confirmMover.v.routeId || 'sin ruta'} a ${confirmMover.destino}`}
+          cuerpo={<>
+            La gente asignada a esta combi va con ella a {confirmMover.destino}.
+            {confirmMover.v.enLinea
+              ? <>{' '}Está <strong>en ruta ahora</strong>: sale del mapa de {confirmMover.v.routeId} y
+                  aparece en el de {confirmMover.destino}, y <strong>la vuelta que venía haciendo se
+                  descarta</strong> — se medía con el otro recorrido. Vuelve a la cadena cuando pise
+                  el trazado nuevo.</>
+              : <>{' '}Hoy no está en ruta: el cambio vale desde su próxima salida.</>}
+          </>}
+          aceptar={`Sí, pasar a ${confirmMover.destino}`}
+          onAceptar={moverCombi}
+          onCancelar={() => setConfirmMover(null)}
+        />
+      )}
+
       {confirmVar && (
         <Confirmacion
           kicker="Confirmar cambio de medición"
