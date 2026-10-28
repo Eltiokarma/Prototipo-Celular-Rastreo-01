@@ -1941,11 +1941,16 @@ function abrirTurno(personId, vehicleId, routeId, role) {
   // En la MISMA ruta: si en el medio a la combi la pasaron a otra ruta (la 18A
   // a la 18B), lo que sigue es un turno nuevo en la ruta nueva, no la
   // continuación del de la anterior — las horas de cada ruta van a su ruta.
+  //
+  // Y sólo si es el ÚLTIMO turno de la persona: pasar la combi de A a B y
+  // devolverla a A en menos de 15 min reabría el de A, que pasaba a cubrir
+  // también el de B — esas horas se contaban dos veces (repaso de la tanda 10).
   const previo = db.prepare(`
     SELECT id FROM shifts
     WHERE personId = ? AND vehicleId = ? AND routeId IS ? AND endedAt IS NOT NULL AND endedAt > ?
+      AND id = (SELECT MAX(id) FROM shifts WHERE personId = ?)
     ORDER BY id DESC LIMIT 1
-  `).get(personId, vehicleId, routeId || null, ahora - RECONEXION_MS);
+  `).get(personId, vehicleId, routeId || null, ahora - RECONEXION_MS, personId);
 
   if (previo) {
     // Antes de retomarlo, se cierra cualquier OTRO que tenga abierto. Sin
@@ -2012,7 +2017,15 @@ function otroTieneElMando(vehicleId, personId) {
 function tomarMando(vehicleId, personId, como) {
   const previo = duenoDe.get(vehicleId);
   duenoDe.set(vehicleId, { personId, oidoEn: Date.now() });
-  if (!previo || previo.personId === personId) return false;
+  if (!previo || previo.personId === personId) {
+    // El socket que quedó como dueño del GPS siendo de OTRA persona (salió de
+    // ruta y dejó la web abierta: se le borró el mando, no el socket) deja de
+    // serlo. Si no, al cerrarse heredaba el mando a un tercero y el que
+    // manejaba quedaba mudo (repaso de la tanda 9).
+    const ws = gpsOwner.get(vehicleId);
+    if (ws && clients.get(ws) !== personId) gpsOwner.delete(vehicleId);
+    return false;
+  }
   const wsPrevio = gpsOwner.get(vehicleId);
   if (wsPrevio && clients.get(wsPrevio) === previo.personId) {
     if (wsPrevio.readyState === 1) {
@@ -2640,14 +2653,30 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
       routeId,
       lapStart: now, speedSum: 0, speedCount: 0, samples: 0, lastProgress: progress,
       // La que arranca ahora SÍ empieza donde termina la anterior: cruzó el
-      // inicio del circuito recién, así que nace entera.
-      progresoInicial: progresoNuevo,
+      // inicio del circuito recién, así que nace entera. Con el menor de los
+      // dos: si la primera lectura de la caída fue una mala (0,30 en vez de
+      // 0,01), la vuelta siguiente nacía «parcial» y la auditoría acusaba
+      // una entrada al 30 % que no existió (repaso de la tanda 9).
+      progresoInicial: Math.min(progresoNuevo, progress),
       brechaSum: 0, brechaCount: 0,
     });
     return;
   }
   // No se cumple: lo que parecía una caída era una lectura suelta.
   st.caidaSeguidas = 0;
+  // Y un SALTO hacia adelante de más de medio circuito en una sola lectura
+  // tampoco se cree de entrada. Con ida y vuelta por la misma calle, un
+  // rebote del GPS invierte el rumbo, la proyección elige el otro tramo y el
+  // progreso salta de 0,06 a 0,90: quedaba como «lo alto» y las dos lecturas
+  // normales que seguían confirmaban la caída — una vuelta de 21 s guardada
+  // como entera y la de verdad partida en dos (repaso de la tanda 9). Un
+  // salto real (la combi que reaparece tras un corte de señal) se sostiene
+  // y entra a la segunda lectura.
+  if (progress - st.lastProgress > 0.5) {
+    st.saltoSeguidas = (st.saltoSeguidas || 0) + 1;
+    if (st.saltoSeguidas < VUELTA_MUESTRAS) return;
+  }
+  st.saltoSeguidas = 0;
   st.lastProgress = progress;
 }
 // Cuántas posiciones seguidas tiene que sostenerse la caída del progreso
@@ -2940,6 +2969,11 @@ app.post('/auth/login', (req, res) => {
         'cuenta de administración en el sistema. Poné DISPATCH_PASSWORD para que no dependa de esto.');
     }
 
+    // El auto-registro de la demo tampoco da de alta los nombres de la
+    // plataforma (CREADOR, SISTEMA): firmarían la auditoría como ella.
+    if (openReg && idReservado(unitId)) {
+      return res.status(400).json({ error: `${unitId} es un nombre reservado del sistema` });
+    }
     if (unitId !== DISPATCH_ID && !openReg) {
       // Cuenta como fallo: si no, probar usuarios sale gratis y sirve para
       // averiguar cuáles existen. Y la RESPUESTA es idéntica a la de una
@@ -3895,6 +3929,7 @@ app.post('/admin/grabaciones/pedir', requireDispatch, (req, res) => {
   db.prepare(`INSERT INTO recording_requests (vehicleId, routeId, companyId, pedidaPor, pedidaEn, estado)
               VALUES (?, ?, ?, ?, ?, 'pedida')
               ON CONFLICT(vehicleId) DO UPDATE SET
+                routeId = excluded.routeId,
                 pedidaPor = excluded.pedidaPor, pedidaEn = excluded.pedidaEn, estado = 'pedida'`)
     .run(vehicleId, veh.routeId || null, veh.companyId || null,
          req.dispatchUser.unitId, Date.now());
@@ -3953,7 +3988,7 @@ app.post('/gps', (req, res) => {
       }
       tomarMando(vehicleId, user.unitId, `por HTTP, el dueño callado hace ${Math.round((Date.now() - dueno.oidoEn) / 1000)} s`);
     } else if (!dueno) {
-      duenoDe.set(vehicleId, { personId: user.unitId, oidoEn: Date.now() });
+      tomarMando(vehicleId, user.unitId, 'por HTTP, sin dueño');
     }
   }
 
@@ -4024,7 +4059,10 @@ app.post('/gps', (req, res) => {
   };
   // Se abre turno igual que al identificarse por WebSocket: si el chofer solo
   // reporta por HTTP (app en segundo plano toda la mañana) igual trabajó.
-  abrirTurno(user.unitId, vehicleId, user.routeId || prof.routeId || DEFAULT_ROUTE, user.role);
+  // Con la ruta de la COMBI, como el `identify`: con persona y combi en rutas
+  // distintas (datos viejos), el identify abría el turno en una y este POST en
+  // la otra — horas partidas y solapadas (repaso de la tanda 9).
+  abrirTurno(user.unitId, vehicleId, rutaDeLaCombi(vehicleId, user.routeId || prof.routeId), user.role);
 
   // Lo que YA se sabía no se procesa dos veces. Con la pantalla apagada la
   // app corta un envío que no vuelve y lo manda de nuevo — y ese envío puede
@@ -4077,7 +4115,7 @@ app.post('/gps', (req, res) => {
   // La presencia que viaja pegada al lote vale sólo si el lote es posterior
   // al último «fuera»: si no, es la declaración vieja de un envío atrasado.
   if (presenciaDelLote && (nuevas.length || !deAntesDeSalir)) {
-    fijarPresencia(vehicleId, user.routeId || DEFAULT_ROUTE, presenciaDelLote);
+    fijarPresencia(vehicleId, rutaDeLaCombi(vehicleId, user.routeId), presenciaDelLote);
   } else if (presenciaDelLote) {
     console.log(`POST /gps ${vehicleId}: presencia '${presenciaDelLote}' ignorada — el lote es anterior a su «fuera»`);
   }
@@ -4837,6 +4875,10 @@ function moverCombiDeRuta(vehicleId, origen, destino) {
   db.prepare('UPDATE users SET routeId = ? WHERE vehicleId = ?').run(destino, vehicleId);
   db.prepare('UPDATE shifts SET endedAt = ?, lastSeenAt = MAX(lastSeenAt, ?) WHERE vehicleId = ? AND endedAt IS NULL')
     .run(ahora, ahora, vehicleId);
+  // El pedido de grabación pendiente va con la combi: si no, el Despacho de
+  // la ruta vieja lo seguía viendo y el de la nueva no podía cancelarlo
+  // (repaso de la tanda 10).
+  db.prepare('UPDATE recording_requests SET routeId = ? WHERE vehicleId = ?').run(destino, vehicleId);
 
   const u = units.get(vehicleId);
   const cuando = (u && u.timestamp) || ahora;
@@ -4852,13 +4894,21 @@ function moverCombiDeRuta(vehicleId, origen, destino) {
   if (decl) {
     // Sin confirmar en la ruta nueva, y con la marca de «se lo perdió ahora»:
     // al pisar el trazado nuevo cuenta como reanudación, no como meterse.
+    //
+    // Pero «perdida» sólo si ESTABA confirmada, como en el olvido: la combi
+    // que iba «yendo» no tenía corrida que cortar, y marcarla hacía que se
+    // metiera a mitad de la ruta nueva sin quedar como entrada tardía. La
+    // marca de entrada tardía de la ruta vieja no viaja a la nueva (repaso
+    // de la tanda 10).
+    if (decl.enRuta) decl.perdidaEn = ahora;
     decl.enRuta = false;
-    decl.perdidaEn = ahora;
+    decl.entradaTardia = false;
+    decl.entroEn = null;
     decl.tocadaEn = ahora;
   }
   if (u) {
     ponerUnidad(vehicleId, {
-      ...u, routeId: destino, enRuta: false,
+      ...u, routeId: destino, enRuta: false, entradaTardia: false, entroEn: null,
       fueraDeRuta: false, fueraDesde: null, parado: false, paradoDesde: null,
       trafico: false, traficoDesde: null, tramo: null, progresoTramo: null,
     });
@@ -4871,9 +4921,18 @@ function moverCombiDeRuta(vehicleId, origen, destino) {
     const prof = profiles.get(personId);
     if (prof) prof.routeId = destino;
   }
+  // Y los que están conectados por el socket arrancan YA su turno en la ruta
+  // nueva. El cierre de arriba los dejaba sin turno hasta reconectar: el GPS
+  // por socket (la web) no abre turnos, y el cobrador no manda GPS. Una vez
+  // por persona, como el `identify` (repaso de la tanda 10).
+  const conTurno = new Set();
   for (const [ws, personId] of clients) {
     if (!personas.includes(personId)) continue;
     if (ws.readyState !== 1) continue;
+    if (!conTurno.has(personId)) {
+      conTurno.add(personId);
+      abrirTurno(personId, vehicleId, destino, profiles.get(personId)?.role || 'driver');
+    }
     watching.set(ws, destino);
     try {
       ws.send(mensajeGeometria(destino));
@@ -4896,6 +4955,9 @@ app.post('/admin/vehicles/:vehicleId/ruta', requireSupervisor, (req, res) => {
   const origen = veh.routeId;
   const r = moverCombiDeRuta(vehicleId, origen, destino);
   audit(req.dispatchUser.unitId, 'mover_combi', vehicleId, `${origen || '—'} → ${destino}`, destino);
+  // La auditoría se filtra por ruta: el Despacho atado a la ruta de origen
+  // veía desaparecer la combi sin rastro (repaso de la tanda 10).
+  if (origen) audit(req.dispatchUser.unitId, 'mover_combi', vehicleId, `${origen} → ${destino}`, origen);
   console.log(`Combi ${vehicleId} pasa de ${origen} a ${destino}${r.enVivo ? ' (estaba en ruta)' : ''}`);
   res.json({ ok: true, vehicleId, desde: origen, routeId: destino, enVivo: r.enVivo, personas: r.personas });
 });
@@ -5649,11 +5711,22 @@ app.get('/admin/informe/:tipo.csv', requireDispatch, (req, res) => {
 });
 
 // Turnos: quién anduvo en qué unidad y cuánto. Por defecto los de hoy.
+// Las dos listas del día (Turnos y Vueltas) aceptan `desde`, y sin tope
+// `?desde=0` armaba en memoria TODO el historial —120 días de vueltas, 365 de
+// turnos— en el hilo único: 2,8 s con el GPS y los sockets de todas las
+// cooperativas congelados, y lo podía pedir cualquier Despacho (repaso de la
+// tanda 9). La pantalla pide como mucho una semana; lo largo es de los
+// informes, que tienen su propio tope.
+const LISTAS_DIAS_MAX = 8;
+function desdeDeLista(req) {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const pedido = Number(req.query?.desde);
+  const desde = Number.isFinite(pedido) ? pedido : hoy.getTime();
+  return Math.max(desde, hoy.getTime() - LISTAS_DIAS_MAX * 86400_000);
+}
+
 app.get('/admin/shifts', requireDispatch, (req, res) => {
-  const desde = Number(req.query?.desde);
-  const inicio = Number.isFinite(desde) ? desde : (() => {
-    const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
-  })();
+  const inicio = desdeDeLista(req);
 
   // `hasta` opcional: «ayer» termina a la medianoche de hoy. Sin él, el turno
   // de ayer 22:00 a hoy 02:00 sumaba las horas de hoy (barrido del 22/9).
@@ -5728,10 +5801,7 @@ app.get('/admin/vueltas', requireDispatch, (req, res) => {
     return res.status(404).json({ error: 'Esa ruta no existe' });
   }
   const ruta = req.scope || pedida || null;
-  const desde = Number(req.query?.desde);
-  const inicio = Number.isFinite(desde) ? desde : (() => {
-    const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
-  })();
+  const inicio = desdeDeLista(req);
 
   // `objetivoSec` viaja por vuelta: el de la ruta viene aparte en la respuesta
   // pero es el de AHORA, y con objetivo automático puede haber cambiado dentro
@@ -7645,12 +7715,17 @@ wss.on('connection', (ws) => {
     // pasarle el socket a otro chofer conectado —el relevado de la mañana,
     // con la web abierta en su casa— dejaba dos teléfonos alimentando la
     // misma combi (barrido del 22/9).
+    //
+    // Y con un mando VIVO, el socket sólo lo hereda la persona que lo tiene:
+    // otra pestaña del mismo chofer sí (antes nadie, y su GPS se descartaba
+    // mudo para siempre); el socket de un tercero no (antes sí, y el que
+    // manejaba por HTTP quedaba sin mando) — repaso de la tanda 9.
     if (gpsOwner.get(vehicleId) === ws) {
       gpsOwner.delete(vehicleId);
       const dueno = duenoDe.get(vehicleId);
-      const sigueSiendoSuyo = dueno && dueno.personId === personId &&
-        Date.now() - dueno.oidoEn <= OLVIDAR_MS;
-      const relevo = sigueSiendoSuyo ? null : otrosDelVehiculo.find(o => o.prof.role === 'driver');
+      const mandoVivo = !!dueno && Date.now() - dueno.oidoEn <= OLVIDAR_MS;
+      const relevo = otrosDelVehiculo.find(o => o.prof.role === 'driver' &&
+        (!mandoVivo || clients.get(o.ws) === dueno.personId));
       if (relevo) {
         gpsOwner.set(vehicleId, relevo.ws);
         tomarMando(vehicleId, clients.get(relevo.ws), 'el que tenía el mando se desconectó');
@@ -7721,6 +7796,18 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
   // pasar es que una coordenada inventada entre al registro —o rompa el
   // `toFixed` de la auditoría dos líneas abajo, que no está en ningún
   // try/catch y se lleva puesto el proceso entero—.
+  //
+  // Sin posición del que dispara, la de SU COMBI si es de hace menos de un
+  // minuto: el cobrador no prende el GPS (lo manda el teléfono del chofer) y
+  // su SOS salía sin coordenadas — sin «Ver en mapa» en Despacho y sin
+  // posición en el informe (repaso de la tanda 9). Es una posición real, no
+  // inventada: la de la combi en la que va.
+  if (!coordenadaValida(lat, lng) && prof.vehicleId) {
+    const u = units.get(prof.vehicleId);
+    if (u && coordenadaValida(u.lat, u.lng) && Date.now() - (u.timestamp || 0) < 60_000) {
+      lat = u.lat; lng = u.lng;
+    }
+  }
   const conPosicion = coordenadaValida(lat, lng);
   const alert = {
     unitId,
@@ -8221,7 +8308,8 @@ function buildState(routeId, acumular) {
 // teletransporte y que las vueltas se midan mal.
 function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   const unit = units.get(vehicleId) || {};
-  const routeId = unit.routeId || prof.routeId || DEFAULT_ROUTE;
+  // La de la COMBI si la unidad todavía no está en el mapa (repaso de la tanda 9)
+  const routeId = unit.routeId || rutaDeLaCombi(vehicleId, prof.routeId);
 
   // El progreso lo calcula EL SERVIDOR, que es donde vive la geometría: así
   // cargar o corregir el recorrido tiene efecto al instante, sin actualizar
