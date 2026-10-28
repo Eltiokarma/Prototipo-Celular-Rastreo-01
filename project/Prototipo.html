@@ -431,6 +431,31 @@ function aplicarTema(modo) {
 }
 aplicarTema('day');
 
+// DÍA / NOCHE / AUTO, como la app nativa. AUTO va por el reloj con la misma
+// regla de `app/tema.js`: a 15° de latitud sur anochece entre 18:00 y 18:40 y
+// amanece entre 5:20 y 6:00 todo el año, así que alcanza con la hora. El
+// manual existe porque un túnel, una tormenta o un parabrisas polarizado no
+// los sabe el reloj. SOL EXTREMO queda en el panel de diseño, fuera del ciclo.
+const NOCHE_DESDE = 18.5;   // 18:30
+const NOCHE_HASTA = 5.5;    // 05:30
+function esDeNoche(fecha = new Date()) {
+  const h = fecha.getHours() + fecha.getMinutes() / 60;
+  return h >= NOCHE_DESDE || h < NOCHE_HASTA;
+}
+// El modo elegido ('auto' incluido) → el juego de tokens que se aplica
+function temaDe(modo, deNoche) {
+  if (modo === 'auto') return deNoche ? 'night' : 'day';
+  return TEMAS[modo] ? modo : 'day';
+}
+// El mismo orden que la nativa. De fábrica sigue siendo DÍA (no AUTO): el
+// primer toque lleva a NOCHE, que es para lo que se lo busca.
+const MODOS_CHOFER = ['auto', 'day', 'night'];
+const ETIQUETA_MODO = { auto: 'AUTO', day: 'DÍA', night: 'NOCHE', sun: 'SOL' };
+function siguienteModo(modo) {
+  const i = MODOS_CHOFER.indexOf(modo);
+  return MODOS_CHOFER[(i < 0 ? 0 : i + 1) % MODOS_CHOFER.length];
+}
+
 // Estado por lado: desvío relativo al objetivo (verde ≤15%, ámbar ≤30%)
 function sideStatus(gapStr, target) {
   const dev = Math.abs(parseMin(gapStr) - target) / target;
@@ -2285,7 +2310,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   );
 }
 
-function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
+function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -2484,7 +2509,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
             currentStop={tweaks.currentStop}
             nextStop={tweaks.nextStop}
             routeId={routeId}
-            modo={tweaks.mode}
+            modo={tema}
             trazado={trazado}
             enLaCadena={unitsOnRoute}
           />
@@ -2519,6 +2544,33 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
           </button>
         ))}
       </div>
+
+      {/* El tema va en esta barra y no en la pantalla de la brecha: está en
+          las tres, y si se hace de noche mientras el chofer mira el mapa
+          tiene que poder apagarlo sin volver. Un toque, sin confirmar: se
+          deshace con otro. Fondo de tarjeta porque sobre el mapa no hay. */}
+      {onModo && (
+        <button data-tema={tweaks.mode}
+          aria-label={`Tema: ${ETIQUETA_MODO[tweaks.mode] || 'DÍA'}. Tocá para cambiar`}
+          onClick={(e) => { e.stopPropagation(); onModo(siguienteModo(tweaks.mode)); }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute', top: 0, right: 6, zIndex: 10,
+            height: 36, minWidth: 64, padding: '0 4px',
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            WebkitTapHighlightColor: 'transparent',
+          }}
+        >
+          <span style={{
+            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+            fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: HUD.dim2,
+            background: HUD.tarjeta, border: `1px solid ${HUD.line}`, borderRadius: 6,
+            padding: '4px 8px', pointerEvents: 'none',
+          }}>{ETIQUETA_MODO[tweaks.mode] || 'DÍA'}</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -2660,7 +2712,7 @@ function TweaksPanel({ tweaks, setTweaks, visible, onNav, currentScreen }) {
 
       <TweakRow label="Modo de luz">
         <Seg value={tweaks.mode} onChange={v => update({ mode: v })}
-          options={[{ v: 'day', l: 'Día' }, { v: 'sun', l: 'Sol extremo' }, { v: 'night', l: 'Noche' }]}
+          options={[{ v: 'auto', l: 'Auto' }, { v: 'day', l: 'Día' }, { v: 'sun', l: 'Sol' }, { v: 'night', l: 'Noche' }]}
         />
       </TweakRow>
 
@@ -2690,15 +2742,27 @@ function Root() {
     // cada mañana. De fábrica es DÍA, que es como se usa la app.
     try {
       const guardado = localStorage.getItem('r14_modo');
-      if (guardado && TEMAS[guardado]) return { ...DEFAULT_TWEAKS, mode: guardado };
+      if (guardado && (TEMAS[guardado] || guardado === 'auto')) return { ...DEFAULT_TWEAKS, mode: guardado };
     } catch {}
     return DEFAULT_TWEAKS;
   });
 
+  // En AUTO la hora se revisa cada minuto, no en cada render: el cambio
+  // ocurre una vez por turno y nadie está mirando cuando se hace de noche.
+  // Sólo se guarda si es de noche o no, así React no re-dibuja si nada cambió.
+  const [deNoche, setDeNoche] = React.useState(() => esDeNoche());
+  React.useEffect(() => {
+    if (tweaks.mode !== 'auto') return;   // elegido a mano: el reloj no manda
+    setDeNoche(esDeNoche());
+    const t = setInterval(() => setDeNoche(esDeNoche()), 60_000);
+    return () => clearInterval(t);
+  }, [tweaks.mode]);
+  const tema = temaDe(tweaks.mode, deNoche);
+
   // Los tokens del tema se aplican ANTES de renderizar los hijos: HUD es un
   // objeto que se muta, así que tiene que estar en su valor final cuando las
   // pantallas lo leen. Es idempotente, no importa que corra en cada render.
-  aplicarTema(tweaks.mode);
+  aplicarTema(tema);
   React.useEffect(() => {
     try { localStorage.setItem('r14_modo', tweaks.mode); } catch {}
     // El marco de la página también, para que no quede un fondo negro
@@ -2708,7 +2772,7 @@ function Root() {
     r.setProperty('--pag-fg', HUD.resplandor ? '#eee' : HUD.fg);
     r.setProperty('--pag-dim', HUD.resplandor ? '#888' : HUD.dim2);
     r.setProperty('--pag-dim2', HUD.resplandor ? '#666' : HUD.dim3);
-  }, [tweaks.mode]);
+  }, [tweaks.mode, tema]);
   const [tweaksVisible, setTweaksVisible] = React.useState(false);
   // En el teléfono no hay marco: los avisos de arriba van pegados al borde
   // y no debajo de una barra de estado dibujada.
@@ -3131,6 +3195,8 @@ function Root() {
   } else {
     content = <CombiScreen
       tweaks={tweaks}
+      tema={tema}
+      onModo={(modo) => setTweaks(t => ({ ...t, mode: modo }))}
       otherUnits={otherUnits}
       gapMeta={gapMeta}
       routeId={routeId || user?.routeId || null}

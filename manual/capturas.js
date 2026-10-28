@@ -444,6 +444,13 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     await ch.waitForTimeout(4000);
     await foto(ch, 'c03-brechas');
   });
+  await paso('chofer: tema noche', async () => {
+    // DÍA → NOCHE, y de vuelta pasando por AUTO (el ciclo es AUTO, DÍA, NOCHE)
+    await clic(ch, 'button[data-tema]', 1500);
+    await foto(ch, 'c15-noche');
+    await clic(ch, 'button[data-tema]', 300);
+    await clic(ch, 'button[data-tema]', 1500);
+  });
 
   // ── 5. DESPACHO con la flota andando ──────────────────────────────────
   await paso('despacho: el aviso de la central', async () => {

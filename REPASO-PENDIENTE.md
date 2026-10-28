@@ -593,8 +593,11 @@ arregló antes de sacar las capturas. Regresión completa verde.
 - **El `identify` que toma el mando sin condición** (repaso de la tanda 9,
   hallazgo 7). Si se cambia, tomar una combi ocupada pasa a ser sólo declarar
   «ruta», y hay que reescribir `PROTOCOLO.md` §3.1.
-- **El tema de la web del chofer**: la nativa tiene DÍA / NOCHE / AUTO; la web
-  sólo el de día, sin forma de cambiarlo desde la pantalla. El día de fábrica
-  es una invariante de diseño; un selector manual no la rompe, pero es una
-  decisión de producto.
+- ~~**El tema de la web del chofer**~~: decidido y hecho (28/10). La web tiene
+  ahora el botón DÍA / NOCHE / AUTO arriba a la derecha, en las tres
+  pantallas, con la regla horaria de la nativa (noche de 18:30 a 5:30) y el
+  mismo ciclo. **La diferencia que queda:** de fábrica la web sigue en DÍA
+  (invariante de diseño) y la nativa en AUTO; la NOCHE de la web es la OLED
+  original con resplandor, no la ámbar de poco azul de la nativa. SOL EXTREMO
+  sigue sólo en el panel de diseño. Suite nueva `tema-web`.
 
