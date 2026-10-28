@@ -5,7 +5,7 @@
 // privado que aparece en el grupo es una filtración, y un mensaje de
 // Despacho que se ve como propio es peor que no mostrarlo.
 const RAIZ = require('path').join(__dirname, '..');
-const { aMensaje, hilo, sinLeer } = require(RAIZ + '/app/chat.js');
+const { aMensaje, hilo, sinLeer, hora } = require(RAIZ + '/app/chat.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -147,6 +147,16 @@ console.log('\nBORDES');
   ok('sin hora, la hora queda vacía',
      aMensaje({ unitId: 'M-08', text: 'x' }, YO).hora === '', aMensaje({ unitId: 'M-08', text: 'x' }, YO).hora);
   ok('un hilo vacío devuelve vacío', hilo([], 'grupo').length === 0);
+}
+
+console.log('\nLA HORA DE UN MENSAJE VIEJO LLEVA EL DÍA');
+{
+  // Un SOS de hace seis días salía «04:18» a secas y se leía como de hoy.
+  const hoy = new Date(2026, 9, 28, 15, 30);
+  const deHoy = new Date(2026, 9, 28, 4, 18).getTime();
+  const deOtroDia = new Date(2026, 9, 22, 4, 18).getTime();
+  ok('el de hoy, sólo la hora', hora(deHoy, hoy) === '04:18', hora(deHoy, hoy));
+  ok('el de otro día, con el día', hora(deOtroDia, hoy) === '22/10 04:18', hora(deOtroDia, hoy));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

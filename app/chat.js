@@ -74,10 +74,14 @@ function conTipoSos(mensaje, tipo) {
   return { ...mensaje, tipoSos: tipo, texto: `${base} (${TIPOS_SOS[tipo].toLowerCase()})` };
 }
 
-function hora(ms) {
+// Con el día si no es de hoy: el historial guarda 30 días (los SOS, un año)
+// y un SOS de hace seis días salía con «04:18» a secas, como de esta mañana.
+function hora(ms, ahora = new Date()) {
   if (!ms) return '';
   const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const hh = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (d.toDateString() === ahora.toDateString()) return hh;
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${hh}`;
 }
 
 // El hilo de un canal, en orden y sin repetidos. Los repetidos aparecen de

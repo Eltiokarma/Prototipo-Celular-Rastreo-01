@@ -463,9 +463,14 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
 
   // Declarar algo por HTTP, con reintento: `true` si el servidor lo tomó.
   // Un 4xx no se reintenta (va a dar lo mismo); la falta de red, sí.
-  async function declararPorHttp(ruta, cuerpo, intentos) {
+  //
+  // `vigente`, si viene, se pregunta antes de cada intento: un «fuera» que
+  // reintentaba por mala señal llegaba DESPUÉS del «ruta» que el chofer
+  // declaró enseguida por el socket, y lo sacaba de ruta (repaso de la tanda 9).
+  async function declararPorHttp(ruta, cuerpo, intentos, vigente) {
     if (!token) return false;
     for (let i = 0; i < intentos; i++) {
+      if (vigente && !vigente()) return false;
       try {
         const r = await pedirHttp(ruta, cuerpo, 8000);
         if (r.ok) return true;
@@ -547,6 +552,12 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     ws = null;
     conectado = false;
     reportaGps = false;
+    // Lo vivo de esta sesión tampoco: el que entra después en el mismo
+    // teléfono veía las brechas y el trazado del anterior hasta su primer
+    // estado (repaso de la tanda 9).
+    estado = null;
+    geometria = null;
+    motivoGps = null;
     miUltimoSos = null;   // el SOS calificable no sobrevive a la sesión
     viaUltimoSos = null;
     presenciaDeclarada = null;   // ni lo declarado (barrido del 22/9)
@@ -574,7 +585,8 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       try { ws.send(JSON.stringify({ type: 'presencia', estado })); salio = true; } catch {}
       if (salio && estado !== 'fuera') return true;
     }
-    return declararPorHttp('/presencia', { estado }, estado === 'fuera' ? 3 : 1);
+    return declararPorHttp('/presencia', { estado }, estado === 'fuera' ? 3 : 1,
+      () => presenciaDeclarada === estado);
   }
 
   // La presencia que cambió SIN pasar por acá: la tarea de fondo la declara

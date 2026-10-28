@@ -236,7 +236,11 @@ function Aplicacion() {
       c.on('geometria', (g) => setGeometria(g)),
       c.on('conexion', ({ conectado }) => setConectado(conectado)),
       c.on('rolGps', ({ reporta, motivo }) => {
-        setReporta(reporta); setAviso(motivo);
+        // «Modo acompañante» no es un aviso: es lo que es el cobrador, y el
+        // servidor lo repite en cada conexión. Pintado como aviso quedaba una
+        // barra ámbar fija en la puerta y en el chat que parecía un error y
+        // tapaba los avisos de verdad (repaso de la tanda 9).
+        setReporta(reporta); setAviso(motivo === 'Modo acompañante' ? null : motivo);
         // Si el servicio se había apagado por un 409 (otro chofer tomó la
         // unidad) y el rol volvió, el vigilante puede rearrancarlo.
         //
@@ -401,6 +405,12 @@ function Aplicacion() {
     ultimaPos.current = { lat: null, lng: null, t: 0 };
     setMensajes([]);
     setTipificarSos(false);
+    // Y lo que el primer estado del siguiente no siempre pisa: la marca (si
+    // /marca no contesta quedaba la de la cooperativa anterior) y lo leído
+    // (los privados viejos del siguiente contaban como vistos). El resto
+    // también, para no mostrar «en vivo» lo de otro (repaso de la tanda 9).
+    setMarca(null); setEstado(null); setGeometria(null); setHud(construirHud(null));
+    setCanal('grupo'); setVistoHasta({ grupo: 0, directo: 0 }); setAviso(null);
   };
 
   // El texto de la notificación va en un ref para que los oyentes se
