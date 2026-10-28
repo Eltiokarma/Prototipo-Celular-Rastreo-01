@@ -132,7 +132,22 @@ if (typeof L === 'undefined') {
     white-space: nowrap;
   }
   .map-tooltip::before { display: none !important; }
+
+  /* En el teléfono la app ocupa la pantalla entera. El marco de Android, el
+     título y el texto de abajo son la vitrina para mirarla en una
+     computadora: en el celular del chofer dibujaban un teléfono adentro del
+     teléfono, con un reloj de mentira y la app achicada. */
+  html.telefono .page { padding: 0; gap: 0; }
+  html.telefono .header, html.telefono .meta { display: none; }
+  html.telefono .stage { margin: 0; width: 100%; }
+  .pantalla-completa { width: 100vw; height: 100vh; height: 100dvh; }
 </style>
+<script>
+  // Antes que React: así el primer cuadro ya sale sin marco.
+  window.ES_TELEFONO = () =>
+    matchMedia('(max-width: 600px)').matches || matchMedia('(display-mode: standalone)').matches;
+  document.documentElement.classList.toggle('telefono', window.ES_TELEFONO());
+</script>
 </head>
 <body>
 
@@ -145,10 +160,6 @@ if (typeof L === 'undefined') {
 
   <div class="stage" id="stage"></div>
 
-  <div class="meta">
-    Activa <strong style="color:#bbb">Tweaks</strong> desde la barra superior<br>
-    para cambiar escenarios, tipografía y modo de luz.
-  </div>
 </div>
 
 <div id="tweaks-mount"></div>
@@ -599,7 +610,35 @@ function AndroidNavBar({ dark = false }) {
   );
 }
 
-function AndroidDevice({ children, width = 412, height = 892, dark = false }) {
+// ¿Se está viendo en un teléfono? Escucha los cambios: girar la pantalla o
+// instalar la app como PWA lo puede cambiar con la página abierta.
+function usarTelefono() {
+  const [tel, setTel] = React.useState(() => window.ES_TELEFONO());
+  React.useEffect(() => {
+    const consultas = [matchMedia('(max-width: 600px)'), matchMedia('(display-mode: standalone)')];
+    const revisar = () => {
+      const t = window.ES_TELEFONO();
+      document.documentElement.classList.toggle('telefono', t);
+      setTel(t);
+    };
+    consultas.forEach(q => q.addEventListener('change', revisar));
+    return () => consultas.forEach(q => q.removeEventListener('change', revisar));
+  }, []);
+  return tel;
+}
+
+function AndroidDevice({ children, width = 412, height = 892, dark = false, completo = false }) {
+  // En el teléfono: sin marco ni barras de mentira. Las de verdad ya están.
+  if (completo) {
+    return (
+      <div className="pantalla-completa" style={{
+        background: dark ? '#1d1b20' : MD_C.surface,
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
+        {children}
+      </div>
+    );
+  }
   return (
     <div style={{
       width, height, borderRadius: 18, overflow: 'hidden',
@@ -672,7 +711,7 @@ function sinSenalPinHtml() {
   return `<div title="Sin señal: última posición conocida" style="width:12px;height:12px;border-radius:50%;background:transparent;border:2px dashed ${HUD.dim3};box-sizing:border-box;opacity:.7;"></div>`;
 }
 
-function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, routeId, modo, trazado }) {
+function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, routeId, modo, trazado, enLaCadena = otherUnits.length + 1 }) {
   const leafletRef = React.useRef(null);
   const tilesRef = React.useRef(null);
   const trazadoRef = React.useRef(null);
@@ -835,14 +874,20 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
       <div ref={initMap} style={{ position: 'absolute', inset: 0 }} data-noswipe="map" />
 
       {/* Chips superiores: ruta y unidades en línea */}
-      <div style={{ ...chipStyle, left: 18, color: HUD.fg }}>{routeId || 'RUTA'} · TERMINAL</div>
+      {/* La ruta, sin «· TERMINAL»: eso era de la maqueta y lo decía en
+          cualquier punto del recorrido. El conteo es el de la cadena, el
+          mismo número del HUD y de Despacho (C17): contar los puntos del
+          mapa sumaba ausentes y combis sin señal. */}
+      <div style={{ ...chipStyle, left: 18, color: HUD.fg }}>{routeId || 'RUTA'}</div>
       <div style={{ ...chipStyle, right: 18, color: HUD.green }}>
-        {otherUnits.length > 0 ? `${otherUnits.length + 1} EN RUTA` : 'SOLO TÚ'}
+        {enLaCadena > 1 ? `${enLaCadena} EN RUTA` : 'SOLO TÚ'}
       </div>
 
       {/* Barra inferior: la brecha del HUD nunca se pierde */}
       <div style={{
-        position: 'absolute', left: 18, right: 18, bottom: 26,
+        // 48 y no 26: en un teléfono la atribución del mapa ocupa dos
+        // renglones y la tarjeta la tapaba. Es obligatoria (licencia de OSM).
+        position: 'absolute', left: 18, right: 18, bottom: 48,
         background: HUD.tarjetaSolida, border: `1px solid ${HUD.line}`,
         borderRadius: 22, padding: '18px 20px',
         display: 'flex', flexDirection: 'column', gap: 14,
@@ -942,6 +987,16 @@ function fmtDur(s) {
 function nowTime(ts) {
   const d = ts ? new Date(ts) : new Date();
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// La hora de un mensaje del historial. El chat guarda 30 días y los SOS un
+// año: un SOS de hace seis días aparecía con «04:18» a secas y se leía como
+// de esta mañana. Si no es de hoy, lleva el día.
+function horaChat(ts) {
+  if (!ts) return nowTime();
+  const d = new Date(ts);
+  if (d.toDateString() === new Date().toDateString()) return nowTime(ts);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${nowTime(ts)}`;
 }
 
 // Onda de 12 barras con alturas fijas del handoff.
@@ -1576,6 +1631,10 @@ function LoginScreen({ onSuccess, notice }) {
   const [error, setError] = React.useState(null);
   const [offerDemo, setOfferDemo] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  // «Olvidé mi contraseña» era un enlace a "#": tocarlo no hacía nada. No hay
+  // recuperación por correo (nadie tiene uno cargado): la clave nueva la pone
+  // Despacho, y eso es lo que hay que decir.
+  const [olvido, setOlvido] = React.useState(false);
   // La cooperativa de la última vez. En un celular recién instalado no hay
   // ninguna, y la pantalla queda genérica hasta el primer ingreso.
   const coop = coopRecordada();
@@ -1698,7 +1757,16 @@ function LoginScreen({ onSuccess, notice }) {
       </button>
 
       <div style={{ marginTop: 18, textAlign: 'center', fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, color: P.mute }}>
-        <a href="#" style={{ color: P.sky, textDecoration: 'none' }}>Olvidé mi contraseña</a>
+        <button onClick={() => setOlvido(o => !o)} style={{
+          background: 'none', border: 'none', padding: 6, cursor: 'pointer',
+          color: P.sky, fontSize: 13, fontFamily: 'inherit',
+        }}>Olvidé mi contraseña</button>
+        {olvido && (
+          <div style={{ marginTop: 8, lineHeight: 1.45, color: P.mute }}>
+            Pedile a Despacho de tu cooperativa que te ponga una clave nueva.
+            Si sos cobrador, también te la puede cambiar el chofer de tu combi.
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1 }} />
@@ -1708,7 +1776,8 @@ function LoginScreen({ onSuccess, notice }) {
         fontSize: 9, letterSpacing: 1.5, color: P.mute,
         textAlign: 'center', textTransform: 'uppercase',
       }}>
-        {coop ? 'Juliaca · Puno · 3 824 m' : COOP.full}
+        {/* Sin cooperativa recordada el subtítulo de arriba ya dice esto */}
+        {coop ? COOP.full : ''}
       </div>
     </div>
   );
@@ -1747,7 +1816,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 18, color: P.white, letterSpacing: -0.3,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>{user || 'RAÚL MAMANI'}</div>
+          }}>{user}</div>
         </div>
         {onLogout && (
           <button onClick={onLogout} style={{
@@ -1759,29 +1828,11 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
         )}
       </div>
 
-      {!isFirstLap && (
-        <div style={{
-          background: P.panel, border: `1px solid ${P.line}`, borderRadius: 14,
-          padding: '14px 16px', marginBottom: 16,
-          display: 'flex', alignItems: 'center', gap: 12,
-        }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: '50%',
-            background: P.green, color: P.bg,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: '"Archivo Black", system-ui', fontSize: 18, flexShrink: 0,
-          }}>✓</div>
-          <div>
-            <div style={{
-              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-              fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
-            }}>Vuelta {lapNumber - 1} completada</div>
-            <div style={{
-              fontFamily: '"Helvetica Neue", system-ui', fontSize: 15, fontWeight: 600, color: P.white,
-            }}>48 min · 42 pasajeros</div>
-          </div>
-        </div>
-      )}
+      {/* Acá había una tarjeta «Vuelta N completada · 48 min · 42
+          pasajeros» de la maqueta: nadie cuenta pasajeros y la duración era
+          inventada. Nunca se llegó a ver (la vuelta no se lleva acá), pero
+          un número inventado esperando a que alguien lo conecte es una
+          trampa. La vuelta de verdad está en Despacho. */}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{
@@ -1978,7 +2029,15 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   // apurar hacia un embotellamiento es el pelotón que este sistema existe
   // para evitar. El de ATRÁS trabado no es un peligro: se dice, ritmo normal.
   // Mismas frases que `instruccionDe` en app/hud.js.
-  const instruction = hud.front.enTrafico
+  // AUSENTE y YENDO, como en la app nativa. Sin esto el ausente leía
+  // «Sos la única unidad en ruta» (está fuera de la cadena: nadie se mide
+  // contra él), y el que acaba de salir y todavía no pisó el trazado, lo
+  // mismo — que se lee como una falla del sistema.
+  const ausente = presencia === 'ausente';
+  const yendo = !ausente && presencia === 'ruta' && connected && miEstado?.confirmada === false;
+  const instruction = yendo
+    ? 'YENDO A LA RUTA: tu brecha y tu vuelta arrancan al pisar el trazado.'
+    : hud.front.enTrafico
     ? `${hud.front.unit} ${hud.front.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada'} ${hud.front.traficoMin} min. Mantené: no te apures hacia el embotellamiento.`
     : hud.back.enTrafico
       ? `${hud.back.unit} (atrás) ${hud.back.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${hud.back.traficoMin} min. Mantené el ritmo.`
@@ -2050,7 +2109,30 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         </div>
       </div>
 
+      {/* AUSENTE: fuera de la cadena. No hay brecha que mostrar y decir
+          «sin nadie» sería mentir: hay gente, sólo que no se mide contra vos. */}
+      {ausente && (
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+          padding: '0 18px', position: 'relative', minHeight: 0,
+        }}>
+          <div style={{
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 30, letterSpacing: 1, color: HUD.amber,
+          }}>AUSENTE</div>
+          <div style={{
+            fontSize: 16, lineHeight: 1.5, color: sun ? '#3D5C7A' : '#93AAC2',
+            marginTop: 10, fontFamily: 'system-ui, sans-serif',
+          }}>
+            Estás fuera de la cadena: nadie se mide contra vos y tu vuelta quedó
+            descartada. Despacho te sigue viendo en el mapa. Para volver, tocá
+            VOLVER A RUTA arriba.
+          </div>
+        </div>
+      )}
+
       {/* bloque héroe */}
+      {!ausente && (
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
         padding: '0 18px', position: 'relative', minHeight: 0,
@@ -2081,7 +2163,8 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
           </div>
         )}
         <div style={{
-          fontSize: 16, lineHeight: 1.5, color: sun ? '#3D5C7A' : '#93AAC2',
+          fontSize: 16, lineHeight: 1.5, color: yendo ? HUD.amber : sun ? '#3D5C7A' : '#93AAC2',
+          fontWeight: yendo ? 700 : 400,
           marginTop: 10, fontFamily: 'system-ui, sans-serif',
         }}>{instruction}</div>
 
@@ -2133,6 +2216,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
           </div>
         )}
       </div>
+      )}
 
       {/* tramo — los paraderos no existen en el modelo del servidor: son de
           la maqueta. En vivo esta línea se calla en vez de decir el nombre
@@ -2158,7 +2242,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
       {/* «Estoy en tráfico», de un toque, como en la app nativa: al de atrás
           le cambia la instrucción a «mantené». Si el servidor ya vio la
           parada, el botón pregunta. Se apaga solo al andar (C16). */}
-      {onTrafico && (
+      {onTrafico && !ausente && (
         <div style={{ padding: '0 18px 8px' }}>
           <button data-noswipe="trafico" onClick={() => onTrafico(!miEstado?.trafico)} style={{
             width: '100%', height: 42, borderRadius: 12, cursor: 'pointer',
@@ -2172,12 +2256,12 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
       )}
       {onPresencia && (
         <div style={{ padding: '0 18px 10px', position: 'relative', display: 'flex', gap: 8 }}>
-          <button data-noswipe="presencia" onClick={() => onPresencia('ausente')} style={{
+          {!ausente && <button data-noswipe="presencia" onClick={() => onPresencia('ausente')} style={{
             flex: 1, height: 42, borderRadius: 12, cursor: 'pointer',
             border: `1px solid ${HUD.amber}`, background: 'transparent',
             color: HUD.amber, fontSize: 12, fontWeight: 800, letterSpacing: 1,
             fontFamily: 'system-ui, sans-serif',
-          }}>AUSENTE</button>
+          }}>AUSENTE</button>}
           <button data-noswipe="presencia" onClick={() => {
             if (!confirmarSalida) { setConfirmarSalida(true); return; }
             setConfirmarSalida(false);
@@ -2218,6 +2302,19 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
   const startY = React.useRef(0);
   const lockedAxis = React.useRef(null);
   const containerRef = React.useRef(null);
+  // El ancho de una página del carrusel, medido. Leerlo en el render daba
+  // 380 en el primer cuadro (todavía no hay ref) y no se enteraba de un giro
+  // de pantalla: en un teléfono de 360 px se veía el borde de la otra página.
+  const [w, setW] = React.useState(380);
+  React.useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const medir = () => { if (el.offsetWidth) setW(el.offsetWidth); };
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [emergencyFired, setEmergencyFired] = React.useState(false);
   // El SOS que NO salió: se dice, en rojo, en vez de mentir «enviada» (C3)
   const [sosFallo, setSosFallo] = React.useState(false);
@@ -2254,7 +2351,6 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
   };
   const onUp = () => {
     if (!dragging) return;
-    const w = containerRef.current?.offsetWidth || 380;
     const threshold = w * 0.25;
     if (lockedAxis.current === 'x') {
       if (dragDx < -threshold && page < 2) goToPage(page + 1);
@@ -2289,7 +2385,6 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
   // excluye ausentes y «yendo»), el mismo número que Despacho. Antes se
   // contaba `otherUnits + 1` y los dos paneles decían cosas distintas (C17).
   const unitsOnRoute = Number.isFinite(totalOnRoute) ? totalOnRoute : otherUnits.length + 1;
-  const w = containerRef.current?.offsetWidth || 380;
   const translateX = -page * w + (lockedAxis.current === 'x' ? dragDx : 0);
 
   return (
@@ -2391,6 +2486,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
             routeId={routeId}
             modo={tweaks.mode}
             trazado={trazado}
+            enLaCadena={unitsOnRoute}
           />
         </div>
       )}
@@ -2402,7 +2498,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
         gap: 8, zIndex: 10, height: 36,
       }}>
         {[0,1,2].map(i => (
-          <button key={i}
+          <button key={i} aria-label={['Chat', 'Brechas', 'Mapa'][i]}
             onClick={(e) => { e.stopPropagation(); goToPage(i); }}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => { e.stopPropagation(); goToPage(i); }}
@@ -2614,6 +2710,10 @@ function Root() {
     r.setProperty('--pag-dim2', HUD.resplandor ? '#666' : HUD.dim3);
   }, [tweaks.mode]);
   const [tweaksVisible, setTweaksVisible] = React.useState(false);
+  // En el teléfono no hay marco: los avisos de arriba van pegados al borde
+  // y no debajo de una barra de estado dibujada.
+  const telefono = usarTelefono();
+  const arriba = telefono ? 8 : 40;
   const [screen, setScreen] = React.useState(DEFAULT_TWEAKS.initialScreen || 'login');
   const [user, setUser] = React.useState(null);
   const [lap, setLap] = React.useState(1);
@@ -2691,6 +2791,16 @@ function Root() {
     setScreen('start');
   };
 
+  // Lo «en vivo» de la sesión: brechas, vecinos, trazado, rol de GPS. En un
+  // teléfono compartido el que entra después veía «en vivo» las brechas del
+  // anterior hasta que llegaba su primer estado (repaso de la tanda 9).
+  const olvidarLoVivo = () => {
+    setGapMeta(null); setOtherUnits([]); setTotalOnRoute(null);
+    setRouteId(null); setTrazado({ ida: [], vuelta: [] });
+    setGpsRole({ reporting: true, reason: null }); setGpsAviso(null);
+    setMiEstado({ trafico: false, parado: false });
+  };
+
   const logout = () => {
     // Salir es irse: la unidad se borra del mapa en el acto, no a los 3
     // minutos del olvido. La declaración va ANTES de cortar el socket.
@@ -2707,6 +2817,7 @@ function Root() {
       if (window.RealtimeClient.olvidarSesion) window.RealtimeClient.olvidarSesion();
     }
     setMessages([]); setSosPropio(null); setRutaVigente(null);
+    olvidarLoVivo();
     setUser(null);
     setScreen('login');
   };
@@ -2736,6 +2847,7 @@ function Root() {
       // Lo de esta persona no pasa a la siguiente (barrido del 22/9)
       if (window.RealtimeClient.olvidarSesion) window.RealtimeClient.olvidarSesion();
       setMessages([]); setSosPropio(null); setPresencia('fuera'); setRutaVigente(null);
+      olvidarLoVivo();
       setUser(null);
       setAuthNotice('Tu sesión expiró. Ingresá de nuevo.');
       setScreen('login');
@@ -2784,8 +2896,14 @@ function Root() {
       // chofer detenido en el paradero veía que iba a 28.
       if (miUnidad) {
         setTweaks(t => ({ ...t, avgSpeed: Math.round(miUnidad.speed || 0) }));
-        setMiEstado({ trafico: !!miUnidad.trafico, parado: !!miUnidad.parado });
       }
+      // ¿El servidor ya me vio sobre el trazado? Es SU palabra, igual que en
+      // la app nativa: mientras no, la pantalla dice «yendo a la ruta» en vez
+      // de «sos la única unidad en ruta».
+      setMiEstado({
+        trafico: !!miUnidad?.trafico, parado: !!miUnidad?.parado,
+        confirmada: !!miUnidad && miUnidad.enRuta !== false,
+      });
       setTotalOnRoute(Number.isFinite(state.totalOnRoute) ? state.totalOnRoute : null);
       // `vivo` le dice al HUD que a partir de acá manda el servidor, null
       // incluido: sin esta marca no hay forma de distinguir "no hay nadie
@@ -2819,7 +2937,7 @@ function Root() {
         const own = it.unitId === myUnitId;
         const from = own ? 'TÚ' : (it.driverName || it.unitId || 'Conductor');
         const role = own ? 'you' : 'driver';
-        const time = nowTime(it.timestamp);
+        const time = horaChat(it.timestamp);
         const isDispatch = it.role === 'dispatch' && !own;
         const msgRole = own ? 'you' : (isDispatch ? 'admin' : 'driver');
         const tone = isDispatch ? 'info' : 'normal';
@@ -2854,7 +2972,7 @@ function Root() {
         unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
         privado: !!m.toVehicleId,
         text: m.text,
-        time: nowTime(m.timestamp),
+        time: horaChat(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
       });
     });
@@ -2870,7 +2988,7 @@ function Root() {
         privado: !!m.toVehicleId,
         voice: m.duration,
         audio: m.data,
-        time: nowTime(m.timestamp),
+        time: horaChat(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
       });
     });
@@ -2887,7 +3005,7 @@ function Root() {
         unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
         privado: !!m.toVehicleId,
         photo: m.data || null, expired: !m.data, text: m.text || '',
-        time: nowTime(m.timestamp),
+        time: horaChat(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
       });
     });
@@ -2917,7 +3035,7 @@ function Root() {
         unit: a.vehicleId && a.vehicleId !== myVehicleId ? a.vehicleId : null,
         sosId: a.sosId ?? null,
         text: 'SOS — pide ayuda',
-        time: nowTime(a.timestamp),
+        time: horaChat(a.timestamp),
         tone: 'sos',
       });
       setIncomingSos(a);
@@ -3038,7 +3156,7 @@ function Root() {
 
   return (
     <>
-      <AndroidDevice width={380} height={780} dark={HUD.resplandor}>
+      <AndroidDevice width={380} height={780} dark={HUD.resplandor} completo={telefono}>
         {content}
         {/* AUSENTE, dicho todo el tiempo: fuera de la cadena, la vuelta
             descartada, Despacho lo sigue viendo quieto. La barra vive
@@ -3048,7 +3166,7 @@ function Root() {
             en vez de dibujar una posición inventada (C4). */}
         {screen === 'app' && gpsAviso && (
           <div style={{
-            position: 'absolute', left: 10, right: 10, top: presencia === 'ausente' ? 112 : 40, zIndex: 96,
+            position: 'absolute', left: 10, right: 10, top: presencia === 'ausente' ? arriba + 72 : arriba, zIndex: 96,
             background: HUD.surface, border: `2px solid ${HUD.red}`,
             borderRadius: 12, padding: '10px 12px',
           }}>
@@ -3060,7 +3178,7 @@ function Root() {
         )}
         {screen === 'app' && presencia === 'ausente' && (
           <div style={{
-            position: 'absolute', left: 10, right: 10, top: 40, zIndex: 97,
+            position: 'absolute', left: 10, right: 10, top: arriba, zIndex: 97,
             background: HUD.surface, border: `2px solid ${HUD.amber}`,
             borderRadius: 12, padding: '10px 12px',
             display: 'flex', alignItems: 'center', gap: 10,
@@ -3085,7 +3203,7 @@ function Root() {
             nada queda como SOS genérico y la barra se va sola. */}
         {sosPropio != null && (
           <div style={{
-            position: 'absolute', left: 10, right: 10, bottom: 84, zIndex: 98,
+            position: 'absolute', left: 10, right: 10, bottom: telefono ? 60 : 84, zIndex: 98,
             background: HUD.surface, border: `2px solid ${HUD.red}`,
             borderRadius: 14, padding: 12,
           }}>

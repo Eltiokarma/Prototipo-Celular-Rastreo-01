@@ -540,16 +540,22 @@
   // a la unidad en la cadena de brechas: eso lo confirma el servidor cuando
   // el GPS pisa el trazado.
   //
-  // «Fuera» va SIEMPRE también por HTTP: la pantalla corta el socket en el
-  // acto, y por uno medio muerto el «fuera» no llegaba — la combi quedaba en
-  // el mapa tres minutos, hasta el olvido. El servidor acepta el repetido.
+  // «Fuera» va también por HTTP cuando el socket puede estar medio muerto:
+  // la pantalla lo corta en el acto, y por uno así el «fuera» no llegaba — la
+  // combi quedaba en el mapa tres minutos, hasta el olvido. Pero SÓLO en ese
+  // caso: con el socket oído hace poco, el POST podía llegar DESPUÉS de un
+  // «ruta» declarado enseguida en la puerta (que ya va por HTTP) y sacar de
+  // ruta al que acababa de volver (repaso de la tanda 9). El servidor acepta
+  // el repetido.
+  const OIDO_RECIENTE_MS = 20_000;
   function setPresencia(estado) {
     presenciaDeclarada = estado;
     let porSocket = false;
     if (ws && ws.readyState === WebSocket.OPEN) {
       try { ws.send(JSON.stringify({ type: 'presencia', estado })); porSocket = true; } catch {}
     }
-    if (porSocket && estado !== 'fuera') return;
+    const socketVivo = porSocket && Date.now() - ultimoOido < OIDO_RECIENTE_MS;
+    if (porSocket && (estado !== 'fuera' || socketVivo)) return;
     if (authToken) {
       fetch(HTTP_URL + '/presencia', {
         method: 'POST',

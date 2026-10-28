@@ -237,6 +237,16 @@ function nowTime(ts) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+// La hora de un mensaje del chat. El historial guarda 30 días (los SOS, un
+// año): un SOS de hace seis días salía con «04:18» a secas y se leía como de
+// esta mañana. Si no es de hoy, lleva el día.
+function horaChat(ts) {
+  if (!ts) return nowTime();
+  const d = new Date(ts);
+  if (d.toDateString() === new Date().toDateString()) return nowTime(ts);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${nowTime(ts)}`;
+}
+
 // Los roles que una persona tuvo en un período, para leer de un vistazo. El
 // servidor manda `roles` (lista) y `role` (en el que puso más horas); con una
 // pantalla vieja o un turno sin rol, se cae al `role` de siempre.
@@ -276,8 +286,9 @@ const TIPOS_SOS_ES = { mecanica: 'Falla mecánica', accidente: 'Accidente', poli
 // cambió el recorrido con el que se medía, así que de esa salida ya no se
 // puede afirmar nada.
 // Cómo terminó una parada, y qué vio el servidor de raro. Los slugs son los
-// del servidor; acá se dicen en castellano (lo que significa cada anomalía
-// está en TRUCOS-2026-09-10.md).
+// del servidor; acá se dicen en castellano. Lo que significa cada anomalía
+// va en QUE_ES_ANOMALIA, a la vista (el detalle técnico, en
+// TRUCOS-2026-09-10.md).
 const CIERRE_PARADA = {
   movio: 'VOLVIÓ A ANDAR',
   ausente: 'SE DECLARÓ AUSENTE',
@@ -294,6 +305,15 @@ const ANOMALIA_ES = {
   gps_sospechoso: 'GPS sospechoso',
   gps_impreciso: 'GPS impreciso',
 };
+const QUE_ES_ANOMALIA = [
+  ['salto', 'dos posiciones seguidas que pedirían una velocidad que una combi no tiene.'],
+  ['ausente_en_marcha', 'la combi se movía mientras estaba declarada AUSENTE.'],
+  ['reloj', 'el reloj del teléfono está atrasado; el servidor lo corrige y sigue.'],
+  ['descartadas', 'llegaron posiciones con una hora que no puede ser (del futuro o de horas atrás) y no se usaron.'],
+  ['gps_simulado', 'el propio teléfono marcó la ubicación como simulada.'],
+  ['gps_sospechoso', 'posiciones sin el ruido de un GPS de verdad: clavadas sobre el trazado o con una velocidad que no varía.'],
+  ['gps_impreciso', 'el teléfono declaró mucho error en su ubicación; mientras dura no se juzgan desvíos ni paradas.'],
+];
 
 const CIERRE_DESVIO = {
   regreso: 'VOLVIÓ AL RECORRIDO',
@@ -444,8 +464,9 @@ function Login({ onSuccess, notice }) {
         }}>{loading ? 'VERIFICANDO...' : 'INGRESAR'}</button>
 
         <div style={{ marginTop: 18, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-          La primera vez que se ingresa como DESPACHO, esa contraseña queda
-          registrada. En producción se fija con la variable DISPATCH_PASSWORD.
+          ¿Olvidaste la clave? La de un chofer o un cobrador la cambia Despacho,
+          en Gestión → Personas. La de Despacho y la de gerencia, quien les
+          entregó el sistema.
         </div>
       </div>
     </div>
@@ -1792,7 +1813,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
 
         {/* contenido */}
         <div style={{ overflowY: 'auto', padding: angosto ? '16px 14px 40px' : '24px 28px 40px' }}>
-          <div style={{ maxWidth: 940 }}>
+          <div style={{ maxWidth: tab === 'gerencia' ? 1200 : 940 }}>
             {angosto && (
               <select value={tab} onChange={e => setTab(e.target.value)}
                 style={{ ...campo(44), width: '100%', marginBottom: 18, fontWeight: 700, cursor: 'pointer' }}>
@@ -3010,7 +3031,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                         </Tabla>
                         <Pie>
                           Se anota, no se acusa: es lo que el servidor vio raro en las posiciones, para
-                          poder preguntarlo. Lo que cada una significa está en <strong>TRUCOS-2026-09-10.md</strong>.
+                          poder preguntarlo.
+                          {QUE_ES_ANOMALIA.filter(([t]) => trabas.anomalias.some(a => a.tipo === t)).map(([t, que]) => (
+                            <span key={t} style={{ display: 'block', marginTop: 4 }}>
+                              <strong>{ANOMALIA_ES[t]}</strong>: {que}
+                            </span>
+                          ))}
                         </Pie>
                       </div>
                     )}
@@ -3089,7 +3115,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       </div>
                       <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 12 }}>
                         {dias ? `${dias} día${dias === 1 ? '' : 's'}` : 'fechas incompletas'}
-                        {' · '}{(vehicles || []).length} unidades
+                        {' · '}{(vehicles || []).filter(v => !(esSupervisor && currentRoute) || v.routeId === currentRoute).length} unidades
                         {' · '}{esSupervisor && currentRoute ? currentRoute : `${routeList.length} ruta${routeList.length === 1 ? '' : 's'}`}
                       </div>
                       {/* El servidor recorta el rango a 90 días y lo dice en
@@ -3111,7 +3137,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
                         {informes.map(([tipo, etiqueta, principal]) => (
                           <button key={tipo} onClick={() => bajar(tipo)}
-                            style={principal ? btnPrimario(40) : btnSecundario(40)}>{etiqueta}</button>
+                            style={{
+                              ...(principal ? btnPrimario(40) : btnSecundario(40)),
+                              // que un rótulo largo baje de renglón y no se salga
+                              height: 'auto', minHeight: 40, padding: '9px 14px',
+                              whiteSpace: 'normal', textAlign: 'left', maxWidth: '100%',
+                            }}>{etiqueta}</button>
                         ))}
                       </div>
                     </div>
@@ -3140,7 +3171,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     ['Rutas', empresa.resumen.rutas],
                     ['Vehículos', empresa.resumen.vehiculos],
                     ['Personas', empresa.resumen.personas],
-                    ['Cuentas de despacho', empresa.resumen.despacho],
+                    [empresa.resumen.despacho === 1 ? 'Cuenta de despacho' : 'Cuentas de despacho', empresa.resumen.despacho],
                     ['En línea ahora', empresa.resumen.enLinea],
                   ].map(([etiqueta, valor]) => (
                     <div key={etiqueta} style={{ ...tarjeta(14), background: HUD.bg }}>
@@ -4118,7 +4149,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         from: m.driverName || m.unitId, unit: m.vehicleId || null, tone: 'sos',
         text: `SOS — ${m.driverName || m.unitId} pide ayuda${m.vehicleId ? ' desde ' + m.vehicleId : ''}` +
           (TIPOS_SOS[m.sosTipo] ? ` · ${TIPOS_SOS[m.sosTipo].toUpperCase()}` : ''),
-        time: nowTime(m.timestamp),
+        time: horaChat(m.timestamp),
       };
     }
     const base = {
@@ -4127,7 +4158,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       unit: m.role === 'dispatch' ? null : (m.vehicleId || null),
       // Con qué unidad es la conversación privada; null = mensaje del grupo
       para: m.toVehicleId || null,
-      time: nowTime(m.timestamp),
+      time: horaChat(m.timestamp),
       tone: 'normal',
     };
     if (kind === 'voice') return { ...base, voice: m.duration, audio: m.data || null, expired: m.expired };

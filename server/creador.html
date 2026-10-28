@@ -239,7 +239,7 @@ function Escudo({ empresa, api, tam = 30 }) {
   // Nunca un hueco: dos letras se leen como "todavía no tiene logo", que es
   // la verdad; un cuadro vacío se lee como que el panel está roto.
   return (
-    <div style={{ ...caja, background: empresa.color || 'var(--brand)' }} title={empresa.name}>
+    <div style={{ ...caja, background: empresa.color || 'var(--bright)' }} title={empresa.name}>
       <span className="black" style={{ fontSize: Math.round(tam * 0.42), color: '#fff' }}>
         {empresa.iniciales || '·'}
       </span>
@@ -1581,7 +1581,7 @@ function Respaldos({ datos, api, recargar, aviso, fallo, token }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
         <button disabled={ocupado || datos.enMemoria} onClick={crear} style={{
           padding: '10px 18px', fontSize: 13, fontWeight: 700,
-          background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8,
+          background: 'var(--bright)', color: '#fff', border: 'none', borderRadius: 8,
         }}>{ocupado ? 'Creando…' : 'Respaldar ahora'}</button>
         <span style={{ fontSize: 12, color: 'var(--dim2)' }}>
           Automático cada {datos.cadaHoras} h · se conservan {datos.conservar} ·

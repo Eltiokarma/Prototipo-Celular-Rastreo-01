@@ -140,5 +140,21 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   ok('Números tiene la tabla «Por persona» con las horas que se liquidan', /resumenGer\.porPersona\.map\(p =>/.test(despacho) && /'Persona', 'Rol', 'Turnos', 'Horas', 'Vueltas', 'Cumple', 'Salidas', 'Unidades'/.test(despacho));
 }
 
+console.log('\nLO QUE SALIÓ DE RECORRER LAS PANTALLAS (28/10)');
+{
+  // `var(--brand)` no existía: «Respaldar ahora» era texto blanco sin fondo,
+  // un botón invisible. Toda variable que se usa tiene que estar definida.
+  const definidas = new Set([...creador.matchAll(/--([A-Za-z0-9]+)\s*:/g)].map(m => m[1]));
+  const sueltas = [...new Set([...creador.matchAll(/var\(--([A-Za-z0-9]+)/g)].map(m => m[1]))].filter(v => !definidas.has(v));
+  ok('el creador no usa colores sin definir', sueltas.length === 0, sueltas);
+  ok('la web del chofer va a pantalla completa en el teléfono', /html\.telefono \.header/.test(prototipo) && /completo=\{telefono\}/.test(prototipo));
+  ok('«Olvidé mi contraseña» dice qué hacer (no es un enlace muerto)', !/href="#"/.test(prototipo) && /Pedile a Despacho/.test(prototipo));
+  ok('nada de pasajeros ni vueltas inventadas en la puerta', !/42 pasajeros/.test(prototipo) && !/RAÚL MAMANI/.test(prototipo));
+  ok('el ausente no lee «sos la única unidad en ruta»', /const ausente = presencia === 'ausente'/.test(prototipo) && /YENDO A LA RUTA/.test(prototipo));
+  ok('los mensajes viejos del chat llevan el día', /function horaChat/.test(prototipo) && /function horaChat/.test(despacho));
+  ok('el login de Despacho no habla de variables de entorno', !/DISPATCH_PASSWORD/.test(despacho.split('function Login(')[1]?.split('\nfunction ')[0] || ''));
+  ok('«Dónde se traba» explica las anomalías en pantalla', /QUE_ES_ANOMALIA/.test(despacho) && !/está en <strong>TRUCOS/.test(despacho));
+}
+
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
 process.exit(fallas ? 1 : 0);
