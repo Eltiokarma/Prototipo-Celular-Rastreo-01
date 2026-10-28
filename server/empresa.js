@@ -147,7 +147,8 @@ function gerencia() {
   console.log(r.creado
     ? `Gerente creado: ${r.usuario} en ${r.companyId} (${alcance}).`
     : `Clave restablecida para ${r.usuario} (gerente de ${r.companyId}, ${alcance}).`);
-  console.log('  Entra por gerencia.html. No administra nada y no ve el tiempo real.');
+  console.log('  Entra por despacho.html con esta cuenta: ve lo mismo que Despacho, más Números, y administra');
+  console.log('  los activos (vehículos, datos y logo de la empresa).');
 }
 
 function ruta() {

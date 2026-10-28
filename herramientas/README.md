@@ -6,8 +6,8 @@ nada ni las corre `npm test`— y no forman parte de lo que se despliega.
 ## `flota.js` — veinte combis falsas manejando la ruta de verdad
 
 ```bash
-node herramientas/flota.js
-node herramientas/flota.js --unidades 20 --ruta R-14
+node herramientas/flota.js --gerencia GERENTE:clave
+node herramientas/flota.js --gerencia GERENTE:clave --unidades 20 --ruta R-14
 ```
 
 Sirve para ver **el mapa, las brechas y el panel de Despacho con la flota
@@ -48,6 +48,7 @@ círculo inventado. Si no hay trazado, la herramienta lo dice y no arranca.
 | `--unidades` | `20` | Cuántas combis (tope 60) |
 | `--ruta` | `R-14` | Qué ruta recorren |
 | `--despacho` | `despacho99` | La clave de la cuenta DESPACHO |
+| `--gerencia` | — | `USUARIO:CLAVE` de una cuenta de gerencia de la misma cooperativa. Hace falta la primera vez: las combis las da de alta la gerencia, y sin combi el alta del chofer se rechaza. Se crea con `node server/empresa.js gerencia R14 GERENTE unaclavelarga` o desde el panel del creador |
 | `--cadencia` | `3000` | Cada cuántos ms reportan, como el teléfono |
 | `--prefijo` | `F` | Con qué letra se llaman (`F-01`, `F-02`…) |
 | `--acelerar` | `1` | Reloj simulado ×N. Las posiciones salen igual cada 3 s, pero las combis avanzan N veces más rápido: con `--acelerar 10`, el almuerzo de 30 min dura 3 |
