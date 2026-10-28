@@ -95,6 +95,9 @@ herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
                       corre a mano y SOLO al subir la versión de Leaflet; la
                       suite `vendor` falla si alguien se olvida
 
+manual/             El manual de usuario (manual.pdf) y su fuente en LaTeX,
+                    con capturas sacadas de la app de verdad por
+                    `capturas.js`. Ver manual/README.md
 pruebas/            Sesenta y ocho suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)

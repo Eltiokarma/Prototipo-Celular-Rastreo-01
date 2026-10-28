@@ -23,3 +23,14 @@ pruebas/respaldos/
 pruebas/renovacion-tiles/
 pruebas/renovacion-release/
 pruebas/cascada-tiles/
+
+# Manual: la base y el servidor de las capturas, y lo que deja LaTeX. Las
+# capturas (manual/img/) y el PDF SÍ van al repo.
+manual/.tmp/
+manual/*.aux
+manual/*.log
+manual/*.toc
+manual/*.out
+manual/*.fls
+manual/*.fdb_latexmk
+manual/*.synctex.gz

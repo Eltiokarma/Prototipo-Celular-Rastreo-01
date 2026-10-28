@@ -302,7 +302,55 @@ relevo— sigue esperando al APK 5. Lo nuevo está en la tanda 9.
 
 ---
 
-## Tanda 9 — el barrido completo del 22/9 (sin repasar)
+## ~~Tanda 9 — el barrido completo del 22/9~~ — REPASADA el 28/10
+
+**Repaso del 28/10**, con tres lectores de ojos frescos (el servidor, los
+clientes y la tanda 10), cada hallazgo verificado contra un servidor de
+verdad antes de tocarlo. Lo que se arregló, con su caso en `barrido`,
+`mover-combi` o `chat` (los quince casos nuevos fallan sin el arreglo):
+
+1. ~~**Los bordes.**~~ Se sostienen. La duda de la migración: no quedó
+   ninguna escritura del creador o del sistema con la empresa equivocada.
+   Faltaba una puerta: el alta de cooperativa (y el auto-registro de la demo)
+   aceptaba `SISTEMA` como usuario de Despacho. Cerrada.
+2. ~~**El mando del GPS.**~~ Tenía un agujero de verdad: al cerrarse el
+   socket dueño, el mando VIVO de otra persona se le pasaba a un tercero (el
+   relevado con la web abierta), y el que manejaba por HTTP quedaba mudo. Ahora
+   sólo lo hereda la persona que tiene el mando (otra pestaña suya sí, que
+   antes tampoco), y tomar el mando sin dueño suelta el socket ajeno.
+3. ~~**La vuelta.**~~ Dos bugs: un salto suelto HACIA ADELANTE (0,06 → 0,90,
+   el rebote por la misma calle) quedaba como «lo alto» y las dos lecturas
+   siguientes cerraban una vuelta de segundos; y la vuelta siguiente nacía en
+   la lectura mala y quedaba «parcial», con una entrada tardía falsa en la
+   auditoría. Ver tanda 11, punto 1.
+4. ~~**El SOS.**~~ Se sostiene. Faltaba el del cobrador: salía sin
+   coordenadas (no prende el GPS). Ahora lleva la posición de su combi si es
+   de menos de un minuto.
+5. ~~**Los números.**~~ Se sostienen, pero sacar el tope dejó `?desde=0`
+   armando 120 días de vueltas y 365 de turnos en el hilo único: 2,8 s con
+   todo congelado. Turnos y Vueltas acotan a 8 días; lo largo es de los
+   informes.
+6. ~~**La app nativa.**~~ Se sostiene; tres arreglos chicos: «Modo
+   acompañante» se pintaba como un aviso fijo; en un teléfono compartido
+   pasaban la marca, lo leído y el estado vivo al siguiente; y el «fuera»
+   que reintentaba por HTTP podía llegar después de un «ruta» y sacar de ruta
+   al que volvía.
+7. ~~**La web y el creador.**~~ Se sostienen; lo mismo del estado compartido
+   en la web, y el «fuera» por HTTP sólo cuando el socket puede estar medio
+   muerto.
+
+También: `POST /gps` abría el turno y fijaba la presencia con la ruta de la
+PERSONA mientras el `identify` usaba la de la COMBI; con datos viejos donde
+no coinciden, los turnos se partían y se solapaban. Ahora los dos usan la de
+la combi.
+
+**Lo que se dejó como estaba, a conciencia:** el `identify` toma el mando
+sin condición —el relevado que deja la app abierta en su casa y reconecta le
+saca el mando al que maneja—. Arreglarlo cambia `PROTOCOLO.md` §3.1 (tomar
+una combi ocupada pasaría a ser sólo declarar «ruta») y es una decisión del
+dueño, no un arreglo: queda en la tanda 11 para decidir.
+
+### Lo que decía antes del repaso
 
 No un diff: el código ENTERO, por primera vez desde la revisión del 10/9,
 repartido en seis frentes (el servidor en tres partes, la app nativa, la web
@@ -417,7 +465,30 @@ verde.
 
 ---
 
-## Tanda 10 — pasar una combi de una ruta a otra (29/9, sin repasar)
+## ~~Tanda 10 — pasar una combi de una ruta a otra (29/9)~~ — REPASADA el 28/10
+
+**Repaso del 28/10.** Los permisos, lo que se lleva la combi, los clientes y
+la pantalla se sostienen. Lo que se arregló (suite `mover-combi`, que además
+ahora corre sin la gracia del arranque —con ella, «vuelve como reanudación»
+pasaba aunque se borrara el arreglo—):
+
+- **El turno no se reabría** para quien seguía conectado por el socket: el
+  chofer de la web y el cobrador quedaban sin turno hasta reconectar, y esas
+  horas faltaban en Turnos y en el CSV. Ahora arrancan su turno en la ruta
+  nueva en el mismo momento.
+- **Ida y vuelta en menos de 15 minutos** (A → B → A) reabría el turno de A,
+  que pasaba a cubrir también el de B: horas dobles. Se retoma sólo el último
+  turno de la persona.
+- La presencia queda «perdida» sólo si estaba confirmada (la que iba
+  «yendo» no tenía corrida que cortar), y la marca de entrada tardía de la
+  ruta vieja no viaja a la nueva.
+- El Despacho de la ruta de origen ve el cambio en su auditoría, y el pedido
+  de grabación pendiente va con la combi.
+
+Lo de «no se tocó» (el tronco compartido de la 18A y la 18B, los códigos
+únicos en todo el servidor) sigue igual.
+
+### Lo que decía antes del repaso
 
 La 18A y la 18B son dos rutas de una misma cooperativa y a veces rotan
 combis. Hasta ahora `vehicles.routeId` se fijaba al crear la combi y no había
@@ -460,3 +531,61 @@ Vehículos (`POST /admin/vehicles/:vehicleId/ruta`). Suite nueva
 - **Los códigos únicos en todo el servidor** (rutas, combis, personas). Para
   Juliaca y Puno alcanza; el prefijo de ciudad o cooperativa con el número
   corto visible queda para después, como se habló.
+
+---
+
+## Tanda 11 — recorrer las pantallas para el manual (28/10, sin repasar)
+
+Se armó el manual de usuario (`manual/`) usando cada pantalla con un
+navegador, con una cooperativa de demostración dada de alta por las
+pantallas y una flota andando por calles de Juliaca. Lo que apareció se
+arregló antes de sacar las capturas.
+
+### Lo que más conviene mirar, en orden
+
+1. **La vuelta que salta hacia adelante** (`trackLap`). Un salto de más de
+   medio circuito en una sola lectura se confirma con una segunda antes de
+   creerlo. **La duda:** una combi que reaparece tras un corte largo justo una
+   lectura antes de cruzar el paradero pierde esa vuelta (antes la contaba).
+   Es raro y la vuelta con un hueco así es dudosa igual, pero es un cambio de
+   conteo. La suite `brecha` hacía exactamente ese salto —la ida hasta el
+   40 % y de ahí al final de la vuelta— y se rehízo para recorrer el circuito
+   entero.
+2. **La unidad sin señal no tiene brechas propias** (`calculateGaps`). Antes
+   se medía su posición congelada contra los vecinos y Despacho la mostraba
+   «sin señal» con brechas en rojo. `PROTOCOLO.md` §3 lo dice.
+3. **La web del chofer a pantalla completa en el teléfono** (hasta 600 px de
+   ancho, o instalada como app). Se dibujaba dentro de un teléfono de
+   mentira, con un reloj falso. **La duda:** una tablet en horizontal sigue
+   viendo el marco de vitrina.
+4. **AUSENTE y YENDO A LA RUTA en la web**, como en la nativa. El ausente
+   leía «Sos la única unidad en ruta». Mientras está ausente no se ven
+   «Estoy en tráfico» ni «Ausente».
+5. **«El teléfono sigue mandando»** en Despacho ahora exige que se lo oiga
+   15 s después de su última posición; con «oído hace menos de 60 s» a secas,
+   el que se calló del todo figuraba 30 s como que seguía mandando.
+6. **La velocidad de la web** sale de la posición anterior cuando el
+   navegador no la da (`coords.speed` nulo): el chofer andando veía «0 km/h».
+7. **Lo inventado de la maqueta, fuera**: «48 min · 42 pasajeros», el nombre
+   de reserva, «· TERMINAL» en el mapa, «Juliaca · Puno · 3 824 m». El conteo
+   del mapa es el de la cadena (C17), y la tarjeta ya no tapa la atribución.
+8. **Lo chico de los paneles**: el login de Despacho hablaba de
+   `DISPATCH_PASSWORD`; «Dónde se traba» mandaba a leer un `.md`; el alta de
+   persona le prometía a Despacho crear la combi (el servidor contesta 403);
+   «Respaldar ahora» era invisible (`var(--brand)` no existe); un botón de
+   Informes se salía de su tarjeta; Números cortaba sus tablas; los mensajes
+   de otro día no decían el día.
+9. **Herramientas**: `flota.js` no lograba meter ni una combi (las crea la
+   gerencia: `--gerencia USUARIO:CLAVE`), y la consola describía la cuenta de
+   gerencia como la de antes de la fusión.
+
+### Para decidir (no es un arreglo)
+
+- **El `identify` que toma el mando sin condición** (repaso de la tanda 9,
+  hallazgo 7). Si se cambia, tomar una combi ocupada pasa a ser sólo declarar
+  «ruta», y hay que reescribir `PROTOCOLO.md` §3.1.
+- **El tema de la web del chofer**: la nativa tiene DÍA / NOCHE / AUTO; la web
+  sólo el de día, sin forma de cambiarlo desde la pantalla. El día de fábrica
+  es una invariante de diseño; un selector manual no la rompe, pero es una
+  decisión de producto.
+
