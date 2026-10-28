@@ -193,6 +193,24 @@ border-radius:6px;padding:2px 6px;font-size:14px}.d{color:#8FA8C0;font-size:14px
 
 const Database = require('better-sqlite3');
 const db = openDatabase(Database);
+// Cada SQL se compila UNA vez. `db.prepare(...)` dentro de las funciones del
+// camino caliente (la sesión de cada pedido, el turno, la ruta, la combi)
+// compilaba en cada llamada: medido a 2000 unidades, el 17 % del tiempo del
+// hilo único se iba en compilar lo mismo (optimización del 28/10). Nada usa
+// `.pluck`, `.raw` ni `.iterate`, que es lo que haría peligroso compartir una
+// sentencia. El tope es por si algún día se arma SQL con datos adentro: pasado
+// ese número se compila como antes, sin crecer.
+{
+  const preparar = db.prepare.bind(db);
+  const compiladas = new Map();
+  db.prepare = (sql) => {
+    let st = compiladas.get(sql);
+    if (st) return st;
+    st = preparar(sql);
+    if (compiladas.size < 2000) compiladas.set(sql, st);
+    return st;
+  };
+}
 db.exec(`
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1985,8 +2003,29 @@ function abrirTurno(personId, vehicleId, routeId, role) {
 }
 
 function cerrarTurno(personId) {
+  turnoAlDia.delete(personId);
   db.prepare('UPDATE shifts SET endedAt = ?, lastSeenAt = ? WHERE personId = ? AND endedAt IS NULL')
     .run(Date.now(), Date.now(), personId);
+}
+
+// `abrirTurno` en cada POST /gps eran dos SELECT sobre el año de turnos de la
+// persona y un UPDATE (un commit al WAL) cada 3 s por combi: medido a 2000
+// unidades, el 36 % del tiempo del hilo (optimización del 28/10). Con el
+// turno ya abierto en esa combi y esa ruta, alcanza con tocarlo al mismo ritmo
+// que `marcarVivo` —una vez por minuto—, que es lo que ya hacía el socket.
+// Todo lo que cierra turnos borra la marca: `cerrarTurno`, el barrido de los
+// mudos y el cambio de ruta de una combi.
+const turnoAlDia = new Map();   // personId → { clave, cuando }
+function intervaloVivo() {
+  return Math.min(60_000, Math.max(1000, Math.floor(OLVIDAR_MS / 3)));
+}
+function abrirTurnoSiHaceFalta(personId, vehicleId, routeId, role) {
+  const clave = vehicleId + '|' + (routeId || '');
+  const ahora = Date.now();
+  const previa = turnoAlDia.get(personId);
+  if (previa && previa.clave === clave && ahora - previa.cuando < intervaloVivo()) return;
+  abrirTurno(personId, vehicleId, routeId, role);
+  turnoAlDia.set(personId, { clave, cuando: ahora });
 }
 
 // Una persona toma el mando del GPS de un vehículo (ver `duenoDe`). Al que
@@ -2049,8 +2088,10 @@ function tomarMando(vehicleId, personId, como) {
 // reinicio, y Turnos y el CSV de horas se lo contaban «hasta ahora». Si
 // vuelve dentro de `RECONEXION_MS`, `abrirTurno` retoma la misma fila.
 function cerrarTurnosMudos(ahora, plazoMs) {
-  return db.prepare('UPDATE shifts SET endedAt = lastSeenAt WHERE endedAt IS NULL AND lastSeenAt < ?')
+  const cerrados = db.prepare('UPDATE shifts SET endedAt = lastSeenAt WHERE endedAt IS NULL AND lastSeenAt < ?')
     .run(ahora - plazoMs).changes;
+  if (cerrados) turnoAlDia.clear();
+  return cerrados;
 }
 
 // La duración de un turno dentro de una ventana. UNA sola función para las
@@ -2068,7 +2109,12 @@ function duracionTurnoSec(t, desde = -Infinity, hasta = Infinity) {
 // Los turnos que TOCAN una ventana (empezaron antes de que termine y
 // terminaron —o siguen— después de que empiece). `startedAt BETWEEN` dejaba
 // afuera al que arrancó a las 23:40 del día anterior.
-const TURNOS_EN_VENTANA = 's.startedAt <= @hasta AND (s.endedAt IS NULL OR s.endedAt >= @desde)';
+//
+// Con PISO: un turno no dura más de una semana (a los 3 min de silencio se
+// cierra), así que el que toca la ventana empezó a lo sumo 7 días antes. Sin
+// el piso, el índice por fecha no podía cortar y se leía el año entero:
+// /admin/shifts de 6 a 39 ms, el resumen del gerente 500 ms (28/10).
+const TURNOS_EN_VENTANA = 's.startedAt <= @hasta AND s.startedAt >= @desde - 604800000 AND (s.endedAt IS NULL OR s.endedAt >= @desde)';
 
 // Se marca que la persona sigue arriba. No en cada posición GPS (llegan cada
 // 3 s): alcanza con una vez por minuto para que el cierre por reinicio no
@@ -2078,7 +2124,7 @@ function marcarVivo(personId) {
   const ahora = Date.now();
   // Con el olvido acortado (las suites) la marca tiene que ser más seguida
   // que el plazo con el que `cerrarTurnosMudos` cierra.
-  if (ahora - (ultimaMarca.get(personId) || 0) < Math.min(60_000, Math.max(1000, Math.floor(OLVIDAR_MS / 3)))) return;
+  if (ahora - (ultimaMarca.get(personId) || 0) < intervaloVivo()) return;
   ultimaMarca.set(personId, ahora);
   db.prepare('UPDATE shifts SET lastSeenAt = ? WHERE personId = ? AND endedAt IS NULL')
     .run(ahora, personId);
@@ -2440,6 +2486,11 @@ if (db.prepare('SELECT COUNT(*) AS c FROM laps WHERE routeId IS NULL').get().c >
 // `parcial`, además mejora (67 → 38 ms) porque el filtro sale del índice sin
 // tocar la tabla.
 db.exec('CREATE INDEX IF NOT EXISTS idx_laps_ruta ON laps (routeId, finishedAt, parcial)');
+// Los turnos ABIERTOS, que son pocos (uno por persona arriba) en una tabla
+// que guarda un año: el barrido de los mudos corre cada 10 s y recorría la
+// tabla entera —47 ms con 2000 unidades, un congelamiento periódico que
+// crecía con los meses—. Con el índice parcial, microsegundos (28/10).
+db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_abiertos ON shifts (lastSeenAt) WHERE endedAt IS NULL');
 
 // ─── PRESENCIA ───────────────────────────────────────────────
 // El chofer DECLARA su estado desde la app — salir a ruta, ausente (comer,
@@ -4062,7 +4113,7 @@ app.post('/gps', (req, res) => {
   // Con la ruta de la COMBI, como el `identify`: con persona y combi en rutas
   // distintas (datos viejos), el identify abría el turno en una y este POST en
   // la otra — horas partidas y solapadas (repaso de la tanda 9).
-  abrirTurno(user.unitId, vehicleId, rutaDeLaCombi(vehicleId, user.routeId || prof.routeId), user.role);
+  abrirTurnoSiHaceFalta(user.unitId, vehicleId, rutaDeLaCombi(vehicleId, user.routeId || prof.routeId), user.role);
 
   // Lo que YA se sabía no se procesa dos veces. Con la pantalla apagada la
   // app corta un envío que no vuelve y lo manda de nuevo — y ese envío puede
@@ -4872,6 +4923,7 @@ function moverCombiDeRuta(vehicleId, origen, destino) {
   const ahora = Date.now();
   db.prepare('UPDATE vehicles SET routeId = ? WHERE vehicleId = ?').run(destino, vehicleId);
   const personas = db.prepare('SELECT unitId FROM users WHERE vehicleId = ?').all(vehicleId).map(u => u.unitId);
+  for (const personId of personas) turnoAlDia.delete(personId);
   db.prepare('UPDATE users SET routeId = ? WHERE vehicleId = ?').run(destino, vehicleId);
   db.prepare('UPDATE shifts SET endedAt = ?, lastSeenAt = MAX(lastSeenAt, ?) WHERE vehicleId = ? AND endedAt IS NULL')
     .run(ahora, ahora, vehicleId);
@@ -6128,7 +6180,10 @@ function medirUnidades(filtro) {
     SELECT p.vehicleId, p.estado, @desde AS cuando FROM presencia_log p
     WHERE p.id IN (
       SELECT MAX(id) FROM presencia_log
-      WHERE cuando < @desde
+      -- Dos días alcanzan: un ausente sin ningún cambio en dos días no
+      -- existe (el olvido lo anota a los 3 min de silencio). Sin el piso se
+      -- recorría todo el registro anterior al período (28/10).
+      WHERE cuando < @desde AND cuando >= @desde - 172800000
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
         AND (@ruta IS NULL OR routeId = @ruta)
         AND (@veh IS NULL OR vehicleId = @veh)
@@ -8085,7 +8140,7 @@ function promedioVuelta(routeId, diaSemana) {
     SELECT durationSec FROM laps
     WHERE routeId = @routeId AND ${mismaVariante} AND parcial = 0
       AND CAST(strftime('%w', finishedAt / 1000, 'unixepoch', 'localtime') AS INTEGER) = @dia
-    ORDER BY id DESC LIMIT ${VUELTAS_MUESTRA}
+    ORDER BY finishedAt DESC LIMIT ${VUELTAS_MUESTRA}
   `).all({ routeId, dia: diaSemana, variante });
 
   if (delDia.length >= MIN_VUELTAS) {
@@ -8095,7 +8150,7 @@ function promedioVuelta(routeId, diaSemana) {
 
   const todas = db.prepare(`
     SELECT durationSec FROM laps WHERE routeId = @routeId AND ${mismaVariante} AND parcial = 0
-    ORDER BY id DESC LIMIT ${VUELTAS_MUESTRA}
+    ORDER BY finishedAt DESC LIMIT ${VUELTAS_MUESTRA}
   `).all({ routeId, variante });
 
   if (todas.length >= MIN_VUELTAS) {

@@ -578,6 +578,14 @@ arregló antes de sacar las capturas.
 9. **Herramientas**: `flota.js` no lograba meter ni una combi (las crea la
    gerencia: `--gerencia USUARIO:CLAVE`), y la consola describía la cuenta de
    gerencia como la de antes de la fusión.
+10. **La optimización del hilo** (`PENDIENTES.md` §4.20). **Las dudas:**
+    `lastSeenAt` del que reporta por HTTP pasa a tener resolución de un
+    minuto, igual que por el socket: un turno puede cerrar hasta un minuto más
+    corto. `db.prepare` queda memoizado por texto: es seguro mientras nadie
+    use `.iterate()`, `.pluck()` o `.raw()` sobre una sentencia compartida —si
+    algún día hace falta, que sea con un `preparar` aparte—. Y las ventanas de
+    turnos (7 días) y de presencia (2 días) suponen que nada dura más que eso
+    sin cerrarse o anotarse.
 
 ### Para decidir (no es un arreglo)
 
