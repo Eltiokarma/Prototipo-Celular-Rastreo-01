@@ -539,7 +539,7 @@ Vehículos (`POST /admin/vehicles/:vehicleId/ruta`). Suite nueva
 Se armó el manual de usuario (`manual/`) usando cada pantalla con un
 navegador, con una cooperativa de demostración dada de alta por las
 pantallas y una flota andando por calles de Juliaca. Lo que apareció se
-arregló antes de sacar las capturas.
+arregló antes de sacar las capturas. Regresión completa verde.
 
 ### Lo que más conviene mirar, en orden
 
@@ -574,7 +574,8 @@ arregló antes de sacar las capturas.
    persona le prometía a Despacho crear la combi (el servidor contesta 403);
    «Respaldar ahora» era invisible (`var(--brand)` no existe); un botón de
    Informes se salía de su tarjeta; Números cortaba sus tablas; los mensajes
-   de otro día no decían el día.
+   de otro día no decían el día; la tarjeta de la unidad mostraba la
+   velocidad con decimales o, sin señal, la última que tuvo.
 9. **Herramientas**: `flota.js` no lograba meter ni una combi (las crea la
    gerencia: `--gerencia USUARIO:CLAVE`), y la consola describía la cuenta de
    gerencia como la de antes de la fusión.

@@ -120,7 +120,7 @@ function posicion(id, ahora = Date.now()) {
   if (f.raro === 'fuera' && (ahora - EPOCA) / 1000 > 40) { lat += 0.005; lng += 0.005; }
   const quieta = f.raro === 'ausente' || (f.raro === 'trafico' && (ahora - EPOCA) / 1000 > 50);
   const kmh = quieta ? Math.random() * 2 : Math.max(3, f.kmh * factor + (Math.random() - 0.5) * 2);
-  return { lat, lng, speed: Math.round(kmh * 10) / 10, tramo };
+  return { lat, lng, speed: Math.round(kmh), tramo };   // los teléfonos mandan km/h enteros
 }
 
 let flotaViva = false;

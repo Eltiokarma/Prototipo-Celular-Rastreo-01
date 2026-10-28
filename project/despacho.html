@@ -4745,8 +4745,10 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
               }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   <span style={{ fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg }}>{u.unitId}</span>
+                  {/* Sin señal la última velocidad es vieja: mostrarla haría
+                      creer que la combi sigue andando a ese ritmo. */}
                   <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim2 }}>
-                    {u.speed || 0} KM/H
+                    {u.sinSenal ? '—' : Math.round(u.speed || 0)} KM/H
                   </span>
                   <div style={{ flex: 1 }} />
                   {/* Entró a la ruta empezada: no salió del paradero inicial,
