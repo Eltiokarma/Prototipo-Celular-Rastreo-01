@@ -91,21 +91,23 @@ const punto = (m) => ({ lat: LAT + gLat * m, lng: LNG });
     // por conexión (cupo antiinundación). Pasarse no da error, simplemente
     // deja de mover la unidad y la vuelta nunca cierra.
     const SEPARACION = 400;
-    for (let m = 0; m <= 1550; m += 55) {
-      mover(a, m + SEPARACION);
-      mover(b, m);
+    // El circuito ENTERO: la ida por la calle hasta los 2000 m y la vuelta
+    // por la misma calle de regreso. Hasta el 28/10 la suite hacía la ida
+    // hasta el 40 % y saltaba al final de la vuelta en una sola lectura: el
+    // patrón exacto del «pico suelto» que cerraba vueltas falsas, y que el
+    // servidor ahora confirma antes de creerlo (repaso de la tanda 9).
+    // `c` es la coordenada sobre el circuito (0–4000); en la calle, la vuelta
+    // desanda la ida. 25 posiciones por unidad + 4 del cruce, dentro del cupo.
+    const enCalle = (c) => { const x = ((c % 4000) + 4000) % 4000; return x < 2000 ? x : 4000 - x; };
+    for (let c = 0; c <= 3840; c += 160) {
+      mover(a, enCalle(c + SEPARACION));
+      mover(b, enCalle(c));
       await sleep(150);
     }
-    // Cierre de vuelta: las dos pasan por el final y vuelven al inicio
-    for (const m of [1960, 1980, 1995]) { mover(a, m); mover(b, m - SEPARACION); await sleep(200); }
-    mover(a, 5); mover(b, 10);
-    await sleep(300);
-    mover(a, 20); mover(b, 25);
-    // Una más después del cruce: el cierre de la vuelta se CONFIRMA con dos
-    // posiciones seguidas (barrido del 22/9), y en la calle el chofer sigue
-    // andando — la suite cortaba justo en la primera.
-    await sleep(300);
-    mover(a, 35); mover(b, 40);
+    // Cierre de vuelta de B-02: termina la vuelta y arranca la ida de nuevo.
+    // Se confirma con dos posiciones seguidas (barrido del 22/9), y en la
+    // calle el chofer sigue andando.
+    for (const c of [3960, 4040, 4120, 4200]) { mover(a, enCalle(c + SEPARACION)); mover(b, enCalle(c)); await sleep(250); }
     await sleep(900);
 
     const db = new Database(DB);

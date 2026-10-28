@@ -8655,7 +8655,12 @@ function calculateGaps(sortedUnits, durationMin, anotar) {
     // Queda `aheadUnit` con nombre y `toAhead` en null: hay alguien
     // adelante, no sabemos a cuánto. Es un estado distinto de "no hay nadie",
     // donde las dos cosas van en null.
-    const gapToAhead = ahead && !ahead.sinSenal
+    //
+    // Y la PROPIA unidad sin señal tampoco tiene brecha: su posición es la de
+    // hace minutos, así que contra quien sea el número miente igual. Despacho
+    // mostraba «SIN SEÑAL DESDE…» con dos brechas en rojo debajo (recorrido
+    // del 28/10).
+    const gapToAhead = ahead && !ahead.sinSenal && !current.sinSenal
       ? (ahead.routeProgress - current.routeProgress) * durationMin
       : null;
 
@@ -8667,7 +8672,7 @@ function calculateGaps(sortedUnits, durationMin, anotar) {
     // eran ~60 muestras falsas en el promedio (REVISION-2026-09-10.md, L8).
     if (anotar && gapToAhead !== null && !current.sinSenal) anotar(current.unitId, gapToAhead);
 
-    const gapToBehind = behind && !behind.sinSenal
+    const gapToBehind = behind && !behind.sinSenal && !current.sinSenal
       ? (current.routeProgress - behind.routeProgress) * durationMin
       : null;
 

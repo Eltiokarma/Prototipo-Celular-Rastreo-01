@@ -149,6 +149,11 @@ Lo que hay que tener claro:
   de la fila, porque entonces este lado se mediría contra la que sigue —el
   doble de lejos— y la pantalla diría *"apurá"* hacia una combi que el chofer
   tiene justo adelante. Está medido; ver la sección 5.
+- **La unidad sin señal tampoco tiene brechas propias** (desde el 28/10):
+  sus `toAhead` y `toBehind` vienen en `null`, con `aheadUnit`/`behindUnit`
+  igual. Su posición es la de hace minutos, así que contra quien sea el número
+  mentiría; Despacho la mostraba como «SIN SEÑAL» con dos brechas en rojo
+  debajo.
 - **Los vecinos son del mismo tramo.** La cadena es por tramo (ida o
   vuelta), no un anillo: la primera de la vuelta no tiene «atrás» a la última
   de la ida, y la primera de la ida no tiene «adelante» a nadie de la vuelta.

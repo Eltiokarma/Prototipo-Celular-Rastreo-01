@@ -284,6 +284,7 @@
     // hay primer fix, la demo sigue viva con el simulado; en producción se
     // dice «sin GPS».
     let gotFix = false;
+    let previaEnviada = null;   // { lat, lng, t } para la velocidad sin `speed`
     fallbackTimer = setTimeout(() => {
       if (!gotFix) sinGps('sin respuesta en 12 s');
     }, 12000);
@@ -315,6 +316,27 @@
       if (!reportaGps) return;
 
       const { latitude, longitude, speed, accuracy } = lastPosition.coords;
+      // Sin velocidad del aparato (`speed` nulo: ubicación por red, o un
+      // navegador que no la da) se mandaba 0, y el chofer andando veía «0
+      // km/h». Sale de la posición anterior: metros sobre segundos.
+      // Si entre dos envíos el GPS no trajo una posición nueva, se repite la
+      // última velocidad calculada (con la misma posición daría cero).
+      let kmh = speed != null && Number.isFinite(speed) ? speed * 3.6 : null;
+      if (kmh == null && previaEnviada) {
+        if (lastPosition.timestamp === previaEnviada.t) {
+          kmh = previaEnviada.kmh;
+        } else {
+          const dt = (lastPosition.timestamp - previaEnviada.t) / 1000;
+          if (dt >= 1 && dt <= 60) {
+            const kLng = Math.cos(latitude * Math.PI / 180);
+            const m = Math.hypot((latitude - previaEnviada.lat) * 111320, (longitude - previaEnviada.lng) * 111320 * kLng);
+            kmh = Math.min(120, (m / dt) * 3.6);
+          }
+        }
+      }
+      if (!previaEnviada || lastPosition.timestamp !== previaEnviada.t) {
+        previaEnviada = { lat: latitude, lng: longitude, t: lastPosition.timestamp, kmh };
+      }
 
       // routeProgress: estimamos qué tan avanzado está en la ruta
       // usando la latitud (simplificación para Juliaca).
@@ -325,7 +347,7 @@
         type: 'gps',
         lat: latitude,
         lng: longitude,
-        speed: speed ? Math.round(speed * 3.6) : 0, // m/s → km/h
+        speed: kmh ? Math.round(kmh) : 0, // km/h
         routeProgress,
         // Los metros de error del GPS, como manda la app nativa: con más de
         // 100 m el servidor no juzga desvío ni parada (TRUCOS, T11).

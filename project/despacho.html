@@ -1944,7 +1944,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   </div>
                   <div style={{ fontSize: 12, color: HUD.dim3, marginTop: 10, lineHeight: 1.5 }}>
                     {form.personRole === 'driver'
-                      ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no eliges vehículo, se crea uno con el mismo código del usuario.'
+                      // Crear la combi al vuelo es crear un ACTIVO: sólo la
+                      // gerencia. A Despacho el servidor le contesta 403, y
+                      // el texto le prometía lo contrario (recorrido del 28/10).
+                      ? (esGerente
+                        ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no elegís vehículo, se crea uno con el mismo código del usuario.'
+                        : 'El chofer maneja: su celular es el que reporta la posición de la unidad. Elegí la combi en la que va: las combis las da de alta la cuenta de gerencia.')
                       : 'El cobrador necesita un vehículo ya creado. Ve brechas, mapa y chat, pero su GPS no se usa.'}
                   </div>
                 </div>
@@ -2964,7 +2969,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               <div style={{ fontFamily: mono }}>{min(g.segundos)}</div>
                               <div style={{ fontFamily: mono, color: g.unidades > 1 ? HUD.fg : HUD.dim3 }}>{g.unidades}</div>
                               <div title="Cortes que no trajeron después las posiciones que faltaban: el teléfono estaba apagado o la app muerta, no es la antena"
-                                style={{ fontFamily: mono, color: g.sinDatos ? HUD.amber : HUD.dim3 }}>
+                                style={{ fontFamily: mono, color: g.sinDatos ? HUD.amber : HUD.dim3, textAlign: 'right' }}>
                                 {g.sinDatos || '—'}
                               </div>
                             </div>
@@ -3417,7 +3422,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             dos se ven igual. */}
                         <div title={(u.desvios ? `${Math.round((u.desvioSec || 0) / 60)} min fuera del recorrido en total` : 'No se salió del recorrido') +
                                     (u.desviosAparte ? ` · ${u.desviosAparte} episodio(s) aparte: silenciado(s) por Despacho o cerrado(s) por cambio de trazado, que no cuentan como salidas` : '')}
-                          style={{ fontFamily: mono, color: u.desvios ? HUD.amber : HUD.dim3 }}>
+                          style={{ fontFamily: mono, color: u.desvios ? HUD.amber : HUD.dim3, textAlign: 'right' }}>
                           {u.desvios ? `${u.desvios} · ${Math.round((u.desvioSec || 0) / 60)}′` : '—'}
                         </div>
                       </div>
@@ -3461,7 +3466,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           <div style={{ fontFamily: mono, color: manejo(p) ? HUD.fg : HUD.dim3 }}>{manejo(p) ? (p.vueltas || 0) : '—'}</div>
                           <div style={{ fontFamily: mono, color: p.cumplimiento == null ? HUD.dim3 : HUD.fg }}>{p.cumplimiento == null ? '—' : `${p.cumplimiento}%`}</div>
                           <div style={{ fontFamily: mono, color: p.desvios ? HUD.amber : HUD.dim3 }}>{manejo(p) ? (p.desvios || '—') : '—'}</div>
-                          <div style={{ fontFamily: mono, color: HUD.dim2 }}>{(p.unidades || []).join(' · ') || '—'}</div>
+                          <div style={{ fontFamily: mono, color: HUD.dim2, textAlign: 'right' }}>{(p.unidades || []).join(' · ') || '—'}</div>
                         </div>
                       ))}
                     </Tabla>
@@ -4876,7 +4881,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                   <div style={{
                     fontFamily: mono, fontSize: 10, letterSpacing: .6,
                     color: HUD.amber, marginTop: 4,
-                  }}>{ahora - u.oidoEn <= 60_000
+                  }}>{/* «Sigue mandando» es que llega DESPUÉS de su última
+                        posición. Con «oído hace menos de 60 s» a secas, el
+                        teléfono que se calló del todo figuraba 30 s como
+                        que seguía mandando: sin señal se marca a los 30
+                        (recorrido del 28/10). */}
+                      {ahora - u.oidoEn <= 60_000 && u.oidoEn - (u.timestamp || 0) > 15_000
                         ? `EL TELÉFONO SIGUE MANDANDO · OÍDO HACE ${Math.max(0, Math.round((ahora - u.oidoEn) / 1000))} S`
                         : `SIN NOTICIAS DEL TELÉFONO HACE ${Math.max(0, Math.round((ahora - u.oidoEn) / 1000))} S`}</div>
                 )}
