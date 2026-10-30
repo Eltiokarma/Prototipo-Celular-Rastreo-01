@@ -46,6 +46,10 @@ module.exports = {
     { usuario: 'ch-hernan', nombre: 'Hernán Coaquira Machaca', rol: 'driver', combi: 'M-22', ruta: '18B' },
     { usuario: 'ch-lucio', nombre: 'Lucio Vilca Sucasaca', rol: 'driver', combi: 'M-23', ruta: '18B' },
     { usuario: 'ch-delia', nombre: 'Delia Machaca Aroquipa', rol: 'driver', combi: 'M-24', ruta: '18B' },
+    // El suplente de M-02: entra por la web y se queda en la puerta, para
+    // que el panel muestre «entró y no salió a ruta» y el aviso del vigía.
+    // No maneja en la flota ni tiene historial.
+    { usuario: 'ch-ruben', nombre: 'Rubén Condori Ticona', rol: 'driver', combi: 'M-02', ruta: '18A', suplente: true },
     { usuario: 'co-yeny', nombre: 'Yeny Apaza Condori', rol: 'collector', combi: 'M-01', ruta: '18A' },
     { usuario: 'co-saturnino', nombre: 'Saturnino Pari Chambi', rol: 'collector', combi: 'M-03', ruta: '18A' },
   ],

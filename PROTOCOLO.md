@@ -82,11 +82,12 @@ Observado, en este orden:
 
 | # | Tipo | Qué trae |
 |---|---|---|
-| 1 | `gps_role` | **si esta conexión es la que reporta GPS** |
-| 2 | `unit_joined` | aviso a la ruta de que la unidad entró |
+| 1 | `gps_role` | **si esta conexión es la que reporta GPS** (ver §3.1: al chofer sin el mando no le llega acá) |
+| 2 | `unit_joined` | aviso a la ruta de que la unidad entró (ídem) |
 | 3 | `state` | el estado completo de la ruta |
 | 4 | `chat_history` | los últimos mensajes que le corresponde ver |
 | 5 | `route_geometry` | el trazado dibujado de la ruta |
+| 6 | `puerta` | **sólo a Despacho**: quién entró y no salió a ruta (ver §3.5) |
 
 Después, `state` cada 3 s (`STATE_INTERVAL_MS`) mientras haya movimiento.
 
@@ -97,11 +98,36 @@ Después, `state` cada 3 s (`STATE_INTERVAL_MS`) mientras haya movimiento.
 ```
 
 **Solo UNA conexión reporta la posición de cada vehículo.** El servidor
-descarta el `gps` de cualquier otra, sin avisar. Las reglas:
+descarta el `gps` de cualquier otra. Las reglas (desde el 30/10, «opción B»):
 
-- El cobrador nunca reporta → `reporting: false`, `reason: "Modo acompañante"`.
-- Entre choferes **manda el último que entra** (es el relevo de turno). Al
-  anterior le llega un `gps_role` con `reporting: false` y el motivo.
+- El cobrador nunca reporta → al identificarse, `reporting: false`,
+  `reason: "Modo acompañante"`.
+- **Entrar no es salir.** El `identify` de un chofer que no tiene el mando
+  —recién entrado y en la puerta, o el relevado que reconecta— no se lo da:
+  no le llega `gps_role`, no se le abre turno y no le cambia el nombre a la
+  combi del mapa. Sólo el MISMO chofer que tiene el mando vivo y reconecta
+  (otra red, otra pestaña) lo conserva al identificarse, con
+  `reporting: true`.
+- **El mando se toma estando en ruta:**
+  - declarar `ruta` lo toma **aunque otro lo tenga**: es el relevo. Al
+    anterior le llega `gps_role` con `reporting: false` y el motivo, y se le
+    cierra el turno;
+  - declarar `ausente`, o mandar una posición (WS o HTTP), lo toma sólo si
+    nadie lo tiene vivo (se lo oyó hace menos de `OLVIDAR_MS` o tiene el
+    socket abierto).
+
+  Al tomarlo, por el socket llega `gps_role` con `reporting: true`.
+- **El relevado no recupera solo.** Al que le sacaron el mando le queda la
+  app en `ruta`, que la re-declara en cada reconexión. Mientras dure su
+  marca, ni su `ruta`, ni su `ausente`, ni sus posiciones le devuelven ESA
+  combi — ni siquiera si el que la manejaba termina el turno. Le llega
+  `reporting: false` con el motivo, que dice cómo volver: *«… Para volver a
+  manejarla: SALIR DE RUTA y después SALIR A RUTA.»* (por HTTP,
+  `gpsRole: false` y el mismo `motivo`). La marca se va con un acto suyo
+  —declarar `fuera`, o volver a entrar con usuario y clave— o a las
+  `RELEVO_MAX_MS` (6 h).
+- Un chofer conectado no hereda el mando de otro al cerrarse el socket de
+  éste: sólo otra conexión de la MISMA persona.
 
 Para la app nativa esto es lo más importante de toda la página: **el servicio
 de fondo no puede mandar GPS si `reporting` es `false`**, y una reconexión
@@ -242,6 +268,27 @@ expirado, que es honesto: existió, ya no está.
 Se poda **por tipo y no en conjunto**, a propósito: si el presupuesto fuera
 compartido, una ráfaga de fotos le borraría el audio a la nota de voz que
 justamente hace falta escuchar.
+
+### 3.5 `puerta` — sólo a Despacho
+
+Desde el 30/10 («opción A»). Quién entró y no salió a ruta en la ruta que se
+mira: el chofer que se identificó o puso la clave y desde entonces no declaró
+nada ni mandó una posición. Llega al identificarse un supervisor, con cada
+`watch`, y cada vez que la lista cambia (con un segundo de espera, para no
+parpadear con la web, que entra y declara en el mismo instante). Nunca a los
+teléfonos de los choferes.
+
+```json
+{ "type": "puerta", "routeId": "R-14",
+  "items": [{ "personId": "pedro", "nombre": "Pedro", "vehicleId": "M-05", "desde": 1793393000000 }] }
+```
+
+Sale de la lista con cualquier declaración (`ruta`, `ausente` o `fuera`), una
+posición aceptada, cerrar sesión o la baja. Y deja de mostrarse si no tiene la
+app conectada y pasaron `PUERTA_SIN_SOCKET_MS` (30 min) de su última señal: la
+web en la puerta no tiene socket, y la nativa lo pierde con la pantalla
+apagada. El servidor no sabe dónde está: en la puerta la app no manda la
+ubicación.
 
 ## 4. Lo que el cliente manda
 
@@ -407,7 +454,15 @@ cliente debe RE-DECLARAR su presencia al reconectar el WebSocket: el
 servidor la guarda en memoria. Un cliente que no declara nada se comporta
 como siempre: en cadena desde la primera posición.
 
-**El relevado no declara por la combi** (desde el 22/9). Si OTRA persona
+**`motivo: "auto"`** (desde el 30/10, opcional, sólo con `ruta`): la
+declaró el vigía de la puerta de la app, no el chofer —lo vio manejando sin
+haber salido y nadie contestó el aviso—. El servidor lo anota en la
+Actividad de Despacho (`salio_solo`). Viaja una sola vez: la re-declaración
+al reconectar no lo lleva. Por HTTP va en el cuerpo: `{ "estado": "ruta",
+"motivo": "auto" }`.
+
+**El relevado no declara por la combi** (desde el 22/9; y desde el 30/10, ni
+`ruta` le devuelve la combi mientras dure su marca: ver §3.1). Si OTRA persona
 tiene el mando del GPS de ese vehículo y se la oye —la misma prueba con la
 que `POST /gps` le contesta `gpsRole: false`—, su `ausente` y su tráfico se
 ignoran, y su `fuera` sólo le cierra el turno a ÉL: `POST /presencia` y

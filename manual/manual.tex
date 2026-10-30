@@ -344,6 +344,36 @@ y la ruta, y dos opciones:
 
 Arriba a la derecha, \boton{Salir} cierra la sesión.
 
+\textbf{Entrar no es salir.} Poner la clave no cuenta horas ni le saca la
+combi a nadie: el turno arranca al tocar \boton{SALIR A RUTA} (o
+\boton{Entrar AUSENTE}). Mientras tanto, Despacho ve al chofer en la lista de
+\textbf{los que entraron y no salieron a ruta}.
+
+\subsection{Si arrancás sin salir a ruta}
+
+\begin{minipage}[t]{0.64\textwidth}\vspace{0pt}
+En la puerta el teléfono no manda la ubicación. Pero con la app abierta la
+\textbf{mira}, sin mandarla, y se da cuenta si la combi ya está andando: lejos
+de donde entraste y a velocidad de combi, sostenida (caminar o un salto del
+GPS no cuentan). Entonces avisa fuerte, con vibración:
+\enambar{¿YA ESTÁS MANEJANDO?}, con una cuenta regresiva.
+
+\begin{itemize}
+  \item Si no tocás nada, \textbf{al minuto sale a ruta sola}, y Despacho lo ve
+    en la Actividad.
+  \item \boton{SALIR AHORA} (en la web) sale en el acto; en la app Android se
+    sigue deslizando.
+  \item \boton{No estoy manejando} (vas de pasajero, te llevan) lo calla media
+    hora.
+\end{itemize}
+
+Mira sólo con la app abierta y con el permiso de ubicación ya dado: no lo
+pide en la puerta.
+\end{minipage}\hfill
+\begin{minipage}[t]{0.3\textwidth}\vspace{0pt}\centering
+\cel[1]{c02b-vigia}{¿Ya estás manejando?}
+\end{minipage}
+
 \section{Yendo a la ruta}
 
 Al salir a ruta, mientras el GPS todavía no ve la combi sobre el recorrido, la
@@ -447,6 +477,18 @@ y la vuelta que llevaba quedó descartada.
 acto. Por eso pide \textbf{un segundo toque}: el botón se pone rojo y dice
 \boton{¿SEGURO? TOCÁ DE NUEVO}. Si no se toca en unos segundos, se desarma
 solo. Después de salir se vuelve a la puerta.
+
+\subsection{El relevo}
+
+Cuando otro chofer sube a la combi y toca \boton{SALIR A RUTA}, la combi pasa
+a ser de él: su teléfono manda la posición y su turno arranca; el del que
+bajó se cierra, y a éste le aparece \enambar{Otro chofer tomó la unidad}.
+Despacho lo ve en la Actividad.
+
+El que bajó \textbf{no recupera la combi solo}, aunque le quede la app abierta
+y se reconecte en su casa, y aunque el otro termine el turno. Para volver a
+manejarla tiene que hacerlo a propósito: \boton{SALIR DE RUTA} y después
+\boton{SALIR A RUTA}, o volver a entrar con su usuario y clave.
 
 \section{SOS}
 \label{sec:sos}
@@ -576,7 +618,10 @@ cuatro partes:
   \item[La lista de unidades.] A la izquierda, cada combi con su velocidad,
     chofer, placa, tramo (\rotulo{ida} / \rotulo{vuelta}) y sus dos brechas,
     con color y palabra. Arriba, \rotulo{8 de 8}: cuántas se ven de cuántas
-    tiene la ruta.
+    tiene la ruta. Encima de la lista, dos avisos cuando hace falta: las
+    combis \textbf{fuera del recorrido} y los choferes que \textbf{entraron y
+    no salieron a ruta}, con hace cuánto; a los diez minutos se pone en
+    ámbar: es para llamarlo.
   \item[El mapa.] El recorrido (ida llena, retorno punteado), las combis con
     el color de su brecha y la leyenda. Una combi \textbf{fuera del recorrido}
     lleva un rombo y un círculo ámbar.
@@ -783,7 +828,9 @@ horas.
 \textbf{Empresa} muestra los datos de la cooperativa (los corrige la
 gerencia). \textbf{Actividad} es el registro de todo lo que se hizo en el panel
 de esta cooperativa: altas, cambios de clave, cambios de objetivo, SOS,
-avisos del sistema. Sólo la de ustedes.
+avisos del sistema; y del mando de las combis: \emph{tomó la combi que
+manejaba} (un relevo) y \emph{salió a ruta solo en} (la app vio al chofer
+manejando sin haber salido y nadie contestó el aviso). Sólo la de ustedes.
 
 \pc{d17-actividad}{La actividad de la cooperativa.}
 

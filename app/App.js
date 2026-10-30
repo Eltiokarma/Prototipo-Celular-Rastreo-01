@@ -43,6 +43,8 @@ import { useAudioRecorder, useAudioPlayer, RecordingPresets,
 import { tomarFoto, elegirFoto, comoTexto } from './foto';
 import { WebView } from 'react-native-webview';
 import * as gps from './gps/servicio';
+import * as Location from 'expo-location';
+import { crearVigiaPuerta } from './puerta';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
 // un teléfono no depende de la red de casa. Para pegarle a un servidor local
@@ -350,10 +352,10 @@ function Aplicacion() {
   // Cambiar de presencia es UNA función porque toca tres mundos a la vez y
   // el orden importa: el disco (para la tarea de fondo y para retomar), el
   // servidor (la declaración), y el servicio de GPS (que emite o calla).
-  const cambiarPresencia = async (nueva) => {
+  const cambiarPresencia = async (nueva, motivo) => {
     setPresencia(nueva);
     try { await SecureStore.setItemAsync(gps.LLAVE_PRESENCIA, nueva); } catch {}
-    cliente.current.marcarPresencia(nueva);
+    cliente.current.marcarPresencia(nueva, motivo);
     if (nueva === 'fuera') {
       // Primero se le avisa al vigilante, DESPUÉS se para: la misma carrera
       // que ya nos costó un servicio huérfano en `onSalir`.
@@ -373,6 +375,69 @@ function Aplicacion() {
       setAviso(null);   // ídem: al dar el permiso, el cartel viejo se va
       await gps.arrancar({ textoNotificacion: textoRef.current });
     }
+  };
+
+  // ── El vigía de la puerta (opción C, 30/10) ──────────────────
+  // El chofer entró, no deslizó SALIR A RUTA y ya está manejando: trabaja
+  // invisible. En la puerta la app NO manda la ubicación (la política de
+  // privacidad lo promete), pero con la app ABIERTA puede mirarla sin
+  // mandarla, como el vigía de AUSENTE, y darse cuenta (`puerta.js`). Avisa
+  // fuerte con cuenta regresiva y, si nadie contesta, sale sola.
+  //
+  // Sólo en primer plano y sólo con el permiso YA dado: pedirlo acá sería
+  // pedir la ubicación antes de salir a ruta. Con la app atrás no mira nada:
+  // para eso haría falta el servicio de fondo, que es emitir.
+  const [primerPlano, setPrimerPlano] = React.useState(AppState.currentState === 'active');
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', (e) => setPrimerPlano(e === 'active'));
+    return () => sub.remove();
+  }, []);
+  const vigiaPuerta = React.useRef(null);
+  const [faltaPuerta, setFaltaPuerta] = React.useState(null);
+  const salirSolo = React.useRef(null);
+  salirSolo.current = () => {
+    setFaltaPuerta(null);
+    cambiarPresencia('ruta', 'auto');
+    setAviso('Te vimos manejando: saliste a ruta solo');
+  };
+  const mirarPuerta = !!sesion && sesion.role !== 'collector' && presencia === 'fuera' && primerPlano;
+  React.useEffect(() => {
+    if (!mirarPuerta) { setFaltaPuerta(null); return; }
+    const v = crearVigiaPuerta();
+    vigiaPuerta.current = v;
+    let vivo = true, sub = null;
+    const reloj = setInterval(() => {
+      if (!vivo) return;
+      setFaltaPuerta(v.faltaMs(Date.now()));
+      if (v.tic(Date.now()) === 'salir') { vivo = false; salirSolo.current(); }
+    }, 1000);
+    (async () => {
+      try {
+        const p = await Location.getForegroundPermissionsAsync();
+        if (!vivo || !p.granted) return;
+        sub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 0 },
+          (pos) => {
+            if (!vivo) return;
+            const r = v.posicion(pos.coords.latitude, pos.coords.longitude, Date.now(), pos.coords.accuracy);
+            if (r === 'avisar') {
+              setFaltaPuerta(v.faltaMs(Date.now()));
+              Vibration.vibrate([0, 400, 200, 400, 200, 400]);
+            }
+            if (r === 'salir') { vivo = false; salirSolo.current(); }
+          });
+        if (!vivo && sub) sub.remove();
+      } catch {}
+    })();
+    return () => {
+      vivo = false; clearInterval(reloj);
+      if (sub) sub.remove();
+      vigiaPuerta.current = null;
+    };
+  }, [mirarPuerta]);
+  const noEstoyManejando = () => {
+    if (vigiaPuerta.current) vigiaPuerta.current.callar(Date.now());
+    setFaltaPuerta(null);
   };
 
   // ── Las posiciones NO se mandan desde acá ───────────────────
@@ -645,6 +710,8 @@ function Aplicacion() {
         avisoApp={avisoDeApp(sesion && sesion.app, APP)}
         confirmada={enRutaConfirmada}
         onPresencia={cambiarPresencia}
+        faltaPuerta={faltaPuerta}
+        onNoManejo={noEstoyManejando}
         yo={cliente.current?.miUnidad ? cliente.current.miUnidad() : null}
         onTrafico={(activo) => cliente.current.marcarTrafico(activo)}
         onSos={() => cliente.current.mandarSos(posicionParaSos())}
@@ -856,7 +923,8 @@ function abrirOptimizacionDeBateria() {
 
 function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
-                tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol }) {
+                tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol,
+                faltaPuerta, onNoManejo }) {
   const { s, C } = usarTema();
   // ── Tráfico: lo que el servidor midió de MÍ, y lo que yo dije ───────
   // `yo.parado` es el hecho (N minutos sin avanzar por la ruta, lo mide el
@@ -926,11 +994,26 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
           </Text>
           <Text style={[s.diagnostico, { marginTop: 18 }]}>
             Mientras tanto el chat queda abierto y no se emite nada. Al
-            salir de ruta, la ubicación se apaga.
+            salir de ruta, la ubicación se apaga. Si con la app abierta te
+            ve manejando sin haber salido, te avisa y sale sola al minuto.
           </Text>
           {/* «Te sacamos de ruta» cae justo en esta pantalla, y no se veía */}
           {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
+        {/* ¿Ya estás manejando? (el vigía de la puerta). Fuerte y arriba del
+            deslizador que se olvidó: no es un aviso que se vaya solo — se va
+            saliendo, o diciendo que no. Salir sigue siendo deslizar. */}
+        {faltaPuerta != null && rol !== 'collector' && (
+          <View style={s.vigiaPuerta}>
+            <Text style={s.vigiaTitulo}>¿YA ESTÁS MANEJANDO?</Text>
+            <Text style={s.vigiaTexto}>
+              Tu combi no está en el mapa. Salís a ruta solo en {Math.ceil(faltaPuerta / 1000)} s.
+            </Text>
+            <Pressable onPress={onNoManejo} style={s.vigiaBoton} hitSlop={8}>
+              <Text style={s.vigiaBotonTexto}>NO ESTOY MANEJANDO</Text>
+            </Pressable>
+          </View>
+        )}
         {/* El cobrador no emite: la unidad la lleva el chofer, y el servidor
             le contesta 403 a cada posición. Antes podía deslizar igual y
             quedaba con el GPS alto y un 403 cada 3 s todo el turno (A4). */}
@@ -2392,6 +2475,16 @@ function crearEstilos(C) { return StyleSheet.create({
   chip: { fontFamily: 'monospace', fontSize: 12, letterSpacing: 1, fontWeight: '700' },
   salir: { color: C.tenue, fontSize: 14, fontWeight: '700' },
   avisoBarra: { color: C.ambar, fontSize: 13, marginTop: 10 },
+  // El vigía de la puerta: ámbar lleno con tinta de fondo, lo más fuerte
+  // que hay sin ser el rojo de la emergencia
+  vigiaPuerta: { backgroundColor: C.ambar, borderRadius: 14, padding: 14, marginBottom: 12 },
+  vigiaTitulo: { color: C.fondo, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
+  vigiaTexto: { color: C.fondo, fontSize: 14, marginTop: 4, lineHeight: 19 },
+  vigiaBoton: {
+    marginTop: 10, borderWidth: 2, borderColor: C.fondo, borderRadius: 10,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  vigiaBotonTexto: { color: C.fondo, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
   diagnostico: { color: C.tenue, fontSize: 11, fontFamily: 'monospace', marginTop: 8 },
 
   centro: { flex: 1, justifyContent: 'center' },

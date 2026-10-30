@@ -577,15 +577,20 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // queda tras la pantalla apagada, en `OPEN` hasta que el servidor lo
   // termina— se escribía en la nada y la combi seguía en el mapa hasta el
   // olvido. El servidor acepta el repetido (barrido del 22/9).
+  //
+  // `motivo` = 'auto' cuando la declaró el vigía de la puerta y no el chofer
+  // (opción C, 30/10): el servidor lo anota para Despacho. Viaja sólo esta
+  // vez; la re-declaración al reconectar no lo lleva.
   let presenciaDeclarada = null;
-  async function marcarPresencia(estado) {
+  async function marcarPresencia(estado, motivo) {
     presenciaDeclarada = estado;
+    const cuerpo = motivo ? { estado, motivo } : { estado };
     if (ws && conectado) {
       let salio = false;
-      try { ws.send(JSON.stringify({ type: 'presencia', estado })); salio = true; } catch {}
+      try { ws.send(JSON.stringify({ type: 'presencia', ...cuerpo })); salio = true; } catch {}
       if (salio && estado !== 'fuera') return true;
     }
-    return declararPorHttp('/presencia', { estado }, estado === 'fuera' ? 3 : 1,
+    return declararPorHttp('/presencia', cuerpo, estado === 'fuera' ? 3 : 1,
       () => presenciaDeclarada === estado);
   }
 

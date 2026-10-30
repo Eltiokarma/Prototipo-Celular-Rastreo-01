@@ -179,7 +179,9 @@ let servidor = null;
     const u3 = (r.porUnidad || []).find(u => u.unitId === 'M-03');
     ok('M-03 con su salto', u3 && u3.senal.saltos === 1, u3 && u3.senal);
     ok('y los totales de la cooperativa', r.totales.cortes >= 2 && r.totales.cortesSinDatos >= 1 && r.totales.saltos >= 1, r.totales);
-    ok('el panel no recibió ningún aviso por nada de esto (sólo estados)', avisos.every(t => ['routes', 'route_geometry', 'chat_history', 'unit_joined', 'unit_left', 'gps_role'].includes(t)), [...new Set(avisos)]);
+    // `puerta` (30/10) es la lista de los que entraron y no salieron a ruta:
+    // estado del panel, no un aviso de señal
+    ok('el panel no recibió ningún aviso por nada de esto (sólo estados)', avisos.every(t => ['routes', 'route_geometry', 'chat_history', 'unit_joined', 'unit_left', 'gps_role', 'puerta'].includes(t)), [...new Set(avisos)]);
   }
 
   console.log('\nLOS DOS CSV');

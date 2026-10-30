@@ -122,10 +122,12 @@ const gpsOwner = new Map();
 // Y la PERSONA que tiene el mando, por cualquier canal (REVISION-2026-09-10.md,
 // C2): con la pantalla apagada el socket muere y el chofer sigue por HTTP,
 // así que el dueño no puede ser sólo un socket. `oidoEn` es la última
-// posición aceptada; el mando se toma con un acto explícito —identificarse
-// por WS o declarar «ruta» por HTTP— o cuando el dueño lleva `OLVIDAR_MS`
-// callado. Al relevado se le contesta `gpsRole: false` en su próximo POST y
-// se le descartan las posiciones: dos teléfonos ya no se intercalan.
+// posición aceptada. El mando se toma ESTANDO EN RUTA, no entrando (opción B,
+// 30/10): declarar «ruta» lo toma aunque otro lo tenga —es el relevo—;
+// declarar «ausente» o mandar una posición lo toma sólo si nadie lo tiene
+// vivo. Identificarse ya no lo toma: entrar con la clave en la puerta no es
+// salir a ruta. Al relevado se le contesta `gpsRole: false` y se le descartan
+// las posiciones: dos teléfonos ya no se intercalan. Ver `relevados`.
 const duenoDe = new Map();
 // duenoDe = { vehicleId → { personId, oidoEn } }
 // Solo una conexión por vehículo: si el chofer y el cobrador reportaran
@@ -2045,6 +2047,16 @@ function rutaDeLaCombi(vehicleId, rutaPersona) {
   return units.get(vehicleId)?.routeId || vehicleOf(vehicleId)?.routeId || rutaPersona || DEFAULT_ROUTE;
 }
 
+// ¿El que tiene el mando de esta combi está vivo? Se lo oyó hace menos de
+// OLVIDAR_MS, o su socket de GPS sigue abierto.
+function mandoVivo(vehicleId) {
+  const dueno = duenoDe.get(vehicleId);
+  if (!dueno) return false;
+  const wsDueno = gpsOwner.get(vehicleId);
+  return Date.now() - dueno.oidoEn <= OLVIDAR_MS ||
+    !!(wsDueno && clients.get(wsDueno) === dueno.personId && wsDueno.readyState === 1);
+}
+
 function otroTieneElMando(vehicleId, personId) {
   const dueno = duenoDe.get(vehicleId);
   if (!dueno || dueno.personId === personId) return false;
@@ -2053,9 +2065,163 @@ function otroTieneElMando(vehicleId, personId) {
     !!(wsDueno && clients.get(wsDueno) === dueno.personId && wsDueno.readyState === 1);
 }
 
+// ─── EL RELEVADO NO RECUPERA SOLO (opción B, 30/10) ─────────────
+// Al que le sacaron el mando le queda la app abierta en 'ruta': es lo que se
+// ve en la combi cuando sube el relevo, y la app lo re-declara en cada
+// reconexión. Con eso, el relevado que se iba a su casa le volvía a sacar la
+// combi al que manejaba con sólo perder el wifi —la combi saltaba a su casa,
+// las horas corrían para él, al otro se le cerraba el turno— y así ida y
+// vuelta en cada reconexión de cualquiera de los dos.
+//
+// Ahora queda marcado. Mientras dure la marca, su «ruta», su «ausente» y sus
+// posiciones no le devuelven ESA combi, ni aunque el otro termine el turno
+// (si no, a las 22:00 el que estaciona suelta el mando y la combi aparece en
+// la casa del relevado). La marca la saca sólo un acto suyo: volver a entrar
+// con usuario y clave, o tocar SALIR DE RUTA (y después SALIR A RUTA, que ya
+// es un acto explícito). O el tiempo: a las RELEVO_MAX_MS es otro día, y la
+// app que quedó en 'ruta' desde ayer no tiene que tropezar con esto.
+const RELEVO_MAX_MS = Number(process.env.RELEVO_MAX_MS || 6 * 60 * 60_000);
+const relevados = new Map();
+// relevados = { personId → { vehicleId, desde } }
+function esRelevado(vehicleId, personId) {
+  const r = relevados.get(personId);
+  if (!r) return false;
+  if (r.vehicleId !== vehicleId || Date.now() - r.desde > RELEVO_MAX_MS) {
+    if (Date.now() - r.desde > RELEVO_MAX_MS) relevados.delete(personId);
+    return false;
+  }
+  return true;
+}
+const MOTIVO_RELEVADO = 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa. ' +
+  'Para volver a manejarla: SALIR DE RUTA y después SALIR A RUTA.';
+// A quién no se le volvió a decir que su GPS no se usa: el que manda
+// posiciones sin el mando recibe el aviso una vez por conexión, no cada 3 s.
+const avisadoSinMando = new WeakSet();
+
+// El mando, tomado ESTANDO EN RUTA: declaró «ruta» o «ausente», o mandó una
+// posición. Lo que antes hacía el `identify` para todos —apuntar el socket,
+// abrir el turno, poner el nombre del chofer en la unidad— pasa recién acá.
+// `ws` es null por HTTP. `quien` = { routeId, driverName }.
+function asumirMando(vehicleId, personId, ws, como, quien = {}) {
+  tomarMando(vehicleId, personId, como);
+  if (ws && gpsOwner.get(vehicleId) !== ws) {
+    gpsOwner.set(vehicleId, ws);
+    avisadoSinMando.delete(ws);
+    try { ws.send(JSON.stringify({ type: 'gps_role', reporting: true })); } catch {}
+  }
+  const routeId = rutaDeLaCombi(vehicleId, quien.routeId);
+  abrirTurnoSiHaceFalta(personId, vehicleId, routeId, 'driver');
+  quitarDeLaPuerta(personId);
+  const u = units.get(vehicleId);
+  const nombre = quien.driverName || personId;
+  if (!u) {
+    // Como hacía el `identify`: la unidad aparece en las listas al instante,
+    // sin posición todavía (el mapa la dibuja con la primera).
+    const veh = vehicleOf(vehicleId);
+    ponerUnidad(vehicleId, {
+      lat: null, lng: null, speed: 0, routeProgress: 0,
+      unitId: vehicleId, label: veh?.label || null, driverName: nombre,
+      routeId, timestamp: Date.now(), oidoEn: Date.now(),
+    });
+    broadcastToRoute(routeId, { type: 'unit_joined', unitId: vehicleId });
+    scheduleStateBroadcast(routeId, true);
+  } else if (u.driverName !== nombre) {
+    // El mapa dice quién maneja: el que tomó el mando, no el último que entró
+    u.driverName = nombre;
+    scheduleStateBroadcast(u.routeId, true);
+  }
+}
+
+// Salió a ruta SOLO: el vigía de la puerta lo vio manejando sin haber tocado
+// el botón y nadie contestó el aviso (opción C, 30/10). No acusa a nadie —es
+// lo que pasó—, pero Despacho tiene que poder verlo: va a la Actividad.
+function anotarSalidaSola(personId, vehicleId, rutaPersona) {
+  audit(personId, 'salio_solo', vehicleId, 'la app lo vio manejando sin haber tocado SALIR A RUTA',
+    rutaDeLaCombi(vehicleId, rutaPersona));
+}
+
+// ─── LOS QUE ENTRARON Y NO SALIERON A RUTA (opción A, 30/10) ────────
+// SALIR A RUTA es lo que convierte una combi cualquiera en una que hay que
+// seguir, y se puede olvidar. Sin mirar la ubicación —en la puerta la app no
+// la manda, y la política de privacidad lo promete— el servidor igual sabe
+// algo: este chofer entró (puso la clave, o abrió la app y se conectó) y
+// desde entonces no declaró nada ni mandó una posición. Despacho lo ve con
+// la hora y llama.
+//
+// Se lo saca de la lista cualquier declaración (ruta, ausente o fuera: el
+// que tocó SALIR DE RUTA terminó, no se olvidó), una posición, cerrar sesión
+// o la baja. Y se lo deja de mostrar si no tiene la app conectada y pasaron
+// PUERTA_SIN_SOCKET_MS de su última señal: la web en la puerta no tiene
+// socket, y la nativa lo pierde con la pantalla apagada —justo el que guardó
+// el teléfono y arrancó—, así que no alcanza con mirar el socket.
+const PUERTA_SIN_SOCKET_MS = Number(process.env.PUERTA_SIN_SOCKET_MS || 30 * 60_000);
+const enLaPuerta = new Map();
+// enLaPuerta = { personId → { personId, nombre, vehicleId, routeId, desde, ultima } }
+function anotarEnLaPuerta(user, vehicleId) {
+  if (!user || user.role !== 'driver' || !vehicleId) return;
+  // El que ya está manejando y entra en otro aparato (una tablet, la web) no
+  // «entró y no salió»: está en ruta
+  if (duenoDe.get(vehicleId)?.personId === user.unitId && mandoVivo(vehicleId)) return;
+  const ahora = Date.now();
+  const previa = enLaPuerta.get(user.unitId);
+  const routeId = rutaDeLaCombi(vehicleId, user.routeId);
+  enLaPuerta.set(user.unitId, {
+    personId: user.unitId, nombre: displayName(user), vehicleId, routeId,
+    desde: previa && previa.vehicleId === vehicleId ? previa.desde : ahora, ultima: ahora,
+  });
+  if (!previa) avisarPuerta(routeId);
+}
+function quitarDeLaPuerta(personId) {
+  const e = enLaPuerta.get(personId);
+  if (!e) return;
+  enLaPuerta.delete(personId);
+  avisarPuerta(e.routeId);
+}
+function conectadoAhora(personId) {
+  for (const [ws, id] of clients) if (id === personId && ws.readyState === 1) return true;
+  return false;
+}
+function puertaDeRuta(routeId, ahora = Date.now()) {
+  const lista = [];
+  for (const e of enLaPuerta.values()) {
+    if (e.routeId !== routeId) continue;
+    if (!conectadoAhora(e.personId) && ahora - e.ultima > PUERTA_SIN_SOCKET_MS) continue;
+    lista.push({ personId: e.personId, nombre: e.nombre, vehicleId: e.vehicleId, desde: e.desde });
+  }
+  return lista.sort((a, b) => a.desde - b.desde);
+}
+// A los supervisores que miran esa ruta, y a nadie más: los teléfonos de los
+// choferes no tienen por qué saber quién de sus compañeros no salió. Con un
+// segundo de espera, porque la web entra en la puerta y al tocar SALIR A RUTA
+// se conecta (entra a la lista) y declara (sale) en el mismo instante.
+const puertaPendiente = new Map();
+function avisarPuerta(routeId) {
+  if (!routeId || puertaPendiente.has(routeId)) return;
+  puertaPendiente.set(routeId, setTimeout(() => {
+    puertaPendiente.delete(routeId);
+    const msg = JSON.stringify({ type: 'puerta', routeId, items: puertaDeRuta(routeId) });
+    wss.clients.forEach((c) => {
+      if (c.readyState === 1 && esSupervisor(c) && watching.get(c) === routeId) c.send(msg);
+    });
+  }, 1000));
+}
+// Los que vencen (sin app y sin señal hace media hora) dejan de mostrarse
+// solos: el barrido llama a esto y se avisa sólo a las rutas que cambiaron.
+function vencerPuerta(ahora = Date.now()) {
+  for (const e of enLaPuerta.values()) {
+    if (ahora - e.ultima > PUERTA_SIN_SOCKET_MS && !conectadoAhora(e.personId)) {
+      enLaPuerta.delete(e.personId);
+      avisarPuerta(e.routeId);
+    }
+  }
+}
+
 function tomarMando(vehicleId, personId, como) {
   const previo = duenoDe.get(vehicleId);
+  const previoVivo = !!previo && previo.personId !== personId && mandoVivo(vehicleId);
   duenoDe.set(vehicleId, { personId, oidoEn: Date.now() });
+  // El que toma el mando deja de ser relevado de nadie
+  relevados.delete(personId);
   if (!previo || previo.personId === personId) {
     // El socket que quedó como dueño del GPS siendo de OTRA persona (salió de
     // ruta y dejó la web abierta: se le borró el mando, no el socket) deja de
@@ -2076,6 +2242,10 @@ function tomarMando(vehicleId, personId, como) {
     gpsOwner.delete(vehicleId);
   }
   cerrarTurno(previo.personId);
+  relevados.set(previo.personId, { vehicleId, desde: Date.now() });
+  // Un relevo de verdad —el otro estaba manejando— queda en la Actividad de
+  // Despacho: quién tomó la combi, de quién, y cuándo.
+  if (previoVivo) audit(personId, 'relevo', previo.personId, vehicleId, rutaDeLaCombi(vehicleId));
   console.log(`GPS de ${vehicleId}: lo toma ${personId} (${como}), relevó a ${previo.personId}`);
   return true;
 }
@@ -3070,6 +3240,13 @@ app.post('/auth/login', (req, res) => {
   db.prepare('UPDATE users SET lastLogin = ? WHERE unitId = ?').run(Date.now(), user.unitId);
   anotarVersionDeApp(user, req);
   audit(user.unitId, 'login', null, created ? 'primer registro' : null, user.routeId);
+  if (user.role === 'driver') {
+    // Volver a entrar con usuario y clave es un acto explícito: el relevado
+    // deja de serlo (opción B, 30/10). Y queda «en la puerta» hasta que salga
+    // a ruta, para que Despacho vea al que se olvidó (opción A).
+    relevados.delete(user.unitId);
+    anotarEnLaPuerta(user, user.vehicleId || user.unitId);
+  }
   const ruta = user.routeId ? routeOf(user.routeId) : null;
   const empresa = companyOf(user.companyId);
   res.json({
@@ -3179,6 +3356,12 @@ app.post('/presencia', (req, res) => {
   const estado = ['ruta', 'ausente', 'fuera'].includes(req.body?.estado) ? req.body.estado : null;
   if (!estado) return res.status(400).json({ error: 'Estado inválido: ruta, ausente o fuera' });
   const vehicleId = user.vehicleId || user.unitId;
+  quitarDeLaPuerta(user.unitId);
+  if (estado === 'fuera') relevados.delete(user.unitId);
+  // El relevado no recupera la combi re-declarando (ver `relevados`)
+  if (estado !== 'fuera' && esRelevado(vehicleId, user.unitId)) {
+    return res.json({ ok: true, estado, ignorada: true, gpsRole: false, motivo: MOTIVO_RELEVADO });
+  }
   // Declarar «ruta» es el acto explícito de empezar: el que lo hace toma el
   // mando del GPS de la combi (C2). «Fuera» lo suelta.
   // El relevado no declara por la combi: su «fuera» es el fin de SU turno,
@@ -3187,7 +3370,12 @@ app.post('/presencia', (req, res) => {
     if (estado === 'fuera') cerrarTurno(user.unitId);
     return res.json({ ok: true, estado, ignorada: true, motivo: 'Otro chofer tiene la unidad' });
   }
-  if (estado === 'ruta') tomarMando(vehicleId, user.unitId, 'declaró ruta por HTTP');
+  // Y con la combi, el turno (opción B, 30/10: ya no lo abre el `identify`)
+  if (estado === 'ruta' || estado === 'ausente') {
+    asumirMando(vehicleId, user.unitId, null, `declaró ${estado} por HTTP`,
+      { routeId: user.routeId, driverName: displayName(user) });
+    if (estado === 'ruta' && req.body?.motivo === 'auto') anotarSalidaSola(user.unitId, vehicleId, user.routeId);
+  }
   if (estado === 'fuera' && duenoDe.get(vehicleId)?.personId === user.unitId) duenoDe.delete(vehicleId);
   fijarPresencia(vehicleId, rutaDeLaCombi(vehicleId, user.routeId), estado);
   // «Fuera» es el fin del turno del chofer, y por HTTP no hay socket que se
@@ -3639,6 +3827,7 @@ app.post('/auth/logout', (req, res) => {
   // Cerrar sesión es bajarse: el turno se cierra acá, no cuando alguien se
   // acuerde de reiniciar el servidor (REVISION-2026-09-10.md, L1).
   cerrarTurno(sesion.unitId);
+  quitarDeLaPuerta(sesion.unitId);
   if (todas) {
     // Los WebSocket abiertos con esos tokens también: si no, la pantalla del
     // que se llevó el teléfono sigue recibiendo el mapa y el chat en vivo.
@@ -4030,6 +4219,14 @@ app.post('/gps', (req, res) => {
   // mando al que posteaba y desde ahí nadie lo tenía: dos teléfonos en la
   // misma combi entraban los dos y la unidad saltaba entre ambos.)
   {
+    // El relevado no recupera la combi mandando posiciones, aunque el que la
+    // maneja se haya callado (ver `relevados`): su app quedó en 'ruta' y la
+    // tarea de fondo sigue intentando.
+    if (esRelevado(vehicleId, user.unitId) && duenoDe.get(vehicleId)?.personId !== user.unitId) {
+      cerrarTurno(user.unitId);
+      return res.json({ ok: true, aceptadas: 0, yaVistas: 0, descartadas: 0, routeId: user.routeId || DEFAULT_ROUTE,
+        gpsRole: false, motivo: MOTIVO_RELEVADO });
+    }
     const dueno = duenoDe.get(vehicleId);
     if (dueno && dueno.personId !== user.unitId) {
       if (otroTieneElMando(vehicleId, user.unitId)) {
@@ -4108,12 +4305,14 @@ app.post('/gps', (req, res) => {
     routeId: user.routeId, vehicleId, role: user.role,
     driverName: displayName(user), companyId: user.companyId,
   };
-  // Se abre turno igual que al identificarse por WebSocket: si el chofer solo
-  // reporta por HTTP (app en segundo plano toda la mañana) igual trabajó.
+  // Se abre turno igual que con la primera posición por WebSocket: si el
+  // chofer solo reporta por HTTP (app en segundo plano toda la mañana) igual
+  // trabajó.
   // Con la ruta de la COMBI, como el `identify`: con persona y combi en rutas
   // distintas (datos viejos), el identify abría el turno en una y este POST en
   // la otra — horas partidas y solapadas (repaso de la tanda 9).
   abrirTurnoSiHaceFalta(user.unitId, vehicleId, rutaDeLaCombi(vehicleId, user.routeId || prof.routeId), user.role);
+  quitarDeLaPuerta(user.unitId);
 
   // Lo que YA se sabía no se procesa dos veces. Con la pantalla apagada la
   // app corta un envío que no vuelve y lo manda de nuevo — y ese envío puede
@@ -4925,6 +5124,11 @@ function moverCombiDeRuta(vehicleId, origen, destino) {
   const personas = db.prepare('SELECT unitId FROM users WHERE vehicleId = ?').all(vehicleId).map(u => u.unitId);
   for (const personId of personas) turnoAlDia.delete(personId);
   db.prepare('UPDATE users SET routeId = ? WHERE vehicleId = ?').run(destino, vehicleId);
+  // Quiénes iban de turno en la combi: sólo a ellos se les abre el turno en la
+  // ruta nueva. Estar conectado no alcanza desde la opción B (30/10): el
+  // chofer en la puerta no tiene turno, y mudarle la combi no se lo da.
+  const deTurno = new Set(db.prepare('SELECT personId FROM shifts WHERE vehicleId = ? AND endedAt IS NULL')
+    .all(vehicleId).map(t => t.personId));
   db.prepare('UPDATE shifts SET endedAt = ?, lastSeenAt = MAX(lastSeenAt, ?) WHERE vehicleId = ? AND endedAt IS NULL')
     .run(ahora, ahora, vehicleId);
   // El pedido de grabación pendiente va con la combi: si no, el Despacho de
@@ -4967,6 +5171,15 @@ function moverCombiDeRuta(vehicleId, origen, destino) {
     broadcastToRoute(origen, { type: 'unit_left', unitId: vehicleId });
   }
 
+  // El que estaba en la puerta de esta combi pasa a figurar en la ruta nueva
+  for (const e of enLaPuerta.values()) {
+    if (e.vehicleId === vehicleId && e.routeId !== destino) {
+      avisarPuerta(e.routeId);
+      e.routeId = destino;
+      avisarPuerta(destino);
+    }
+  }
+
   // El perfil en memoria también, tenga o no un socket abierto: la app
   // nativa con la pantalla apagada anda sólo por HTTP.
   for (const personId of personas) {
@@ -4981,7 +5194,7 @@ function moverCombiDeRuta(vehicleId, origen, destino) {
   for (const [ws, personId] of clients) {
     if (!personas.includes(personId)) continue;
     if (ws.readyState !== 1) continue;
-    if (!conTurno.has(personId)) {
+    if (!conTurno.has(personId) && deTurno.has(personId)) {
       conTurno.add(personId);
       abrirTurno(personId, vehicleId, destino, profiles.get(personId)?.role || 'driver');
     }
@@ -5223,6 +5436,8 @@ app.delete('/admin/users/:unitId', requireDispatch, (req, res) => {
   if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
   db.prepare('DELETE FROM users WHERE unitId = ?').run(unitId);
   kickUnit(unitId, 'Tu acceso fue dado de baja por Despacho.');
+  relevados.delete(unitId);
+  quitarDeLaPuerta(unitId);
   audit(req.dispatchUser.unitId, 'baja', unitId, null, chequeo.user.routeId);
   console.log(`Baja de unidad por Despacho: ${unitId}`);
   res.json({ ok: true });
@@ -7404,7 +7619,23 @@ wss.on('connection', (ws) => {
 
       // Despacho y gerencia observan y hablan, pero NO van en un vehículo:
       // no entran al mapa ni al cálculo de brechas.
-      if (user.role !== 'dispatch' && user.role !== 'manager' && vehicleId) {
+      // ENTRAR NO ES SALIR (opción B, 30/10). El chofer que se identifica sin
+      // tener el mando —recién entrado y en la puerta, o el relevado que
+      // reconecta desde su casa— queda conectado, viendo, y nada más: no toma
+      // el mando, no abre turno, no le cambia el nombre a la combi del mapa.
+      // Eso pasa al declarar ruta o ausente, o al mandar una posición
+      // (`asumirMando`). Antes lo hacía todo el `identify`, y la app nativa
+      // se conecta al entrar: poner la clave en la casa ya contaba horas y le
+      // sacaba la combi al que la estaba manejando. Sigue como antes el
+      // cobrador (va arriba y no declara nada) y el MISMO chofer que tiene el
+      // mando vivo y reconecta (otra red, otra pestaña, la pantalla que se
+      // prende).
+      const duenoAhora = vehicleId ? duenoDe.get(vehicleId) : null;
+      const reconectaElQueManda = user.role === 'driver' && !!duenoAhora &&
+        duenoAhora.personId === user.unitId && mandoVivo(vehicleId);
+      if (user.role === 'driver' && vehicleId && !reconectaElQueManda) {
+        anotarEnLaPuerta(user, vehicleId);
+      } else if (user.role !== 'dispatch' && user.role !== 'manager' && vehicleId) {
         const yaEstaba = units.has(vehicleId);
         const veh = vehicleOf(vehicleId);
         const previo = units.get(vehicleId);
@@ -7431,8 +7662,9 @@ wss.on('connection', (ws) => {
         });
 
         // Solo UNA conexión reporta la posición de cada vehículo. El
-        // cobrador nunca; entre choferes, manda el último que entra
-        // (es el relevo de turno), y al anterior se le avisa.
+        // cobrador nunca. Un chofer llega acá sólo si ya tiene el mando y
+        // reconecta: el socket nuevo pasa a ser el que reporta, y al viejo
+        // —si sigue abierto— se le avisa.
         if (user.role === 'driver') {
           const anterior = gpsOwner.get(vehicleId);
           if (anterior && anterior !== ws && anterior.readyState === 1) {
@@ -7465,7 +7697,8 @@ wss.on('connection', (ws) => {
           ws.send(JSON.stringify({ type: 'gps_role', reporting: false, reason: 'Modo acompañante' }));
         }
 
-        // Queda registrado que esta persona subió a esta unidad
+        // Queda registrado que esta persona va en esta unidad (al chofer que
+        // reconecta, se le retoma el mismo turno)
         abrirTurno(user.unitId, vehicleId, veh?.routeId || user.routeId || rutaInicial, user.role);
 
         if (!yaEstaba) {
@@ -7489,6 +7722,8 @@ wss.on('connection', (ws) => {
       // Los supervisores además reciben la lista de rutas para el selector
       if (esSupervisor(ws)) {
         ws.send(JSON.stringify({ type: 'routes', routes: rutas, watching: rutaInicial }));
+        // Y quién entró y no salió a ruta (opción A)
+        ws.send(JSON.stringify({ type: 'puerta', routeId: rutaInicial, items: puertaDeRuta(rutaInicial) }));
       }
     }
 
@@ -7502,6 +7737,7 @@ wss.on('connection', (ws) => {
       if (!rutaDeEmpresa(msg.routeId, prof?.companyId)) return;
       watching.set(ws, msg.routeId);
       ws.send(JSON.stringify({ type: 'state', ...buildState(msg.routeId) }));
+      ws.send(JSON.stringify({ type: 'puerta', routeId: msg.routeId, items: puertaDeRuta(msg.routeId) }));
       // Solo un supervisor llega acá, y ve los privados de la ruta que mira
       ws.send(JSON.stringify({
         type: 'chat_history', routeId: msg.routeId,
@@ -7518,19 +7754,40 @@ wss.on('connection', (ws) => {
       const vehicleId = prof?.vehicleId;
       if (!vehicleId) return;
 
+      // Se valida igual que en POST /gps: era la misma información entrando
+      // por dos puertas y sólo una miraba lo que le daban. Antes que nada:
+      // una coordenada basura no toma el mando de nadie.
+      if (!coordenadaValida(msg.lat, msg.lng)) return;
+
       // Se acepta la posición SOLO del reportero designado del vehículo.
       // El celular del cobrador (o del chofer relevado) sigue conectado y
       // recibiendo todo, pero su GPS se ignora: así la unidad no salta.
-      if (gpsOwner.get(vehicleId) !== ws) return;
+      if (gpsOwner.get(vehicleId) !== ws) {
+        if (prof.role !== 'driver') return;
+        // Mandar posiciones es estar en ruta: toma el mando si nadie lo tiene
+        // vivo, igual que por HTTP (opción B, 30/10: el `identify` ya no lo
+        // da). Al relevado y al que tiene a otro manejando, no: se le dice
+        // una vez por conexión que su GPS no se usa.
+        if (esRelevado(vehicleId, personId) || otroTieneElMando(vehicleId, personId)) {
+          if (!avisadoSinMando.has(ws)) {
+            avisadoSinMando.add(ws);
+            try {
+              ws.send(JSON.stringify({ type: 'gps_role', reporting: false,
+                reason: esRelevado(vehicleId, personId) ? MOTIVO_RELEVADO : 'Otro chofer tiene la unidad: tu GPS ya no se usa' }));
+            } catch {}
+          }
+          return;
+        }
+        asumirMando(vehicleId, personId, ws, 'mandó posición por WS', prof);
+      }
       // Y el mando por PERSONA manda sobre el del socket: si otro lo tomó por
       // HTTP y se lo oye, este socket es de un relevado aunque todavía figure
       // como dueño del socket (barrido del 22/9).
       if (otroTieneElMando(vehicleId, personId)) return;
       { const d = duenoDe.get(vehicleId); if (d && d.personId === personId) d.oidoEn = Date.now(); }
-
-      // Se valida igual que en POST /gps: era la misma información entrando
-      // por dos puertas y sólo una miraba lo que le daban.
-      if (!coordenadaValida(msg.lat, msg.lng)) return;
+      // El turno lo abría el `identify`; ahora, la primera posición (y si el
+      // barrido lo cerró por mudo y vuelve, lo retoma). Memoizado: no cuesta.
+      abrirTurnoSiHaceFalta(personId, vehicleId, rutaDeLaCombi(vehicleId, prof.routeId), 'driver');
 
       canalDe.set(vehicleId, { canal: 'ws', cuando: Date.now() });
       anotarPosicion(vehicleId, personId, prof, {
@@ -7553,11 +7810,29 @@ wss.on('connection', (ws) => {
       // cobrador, cerrar SU app mandaría 'fuera' y borraría del mapa una
       // combi que sigue manejando otro — descartándole la vuelta en curso.
       if (vehicleId && estado && prof.role === 'driver') {
+        // Cualquier declaración lo saca de «entró y no salió» (opción A)
+        quitarDeLaPuerta(personId);
+        // SALIR DE RUTA del relevado termina lo suyo y le saca la marca: su
+        // próximo SALIR A RUTA es un acto explícito, y ése sí toma la combi.
+        if (estado === 'fuera') relevados.delete(personId);
+        // El relevado no recupera la combi re-declarando: ni «ruta» (la app
+        // la repite en cada reconexión) ni «ausente» (opción B, 30/10).
+        if (estado !== 'fuera' && esRelevado(vehicleId, personId)) {
+          avisadoSinMando.add(ws);
+          try { ws.send(JSON.stringify({ type: 'gps_role', reporting: false, reason: MOTIVO_RELEVADO })); } catch {}
+          return;
+        }
         if (estado !== 'ruta' && otroTieneElMando(vehicleId, personId)) {
           if (estado === 'fuera') cerrarTurno(personId);
           return;
         }
-        if (estado === 'ruta') { tomarMando(vehicleId, personId, 'declaró ruta por WS'); if (gpsOwner.get(vehicleId) !== ws) gpsOwner.set(vehicleId, ws); }
+        // Declarar «ruta» es salir: toma el mando aunque otro lo tenga (es el
+        // relevo). «Ausente» también es estar de turno —ENTRAR AUSENTE desde
+        // la puerta—, y llega acá sólo si nadie más tiene la combi viva.
+        if (estado === 'ruta' || estado === 'ausente') {
+          asumirMando(vehicleId, personId, ws, `declaró ${estado} por WS`, prof);
+          if (estado === 'ruta' && msg.motivo === 'auto') anotarSalidaSola(personId, vehicleId, prof.routeId);
+        }
         if (estado === 'fuera' && duenoDe.get(vehicleId)?.personId === personId) duenoDe.delete(vehicleId);
         fijarPresencia(vehicleId, rutaDeLaCombi(vehicleId, prof.routeId), estado);
         if (estado === 'fuera') cerrarTurno(personId);
@@ -7775,12 +8050,16 @@ wss.on('connection', (ws) => {
     // otra pestaña del mismo chofer sí (antes nadie, y su GPS se descartaba
     // mudo para siempre); el socket de un tercero no (antes sí, y el que
     // manejaba por HTTP quedaba sin mando) — repaso de la tanda 9.
+    //
+    // Y desde la opción B (30/10), tampoco con el mando muerto: otro chofer
+    // conectado a esta combi no la está manejando por estar conectado —puede
+    // estar en la puerta, o ser el relevado en su casa—. Si de verdad sale,
+    // la toma al declarar ruta o al mandar una posición.
     if (gpsOwner.get(vehicleId) === ws) {
       gpsOwner.delete(vehicleId);
       const dueno = duenoDe.get(vehicleId);
-      const mandoVivo = !!dueno && Date.now() - dueno.oidoEn <= OLVIDAR_MS;
-      const relevo = otrosDelVehiculo.find(o => o.prof.role === 'driver' &&
-        (!mandoVivo || clients.get(o.ws) === dueno.personId));
+      const heredero = dueno ? dueno.personId : personId;
+      const relevo = otrosDelVehiculo.find(o => o.prof.role === 'driver' && clients.get(o.ws) === heredero);
       if (relevo) {
         gpsOwner.set(vehicleId, relevo.ws);
         tomarMando(vehicleId, clients.get(relevo.ws), 'el que tenía el mando se desconectó');
@@ -8887,6 +9166,8 @@ setInterval(() => {
   // teléfono sin «fuera», el cobrador cuyo socket murió sin `close`).
   const mudos = cerrarTurnosMudos(ahora, OLVIDAR_MS);
   if (mudos) console.log(`Turnos cerrados por silencio: ${mudos}`);
+  // Los que entraron y no salieron, sin app y sin señal hace media hora
+  vencerPuerta(ahora);
   for (const [unitId, unit] of units) {
     // Dos edades distintas, y confundirlas se midió en producción:
     //

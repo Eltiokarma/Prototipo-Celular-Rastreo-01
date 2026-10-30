@@ -452,6 +452,41 @@ apareció midiendo —**la palabra al lado del color**— también (3.2), y la q
 salió de usar el SOS en un teléfono de verdad —**el tipo de emergencia**—
 quedó cerrada el 6/8 (ver 3.1).
 
+### VARIAS COMBIS POR CHOFER: propuesta, sin decidir (30/10)
+
+Lo que se ve en la calle: una combi la manejan varios choferes, se prestan
+combis, se llama a un suplente, y a veces se le pasa la cuenta y la clave al
+que maneja. Hoy la combi es un dato FIJO de la cuenta: se elige en el alta y
+no hay cómo cambiarla después (ni Despacho, ni el chofer). Pedro en M-01 hoy y
+en M-05 mañana no tiene camino honesto: o una cuenta por combi, o la cuenta
+prestada —y las horas, las vueltas y el SOS quedan a nombre de otro—.
+
+**La propuesta: habilitaciones, y la combi se elige en la PUERTA.**
+
+1. Despacho (o la gerencia) **habilita** a cada chofer las combis que puede
+   manejar —o, mirado del otro lado, a cada combi sus choferes—. Una tabla
+   persona ↔ combi; la del alta queda como la primera. Opcional: «cualquiera
+   de su ruta» para el suplente comodín.
+2. En la **puerta** —no en el login— el chofer con más de una elige «¿en qué
+   combi salís?», con la última por defecto y el estado de cada una: libre, o
+   «la maneja Juan (hace 1 min)». Elegir una ocupada pide confirmar el relevo
+   nombrando al que la tiene. En la puerta y no en el login porque: el login
+   se hace una vez (la sesión dura 30 días) y la combi cambia cada día; antes
+   de la clave no se le puede mostrar la flota a cualquiera; y SALIR A RUTA
+   ya es el acto que toma el mando (opción B): elegir la combi es parte de ese
+   acto.
+3. El servidor sigue leyendo `users.vehicleId` como «la combi de hoy» —lo
+   cambia la elección de la puerta, sólo entre las habilitadas—: el resto
+   (turnos, brechas, chat privado, cobradores, SOS) no se toca. Un detalle a
+   saber: el privado con Despacho es por COMBI, así que el de hoy en M-05 ve
+   lo que Despacho le escribió ayer al de M-05.
+4. La cuenta prestada no se puede impedir con software (T9 de
+   `TRUCOS-2026-09-10.md`): se la hace innecesaria —un suplente se da de alta
+   en un minuto y se lo habilita en la combi— y se la hace visible.
+
+Toca servidor, la puerta de la web y de la nativa (APK nueva) y la gestión de
+Despacho. Ver la conversación del 30/10.
+
 ### EL LEGAJO: decidido que NO (11/9)
 
 Salió de la revisión del 10/9 y nunca fue un bug: era una decisión de alcance

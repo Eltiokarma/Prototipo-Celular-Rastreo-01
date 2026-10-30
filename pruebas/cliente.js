@@ -95,14 +95,18 @@ async function hasta(cond, ms = 6000) {
   ['rolGps', 'estado', 'geometria', 'historial'].forEach(e => c12.on(e, () => eventos.push(e)));
   c12.conectar(s12.token);
   ok('llega el estado al identificarse', await hasta(() => c12.conectado));
-  ok('y también el rol de GPS y la geometría',
-     eventos.includes('rolGps') && eventos.includes('geometria'), eventos);
+  ok('y también la geometría', await hasta(() => eventos.includes('geometria')), eventos);
+  // Entrar no es salir (30/10): el rol de GPS llega al SALIR A RUTA, no al
+  // identificarse. La app nativa se conecta en la puerta.
+  ok('pero no el rol de GPS: todavía no salió a ruta', !eventos.includes('rolGps') && c12.reportaGps === false, eventos);
+  c12.marcarPresencia('ruta');
+  ok('al salir a ruta llega el rol de GPS', await hasta(() => eventos.includes('rolGps')), eventos);
   ok('la geometría viene normalizada a {lat,lng}',
      typeof c12.geometria?.tramos?.ida?.[0]?.lat === 'number',
      c12.geometria?.tramos?.ida?.[0]);
 
   console.log('\nEL ROL DE GPS');
-  ok('el chofer que entra primero reporta', c12.reportaGps === true);
+  ok('el chofer que sale primero reporta', c12.reportaGps === true);
 
   const c20 = nuevo();      // un acompañante en OTRA unidad, para no robar rol
   await c20.entrar('M-20', 'chofer1234');
@@ -134,6 +138,7 @@ async function hasta(cond, ms = 6000) {
   const s08 = await c08.entrar('M-08', 'chofer1234');
   c08.conectar(s08.token);
   await hasta(() => c08.conectado);
+  c08.marcarPresencia('ruta');
 
   // M-08 adelante, el relevo de M-12 atrás, separados 1/25 del anillo.
   const posA = anillo(0.10), posB = anillo(0.06);
@@ -222,7 +227,9 @@ async function hasta(cond, ms = 6000) {
   const frenado = nuevo();
   const sf = await frenado.entrar('M-20', 'chofer1234');
   frenado.conectar(sf.token);
-  await hasta(() => frenado.conectado && frenado.reportaGps);
+  await hasta(() => frenado.conectado);
+  frenado.marcarPresencia('ruta');
+  await hasta(() => frenado.reportaGps);
   let rechazos = 0, aceptados = 0;
   for (let i = 0; i < 60; i++) {
     const r = frenado.mandarGps({ lat: posB.lat, lng: posB.lng, speed: 10 });

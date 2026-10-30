@@ -1808,7 +1808,107 @@ function LoginScreen({ onSuccess, notice }) {
   );
 }
 
-function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRest, onLogout }) {
+// ── VIGÍA DE LA PUERTA (copia de app/puerta.js) ─────────────────
+// El chofer que entró, no tocó SALIR A RUTA y ya está manejando. En la puerta
+// la app no manda la ubicación —la política de privacidad lo promete—, pero
+// con la página abierta puede MIRARLA sin mandarla y darse cuenta: lejos de
+// donde entró y rodando a velocidad de combi, sostenido. Primero avisa con
+// cuenta regresiva; si nadie contesta, sale a ruta sola (opción C, 30/10).
+// Las razones de cada número están en app/puerta.js; la suite
+// `vigia-puerta` corre los mismos casos contra las dos copias y compara los
+// números. JS puro a propósito, sin JSX: la suite lo evalúa fuera de acá.
+const PUERTA_RADIO_M = 300;
+const PUERTA_MARCHA_KMH = 15;
+const PUERTA_VENTANA_MS = 30_000;
+const PUERTA_SEGUIDAS = 2;
+const PUERTA_AVISO_MS = 60_000;
+const PUERTA_CALLADO_MS = 30 * 60_000;
+const PUERTA_PRECISION_MAX_M = 100;
+function metrosEntrePuerta(aLat, aLng, bLat, bLng) {
+  const kLng = Math.cos((aLat + bLat) / 2 * Math.PI / 180);
+  return Math.hypot((bLat - aLat) * 111320, (bLng - aLng) * 111320 * kLng);
+}
+function crearVigiaPuerta() {
+  let ancla = null, recientes = [], seguidas = 0, avisoDesde = null, calladoHasta = 0;
+  const vencio = (ts) => avisoDesde !== null && ts - avisoDesde >= PUERTA_AVISO_MS;
+  return {
+    posicion(lat, lng, ts = Date.now(), precisionM = null) {
+      if (avisoDesde !== null) return vencio(ts) ? 'salir' : null;
+      if (ts < calladoHasta) return null;
+      if (precisionM != null && precisionM > PUERTA_PRECISION_MAX_M) return null;
+      if (!ancla) ancla = { lat, lng };
+      recientes.push({ lat, lng, ts });
+      recientes = recientes.filter(p => ts - p.ts <= PUERTA_VENTANA_MS * 4);
+      const anterior = (t) => { let b = null; for (const p of recientes) if (t - p.ts >= PUERTA_VENTANA_MS) b = p; return b; };
+      const b1 = anterior(ts);
+      const b2 = b1 && anterior(b1.ts);
+      if (!b2) return null;
+      const kmh = (a, b) => metrosEntrePuerta(a.lat, a.lng, b.lat, b.lng) / ((b.ts - a.ts) / 1000) * 3.6;
+      const rodando = kmh(b1, { lat, lng, ts }) >= PUERTA_MARCHA_KMH && kmh(b2, b1) >= PUERTA_MARCHA_KMH;
+      const lejos = metrosEntrePuerta(ancla.lat, ancla.lng, lat, lng) > PUERTA_RADIO_M;
+      if (lejos && rodando) {
+        seguidas++;
+        if (seguidas >= PUERTA_SEGUIDAS) { avisoDesde = ts; return 'avisar'; }
+      } else {
+        seguidas = 0;
+      }
+      return null;
+    },
+    tic(ts = Date.now()) { return vencio(ts) ? 'salir' : null; },
+    faltaMs(ts = Date.now()) { return avisoDesde === null ? null : Math.max(0, PUERTA_AVISO_MS - (ts - avisoDesde)); },
+    callar(ts = Date.now()) { avisoDesde = null; seguidas = 0; ancla = null; recientes = []; calladoHasta = ts + PUERTA_CALLADO_MS; },
+  };
+}
+// ── FIN DEL VIGÍA DE LA PUERTA
+
+// La puerta mira el GPS sólo si el permiso YA está dado: pedirlo acá sería
+// pedir la ubicación antes de salir a ruta, que es lo que no se hace. El
+// primer día el permiso se pide al tocar SALIR A RUTA, como siempre.
+function usarVigiaPuerta(activo, onSalir) {
+  const vigia = React.useRef(null);
+  const [falta, setFalta] = React.useState(null);   // ms de la cuenta, o null
+  const salirRef = React.useRef(onSalir);
+  salirRef.current = onSalir;
+  React.useEffect(() => {
+    if (!activo || !navigator.geolocation) return;
+    vigia.current = crearVigiaPuerta();
+    let vivo = true, watchId = null;
+    const reloj = setInterval(() => {
+      const v = vigia.current;
+      if (!v) return;
+      setFalta(v.faltaMs(Date.now()));
+      if (v.tic(Date.now()) === 'salir') { vivo = false; clearInterval(reloj); salirRef.current && salirRef.current(); }
+    }, 1000);
+    const mirar = () => {
+      if (!vivo) return;
+      watchId = navigator.geolocation.watchPosition((pos) => {
+        const v = vigia.current;
+        if (!vivo || !v) return;
+        const r = v.posicion(pos.coords.latitude, pos.coords.longitude, Date.now(), pos.coords.accuracy);
+        if (r === 'avisar') {
+          setFalta(v.faltaMs(Date.now()));
+          try { navigator.vibrate && navigator.vibrate([400, 200, 400, 200, 400]); } catch {}
+        }
+        if (r === 'salir') { vivo = false; salirRef.current && salirRef.current(); }
+      }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 });
+    };
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'geolocation' })
+        .then(p => { if (p.state === 'granted') mirar(); }).catch(() => {});
+    }
+    return () => {
+      vivo = false; clearInterval(reloj);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      vigia.current = null;
+    };
+  }, [activo]);
+  const callar = () => { if (vigia.current) vigia.current.callar(Date.now()); setFalta(null); };
+  return { falta, callar };
+}
+
+function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRest, onLogout, onAutoStart }) {
+  // ¿Ya está manejando sin haber salido? (ver el vigía, arriba)
+  const { falta, callar } = usarVigiaPuerta(!!onAutoStart, onAutoStart);
   const [countdown, setCountdown] = React.useState(15);
   React.useEffect(() => {
     if (countdown <= 0) return;
@@ -1904,6 +2004,37 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
               }}>{val}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Parece que ya está manejando. Fuerte y en el lugar del botón que se
+          olvidó: amarillo sobre la pantalla oscura, con la cuenta a la vista.
+          No es un toast que se va solo: se va saliendo o diciendo que no. */}
+      {falta !== null && (
+        <div role="alert" data-vigia-puerta style={{
+          background: P.yellow, color: P.bg, borderRadius: 14,
+          padding: '14px 14px 12px', marginBottom: 12,
+        }}>
+          <div style={{
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 19, lineHeight: 1.15, marginBottom: 4,
+          }}>¿Ya estás manejando?</div>
+          <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, marginBottom: 10 }}>
+            Tu combi no está en el mapa. Salís a ruta solo en{' '}
+            <strong style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onStart} style={{
+              flex: 1, padding: '12px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              background: P.bg, color: P.yellow,
+              fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 14, letterSpacing: 1,
+            }}>SALIR AHORA</button>
+            <button onClick={callar} style={{
+              flex: 1, padding: '12px 8px', borderRadius: 10, cursor: 'pointer',
+              background: 'transparent', color: P.bg, border: `2px solid ${P.bg}`,
+              fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 800,
+            }}>No estoy manejando</button>
+          </div>
         </div>
       )}
 
@@ -2816,14 +2947,21 @@ function Root() {
   // estado de React (la pantalla), el disco (para retomar tras un recargo) y
   // el servidor (la declaración — RealtimeClient la re-manda al reconectar).
   const [presencia, setPresencia] = React.useState('fuera');
-  const declararPresencia = (nueva) => {
+  const declararPresencia = (nueva, motivo) => {
     setPresencia(nueva);
     try {
       if (nueva === 'fuera') localStorage.removeItem('r14_presencia');
       else localStorage.setItem('r14_presencia', nueva);
     } catch {}
-    if (window.RealtimeClient) window.RealtimeClient.setPresencia(nueva);
+    if (window.RealtimeClient) window.RealtimeClient.setPresencia(nueva, motivo);
   };
+  // «Saliste a ruta solo»: se ve arriba unos segundos al entrar a la pantalla
+  const [avisoSalida, setAvisoSalida] = React.useState(null);
+  React.useEffect(() => {
+    if (!avisoSalida) return;
+    const t = setTimeout(() => setAvisoSalida(null), 12_000);
+    return () => clearTimeout(t);
+  }, [avisoSalida]);
 
   // Restaurar la sesión guardada: el chofer no tipea su clave cada día.
   // Y si la página murió a mitad de turno (recargo, batería), la presencia
@@ -3190,6 +3328,13 @@ function Root() {
       lapNumber={lap}
       onStart={() => { declararPresencia('ruta'); setScreen('app'); }}
       onRest={() => { declararPresencia('ausente'); setScreen('app'); }}
+      // El vigía vio que ya maneja y nadie contestó: sale solo, y se le dice
+      // (y al servidor, para que Despacho lo vea en Actividad)
+      onAutoStart={user?.role === 'collector' ? null : () => {
+        declararPresencia('ruta', 'auto');
+        setAvisoSalida('Te vimos manejando: saliste a ruta solo');
+        setScreen('app');
+      }}
       onLogout={logout}
     />;
   } else {
@@ -3239,6 +3384,19 @@ function Root() {
             <div style={{ color: HUD.red, fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>SIN GPS</div>
             <div style={{ color: HUD.dim2, fontSize: 11, lineHeight: 1.35 }}>
               {gpsAviso}. Tu combi no está en el mapa: activá la ubicación y dale permiso a esta página.
+            </div>
+          </div>
+        )}
+        {/* Salió solo (el vigía de la puerta): que lo sepa, unos segundos */}
+        {screen === 'app' && avisoSalida && !gpsAviso && presencia !== 'ausente' && (
+          <div role="status" style={{
+            position: 'absolute', left: 10, right: 10, top: arriba, zIndex: 95,
+            background: HUD.surface, border: `2px solid ${HUD.amber}`,
+            borderRadius: 12, padding: '10px 12px',
+          }}>
+            <div style={{ color: HUD.amber, fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>SALISTE A RUTA SOLO</div>
+            <div style={{ color: HUD.dim2, fontSize: 11, lineHeight: 1.35 }}>
+              Te vimos manejando sin haber tocado SALIR A RUTA. Despacho lo ve en la actividad.
             </div>
           </div>
         )}

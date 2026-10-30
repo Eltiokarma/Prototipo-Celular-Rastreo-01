@@ -3791,6 +3791,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   grabacion_pedido_cancelado: { label: 'canceló el pedido de grabación a', color: HUD.dim },
                   aviso_visto: { label: 'marcó como visto el aviso', color: HUD.dim },
                   login_empresa_inactiva: { label: 'intentó entrar con la cooperativa suspendida', color: HUD.red },
+                  // El mando de la combi (opciones B y C, 30/10)
+                  relevo: { label: 'tomó la combi que manejaba', color: HUD.bright },
+                  salio_solo: { label: 'salió a ruta solo en', color: HUD.amber },
                 };
                 const cols = '120px 150px 1fr';
                 return (
@@ -4011,6 +4014,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const [marca, refrescarMarca] = useMarca(session.token);
   const [connected, setConnected] = React.useState(false);
   const [units, setUnits] = React.useState([]);
+  // Los choferes que entraron y no salieron a ruta (opción A, 30/10): lo
+  // manda el servidor sólo a Despacho, con la hora a la que entraron
+  const [puerta, setPuerta] = React.useState([]);
   const [gaps, setGaps] = React.useState({});
   const [messages, setMessages] = React.useState([]);
   // Las emergencias SIN ATENDER, en el orden en que llegaron. Era una sola:
@@ -4231,6 +4237,10 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             yendo: msg.yendo ?? 0,
             ausentes: msg.ausentes ?? 0,
           });
+        } else if (msg.type === 'puerta') {
+          // De la ruta que se mira, y de ninguna otra (como el estado)
+          if (rutaMiradaRef.current && msg.routeId !== rutaMiradaRef.current) return;
+          setPuerta(msg.items || []);
         } else if (msg.type === 'routes') {
           setRoutes(msg.routes || []);
         } else if (msg.type === 'route_geometry') {
@@ -4717,6 +4727,42 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     ))
                   )}
                 </div>
+              </div>
+            );
+          })()}
+          {/* Entraron y no salieron a ruta. SALIR A RUTA es lo que pone a la
+              combi en el mapa, y se olvida: el que guardó el teléfono y
+              arrancó trabaja invisible. El servidor no mira dónde está (en la
+              puerta la app no manda la ubicación): sabe que entró y que no
+              declaró nada. A los diez minutos se pone en ámbar: es para
+              llamarlo. */}
+          {puerta.length > 0 && (() => {
+            const minutos = (e) => Math.max(0, Math.floor((ahora - e.desde) / 60_000));
+            const llamar = puerta.some(e => minutos(e) >= 10);
+            return (
+              <div data-puerta style={{
+                margin: '0 12px 10px', padding: '11px 12px', borderRadius: 11,
+                background: llamar ? HUD.ambarFondo : HUD.hueco,
+                border: `1px solid ${llamar ? HUD.ambarBorde : HUD.line}`,
+                borderLeft: `3px solid ${llamar ? HUD.amber : HUD.line}`,
+              }}>
+                <div style={{ fontFamily: black, fontSize: 13, color: llamar ? HUD.ambarTinta : HUD.fg, marginBottom: 6 }}>
+                  {puerta.length === 1 ? '1 chofer entró y no salió a ruta' : `${puerta.length} choferes entraron y no salieron a ruta`}
+                </div>
+                {puerta.map(e => (
+                  <div key={e.personId} style={{
+                    display: 'flex', gap: 8, alignItems: 'baseline',
+                    fontFamily: mono, fontSize: 11, fontWeight: 700,
+                    color: llamar ? HUD.ambarTinta2 : HUD.dim2, lineHeight: 1.6,
+                  }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {e.nombre} · {e.vehicleId}
+                    </span>
+                    <span title={`Entró a las ${nowTime(e.desde)}`}>
+                      {minutos(e) < 1 ? 'recién' : `hace ${minutos(e)} min`}
+                    </span>
+                  </div>
+                ))}
               </div>
             );
           })()}

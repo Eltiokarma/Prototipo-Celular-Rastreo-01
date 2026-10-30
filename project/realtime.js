@@ -99,7 +99,14 @@
       // reinicio del servidor tampoco. Sin declarar (la puerta todavía no
       // se cruzó, o un cliente viejo), no se manda nada — el servidor trata
       // la ausencia de declaración como 'ruta', la compatibilidad de siempre.
-      if (presenciaDeclarada) send({ type: 'presencia', estado: presenciaDeclarada });
+      // El motivo 'auto' del vigía de la puerta viaja en ESTA si todavía no
+      // salió: en la puerta la web no tiene socket ni token (opción C).
+      if (presenciaDeclarada) {
+        send(motivoPendiente
+          ? { type: 'presencia', estado: presenciaDeclarada, motivo: motivoPendiente }
+          : { type: 'presencia', estado: presenciaDeclarada });
+        motivoPendiente = null;
+      }
 
       // Arrancar el envío de GPS
       startGps();
@@ -196,6 +203,7 @@
     authToken = null;
     authUnitId = null;
     presenciaDeclarada = null;
+    motivoPendiente = null;
     reportaGps = true;
     lastPosition = null;
   }
@@ -570,19 +578,27 @@
   // ruta al que acababa de volver (repaso de la tanda 9). El servidor acepta
   // el repetido.
   const OIDO_RECIENTE_MS = 20_000;
-  function setPresencia(estado) {
+  // `motivo` = 'auto' cuando la declaró el vigía de la puerta y no el chofer
+  // (opción C, 30/10): el servidor lo anota para Despacho. Sólo viaja esta
+  // vez; lo que se re-declara al reconectar ya no lo lleva.
+  let motivoPendiente = null;
+  function setPresencia(estado, motivo) {
     presenciaDeclarada = estado;
+    motivoPendiente = null;
+    const cuerpo = motivo ? { estado, motivo } : { estado };
     let porSocket = false;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ type: 'presencia', estado })); porSocket = true; } catch {}
+      try { ws.send(JSON.stringify({ type: 'presencia', ...cuerpo })); porSocket = true; } catch {}
     }
     const socketVivo = porSocket && Date.now() - ultimoOido < OIDO_RECIENTE_MS;
     if (porSocket && (estado !== 'fuera' || socketVivo)) return;
+    // Sin socket ni token (la puerta de la web): sale con la conexión
+    if (!porSocket && !authToken && motivo) motivoPendiente = motivo;
     if (authToken) {
       fetch(HTTP_URL + '/presencia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
-        body: JSON.stringify({ estado }),
+        body: JSON.stringify(cuerpo),
       }).catch(() => {});
     }
   }

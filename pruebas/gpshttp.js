@@ -265,14 +265,23 @@ async function hasta(cond, ms = 4000) {
     const q3 = anillo(0.16);
     const sigue = await mandar(relevoHttp.token, [{ lat: q3.lat, lng: q3.lng, speed: 18, timestamp: Date.now() }]);
     ok('el relevo sigue mandando sin trabas', sigue.status === 200 && sigue.body.gpsRole === true, sigue.body);
-    // Y devolvemos la combi a M-12: se identifica por WS (el acto explícito)
+    // Y devolvemos la combi a M-12. Identificarse por WS ya NO alcanza
+    // (30/10, opción B: el relevado no recupera solo —su app reconecta sola
+    // desde la casa—, ver `relevo.js`). Volver a entrar con la clave y salir
+    // a ruta, sí: es el acto explícito.
     const wsVuelve = new WebSocket(`ws://localhost:${P}`);
     await new Promise(res => wsVuelve.on('open', res));
     wsVuelve.send(JSON.stringify({ type: 'identify', token: saliente.token }));
     await sleep(500);
     const q4 = anillo(0.161);
-    const otraVez = await mandar(s12.token, [{ lat: q4.lat, lng: q4.lng, speed: 18, timestamp: Date.now() }]);
-    ok('identificarse por WS devuelve el mando: M-12 manda de nuevo', otraVez.status === 200 && otraVez.body.gpsRole === true && otraVez.body.aceptadas === 1, otraVez.body);
+    const solo = await mandar(s12.token, [{ lat: q4.lat, lng: q4.lng, speed: 18, timestamp: Date.now() }]);
+    ok('reconectar por WS no le devuelve el mando al relevado', solo.body.gpsRole === false && solo.body.aceptadas === 0, solo.body);
+    const deNuevo = await login('M-12', 'clave1234');
+    await fetch(`${API}/presencia`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + deNuevo.token },
+      body: JSON.stringify({ estado: 'ruta' }) });
+    const q4b = anillo(0.1615);
+    const otraVez = await mandar(deNuevo.token, [{ lat: q4b.lat, lng: q4b.lng, speed: 18, timestamp: Date.now() }]);
+    ok('volver a entrar con la clave y salir a ruta, sí: M-12 manda de nuevo', otraVez.status === 200 && otraVez.body.gpsRole === true && otraVez.body.aceptadas === 1, otraVez.body);
     const relevado = await mandar(relevoHttp.token, [{ ...anillo(0.162), speed: 18, timestamp: Date.now() }]);
     ok('y ahora el relevo es el de afuera', relevado.body.gpsRole === false, relevado.body);
     try { wsVuelve.close(); } catch {}

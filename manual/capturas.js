@@ -126,7 +126,7 @@ function posicion(id, ahora = Date.now()) {
 let flotaViva = false;
 async function arrancarFlota() {
   const tokens = {};
-  for (const p of D.PERSONAS.filter(p => p.rol === 'driver' && p.combi !== 'M-01')) {
+  for (const p of D.PERSONAS.filter(p => p.rol === 'driver' && p.combi !== 'M-01' && !p.suplente)) {
     tokens[p.combi] = await entrar(p.usuario, D.CLAVE_CHOFER);
   }
   EPOCA = Date.now();
@@ -178,7 +178,7 @@ function sembrarHistorial() {
     for (let d = 14; d >= 0; d--) {
       const dia = hoy0.getTime() - d * 86400_000;
       const domingo = new Date(dia).getDay() === 0;
-      D.PERSONAS.filter(p => p.rol === 'driver').forEach((p, i) => {
+      D.PERSONAS.filter(p => p.rol === 'driver' && !p.suplente).forEach((p, i) => {
         if (domingo && i % 2) return;
         if ((d + i) % 9 === 0) return;                        // franco
         const ruta = p.ruta;
@@ -453,6 +453,38 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
   });
 
   // ── 5. DESPACHO con la flota andando ──────────────────────────────────
+  // El suplente de M-02 entra por la web y arranca sin salir a ruta: el
+  // vigía de la puerta lo ve manejando y avisa. El reloj de esa página va a
+  // mano —la velocidad se mide en ventanas de 30 s—, y se cierra antes de
+  // que salga solo: así queda en la puerta para el panel de Despacho.
+  await paso('chofer: el vigía de la puerta', async () => {
+    const sup = D.PERSONAS.find(p => p.suplente);
+    const rctx = await contexto({ ancho: 412, alto: 892, escala: 1.5, movil: true });
+    await rctx.grantPermissions(['geolocation']);
+    const base = posicion(sup.combi);
+    await rctx.setGeolocation({ latitude: base.lat, longitude: base.lng, accuracy: 8 });
+    const rp = await rctx.newPage();
+    rp.on('pageerror', e => errores.push(`suplente: error de la página: ${e.message}`));
+    await rp.clock.install({ time: new Date() });
+    await rp.goto(API + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await rp.waitForSelector('input[type="password"]', { timeout: 30000 });
+    await rp.locator('input').nth(0).fill(sup.usuario);
+    await rp.locator('input').nth(1).fill(D.CLAVE_CHOFER);
+    await rp.click('button:has-text("INGRESAR")');
+    await rp.waitForSelector('button:has-text("SALIR A RUTA")', { timeout: 15000 });
+    let aviso = null;
+    for (let i = 1; i <= 60 && !aviso; i++) {
+      await rctx.setGeolocation({ latitude: base.lat - i * 35 / 111320, longitude: base.lng, accuracy: 8 });
+      await rp.clock.fastForward(5000);
+      aviso = await rp.$('[data-vigia-puerta]');
+    }
+    if (!aviso) throw new Error('el vigía de la puerta no avisó');
+    await rp.clock.fastForward(13_000);
+    await rp.waitForTimeout(400);
+    await foto(rp, 'c02b-vigia');
+    await rctx.close();
+  });
+
   await paso('despacho: el aviso de la central', async () => {
     await de.reload({ waitUntil: 'domcontentloaded' }); await de.waitForTimeout(5000);
     if (await de.locator('button:has-text("INGRESAR")').count()) await entrarPanel(de, D.DESPACHO, D.CLAVE_DESPACHO);
@@ -537,6 +569,12 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
   await paso('despacho: panel', async () => {
     // El SOS de la prueba ya se atendió
     if (await de.locator('button:has-text("ATENDIDO")').count()) await clic(de, 'button:has-text("ATENDIDO")', 1500);
+    // La lista vuelve arriba: el «Mensaje directo» de antes la dejó corrida y
+    // tapaba los dos avisos de arriba (fuera del recorrido, no salieron)
+    await de.evaluate(() => {
+      let e = document.querySelector('[data-puerta]');
+      while (e && e !== document.body) { if (e.scrollHeight > e.clientHeight + 2) e.scrollTop = 0; e = e.parentElement; }
+    });
     await de.waitForTimeout(2000);
     await foto(de, 'd02-panel');
     await foto(de, 'd03-lista', { clip: { x: 0, y: 60, width: 312, height: 840 } });

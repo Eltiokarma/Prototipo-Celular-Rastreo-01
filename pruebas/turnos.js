@@ -7,12 +7,17 @@ const ok = (n, c, e) => console.log(n, c === true ? 'OK' : 'FALLA', e !== undefi
 const login = (u, p) => fetch(API + '/auth/login', { method: 'POST',
   headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: u, password: p }) }).then(r => r.json());
 
-const entrar = async (user) => {
+// Subir = entrar y SALIR A RUTA, como la app (que además re-declara la
+// presencia al reconectar). Desde el 30/10 el `identify` solo no abre el
+// turno del chofer: entrar no es salir (ver `relevo.js`). El cobrador no
+// declara nada; su turno sí arranca al conectarse.
+const entrar = async (user, { salir = true } = {}) => {
   const s = await login(user, 'clave1234');
   const ws = new WebSocket('ws://localhost:3001');
   await new Promise(r => ws.on('open', r));
   ws.on('message', () => {});
   ws.send(JSON.stringify({ type: 'identify', token: s.token }));
+  if (salir) ws.send(JSON.stringify({ type: 'presencia', estado: 'ruta' }));
   await sleep(500);
   return ws;
 };
@@ -37,6 +42,13 @@ const entrar = async (user) => {
   let d = await turnos();
   ok('1. Arranca sin turnos', mios(d).length === 0, `${d.turnos.length} en total`);
 
+  // Entra y se queda en la puerta: todavía no subió
+  const enLaPuerta = await entrar('raul', { salir: false });
+  d = await turnos();
+  ok('1b. Entrar sin salir a ruta no abre turno', mios(d).length === 0, `${mios(d).length} turno(s)`);
+  enLaPuerta.close();
+  await sleep(300);
+
   // El chofer sube a su unidad
   const chofer = await entrar('raul');
   d = await turnos();
@@ -45,7 +57,7 @@ const entrar = async (user) => {
      t1 && `${t1.alias || t1.name} en ${t1.vehicleId} · ${t1.role}`);
 
   // El cobrador sube a la misma
-  const cobrador = await entrar('maria');
+  const cobrador = await entrar('maria', { salir: false });
   d = await turnos();
   ok('3. El cobrador tiene el suyo, en la misma unidad',
      mios(d).length === 2 && d.turnos.some(t => t.personId === 'maria' && t.vehicleId === 'raul' && t.role === 'collector'));

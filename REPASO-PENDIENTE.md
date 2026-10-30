@@ -601,3 +601,48 @@ arregló antes de sacar las capturas. Regresión completa verde.
   original con resplandor, no la ámbar de poco azul de la nativa. SOL EXTREMO
   sigue sólo en el panel de diseño. Suite nueva `tema-web`.
 
+- ~~**El `identify` que toma el mando sin condición**~~: decidido (30/10),
+  opción B. Ver tanda 12.
+
+## Tanda 12 — el mando es de SALIR A RUTA (30/10, sin repasar)
+
+Decisión del dueño sobre el `identify` (tanda 9, hallazgo 7): opción B, y
+para el olvido de SALIR A RUTA, las opciones A y C. Probado contra el
+servidor de verdad antes de tocar nada: la app nativa se conecta al poner la
+clave, así que el turno y el mando arrancaban en la PUERTA —Pedro llegando al
+relevo ya le sacaba la combi a Juan— y el relevado que reconectaba desde su
+casa la recuperaba sola.
+
+### Lo que más conviene mirar, en orden
+
+1. **Entrar no es salir** (`identify`, `asumirMando`). El `identify` de un
+   chofer sin el mando ya no da mando, ni turno, ni le pone su nombre a la
+   combi. Lo da declarar `ruta` (aunque otro la tenga: el relevo) o, si nadie
+   la tiene viva, declarar `ausente` o mandar una posición. **La duda:** las
+   horas de la nativa ahora cuentan desde SALIR A RUTA y no desde la clave —
+   es lo pedido, pero cambia los números de Turnos y Números desde hoy—.
+2. **El relevado no recupera solo** (`relevados`). Marcado al perder el mando
+   contra otra persona; mientras dure, su `ruta`, su `ausente` y sus
+   posiciones no le devuelven esa combi, **ni cuando el otro termina el
+   turno**. Se va con un acto suyo (`fuera`, volver a entrar con la clave) o
+   a las 6 h. **La duda:** la marca vive en memoria; un reinicio del servidor
+   la borra y el relevado con la app en `ruta` puede retomar si el otro no
+   está vivo. Es el mismo alcance que `duenoDe`.
+3. **El relevo del socket** (cierre): ya no pasa el mando a otro chofer
+   conectado aunque el mando esté muerto; sólo a otra conexión de la misma
+   persona.
+4. **La puerta en Despacho** (opción A, mensaje `puerta` sólo a
+   supervisores). Sin ubicación: entró y no declaró. Vence a los 30 min sin
+   app. **La duda:** la nativa con la pantalla apagada pierde el socket y
+   figura 30 min; el que puso la clave sólo para leer el chat también figura.
+5. **El vigía de la puerta** (opción C, `app/puerta.js` y su copia web). Mira
+   el GPS sin mandarlo, sólo con la app abierta y el permiso ya dado; avisa y
+   sale solo al minuto; queda `salio_solo` en la Actividad. **Las dudas:** la
+   nativa necesita APK nueva; con la pantalla apagada en la puerta no mira
+   (haría falta el servicio de fondo, que es emitir); la política de
+   privacidad cambió (vigente desde el 30/10) y habría que avisarlo en la
+   ficha de Google Play.
+6. **El relevo en la Actividad** (`relevo`): sólo si el otro estaba vivo.
+
+Suites nuevas: `relevo`, `vigia-puerta`, `puerta-web`.
+
