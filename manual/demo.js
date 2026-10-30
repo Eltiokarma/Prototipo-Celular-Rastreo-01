@@ -32,6 +32,10 @@ module.exports = {
     { id: 'M-23', placa: 'Z1B-223', ruta: '18B' }, { id: 'M-24', placa: 'Z1B-224', ruta: '18B' },
   ],
 
+  // Además de M-01, Rufino puede manejar M-07 (la de Rosa): habilitada por
+  // Despacho, para que la puerta muestre «¿en qué combi salís?»
+  COMBIS_EXTRA_RUFINO: ['M-07'],
+
   // Rufino es el protagonista: su teléfono es el navegador del manual.
   PERSONAS: [
     { usuario: 'ch-rufino', nombre: 'Rufino Quispe Mamani', alias: 'Rufo', rol: 'driver', combi: 'M-01', ruta: '18A' },

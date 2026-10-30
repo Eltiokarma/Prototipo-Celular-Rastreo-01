@@ -1006,6 +1006,50 @@ function vehicleOf(vehicleId) {
   return db.prepare('SELECT * FROM vehicles WHERE vehicleId = ?').get(vehicleId) || null;
 }
 
+// ─── LAS COMBIS QUE CADA UNO PUEDE MANEJAR (habilitaciones, 30/10) ─────
+// En la calle una combi la manejan varios, se prestan combis y se llama a un
+// suplente. Con la combi fija en la cuenta, Pedro en M-01 hoy y en M-05
+// mañana no tenía camino honesto: o una cuenta por combi, o la cuenta
+// prestada —y las horas, las vueltas y el SOS a nombre de otro—.
+//
+// Ahora Despacho HABILITA a cada persona las combis que puede manejar (o
+// «cualquiera de su ruta», el suplente comodín), y la persona ELIGE en la
+// puerta en cuál sale. `users.vehicleId` sigue siendo «la combi de hoy»: todo
+// lo demás (turnos, brechas, chat privado, cobradores, SOS) lo sigue leyendo
+// de ahí y no cambia. La de hoy está siempre habilitada.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS habilitaciones (
+    personId TEXT NOT NULL,
+    vehicleId TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    PRIMARY KEY (personId, vehicleId)
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_habilitaciones_combi ON habilitaciones (vehicleId)');
+addColumnIfMissing('users', 'todaLaRuta', 'INTEGER NOT NULL DEFAULT 0');
+// La combi de hoy de cada uno queda habilitada (la del alta, para los que ya
+// estaban). Idempotente: corre en cada arranque y no duplica.
+db.prepare(`
+  INSERT OR IGNORE INTO habilitaciones (personId, vehicleId, createdAt)
+  SELECT unitId, vehicleId, ? FROM users
+  WHERE role IN ('driver', 'collector') AND vehicleId IS NOT NULL
+`).run(Date.now());
+
+// Las combis que puede elegir esta persona: las habilitadas, las de su ruta
+// si es comodín, y la de hoy. Sólo de su empresa.
+function combisHabilitadas(u) {
+  if (!u) return [];
+  const ids = new Set(db.prepare('SELECT vehicleId FROM habilitaciones WHERE personId = ?')
+    .all(u.unitId).map(h => h.vehicleId));
+  if (u.vehicleId) ids.add(u.vehicleId);
+  if (u.todaLaRuta && u.routeId) {
+    for (const v of db.prepare('SELECT vehicleId FROM vehicles WHERE routeId = ? AND companyId IS ?').all(u.routeId, u.companyId || null)) {
+      ids.add(v.vehicleId);
+    }
+  }
+  return Array.from(ids).map(vehicleOf).filter(v => v && v.companyId === u.companyId);
+}
+
 const SESSION_DAYS = 30;
 
 function createSession(unitId) {
@@ -2167,7 +2211,7 @@ function anotarEnLaPuerta(user, vehicleId) {
   const routeId = rutaDeLaCombi(vehicleId, user.routeId);
   enLaPuerta.set(user.unitId, {
     personId: user.unitId, nombre: displayName(user), vehicleId, routeId,
-    desde: previa && previa.vehicleId === vehicleId ? previa.desde : ahora, ultima: ahora,
+    desde: previa ? previa.desde : ahora, ultima: ahora,
   });
   if (!previa) avisarPuerta(routeId);
 }
@@ -3382,6 +3426,113 @@ app.post('/presencia', (req, res) => {
   // cierre para cerrarlo (REVISION-2026-09-10.md, L1).
   if (estado === 'fuera') cerrarTurno(user.unitId);
   res.json({ ok: true, estado });
+});
+
+// ─── ELEGIR LA COMBI EN LA PUERTA (habilitaciones, 30/10) ──────────────
+// En la puerta y no en el login: el login se hace una vez (la sesión dura 30
+// días) y la combi cambia cada día; antes de la clave no se le muestra la
+// flota a nadie; y SALIR A RUTA ya es el acto que toma la combi (opción B):
+// elegirla es parte de ese acto. Elegir NO toma nada: la combi elegida se
+// toma al salir a ruta, y si otro la está manejando, eso es un relevo.
+
+const USUARIO_COMPLETO = `SELECT unitId, role, name, alias, driverName, routeId, vehicleId, companyId, todaLaRuta
+                          FROM users WHERE unitId = ?`;
+
+// Lo que ve la persona de cada combi que puede elegir: si está libre o quién
+// la maneja ahora (el mando vivo, por cualquier canal).
+function estadoDeCombi(vehicleId, personId) {
+  const dueno = duenoDe.get(vehicleId);
+  if (!dueno || !mandoVivo(vehicleId)) return { estado: 'libre', quien: null, desde: null };
+  if (dueno.personId === personId) return { estado: 'tuya', quien: null, desde: null };
+  const otro = db.prepare('SELECT name, alias, driverName, unitId FROM users WHERE unitId = ?').get(dueno.personId);
+  return { estado: 'ocupada', quien: displayName(otro || { unitId: dueno.personId }), desde: dueno.oidoEn };
+}
+
+// Pasar a una persona a otra combi: la de hoy cambia y la ruta va con la
+// combi (como en el alta). Lo de la combi anterior se suelta: el turno
+// abierto (el cobrador lo abre al conectarse), un mando muerto que hubiera
+// quedado a su nombre, y el socket de GPS. Y los sockets abiertos de la
+// persona pasan a mirar la ruta nueva con lo que les corresponde: el estado,
+// el trazado, y el privado de la combi nueva.
+// Quien llama ya verificó que puede (habilitada, y que no está en ruta).
+function cambiarCombiDe(personId, vehicleId, actor) {
+  const u = db.prepare(USUARIO_COMPLETO).get(personId);
+  const veh = vehicleOf(vehicleId);
+  if (!u || !veh) return null;
+  const antes = u.vehicleId;
+  if (antes === vehicleId) return u;
+  const ruta = veh.routeId || u.routeId;
+  db.prepare('UPDATE users SET vehicleId = ?, routeId = ? WHERE unitId = ?').run(vehicleId, ruta, personId);
+  db.prepare('INSERT OR IGNORE INTO habilitaciones (personId, vehicleId, createdAt) VALUES (?, ?, ?)')
+    .run(personId, vehicleId, Date.now());
+  cerrarTurno(personId);
+  if (antes && duenoDe.get(antes)?.personId === personId) duenoDe.delete(antes);
+  const e = enLaPuerta.get(personId);
+  if (e) {
+    avisarPuerta(e.routeId);
+    e.vehicleId = vehicleId;
+    e.routeId = rutaDeLaCombi(vehicleId, ruta);
+    avisarPuerta(e.routeId);
+  }
+  const prof = profiles.get(personId);
+  if (prof) { prof.vehicleId = vehicleId; prof.routeId = ruta; }
+  for (const [ws, id] of clients) {
+    if (id !== personId || ws.readyState !== 1) continue;
+    if (antes && gpsOwner.get(antes) === ws) gpsOwner.delete(antes);
+    watching.set(ws, ruta);
+    try {
+      ws.send(JSON.stringify({ type: 'combi', vehicleId, routeId: ruta, routeName: routeOf(ruta)?.name || ruta }));
+      ws.send(JSON.stringify({ type: 'state', ...buildState(ruta) }));
+      ws.send(JSON.stringify({ type: 'chat_history', routeId: ruta, items: recentHistory(ruta, vehicleId) }));
+      ws.send(mensajeGeometria(ruta));
+    } catch {}
+  }
+  // El cobrador conectado sigue arriba, ahora de la otra: su turno, ahí
+  if (u.role === 'collector' && conectadoAhora(personId)) abrirTurno(personId, vehicleId, ruta, 'collector');
+  // El que se cambió solo no se nombra dos veces; si fue Despacho, a quién
+  audit(actor || personId, 'cambio_combi', actor && actor !== personId ? personId : null,
+    `${antes || '—'} → ${vehicleId}`, ruta);
+  return { ...u, vehicleId, routeId: ruta };
+}
+
+// Si la persona está EN RUTA (tiene el mando vivo de su combi de hoy), no
+// cambia de combi: primero sale de ruta. Cambiar a mitad de turno dejaría la
+// combi de antes sin nadie y la vuelta en curso colgada.
+function enRutaEn(u) {
+  return !!u?.vehicleId && duenoDe.get(u.vehicleId)?.personId === u.unitId && mandoVivo(u.vehicleId);
+}
+
+app.get('/mis-combis', (req, res) => {
+  const quien = sessionUser(tokenDe(req));
+  if (!quien) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  const u = db.prepare(USUARIO_COMPLETO).get(quien.unitId);
+  if (!u || (u.role !== 'driver' && u.role !== 'collector')) return res.status(403).json({ error: 'Sólo choferes y cobradores' });
+  const combis = combisHabilitadas(u).map(v => ({
+    vehicleId: v.vehicleId, label: v.label || null, routeId: v.routeId,
+    routeName: routeOf(v.routeId)?.name || v.routeId,
+    ...(u.role === 'driver' ? estadoDeCombi(v.vehicleId, u.unitId) : { estado: 'libre', quien: null, desde: null }),
+  })).sort((a, b) => (a.vehicleId === u.vehicleId ? -1 : b.vehicleId === u.vehicleId ? 1 : a.vehicleId.localeCompare(b.vehicleId)));
+  res.json({ actual: u.vehicleId, todaLaRuta: !!u.todaLaRuta, enRuta: enRutaEn(u), combis });
+});
+
+app.post('/combi', (req, res) => {
+  const quien = sessionUser(tokenDe(req));
+  if (!quien) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  const u = db.prepare(USUARIO_COMPLETO).get(quien.unitId);
+  if (!u || (u.role !== 'driver' && u.role !== 'collector')) return res.status(403).json({ error: 'Sólo choferes y cobradores' });
+  const vehicleId = idLimpio(req.body?.vehicleId);
+  // Una que no tiene habilitada se contesta igual que una que no existe: la
+  // puerta no es un buscador de la flota
+  if (!vehicleId || !combisHabilitadas(u).some(v => v.vehicleId === vehicleId)) {
+    return res.status(404).json({ error: 'No tenés esa combi habilitada. Pedíselo a Despacho.' });
+  }
+  if (vehicleId !== u.vehicleId && enRutaEn(u)) {
+    return res.status(409).json({ error: `Estás en ruta en ${u.vehicleId}: tocá SALIR DE RUTA antes de cambiar de combi.` });
+  }
+  const nuevo = cambiarCombiDe(u.unitId, vehicleId, u.unitId) || u;
+  const ruta = routeOf(nuevo.routeId);
+  res.json({ ok: true, vehicleId: nuevo.vehicleId, routeId: nuevo.routeId, routeName: ruta ? ruta.name : nuevo.routeId,
+    label: vehicleOf(nuevo.vehicleId)?.label || null });
 });
 
 // El tráfico por HTTP: el mismo camino que la presencia, para que el botón
@@ -5073,6 +5224,12 @@ app.get('/admin/vehicles', requireDispatch, (req, res) => {
       .map(id => profiles.get(id))
       .filter(p => p && p.vehicleId === v.vehicleId)
       .map(p => ({ nombre: p.driverName, rol: p.role })),
+    // Y quiénes la pueden manejar (habilitaciones; el comodín de la ruta no
+    // se lista combi por combi)
+    habilitados: db.prepare(`
+      SELECT u.unitId, u.name, u.alias, u.driverName, u.role FROM habilitaciones h
+      JOIN users u ON u.unitId = h.personId WHERE h.vehicleId = ? ORDER BY u.role DESC, u.name
+    `).all(v.vehicleId).map(p => ({ personId: p.unitId, nombre: displayName(p), rol: p.role })),
   }));
   res.json({ vehicles: vehiculos, supervisor: !req.scope });
 });
@@ -5253,14 +5410,24 @@ app.get('/admin/users', requireDispatch, (req, res) => {
   // sepa quién mira. Esconderlos sería peor que mostrarlos sin botones.
   const users = db.prepare(`
     SELECT unitId, driverName, name, alias, role, routeId, vehicleId, createdAt, lastLogin,
-           appVersion, appVersionCode FROM users
+           appVersion, appVersionCode, todaLaRuta FROM users
     WHERE companyId = @empresa
       AND (@scope IS NULL OR routeId = @scope OR role IN ('dispatch', 'manager'))
     ORDER BY CASE role WHEN 'dispatch' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END,
              routeId, vehicleId, unitId
   `).all({ empresa: req.empresa, scope: req.scope });
+  // Las combis habilitadas de cada uno, de una sola consulta
+  const combisDe = new Map();
+  for (const h of db.prepare(`
+    SELECT h.personId, h.vehicleId FROM habilitaciones h JOIN users u ON u.unitId = h.personId
+    WHERE u.companyId = ? ORDER BY h.vehicleId
+  `).all(req.empresa)) {
+    if (!combisDe.has(h.personId)) combisDe.set(h.personId, []);
+    combisDe.get(h.personId).push(h.vehicleId);
+  }
   res.json({
-    users: users.map(u => ({ ...u, online: online.has(u.unitId) })),
+    users: users.map(u => ({ ...u, todaLaRuta: !!u.todaLaRuta, combis: combisDe.get(u.unitId) || [],
+      online: online.has(u.unitId) })),
     supervisor: !req.scope,
     scope: req.scope,
   });
@@ -5351,6 +5518,9 @@ app.post('/admin/users', requireDispatch, (req, res) => {
     INSERT INTO users (unitId, driverName, name, alias, role, routeId, vehicleId, companyId, passHash, createdAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(unitId, alias || name, name, alias, role, rutaFinal, vehiculoFinal, req.empresa, hashPassword(password), Date.now());
+  // La combi del alta es la primera que tiene habilitada
+  db.prepare('INSERT OR IGNORE INTO habilitaciones (personId, vehicleId, createdAt) VALUES (?, ?, ?)')
+    .run(unitId, vehiculoFinal, Date.now());
 
   const quien = alias ? `${name} (${alias})` : name;
   audit(req.dispatchUser.unitId, 'alta', unitId,
@@ -5378,6 +5548,47 @@ function cuentaEnAlcance(req, unitId) {
   }
   return { user: u };
 }
+
+// Las combis que puede manejar una persona (habilitaciones, 30/10). Se manda
+// la lista entera: { combis: [...], todaLaRuta, actual? }. `actual` cambia la
+// combi de hoy —lo que antes sólo se podía con baja y alta—, con la misma
+// regla que la puerta: no a alguien en ruta. Un Despacho de ruta habilita
+// sólo combis de su ruta; una combi de otra empresa no existe.
+app.post('/admin/users/:unitId/combis', requireDispatch, (req, res) => {
+  const unitId = String(req.params.unitId);
+  const chequeo = cuentaEnAlcance(req, unitId);
+  if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
+  const u = db.prepare(USUARIO_COMPLETO).get(unitId);
+  if (u.role !== 'driver' && u.role !== 'collector') {
+    return res.status(400).json({ error: 'Sólo los choferes y los cobradores van en una combi' });
+  }
+  const pedidas = Array.isArray(req.body?.combis) ? req.body.combis.map(idLimpio) : null;
+  if (!pedidas || pedidas.some(c => !c)) return res.status(400).json({ error: 'Falta la lista de combis' });
+  const combis = Array.from(new Set(pedidas));
+  for (const c of combis) {
+    const veh = vehicleOf(c);
+    if (!veh || veh.companyId !== req.empresa) return res.status(400).json({ error: `El vehículo ${c} no existe` });
+    if (req.scope && veh.routeId !== req.scope) return res.status(403).json({ error: `${c} pertenece a otra ruta` });
+  }
+  const actual = req.body?.actual ? idLimpio(req.body.actual) : u.vehicleId;
+  if (!actual || !combis.includes(actual)) {
+    return res.status(400).json({ error: `${actual || 'La combi de hoy'} tiene que estar entre las habilitadas` });
+  }
+  if (actual !== u.vehicleId && enRutaEn(u)) {
+    return res.status(409).json({ error: `Está en ruta en ${u.vehicleId}: tiene que salir de ruta antes de cambiarlo de combi.` });
+  }
+  const todaLaRuta = req.body?.todaLaRuta === true ? 1 : 0;
+  db.transaction(() => {
+    db.prepare('DELETE FROM habilitaciones WHERE personId = ?').run(unitId);
+    const ins = db.prepare('INSERT INTO habilitaciones (personId, vehicleId, createdAt) VALUES (?, ?, ?)');
+    for (const c of combis) ins.run(unitId, c, Date.now());
+    db.prepare('UPDATE users SET todaLaRuta = ? WHERE unitId = ?').run(todaLaRuta, unitId);
+  })();
+  if (actual !== u.vehicleId) cambiarCombiDe(unitId, actual, req.dispatchUser.unitId);
+  audit(req.dispatchUser.unitId, 'combis', unitId,
+    combis.join(', ') + (todaLaRuta ? ' · cualquiera de su ruta' : ''), vehicleOf(actual)?.routeId || u.routeId);
+  res.json({ ok: true, combis, todaLaRuta: !!todaLaRuta, actual });
+});
 
 // Corregir la identidad de alguien ya cargado: las cuentas que venían del
 // modelo viejo quedaron con el código de la unidad como nombre, y un alias
@@ -5435,6 +5646,7 @@ app.delete('/admin/users/:unitId', requireDispatch, (req, res) => {
   const chequeo = cuentaEnAlcance(req, unitId);
   if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
   db.prepare('DELETE FROM users WHERE unitId = ?').run(unitId);
+  db.prepare('DELETE FROM habilitaciones WHERE personId = ?').run(unitId);
   kickUnit(unitId, 'Tu acceso fue dado de baja por Despacho.');
   relevados.delete(unitId);
   quitarDeLaPuerta(unitId);

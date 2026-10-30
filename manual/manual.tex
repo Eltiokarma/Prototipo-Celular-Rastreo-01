@@ -344,6 +344,25 @@ y la ruta, y dos opciones:
 
 Arriba a la derecha, \boton{Salir} cierra la sesión.
 
+\subsection{¿En qué combi salís?}
+
+\begin{minipage}[t]{0.64\textwidth}\vspace{0pt}
+Si Despacho te habilitó más de una combi, la puerta pregunta
+\rotulo{¿En qué combi salís?}. Cada una dice si está \emph{libre} o quién
+la maneja ahora; la elegida está marcada (\rotulo{ELEGIDA}). Se toca la otra y
+listo: pasa a ser la tuya de hoy, y la ruta va con la combi.
+
+Elegir \textbf{no le saca nada a nadie}: la combi se toma al salir a ruta. Si
+elegís una que está manejando otro, la app lo nombra y pide confirmar:
+\boton{ES UN RELEVO}. Al salir a ruta la tomás vos y al otro le aparece que
+otro chofer tomó la unidad.
+
+Estando en ruta no se cambia de combi: primero \boton{SALIR DE RUTA}.
+\end{minipage}\hfill
+\begin{minipage}[t]{0.3\textwidth}\vspace{0pt}\centering
+\cel[1]{c02c-relevo}{Elegir la que maneja otro pide confirmar el relevo.}
+\end{minipage}
+
 \textbf{Entrar no es salir.} Poner la clave no cuenta horas ni le saca la
 combi a nadie: el turno arranca al tocar \boton{SALIR A RUTA} (o
 \boton{Entrar AUSENTE}). Mientras tanto, Despacho ve al chofer en la lista de
@@ -717,10 +736,22 @@ nombre, alias o unidad, y se filtra por rol.
     genera una clave fácil de dictar. \boton{+ Alta} la crea.
   \item \boton{Clave} le pone una clave nueva. Su sesión abierta se cierra en
     el acto.
+  \item \boton{Combis} marca las combis que puede manejar: entre ésas elige
+    en la puerta, cada día. \rotulo{La de hoy} es en la que está ahora (no se
+    le cambia a alguien en ruta). \boton{Cualquiera de su ruta} es para el
+    suplente: puede salir en cualquier combi de su ruta sin habilitarlas una
+    por una. En la lista, \rotulo{M-05 +1} quiere decir que hoy va en M-05 y
+    tiene una más habilitada.
   \item \boton{Editar} corrige el nombre o el alias.
   \item \boton{Baja} la saca del sistema. Sus horas y vueltas quedan en los
     informes.
 \end{itemize}
+
+\pc{d08b-combis}{Las combis que puede manejar Rufino: la suya (la de hoy) y M-07.}
+
+Así no hace falta una cuenta por combi ni prestar la clave: cada uno entra
+con la suya, y las horas, las vueltas y el SOS quedan a su nombre en la combi
+en la que fue.
 
 \pc{d08-alta-persona}{El alta de una persona.}
 
@@ -734,7 +765,8 @@ la persona a una combi que ya exista. La columna \rotulo{Última conexión} dice
 
 \subsection{Vehículos}
 
-Las combis de la cooperativa, su placa, quién va arriba y su estado:
+Las combis de la cooperativa, su placa, quién va arriba, quiénes la pueden
+manejar, y su estado:
 \enverde{n arriba} (hay gente con la app abierta), \enambar{en línea} (la
 combi está en el mapa aunque nadie tenga la pantalla abierta) o
 \rotulo{parada}.

@@ -452,7 +452,14 @@ apareció midiendo —**la palabra al lado del color**— también (3.2), y la q
 salió de usar el SOS en un teléfono de verdad —**el tipo de emergencia**—
 quedó cerrada el 6/8 (ver 3.1).
 
-### VARIAS COMBIS POR CHOFER: propuesta, sin decidir (30/10)
+### ~~VARIAS COMBIS POR CHOFER~~ — HECHO (30/10), como estaba propuesto
+
+Decidido por el dueño y hecho: tabla `habilitaciones`, «cualquiera de su
+ruta», la elección en la puerta (web y nativa) con la confirmación del
+relevo, la edición en Despacho → Personas (y la combi de hoy, que antes sólo
+cambiaba con baja y alta), los habilitados en Vehículos. PROTOCOLO §4octies.
+Suites `combis`, `combis-web` y `cliente`. Lo que sigue es la propuesta tal
+como se escribió:
 
 Lo que se ve en la calle: una combi la manejan varios choferes, se prestan
 combis, se llama a un suplente, y a veces se le pasa la cuenta y la clave al

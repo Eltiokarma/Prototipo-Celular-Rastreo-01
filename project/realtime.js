@@ -149,6 +149,10 @@
         } else if (msg.type === 'gps_role') {
           reportaGps = msg.reporting !== false;
           emit('gpsrole', msg);
+        } else if (msg.type === 'combi') {
+          // La combi de hoy cambió (la eligió en la puerta, o Despacho):
+          // la página corrige su sesión
+          emit('combi', msg);
         } else if (msg.type === 'auth_error') {
           // Sesión inválida o expirada: no tiene sentido reintentar
           authFailed = true;
@@ -626,8 +630,26 @@
     return reportaGps;
   }
 
+  // ─── LA COMBI, EN LA PUERTA (habilitaciones, 30/10) ─────────
+  // Antes de salir a ruta no hay socket ni token guardado acá: el token va
+  // explícito. Devuelven el JSON del servidor, o tiran con el mensaje.
+  async function pedirConToken(ruta, token, opciones = {}) {
+    const res = await fetch(HTTP_URL + ruta, {
+      ...opciones,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { const e = new Error(data.error || 'No se pudo'); e.status = res.status; throw e; }
+    return data;
+  }
+  const misCombis = (token) => pedirConToken('/mis-combis', token);
+  const elegirCombi = (token, vehicleId) =>
+    pedirConToken('/combi', token, { method: 'POST', body: JSON.stringify({ vehicleId }) });
+
   window.RealtimeClient = {
     login,
+    misCombis,
+    elegirCombi,
     connect,
     disconnect,
     logout,

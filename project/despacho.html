@@ -1452,6 +1452,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   // con el código de la unidad como nombre)
   const [editFor, setEditFor] = React.useState(null);
   const [editForm, setEditForm] = React.useState({ name: '', alias: '' });
+  // Las combis que puede manejar cada uno (habilitaciones, 30/10): la lista,
+  // la de hoy, y si es comodín de su ruta
+  const [combisFor, setCombisFor] = React.useState(null);
+  const [combisForm, setCombisForm] = React.useState({ combis: [], actual: null, todaLaRuta: false });
   const [confirmDel, setConfirmDel] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [filter, setFilter] = React.useState('');
@@ -1672,6 +1676,14 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
     setEditFor(null);
     await loadVehicles();
   }, 'Identidad actualizada');
+
+  const guardarCombis = (unitId) => run(async () => {
+    await api(`/admin/users/${encodeURIComponent(unitId)}/combis`, {
+      method: 'POST', body: JSON.stringify(combisForm),
+    });
+    setCombisFor(null);
+    await loadVehicles();
+  }, 'Combis actualizadas');
 
   const resetPassword = (unitId) => run(async () => {
     const password = resetPass || suggestPassword();
@@ -2010,9 +2022,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   : u.role === 'collector' ? 'collector' : 'driver';
                 const lista = users.filter(u =>
                   (!q || coincide(u, q)) && (!filtroRol || rolDe(u) === filtroRol));
-                const cols = '150px 1fr 96px 90px 128px 200px';
+                const cols = '136px 1fr 84px 96px 118px 268px';
                 return (
-                  <Tabla cols={cols} ancho={880}
+                  <Tabla cols={cols} ancho={900}
                     cabeceras={['Persona', 'Identidad', 'Rol', 'Unidad', 'Última conexión', 'Acciones']}>
                     {lista.length === 0 && <Vacio>Nadie coincide con lo buscado.</Vacio>}
                     {lista.map(u => (
@@ -2036,8 +2048,15 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           <span style={rotulo(10, HUD.dim2)}>
                             {u.role === 'dispatch' ? 'Despacho' : u.role === 'manager' ? 'Gerencia' : u.role === 'collector' ? 'Cobrador' : 'Chofer'}
                           </span>
-                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>
+                          {/* La de hoy, y cuántas más puede elegir en la puerta */}
+                          <span title={(u.combis || []).length > 1 || u.todaLaRuta
+                              ? `Puede manejar: ${(u.combis || []).join(', ')}${u.todaLaRuta ? ' y cualquiera de su ruta' : ''}` : undefined}
+                            style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>
                             {u.vehicleId || '—'}
+                            {(u.combis || []).length > 1 && (
+                              <span style={{ color: HUD.dim3, fontWeight: 400 }}> +{u.combis.length - 1}</span>
+                            )}
+                            {u.todaLaRuta && <span style={{ color: HUD.dim3, fontWeight: 400 }}> · ruta</span>}
                           </span>
                           <span style={{ fontFamily: mono, fontSize: 11, color: u.lastLogin || u.online ? HUD.dim3 : HUD.amber }}>
                             {u.online ? 'conectado' : u.lastLogin ? fmtWhen(u.lastLogin) : 'nunca entró'}
@@ -2048,15 +2067,27 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           </span>
                           <span style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                             {u.role !== 'manager' && (
-                            <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setResetPass(''); }}
+                            <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setCombisFor(null); setResetPass(''); }}
                               style={btnChico(HUD.fg2)}>Clave</button>
+                            )}
+                            {u.role !== 'dispatch' && u.role !== 'manager' && (
+                              <button title="Las combis que puede elegir en la puerta, y la de hoy"
+                                onClick={() => {
+                                  setCombisFor(u.unitId);
+                                  setCombisForm({
+                                    combis: (u.combis || []).length ? u.combis : [u.vehicleId].filter(Boolean),
+                                    actual: u.vehicleId, todaLaRuta: !!u.todaLaRuta,
+                                  });
+                                  setEditFor(null); setResetFor(null); setConfirmDel(null);
+                                }}
+                                style={btnChico(HUD.fg2)}>Combis</button>
                             )}
                             {u.role !== 'dispatch' && u.role !== 'manager' && (
                               <button title="Corregir nombre o alias"
                                 onClick={() => {
                                   setEditFor(u.unitId);
                                   setEditForm({ name: u.name || u.driverName || '', alias: u.alias || '' });
-                                  setResetFor(null); setConfirmDel(null);
+                                  setResetFor(null); setConfirmDel(null); setCombisFor(null);
                                 }}
                                 style={btnChico(HUD.fg2)}>Editar</button>
                             )}
@@ -2065,12 +2096,67 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 <button onClick={() => remove(u.unitId)} disabled={busy}
                                   style={{ ...btnChico('#fff', HUD.red), background: HUD.red }}>¿Confirmar?</button>
                               ) : (
-                                <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); }}
+                                <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); setCombisFor(null); }}
                                   style={btnChico(HUD.red, HUD.rojoBorde)}>Baja</button>
                               )
                             )}
                           </span>
                         </FilaTabla>
+                        {/* Las combis que puede manejar. Se marcan las que
+                            puede elegir en la puerta y cuál es la de hoy;
+                            la de hoy no se le cambia a alguien en ruta (el
+                            servidor lo rechaza y lo dice). */}
+                        {combisFor === u.unitId && (
+                          <div data-combis-de={u.unitId} style={{
+                            padding: '12px 14px', background: HUD.bg, borderBottom: `1px solid ${HUD.hueco}`,
+                          }}>
+                            <div style={{ ...rotulo(9), marginBottom: 8 }}>Combis que puede manejar {u.unitId}</div>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                              {(vehicles || []).map(v => {
+                                const marcada = combisForm.combis.includes(v.vehicleId);
+                                const hoy = combisForm.actual === v.vehicleId;
+                                return (
+                                  <button key={v.vehicleId} data-habilitar={v.vehicleId} aria-pressed={marcada}
+                                    disabled={hoy}
+                                    title={hoy ? 'Es la de hoy: para sacarla, elegí otra como la de hoy' : (v.label || undefined)}
+                                    onClick={() => setCombisForm(f => ({
+                                      ...f,
+                                      combis: marcada ? f.combis.filter(c => c !== v.vehicleId) : [...f.combis, v.vehicleId],
+                                    }))}
+                                    style={{
+                                      ...btnChico(marcada ? HUD.bright : HUD.dim2, marcada ? HUD.bright : HUD.line),
+                                      fontFamily: mono, fontWeight: 700, cursor: hoy ? 'default' : 'pointer',
+                                      borderWidth: marcada ? 2 : 1,
+                                    }}>
+                                    {marcada ? '✓ ' : ''}{v.vehicleId}{hoy ? ' · hoy' : ''}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <label style={{ fontSize: 13, color: HUD.fg2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                La de hoy
+                                <select value={combisForm.actual || ''}
+                                  onChange={e => setCombisForm(f => ({ ...f, actual: e.target.value }))}
+                                  style={{ ...campo(34), cursor: 'pointer' }}>
+                                  {combisForm.combis.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                              </label>
+                              <label style={{ fontSize: 13, color: HUD.fg2, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={combisForm.todaLaRuta}
+                                  onChange={e => setCombisForm(f => ({ ...f, todaLaRuta: e.target.checked }))} />
+                                Cualquiera de su ruta (suplente)
+                              </label>
+                              <span style={{ flex: 1 }} />
+                              <button onClick={() => guardarCombis(u.unitId)} disabled={busy} style={btnPrimario(34)}>Guardar</button>
+                              <button onClick={() => setCombisFor(null)} style={btnSecundario(34)}>Cancelar</button>
+                            </div>
+                            <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 8, lineHeight: 1.45 }}>
+                              Entre éstas elige en la puerta, al salir a ruta. Si elige una que está manejando otro,
+                              la app le pide confirmar el relevo.
+                            </div>
+                          </div>
+                        )}
                         {/* El formulario abre debajo de su fila en vez de
                             exprimirse dentro de la columna de acciones */}
                         {editFor === u.unitId && (
@@ -2172,6 +2258,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     cabeceras={['Vehículo', 'Ruta', 'Placa', 'Tripulación', 'Estado']}>
                     {vehicles.map(v => {
                       const asignados = (users || []).filter(u => u.vehicleId === v.vehicleId);
+                      // Los que hoy van en otra pero también la pueden manejar
+                      // (habilitaciones): se dicen aparte, después
+                      const tambien = (v.habilitados || []).filter(h => !asignados.some(u => u.unitId === h.personId));
                       const arriba = (v.tripulacion || []).length;
                       return (
                         <FilaTabla key={v.vehicleId} cols={cols}>
@@ -2201,12 +2290,16 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             fontSize: 13, color: v.label ? HUD.fg2 : HUD.dim3, minWidth: 0,
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}>{v.label || 'sin placa'}</span>
-                          <span style={{
-                            fontFamily: mono, fontSize: 11, color: HUD.dim2, minWidth: 0,
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}>
+                          <span title={tambien.length ? `También la pueden manejar: ${tambien.map(h => h.nombre).join(', ')}` : undefined}
+                            style={{
+                              fontFamily: mono, fontSize: 11, color: HUD.dim2, minWidth: 0,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}>
                             {asignados.length === 0 ? 'sin asignar'
                               : asignados.map(u => `${u.alias || u.name}${u.role === 'collector' ? ' (cobr.)' : ''}`).join(' · ')}
+                            {tambien.length > 0 && (
+                              <span style={{ color: HUD.dim3 }}> · también {tambien.map(h => h.nombre).join(', ')}</span>
+                            )}
                           </span>
                           <span style={{
                             ...rotulo(10, arriba ? HUD.green : v.enLinea ? HUD.amber : HUD.dim3),
@@ -3762,6 +3855,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   alta_ruta: { label: 'creó la ruta', color: HUD.green },
                   editar_identidad: { label: 'corrigió los datos de', color: HUD.bright },
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
+                  combis: { label: 'cambió las combis que puede manejar', color: HUD.bright },
+                  cambio_combi: { label: 'cambió de combi', color: HUD.bright },
                   baja: { label: 'dio de baja a', color: HUD.red },
                   sos: { label: 'disparó un SOS', color: HUD.red },
                   // Las tres del perfil del chofer (se editan desde la app)

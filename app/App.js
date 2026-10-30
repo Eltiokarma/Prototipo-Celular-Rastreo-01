@@ -236,6 +236,14 @@ function Aplicacion() {
     const off = [
       c.on('estado', () => { setHud(construirHud(c.miBrecha())); setEstado(c.estado); }),
       c.on('geometria', (g) => setGeometria(g)),
+      // La combi de hoy cambió (en la puerta, o Despacho): la sesión, y la
+      // guardada, para que al reabrir la app diga la que es
+      c.on('combi', (m) => setSesion(prev => {
+        if (!prev) return prev;
+        const nueva = { ...prev, vehicleId: m.vehicleId, routeId: m.routeId, routeName: m.routeName };
+        SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
+        return nueva;
+      })),
       c.on('conexion', ({ conectado }) => setConectado(conectado)),
       c.on('rolGps', ({ reporta, motivo }) => {
         // «Modo acompañante» no es un aviso: es lo que es el cobrador, y el
@@ -438,6 +446,36 @@ function Aplicacion() {
   const noEstoyManejando = () => {
     if (vigiaPuerta.current) vigiaPuerta.current.callar(Date.now());
     setFaltaPuerta(null);
+  };
+
+  // ── ¿En qué combi salís? (habilitaciones, 30/10) ────────────
+  // En la puerta, la lista de las que puede elegir con su estado —libre, o
+  // quién la maneja—, refrescada cada 20 s. Elegir no toma nada: la combi se
+  // toma al deslizar SALIR A RUTA, y si otro la maneja eso es un relevo.
+  const [combis, setCombis] = React.useState(null);
+  const enLaPuerta = !!sesion && presencia === 'fuera' && primerPlano;
+  const recargarCombis = React.useCallback(() => {
+    if (!cliente.current) return;
+    cliente.current.misCombis().then(d => setCombis(d.combis || [])).catch(() => {});
+  }, []);
+  React.useEffect(() => {
+    if (!enLaPuerta) return;
+    recargarCombis();
+    const t = setInterval(recargarCombis, 20_000);
+    return () => clearInterval(t);
+  }, [enLaPuerta, sesion?.vehicleId, recargarCombis]);
+  // Devuelve null si salió, o el motivo
+  const elegirCombi = async (vehicleId) => {
+    try {
+      const r = await cliente.current.elegirCombi(vehicleId);
+      setSesion(prev => {
+        const nueva = { ...prev, vehicleId: r.vehicleId, routeId: r.routeId, routeName: r.routeName };
+        SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
+        return nueva;
+      });
+      recargarCombis();
+      return null;
+    } catch (e) { return e.message || 'No se pudo'; }
   };
 
   // ── Las posiciones NO se mandan desde acá ───────────────────
@@ -712,6 +750,9 @@ function Aplicacion() {
         onPresencia={cambiarPresencia}
         faltaPuerta={faltaPuerta}
         onNoManejo={noEstoyManejando}
+        combis={combis}
+        miCombi={sesion?.vehicleId || null}
+        onElegirCombi={elegirCombi}
         yo={cliente.current?.miUnidad ? cliente.current.miUnidad() : null}
         onTrafico={(activo) => cliente.current.marcarTrafico(activo)}
         onSos={() => cliente.current.mandarSos(posicionParaSos())}
@@ -921,10 +962,63 @@ function abrirOptimizacionDeBateria() {
     .catch(() => Linking.openSettings().catch(() => {}));
 }
 
+function ElegirCombi({ combis, miCombi, onElegir }) {
+  const { s, C } = usarTema();
+  const [confirmar, setConfirmar] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [eligiendo, setEligiendo] = React.useState(false);
+  const elegir = async (c, confirmado = false) => {
+    if (c.vehicleId === miCombi || eligiendo) return;
+    if (c.estado === 'ocupada' && !confirmado) { setConfirmar(c); return; }
+    setEligiendo(true); setError(null);
+    const motivo = await onElegir(c.vehicleId);
+    setEligiendo(false);
+    if (motivo) setError(motivo); else setConfirmar(null);
+  };
+  return (
+    <View style={{ marginBottom: 12 }}>
+      <Text style={s.combiRotulo}>¿EN QUÉ COMBI SALÍS?</Text>
+      {combis.map(c => {
+        const elegida = c.vehicleId === miCombi;
+        return (
+          <Pressable key={c.vehicleId} onPress={() => elegir(c)} disabled={eligiendo}
+            style={[s.combiFila, elegida && s.combiFilaElegida]}>
+            <Text style={s.combiCodigo}>{c.vehicleId}</Text>
+            <View style={{ flex: 1 }}>
+              {!!c.label && <Text style={s.combiPlaca}>{c.label}</Text>}
+              <Text style={[s.combiEstado, c.estado === 'ocupada' && { color: C.ambar }]}>
+                {c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}
+              </Text>
+            </View>
+            {elegida && <Text style={s.combiElegida}>ELEGIDA</Text>}
+          </Pressable>
+        );
+      })}
+      {confirmar && (
+        <View style={s.combiConfirmar}>
+          <Text style={s.combiConfirmarTexto}>
+            {confirmar.vehicleId} la está manejando {confirmar.quien}. Si es un relevo, al salir a
+            ruta la tomás vos y a {confirmar.quien} se le avisa.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+            <Pressable onPress={() => elegir(confirmar, true)} style={s.combiRelevo} disabled={eligiendo}>
+              <Text style={s.combiRelevoTexto}>ES UN RELEVO</Text>
+            </Pressable>
+            <Pressable onPress={() => setConfirmar(null)} style={s.combiCancelar}>
+              <Text style={s.combiCancelarTexto}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+      {!!error && <Text style={s.avisoBarra}>{error}</Text>}
+    </View>
+  );
+}
+
 function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
                 tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol,
-                faltaPuerta, onNoManejo }) {
+                faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi }) {
   const { s, C } = usarTema();
   // ── Tráfico: lo que el servidor midió de MÍ, y lo que yo dije ───────
   // `yo.parado` es el hecho (N minutos sin avanzar por la ruta, lo mide el
@@ -1000,6 +1094,12 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
           {/* «Te sacamos de ruta» cae justo en esta pantalla, y no se veía */}
           {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
+        {/* ¿En qué combi salís? Con más de una habilitada. Elegir una que
+            maneja otro pide confirmar, nombrándolo: es un relevo, y se hace
+            a propósito, no por un dedo que se corrió. */}
+        {(combis || []).length > 1 && (
+          <ElegirCombi combis={combis} miCombi={miCombi} onElegir={onElegirCombi} />
+        )}
         {/* ¿Ya estás manejando? (el vigía de la puerta). Fuerte y arriba del
             deslizador que se olvidó: no es un aviso que se vaya solo — se va
             saliendo, o diciendo que no. Salir sigue siendo deslizar. */}
@@ -2485,6 +2585,24 @@ function crearEstilos(C) { return StyleSheet.create({
     paddingVertical: 11, alignItems: 'center',
   },
   vigiaBotonTexto: { color: C.fondo, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
+  // ¿En qué combi salís?
+  combiRotulo: { color: C.cielo, fontSize: 10, letterSpacing: 1.5, fontFamily: 'monospace', marginBottom: 8 },
+  combiFila: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
+  combiFilaElegida: { borderWidth: 2, borderColor: C.brillante, paddingHorizontal: 11, paddingVertical: 9 },
+  combiCodigo: { color: C.blanco, fontSize: 20, fontWeight: '900' },
+  combiPlaca: { color: C.cielo, fontSize: 10, letterSpacing: 1, fontFamily: 'monospace' },
+  combiEstado: { color: C.tenue, fontSize: 13, fontWeight: '700' },
+  combiElegida: { color: C.cielo, fontSize: 10, letterSpacing: 1.5, fontFamily: 'monospace' },
+  combiConfirmar: { backgroundColor: C.panel, borderWidth: 1, borderColor: C.ambar, borderRadius: 12, padding: 12 },
+  combiConfirmarTexto: { color: C.blanco, fontSize: 14, lineHeight: 19 },
+  combiRelevo: { flex: 1, backgroundColor: C.ambar, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  combiRelevoTexto: { color: C.fondo, fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
+  combiCancelar: { flex: 1, borderWidth: 1, borderColor: C.linea, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  combiCancelarTexto: { color: C.cielo, fontSize: 13, fontWeight: '700' },
   diagnostico: { color: C.tenue, fontSize: 11, fontFamily: 'monospace', marginTop: 8 },
 
   centro: { flex: 1, justifyContent: 'center' },

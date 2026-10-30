@@ -314,6 +314,35 @@ async function hasta(cond, ms = 6000) {
        (await otra.mandarSos({})).ok === false);
   }
 
+  console.log('\nLA COMBI EN LA PUERTA (habilitaciones, 30/10)');
+  {
+    // Un suplente de M-08 a quien Despacho le habilita también M-12, que
+    // maneja Elmer (el relevo de arriba sigue conectado y reportando)
+    await fetch(`${API}/admin/users`, { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: 'SUP-1', name: 'Rubén Suplente', vehicleId: 'M-08', password: 'chofer1234' }) });
+    await fetch(`${API}/admin/users/SUP-1/combis`, { method: 'POST', headers: H,
+      body: JSON.stringify({ combis: ['M-08', 'M-12'] }) });
+    const sup = nuevo();
+    const sSup = await sup.entrar('SUP-1', 'chofer1234');
+    sup.conectar(sSup.token, sSup);
+    await hasta(() => sup.conectado);
+    const lista = await sup.misCombis();
+    const m12 = (lista.combis || []).find(c => c.vehicleId === 'M-12');
+    ok('misCombis trae las dos, con la de hoy primero', lista.actual === 'M-08' && lista.combis[0].vehicleId === 'M-08' && !!m12,
+       lista.combis.map(c => c.vehicleId));
+    ok('y dice quién maneja la otra', m12?.estado === 'ocupada' && m12?.quien === 'Elmer Ccama', m12);
+    let combiEv = null;
+    sup.on('combi', m => { combiEv = m; });
+    const r = await sup.elegirCombi('M-12');
+    ok('elegirCombi cambia la combi de hoy', r.vehicleId === 'M-12' && sup.sesion.vehicleId === 'M-12', r);
+    ok('y el socket avisa con «combi»', await hasta(() => combiEv?.vehicleId === 'M-12'), combiEv);
+    ok('elegir no toma nada: sigue reportando el de M-12', relevo.reportaGps === true);
+    let err = null;
+    try { await sup.elegirCombi('M-20'); } catch (e) { err = e; }
+    ok('una que no tiene habilitada: tira con el motivo del servidor', err?.status === 404 && /habilitada/.test(err.message), err?.message);
+    sup.salir();
+  }
+
   console.log('\nCAÍDAS');
   const caido = nuevo();
   const sc = await caido.entrar('M-20', 'chofer1234');

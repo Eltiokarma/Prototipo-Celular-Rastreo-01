@@ -394,6 +394,15 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     await de.fill('input[placeholder="Contraseña (o generar →)"]', D.CLAVE_CHOFER);
     await foto(de, 'd08-alta-persona');
     await clic(de, 'button:has-text("+ Alta")', 1500);
+    // Rufino también puede manejar M-07 (la de Rosa): habilitada desde acá
+    if (D.COMBIS_EXTRA_RUFINO) {
+      const fila = de.locator('div').filter({ hasText: p0.usuario }).filter({ has: de.locator('button:has-text("Combis")') }).last();
+      await fila.locator('button:has-text("Combis")').click({ timeout: 6000 });
+      await de.waitForTimeout(600);
+      for (const c of D.COMBIS_EXTRA_RUFINO) await clic(de, `[data-combis-de="${p0.usuario}"] [data-habilitar="${c}"]`, 300);
+      await foto(de, 'd08b-combis');
+      await clic(de, `[data-combis-de="${p0.usuario}"] button:has-text("Guardar")`, 1500);
+    }
     const tok = await entrar(D.DESPACHO, D.CLAVE_DESPACHO);
     for (const p of D.PERSONAS.slice(1)) {
       await pedir('/admin/users', { metodo: 'POST', token: tok, cuerpo: { unitId: p.usuario, name: p.nombre, alias: p.alias, personRole: p.rol, vehicleId: p.combi, password: D.CLAVE_CHOFER, routeId: p.ruta } });
@@ -430,7 +439,15 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     await ch.locator('input').nth(0).fill('ch-rufino');
     await ch.locator('input').nth(1).fill(D.CLAVE_CHOFER);
     await clic(ch, 'button:has-text("INGRESAR")', 2500);
+    await ch.waitForSelector('[data-combis]', { timeout: 8000 }).catch(() => {});
+    await ch.waitForTimeout(600);
     await foto(ch, 'c02-puerta');
+    // Elegir la que maneja otro pide confirmar el relevo; acá se cancela
+    if (await ch.$('[data-combi="M-07"]')) {
+      await clic(ch, '[data-combi="M-07"]', 500);
+      await foto(ch, 'c02c-relevo');
+      await clic(ch, '[data-combis] button:has-text("Cancelar")', 400);
+    }
   });
   await paso('chofer: salir a ruta, yendo', async () => {
     await clic(ch, 'button:has-text("SALIR A RUTA")', 6000);

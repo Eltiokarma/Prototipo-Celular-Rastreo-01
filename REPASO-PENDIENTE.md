@@ -646,3 +646,32 @@ casa la recuperaba sola.
 
 Suites nuevas: `relevo`, `vigia-puerta`, `puerta-web`.
 
+## Tanda 13 — varias combis por persona (30/10, sin repasar)
+
+La propuesta de `PENDIENTES.md` («varias combis por chofer»), decidida por el
+dueño y hecha como estaba escrita.
+
+### Lo que más conviene mirar, en orden
+
+1. **`users.vehicleId` sigue siendo «la combi de hoy»** y lo cambia la puerta
+   (`POST /combi`) o Despacho (`actual`). Todo lo demás lo sigue leyendo de
+   ahí. **La duda:** las pantallas guardan la sesión con la combi; la web y
+   la nativa la corrigen con el mensaje `combi` o con la respuesta, pero una
+   app vieja (APK sin esto) que esté conectada cuando Despacho le cambia la
+   combi no se entera hasta volver a entrar.
+2. **`cambiarCombiDe`**: cierra el turno abierto, suelta un mando muerto a su
+   nombre en la combi de antes, mueve la entrada de la puerta, y pasa los
+   sockets de la persona a la ruta nueva con su privado. **La duda:** el
+   privado es por COMBI —así era—: el de hoy en M-05 ve lo que Despacho le
+   escribió al de ayer.
+3. **En ruta no se cambia** (`enRutaEn`: el mando vivo de su combi de hoy):
+   ni la puerta ni Despacho.
+4. **«Cualquiera de su ruta»** (`users.todaLaRuta`): la ruta es la de su
+   combi de hoy; si elige una de otra ruta habilitada a mano, «su ruta»
+   pasa a ser esa.
+5. **La migración** habilita la combi de cada uno en cada arranque (`INSERT
+   OR IGNORE`): idempotente, y la de hoy está siempre en la lista de la
+   puerta aunque Despacho la sacara (el editor no deja sacarla).
+
+Suites nuevas: `combis`, `combis-web`; `cliente` ampliada.
+

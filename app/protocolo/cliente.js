@@ -200,6 +200,13 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
         emitir('authError', m.error);
         break;
 
+      case 'combi':
+        // La combi de hoy cambió (la eligió en la puerta, o Despacho): la
+        // sesión la corrige, o `miUnidad` buscaría la de antes
+        if (sesion) sesion = { ...sesion, vehicleId: m.vehicleId, routeId: m.routeId, routeName: m.routeName };
+        emitir('combi', { vehicleId: m.vehicleId, routeId: m.routeId, routeName: m.routeName });
+        break;
+
       case 'gps_role':
         // El dato más importante de todo el protocolo para la app nativa:
         // solo UNA conexión reporta la posición de cada vehículo, y cambia
@@ -461,6 +468,32 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     }).finally(() => clearTimeout(t));
   }
 
+  // ─── La combi, en la puerta (habilitaciones, 30/10) ──────────
+  // Las que puede elegir, con su estado (libre, o quién la maneja), y
+  // elegir una. Elegir no toma nada: la combi se toma al salir a ruta. Por
+  // HTTP y no por el socket: la puerta puede estar sin conexión viva, y el
+  // servidor contesta lo que quedó. Tiran con el mensaje del servidor.
+  async function pedirJson(ruta, opciones = {}) {
+    if (!token) throw new Error('Sin sesión');
+    const control = new AbortController();
+    const t = setTimeout(() => control.abort(), 8000);
+    try {
+      const r = await fetch(servidor + ruta, {
+        ...opciones, signal: control.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      });
+      const datos = await r.json().catch(() => ({}));
+      if (!r.ok) { const e = new Error(datos.error || 'No se pudo'); e.status = r.status; throw e; }
+      return datos;
+    } finally { clearTimeout(t); }
+  }
+  const misCombis = () => pedirJson('/mis-combis');
+  async function elegirCombi(vehicleId) {
+    const r = await pedirJson('/combi', { method: 'POST', body: JSON.stringify({ vehicleId }) });
+    if (sesion) sesion = { ...sesion, vehicleId: r.vehicleId, routeId: r.routeId, routeName: r.routeName };
+    return r;
+  }
+
   // Declarar algo por HTTP, con reintento: `true` si el servidor lo tomó.
   // Un 4xx no se reintenta (va a dar lo mismo); la falta de red, sí.
   //
@@ -620,6 +653,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     entrar, conectar, salir, cerrarSesion,
     mandarGps, mandarChat, mandarVoz, mandarFoto, mandarSos,
     marcarTipoSos, pedirMarca, marcarPresencia, recordarPresencia, marcarTrafico,
+    misCombis, elegirCombi,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {
       if (!oyentes.has(evento)) oyentes.set(evento, new Set());

@@ -1906,9 +1906,46 @@ function usarVigiaPuerta(activo, onSalir) {
   return { falta, callar };
 }
 
-function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRest, onLogout, onAutoStart }) {
+// ¿En qué combi salís? (habilitaciones, 30/10). La lista y su estado —libre,
+// o quién la maneja— se refrescan cada 20 s: en la puerta de un relevo, el
+// otro puede estar llegando o yéndose.
+function usarCombis(token, actual) {
+  const [datos, setDatos] = React.useState(null);
+  const cargar = React.useCallback(() => {
+    if (!token || !window.RealtimeClient || !window.RealtimeClient.misCombis) return;
+    window.RealtimeClient.misCombis(token).then(setDatos).catch(() => {});
+  }, [token]);
+  React.useEffect(() => {
+    cargar();
+    const t = setInterval(cargar, 20_000);
+    return () => clearInterval(t);
+  }, [cargar, actual]);
+  return [datos, cargar];
+}
+
+function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRest, onLogout, onAutoStart, token, onCombi }) {
   // ¿Ya está manejando sin haber salido? (ver el vigía, arriba)
   const { falta, callar } = usarVigiaPuerta(!!onAutoStart, onAutoStart);
+  // Las combis que puede elegir. Elegir NO toma nada: la combi se toma al
+  // salir a ruta, y si otro la está manejando, eso es un relevo — por eso
+  // elegir una ocupada pide confirmar, nombrando a quién la tiene.
+  const [datosCombis, recargarCombis] = usarCombis(token, unidad);
+  const combis = (datosCombis && datosCombis.combis) || [];
+  const [confirmar, setConfirmar] = React.useState(null);
+  const [errorCombi, setErrorCombi] = React.useState(null);
+  const [eligiendo, setEligiendo] = React.useState(false);
+  const elegir = async (c, confirmado = false) => {
+    if (c.vehicleId === unidad || eligiendo) return;
+    if (c.estado === 'ocupada' && !confirmado) { setConfirmar(c); return; }
+    setEligiendo(true); setErrorCombi(null);
+    try {
+      const r = await window.RealtimeClient.elegirCombi(token, c.vehicleId);
+      setConfirmar(null);
+      if (onCombi) onCombi(r);
+      recargarCombis();
+    } catch (e) { setErrorCombi(e.message); }
+    setEligiendo(false);
+  };
   const [countdown, setCountdown] = React.useState(15);
   React.useEffect(() => {
     if (countdown <= 0) return;
@@ -1921,7 +1958,8 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
   // cuando deja de verse, así que no hay una franja que mostrar. Se muestra
   // la ruta, que sí está en la sesión, y la tarjeta que no tiene dato no se
   // dibuja en vez de inventarlo.
-  const tarjetas = [['Unidad', unidad], ['Ruta', ruta]].filter(([, v]) => v);
+  // Con más de una combi, la unidad se elige abajo y no va en tarjeta
+  const tarjetas = [combis.length > 1 ? null : ['Unidad', unidad], ['Ruta', ruta]].filter(t => t && t[1]);
 
   return (
     <div style={{
@@ -2004,6 +2042,71 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
               }}>{val}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {combis.length > 1 && (
+        <div data-combis style={{ marginBottom: 14 }}>
+          <div style={{
+            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+            fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase', marginBottom: 8,
+          }}>¿En qué combi salís?</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {combis.map(c => {
+              const elegida = c.vehicleId === unidad;
+              return (
+                <button key={c.vehicleId} data-combi={c.vehicleId} aria-pressed={elegida}
+                  onClick={() => elegir(c)} disabled={eligiendo} style={{
+                    display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', width: '100%',
+                    background: elegida ? P.navy : P.panel, color: P.white, cursor: 'pointer',
+                    border: `${elegida ? 2 : 1}px solid ${elegida ? P.bright : P.line}`,
+                    borderRadius: 12, padding: elegida ? '9px 11px' : '10px 12px',
+                  }}>
+                  <span style={{ fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 20, letterSpacing: -0.3 }}>{c.vehicleId}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{
+                      display: 'block', fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10,
+                      letterSpacing: 1, color: P.sky, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>{[c.label, c.routeId !== rutaId ? c.routeName : null].filter(Boolean).join(' · ')}</span>
+                    <span style={{
+                      display: 'block', fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 700,
+                      color: c.estado === 'ocupada' ? P.yellow : P.mute,
+                    }}>{c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}</span>
+                  </span>
+                  {elegida && (
+                    <span style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10, letterSpacing: 1.5, color: P.sky }}>ELEGIDA</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {/* Elegir una que maneja otro: se confirma nombrando a quién. Es
+              un relevo, y se hace a propósito, no por un dedo que se corrió. */}
+          {confirmar && (
+            <div role="alert" style={{
+              marginTop: 8, background: P.panel, border: `1px solid ${P.yellow}`, borderRadius: 12, padding: 12,
+            }}>
+              <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, color: P.white, marginBottom: 10 }}>
+                {confirmar.vehicleId} la está manejando <strong>{confirmar.quien}</strong>. Si es un relevo, al
+                salir a ruta la tomás vos y a {confirmar.quien} se le avisa.
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => elegir(confirmar, true)} disabled={eligiendo} style={{
+                  flex: 1, padding: '11px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                  background: P.yellow, color: P.bg,
+                  fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 13, letterSpacing: 0.5,
+                }}>ES UN RELEVO</button>
+                <button onClick={() => setConfirmar(null)} style={{
+                  flex: 1, padding: '11px 8px', borderRadius: 10, cursor: 'pointer',
+                  background: 'transparent', color: P.sky, border: `1px solid ${P.line}`,
+                  fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 700,
+                }}>Cancelar</button>
+              </div>
+            </div>
+          )}
+          {errorCombi && (
+            <div style={{ marginTop: 8, fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, color: P.red }}>{errorCombi}</div>
+          )}
         </div>
       )}
 
@@ -2983,6 +3086,19 @@ function Root() {
     } catch {}
   }, []);
 
+  // La combi de hoy cambió: la eligió en la puerta, o Despacho. La sesión
+  // guardada también, para que mañana la puerta diga la que es.
+  const cambiarCombi = (r) => {
+    if (!r || !r.vehicleId) return;
+    setUser(u => {
+      if (!u) return u;
+      const nuevo = { ...u, vehicleId: r.vehicleId, routeId: r.routeId || u.routeId, routeName: r.routeName || u.routeName };
+      try { if (nuevo.token) localStorage.setItem('r14_session', JSON.stringify(nuevo)); } catch {}
+      return nuevo;
+    });
+    setRutaVigente(null);
+  };
+
   const onLogin = (session) => {
     setUser(session);
     setRutaVigente(null);
@@ -3061,6 +3177,9 @@ function Root() {
     });
     // Sin GPS (permiso denegado, sin fix): se dice, no se inventa (C4)
     window.RealtimeClient.on('gps', ({ ok, motivo }) => setGpsAviso(ok ? null : (motivo || 'sin GPS')));
+    // La combi de hoy cambió con la página conectada (Despacho, o el
+    // cobrador): se corrige la sesión
+    window.RealtimeClient.on('combi', (m) => cambiarCombi(m));
 
     window.RealtimeClient.on('state', (state) => {
       // La ruta y su objetivo de brecha los define el servidor, no la app:
@@ -3336,6 +3455,8 @@ function Root() {
         setScreen('app');
       }}
       onLogout={logout}
+      token={user?.token || null}
+      onCombi={cambiarCombi}
     />;
   } else {
     content = <CombiScreen

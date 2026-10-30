@@ -657,6 +657,52 @@ cierra TODAS las sesiones de esa persona, incluida la que lo pide, y corta sus
 WebSocket abiertos. Es el remedio para el teléfono perdido: lo que da acceso
 no es la contraseña sino el token, que vive 30 días (P11).
 
+## 4octies. La combi, en la puerta: `GET /mis-combis`, `POST /combi`
+
+Desde el 30/10 (habilitaciones). Una persona puede tener **varias combis
+habilitadas** —las elige Despacho, o «cualquiera de su ruta» para el
+suplente— y en la puerta, antes de salir a ruta, elige en cuál sale. Lo
+demás del protocolo no cambia: todo sigue leyendo «la combi de hoy»
+(`vehicleId` de la sesión).
+
+`GET /mis-combis` (Bearer, chofer o cobrador; Despacho recibe 403):
+
+```json
+{ "actual": "M-05", "todaLaRuta": false, "enRuta": false,
+  "combis": [
+    { "vehicleId": "M-05", "label": "Z1A-705", "routeId": "R-14", "routeName": "…", "estado": "libre", "quien": null, "desde": null },
+    { "vehicleId": "M-01", "label": "Z1A-701", "routeId": "R-14", "routeName": "…", "estado": "ocupada", "quien": "Juan", "desde": 1793393000000 }
+  ] }
+```
+
+`estado` es `libre`, `tuya` (el mando vivo es tuyo) u `ocupada` (otro la
+maneja ahora, con `quien` y la hora en que se lo oyó por última vez). La de
+hoy va primero.
+
+`POST /combi` con `{ "vehicleId": "M-01" }` la pasa a ser la de hoy:
+`200 { ok, vehicleId, routeId, routeName, label }`. La ruta va con la combi.
+**Elegir no toma nada**: la combi se toma al declarar `ruta` (§3.1), y si
+otro la maneja eso es un relevo —la app pide confirmarlo antes, nombrando a
+quién la tiene—. Una combi que no tiene habilitada (o de otra cooperativa)
+contesta `404`; estando en ruta en la de hoy, `409` («tocá SALIR DE RUTA
+antes de cambiar de combi»). Por el socket, a todas las conexiones de la
+persona les llega:
+
+```json
+{ "type": "combi", "vehicleId": "M-01", "routeId": "R-14", "routeName": "…" }
+```
+
+seguido del `state`, el `chat_history` (el privado es por COMBI: el de hoy en
+M-01 ve lo que Despacho le escribió al de M-01) y el `route_geometry` de su
+ruta. El cliente corrige su sesión con eso.
+
+Despacho: `POST /admin/users/:unitId/combis` con `{ "combis": ["M-01",
+"M-05"], "todaLaRuta": false, "actual": "M-05" }` (la lista entera; `actual`
+opcional cambia la de hoy, con la misma regla de no estar en ruta). Un
+Despacho de ruta sólo habilita combis de su ruta. `GET /admin/users` trae
+`combis` y `todaLaRuta` de cada persona; `GET /admin/vehicles`, los
+`habilitados` de cada combi.
+
 ## 5. Reconexión y caídas
 
 - La app web reconecta **cada 3 s** (`project/realtime.js`) y al volver a
