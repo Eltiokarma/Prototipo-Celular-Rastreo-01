@@ -40,6 +40,8 @@
   // servidor la tiene en memoria, y un reinicio suyo (o un corte de señal)
   // no puede convertir a alguien que declaró en alguien que nunca declaró.
   let presenciaDeclarada = null;
+  // ¿Ya llegó al servidor alguna vez? (ver `onopen`)
+  let presenciaEntregada = false;
 
   function emit(event, data) {
     (listeners[event] || []).forEach(fn => fn(data));
@@ -101,11 +103,19 @@
       // la ausencia de declaración como 'ruta', la compatibilidad de siempre.
       // El motivo 'auto' del vigía de la puerta viaja en ESTA si todavía no
       // salió: en la puerta la web no tiene socket ni token (opción C).
+      //
+      // Y si ya se había entregado (esto es una reconexión, o la página que
+      // retoma tras un recargo), va como re-declaración: con otro manejando
+      // esa combi, el servidor no la toma como un relevo — un relevo es
+      // tocar SALIR A RUTA, no que vuelva la señal (revisión previa a la APK).
       if (presenciaDeclarada) {
         send(motivoPendiente
           ? { type: 'presencia', estado: presenciaDeclarada, motivo: motivoPendiente }
-          : { type: 'presencia', estado: presenciaDeclarada });
+          : presenciaEntregada
+            ? { type: 'presencia', estado: presenciaDeclarada, redeclara: true }
+            : { type: 'presencia', estado: presenciaDeclarada });
         motivoPendiente = null;
+        presenciaEntregada = true;
       }
 
       // Arrancar el envío de GPS
@@ -207,6 +217,7 @@
     authToken = null;
     authUnitId = null;
     presenciaDeclarada = null;
+    presenciaEntregada = false;
     motivoPendiente = null;
     reportaGps = true;
     lastPosition = null;
@@ -592,19 +603,23 @@
   // (opción C, 30/10): el servidor lo anota para Despacho. Sólo viaja esta
   // vez; lo que se re-declara al reconectar ya no lo lleva.
   let motivoPendiente = null;
-  function setPresencia(estado, motivo) {
+  // `retomada`: la presencia que la página guardó antes de un recargo. No la
+  // eligió nadie ahora: viaja como re-declaración, igual que al reconectar.
+  function setPresencia(estado, motivo, { retomada = false } = {}) {
     presenciaDeclarada = estado;
+    presenciaEntregada = retomada;
     motivoPendiente = null;
-    const cuerpo = motivo ? { estado, motivo } : { estado };
+    const cuerpo = motivo ? { estado, motivo } : retomada ? { estado, redeclara: true } : { estado };
     let porSocket = false;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ type: 'presencia', ...cuerpo })); porSocket = true; } catch {}
+      try { ws.send(JSON.stringify({ type: 'presencia', ...cuerpo })); porSocket = true; presenciaEntregada = true; } catch {}
     }
     const socketVivo = porSocket && Date.now() - ultimoOido < OIDO_RECIENTE_MS;
     if (porSocket && (estado !== 'fuera' || socketVivo)) return;
     // Sin socket ni token (la puerta de la web): sale con la conexión
     if (!porSocket && !authToken && motivo) motivoPendiente = motivo;
     if (authToken) {
+      presenciaEntregada = true;
       fetch(HTTP_URL + '/presencia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
@@ -640,10 +655,16 @@
   // Antes de salir a ruta no hay socket ni token guardado acá: el token va
   // explícito. Devuelven el JSON del servidor, o tiran con el mensaje.
   async function pedirConToken(ruta, token, opciones = {}) {
-    const res = await fetch(HTTP_URL + ruta, {
-      ...opciones,
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-    });
+    let res;
+    try {
+      res = await fetch(HTTP_URL + ruta, {
+        ...opciones,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      });
+    } catch {
+      // Sin red el navegador dice «Failed to fetch», en inglés
+      const e = new Error('Sin conexión con el servidor. Probá de nuevo.'); e.status = 0; throw e;
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { const e = new Error(data.error || 'No se pudo'); e.status = res.status; throw e; }
     return data;

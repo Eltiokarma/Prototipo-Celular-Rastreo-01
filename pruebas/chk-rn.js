@@ -8,6 +8,7 @@
 const path = require('path');
 const fs = require('fs');
 const babel = require(path.join(__dirname, 'node_modules/@babel/standalone'));
+const zonaMuerta = require('./zona-muerta');
 
 const RAIZ = path.join(__dirname, '..');
 const ARCHIVOS = process.argv.slice(2).length ? process.argv.slice(2) : [
@@ -37,10 +38,15 @@ for (const rel of ARCHIVOS) {
   const abs = path.isAbsolute(rel) ? rel : path.join(RAIZ, rel);
   if (!fs.existsSync(abs)) { malos++; console.log('FALTA ' + rel); continue; }
   try {
-    babel.transform(fs.readFileSync(abs, 'utf8'), {
-      presets: ['react'], filename: abs, sourceType: 'unambiguous',
+    const fuente = fs.readFileSync(abs, 'utf8');
+    const usos = [];
+    babel.transform(fuente, {
+      presets: ['react'], filename: abs, sourceType: 'unambiguous', plugins: [zonaMuerta(usos, fuente)],
     });
-    console.log('OK    ' + rel);
+    if (usos.length) {
+      malos++;
+      console.log('ERROR ' + rel + ': usada antes de declararse\n      ' + usos.join('\n      '));
+    } else console.log('OK    ' + rel);
   } catch (e) {
     malos++;
     console.log('ERROR ' + rel + '\n      ' + e.message.split('\n')[0]);

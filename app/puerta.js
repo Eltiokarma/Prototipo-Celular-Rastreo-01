@@ -48,12 +48,14 @@ function metrosEntre(aLat, aLng, bLat, bLng) {
 // El vigía de UNA estadía en la puerta. Se crea al llegar a la puerta y se
 // tira al salir de ella (a ruta o ausente, o al cerrar sesión).
 function crearVigiaPuerta({ radioM = RADIO_M, marchaKmh = MARCHA_KMH, ventanaMs = VENTANA_MS,
-  avisoMs = AVISO_MS, calladoMs = CALLADO_MS } = {}) {
+  avisoMs = AVISO_MS, calladoMs = CALLADO_MS, calladoHasta: callado = 0 } = {}) {
   let ancla = null;          // dónde estaba al entrar (o al decir «no estoy manejando»)
   let recientes = [];        // { lat, lng, ts } de las últimas ventanas
   let seguidas = 0;
   let avisoDesde = null;     // cuándo empezó la cuenta regresiva
-  let calladoHasta = 0;
+  // Lo de «no estoy manejando» sobrevive a rehacer el vigía (la app fue
+  // atrás y volvió): quien lo crea pasa hasta cuándo (revisión previa a la APK)
+  let calladoHasta = callado;
 
   const vencio = (ts) => avisoDesde !== null && ts - avisoDesde >= avisoMs;
 

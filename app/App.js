@@ -44,7 +44,7 @@ import { tomarFoto, elegirFoto, comoTexto } from './foto';
 import { WebView } from 'react-native-webview';
 import * as gps from './gps/servicio';
 import * as Location from 'expo-location';
-import { crearVigiaPuerta } from './puerta';
+import { crearVigiaPuerta, CALLADO_MS } from './puerta';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
 // un teléfono no depende de la red de casa. Para pegarle a un servidor local
@@ -226,6 +226,7 @@ function Aplicacion() {
   const [canal, setCanal] = React.useState('grupo');        // 'grupo' | 'directo' | 'personal'
   const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0, personal: 0 });
   const cliente = React.useRef(null);
+  const alCambiarDeCombi = React.useRef(() => {});
 
   // ── El cliente vive fuera de React ──────────────────────────
   // Se crea una sola vez: si se recreara en cada render, cada cambio de
@@ -238,12 +239,10 @@ function Aplicacion() {
       c.on('geometria', (g) => setGeometria(g)),
       // La combi de hoy cambió (en la puerta, o Despacho): la sesión, y la
       // guardada, para que al reabrir la app diga la que es
-      c.on('combi', (m) => setSesion(prev => {
-        if (!prev) return prev;
-        const nueva = { ...prev, vehicleId: m.vehicleId, routeId: m.routeId, routeName: m.routeName };
-        SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
-        return nueva;
-      })),
+      //
+      // El servidor la manda en cada identify: si es la misma, nada (antes
+      // reescribía el disco en cada reconexión).
+      c.on('combi', (m) => alCambiarDeCombi.current(m)),
       c.on('conexion', ({ conectado }) => setConectado(conectado)),
       c.on('rolGps', ({ reporta, motivo }) => {
         // «Modo acompañante» no es un aviso: es lo que es el cobrador, y el
@@ -349,7 +348,7 @@ function Aplicacion() {
     if (s.role === 'collector') { setPresencia('fuera'); return; }
     if (previa === 'ruta' || previa === 'ausente') {
       setPresencia(previa);
-      cliente.current.marcarPresencia(previa);
+      cliente.current.marcarPresencia(previa, null, { retomada: true });
       const permisos = await gps.pedirPermisos();
       if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
       setAviso(null);   // el aviso de permisos viejo no sobrevive al permiso dado
@@ -378,10 +377,19 @@ function Aplicacion() {
       // durante todo el almuerzo.
       if (nueva === 'ausente') limpiarNotificacion().catch(() => {});
       saliendo.current = false;
+      // El «el GPS se apagó: otro chofer tomó la unidad» de antes no vale
+      // para esta salida: el vigilante lo veía y no rearrancaba nunca el
+      // servicio que esta salida acaba de pedir (revisión previa a la APK).
+      // Si el otro sigue manejando, el servidor lo vuelve a decir.
+      gps.diagnostico.detenidoPor = null;
       const permisos = await gps.pedirPermisos();
       if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
       setAviso(null);   // ídem: al dar el permiso, el cartel viejo se va
-      await gps.arrancar({ textoNotificacion: textoRef.current });
+      // Recién salido todavía no hay rol: `reporta` es el de antes (o el
+      // inicial), y la notificación arrancaba diciendo «Modo acompañante» al
+      // que sale a manejar. Si de verdad lo es, el servicio la reemplaza
+      // con la primera respuesta del servidor.
+      await gps.arrancar({ textoNotificacion: reporta ? textoRef.current : 'Turno en curso' });
     }
   };
 
@@ -402,16 +410,30 @@ function Aplicacion() {
   }, []);
   const vigiaPuerta = React.useRef(null);
   const [faltaPuerta, setFaltaPuerta] = React.useState(null);
+  // Las combis que puede elegir (ver más abajo): acá arriba porque el vigía
+  // necesita saber si la de hoy la está manejando otro
+  const [combis, setCombis] = React.useState(null);
+  const [avisoSalida, setAvisoSalida] = React.useState(null);   // cuándo salió solo
   const salirSolo = React.useRef(null);
   salirSolo.current = () => {
     setFaltaPuerta(null);
     cambiarPresencia('ruta', 'auto');
-    setAviso('Te vimos manejando: saliste a ruta solo');
+    // En su propio estado y no en `aviso`: el `rolGps` de la conexión que
+    // abre la salida lo borraba al instante (revisión previa a la APK)
+    setAvisoSalida(Date.now());
   };
-  const mirarPuerta = !!sesion && sesion.role !== 'collector' && presencia === 'fuera' && primerPlano;
+  // «No estoy manejando» vale media hora aunque el vigía se rehaga (la app
+  // fue atrás y volvió, cambió la combi): antes volvía a contar enseguida
+  const calladoHasta = React.useRef(0);
+  // La combi elegida la está manejando otro: ahí el que maneja es él, y éste
+  // va de pasajero o la está por relevar — eso se decide deslizando SALIR A
+  // RUTA, no con una cuenta que nadie contestó (revisión previa a la APK).
+  const deHoy = (combis || []).find(c => c.vehicleId === sesion?.vehicleId);
+  const ocupada = !!deHoy && deHoy.estado === 'ocupada';
+  const mirarPuerta = !!sesion && sesion.role !== 'collector' && presencia === 'fuera' && primerPlano && !ocupada;
   React.useEffect(() => {
     if (!mirarPuerta) { setFaltaPuerta(null); return; }
-    const v = crearVigiaPuerta();
+    const v = crearVigiaPuerta({ calladoHasta: calladoHasta.current });
     vigiaPuerta.current = v;
     let vivo = true, sub = null;
     const reloj = setInterval(() => {
@@ -421,15 +443,26 @@ function Aplicacion() {
     }, 1000);
     (async () => {
       try {
+        // Los dos permisos YA dados, y la ubicación prendida: salir solo
+        // arranca el servicio de fondo, y sin el permiso de fondo eso
+        // abría el diálogo de permisos con nadie mirando. Y sin
+        // `mayShowUserSettingsDialog: false` Android ofrecía prender la
+        // ubicación en la puerta, que es pedirla antes de salir a ruta.
         const p = await Location.getForegroundPermissionsAsync();
         if (!vivo || !p.granted) return;
+        const f = await Location.getBackgroundPermissionsAsync();
+        if (!vivo || !f.granted) return;
+        if (!(await Location.hasServicesEnabledAsync()) || !vivo) return;
         sub = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 0 },
+          { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 0, mayShowUserSettingsDialog: false },
           (pos) => {
             if (!vivo) return;
             const r = v.posicion(pos.coords.latitude, pos.coords.longitude, Date.now(), pos.coords.accuracy);
             if (r === 'avisar') {
               setFaltaPuerta(v.faltaMs(Date.now()));
+              // El aviso está en la pantalla de ruta: si estaba en el chat o
+              // en el mapa, la cuenta corría sin que nada se viera
+              setPantalla('ruta');
               Vibration.vibrate([0, 400, 200, 400, 200, 400]);
             }
             if (r === 'salir') { vivo = false; salirSolo.current(); }
@@ -444,19 +477,34 @@ function Aplicacion() {
     };
   }, [mirarPuerta]);
   const noEstoyManejando = () => {
-    if (vigiaPuerta.current) vigiaPuerta.current.callar(Date.now());
+    const ahora = Date.now();
+    if (vigiaPuerta.current) vigiaPuerta.current.callar(ahora);
+    calladoHasta.current = ahora + CALLADO_MS;
     setFaltaPuerta(null);
   };
+  React.useEffect(() => {
+    if (!avisoSalida) return;
+    const t = setTimeout(() => setAvisoSalida(null), 2 * 60_000);
+    return () => clearTimeout(t);
+  }, [avisoSalida]);
 
   // ── ¿En qué combi salís? (habilitaciones, 30/10) ────────────
   // En la puerta, la lista de las que puede elegir con su estado —libre, o
   // quién la maneja—, refrescada cada 20 s. Elegir no toma nada: la combi se
   // toma al deslizar SALIR A RUTA, y si otro la maneja eso es un relevo.
-  const [combis, setCombis] = React.useState(null);
-  const enLaPuerta = !!sesion && presencia === 'fuera' && primerPlano;
+  //
+  // El cobrador no: queda siempre «fuera» (no emite), y preguntaba cada 20 s
+  // todo el día una lista que no usa.
+  const enLaPuerta = !!sesion && sesion.role !== 'collector' && presencia === 'fuera' && primerPlano;
   const recargarCombis = React.useCallback(() => {
     if (!cliente.current) return;
-    cliente.current.misCombis().then(d => setCombis(d.combis || [])).catch(() => {});
+    cliente.current.misCombis().then(d => {
+      setCombis(d.combis || []);
+      // La de hoy la decide el servidor: Despacho pudo cambiarla con la app
+      // cerrada, y la sesión seguía con la vieja
+      const actual = d.actual && (d.combis || []).find(c => c.vehicleId === d.actual);
+      if (actual) alCambiarDeCombi.current(actual);
+    }).catch(() => {});
   }, []);
   React.useEffect(() => {
     if (!enLaPuerta) return;
@@ -468,14 +516,34 @@ function Aplicacion() {
   const elegirCombi = async (vehicleId) => {
     try {
       const r = await cliente.current.elegirCombi(vehicleId);
-      setSesion(prev => {
-        const nueva = { ...prev, vehicleId: r.vehicleId, routeId: r.routeId, routeName: r.routeName };
-        SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
-        return nueva;
-      });
+      alCambiarDeCombi.current(r);
       recargarCombis();
       return null;
-    } catch (e) { return e.message || 'No se pudo'; }
+    } catch (e) {
+      recargarCombis();   // la lista puede estar vieja: otro la tomó
+      return e.message || 'No se pudo';
+    }
+  };
+  // La combi de hoy cambió: la eligió acá, la cambió Despacho, o llegó con
+  // la conexión. La sesión y la guardada; si es la misma, nada. Y si cambió
+  // con la app EN RUTA (iba de acompañante o lo relevaron), vuelve a la
+  // puerta: al reconectar re-declaraba 'ruta' en la combi nueva, que puede
+  // estar manejando otro. Salir en ella es deslizar SALIR A RUTA.
+  alCambiarDeCombi.current = (m) => {
+    if (!m || !m.vehicleId || !sesion) return;
+    const routeId = m.routeId || sesion.routeId, routeName = m.routeName || sesion.routeName;
+    if (m.vehicleId === sesion.vehicleId && routeId === sesion.routeId && routeName === sesion.routeName) return;
+    const otraCombi = m.vehicleId !== sesion.vehicleId;
+    setSesion(prev => {
+      if (!prev) return prev;
+      const nueva = { ...prev, vehicleId: m.vehicleId, routeId: m.routeId || prev.routeId, routeName: m.routeName || prev.routeName };
+      SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
+      return nueva;
+    });
+    if (otraCombi && presencia !== 'fuera' && sesion.role !== 'collector') {
+      cambiarPresencia('fuera');
+      setAviso(`Despacho te pasó a ${m.vehicleId}. Para salir en ella, deslizá SALIR A RUTA.`);
+    }
   };
 
   // ── Las posiciones NO se mandan desde acá ───────────────────
@@ -514,6 +582,9 @@ function Aplicacion() {
     // también, para no mostrar «en vivo» lo de otro (repaso de la tanda 9).
     setMarca(null); setEstado(null); setGeometria(null); setHud(construirHud(null));
     setCanal('grupo'); setVistoHasta({ grupo: 0, directo: 0, personal: 0 }); setAviso(null);
+    // Las combis y el vigía del anterior tampoco: el siguiente veía la lista
+    // del otro hasta que contestara el servidor (revisión previa a la APK)
+    setCombis(null); calladoHasta.current = 0; setAvisoSalida(null); setReporta(false);
   };
 
   // El texto de la notificación va en un ref para que los oyentes se
@@ -751,6 +822,8 @@ function Aplicacion() {
         onPresencia={cambiarPresencia}
         faltaPuerta={faltaPuerta}
         onNoManejo={noEstoyManejando}
+        avisoSalida={avisoSalida}
+        onAvisoSalidaVisto={() => setAvisoSalida(null)}
         combis={combis}
         miCombi={sesion?.vehicleId || null}
         onElegirCombi={elegirCombi}
@@ -979,6 +1052,9 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
   return (
     <View style={{ marginBottom: 12 }}>
       <Text style={s.combiRotulo}>¿EN QUÉ COMBI SALÍS?</Text>
+      {/* Con alto máximo: con cinco o seis combis la lista empujaba el
+          deslizador de SALIR A RUTA fuera de la pantalla */}
+      <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
       {combis.map(c => {
         const elegida = c.vehicleId === miCombi;
         return (
@@ -995,6 +1071,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
           </Pressable>
         );
       })}
+      </ScrollView>
       {confirmar && (
         <View style={s.combiConfirmar}>
           <Text style={s.combiConfirmarTexto}>
@@ -1016,7 +1093,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
   );
 }
 
-function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeidos, marca,
+function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
                 tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol,
                 faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi }) {
@@ -1098,7 +1175,9 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
         {/* ¿En qué combi salís? Con más de una habilitada. Elegir una que
             maneja otro pide confirmar, nombrándolo: es un relevo, y se hace
             a propósito, no por un dedo que se corrió. */}
-        {(combis || []).length > 1 && (
+        {/* Mientras cuenta el vigía, no: con varias combis el aviso quedaba
+            debajo de la lista, fuera de la pantalla de un teléfono chico. */}
+        {(combis || []).length > 1 && faltaPuerta == null && (
           <ElegirCombi combis={combis} miCombi={miCombi} onElegir={onElegirCombi} />
         )}
         {/* ¿Ya estás manejando? (el vigía de la puerta). Fuerte y arriba del
@@ -1180,6 +1259,16 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
           servicio de ubicación ni arrancó por falta de permiso — la única
           pista visible era la línea roja del servicio. */}
       {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
+
+      {/* Salió solo (el vigía de la puerta): que lo sepa, hasta que lo toque */}
+      {!!avisoSalida && (
+        <Pressable onPress={onAvisoSalidaVisto} style={s.vigiaPuerta}>
+          <Text style={s.vigiaTitulo}>SALISTE A RUTA SOLO</Text>
+          <Text style={s.vigiaTexto}>
+            Te vimos manejando sin haber deslizado SALIR A RUTA. Despacho lo ve en la actividad. Tocá para cerrar.
+          </Text>
+        </Pressable>
+      )}
 
       {/* «Hay una versión nueva» / «ésta ya no sirve»: lo dice el servidor
           con el login (P5). Se queda a la vista; no es un toast. */}

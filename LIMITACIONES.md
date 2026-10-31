@@ -121,20 +121,25 @@ limitación se resuelva o aparezca una nueva.
   el mundo, y no hay cupos por empresa. La auditoría sí está acotada por
   empresa (1000 movimientos cada una), que era el caso donde la más movida
   le borraba el registro a las demás.
-- **Sin backups automáticos** de la base (usuarios, chat, vueltas,
-  auditoría). Un backup periódico del archivo `r14.db` es tarea
-  pendiente de operación. Con varias cooperativas adentro hay algo más:
-  **no se puede restaurar una sola** — el backup es del archivo entero, así
-  que volver atrás por un problema de una empresa arrastra a las otras.
+- **Los respaldos automáticos quedan en el mismo volumen** (cada 6 h,
+  verificados y con rotación; ver PENDIENTES 1.2). Sacarlos de ahí —a otra
+  máquina— es a mano, descargándolos desde el panel del creador: si se
+  pierde el volumen, se pierden con él. Y con varias cooperativas adentro
+  **no se puede restaurar una sola** — el respaldo es del archivo entero,
+  así que volver atrás por un problema de una empresa arrastra a las otras.
+- **Un reinicio pierde lo que estaba a medias en memoria** (revisión del
+  31/10): las vueltas en curso, los desvíos abiertos y la variante forzada
+  a mano. La marca del relevado y las sesiones sí sobreviven. Un deploy en
+  hora pico le tira a cada combi la vuelta que estaba haciendo.
 - **Dar de alta una cooperativa lo hacemos nosotros**, desde el panel del
   creador o la consola. Es a propósito (ver README, Niveles de seguridad),
   pero significa que ninguna se da de alta sola ni la puede dar de alta un
   vendedor: escala hasta donde escale nuestro tiempo.
-- **Dependencia de CDNs gratuitos:** React, Babel y Leaflet cargan
-  desde unpkg, los tiles del mapa desde CartoCDN, las fuentes desde
-  Google Fonts. Ninguno tiene contrato de servicio: si un CDN falla y
-  el celular no tiene la app en caché, no carga. Mitigación futura:
-  empaquetar las librerías en el propio hosting.
+- **Dependencia de CDNs gratuitos:** React y Babel cargan desde unpkg, los
+  tiles del mapa desde CartoCDN (o el mapa propio, si está desplegado), las
+  fuentes desde Google Fonts. Ninguno tiene contrato de servicio: si un CDN
+  falla y el celular no tiene la app en caché, no carga. Leaflet ya no: va
+  servido por el propio servidor y adentro del APK (PENDIENTES 2.2).
 - **Babel compila en el navegador** (sin paso de build): arranque en
   frío más lento en celulares viejos. Aceptable en prototipo; en
   producción conviene precompilar.
@@ -257,8 +262,10 @@ limitación se resuelva o aparezca una nueva.
   cortas puedan seguir entrando hasta que se les resetee. Conviene resetear
   las viejas.
 - **Sesiones en el celular:** un teléfono robado desbloqueado tiene la
-  sesión activa (30 días). Mitigación: Despacho puede resetear la clave
-  o dar de baja y la sesión muere al instante.
+  sesión activa — y desde el 31/10 la sesión se renueva con el uso, así que
+  mientras el que lo tiene la use no vence nunca. Mitigación: Despacho puede
+  resetear la clave o dar de baja y la sesión muere al instante; el chofer,
+  «cerrar todas mis sesiones» desde su perfil.
 - **El "root" es la infraestructura:** quien controla Railway o el repo
   controla todo (documentado en README como diseño intencional).
 - El límite de intentos vive en memoria (se resetea al reiniciar el

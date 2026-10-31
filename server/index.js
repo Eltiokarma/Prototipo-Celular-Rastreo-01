@@ -195,6 +195,18 @@ border-radius:6px;padding:2px 6px;font-size:14px}.d{color:#8FA8C0;font-size:14px
 
 const Database = require('better-sqlite3');
 const db = openDatabase(Database);
+// En producción, la base es la configurada o no hay servidor. `openDatabase`
+// cae a `server/r14.db` y después a memoria para que una demo arranque igual;
+// en producción eso es un desastre silencioso: con el volumen sin montar el
+// servidor arrancaba con una cooperativa NUEVA y vacía, `/ping` contestaba
+// 200, todos los tokens dejaban de valer y lo que se escribía se perdía en el
+// próximo deploy (revisión previa a la APK, 31/10: medido).
+if (String(process.env.MODO || '').trim().toLowerCase() !== 'demo' && process.env.DB_FILE &&
+    (!db || path.resolve(db.name) !== path.resolve(process.env.DB_FILE))) {
+  console.error(`✖ No se pudo abrir la base configurada (DB_FILE=${process.env.DB_FILE}).`);
+  console.error('  En producción no se arranca con otra: revisá que el volumen esté montado.');
+  process.exit(1);
+}
 // Cada SQL se compila UNA vez. `db.prepare(...)` dentro de las funciones del
 // camino caliente (la sesión de cada pedido, el turno, la ruta, la combi)
 // compilaba en cada llamada: medido a 2000 unidades, el 17 % del tiempo del
@@ -1085,11 +1097,28 @@ function tokenDe(req) {
 }
 
 // Devuelve el usuario dueño de un token vigente, o null
+// La sesión se RENUEVA con el uso: cuando a una que se está usando le queda
+// menos que esto, vuelve a valer SESSION_DAYS. Con el vencimiento fijo, toda
+// la flota dada de alta el mismo día quedaba afuera la misma mañana, a mitad
+// de turno, un mes después de arrancar —la app borra la sesión y apaga el GPS
+// al tercer 401—, y las claves que hacía falta volver a poner eran las que
+// nadie recordaba (revisión previa a la APK, 31/10). Una sesión que no se usa
+// en un mes sigue venciendo, y cambiar la clave o «cerrar todas» la cortan
+// como siempre.
+const SESION_RENOVAR_MS = 7 * 86_400_000;
+const renovarSesion = (token, expiresAt, ahora = Date.now()) => {
+  if (expiresAt - ahora < SESION_RENOVAR_MS) {
+    db.prepare('UPDATE sessions SET expiresAt = ? WHERE token = ?').run(ahora + SESSION_DAYS * 86_400_000, token);
+  }
+};
+
 function sessionUser(token) {
   if (typeof token !== 'string' || token.length < 20) return null;
-  const s = db.prepare('SELECT unitId FROM sessions WHERE token = ? AND expiresAt > ?')
-    .get(token, Date.now());
+  const ahora = Date.now();
+  const s = db.prepare('SELECT unitId, expiresAt FROM sessions WHERE token = ? AND expiresAt > ?')
+    .get(token, ahora);
   if (!s) return null;
+  renovarSesion(token, s.expiresAt, ahora);
   return db.prepare(
     'SELECT unitId, driverName, name, alias, role, routeId, vehicleId, companyId, appVersion, appVersionCode FROM users WHERE unitId = ?'
   ).get(s.unitId) || null;
@@ -1119,10 +1148,13 @@ setInterval(() => {
 const REVISAR_SESIONES_MS = Number(process.env.REVISAR_SESIONES_MS || 60_000);
 setInterval(() => {
   const ahora = Date.now();
-  const vigente = db.prepare('SELECT 1 FROM sessions WHERE token = ? AND expiresAt > ?');
+  const vigente = db.prepare('SELECT expiresAt FROM sessions WHERE token = ? AND expiresAt > ?');
   let cerrados = 0;
   for (const [ws, token] of tokenDeSocket) {
-    if (vigente.get(token, ahora)) continue;
+    const fila = vigente.get(token, ahora);
+    // Un socket abierto es una sesión en uso: se renueva (la web del chofer
+    // y Despacho viven del socket, no de pedidos HTTP)
+    if (fila) { renovarSesion(token, fila.expiresAt, ahora); continue; }
     cerrados++;
     try {
       ws.send(JSON.stringify({ type: 'auth_error', error: 'Tu sesión terminó. Volvé a entrar.' }));
@@ -2143,17 +2175,63 @@ function otroTieneElMando(vehicleId, personId) {
 const RELEVO_MAX_MS = Number(process.env.RELEVO_MAX_MS || 6 * 60 * 60_000);
 const relevados = new Map();
 // relevados = { personId → { vehicleId, desde } }
+//
+// Y en la base, no sólo en memoria: un reinicio del servidor (un deploy, una
+// caída) la borraba, y el relevado que reconectaba desde su casa le volvía a
+// sacar la combi al que la estaba manejando —probado matando el servidor con
+// el relevo hecho (revisión previa a la APK, 31/10)—. Se escribe sólo cuando
+// cambia (un relevo, una salida, un login), no en cada posición.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS relevos (
+    personId TEXT PRIMARY KEY,
+    vehicleId TEXT NOT NULL,
+    desde INTEGER NOT NULL
+  )
+`);
+// Al arrancar se cargan también las que pasaron las RELEVO_MAX_MS: en memoria
+// esas siguen valiendo mientras el otro maneje, y eso recién se sabe cuando
+// reconecte. Las de más de un día se tiran.
+const RELEVO_GUARDA_MS = Math.max(RELEVO_MAX_MS, 24 * 60 * 60_000);
+for (const r of db.prepare('SELECT personId, vehicleId, desde FROM relevos WHERE desde > ?').all(Date.now() - RELEVO_GUARDA_MS)) {
+  relevados.set(r.personId, { vehicleId: r.vehicleId, desde: r.desde });
+}
+db.prepare('DELETE FROM relevos WHERE desde <= ?').run(Date.now() - RELEVO_GUARDA_MS);
+function marcarRelevado(personId, vehicleId) {
+  const desde = Date.now();
+  relevados.set(personId, { vehicleId, desde });
+  db.prepare('INSERT OR REPLACE INTO relevos (personId, vehicleId, desde) VALUES (?, ?, ?)').run(personId, vehicleId, desde);
+}
+function borrarRelevado(personId) {
+  if (!relevados.delete(personId)) return;
+  db.prepare('DELETE FROM relevos WHERE personId = ?').run(personId);
+}
+// La marca vale mientras OTRO maneje esa combi, por más horas que pasen: con
+// un vencimiento fijo, a las seis horas el relevado que seguía con la app en
+// 'ruta' re-declaraba al reconectar y se la sacaba al que la manejaba —el
+// mismo robo de antes, con seis horas de demora—. Pasadas las RELEVO_MAX_MS y
+// con nadie manejándola (otro día), la marca se va sola.
 function esRelevado(vehicleId, personId) {
   const r = relevados.get(personId);
-  if (!r) return false;
-  if (r.vehicleId !== vehicleId || Date.now() - r.desde > RELEVO_MAX_MS) {
-    if (Date.now() - r.desde > RELEVO_MAX_MS) relevados.delete(personId);
-    return false;
-  }
-  return true;
+  if (!r || r.vehicleId !== vehicleId) return false;
+  if (Date.now() - r.desde <= RELEVO_MAX_MS) return true;
+  const dueno = duenoDe.get(vehicleId);
+  if (dueno && dueno.personId !== personId && mandoVivo(vehicleId)) return true;
+  borrarRelevado(personId);
+  return false;
 }
 const MOTIVO_RELEVADO = 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa. ' +
   'Para volver a manejarla: SALIR DE RUTA y después SALIR A RUTA.';
+// La salida automática (el vigía de la puerta) o la re-declaración de una
+// reconexión que encuentran la combi con otro manejando: no es un relevo.
+// Quién maneja una combi ahora (para decirlo), o null
+function quienManeja(vehicleId) {
+  const d = duenoDe.get(vehicleId);
+  if (!d) return null;
+  const u = db.prepare('SELECT name, alias, driverName, unitId FROM users WHERE unitId = ?').get(d.personId);
+  return u ? displayName(u) : d.personId;
+}
+const MOTIVO_OCUPADA = (quien) => `${quien || 'Otro chofer'} está manejando esta combi: la app no la toma sola. ` +
+  'Si es un relevo, tocá SALIR A RUTA vos.';
 // A quién no se le volvió a decir que su GPS no se usa: el que manda
 // posiciones sin el mando recibe el aviso una vez por conexión, no cada 3 s.
 const avisadoSinMando = new WeakSet();
@@ -2253,9 +2331,15 @@ function puertaDeRuta(routeId, ahora = Date.now()) {
   }
   return lista.sort((a, b) => a.desde - b.desde);
 }
-// A los supervisores que miran esa ruta, y a nadie más: los teléfonos de los
-// choferes no tienen por qué saber quién de sus compañeros no salió. Con un
-// segundo de espera, porque la web entra en la puerta y al tocar SALIR A RUTA
+// A Despacho y la gerencia que miran esa ruta —el de ruta también, no sólo
+// el supervisor: el Despacho atado a la 18A no la recibía nunca (revisión
+// previa a la APK)—, y a nadie más: los teléfonos de los choferes no tienen
+// por qué saber quién de sus compañeros no salió.
+function esPanel(ws) {
+  const p = profiles.get(clients.get(ws));
+  return !!p && (p.role === 'dispatch' || p.role === 'manager');
+}
+// Con un segundo de espera, porque la web entra en la puerta y al tocar SALIR A RUTA
 // se conecta (entra a la lista) y declara (sale) en el mismo instante.
 const puertaPendiente = new Map();
 function avisarPuerta(routeId) {
@@ -2264,7 +2348,7 @@ function avisarPuerta(routeId) {
     puertaPendiente.delete(routeId);
     const msg = JSON.stringify({ type: 'puerta', routeId, items: puertaDeRuta(routeId) });
     wss.clients.forEach((c) => {
-      if (c.readyState === 1 && esSupervisor(c) && watching.get(c) === routeId) c.send(msg);
+      if (c.readyState === 1 && esPanel(c) && watching.get(c) === routeId) c.send(msg);
     });
   }, 1000));
 }
@@ -2279,12 +2363,23 @@ function vencerPuerta(ahora = Date.now()) {
   }
 }
 
+// Salir de ruta suelta el mando Y el socket de GPS. Sólo el dueño: si no,
+// el socket quedaba apuntado como el que reporta, y al cerrarse otra conexión
+// de la misma persona se lo heredaba —con la combi «ocupada» por alguien que
+// ya se había ido, y los demás rechazados— (revisión previa a la APK).
+function soltarMando(vehicleId, personId) {
+  if (duenoDe.get(vehicleId)?.personId !== personId) return;
+  duenoDe.delete(vehicleId);
+  const ws = gpsOwner.get(vehicleId);
+  if (ws && clients.get(ws) === personId) gpsOwner.delete(vehicleId);
+}
+
 function tomarMando(vehicleId, personId, como) {
   const previo = duenoDe.get(vehicleId);
   const previoVivo = !!previo && previo.personId !== personId && mandoVivo(vehicleId);
   duenoDe.set(vehicleId, { personId, oidoEn: Date.now() });
   // El que toma el mando deja de ser relevado de nadie
-  relevados.delete(personId);
+  borrarRelevado(personId);
   if (!previo || previo.personId === personId) {
     // El socket que quedó como dueño del GPS siendo de OTRA persona (salió de
     // ruta y dejó la web abierta: se le borró el mando, no el socket) deja de
@@ -2298,14 +2393,13 @@ function tomarMando(vehicleId, personId, como) {
   if (wsPrevio && clients.get(wsPrevio) === previo.personId) {
     if (wsPrevio.readyState === 1) {
       try {
-        wsPrevio.send(JSON.stringify({ type: 'gps_role', reporting: false,
-          reason: 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa.' }));
+        wsPrevio.send(JSON.stringify({ type: 'gps_role', reporting: false, relevado: true, reason: MOTIVO_RELEVADO }));
       } catch {}
     }
     gpsOwner.delete(vehicleId);
   }
   cerrarTurno(previo.personId);
-  relevados.set(previo.personId, { vehicleId, desde: Date.now() });
+  marcarRelevado(previo.personId, vehicleId);
   // Un relevo de verdad —el otro estaba manejando— queda en la Actividad de
   // Despacho: quién tomó la combi, de quién, y cuándo.
   if (previoVivo) audit(personId, 'relevo', previo.personId, vehicleId, rutaDeLaCombi(vehicleId));
@@ -3307,7 +3401,7 @@ app.post('/auth/login', (req, res) => {
     // Volver a entrar con usuario y clave es un acto explícito: el relevado
     // deja de serlo (opción B, 30/10). Y queda «en la puerta» hasta que salga
     // a ruta, para que Despacho vea al que se olvidó (opción A).
-    relevados.delete(user.unitId);
+    borrarRelevado(user.unitId);
     anotarEnLaPuerta(user, user.vehicleId || user.unitId);
   }
   const ruta = user.routeId ? routeOf(user.routeId) : null;
@@ -3420,10 +3514,15 @@ app.post('/presencia', (req, res) => {
   if (!estado) return res.status(400).json({ error: 'Estado inválido: ruta, ausente o fuera' });
   const vehicleId = user.vehicleId || user.unitId;
   quitarDeLaPuerta(user.unitId);
-  if (estado === 'fuera') relevados.delete(user.unitId);
+  if (estado === 'fuera') borrarRelevado(user.unitId);
   // El relevado no recupera la combi re-declarando (ver `relevados`)
   if (estado !== 'fuera' && esRelevado(vehicleId, user.unitId)) {
-    return res.json({ ok: true, estado, ignorada: true, gpsRole: false, motivo: MOTIVO_RELEVADO });
+    return res.json({ ok: true, estado, ignorada: true, gpsRole: false, relevado: true, motivo: MOTIVO_RELEVADO });
+  }
+  // La salida automática no releva (ver la presencia por WS)
+  if (estado === 'ruta' && (req.body?.motivo === 'auto' || req.body?.redeclara === true) &&
+      otroTieneElMando(vehicleId, user.unitId)) {
+    return res.json({ ok: true, estado, ignorada: true, gpsRole: false, motivo: MOTIVO_OCUPADA(quienManeja(vehicleId)) });
   }
   // Declarar «ruta» es el acto explícito de empezar: el que lo hace toma el
   // mando del GPS de la combi (C2). «Fuera» lo suelta.
@@ -3439,7 +3538,7 @@ app.post('/presencia', (req, res) => {
       { routeId: user.routeId, driverName: displayName(user) });
     if (estado === 'ruta' && req.body?.motivo === 'auto') anotarSalidaSola(user.unitId, vehicleId, user.routeId);
   }
-  if (estado === 'fuera' && duenoDe.get(vehicleId)?.personId === user.unitId) duenoDe.delete(vehicleId);
+  if (estado === 'fuera') soltarMando(vehicleId, user.unitId);
   fijarPresencia(vehicleId, rutaDeLaCombi(vehicleId, user.routeId), estado);
   // «Fuera» es el fin del turno del chofer, y por HTTP no hay socket que se
   // cierre para cerrarlo (REVISION-2026-09-10.md, L1).
@@ -3482,8 +3581,9 @@ function cambiarCombiDe(personId, vehicleId, actor) {
   if (antes === vehicleId) return u;
   const ruta = veh.routeId || u.routeId;
   db.prepare('UPDATE users SET vehicleId = ?, routeId = ? WHERE unitId = ?').run(vehicleId, ruta, personId);
-  db.prepare('INSERT OR IGNORE INTO habilitaciones (personId, vehicleId, createdAt) VALUES (?, ?, ?)')
-    .run(personId, vehicleId, Date.now());
+  // No se inserta una habilitación: la de hoy cuenta sola (`combisHabilitadas`),
+  // y elegirla como comodín no la vuelve de él para siempre —destildar
+  // «cualquiera de su ruta» le dejaba las que ya había elegido—.
   cerrarTurno(personId);
   if (antes && duenoDe.get(antes)?.personId === personId) duenoDe.delete(antes);
   const e = enLaPuerta.get(personId);
@@ -4080,6 +4180,19 @@ function cobradoresDe(vehicleId, desde) {
 // Que el cobrador sea de SU combi es la única llave de las dos operaciones
 // de abajo. Uno de otra combi se responde como inexistente, igual que en el
 // resto del servidor.
+// Lo que es de UNA persona y no tiene sentido sin ella: sus combis
+// habilitadas, su marca de relevado, su entrada en la puerta y su privado
+// personal con Despacho. Si el usuario se vuelve a dar de alta con el mismo
+// nombre, el nuevo no hereda nada de eso (revisión previa a la APK: el nuevo
+// «juan» leía lo que Despacho le había escrito al anterior). Las horas y las
+// vueltas quedan: son de la cooperativa.
+function borrarLoDeLaPersona(unitId) {
+  db.prepare('DELETE FROM habilitaciones WHERE personId = ?').run(unitId);
+  db.prepare('DELETE FROM messages WHERE toPersonId = ?').run(unitId);
+  borrarRelevado(unitId);
+  quitarDeLaPuerta(unitId);
+}
+
 function cobradorDeSuCombi(user, unitId, res) {
   const vehicleId = user.vehicleId || user.unitId;
   // Se pide TAMBIÉN la empresa, y no es redundante. El código de combi es
@@ -4102,6 +4215,15 @@ function cobradorDeSuCombi(user, unitId, res) {
     res.status(404).json({ error: 'Ese cobrador no va en tu combi' });
     return null;
   }
+  // Y que esa combi se la haya dado Despacho (o el alta): con varias combis
+  // por persona, «su combi» es la que ELIGIÓ en la puerta, y el comodín de la
+  // ruta elegía cualquiera para cambiarle la clave al cobrador de otra, entrar
+  // como él y leer su privado (revisión previa a la APK: medido). Una elegida
+  // como comodín no da esta llave; una habilitada a mano, sí.
+  if (!db.prepare('SELECT 1 FROM habilitaciones WHERE personId = ? AND vehicleId = ?').get(user.unitId, vehicleId)) {
+    res.status(404).json({ error: 'Ese cobrador no va en tu combi' });
+    return null;
+  }
   return c;
 }
 
@@ -4111,6 +4233,7 @@ app.delete('/perfil/cobradores/:unitId', (req, res) => {
   const c = cobradorDeSuCombi(user, req.params.unitId, res);
   if (!c) return;
   db.prepare('DELETE FROM users WHERE unitId = ?').run(c.unitId);
+  borrarLoDeLaPersona(c.unitId);
   kickUnit(c.unitId, 'Tu chofer te dio de baja de la combi.');
   audit(user.unitId, 'baja_cobrador', c.unitId, null, user.routeId);
   console.log(`Baja de cobrador por su chofer: ${c.unitId}`);
@@ -4404,9 +4527,10 @@ app.post('/gps', (req, res) => {
         return res.json({ ok: true, aceptadas: 0, yaVistas: 0, descartadas: 0, routeId: user.routeId || DEFAULT_ROUTE,
           gpsRole: false, motivo: 'Otro chofer tiene la unidad: tu GPS ya no se usa' });
       }
-      tomarMando(vehicleId, user.unitId, `por HTTP, el dueño callado hace ${Math.round((Date.now() - dueno.oidoEn) / 1000)} s`);
+      asumirMando(vehicleId, user.unitId, null, `por HTTP, el dueño callado hace ${Math.round((Date.now() - dueno.oidoEn) / 1000)} s`,
+        { routeId: user.routeId, driverName: displayName(user) });
     } else if (!dueno) {
-      tomarMando(vehicleId, user.unitId, 'por HTTP, sin dueño');
+      asumirMando(vehicleId, user.unitId, null, 'por HTTP, sin dueño', { routeId: user.routeId, driverName: displayName(user) });
     }
   }
 
@@ -5584,10 +5708,19 @@ app.post('/admin/users/:unitId/combis', requireDispatch, (req, res) => {
   const pedidas = Array.isArray(req.body?.combis) ? req.body.combis.map(idLimpio) : null;
   if (!pedidas || pedidas.some(c => !c)) return res.status(400).json({ error: 'Falta la lista de combis' });
   const combis = Array.from(new Set(pedidas));
+  // Un Despacho de ruta maneja sólo las combis de SU ruta: las de otras que
+  // la persona ya tenía (se las dio el supervisor) vienen en la lista —el
+  // panel la arma con todas— y se conservan tal cual; antes daba 403 al
+  // guardar, o las borraba si no venían (revisión previa a la APK).
+  const existentes = new Set(db.prepare('SELECT vehicleId FROM habilitaciones WHERE personId = ?')
+    .all(unitId).map(h => h.vehicleId));
+  const enAlcance = (veh) => !req.scope || veh.routeId === req.scope;
   for (const c of combis) {
     const veh = vehicleOf(c);
     if (!veh || veh.companyId !== req.empresa) return res.status(400).json({ error: `El vehículo ${c} no existe` });
-    if (req.scope && veh.routeId !== req.scope) return res.status(403).json({ error: `${c} pertenece a otra ruta` });
+    if (!enAlcance(veh) && !existentes.has(c) && c !== u.vehicleId) {
+      return res.status(403).json({ error: `${c} pertenece a otra ruta` });
+    }
   }
   const actual = req.body?.actual ? idLimpio(req.body.actual) : u.vehicleId;
   if (!actual || !combis.includes(actual)) {
@@ -5598,9 +5731,14 @@ app.post('/admin/users/:unitId/combis', requireDispatch, (req, res) => {
   }
   const todaLaRuta = req.body?.todaLaRuta === true ? 1 : 0;
   db.transaction(() => {
-    db.prepare('DELETE FROM habilitaciones WHERE personId = ?').run(unitId);
-    const ins = db.prepare('INSERT INTO habilitaciones (personId, vehicleId, createdAt) VALUES (?, ?, ?)');
-    for (const c of combis) ins.run(unitId, c, Date.now());
+    if (req.scope) {
+      db.prepare('DELETE FROM habilitaciones WHERE personId = ? AND vehicleId IN (SELECT vehicleId FROM vehicles WHERE routeId = ?)')
+        .run(unitId, req.scope);
+    } else {
+      db.prepare('DELETE FROM habilitaciones WHERE personId = ?').run(unitId);
+    }
+    const ins = db.prepare('INSERT OR IGNORE INTO habilitaciones (personId, vehicleId, createdAt) VALUES (?, ?, ?)');
+    for (const c of combis) if (enAlcance(vehicleOf(c))) ins.run(unitId, c, Date.now());
     db.prepare('UPDATE users SET todaLaRuta = ? WHERE unitId = ?').run(todaLaRuta, unitId);
   })();
   if (actual !== u.vehicleId) cambiarCombiDe(unitId, actual, req.dispatchUser.unitId);
@@ -5665,10 +5803,8 @@ app.delete('/admin/users/:unitId', requireDispatch, (req, res) => {
   const chequeo = cuentaEnAlcance(req, unitId);
   if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
   db.prepare('DELETE FROM users WHERE unitId = ?').run(unitId);
-  db.prepare('DELETE FROM habilitaciones WHERE personId = ?').run(unitId);
+  borrarLoDeLaPersona(unitId);
   kickUnit(unitId, 'Tu acceso fue dado de baja por Despacho.');
-  relevados.delete(unitId);
-  quitarDeLaPuerta(unitId);
   audit(req.dispatchUser.unitId, 'baja', unitId, null, chequeo.user.routeId);
   console.log(`Baja de unidad por Despacho: ${unitId}`);
   res.json({ ok: true });
@@ -7911,7 +8047,7 @@ wss.on('connection', (ws) => {
                 type: 'gps_role', reporting: false,
                 reason: mismaPersona
                   ? 'Tu sesión siguió en otro dispositivo o pestaña; esta dejó de reportar el GPS.'
-                  : 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa.',
+                  : MOTIVO_RELEVADO,
               }));
             } catch {}
             // El relevo real queda en el log: es la pista para el mapa
@@ -7944,6 +8080,14 @@ wss.on('connection', (ws) => {
 
       // Recién ahora recibe el estado y la conversación en curso
       ws.send(JSON.stringify({ type: 'state', ...buildState(rutaInicial) }));
+      // Y cuál es su combi de hoy: si Despacho se la cambió con la app
+      // cerrada, el teléfono tenía la vieja guardada en la sesión y se medía
+      // contra la combi de otro (revisión previa a la APK). El cliente la
+      // corrige si difiere.
+      if (vehicleId && (user.role === 'driver' || user.role === 'collector')) {
+        ws.send(JSON.stringify({ type: 'combi', vehicleId, routeId: rutaInicial,
+          routeName: routeOf(rutaInicial)?.name || rutaInicial }));
+      }
       // Qué conversación privada le corresponde ver: Despacho todas las de
       // su ruta, una combi la suya, nadie la de otro.
       const esDespacho = user.role === 'dispatch' || user.role === 'manager';
@@ -7957,7 +8101,9 @@ wss.on('connection', (ws) => {
       // Los supervisores además reciben la lista de rutas para el selector
       if (esSupervisor(ws)) {
         ws.send(JSON.stringify({ type: 'routes', routes: rutas, watching: rutaInicial }));
-        // Y quién entró y no salió a ruta (opción A)
+      }
+      // Y quién entró y no salió a ruta (opción A), a todo panel
+      if (esPanel(ws)) {
         ws.send(JSON.stringify({ type: 'puerta', routeId: rutaInicial, items: puertaDeRuta(rutaInicial) }));
       }
     }
@@ -7999,6 +8145,12 @@ wss.on('connection', (ws) => {
       // recibiendo todo, pero su GPS se ignora: así la unidad no salta.
       if (gpsOwner.get(vehicleId) !== ws) {
         if (prof.role !== 'driver') return;
+        // Otra conexión VIVA de la misma persona es la que reporta (el
+        // teléfono nuevo se identificó después): ésta no le saca el GPS en
+        // cada posición —se lo pasaban de una a otra y la combi saltaba—
+        // (revisión previa a la APK). Se le dijo una vez que dejó de reportar.
+        const otro = gpsOwner.get(vehicleId);
+        if (otro && otro.readyState === 1 && clients.get(otro) === personId) return;
         // Mandar posiciones es estar en ruta: toma el mando si nadie lo tiene
         // vivo, igual que por HTTP (opción B, 30/10: el `identify` ya no lo
         // da). Al relevado y al que tiene a otro manejando, no: se le dice
@@ -8049,12 +8201,24 @@ wss.on('connection', (ws) => {
         quitarDeLaPuerta(personId);
         // SALIR DE RUTA del relevado termina lo suyo y le saca la marca: su
         // próximo SALIR A RUTA es un acto explícito, y ése sí toma la combi.
-        if (estado === 'fuera') relevados.delete(personId);
+        if (estado === 'fuera') borrarRelevado(personId);
         // El relevado no recupera la combi re-declarando: ni «ruta» (la app
         // la repite en cada reconexión) ni «ausente» (opción B, 30/10).
         if (estado !== 'fuera' && esRelevado(vehicleId, personId)) {
           avisadoSinMando.add(ws);
-          try { ws.send(JSON.stringify({ type: 'gps_role', reporting: false, reason: MOTIVO_RELEVADO })); } catch {}
+          try { ws.send(JSON.stringify({ type: 'gps_role', reporting: false, relevado: true, reason: MOTIVO_RELEVADO })); } catch {}
+          return;
+        }
+        // Un relevo es SALIR A RUTA tocado por una persona. La salida
+        // automática del vigía de la puerta (`motivo: 'auto'`) y la
+        // re-declaración de una reconexión (`redeclara`) no lo son: con otro
+        // manejando, no toman nada. Si no, el que iba de pasajero en su propia
+        // combi —o el relevado que volvía a su casa con la app abierta— se la
+        // sacaba al que manejaba (revisión previa a la APK, 31/10: medido).
+        if (estado === 'ruta' && (msg.motivo === 'auto' || msg.redeclara === true) &&
+            otroTieneElMando(vehicleId, personId)) {
+          avisadoSinMando.add(ws);
+          try { ws.send(JSON.stringify({ type: 'gps_role', reporting: false, reason: MOTIVO_OCUPADA(quienManeja(vehicleId)) })); } catch {}
           return;
         }
         if (estado !== 'ruta' && otroTieneElMando(vehicleId, personId)) {
@@ -8068,7 +8232,7 @@ wss.on('connection', (ws) => {
           asumirMando(vehicleId, personId, ws, `declaró ${estado} por WS`, prof);
           if (estado === 'ruta' && msg.motivo === 'auto') anotarSalidaSola(personId, vehicleId, prof.routeId);
         }
-        if (estado === 'fuera' && duenoDe.get(vehicleId)?.personId === personId) duenoDe.delete(vehicleId);
+        if (estado === 'fuera') soltarMando(vehicleId, personId);
         fijarPresencia(vehicleId, rutaDeLaCombi(vehicleId, prof.routeId), estado);
         if (estado === 'fuera') cerrarTurno(personId);
       }
@@ -8263,6 +8427,11 @@ wss.on('connection', (ws) => {
       if (otroId === personId && otroWs !== ws && otroWs.readyState === 1) { sigueConectado = true; break; }
     }
     if (!sigueConectado) cerrarTurno(personId);
+    // El que estaba en la puerta con la app abierta y la guardó (el socket se
+    // cae con la pantalla apagada) sigue figurando media hora DESDE AHORA: es
+    // justo el que arrancó sin salir a ruta. Contaba desde que entró, y si
+    // había estado más de media hora en la puerta desaparecía en el acto.
+    if (!sigueConectado && enLaPuerta.has(personId)) enLaPuerta.get(personId).ultima = Date.now();
 
     // ¿Queda alguien más de este vehículo conectado? (chofer + cobrador)
     const otrosDelVehiculo = [];
@@ -8292,9 +8461,10 @@ wss.on('connection', (ws) => {
     // la toma al declarar ruta o al mandar una posición.
     if (gpsOwner.get(vehicleId) === ws) {
       gpsOwner.delete(vehicleId);
+      // Sin dueño (salió de ruta), nadie hereda: no hay mando que pasar.
       const dueno = duenoDe.get(vehicleId);
-      const heredero = dueno ? dueno.personId : personId;
-      const relevo = otrosDelVehiculo.find(o => o.prof.role === 'driver' && clients.get(o.ws) === heredero);
+      const heredero = dueno ? dueno.personId : null;
+      const relevo = heredero && otrosDelVehiculo.find(o => o.prof.role === 'driver' && clients.get(o.ws) === heredero);
       if (relevo) {
         gpsOwner.set(vehicleId, relevo.ws);
         tomarMando(vehicleId, clients.get(relevo.ws), 'el que tenía el mando se desconectó');
@@ -8520,6 +8690,9 @@ const medioValido = (data, prefijo, tope) =>
 // persona con `personal: true` —y es siempre el suyo—.
 function destinoPrivado(prof, msg, personId = null) {
   if (prof.role === 'dispatch' || prof.role === 'manager') {
+    // Lo que Despacho quiso mandar en privado y no dice a quién se descarta:
+    // caía al grupo de toda la ruta
+    if (msg.personal === true && !msg.toPerson) return null;
     const persona = idLimpio(msg.toPerson);
     if (persona) {
       // Misma regla que la combi: de su cooperativa, y del Despacho de ruta
@@ -8584,8 +8757,14 @@ function enviarPrivadoPersona(routeId, personId, payload, emisorWs = null) {
     const prof = profiles.get(id);
     if (!prof) continue;
     const esElla = id === personId;
-    const esDespachoDeLaRuta = (prof.role === 'dispatch' || prof.role === 'manager') && watching.get(ws) === routeId;
-    if (esElla || esDespachoDeLaRuta) {
+    // El privado PERSONAL sigue a la persona, no a la ruta que el panel esté
+    // mirando: Despacho le escribía a alguien de otra ruta desde Personas y
+    // la respuesta no le llegaba nunca —ni al hilo ni a «Privados sin
+    // leer»— (revisión previa a la APK). Le llega a todo panel que puede
+    // mirar esa ruta: el de esa ruta, y los supervisores de la empresa.
+    const esPanelDeLaRuta = (prof.role === 'dispatch' || prof.role === 'manager') &&
+      (watching.get(ws) === routeId || (prof.routeId ? prof.routeId === routeId : rutaDeEmpresa(routeId, prof.companyId)));
+    if (esElla || esPanelDeLaRuta) {
       try { ws.send(crudo); } catch {}
       mandados.add(ws);
     }

@@ -50,7 +50,11 @@ Devuelve, tal cual:
   (`app/version.js`).
 
 - **El token dura 30 días** (`SESSION_DAYS`). Se guarda en el dispositivo y se
-  reusa; no hace falta pedir contraseña cada turno.
+  reusa; no hace falta pedir contraseña cada turno. Desde el 31/10 **se
+  renueva con el uso**: si le quedan menos de 7 días y se usa (una petición
+  con el token, o la revisión periódica del socket abierto), vuelve a valer
+  30. Antes, el chofer que trabajaba todos los días quedaba afuera el día 31
+  en medio del turno. El que no la usa en 30 días, vence igual.
 - **`unitId` es la PERSONA, `vehicleId` es el fierro.** No son lo mismo y
   confundirlos rompe el chat privado y las brechas. Todo lo del mapa y las
   brechas va por `vehicleId`; el chat y la auditoría, por `unitId`.
@@ -88,6 +92,7 @@ Observado, en este orden:
 | 4 | `chat_history` | los últimos mensajes que le corresponde ver |
 | 5 | `route_geometry` | el trazado dibujado de la ruta |
 | 6 | `puerta` | **sólo a Despacho**: quién entró y no salió a ruta (ver §3.5) |
+| 7 | `combi` | **chofer y cobrador**: su combi de hoy (ver §4octies). Desde el 31/10, en cada conexión: Despacho puede haberla cambiado con la app cerrada. Si es la que ya tiene, el cliente no hace nada |
 
 Después, `state` cada 3 s (`STATE_INTERVAL_MS`) mientras haya movimiento.
 
@@ -124,8 +129,25 @@ descarta el `gps` de cualquier otra. Las reglas (desde el 30/10, «opción B»):
   `reporting: false` con el motivo, que dice cómo volver: *«… Para volver a
   manejarla: SALIR DE RUTA y después SALIR A RUTA.»* (por HTTP,
   `gpsRole: false` y el mismo `motivo`). La marca se va con un acto suyo
-  —declarar `fuera`, o volver a entrar con usuario y clave— o a las
-  `RELEVO_MAX_MS` (6 h).
+  —declarar `fuera`, o volver a entrar con usuario y clave—. Pasadas las
+  `RELEVO_MAX_MS` (6 h) se va sola **sólo si nadie está manejando esa
+  combi**: mientras el otro siga, la marca sigue (31/10; antes, a las seis
+  horas el relevado se la volvía a sacar). Está en la base (tabla
+  `relevos`), no sólo en memoria: un reinicio del servidor ya no la borra.
+  El `gps_role` del relevado trae `"relevado": true`.
+- **La salida automática y la re-declaración no relevan** (31/10). `ruta`
+  con `motivo: "auto"` (el vigía de la puerta) o con `redeclara: true` (la
+  conexión que vuelve) encuentra la combi con otro manejando: no la toma.
+  Le llega `reporting: false` con *«Juan está manejando esta combi: la app
+  no la toma sola. Si es un relevo, tocá SALIR A RUTA vos.»* (por HTTP,
+  `ignorada: true`, `gpsRole: false`). Relevo es sólo `ruta` sin esas dos
+  marcas: el chofer que tocó SALIR A RUTA.
+- **Dos conexiones de la misma persona** (el teléfono y la web) no se roban
+  el GPS en cada posición: el socket que reporta sigue siéndolo mientras
+  esté abierto.
+- **`fuera` suelta el mando y el socket.** Antes el socket quedaba apuntado
+  como el que reporta, y al cerrarse otra conexión de la misma persona se lo
+  heredaba.
 - Un chofer conectado no hereda el mando de otro al cerrarse el socket de
   éste: sólo otra conexión de la MISMA persona.
 
@@ -270,6 +292,13 @@ de su combi de hoy y su privado personal **de cualquier ruta**. El de
 Despacho, todo lo de la ruta que mira (los personales guardados con la ruta
 que la persona tenía en ese momento).
 
+El privado PERSONAL que llega en vivo le llega a todo panel que puede mirar la
+ruta de la persona —el Despacho de esa ruta y los supervisores de la empresa—,
+aunque en ese momento esté mirando otra (31/10: lo que contestaba alguien de
+otra ruta no le llegaba nunca a Despacho). Con «personal» y sin `toPerson`,
+lo de Despacho no sale (antes salía al grupo). Y la baja de una persona borra
+su privado personal: el usuario reusado no lee lo del anterior.
+
 **El contenido pesado caduca, la burbuja no.** El servidor conserva el `data`
 de las **30** notas de voz y las **20** fotos más recientes; pasado eso lo
 pone en `NULL` y el mensaje sigue llegando sin él. El cliente lo muestra como
@@ -285,8 +314,9 @@ Desde el 30/10 («opción A»). Quién entró y no salió a ruta en la ruta que 
 mira: el chofer que se identificó o puso la clave y desde entonces no declaró
 nada ni mandó una posición. Llega al identificarse un supervisor, con cada
 `watch`, y cada vez que la lista cambia (con un segundo de espera, para no
-parpadear con la web, que entra y declara en el mismo instante). Nunca a los
-teléfonos de los choferes.
+parpadear con la web, que entra y declara en el mismo instante). A todo panel
+que mira esa ruta —también al Despacho atado a una ruta, que hasta el 31/10
+no la recibía nunca—. Nunca a los teléfonos de los choferes.
 
 ```json
 { "type": "puerta", "routeId": "R-14",
@@ -295,7 +325,8 @@ teléfonos de los choferes.
 
 Sale de la lista con cualquier declaración (`ruta`, `ausente` o `fuera`), una
 posición aceptada, cerrar sesión o la baja. Y deja de mostrarse si no tiene la
-app conectada y pasaron `PUERTA_SIN_SOCKET_MS` (30 min) de su última señal: la
+app conectada y pasaron `PUERTA_SIN_SOCKET_MS` (30 min) de su última señal —que
+cuenta también el momento en que se le cerró el socket—: la
 web en la puerta no tiene socket, y la nativa lo pierde con la pantalla
 apagada. El servidor no sabe dónde está: en la puerta la app no manda la
 ubicación.
@@ -473,7 +504,14 @@ declaró el vigía de la puerta de la app, no el chofer —lo vio manejando sin
 haber salido y nadie contestó el aviso—. El servidor lo anota en la
 Actividad de Despacho (`salio_solo`). Viaja una sola vez: la re-declaración
 al reconectar no lo lleva. Por HTTP va en el cuerpo: `{ "estado": "ruta",
-"motivo": "auto" }`.
+"motivo": "auto" }`. Con otro manejando esa combi no la toma (§3.1).
+
+**`redeclara: true`** (desde el 31/10, opcional): esta declaración no la
+eligió nadie ahora —es la que el cliente re-manda al reconectar, o la que
+retoma la app al reabrirse—. Con otro manejando la combi, no es un relevo
+(§3.1). Los clientes la mandan en toda re-declaración; la primera, la del
+toque en SALIR A RUTA, va sin ella. Un APK viejo no la manda: lo cubre la
+marca del relevado, que ahora sobrevive al reinicio.
 
 **El relevado no declara por la combi** (desde el 22/9; y desde el 30/10, ni
 `ruta` le devuelve la combi mientras dure su marca: ver §3.1). Si OTRA persona
@@ -706,6 +744,10 @@ persona les llega:
 { "type": "combi", "vehicleId": "M-01", "routeId": "R-14", "routeName": "…" }
 ```
 
+Y también al identificarse (§3). Si cambia con la pantalla EN RUTA (el que iba
+de acompañante, o el relevado), el chofer vuelve a la puerta: salir en la combi
+nueva es tocar SALIR A RUTA. El cobrador se queda donde está.
+
 seguido del `state`, el `chat_history` (el privado de COMBI es de la combi:
 el de hoy en M-01 ve lo que Despacho le escribió a M-01; lo suyo va por el
 privado PERSONAL, que lo sigue) y el `route_geometry` de su ruta. El cliente
@@ -714,7 +756,10 @@ corrige su sesión con eso.
 Despacho: `POST /admin/users/:unitId/combis` con `{ "combis": ["M-01",
 "M-05"], "todaLaRuta": false, "actual": "M-05" }` (la lista entera; `actual`
 opcional cambia la de hoy, con la misma regla de no estar en ruta). Un
-Despacho de ruta sólo habilita combis de su ruta. `GET /admin/users` trae
+Despacho de ruta sólo habilita combis de su ruta: una de otra que no tenía,
+`403`; las de otras rutas que ya tenía se conservan aunque no vengan en la
+lista. Elegir una combi con «cualquiera de su ruta» no la habilita: el que la
+eligió así no administra a sus cobradores. `GET /admin/users` trae
 `combis` y `todaLaRuta` de cada persona; `GET /admin/vehicles`, los
 `habilitados` de cada combi.
 

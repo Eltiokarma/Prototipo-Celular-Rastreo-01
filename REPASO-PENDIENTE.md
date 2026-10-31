@@ -703,3 +703,88 @@ personal de Pedro lo leía su cobrador y el que manejara su combi después.
 
 Suites nuevas: `privado-persona`, `privado-web`; `chat` ampliada.
 
+
+## Tanda 15 — revisión previa a la APK (31/10, sin repasar)
+
+Pedido del dueño: «antes de generar la APK, métele una revisión a todo».
+Cuatro revisiones en paralelo —servidor, app nativa, web y operación— que
+reprodujeron cada hallazgo contra el servidor de verdad antes de arreglarlo.
+Lo arreglado, con el escenario que lo rompía:
+
+### Servidor (suite `revision-apk`)
+
+1. **La marca del relevado vive en la base** (tabla `relevos`). Un deploy la
+   borraba y Juan, desde su casa, le volvía a sacar la combi a Pedro. Al
+   arrancar se cargan también las de más de `RELEVO_MAX_MS` (hasta un día):
+   en memoria esas siguen valiendo mientras el otro maneje.
+2. **La marca no vence mientras el otro maneje.** Con vencimiento fijo, a las
+   6 h el relevado que seguía en 'ruta' re-declaraba y se la sacaba.
+3. **`motivo: 'auto'` y `redeclara: true` no relevan.** El vigía de un
+   pasajero (o la reconexión de alguien que va de acompañante) le cerraba el
+   turno al que manejaba. Relevo es sólo tocar SALIR A RUTA.
+4. **`fuera` suelta el socket de GPS** (`soltarMando`): el socket viejo
+   quedaba como el que reporta y una segunda conexión lo heredaba.
+5. **Dos conexiones de la misma persona** no se roban el GPS en cada posición.
+6. **`combi` al identificarse**: Despacho cambiaba la de hoy con la app
+   cerrada y el teléfono no se enteraba.
+7. **`puerta` a todo panel de la ruta** (`esPanel`): el Despacho atado a una
+   ruta no la recibía nunca. Y la media hora cuenta desde que se perdió la
+   app, no desde que entró.
+8. **La baja se lleva el privado personal, las habilitaciones y la marca**
+   (`borrarLoDeLaPersona`): un usuario reusado leía lo del anterior.
+9. **El comodín no administra cobradores** (`cobradorDeSuCombi` exige
+   habilitación explícita): con «cualquiera de su ruta», un chofer le
+   cambiaba la clave a la cobradora de cualquier combi y entraba como ella.
+10. **La sesión se renueva con el uso** (`renovarSesion`, a 7 días del final).
+11. **En producción, la base configurada o nada**: si `DB_FILE` no abre, el
+    servidor sale con 1 en vez de arrancar con una base vacía al lado.
+12. **El editor de combis de un Despacho de ruta** ya no borra las de otras
+    rutas; una nueva de otra ruta, 403. `cambiarCombiDe` no habilita sola.
+13. **El privado personal llega a todo panel que puede mirar la ruta** de la
+    persona, aunque esté mirando otra. Y «personal» sin persona no sale al grupo.
+
+### Web
+
+14. **Bucle de reconexión** (crítico con el punto 6): `cambiarCombi` armaba un
+    `user` nuevo aunque la combi fuera la misma; el socket depende de `user`.
+    Medido: 869 sockets en 10 s → 1.
+15. **La combi de hoy, del servidor**: la puerta marcaba ELEGIDA la vieja y
+    al salir la pantalla seguía con la otra combi.
+16. **El vigía no arma** con la combi ocupada ni con la página escondida, y
+    su aviso va arriba (debajo de la lista quedaba fuera de la pantalla).
+17. **`combi` con la pantalla en ruta** vuelve al chofer a la puerta (el
+    cobrador se queda).
+18. **Contadores de privados por hora, guardados**; los privados no compiten
+    con el tope del grupo.
+19. **«Escribir» a alguien de otra ruta** pasa a mirar su ruta primero, y el
+    hilo personal no se cierra al cambiar de ruta.
+20. Contraste: la insignia de privado sobre el ámbar de noche daba 1,79:1
+    (token `warnEdgeInk`, medido en `contraste`); «libre» en la puerta, 3:1.
+
+### Nativa
+
+21. `redeclara` en la reconexión y al retomar; 'ruta' por HTTP con 3 intentos.
+22. El vigía: no arma con la combi ocupada, sin permiso de fondo o con la
+    ubicación apagada (y sin ofrecer prenderla); recuerda «no estoy
+    manejando» aunque se rehaga; al avisar lleva a la pantalla de ruta.
+23. La combi de hoy se sincroniza con `/mis-combis`; el cobrador no la
+    pregunta cada 20 s todo el día; lo de la sesión se limpia al salir.
+24. «Saliste a ruta solo» en su propio estado (el `rolGps` lo borraba).
+25. El «GPS apagado: otro tomó la unidad» viejo no frena la salida nueva.
+26. La notificación no arranca diciendo «Modo acompañante» al que sale.
+27. La lista de combis con alto máximo; errores de red en castellano.
+28. **0.3.0 / versionCode 6**, y `autoIncrement` en el perfil `apk`.
+
+### Lo que más conviene mirar
+
+- **El punto 1 con un APK viejo** (sin `redeclara`): lo cubre la marca. Un
+  chofer al que NO lo relevaron pero cuyo teléfono quedó en 'ruta' con otro
+  manejando sigue pudiendo tomarla al reconectar con el APK 0.2.3.
+- **Punto 17**: vuelve a la puerta y declara `fuera`. Si Despacho lo cambia
+  justo cuando está por salir, puede sorprender; el aviso lo dice.
+- **Punto 13**: un supervisor recibe ahora los privados personales de todas
+  las rutas en su bandeja. Era lo pedido (que no se pierda ninguno), pero en
+  una empresa con muchas rutas puede ser mucho.
+
+Suites: `revision-apk` (nueva); `vigia-puerta`, `nativas`, `contraste` y
+`combis` ampliadas.

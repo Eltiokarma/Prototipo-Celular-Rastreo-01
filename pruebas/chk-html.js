@@ -3,6 +3,7 @@
 // sin abrir la página: el panel no tiene paso de compilación.
 const Babel = require('@babel/standalone');
 const fs = require('fs');
+const zonaMuerta = require('./zona-muerta');
 for (const f of process.argv.slice(2)) {
   const html = fs.readFileSync(f, 'utf8');
   const re = /<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/g;
@@ -12,7 +13,12 @@ for (const f of process.argv.slice(2)) {
     // Línea real dentro del .html, para que el número del error sirva
     const linea = html.slice(0, m.index).split('\n').length;
     try {
-      Babel.transform(m[1], { presets: ['react'], filename: f });
+      const usos = [];
+      Babel.transform(m[1], { presets: ['react'], filename: f, plugins: [zonaMuerta(usos, m[1])] });
+      if (usos.length) {
+        console.log(`FAIL ${f} (bloque ${n}, empieza en la línea ${linea}): usada antes de declararse\n    ${usos.join('\n    ')}`);
+        malo = true;
+      }
     } catch (e) {
       const cabeza = e.message.split('\n').slice(0, 4).join('\n    ');
       console.log(`FAIL ${f} (bloque ${n}, empieza en la línea ${linea})\n    ${cabeza}`);

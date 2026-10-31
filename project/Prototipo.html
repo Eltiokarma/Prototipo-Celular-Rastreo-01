@@ -352,7 +352,7 @@ const TEMAS = {
     burbuja:      '#FFFFFF', burbujaInk:    '#0B2239',
     burbujaPropia:'#DCF5E4', burbujaPropiaInk:'#0C3B1E',
     burbujaAdmin: '#DCEBFB',
-    burbujaWarn:  '#FFF4D6', burbujaWarnInk: '#5C4100', warnEdge: '#A67300',
+    burbujaWarn:  '#FFF4D6', burbujaWarnInk: '#5C4100', warnEdge: '#A67300', warnEdgeInk: '#100B00',
     burbujaSos:   '#FFE1E7', burbujaSosInk:  '#68001A',
     // Mapa: tiles claros y tarjetas claras encima
     tiles: tilesUrl('positron'),
@@ -379,7 +379,7 @@ const TEMAS = {
     burbuja:      '#FFFFFF', burbujaInk:    '#04121F',
     burbujaPropia:'#D2F2DC', burbujaPropiaInk:'#04220F',
     burbujaAdmin: '#D2E6FA',
-    burbujaWarn:  '#FFEFC2', burbujaWarnInk: '#3D2B00', warnEdge: '#7A5400',
+    burbujaWarn:  '#FFEFC2', burbujaWarnInk: '#3D2B00', warnEdge: '#7A5400', warnEdgeInk: '#FFFFFF',
     burbujaSos:   '#FFD6DE', burbujaSosInk:  '#3D000B',
     tiles: tilesUrl('positron'),
     tarjeta: 'rgba(255,255,255,.96)', tarjetaSolida: '#FFFFFF',
@@ -405,7 +405,7 @@ const TEMAS = {
     burbuja:      '#141a21', burbujaInk:    '#DCE8F5',
     burbujaPropia:'#0b2e17', burbujaPropiaInk:'#DFFFD6',
     burbujaAdmin: '#14273c',
-    burbujaWarn:  '#2b2008', burbujaWarnInk: '#FFE6B8', warnEdge: '#FFB300',
+    burbujaWarn:  '#2b2008', burbujaWarnInk: '#FFE6B8', warnEdge: '#FFB300', warnEdgeInk: '#03060a',
     burbujaSos:   '#2b0812', burbujaSosInk:  '#FFD9E0',
     tiles: tilesUrl('dark-matter'),
     tarjeta: 'rgba(3,6,10,.8)', tarjetaSolida: 'rgba(3,6,10,.9)',
@@ -1157,7 +1157,8 @@ function ChatMsg({ msg }) {
           <span style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 11, background: msg.privado ? HUD.warnEdge : P.bright,
-            color: '#fff',
+            // blanco sobre el ámbar de noche daba 1,79:1 (revisión previa a la APK)
+            color: msg.privado ? HUD.warnEdgeInk : P.white,
             padding: '2px 6px', borderRadius: 4, letterSpacing: 0.5,
           }}>{msg.privado === 'persona' ? 'DESPACHO · SOLO PARA VOS'
             : msg.privado ? 'DESPACHO · PARA TU COMBI' : 'DESPACHO'}</span>
@@ -1213,13 +1214,31 @@ function MicGlyph({ color, size = 24 }) {
 //             nadie más. Lo personal.
 const PRIVADO_DE_CANAL = { grupo: false, despacho: 'combi', personal: 'persona' };
 
-function ChatScreen({ messages, hud, online, connected, routeId, combi, onSendText, onSendVoice }) {
+// 100 del grupo y 50 privados, los más nuevos de cada uno
+function recortarHilo(ms, grupo = 100, privados = 50) {
+  let g = 0, p = 0;
+  const fuera = new Set();
+  for (let i = ms.length - 1; i >= 0; i--) {
+    if (ms[i].privado) { if (++p > privados) fuera.add(i); }
+    else if (++g > grupo) fuera.add(i);
+  }
+  return fuera.size ? ms.filter((_, i) => !fuera.has(i)) : ms;
+}
+
+function ChatScreen({ messages, hud, online, connected, routeId, combi, persona, onSendText, onSendVoice }) {
   const scrollRef = React.useRef(null);
   const [canal, setCanal] = React.useState('grupo');
   const privadoDelCanal = PRIVADO_DE_CANAL[canal];
-  // Cuántos privados de Despacho ya vio el chofer en cada canal, para que el
-  // número de la pestaña sea "lo que falta ver" y no el total.
-  const [privadosVistos, setPrivadosVistos] = React.useState({ despacho: 0, personal: 0 });
+  // Hasta qué hora vio el chofer los privados de Despacho en cada canal: el
+  // número de la pestaña es lo que llegó después. Antes se contaban, y el
+  // hilo tiene tope: al salirse uno viejo, uno nuevo quedaba sin número; y
+  // al recargar volvían como nuevos los ya leídos (revisión previa a la APK).
+  // Guardado por persona: en un teléfono compartido cada uno tiene lo suyo.
+  const claveVistos = 'r14_vistos_' + (persona || '');
+  const [privadosVistos, setPrivadosVistos] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(claveVistos) || 'null') || { despacho: 0, personal: 0 }; }
+    catch { return { despacho: 0, personal: 0 }; }
+  });
   const [draft, setDraft] = React.useState('');
   const [recording, setRecording] = React.useState(false);
   const [recElapsed, setRecElapsed] = React.useState(0);
@@ -1293,15 +1312,17 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, onSendTe
   }, [recording]);
 
   // Los que manda Despacho: son los que exigen atención del chofer
-  const deDespacho = {
-    despacho: messages.filter(m => m.privado === 'combi' && m.role === 'admin').length,
-    personal: messages.filter(m => m.privado === 'persona' && m.role === 'admin').length,
-  };
+  const deDespacho = (k) => messages.filter(m => m.privado === PRIVADO_DE_CANAL[k] && m.role === 'admin');
+  const ultimoDe = (k) => deDespacho(k).reduce((max, m) => Math.max(max, m.ts || 0), 0);
+  const ultimoAbierto = canal === 'grupo' ? 0 : ultimoDe(canal);
   React.useEffect(() => {
-    if (canal !== 'grupo') setPrivadosVistos(v => ({ ...v, [canal]: deDespacho[canal] }));
-  }, [canal, deDespacho.despacho, deDespacho.personal]);
+    if (canal === 'grupo' || ultimoAbierto <= (privadosVistos[canal] || 0)) return;
+    const v = { ...privadosVistos, [canal]: ultimoAbierto };
+    setPrivadosVistos(v);
+    try { localStorage.setItem(claveVistos, JSON.stringify(v)); } catch {}
+  }, [canal, ultimoAbierto]);
   const pendientesDe = (k) => (k === 'grupo' || k === canal) ? 0
-    : Math.max(0, deDespacho[k] - privadosVistos[k]);
+    : deDespacho(k).filter(m => (m.ts || 0) > (privadosVistos[k] || 0)).length;
 
   const send = () => {
     const text = draft.trim();
@@ -1370,14 +1391,14 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, onSendTe
               flex: 1, minWidth: 0, height: 40, borderRadius: 12, cursor: 'pointer', padding: '0 4px',
               border: `1px solid ${activo ? P.bright : HUD.line}`,
               background: activo ? P.bright : 'transparent',
-              color: activo ? '#fff' : HUD.dim,
+              color: activo ? P.white : HUD.dim,
               fontFamily: 'system-ui, sans-serif', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             }}>
               {etiqueta}
               {pendientes > 0 && (
                 <span style={{
-                  background: HUD.warnEdge, color: '#fff', borderRadius: 9,
+                  background: HUD.warnEdge, color: HUD.warnEdgeInk, borderRadius: 9,
                   minWidth: 18, padding: '1px 5px', fontSize: 12, fontWeight: 800,
                 }}>{pendientes}</span>
               )}
@@ -1848,8 +1869,8 @@ function metrosEntrePuerta(aLat, aLng, bLat, bLng) {
   const kLng = Math.cos((aLat + bLat) / 2 * Math.PI / 180);
   return Math.hypot((bLat - aLat) * 111320, (bLng - aLng) * 111320 * kLng);
 }
-function crearVigiaPuerta() {
-  let ancla = null, recientes = [], seguidas = 0, avisoDesde = null, calladoHasta = 0;
+function crearVigiaPuerta({ calladoHasta: callado = 0 } = {}) {
+  let ancla = null, recientes = [], seguidas = 0, avisoDesde = null, calladoHasta = callado;
   const vencio = (ts) => avisoDesde !== null && ts - avisoDesde >= PUERTA_AVISO_MS;
   return {
     posicion(lat, lng, ts = Date.now(), precisionM = null) {
@@ -1884,14 +1905,30 @@ function crearVigiaPuerta() {
 // La puerta mira el GPS sólo si el permiso YA está dado: pedirlo acá sería
 // pedir la ubicación antes de salir a ruta, que es lo que no se hace. El
 // primer día el permiso se pide al tocar SALIR A RUTA, como siempre.
+// Con la página escondida (pantalla apagada, otra app) el vigía no mira ni
+// cuenta, como en la nativa: la cuenta de 60 s corriendo a oscuras sacaba a
+// ruta a uno que no la veía (revisión previa a la APK).
+function usarPaginaVisible() {
+  const [visible, setVisible] = React.useState(() => typeof document === 'undefined' || !document.hidden);
+  React.useEffect(() => {
+    const cambio = () => setVisible(!document.hidden);
+    document.addEventListener('visibilitychange', cambio);
+    return () => document.removeEventListener('visibilitychange', cambio);
+  }, []);
+  return visible;
+}
+
 function usarVigiaPuerta(activo, onSalir) {
   const vigia = React.useRef(null);
   const [falta, setFalta] = React.useState(null);   // ms de la cuenta, o null
   const salirRef = React.useRef(onSalir);
   salirRef.current = onSalir;
+  // «No estoy manejando» vale media hora aunque el vigía se rehaga (la
+  // página se escondió y volvió)
+  const calladoHasta = React.useRef(0);
   React.useEffect(() => {
-    if (!activo || !navigator.geolocation) return;
-    vigia.current = crearVigiaPuerta();
+    if (!activo || !navigator.geolocation) { setFalta(null); return; }
+    vigia.current = crearVigiaPuerta({ calladoHasta: calladoHasta.current });
     let vivo = true, watchId = null;
     const reloj = setInterval(() => {
       const v = vigia.current;
@@ -1922,7 +1959,12 @@ function usarVigiaPuerta(activo, onSalir) {
       vigia.current = null;
     };
   }, [activo]);
-  const callar = () => { if (vigia.current) vigia.current.callar(Date.now()); setFalta(null); };
+  const callar = () => {
+    const ahora = Date.now();
+    if (vigia.current) vigia.current.callar(ahora);
+    calladoHasta.current = ahora + PUERTA_CALLADO_MS;
+    setFalta(null);
+  };
   return { falta, callar };
 }
 
@@ -1944,13 +1986,30 @@ function usarCombis(token, actual) {
 }
 
 function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRest, onLogout, onAutoStart, token, onCombi }) {
-  // ¿Ya está manejando sin haber salido? (ver el vigía, arriba)
-  const { falta, callar } = usarVigiaPuerta(!!onAutoStart, onAutoStart);
   // Las combis que puede elegir. Elegir NO toma nada: la combi se toma al
   // salir a ruta, y si otro la está manejando, eso es un relevo — por eso
   // elegir una ocupada pide confirmar, nombrando a quién la tiene.
   const [datosCombis, recargarCombis] = usarCombis(token, unidad);
   const combis = (datosCombis && datosCombis.combis) || [];
+  // La de hoy la decide el servidor: si Despacho la cambió con la página en
+  // la puerta (o cerrada), la lista ya la trae primera y la sesión seguía
+  // con la vieja —y al salir a ruta el servidor la corría como M-05 y la
+  // pantalla como M-01— (revisión previa a la APK). Sólo cuando llega una
+  // lista nueva: elegir una acá cambia `unidad` antes que la lista.
+  React.useEffect(() => {
+    const actual = datosCombis && datosCombis.actual;
+    if (!actual || actual === unidad || !onCombi) return;
+    const c = combis.find(x => x.vehicleId === actual);
+    onCombi({ vehicleId: actual, routeId: c ? c.routeId : null, routeName: c ? c.routeName : null });
+  }, [datosCombis]);
+  // ¿Ya está manejando sin haber salido? (ver el vigía, arriba). No si la
+  // combi la está manejando otro: ahí el que maneja es él, y éste va de
+  // pasajero o la está por relevar — eso lo decide tocando SALIR A RUTA, no
+  // una cuenta que nadie contestó. Ni con la página escondida.
+  const deHoy = combis.find(c => c.vehicleId === unidad);
+  const ocupada = !!deHoy && deHoy.estado === 'ocupada';
+  const visible = usarPaginaVisible();
+  const { falta, callar } = usarVigiaPuerta(!!onAutoStart && !ocupada && visible, onAutoStart);
   const [confirmar, setConfirmar] = React.useState(null);
   const [errorCombi, setErrorCombi] = React.useState(null);
   const [eligiendo, setEligiendo] = React.useState(false);
@@ -1963,7 +2022,11 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
       setConfirmar(null);
       if (onCombi) onCombi(r);
       recargarCombis();
-    } catch (e) { setErrorCombi(e.message); }
+    } catch (e) {
+      setErrorCombi(e.message);
+      // La lista puede estar vieja (otro la tomó mientras tanto)
+      recargarCombis();
+    }
     setEligiendo(false);
   };
   const [countdown, setCountdown] = React.useState(15);
@@ -2010,6 +2073,39 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
           }}>Salir</button>
         )}
       </div>
+
+      {/* Parece que ya está manejando. Fuerte y arriba de todo: amarillo
+          sobre la pantalla, con la cuenta a la vista. Abajo, con dos o más
+          combis para elegir, quedaba fuera de la pantalla de un celular chico
+          y no se podía contestar (revisión previa a la APK). No es un toast
+          que se va solo: se va saliendo o diciendo que no. */}
+      {falta !== null && (
+        <div role="alert" data-vigia-puerta style={{
+          background: P.yellow, color: P.bg, borderRadius: 14,
+          padding: '14px 14px 12px', marginBottom: 12,
+        }}>
+          <div style={{
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 19, lineHeight: 1.15, marginBottom: 4,
+          }}>¿Ya estás manejando?</div>
+          <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, marginBottom: 10 }}>
+            Tu combi no está en el mapa. Salís a ruta solo en{' '}
+            <strong style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onStart} style={{
+              flex: 1, padding: '12px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              background: P.bg, color: P.yellow,
+              fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 14, letterSpacing: 1,
+            }}>SALIR AHORA</button>
+            <button onClick={callar} style={{
+              flex: 1, padding: '12px 8px', borderRadius: 10, cursor: 'pointer',
+              background: 'transparent', color: P.bg, border: `2px solid ${P.bg}`,
+              fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 800,
+            }}>No estoy manejando</button>
+          </div>
+        </div>
+      )}
 
       {/* Acá había una tarjeta «Vuelta N completada · 48 min · 42
           pasajeros» de la maqueta: nadie cuenta pasajeros y la duración era
@@ -2090,7 +2186,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
                     }}>{[c.label, c.routeId !== rutaId ? c.routeName : null].filter(Boolean).join(' · ')}</span>
                     <span style={{
                       display: 'block', fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 700,
-                      color: c.estado === 'ocupada' ? P.yellow : P.mute,
+                      color: c.estado === 'ocupada' ? P.yellow : P.sky,
                     }}>{c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}</span>
                   </span>
                   {elegida && (
@@ -2127,37 +2223,6 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
           {errorCombi && (
             <div style={{ marginTop: 8, fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, color: P.red }}>{errorCombi}</div>
           )}
-        </div>
-      )}
-
-      {/* Parece que ya está manejando. Fuerte y en el lugar del botón que se
-          olvidó: amarillo sobre la pantalla oscura, con la cuenta a la vista.
-          No es un toast que se va solo: se va saliendo o diciendo que no. */}
-      {falta !== null && (
-        <div role="alert" data-vigia-puerta style={{
-          background: P.yellow, color: P.bg, borderRadius: 14,
-          padding: '14px 14px 12px', marginBottom: 12,
-        }}>
-          <div style={{
-            fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 19, lineHeight: 1.15, marginBottom: 4,
-          }}>¿Ya estás manejando?</div>
-          <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, marginBottom: 10 }}>
-            Tu combi no está en el mapa. Salís a ruta solo en{' '}
-            <strong style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>.
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onStart} style={{
-              flex: 1, padding: '12px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
-              background: P.bg, color: P.yellow,
-              fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 14, letterSpacing: 1,
-            }}>SALIR AHORA</button>
-            <button onClick={callar} style={{
-              flex: 1, padding: '12px 8px', borderRadius: 10, cursor: 'pointer',
-              background: 'transparent', color: P.bg, border: `2px solid ${P.bg}`,
-              fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 800,
-            }}>No estoy manejando</button>
-          </div>
         </div>
       )}
 
@@ -2564,7 +2629,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   );
 }
 
-function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, combi, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
+function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, combi, persona, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -2724,6 +2789,7 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
             connected={connected}
             routeId={routeId}
             combi={combi}
+            persona={persona}
             onSendText={onSendText}
             onSendVoice={onSendVoice}
           />
@@ -3064,7 +3130,10 @@ function Root() {
   const connectedRef = React.useRef(false);
   const myUnitIdRef = React.useRef(null);
 
-  const pushMsg = (m) => setMessages(ms => [...ms.slice(-99), m]);
+  // El hilo tiene tope, pero los privados no compiten con el grupo: con 150
+  // del grupo, un mensaje más sacaba del hilo los tres de Despacho y la
+  // pestaña COMBI quedaba vacía (revisión previa a la APK).
+  const pushMsg = (m) => setMessages(ms => recortarHilo([...ms, m]));
 
   // La presencia declarada, igual que en la app nativa: 'fuera' (la puerta),
   // 'ruta', 'ausente'. Cambiarla toca tres mundos y el orden importa: el
@@ -3098,7 +3167,7 @@ function Root() {
         const previa = localStorage.getItem('r14_presencia');
         if (previa === 'ruta' || previa === 'ausente') {
           setPresencia(previa);
-          if (window.RealtimeClient) window.RealtimeClient.setPresencia(previa);
+          if (window.RealtimeClient) window.RealtimeClient.setPresencia(previa, null, { retomada: true });
           setScreen('app');
         } else {
           setScreen('start');
@@ -3109,8 +3178,15 @@ function Root() {
 
   // La combi de hoy cambió: la eligió en la puerta, o Despacho. La sesión
   // guardada también, para que mañana la puerta diga la que es.
-  const cambiarCombi = (r) => {
-    if (!r || !r.vehicleId) return;
+  //
+  // Si es la misma, nada: el socket depende de `user`, un objeto nuevo lo
+  // reconecta, y el servidor manda la combi en cada identify — eran cientos
+  // de reconexiones por minuto (revisión previa a la APK).
+  const cambiarCombi = (r, { delServidor = false } = {}) => {
+    if (!r || !r.vehicleId || !user) return;
+    const routeId = r.routeId || user.routeId, routeName = r.routeName || user.routeName;
+    if (r.vehicleId === user.vehicleId && routeId === user.routeId && routeName === user.routeName) return;
+    const otraCombi = r.vehicleId !== user.vehicleId;
     setUser(u => {
       if (!u) return u;
       const nuevo = { ...u, vehicleId: r.vehicleId, routeId: r.routeId || u.routeId, routeName: r.routeName || u.routeName };
@@ -3118,6 +3194,15 @@ function Root() {
       return nuevo;
     });
     setRutaVigente(null);
+    // Despacho le cambió la combi con la pantalla en ruta (iba de
+    // acompañante, o lo habían relevado): vuelve a la puerta. Si no, al
+    // reconectar re-declaraba 'ruta' en la combi nueva —que puede estar
+    // manejando otro—. Salir a ruta en ella es tocar SALIR A RUTA. El
+    // cobrador no: no maneja, sigue arriba de la que le digan.
+    if (delServidor && otraCombi && screen === 'app' && user.role !== 'collector') {
+      declararPresencia('fuera');
+      setScreen('start');
+    }
   };
 
   const onLogin = (session) => {
@@ -3200,7 +3285,7 @@ function Root() {
     window.RealtimeClient.on('gps', ({ ok, motivo }) => setGpsAviso(ok ? null : (motivo || 'sin GPS')));
     // La combi de hoy cambió con la página conectada (Despacho, o el
     // cobrador): se corrige la sesión
-    window.RealtimeClient.on('combi', (m) => cambiarCombi(m));
+    window.RealtimeClient.on('combi', (m) => cambiarCombi(m, { delServidor: true }));
 
     window.RealtimeClient.on('state', (state) => {
       // La ruta y su objetivo de brecha los define el servidor, no la app:
@@ -3293,13 +3378,13 @@ function Root() {
         }
         if (it.kind === 'voice') {
           // las notas viejas pierden el audio en el servidor: quedan expiradas
-          return { from, role: msgRole, unit, privado, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
+          return { from, role: msgRole, unit, privado, ts: it.timestamp, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
         }
         if (it.kind === 'photo') {
           // ídem las fotos: la burbuja queda, la imagen se fue
-          return { from, role: msgRole, unit, privado, photo: it.data || null, expired: !it.data, text: it.text || '', time, tone };
+          return { from, role: msgRole, unit, privado, ts: it.timestamp, photo: it.data || null, expired: !it.data, text: it.text || '', time, tone };
         }
-        return { from, role: msgRole, unit, privado, text: it.text, time, tone };
+        return { from, role: msgRole, unit, privado, ts: it.timestamp, text: it.text, time, tone };
       }));
     });
 
@@ -3313,6 +3398,7 @@ function Root() {
         role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
         unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
         privado: m.toPersonId ? 'persona' : (m.toVehicleId ? 'combi' : false),
+        ts: m.timestamp,
         text: m.text,
         time: horaChat(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
@@ -3328,6 +3414,7 @@ function Root() {
         role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
         unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
         privado: m.toPersonId ? 'persona' : (m.toVehicleId ? 'combi' : false),
+        ts: m.timestamp,
         voice: m.duration,
         audio: m.data,
         time: horaChat(m.timestamp),
@@ -3346,6 +3433,7 @@ function Root() {
         role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
         unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
         privado: m.toPersonId ? 'persona' : (m.toVehicleId ? 'combi' : false),
+        ts: m.timestamp,
         photo: m.data || null, expired: !m.data, text: m.text || '',
         time: horaChat(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
@@ -3485,6 +3573,7 @@ function Root() {
       tweaks={tweaks}
       tema={tema}
       combi={user?.vehicleId || user?.unitId || null}
+      persona={user?.unitId || null}
       onModo={(modo) => setTweaks(t => ({ ...t, mode: modo }))}
       otherUnits={otherUnits}
       gapMeta={gapMeta}

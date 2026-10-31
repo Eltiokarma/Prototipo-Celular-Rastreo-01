@@ -12,6 +12,33 @@ al final).
 Revisado contra el código, no contra la memoria. El orden es el que sigue:
 primero lo que impide vender, después lo que impide escalar, después producto.
 
+### 0 · Lo que le falta para operar de verdad (revisión previa a la APK, 31/10)
+
+Salió de revisar la operación de punta a punta, no de una idea. En orden: lo
+primero es lo que puede costar una vida o un turno entero sin que nadie se
+entere.
+
+| # | Qué | Por qué | Tamaño |
+| --- | --- | --- | --- |
+| 0.1 | **El SOS en Despacho grita** | Hoy un SOS entra como banner y en el chat: sin sonido, sin notificación del navegador, sin título que parpadee. Despacho con otra pestaña adelante no se entera. «ATENDIDO» es sólo de esa pantalla (otro Despacho lo sigue viendo abierto y nadie sabe quién lo atendió), y un SOS que llega mientras el panel recarga no vuelve a mostrarse | 1–2 días |
+| 0.2 | **Saber que el servidor está mal antes que los choferes** | `/ping` contesta aunque la base no abra; el disco lleno no avisa (el login y el «fuera» dan 500 y el SOS no se guarda); la zona horaria y el WAL que no se pudo activar son sólo una línea en el log. Falta un `/salud` que toque la base y el disco, un monitor externo que lo mire, y el `healthcheck` en Railway | 1 día + cuenta del monitor |
+| 0.3 | **El respaldo fuera del volumen, y cómo volver** | Los respaldos automáticos viven en el mismo volumen que la base: si se pierde, se pierden juntos. Sacarlos es a mano. Falta subirlos solos a otro lado (un bucket) y una receta de restauración escrita y probada | 1 día |
+| 0.4 | **La salud del teléfono en la tarjeta de Despacho** | Batería, optimización de batería activa, versión de la app y última respuesta del servicio: la app ya lo sabe, Despacho no. «No aparece en el mapa» hoy se diagnostica por teléfono | 1 día |
+| 0.5 | **SOS sin red: el botón de llamar** | Si el SOS no sale (sin señal), la app lo dice, pero no ofrece llamar. Un `tel:` a la central configurada por la cooperativa es lo único que sirve en ese momento | medio día |
+| 0.6 | **Corregir horas a mano** | Las horas salen del turno abierto/cerrado. El que se olvidó de salir de ruta o al que se le cortó la señal tiene horas mal y Despacho no las puede corregir; hace falta una capa de ajustes con quién y por qué | 2 días |
+| 0.7 | **Alta masiva** | Cargar 40 choferes es uno por uno. Un CSV (nombre, usuario, combi, rol) con vista previa y claves generadas | 1 día |
+| 0.8 | **Retención de la evidencia** | Las fotos y notas de voz se conservan por cantidad global (20 y 30), no por tiempo: con varias cooperativas la foto de un choque puede borrarse en horas, y la política de privacidad dice «30 días». Por tiempo y por empresa, y que una foto marcada como evidencia no se borre | 1 día |
+| 0.9 | **Auditoría separada** | 1000 movimientos por empresa mezclando inicios de sesión con bajas y cambios de clave: lo importante se va en una semana de logins. Dos tablas, o retención por tipo | medio día |
+| 0.10 | **Ley 29733 (datos personales, Perú)** | Inscribir el banco de datos ante la ANPD, el consentimiento del chofer por escrito (ubicación con la pantalla apagada) y el contrato de encargado con cada cooperativa. No es código | fuera del repo |
+| 0.11 | **Actualizar sin reinstalar** | Cada arreglo de la app es un APK nuevo que hay que repartir a mano. `expo-updates` (OTA) para lo que es JavaScript, y el dominio propio en vez del de Railway antes de que la URL quede compilada en 100 teléfonos | 1 día + dominio |
+| 0.12 | **Un reinicio no tira las vueltas** | Las vueltas en curso, los desvíos abiertos y la variante forzada viven en memoria, y no hay manejo de `SIGTERM`: un deploy en hora pico le tira la vuelta a cada combi. Guardarlas al apagar y retomarlas al arrancar | 1 día |
+| 0.13 | **Zona horaria por empresa** | Hoy es una sola (`TZ` del servidor). Con una cooperativa fuera de Perú, «hoy» y los informes se corren | medio día |
+
+Ya resuelto en la misma revisión: la sesión que vencía a los 30 días en medio
+del turno (ahora se renueva con el uso), la marca del relevado que un reinicio
+borraba, y la base vacía con la que el servidor arrancaba si el volumen no
+estaba montado (ver REPASO-PENDIENTE, tanda 15).
+
 ### 1 · Bloqueantes. Nada de esto puede quedar así con un cliente pagando
 
 | # | Qué | Por qué bloquea | Tamaño |

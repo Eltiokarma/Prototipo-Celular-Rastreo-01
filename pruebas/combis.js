@@ -175,8 +175,13 @@ async function conectar(token) {
 
   console.log('\nDESPACHO');
   const d14 = await entrar('DESP-14', 'despacho14');
-  r = await post('/admin/users/pedro/combis', d14, { combis: ['M-05', 'M-21'] });
-  ok('un Despacho de la R-14 no habilita combis de la 18B: 403', r.status === 403, r.body);
+  r = await post('/admin/users/juan/combis', d14, { combis: ['M-01', 'M-21'] });
+  ok('un Despacho de la R-14 no habilita una combi NUEVA de la 18B: 403', r.status === 403, r.body);
+  r = await post('/admin/users/pedro/combis', d14, { combis: ['M-05'] });
+  ok('y al guardar las de su ruta, conserva las de otras que ya tenía (no las borra)',
+     r.status === 200 && habil('pedro').includes('M-21'), habil('pedro'));
+  r = await post('/admin/users/pedro/combis', d14, { combis: ['M-05', 'M-01', 'M-21'] });
+  ok('y si vienen en la lista (el panel manda todas), guarda igual: 200', r.status === 200 && habil('pedro').join() === 'M-01,M-05,M-21', habil('pedro'));
   r = await post('/admin/users/pedro/combis', D, { combis: ['M-05', 'M-90'] });
   ok('una combi de otra cooperativa: 400 como inexistente', r.status === 400 && /no existe/.test(r.body.error), r.body);
   r = await post('/admin/users/pedro/combis', D, { combis: ['M-01'] });

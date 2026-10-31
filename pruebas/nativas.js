@@ -251,8 +251,12 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   ok('ni retoma el GPS al abrir', /s\.role === 'collector'\) \{ setPresencia\('fuera'\); return; \}/.test(app));
 
   // A5: la presencia se puede esperar
-  ok('marcarPresencia devuelve una promesa y «fuera» reintenta por HTTP',
-     /async function marcarPresencia/.test(cliente) && /estado === 'fuera' \? 3 : 1/.test(cliente));
+  // Y desde la revisión previa a la APK, «ruta» también: con un intento,
+  // sin señal en la puerta Despacho no se enteraba hasta reconectar
+  ok('marcarPresencia devuelve una promesa y reintenta por HTTP (también «ruta»)',
+     /async function marcarPresencia/.test(cliente) && /declararPorHttp\('\/presencia', cuerpo, 3,/.test(cliente));
+  ok('la re-declaración al reconectar viaja marcada (no es un relevo)',
+     /redeclara: true/.test(cliente) && /presenciaEntregada/.test(cliente) && /retomada: true/.test(app));
 
   // A6: un solo tope de foto, con motivo en pantalla
   ok('un solo tope de foto (el de imagen.js)', /const TOPE_IMAGEN = MAX_DATAURL;/.test(cliente) && /require\('\.\.\/imagen\.js'\)/.test(cliente));
@@ -283,6 +287,13 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   ok('enviadas son las ACEPTADAS por el servidor, y las no usadas se cuentan aparte', /diagnostico\.enviadas \+= Number\.isFinite\(cuerpo\.aceptadas\)/.test(servicio) && /diagnostico\.rechazadas \+= \(cuerpo\.yaVistas \|\| 0\)/.test(servicio));
   ok('y el reloj adelantado llega a la pantalla', /cuerpo\.reloj === 'adelantado'/.test(servicio) && /relojAdelantadoSec/.test(app) && /fecha y hora automáticas/.test(app));
   ok('otro APK más: versionCode 5 o más', config.expo.android.versionCode >= 5, config.expo.android.versionCode);
+  // La de la revisión previa a la APK (31/10). Con `appVersionSource:
+  // remote` el código lo lleva EAS: sin `autoIncrement` en el perfil `apk`
+  // dos APK salían con el mismo número y el aviso de «hay una nueva» no
+  // podía distinguirlas.
+  const eas = JSON.parse(fs.readFileSync(RAIZ + '/app/eas.json', 'utf8'));
+  ok('la APK de la revisión: 0.3.0 / 6', config.expo.version === '0.3.0' && config.expo.android.versionCode >= 6, [config.expo.version, config.expo.android.versionCode]);
+  ok('y el perfil apk sube el código solo', eas.build.apk.autoIncrement === true);
 
   // ── Tanda 7 de la revisión del 10/9, por lectura ──────────────────────
   const notif = fs.readFileSync(RAIZ + '/app/notificacion.js', 'utf8');

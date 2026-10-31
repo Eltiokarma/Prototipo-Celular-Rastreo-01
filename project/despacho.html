@@ -2106,16 +2106,20 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             )}
                             {u.role !== 'dispatch' && u.role !== 'manager' && onEscribir && (
                               <button title="Escribirle en privado, solo a esta persona (en la combi que esté)"
-                                onClick={() => onEscribir(u.unitId, u.alias || u.name || u.unitId)}
+                                onClick={() => onEscribir(u.unitId, u.alias || u.name || u.unitId, u.routeId)}
                                 style={btnChico(HUD.fg2)}>Escribir</button>
                             )}
                             {u.role !== 'dispatch' && u.role !== 'manager' && (
                               <button title="Las combis que puede elegir en la puerta, y la de hoy"
                                 onClick={() => {
                                   setCombisFor(u.unitId);
+                                  // Las habilitadas más la de hoy (que puede no estar entre
+                                  // ellas), y «la de hoy» nunca vacía si hay alguna: con
+                                  // `vehicleId` null el select mostraba la primera y se
+                                  // guardaba nada (revisión previa a la APK)
+                                  const combis = [...new Set([...(u.combis || []), u.vehicleId].filter(Boolean))];
                                   setCombisForm({
-                                    combis: (u.combis || []).length ? u.combis : [u.vehicleId].filter(Boolean),
-                                    actual: u.vehicleId, todaLaRuta: !!u.todaLaRuta,
+                                    combis, actual: u.vehicleId || combis[0] || null, todaLaRuta: !!u.todaLaRuta,
                                   });
                                   setEditFor(null); setResetFor(null); setConfirmDel(null);
                                 }}
@@ -3895,7 +3899,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   editar_identidad: { label: 'corrigió los datos de', color: HUD.bright },
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
                   combis: { label: 'cambió las combis que puede manejar', color: HUD.bright },
-                  cambio_combi: { label: 'cambió de combi', color: HUD.bright },
+                  cambio_combi: { label: 'cambió de combi a', color: HUD.bright },
                   baja: { label: 'dio de baja a', color: HUD.red },
                   sos: { label: 'disparó un SOS', color: HUD.red },
                   // Las tres del perfil del chofer (se editan desde la app)
@@ -4183,6 +4187,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // el estado se acaba de pisar unas líneas más arriba: ver el comentario
   // del cierre de la conversación privada, abajo.
   const rutaPreviaRef = React.useRef(session.routeId || null);
+  // De qué ruta es cada privado personal ('p:pedro' → 'R-14'): su hilo vive ahí
+  const rutaDelPrivadoRef = React.useRef({});
   // La ruta que el supervisor ELIGIÓ mirar. El servidor arranca cada
   // conexión en la primera ruta y no recuerda el `watch`: tras un corte de
   // 3 s mirando R-20 se volvía en silencio a R-14, y lo que se escribía iba
@@ -4278,6 +4284,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // accidente no aparecía en ningún lado si no se abría ese privado (22/9).
   const marcarNoLeido = (msg) => {
     const clave = msg.toPersonId ? 'p:' + msg.toPersonId : msg.toVehicleId;
+    if (msg.toPersonId && msg.routeId) rutaDelPrivadoRef.current[clave] = msg.routeId;
     // El nombre, de lo que escribe la PERSONA: el eco de lo que le manda
     // Despacho viene firmado «Despacho» y pisaba el de ella
     if (msg.toPersonId && msg.unitId === msg.toPersonId) {
@@ -4355,8 +4362,13 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           // `msg.routeId`, la condición nunca daba verdadera y el privado
           // quedaba abierto apuntando a una combi de la ruta anterior.
           if (rutaPreviaRef.current && rutaPreviaRef.current !== msg.routeId) {
-            setPrivadoCon(null);
-            setNoLeidos({});
+            // Menos el personal de alguien de ESTA ruta: «Escribir» a una
+            // persona de otra ruta pasa primero a mirar la suya, y esto lo
+            // cerraba apenas llegaba el estado (revisión previa a la APK).
+            // Los no leídos personales tampoco son de una ruta: se quedan.
+            const sigue = (clave) => esPrivadoPersona(clave) && (rutaDelPrivadoRef.current[clave] || msg.routeId) === msg.routeId;
+            setPrivadoCon(actual => sigue(actual) ? actual : null);
+            setNoLeidos(n => Object.fromEntries(Object.entries(n).filter(([k]) => esPrivadoPersona(k))));
             // Reencuadrar SÓLO al cambiar de ruta. Estaba afuera de este if y
             // corría con cada estado: cada ~3 s el mapa volvía a la flota
             // entera y no había forma de quedarse mirando un SOS (22/9).
@@ -4559,8 +4571,16 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   };
 
   // `clave` es la combi ('M-05') o la persona ('p:pedro'); `nombre`, cómo
-  // mostrar a la persona
-  const abrirPrivado = (clave, nombre) => {
+  // mostrar a la persona.
+  //
+  // Una persona de OTRA ruta: primero se pasa a mirar la suya, que es donde
+  // está su hilo (el historial es por ruta). Sin esto el hilo se abría vacío
+  // y lo que ella contestaba no se veía (revisión previa a la APK).
+  const abrirPrivado = (clave, nombre, routeId) => {
+    const suya = routeId || (esPrivadoPersona(clave) ? rutaDelPrivadoRef.current[clave] : null);
+    if (suya && esPrivadoPersona(clave)) rutaDelPrivadoRef.current[clave] = suya;
+    const mirada = rutaMiradaRef.current || routeInfo.routeId;
+    if (suya && suya !== mirada && routes.some(r => r.routeId === suya)) cambiarRuta(suya);
     if (nombre && esPrivadoPersona(clave)) setNombres(n => ({ ...n, [clave]: nombre }));
     setPrivadoCon(clave);
     setNoLeidos(n => ({ ...n, [clave]: 0 }));
@@ -4727,7 +4747,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           marca={marca}
           refrescarMarca={refrescarMarca}
           // «Escribir» en Personas: abre su privado personal en el mapa
-          onEscribir={(personId, nombre) => { setAdminOpen(false); abrirPrivado('p:' + personId, nombre); }}
+          onEscribir={(personId, nombre, routeId) => { setAdminOpen(false); abrirPrivado('p:' + personId, nombre, routeId); }}
         />
       )}
 

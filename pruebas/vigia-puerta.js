@@ -117,6 +117,19 @@ function casos(nombre, mod) {
 casos('la app nativa (app/puerta.js)', nativa);
 casos('la web del chofer (copia en Prototipo.html)', web);
 
+console.log('\n«NO ESTOY MANEJANDO» SOBREVIVE A REHACER EL VIGÍA');
+for (const [nombre, m] of [['nativa', nativa], ['web', web]]) {
+  if (!m) continue;
+  // Dijo que no a las 0; la app fue atrás y volvió: el vigía nuevo nace
+  // callado hasta la media hora
+  const v = m.crearVigiaPuerta({ calladoHasta: 30 * 60_000 });
+  const antes = recorrer(v, { durMs: 10 * 60_000, t0: 60_000, donde: andando(30, 60_000) });
+  ok(`${nombre}: rehecho a los 10 min, sigue callado`, antes.length === 0, antes);
+  const despues = recorrer(m.crearVigiaPuerta({ calladoHasta: 30 * 60_000 }),
+    { durMs: 5 * 60_000, t0: 31 * 60_000, donde: andando(30, 31 * 60_000) });
+  ok(`${nombre}: pasada la media hora vuelve a avisar`, despues.some(x => x.r === 'avisar'), despues.slice(0, 1));
+}
+
 console.log('\nLAS DOS COPIAS, IGUALES');
 if (web) {
   const cte = (src, k) => (src.match(new RegExp(`const ${k}[^=]*= ([^;]+);`)) || [])[1];
