@@ -187,6 +187,69 @@ const TARGET_GAP_DEFAULT = 2;
 // emergencia ya mostrada. Sin tipo, es el SOS genérico de siempre.
 const TIPOS_SOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
 
+// ─── LA ALARMA DEL SOS (31/10) ──────────────────────────────────
+// Un SOS entraba como cartel y línea de chat, en silencio: con otra pestaña o
+// ventana adelante, Despacho no se enteraba. Ahora suena —dos tonos cada
+// 2,5 s, hasta que alguien marque ATENDIDO—, avisa con una notificación del
+// navegador y hace parpadear el título de la pestaña.
+//
+// Sin archivo de sonido (Web Audio: cero bytes). El navegador no deja sonar
+// hasta el primer gesto en la página: el clic en INGRESAR ya cuenta, y al
+// retomar una sesión guardada se ofrece «Activar alarma» hasta el primer clic.
+const alarmaSos = (() => {
+  let ctx = null, reloj = null;
+  const oyentes = new Set();
+  const avisar = () => oyentes.forEach(fn => { try { fn(); } catch {} });
+  const crear = () => {
+    if (ctx) return ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try { ctx = new AC(); ctx.onstatechange = avisar; } catch { ctx = null; }
+    return ctx;
+  };
+  const tonos = () => {
+    if (!ctx || ctx.state !== 'running') return;
+    const t0 = ctx.currentTime;
+    [880, 660, 880, 660].forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain(), t = t0 + i * 0.25;
+      o.type = 'square'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.2, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t + 0.24);
+    });
+  };
+  return {
+    desbloquear() {
+      const c = crear();
+      if (c && c.state === 'suspended') c.resume().then(avisar, () => {});
+      avisar();
+    },
+    lista: () => !!ctx && ctx.state === 'running',
+    soportada: () => !!(window.AudioContext || window.webkitAudioContext),
+    sonar() { if (reloj) return; tonos(); reloj = setInterval(tonos, 2500); },
+    callar() { clearInterval(reloj); reloj = null; },
+    suscribir(fn) { oyentes.add(fn); return () => oyentes.delete(fn); },
+  };
+})();
+['pointerdown', 'keydown'].forEach(ev =>
+  document.addEventListener(ev, () => alarmaSos.desbloquear(), { capture: true }));
+
+// La notificación del navegador: se ve aunque el panel esté tapado por otra
+// ventana. Queda hasta que se la toca (`requireInteraction`).
+function notificarSos(s) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(`SOS · ${(s.vehicleId || s.unitId || 'Unidad').toUpperCase()}`, {
+      body: `${s.driverName || s.unitId || 'Un chofer'} pide ayuda` +
+        (s.routeId ? ` · ruta ${s.routeId}` : '') + '. Abrí el panel y marcá ATENDIDO.',
+      tag: 'sos-' + (s.sosId ?? s.timestamp), requireInteraction: true,
+    });
+    n.onclick = () => { try { window.focus(); } catch {} n.close(); };
+  } catch {}
+}
+
 function parseMin(s) {
   if (!s) return null;
   const [m, sec] = String(s).split(':').map(Number);
@@ -603,6 +666,9 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
                         : <span style={{ color: HUD.dim3 }}>📷 {m.text} · ya no disponible</span>)
                     : m.text}
                 </div>
+                {sos && m.atendido && (
+                  <div style={{ ...rotulo(9, HUD.dim2), marginTop: 6 }}>{m.atendido}</div>
+                )}
               </div>
             </div>
           );
@@ -3902,6 +3968,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   cambio_combi: { label: 'cambió de combi a', color: HUD.bright },
                   baja: { label: 'dio de baja a', color: HUD.red },
                   sos: { label: 'disparó un SOS', color: HUD.red },
+                  sos_atendido: { label: 'atendió el SOS de', color: HUD.green },
                   // Las tres del perfil del chofer (se editan desde la app)
                   alias_propio: { label: 'se puso el alias', color: HUD.bright },
                   clave_propia: { label: 'cambió su propia contraseña', color: HUD.amber },
@@ -4163,6 +4230,49 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // (barrido 22/9). El cartel muestra la más vieja y dice cuántas esperan.
   const [sosLista, setSosLista] = React.useState([]);
   const sos = sosLista[0] || null;
+  const [sosError, setSosError] = React.useState(null);
+  // Suena mientras haya alguno sin atender; calla al vaciarse la lista o al salir
+  React.useEffect(() => {
+    if (sosLista.length) alarmaSos.sonar(); else alarmaSos.callar();
+  }, [sosLista.length]);
+  React.useEffect(() => () => alarmaSos.callar(), []);
+  // ¿Puede sonar? (el navegador la tiene muda hasta el primer gesto) y ¿hay
+  // permiso de notificaciones? Si falta algo, la cabecera lo ofrece.
+  const [, refrescarAlarma] = React.useState(0);
+  React.useEffect(() => alarmaSos.suscribir(() => refrescarAlarma(n => n + 1)), []);
+  const permisoNotif = ('Notification' in window) ? Notification.permission : 'denied';
+  const faltaAlarma = (alarmaSos.soportada() && !alarmaSos.lista()) || permisoNotif === 'default';
+  const activarAlarma = () => {
+    alarmaSos.desbloquear();
+    if ('Notification' in window && Notification.permission === 'default') {
+      try { Notification.requestPermission().then(() => refrescarAlarma(n => n + 1)).catch(() => {}); } catch {}
+    }
+  };
+  // El título de la pestaña parpadea: se ve desde otra pestaña
+  React.useEffect(() => {
+    if (!sosLista.length) return;
+    const base = document.title;
+    const primero = sosLista[0];
+    const marca = `SOS · ${(primero.vehicleId || primero.unitId || '').toUpperCase()}` +
+      (sosLista.length > 1 ? ` y ${sosLista.length - 1} más` : '');
+    let prendido = true;
+    document.title = marca;
+    const t = setInterval(() => { prendido = !prendido; document.title = prendido ? marca : base; }, 1000);
+    return () => { clearInterval(t); document.title = base; };
+  }, [sosLista]);
+  // ATENDIDO es de la base, no de esta pantalla: se cierra en todos los
+  // paneles y queda quién y cuándo. Sin socket no se finge: se dice.
+  const atenderSos = (s) => {
+    const ws = wsRef.current;
+    if (s.sosId == null) { setSosLista(l => l.filter(x => x !== s)); return; }
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setSosError('Sin conexión: ATENDIDO no salió. Probá de nuevo.');
+      return;
+    }
+    ws.send(JSON.stringify({ type: 'sos_atender', sosId: s.sosId }));
+    setSosError(null);
+    setSosLista(l => l.filter(x => x !== s));
+  };
   // La combi en emergencia se reconoce por el VEHÍCULO: `unitId` del SOS es
   // la persona, y en el estado `unitId` es la combi. Con un cobrador o un
   // chofer cuyo usuario no es el código de la combi, nunca se pintaba.
@@ -4310,6 +4420,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         from: m.driverName || m.unitId, unit: m.vehicleId || null, tone: 'sos',
         text: `SOS — ${m.driverName || m.unitId} pide ayuda${m.vehicleId ? ' desde ' + m.vehicleId : ''}` +
           (TIPOS_SOS[m.sosTipo] ? ` · ${TIPOS_SOS[m.sosTipo].toUpperCase()}` : ''),
+        // Quién lo atendió y a qué hora, aparte del texto: el sufijo del
+        // tipo se reemplaza por el final y no puede tener nada detrás
+        atendido: m.atendidoEn ? `Atendido por ${m.atendidoPorNombre || m.atendidoPor || 'Despacho'} · ${horaChat(m.atendidoEn)}` : null,
         time: horaChat(m.timestamp),
       };
     }
@@ -4416,6 +4529,22 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           pushMsg(mapMsg(msg, 'sos'));
           setSosLista(l => l.some(x => x.sosId != null && x.sosId === msg.sosId)
             ? l : [...l, { ...msg, receivedAt: Date.now() }]);
+          notificarSos(msg);
+        } else if (msg.type === 'sos_abiertos') {
+          // Los que siguen sin atender, al conectar: el que llegó mientras
+          // el panel recargaba (o estaba cerrado) vuelve a estar acá
+          setSosLista(l => {
+            const ya = new Set(l.map(x => x.sosId));
+            const nuevos = (msg.items || []).filter(x => !ya.has(x.sosId)).map(x => ({ ...x, receivedAt: Date.now() }));
+            return nuevos.length ? [...l, ...nuevos].sort((a, b) => a.timestamp - b.timestamp) : l;
+          });
+        } else if (msg.type === 'sos_atendido') {
+          // Lo atendió alguien (este panel u otro): se cierra en todos, y el
+          // hilo dice quién
+          setSosLista(l => l.filter(x => x.sosId !== msg.sosId));
+          setSosError(null);
+          setMessages(ms => ms.map(x => (x.sosId != null && x.sosId === msg.sosId)
+            ? { ...x, atendido: `Atendido por ${msg.por || 'Despacho'} · ${horaChat(msg.en)}` } : x));
         } else if (msg.type === 'sos_tipo') {
           // El chofer le puso nombre a la emergencia ya disparada: "falla
           // mecánica" pide una grúa, "accidente" una ambulancia, "policía"
@@ -4680,9 +4809,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           </span>
         )}
 
+        {/* En el celular es lo único de la cabecera que cede: con todo
+            fijo, «Salir» quedaba afuera de la pantalla (terminaba en x=406
+            en una de 390). El punto de conexión queda siempre a la vista. */}
         <span style={{
-          display: 'flex', alignItems: 'center', gap: 7, height: 36, padding: '0 11px',
-          borderRadius: 9, flexShrink: 0, minWidth: 0,
+          display: 'flex', alignItems: 'center', gap: 7, height: 36, padding: isMobile ? '0 8px' : '0 11px',
+          borderRadius: 9, flexShrink: isMobile ? 1 : 0, minWidth: 0,
           background: connected ? HUD.verdeFondo : HUD.ambarFondo,
           border: `1px solid ${connected ? HUD.verdeBorde : HUD.ambarBorde}`,
         }}>
@@ -4725,6 +4857,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             </div>
           </div>
         )}
+        {/* Si la alarma está muda o falta el permiso de notificaciones, se
+            ofrece acá, siempre a la vista: no puede descubrirse recién con
+            un SOS. Ámbar, no rojo: el rojo es del SOS. */}
+        {faltaAlarma && !isMobile && (
+          <button data-activar-alarma onClick={activarAlarma}
+            title="Para que un SOS suene y avise aunque el panel esté tapado por otra ventana"
+            style={{
+              height: 36, padding: '0 12px', borderRadius: 8, cursor: 'pointer', flexShrink: 0,
+              background: HUD.ambarFondo, color: HUD.ambarTinta, border: `1px solid ${HUD.ambarBorde}`,
+              fontSize: 13, fontWeight: 800, fontFamily: 'inherit',
+            }}>Activar alarma de SOS</button>
+        )}
         <button onClick={() => setAdminOpen(true)} style={{ ...btnPrimario(36), flexShrink: 0 }}>Gestión</button>
         <button onClick={onAlternarModo}
           title={modo === 'day' ? 'Pasar a modo noche' : 'Pasar a modo día'}
@@ -4749,6 +4893,16 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           // «Escribir» en Personas: abre su privado personal en el mapa
           onEscribir={(personId, nombre, routeId) => { setAdminOpen(false); abrirPrivado('p:' + personId, nombre, routeId); }}
         />
+      )}
+
+      {/* En el celular no entra en la cabecera (empujaba «Salir» afuera):
+          va en su propia franja, a todo el ancho */}
+      {faltaAlarma && isMobile && (
+        <button data-activar-alarma onClick={activarAlarma} style={{
+          flexShrink: 0, width: '100%', padding: '10px 14px', cursor: 'pointer', textAlign: 'left',
+          background: HUD.ambarFondo, color: HUD.ambarTinta, border: 'none',
+          borderBottom: `1px solid ${HUD.ambarBorde}`, fontSize: 13, fontWeight: 800, fontFamily: 'inherit',
+        }}>Activar alarma de SOS: que suene y avise aunque el panel esté tapado</button>
       )}
 
       {/* banner SOS activo */}
@@ -4776,7 +4930,15 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
               color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
             }}>Ver en mapa</button>
           )}
-          <button onClick={() => setSosLista(l => l.slice(1))} style={{
+          {sosError && <span role="alert" style={{ fontSize: 13, fontWeight: 800 }}>{sosError}</span>}
+          {alarmaSos.soportada() && !alarmaSos.lista() && (
+            <button onClick={activarAlarma} style={{
+              height: 34, padding: '0 12px', background: 'rgba(255,255,255,.16)',
+              border: '1px solid rgba(255,255,255,.55)', borderRadius: 8,
+              color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+            }}>Activar sonido</button>
+          )}
+          <button data-sos-atendido onClick={() => atenderSos(sos)} style={{
             height: 34, padding: '0 12px', background: '#fff', border: 'none', borderRadius: 8,
             color: HUD.red, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
           }}>ATENDIDO</button>

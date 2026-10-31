@@ -721,11 +721,25 @@ leer}, con el nombre de la combi o de la persona: un toque y se abre.
 \section{Cuando llega un SOS}
 
 Un SOS pone una \textbf{barra roja} arriba de todo, con quién lo pidió, la
-combi, la hora y la posición, y pinta la combi de rojo en el mapa.
-\boton{Ver en mapa} lleva a la combi; \boton{ATENDIDO} saca la barra (el SOS
-queda en el canal y en el informe de emergencias). Si el chofer eligió qué
-pasó, la barra y el mensaje lo dicen: \emph{FALLA MECÁNICA}, \emph{ACCIDENTE}
-o \emph{POLICÍA}. Si llegan dos SOS seguidos, no se pisan.
+combi, la hora y la posición, y pinta la combi de rojo en el mapa. Además
+\textbf{suena} (dos tonos cada pocos segundos), sale una
+\textbf{notificación} del navegador aunque el panel esté tapado por otra
+ventana, y el \textbf{título de la pestaña parpadea} con la combi. Todo eso
+sigue hasta que alguien marque \boton{ATENDIDO}.
+
+\boton{Ver en mapa} lleva a la combi. \boton{ATENDIDO} cierra el SOS
+\textbf{en todos los paneles}: el otro Despacho ve en el canal quién lo
+atendió y a qué hora, y queda en la Actividad y en el informe de emergencias
+(con los minutos que tardó). Si llegan dos SOS seguidos, no se pisan; y si el
+panel estaba cerrado o recargando, al entrar el SOS sin atender está ahí. Si
+el chofer eligió qué pasó, la barra y el mensaje lo dicen: \emph{FALLA
+MECÁNICA}, \emph{ACCIDENTE} o \emph{POLICÍA}.
+
+\textbf{Para que suene}, el navegador pide un clic en la página: entrar con
+\boton{INGRESAR} ya cuenta. Si el panel se abrió solo (la sesión quedó
+guardada), arriba aparece \enambar{Activar alarma de SOS}: un clic ahí, y
+aceptar las notificaciones cuando el navegador pregunte. Mientras se vea ese
+botón, un SOS puede pasar sin ruido.
 
 \pc{d05-sos}{Un SOS recién llegado.}
 

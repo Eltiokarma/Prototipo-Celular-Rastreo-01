@@ -92,6 +92,7 @@ Observado, en este orden:
 | 4 | `chat_history` | los últimos mensajes que le corresponde ver |
 | 5 | `route_geometry` | el trazado dibujado de la ruta |
 | 6 | `puerta` | **sólo a Despacho**: quién entró y no salió a ruta (ver §3.5) |
+| 6b | `sos_abiertos` | **sólo a Despacho y gerencia**: los SOS sin atender que le tocan (ver §4quinquies, «Atender») |
 | 7 | `combi` | **chofer y cobrador**: su combi de hoy (ver §4octies). Desde el 31/10, en cada conexión: Despacho puede haberla cambiado con la app cerrada. Si es la que ya tiene, el cliente no hace nada |
 
 Después, `state` cada 3 s (`STATE_INTERVAL_MS`) mientras haya movimiento.
@@ -613,6 +614,41 @@ tipo se escribía en la nada. Y si el disparo mismo ya tuvo que salir por
 HTTP, el tipo no insiste con el socket. Del lado del servidor, **el mismo
 tipo dos veces es una sola cosa**: contesta `200 { ok: true }` y no vuelve a
 avisar a la ruta, así que un eco perdido no duplica nada.
+
+### Atender: `sos_abiertos`, `sos_atender`, `sos_atendido` (desde el 31/10)
+
+«ATENDIDO» era un botón de esa pantalla: el otro Despacho seguía viendo el SOS
+abierto, nadie sabía quién lo había tomado, y uno que llegaba con el panel
+recargando no volvía a aparecer. Ahora es de la base (`messages.atendidoPor`
+—la cuenta— y `atendidoEn`; NULL = abierto).
+
+- **Al identificarse**, todo panel (Despacho o gerencia) recibe los SOS sin
+  atender de las últimas `SOS_ABIERTO_MS` (24 h) que puede ver: el de ruta,
+  los de su ruta; el supervisor y la gerencia, los de su empresa.
+
+  ```json
+  { "type": "sos_abiertos", "items": [{ "sosId": 41, "unitId": "pedro",
+    "driverName": "Pedro Mamani", "vehicleId": "M-01", "routeId": "R-14",
+    "lat": -15.49, "lng": -70.133, "sosTipo": null, "timestamp": 1793449827573 }] }
+  ```
+
+- **Despacho lo marca** con `{ "type": "sos_atender", "sosId": 41 }`. Sólo un
+  panel que ve esa ruta; un chofer, o el Despacho de otra ruta, no cambia
+  nada. Queda en la Actividad (`sos_atendido`, con los minutos que tardó).
+- **A todo panel que ve esa ruta** —mire la que mire— le llega:
+
+  ```json
+  { "type": "sos_atendido", "sosId": 41, "routeId": "R-14", "vehicleId": "M-01",
+    "porId": "DESP-14", "por": "Despacho R-14", "en": 1793449900000 }
+  ```
+
+  El que lo marca segundo no lo pisa: sólo a él le vuelve ese mismo aviso con
+  quién lo atendió primero.
+- El `chat_history` trae en cada SOS `atendidoEn`, `atendidoPor` y
+  `atendidoPorNombre` (null si sigue abierto); el informe `sos.csv` suma
+  *Atendido por*, *Atendido* y *Minutos hasta atender*.
+- A los teléfonos no les llegan `sos_abiertos` ni `sos_atendido`. (Que el
+  chofer sepa que Despacho vio su SOS es lo siguiente que falta.)
 
 Y una regla del lado de `/gps` que va con la presencia: **un lote cuyas
 posiciones son todas anteriores al último «fuera» de la unidad se descarta

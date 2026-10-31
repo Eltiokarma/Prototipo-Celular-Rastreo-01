@@ -788,3 +788,34 @@ Lo arreglado, con el escenario que lo rompía:
 
 Suites: `revision-apk` (nueva); `vigia-puerta`, `nativas`, `contraste` y
 `combis` ampliadas.
+
+## Tanda 16 — el SOS grita en Despacho (31/10, sin repasar)
+
+El punto 0.1 de PENDIENTES, el primero de «lo que le falta». Un SOS entraba en
+silencio: cartel rojo y línea de chat, nada más.
+
+### Lo que más conviene mirar, en orden
+
+1. **La alarma** (`alarmaSos`, a nivel de módulo en `despacho.html`): Web
+   Audio, dos tonos cada 2,5 s mientras `sosLista` no esté vacía. Sin archivo
+   de sonido. El navegador la tiene muda hasta el primer gesto en la página:
+   se desbloquea con cualquier clic o tecla (el de INGRESAR cuenta). Al
+   retomar una sesión guardada no hubo gesto: la cabecera ofrece «Activar
+   alarma de SOS» y el cartel «Activar sonido». **La duda:** si nadie toca el
+   panel en todo el turno después de recargarlo, el SOS suena recién al
+   primer clic. No hay forma de evitarlo en un navegador; el botón ámbar a la
+   vista es la mitigación.
+2. **La notificación** pide permiso sólo con un clic en ese botón, nunca sola.
+   Con `requireInteraction` queda hasta que se la toca.
+3. **ATENDIDO es de la base** (`messages.atendidoPor/atendidoEn`, índice
+   parcial `idx_sos_abiertos`). `atenderSos` no pisa al primero. Se avisa a
+   todo panel que ve la ruta (`panelVeRuta`), mire la que mire.
+4. **`sos_abiertos` al identificarse**: los de las últimas 24 h
+   (`SOS_ABIERTO_MS`). Uno de anteayer sin marcar no vuelve.
+5. **El informe** `sos.csv` suma quién, cuándo y los minutos.
+6. De paso: en el celular la cabecera de Despacho dejaba «Salir» fuera de la
+   pantalla (x=406 en una de 390, ya pasaba antes). La píldora «EN RUTA» es
+   ahora lo único que cede.
+
+Suite nueva: `sos-despacho` (Chromium: cuenta los tonos que crea la página y
+reemplaza `Notification` para ver qué se notificó).

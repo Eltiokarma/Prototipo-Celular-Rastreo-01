@@ -752,6 +752,19 @@ const SOS_TIPOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia
 // a nadie y solo edita la historia. Configurable para poder probarlo.
 const SOS_TIPO_VENTANA_MS = Number(process.env.SOS_TIPO_VENTANA_MS || 15 * 60_000);
 
+// Quién atendió el SOS y cuándo (31/10). «ATENDIDO» era un botón de ESA
+// pantalla: los otros Despachos seguían viendo la emergencia abierta, nadie
+// sabía quién la había tomado, y un SOS que llegaba mientras el panel
+// recargaba no volvía a aparecer. Ahora es de la base: los abiertos llegan
+// al conectar, y atender uno lo cierra en todos los paneles. NULL = abierto.
+// `atendidoPor` es la cuenta (el informe dice quién y cuánto tardó).
+addColumnIfMissing('messages', 'atendidoPor', 'TEXT');
+addColumnIfMissing('messages', 'atendidoEn', 'INTEGER');
+db.exec("CREATE INDEX IF NOT EXISTS idx_sos_abiertos ON messages (timestamp) WHERE kind = 'sos' AND atendidoEn IS NULL");
+// Hasta cuándo un SOS sin atender se sigue mostrando al conectar: el de
+// anteayer que nadie marcó no es una emergencia en curso.
+const SOS_ABIERTO_MS = Number(process.env.SOS_ABIERTO_MS || 24 * 60 * 60_000);
+
 // El logo de la cooperativa, como data-URL. Va en la fila de la empresa y no
 // en un archivo: son ~100 kB, se piden una vez por sesión, y guardarlos en
 // disco obligaría a montar un volumen aparte y a resolver el respaldo de otra
@@ -852,7 +865,9 @@ function recentHistory(routeId, verPrivadosDe = null, persona = null) {
   return db.prepare(`
     SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.toVehicleId, m.toPersonId, m.text,
            m.duration, m.data, m.lat, m.lng, m.timestamp,
-           m.id AS sosId, m.sosTipo,
+           m.id AS sosId, m.sosTipo, m.atendidoEn,
+           (SELECT COALESCE(a.alias, a.name, a.driverName, a.unitId) FROM users a WHERE a.unitId = m.atendidoPor) AS atendidoPorNombre,
+           m.atendidoPor,
            COALESCE(u.role, 'driver') AS role
     FROM (
       SELECT * FROM messages
@@ -6073,7 +6088,7 @@ const INFORMES = {
   // Emergencias
   sos: (filtro) => {
     const filas = db.prepare(`
-      SELECT unitId, driverName, vehicleId, routeId, lat, lng, sosTipo, timestamp
+      SELECT unitId, driverName, vehicleId, routeId, lat, lng, sosTipo, timestamp, atendidoPor, atendidoEn
       FROM messages
       WHERE kind = 'sos' AND timestamp BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -6086,11 +6101,16 @@ const INFORMES = {
       // "SOS" a secas. Con la columna, el informe deja de ser una lista
       // plana: tres fallas mecánicas y un accidente son conversaciones
       // distintas en la reunión.
-      cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Tipo', 'Latitud', 'Longitud'],
+      // Y quién lo atendió y cuánto tardó (31/10): el tiempo de respuesta es
+      // lo primero que se pregunta después de una emergencia.
+      cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Tipo', 'Latitud', 'Longitud',
+                 'Atendido por', 'Atendido', 'Minutos hasta atender'],
       filas: filas.map(m => [
         fechaHora(m.timestamp), m.driverName, m.unitId, m.vehicleId, m.routeId,
         SOS_TIPOS[m.sosTipo] || 'SOS',
         m.lat ?? '', m.lng ?? '',
+        m.atendidoPor || '', m.atendidoEn ? fechaHora(m.atendidoEn) : '',
+        m.atendidoEn ? Math.max(0, Math.round((m.atendidoEn - m.timestamp) / 60_000)) : '',
       ]),
     };
   },
@@ -8102,9 +8122,11 @@ wss.on('connection', (ws) => {
       if (esSupervisor(ws)) {
         ws.send(JSON.stringify({ type: 'routes', routes: rutas, watching: rutaInicial }));
       }
-      // Y quién entró y no salió a ruta (opción A), a todo panel
+      // Y quién entró y no salió a ruta (opción A), a todo panel; y los SOS
+      // sin atender: el que llegó mientras el panel recargaba no se pierde
       if (esPanel(ws)) {
         ws.send(JSON.stringify({ type: 'puerta', routeId: rutaInicial, items: puertaDeRuta(rutaInicial) }));
+        ws.send(JSON.stringify({ type: 'sos_abiertos', items: sosAbiertosDe(profiles.get(user.unitId)) }));
       }
     }
 
@@ -8283,6 +8305,15 @@ wss.on('connection', (ws) => {
       const unitId = clients.get(ws);
       if (!unitId) return;
       marcarTipoDeSos(unitId, msg.sosId, msg.tipo);
+    }
+
+    // TIPO: sos_atender — Despacho marca ATENDIDO. Sólo un panel; al que
+    // llegó segundo se le dice quién lo atendió.
+    if (msg.type === 'sos_atender') {
+      const unitId = clients.get(ws);
+      if (!unitId || !esPanel(ws)) return;
+      const r = atenderSos(unitId, profiles.get(unitId), msg.sosId);
+      if (r.ya && r.aviso) ws.send(JSON.stringify(r.aviso));
     }
 
     // TIPO: chat — mensaje de texto entre choferes de la MISMA ruta
@@ -8598,6 +8629,56 @@ function marcarTipoDeSos(unitId, sosIdCrudo, tipo) {
   broadcastToRoute(fila.routeId, aviso);
   broadcastToSupervisors(aviso, fila.routeId);
   return { ok: true, sosId: fila.id, tipo };
+}
+
+// ¿Este panel ve esa ruta? El de ruta, la suya; el supervisor y la
+// gerencia, las de su empresa.
+function panelVeRuta(prof, routeId) {
+  if (!prof || (prof.role !== 'dispatch' && prof.role !== 'manager')) return false;
+  return prof.routeId ? prof.routeId === routeId : rutaDeEmpresa(routeId, prof.companyId);
+}
+// Los SOS sin atender que le tocan a un panel, del más viejo al más nuevo
+function sosAbiertosDe(prof) {
+  return db.prepare(`
+    SELECT id AS sosId, unitId, driverName, vehicleId, routeId, lat, lng, sosTipo, timestamp
+    FROM messages WHERE kind = 'sos' AND atendidoEn IS NULL AND timestamp > ?
+    ORDER BY timestamp
+  `).all(Date.now() - SOS_ABIERTO_MS).filter(f => panelVeRuta(prof, f.routeId));
+}
+// A todo panel que ve esa ruta, mire la que mire
+function avisarPaneles(routeId, data) {
+  const crudo = JSON.stringify(data);
+  for (const [c, id] of clients) {
+    if (c.readyState === 1 && panelVeRuta(profiles.get(id), routeId)) {
+      try { c.send(crudo); } catch {}
+    }
+  }
+}
+// Despacho marca ATENDIDO: queda en la base, en la Actividad, y se cierra en
+// todos los paneles. El segundo que lo marca no lo pisa: se le contesta
+// quién lo atendió primero.
+function atenderSos(unitId, prof, sosIdCrudo) {
+  const fila = db.prepare(
+    "SELECT id, unitId, vehicleId, routeId, timestamp, atendidoPor, atendidoEn FROM messages WHERE id = ? AND kind = 'sos'")
+    .get(Number(sosIdCrudo) || -1);
+  if (!fila || !panelVeRuta(prof, fila.routeId)) return { status: 404, error: 'Esa emergencia no existe' };
+  const nombreDe = (id) => {
+    const u = id && db.prepare('SELECT name, alias, driverName, unitId FROM users WHERE unitId = ?').get(id);
+    return u ? displayName(u) : id;
+  };
+  if (fila.atendidoEn) {
+    return { ok: true, ya: true, aviso: { type: 'sos_atendido', sosId: fila.id, routeId: fila.routeId,
+      vehicleId: fila.vehicleId, porId: fila.atendidoPor, por: nombreDe(fila.atendidoPor), en: fila.atendidoEn } };
+  }
+  const en = Date.now();
+  db.prepare('UPDATE messages SET atendidoPor = ?, atendidoEn = ? WHERE id = ? AND atendidoEn IS NULL')
+    .run(unitId, en, fila.id);
+  const minutos = Math.max(0, Math.round((en - fila.timestamp) / 60_000));
+  audit(unitId, 'sos_atendido', fila.unitId, `${fila.vehicleId || ''} · a los ${minutos} min`.replace(/^ · /, ''), fila.routeId);
+  const aviso = { type: 'sos_atendido', sosId: fila.id, routeId: fila.routeId, vehicleId: fila.vehicleId,
+                  porId: unitId, por: nombreDe(unitId), en };
+  avisarPaneles(fila.routeId, aviso);
+  return { ok: true, aviso };
 }
 
 // El SOS por HTTP: la puerta que sobrevive a la pantalla apagada y al

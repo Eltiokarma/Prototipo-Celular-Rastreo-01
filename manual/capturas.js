@@ -214,6 +214,10 @@ async function contexto({ ancho = 1440, alto = 900, escala = 1, movil = false } 
   const ctx = await browser.newContext({
     viewport: { width: ancho, height: alto }, deviceScaleFactor: escala,
     isMobile: movil, hasTouch: movil, locale: 'es-PE', timezoneId: process.env.TZ,
+    // Con las notificaciones concedidas: si no, cada captura de Despacho
+    // sale con «Activar alarma de SOS» en la cabecera (el panel real lo
+    // muestra hasta que se las acepta)
+    permissions: ['notifications'],
   });
   await interceptarHttps(ctx);
   // Despacho y el creador piden las tiles al proveedor (con clave). Para el
