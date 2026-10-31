@@ -675,3 +675,31 @@ dueño y hecha como estaba escrita.
 
 Suites nuevas: `combis`, `combis-web`; `cliente` ampliada.
 
+## Tanda 14 — dos privados: con la combi y con la persona (31/10, sin repasar)
+
+Pedido del dueño: «que el privado sea por persona y por combi». Con varias
+combis por persona, el privado de combi quedaba de los dos lados del borde: lo
+personal de Pedro lo leía su cobrador y el que manejara su combi después.
+
+### Lo que más conviene mirar, en orden
+
+1. **`messages.toPersonId`** al lado de `toVehicleId`, nunca los dos.
+   `destinoPrivado` decide: Despacho con `toPerson` (chofer o cobrador de su
+   cooperativa; el de ruta, sólo los de su ruta), la persona con
+   `personal: true` (siempre el suyo). `repartir` elige el reparto.
+2. **El historial** (`recentHistory(ruta, privados, persona)`): el personal
+   va por persona y de cualquier ruta. Medido con la base de 2000 unidades
+   (42 mil mensajes): el plan es el mismo de antes —recorre por id hasta
+   juntar 200, porque `messages` no tiene índice por ruta— y pasa de 0,6 a
+   0,9 ms por conexión. **La duda:** con una ruta muy callada y mucho
+   historial de otras, ese recorrido se alarga (era así antes también).
+3. **Despacho ve el personal guardado con la ruta que la persona tenía en ese
+   momento.** Si Pedro pasa de la 18A a la 18B, el Despacho de la 18B no ve lo
+   que le escribió el de la 18A (el supervisor sí, mirando la 18A).
+4. **`choferId` en la unidad** (el estado): el que tiene el mando. Es lo que
+   usa la tarjeta para «Solo a …».
+5. **La bandeja de privados sin leer** en Despacho: cuenta desde que se abrió
+   el panel (como los «Mensaje directo»); al recargar arranca en cero.
+
+Suites nuevas: `privado-persona`, `privado-web`; `chat` ampliada.
+

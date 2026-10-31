@@ -481,7 +481,18 @@ function Login({ onSuccess, notice }) {
 // de voz que se estaba escuchando cambiaba de audio a mitad (barrido 22/9).
 let SEQ_MSG = 0;
 
-function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) {
+// Los privados son de dos clases (31/10), y la clave del hilo lo dice:
+//   'M-05'      Despacho ↔ esa COMBI (los que van arriba hoy y después)
+//   'p:pedro'   Despacho ↔ esa PERSONA (la sigue a cualquier combi; no lo
+//               ve nadie más)
+const esPrivadoPersona = (clave) => typeof clave === 'string' && clave.startsWith('p:');
+
+function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, nombres = {}, noLeidos = {}, onAbrir }) {
+  const nombreDe = (clave) => esPrivadoPersona(clave) ? (nombres[clave] || clave.slice(2)) : clave;
+  // La bandeja: los privados con algo sin leer, para que lo de alguien que no
+  // tiene tarjeta a la vista (un cobrador, el que está en la puerta) no se
+  // pierda. Sólo en el canal de la ruta.
+  const pendientes = Object.entries(noLeidos).filter(([, n]) => n > 0);
   const [draft, setDraft] = React.useState('');
   const [noSalio, setNoSalio] = React.useState(false);
   const scrollRef = React.useRef(null);
@@ -512,9 +523,16 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
           <>
             <button onClick={onCerrarPrivado} title="Volver al grupo de la ruta"
               style={btnChico(HUD.fg2)}>← Grupo</button>
-            <span style={{ fontFamily: black, fontSize: 14 }}>{privadoCon}</span>
+            <span style={{ fontFamily: black, fontSize: 14, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {nombreDe(privadoCon)}
+            </span>
             <div style={{ flex: 1 }} />
-            <span style={{ ...rotulo(10, HUD.ambarTinta2), letterSpacing: 1.5 }}>Solo esa unidad</span>
+            <span title={esPrivadoPersona(privadoCon)
+                ? 'Sólo esa persona, en la combi que esté. Su cobrador no lo ve.'
+                : 'Los que van arriba de esa combi hoy (chofer y cobrador), y los que la manejen después.'}
+              style={{ ...rotulo(10, HUD.ambarTinta2), letterSpacing: 1.5, whiteSpace: 'nowrap' }}>
+              {esPrivadoPersona(privadoCon) ? 'Solo esa persona' : 'Toda esa combi'}
+            </span>
           </>
         ) : (
           <>
@@ -525,6 +543,22 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
           </>
         )}
       </div>
+
+      {!privadoCon && pendientes.length > 0 && (
+        <div data-bandeja style={{
+          padding: '8px 14px', borderBottom: `1px solid ${HUD.divider}`,
+          display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
+        }}>
+          <span style={{ ...rotulo(9, HUD.dim2) }}>Privados sin leer</span>
+          {pendientes.map(([clave, n]) => (
+            <button key={clave} onClick={() => onAbrir && onAbrir(clave)}
+              title={esPrivadoPersona(clave) ? 'Privado con esa persona' : 'Privado con esa combi'}
+              style={{ ...btnChico(HUD.ambarTinta, HUD.ambarBorde), background: HUD.ambarFondo, fontSize: 12 }}>
+              {esPrivadoPersona(clave) ? '👤 ' : ''}{nombreDe(clave)} · {n}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto', padding: '14px 16px',
@@ -585,7 +619,7 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
           value={draft}
           onChange={e => { setDraft(e.target.value); setNoSalio(false); }}
           onKeyDown={e => { if (e.key === 'Enter') send(); }}
-          placeholder={privadoCon ? `Mensaje solo para ${privadoCon}…` : 'Escribí al canal de la ruta…'}
+          placeholder={privadoCon ? `Mensaje solo para ${nombreDe(privadoCon)}…` : 'Escribí al canal de la ruta…'}
           style={{ ...campo(40), flex: 1 }}
         />
         <button onClick={send} style={{
@@ -1382,7 +1416,7 @@ function Confirmacion({ kicker, tono, titulo, cuerpo, aceptar, onAceptar, onCanc
   );
 }
 
-function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca, refrescarMarca }) {
+function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca, refrescarMarca, onEscribir }) {
   const [tab, setTab] = React.useState('users'); // users | vehicles | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
   const [events, setEvents] = React.useState(null);
@@ -2022,7 +2056,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   : u.role === 'collector' ? 'collector' : 'driver';
                 const lista = users.filter(u =>
                   (!q || coincide(u, q)) && (!filtroRol || rolDe(u) === filtroRol));
-                const cols = '136px 1fr 84px 96px 118px 268px';
+                const cols = '128px 1fr 80px 96px 110px 312px';
                 return (
                   <Tabla cols={cols} ancho={900}
                     cabeceras={['Persona', 'Identidad', 'Rol', 'Unidad', 'Última conexión', 'Acciones']}>
@@ -2069,6 +2103,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             {u.role !== 'manager' && (
                             <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setCombisFor(null); setResetPass(''); }}
                               style={btnChico(HUD.fg2)}>Clave</button>
+                            )}
+                            {u.role !== 'dispatch' && u.role !== 'manager' && onEscribir && (
+                              <button title="Escribirle en privado, solo a esta persona (en la combi que esté)"
+                                onClick={() => onEscribir(u.unitId, u.alias || u.name || u.unitId)}
+                                style={btnChico(HUD.fg2)}>Escribir</button>
                             )}
                             {u.role !== 'dispatch' && u.role !== 'manager' && (
                               <button title="Las combis que puede elegir en la puerta, y la de hoy"
@@ -4132,6 +4171,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const [privadoCon, setPrivadoCon] = React.useState(null);
   // Privados sin leer por unidad, para el punto en la lista
   const [noLeidos, setNoLeidos] = React.useState({});
+  // Cómo se llama cada persona con la que hay un privado PERSONAL ('p:pedro'
+  // → 'Pedro'): lo dicen sus mensajes, la tarjeta de su combi o Personas
+  const [nombres, setNombres] = React.useState({});
   const [routeInfo, setRouteInfo] = React.useState({
     routeId: session.routeId || null,
     routeName: session.routeName || null,
@@ -4235,10 +4277,16 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // texto, la voz y la foto: sólo el texto sumaba, y la foto privada de un
   // accidente no aparecía en ningún lado si no se abría ese privado (22/9).
   const marcarNoLeido = (msg) => {
-    if (!msg.toVehicleId || msg.role === 'dispatch' || msg.role === 'manager') return;
+    const clave = msg.toPersonId ? 'p:' + msg.toPersonId : msg.toVehicleId;
+    // El nombre, de lo que escribe la PERSONA: el eco de lo que le manda
+    // Despacho viene firmado «Despacho» y pisaba el de ella
+    if (msg.toPersonId && msg.unitId === msg.toPersonId) {
+      setNombres(n => ({ ...n, [clave]: msg.driverName || msg.toPersonId }));
+    }
+    if (!clave || msg.role === 'dispatch' || msg.role === 'manager') return;
     setPrivadoCon(actual => {
-      if (actual !== msg.toVehicleId) {
-        setNoLeidos(n => ({ ...n, [msg.toVehicleId]: (n[msg.toVehicleId] || 0) + 1 }));
+      if (actual !== clave) {
+        setNoLeidos(n => ({ ...n, [clave]: (n[clave] || 0) + 1 }));
       }
       return actual;
     });
@@ -4262,8 +4310,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       from: m.role === 'dispatch' ? 'DESPACHO' : m.role === 'manager' ? 'GERENCIA' : (m.driverName || m.unitId || 'Conductor'),
       role: own ? 'dispatch-self' : m.role,
       unit: m.role === 'dispatch' ? null : (m.vehicleId || null),
-      // Con qué unidad es la conversación privada; null = mensaje del grupo
-      para: m.toVehicleId || null,
+      // Con qué combi ('M-05') o persona ('p:pedro') es la conversación
+      // privada; null = mensaje del grupo
+      para: m.toPersonId ? 'p:' + m.toPersonId : (m.toVehicleId || null),
       time: horaChat(m.timestamp),
       tone: 'normal',
     };
@@ -4486,8 +4535,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     if (ws && ws.readyState === WebSocket.OPEN) {
       // Con una conversación abierta el mensaje va solo a esa unidad
       try {
+        // Con una persona: `toPerson`; con una combi: `to`
+        const destino = esPrivadoPersona(privadoCon) ? { toPerson: privadoCon.slice(2) }
+          : privadoCon ? { to: privadoCon } : {};
         ws.send(JSON.stringify({
-          type: 'chat', text, to: privadoCon || undefined, timestamp: Date.now(),
+          type: 'chat', text, ...destino, timestamp: Date.now(),
         }));
         return true;
       } catch { return false; }
@@ -4506,9 +4558,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     } catch {}
   };
 
-  const abrirPrivado = (vehicleId) => {
-    setPrivadoCon(vehicleId);
-    setNoLeidos(n => ({ ...n, [vehicleId]: 0 }));
+  // `clave` es la combi ('M-05') o la persona ('p:pedro'); `nombre`, cómo
+  // mostrar a la persona
+  const abrirPrivado = (clave, nombre) => {
+    if (nombre && esPrivadoPersona(clave)) setNombres(n => ({ ...n, [clave]: nombre }));
+    setPrivadoCon(clave);
+    setNoLeidos(n => ({ ...n, [clave]: 0 }));
     if (isMobile) setView('chat');
   };
 
@@ -4671,6 +4726,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           // abría tumbaba el panel entero con un ReferenceError (barrido 22/9).
           marca={marca}
           refrescarMarca={refrescarMarca}
+          // «Escribir» en Personas: abre su privado personal en el mapa
+          onEscribir={(personId, nombre) => { setAdminOpen(false); abrirPrivado('p:' + personId, nombre); }}
         />
       )}
 
@@ -5084,6 +5141,34 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     }}>{noLeidos[u.unitId]}</span>
                   )}
                 </button>
+                {/* Y el privado PERSONAL con el que la maneja: lo que es de él
+                    y no de la combi (sus horas, «pasá por la oficina»). No lo
+                    ve su cobrador ni el que maneje la combi después. */}
+                {u.choferId && (() => {
+                  const clave = 'p:' + u.choferId;
+                  const abierto = privadoCon === clave;
+                  return (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); abrirPrivado(clave, u.driverName || u.choferId); }}
+                      title={`Escribirle solo a ${u.driverName || u.choferId}, en la combi que esté`}
+                      style={{
+                        ...btnChico(abierto ? '#fff' : HUD.fg2, HUD.line),
+                        marginTop: 9, marginLeft: 6, background: abierto ? HUD.bright : HUD.surface,
+                        borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
+                      }}>
+                      {/* El primer nombre, para que entre al lado de «Mensaje
+                          directo»; el completo va en el título y en el chat */}
+                      Solo a {String(u.driverName || u.choferId).split(' ')[0]}
+                      {noLeidos[clave] > 0 && (
+                        <span style={{
+                          background: HUD.amber, color: HUD.oscuro ? '#000' : '#fff',
+                          borderRadius: 9, minWidth: 18, padding: '0 5px',
+                          fontFamily: mono, fontSize: 11, fontWeight: 800, textAlign: 'center',
+                        }}>{noLeidos[clave]}</span>
+                      )}
+                    </button>
+                  );
+                })()}
               </div>
             );
           })}
@@ -5121,7 +5206,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             : { borderLeft: `1px solid ${HUD.divider}` }),
         }}>
           <ChatColumn messages={messages} onSend={sendChat} routeId={routeInfo.routeId}
-            privadoCon={privadoCon} onCerrarPrivado={() => setPrivadoCon(null)} />
+            privadoCon={privadoCon} onCerrarPrivado={() => setPrivadoCon(null)}
+            nombres={nombres} noLeidos={noLeidos} onAbrir={(clave) => abrirPrivado(clave)} />
         </div>
       </div>
 

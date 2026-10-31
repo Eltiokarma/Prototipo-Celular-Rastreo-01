@@ -441,10 +441,16 @@
 
   // privado = va solo a Despacho (y a quien vaya en la misma combi), no al
   // grupo de la ruta. El servidor decide el destinatario: la propia unidad.
+  // `privado`: 'combi' (o true, como antes) = con Despacho sobre esta combi;
+  // 'persona' = con Despacho, sólo yo (31/10); falso = al grupo de la ruta
+  const aDestino = (privado) => ({
+    privado: privado === true || privado === 'combi',
+    ...(privado === 'persona' ? { personal: true } : {}),
+  });
   function sendChat(text, privado) {
     send({
       type: 'chat', text: String(text).slice(0, 500),
-      privado: !!privado, timestamp: Date.now(),
+      ...aDestino(privado), timestamp: Date.now(),
     });
   }
 
@@ -452,7 +458,7 @@
   // a todo el grupo y la guarda en el historial.
   function sendVoice(dataUrl, duration, privado) {
     if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:audio')) return;
-    send({ type: 'voice', data: dataUrl, duration, privado: !!privado, timestamp: Date.now() });
+    send({ type: 'voice', data: dataUrl, duration, ...aDestino(privado), timestamp: Date.now() });
   }
 
   // El SOS, con confirmación: devuelve { ok, via, sosId } y `ok` quiere decir

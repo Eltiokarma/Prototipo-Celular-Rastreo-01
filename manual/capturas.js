@@ -520,6 +520,16 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     await de.waitForTimeout(1500);
     await foto(de, 'd04-mensaje-directo');
     await clic(de, 'button[title="Volver al grupo de la ruta"]', 1000);
+    // Y el privado PERSONAL: sólo a Rufino, no a su combi (su cobradora no
+    // lo ve)
+    const personal = tarjeta.locator('button:has-text("Solo a")');
+    await personal.click({ timeout: 6000 }); await de.waitForTimeout(800);
+    const aEl = de.locator('input[placeholder^="Mensaje solo para"]').last();
+    await aEl.fill('Rufo, al terminar el turno pasá por la oficina a firmar.');
+    await aEl.press('Enter');
+    await de.waitForTimeout(1500);
+    await foto(de, 'd04b-mensaje-personal');
+    await clic(de, 'button[title="Volver al grupo de la ruta"]', 1000);
   });
 
   // ── 6. El chofer: mapa, chat, tráfico, SOS, ausente ───────────────────
@@ -532,9 +542,11 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     await ch.press('input[placeholder^="Mensaje"]', 'Enter');
     await ch.waitForTimeout(1500);
     await foto(ch, 'c11-chat-grupo');
-    await clic(ch, 'button:has-text("DESPACHO")', 1500);
+    await clic(ch, '[data-canal="despacho"]', 1500);
     await foto(ch, 'c12-chat-despacho');
-    await clic(ch, 'button:has-text("GRUPO")', 800);
+    await clic(ch, '[data-canal="personal"]', 1500);
+    await foto(ch, 'c12b-chat-personal');
+    await clic(ch, '[data-canal="grupo"]', 800);
   });
   await paso('chofer: tráfico', async () => {
     await irA('Brechas');

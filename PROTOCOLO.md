@@ -257,8 +257,18 @@ así hoy; si se toca, se rompen las dos pantallas web.
   "timestamp": 1785728569716 }
 ```
 
-`toVehicleId` distingue el canal: `null` es el grupo de la ruta, y con valor
-es la conversación privada de esa unidad con Despacho.
+El canal lo dicen dos campos, y nunca vienen los dos (desde el 31/10):
+
+| `toVehicleId` | `toPersonId` | Canal |
+|---|---|---|
+| `null` | `null` | el grupo de la ruta |
+| `"M-05"` | `null` | Despacho ↔ esa **combi**: la ven los que van arriba hoy (chofer y cobrador) y los que la manejen después |
+| `null` | `"pedro"` | Despacho ↔ esa **persona**: la sigue a cualquier combi y ruta, y no la ve nadie más |
+
+El `chat_history` de un chofer o cobrador trae el grupo de su ruta, el privado
+de su combi de hoy y su privado personal **de cualquier ruta**. El de
+Despacho, todo lo de la ruta que mira (los personales guardados con la ruta
+que la persona tenía en ese momento).
 
 **El contenido pesado caduca, la burbuja no.** El servidor conserva el `data`
 de las **30** notas de voz y las **20** fotos más recientes; pasado eso lo
@@ -321,7 +331,11 @@ agresivo tras una reconexión lo puede quemar.
   para rutas sin trazado cargado. Con geometría, el servidor lo ignora.
 - `chat` privado: **un chofer solo puede escribirle a Despacho.** Cualquier
   `to` que mande se reemplaza por su propio vehículo. Chofer ↔ chofer privado
-  no existe a propósito. Despacho sí elige destinatario, y el mensaje se
+  no existe a propósito. Con `"personal": true` (en vez de `privado`) va a su
+  privado PERSONAL —siempre el suyo, pida lo que pida—. Despacho escribe a
+  una combi con `to` o a una persona con `toPerson` (chofer o cobrador de su
+  cooperativa; el Despacho de ruta, sólo a la gente de su ruta). Lo mismo vale
+  para `voice` y `photo`. Despacho sí elige destinatario, y el mensaje se
   guarda y se reparte con **la ruta de la combi de destino**, no con la que
   Despacho está mirando: el historial del chofer se filtra por SU ruta, así
   que con la del emisor el privado a una combi de otra ruta se veía en vivo y
@@ -692,9 +706,10 @@ persona les llega:
 { "type": "combi", "vehicleId": "M-01", "routeId": "R-14", "routeName": "…" }
 ```
 
-seguido del `state`, el `chat_history` (el privado es por COMBI: el de hoy en
-M-01 ve lo que Despacho le escribió al de M-01) y el `route_geometry` de su
-ruta. El cliente corrige su sesión con eso.
+seguido del `state`, el `chat_history` (el privado de COMBI es de la combi:
+el de hoy en M-01 ve lo que Despacho le escribió a M-01; lo suyo va por el
+privado PERSONAL, que lo sigue) y el `route_geometry` de su ruta. El cliente
+corrige su sesión con eso.
 
 Despacho: `POST /admin/users/:unitId/combis` con `{ "combis": ["M-01",
 "M-05"], "todaLaRuta": false, "actual": "M-05" }` (la lista entera; `actual`

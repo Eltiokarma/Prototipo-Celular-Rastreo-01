@@ -356,11 +356,14 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
 
   // `privado` manda al canal con Despacho. Un chofer no puede elegir
   // destinatario: el servidor lo reemplaza por su propio vehículo igual.
-  function mandarChat(texto, { privado = false } = {}) {
+  // `privado`: con Despacho sobre la combi; `personal`: con Despacho, sólo
+  // esta persona (31/10). Ninguno: al grupo de la ruta.
+  const destino = (privado, personal) => (personal ? { personal: true } : privado ? { privado: true } : {});
+  function mandarChat(texto, { privado = false, personal = false } = {}) {
     const t = String(texto || '').trim();
     if (!t) return false;
     return enviar({ type: 'chat', text: t.slice(0, 500),
-                    timestamp: ahora(), ...(privado ? { privado: true } : {}) });
+                    timestamp: ahora(), ...destino(privado, personal) });
   }
 
   // Nota de voz. Viaja como data-URL en base64 dentro del mismo WebSocket que
@@ -368,12 +371,12 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // avisa: pasado eso descarta el mensaje **en silencio**, así que se corta
   // acá con margen y se devuelve el motivo.
   const TOPE_AUDIO = 1_900_000;
-  function mandarVoz({ data, duration, privado = false }) {
+  function mandarVoz({ data, duration, privado = false, personal = false }) {
     if (!data || !String(data).startsWith('data:audio')) return 'formato';
     if (String(data).length > TOPE_AUDIO) return 'muy-larga';
     const ok = enviar({
       type: 'voice', data, duration: Math.round(duration || 0),
-      timestamp: ahora(), ...(privado ? { privado: true } : {}),
+      timestamp: ahora(), ...destino(privado, personal),
     });
     return ok ? null : 'sin-conexion';
   }
@@ -386,12 +389,12 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // (1 150 000 acá, 1 200 000 allá) y una foto entre los dos se perdía en
   // silencio: la pantalla la veía salir y nunca salía (REVISION, A6).
   const TOPE_IMAGEN = MAX_DATAURL;
-  function mandarFoto({ data, text = '', privado = false }) {
+  function mandarFoto({ data, text = '', privado = false, personal = false }) {
     if (!data || !String(data).startsWith('data:image')) return 'formato';
     if (String(data).length > TOPE_IMAGEN) return 'muy-pesada';
     const ok = enviar({
       type: 'photo', data, text: String(text || '').slice(0, 200),
-      timestamp: ahora(), ...(privado ? { privado: true } : {}),
+      timestamp: ahora(), ...destino(privado, personal),
     });
     return ok ? null : 'sin-conexion';
   }

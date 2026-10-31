@@ -223,8 +223,8 @@ function Aplicacion() {
     const t = setTimeout(() => setTipificarSos(false), 5 * 60_000);
     return () => clearTimeout(t);
   }, [tipificarSos]);
-  const [canal, setCanal] = React.useState('grupo');        // 'grupo' | 'directo'
-  const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0 });
+  const [canal, setCanal] = React.useState('grupo');        // 'grupo' | 'directo' | 'personal'
+  const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0, personal: 0 });
   const cliente = React.useRef(null);
 
   // ── El cliente vive fuera de React ──────────────────────────
@@ -513,7 +513,7 @@ function Aplicacion() {
     // (los privados viejos del siguiente contaban como vistos). El resto
     // también, para no mostrar «en vivo» lo de otro (repaso de la tanda 9).
     setMarca(null); setEstado(null); setGeometria(null); setHud(construirHud(null));
-    setCanal('grupo'); setVistoHasta({ grupo: 0, directo: 0 }); setAviso(null);
+    setCanal('grupo'); setVistoHasta({ grupo: 0, directo: 0, personal: 0 }); setAviso(null);
   };
 
   // El texto de la notificación va en un ref para que los oyentes se
@@ -698,6 +698,7 @@ function Aplicacion() {
   const noLeidos = {
     grupo: sinLeer(mensajes, 'grupo', vistoHasta.grupo),
     directo: sinLeer(mensajes, 'directo', vistoHasta.directo),
+    personal: sinLeer(mensajes, 'personal', vistoHasta.personal),
   };
 
   // ¿El servidor ya me confirmó sobre el trazado? Es SU palabra, no la mía:
@@ -778,7 +779,7 @@ function Aplicacion() {
           // El mensaje entra al hilo sólo por el eco del servidor, así que
           // sin socket no pasa NADA: ni burbuja, ni error. Antes el retorno
           // se descartaba (C10).
-          if (!cliente.current.mandarChat(texto, { privado: canal === 'directo' })) {
+          if (!cliente.current.mandarChat(texto, { privado: canal === 'directo', personal: canal === 'personal' })) {
             setAviso('Sin conexión: el mensaje no salió, probá de nuevo');
             return false;
           }
@@ -787,7 +788,7 @@ function Aplicacion() {
         onVoz={(data, duration) => {
           // Ídem la nota de voz, que es peor: el chofer graba cuarenta
           // segundos, suelta, y no pasa nada.
-          const r = cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' });
+          const r = cliente.current.mandarVoz({ data, duration, privado: canal === 'directo', personal: canal === 'personal' });
           if (r === 'muy-larga') setAviso('La nota es muy larga y no salió: grabá una más corta');
           else if (r === 'sin-conexion') setAviso('Sin conexión: la nota no salió, probá de nuevo');
           else if (r) setAviso('Eso no es una nota de voz');
@@ -798,7 +799,7 @@ function Aplicacion() {
         onFoto={(data) => {
           // Si no salió, se dice por qué. Antes la pantalla ignoraba el
           // retorno y una foto pesada o sin conexión se perdía en silencio.
-          const r = cliente.current.mandarFoto({ data, privado: canal === 'directo' });
+          const r = cliente.current.mandarFoto({ data, privado: canal === 'directo', personal: canal === 'personal' });
           if (r === 'muy-pesada') setAviso('La foto pesa demasiado y no salió: sacala de más lejos');
           else if (r === 'sin-conexion') setAviso('Sin conexión: la foto no salió, probá de nuevo');
           else if (r) setAviso('Eso no es una foto');
@@ -2249,7 +2250,7 @@ function SosDeslizable({ onDisparar }) {
 // ═══════════════════════════════════════════════════════════════
 function Barra({ pantalla, noLeidos, onIr }) {
   const { s, C } = usarTema();
-  const total = (noLeidos?.grupo || 0) + (noLeidos?.directo || 0);
+  const total = (noLeidos?.grupo || 0) + (noLeidos?.directo || 0) + (noLeidos?.personal || 0);
   // Acá está el bug que se midió: sin este margen, estos botones quedan
   // DEBAJO de los de Android y hay que insistir para tocarlos. Ver
   // `margenes.js` — un elemento que se toca necesita más aire que un texto.
@@ -2270,9 +2271,10 @@ function Barra({ pantalla, noLeidos, onIr }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// El chat, con sus DOS canales. El grupo lo ven todos los de la ruta; el
-// directo, solo este chofer y Despacho. Chofer ↔ chofer privado no existe y
-// eso lo decide el servidor, no esta pantalla.
+// El chat, con sus TRES canales. El grupo lo ven todos los de la ruta; el
+// de la COMBI, Despacho y los que van arriba de ella (hoy y después); el
+// PERSONAL, sólo esta persona y Despacho, en la combi que sea. Chofer ↔
+// chofer privado no existe y eso lo decide el servidor, no esta pantalla.
 function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, onEnviar, onVoz, onFoto, onIr }) {
   const { s, C } = usarTema();
   const [texto, setTexto] = React.useState('');
@@ -2298,7 +2300,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
       <StatusBar style="light" />
 
       <View style={s.canales}>
-        {[['grupo', 'RUTA'], ['directo', 'DESPACHO']].map(([id, texto]) => (
+        {[['grupo', 'RUTA'], ['directo', 'COMBI'], ['personal', 'PERSONAL']].map(([id, texto]) => (
           <Pressable key={id} onPress={() => onCanal(id)}
             style={[s.canal, canal === id && s.canalActivo]}>
             <Text style={[s.canalTexto, canal === id && { color: '#fff' }]}>{texto}</Text>
@@ -2319,7 +2321,9 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
           <Text style={s.vacio}>
             {canal === 'grupo'
               ? 'Todavía no hay mensajes en el canal de la ruta.'
-              : 'Acá hablás solo con Despacho. Nadie más lo ve.'}
+              : canal === 'directo'
+                ? 'Acá va lo que Despacho habla con tu combi: lo ven el chofer y el cobrador que van arriba, y el que la maneje después.'
+                : 'Acá hablás solo vos con Despacho. Te sigue aunque cambies de combi, y no lo ve nadie más.'}
           </Text>
         }
         renderItem={({ item: m }) => (
@@ -2351,7 +2355,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
           style={s.campoChat}
           value={texto}
           onChangeText={setTexto}
-          placeholder={canal === 'grupo' ? 'Mensaje a la ruta…' : 'Mensaje a Despacho…'}
+          placeholder={canal === 'grupo' ? 'Mensaje a la ruta…' : canal === 'personal' ? 'Mensaje solo a Despacho…' : 'Mensaje a Despacho…'}
           placeholderTextColor={C.tenue}
           multiline
           maxLength={500}

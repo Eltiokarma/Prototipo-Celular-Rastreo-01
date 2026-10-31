@@ -33,7 +33,7 @@ console.log('\nQUIÉN HABLÓ');
      desp.quien === 'DESPACHO' && desp.tono === 'despacho', desp);
 }
 
-console.log('\nLOS DOS CANALES');
+console.log('\nLOS TRES CANALES');
 {
   const grupo   = aMensaje(crudo({ unitId: 'M-08', text: 'grupo' }), YO);
   const directo = aMensaje(crudo({ unitId: 'DESPACHO', role: 'dispatch', toVehicleId: 'M-12', text: 'privado' }), YO);
@@ -45,6 +45,16 @@ console.log('\nLOS DOS CANALES');
      hilo(todos, 'grupo').every(m => m.texto !== 'privado'), hilo(todos, 'grupo').map(m => m.texto));
   ok('y el del directo NO trae el del grupo',
      hilo(todos, 'directo').every(m => m.texto !== 'grupo'), hilo(todos, 'directo').map(m => m.texto));
+
+  // El tercero (31/10): Despacho ↔ esta PERSONA, en la combi que sea
+  const personal = aMensaje(crudo({ unitId: 'DESPACHO', role: 'dispatch', toPersonId: 'M-12', text: 'personal' }), YO);
+  ok('con persona de destino es el personal', personal.canal === 'personal', personal.canal);
+  const tres = [grupo, directo, personal];
+  ok('el personal no se mezcla con el de la combi ni con el grupo',
+     hilo(tres, 'personal').map(m => m.texto).join() === 'personal' &&
+     hilo(tres, 'directo').map(m => m.texto).join() === 'privado' &&
+     hilo(tres, 'grupo').map(m => m.texto).join() === 'grupo');
+  ok('y cuenta sus sin leer aparte', sinLeer(tres, 'personal', 0) === 1 && sinLeer(tres, 'directo', 0) === 1);
 }
 
 console.log('\nEL HILO');

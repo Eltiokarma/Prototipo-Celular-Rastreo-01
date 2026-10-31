@@ -4,10 +4,13 @@
 // caros —que un privado se vea donde no debe, o que se confunda quién habló—
 // y es la que se puede probar sin un teléfono. Ver `pruebas/chat.js`.
 //
-// El chofer tiene DOS canales y no uno:
+// El chofer tiene TRES canales y no uno:
 //
-//   grupo    todos los de su ruta, incluido Despacho. `toVehicleId: null`
-//   directo  solo él y Despacho. `toVehicleId` = su vehículo
+//   grupo     todos los de su ruta, incluido Despacho. Sin destino.
+//   directo   Despacho ↔ su COMBI. `toVehicleId` = la combi: lo ven los que
+//             van arriba hoy y los que la manejen después.
+//   personal  Despacho ↔ esta PERSONA (31/10). `toPersonId` = ella: la sigue
+//             a cualquier combi y no lo ve nadie más.
 //
 // Chofer ↔ chofer en privado no existe, y es una decisión del servidor, no de
 // esta pantalla: el canal entre choferes es el grupo. Ver PROTOCOLO.md.
@@ -29,7 +32,7 @@ function aMensaje(crudo, { miPersona, miVehiculo }) {
   const esFoto = crudo.kind === 'photo' || crudo.type === 'photo_msg';
   return {
     id: `${crudo.unitId}-${crudo.timestamp}`,
-    canal: crudo.toVehicleId ? 'directo' : 'grupo',
+    canal: crudo.toPersonId ? 'personal' : crudo.toVehicleId ? 'directo' : 'grupo',
     propio,
     // Quién habló. Despacho se muestra como Despacho aunque tenga nombre:
     // al chofer le importa que le habla la central, no quién está de turno.

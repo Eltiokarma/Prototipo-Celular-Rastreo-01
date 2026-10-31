@@ -65,7 +65,13 @@ let servidor = null, browser = null;
   // Éstos van con horas de verdad —no comprimidas— porque lo que se mira es
   // justamente de qué día es cada fila.
   const H = 3600_000, DIA = 86400_000;
-  turno.run('M-02', 'M-02', 'collector', medianoche - DIA + 22 * H, medianoche + 1 * H, medianoche + 1 * H);
+  // El que cruza la medianoche va de ANTEAYER a AYER, no de ayer a hoy: con
+  // «hoy a la 01:00» como fin, una corrida entre las 00:00 y la 01:00 tenía
+  // ese fin en el futuro, el turno contaba hasta ahora y daba «2 h 42 min»
+  // (salió en la regresión del 31/10, corrida a las 00:10). Y uno de ayer de
+  // dos horas, para el rótulo AYER sin tapar las «3 h» del que cruza.
+  turno.run('M-02', 'M-02', 'collector', medianoche - 2 * DIA + 22 * H, medianoche - DIA + 1 * H, medianoche - DIA + 1 * H);
+  turno.run('M-04', 'M-04', 'driver', medianoche - DIA + 9 * H, medianoche - DIA + 11 * H, medianoche - DIA + 11 * H);
   turno.run('M-03', 'M-03', 'driver', medianoche - 3 * DIA + 9 * H, medianoche - 3 * DIA + 15 * H, medianoche - 3 * DIA + 15 * H);
   // Acciones de auditoría de las que se mostraban como slug crudo (E17)
   const anotar = w.prepare(`INSERT INTO audit (actor, action, target, detail, timestamp, routeId, companyId)

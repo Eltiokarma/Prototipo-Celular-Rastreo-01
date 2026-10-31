@@ -714,6 +714,19 @@ if (addColumnIfMissing('messages', 'vehicleId', 'TEXT')) {
 // su cobrador. NULL = mensaje del grupo, lo ve toda la ruta.
 addColumnIfMissing('messages', 'toVehicleId', 'TEXT');
 
+// Y el privado con una PERSONA (31/10), además del de la combi. Con varias
+// combis por persona (habilitaciones) el privado de combi quedó de los dos
+// lados del borde: el de hoy en M-05 ve lo que Despacho le escribió al de
+// ayer, y lo que es de Pedro —sus horas, «pasá por la oficina»— lo leía su
+// cobrador y el que manejara M-05 después. Ahora hay dos:
+//   toVehicleId  Despacho ↔ esa combi: lo ven los que van arriba hoy y los
+//                que la manejen después. Lo de la calle.
+//   toPersonId   Despacho ↔ esa persona: la sigue a cualquier combi y ruta,
+//                y no lo ve nadie más. Lo personal.
+// Nunca los dos a la vez. NULL en los dos = el grupo de la ruta.
+addColumnIfMissing('messages', 'toPersonId', 'TEXT');
+db.exec('CREATE INDEX IF NOT EXISTS idx_messages_persona ON messages (toPersonId, id) WHERE toPersonId IS NOT NULL');
+
 // Qué clase de emergencia fue el SOS. Se elige DESPUÉS de disparar —en una
 // emergencia real nadie navega un menú, así que deslizar manda la alerta ya—
 // y por eso vive como UPDATE sobre la fila que el disparo dejó: NULL es el
@@ -763,8 +776,8 @@ const PHOTO_KEEP = Number(process.env.PHOTO_KEEP) || 20;  // fotos que conservan
                                                           // (menos: pesan más que un audio)
 
 const insertStmt = db.prepare(`
-  INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, toVehicleId, text, duration, data, lat, lng, timestamp)
-  VALUES (@kind, @unitId, @driverName, @routeId, @vehicleId, @toVehicleId, @text, @duration, @data, @lat, @lng, @timestamp)
+  INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, toVehicleId, toPersonId, text, duration, data, lat, lng, timestamp)
+  VALUES (@kind, @unitId, @driverName, @routeId, @vehicleId, @toVehicleId, @toPersonId, @text, @duration, @data, @lat, @lng, @timestamp)
 `);
 // La conversación vieja se va; el SOS viejo se queda mucho más. Se poda cada
 // 6 h junto con el resto del historial y NO en cada mensaje: a esta escala
@@ -805,7 +818,7 @@ const pruneMediaStmt = db.prepare(`
 function remember(item) {
   try {
     const info = insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null,
-      vehicleId: null, toVehicleId: null, ...item });
+      vehicleId: null, toVehicleId: null, toPersonId: null, ...item });
     // Lo pesado sí se poda en el acto: una foto ocupa lugar de verdad y no
     // puede esperar seis horas. Las filas de texto se podan en la barrida.
     pruneMediaStmt.run({ kind: 'voice', conservar: VOICE_KEEP });
@@ -817,23 +830,25 @@ function remember(item) {
   }
 }
 
-// Historial de UNA ruta: un chofer nunca ve la conversación de otra
-// Historial de la ruta. 'verPrivadosDe' decide qué conversación privada se
-// incluye: para una combi, la suya; para Despacho, todas las de su ruta
-// ('*'); sin eso, solo el grupo. Un chofer nunca ve lo privado de otro.
-function recentHistory(routeId, verPrivadosDe = null) {
+// Historial de la ruta. 'verPrivadosDe' decide qué conversación privada de
+// COMBI se incluye: para una combi, la suya; para Despacho, todas las de su
+// ruta ('*'); sin eso, solo el grupo. `persona` suma su privado PERSONAL, de
+// cualquier ruta: la sigue aunque haya cambiado de combi. Un chofer nunca ve
+// lo privado de otro.
+function recentHistory(routeId, verPrivadosDe = null, persona = null) {
   // El rol sale de la tabla users (los mensajes viejos no lo guardan)
   return db.prepare(`
-    SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.toVehicleId, m.text,
+    SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.toVehicleId, m.toPersonId, m.text,
            m.duration, m.data, m.lat, m.lng, m.timestamp,
            m.id AS sosId, m.sosTipo,
            COALESCE(u.role, 'driver') AS role
     FROM (
       SELECT * FROM messages
-      WHERE routeId = @routeId
-        AND (toVehicleId IS NULL
-             OR @todos = 1
-             OR toVehicleId = @propio)
+      WHERE (routeId = @routeId
+             AND ((toVehicleId IS NULL AND toPersonId IS NULL)
+                  OR @todos = 1
+                  OR toVehicleId = @propio))
+         OR (@persona != '' AND toPersonId = @persona)
       ORDER BY id DESC LIMIT ${HISTORY_MAX}
     ) m
     LEFT JOIN users u ON u.unitId = m.unitId
@@ -842,6 +857,7 @@ function recentHistory(routeId, verPrivadosDe = null) {
     routeId,
     todos: verPrivadosDe === '*' ? 1 : 0,
     propio: verPrivadosDe && verPrivadosDe !== '*' ? verPrivadosDe : '',
+    persona: persona || '',
   });
 }
 
@@ -2164,14 +2180,17 @@ function asumirMando(vehicleId, personId, ws, como, quien = {}) {
     const veh = vehicleOf(vehicleId);
     ponerUnidad(vehicleId, {
       lat: null, lng: null, speed: 0, routeProgress: 0,
-      unitId: vehicleId, label: veh?.label || null, driverName: nombre,
+      unitId: vehicleId, label: veh?.label || null, driverName: nombre, choferId: personId,
       routeId, timestamp: Date.now(), oidoEn: Date.now(),
     });
     broadcastToRoute(routeId, { type: 'unit_joined', unitId: vehicleId });
     scheduleStateBroadcast(routeId, true);
-  } else if (u.driverName !== nombre) {
-    // El mapa dice quién maneja: el que tomó el mando, no el último que entró
+  } else if (u.driverName !== nombre || u.choferId !== personId) {
+    // El mapa dice quién maneja: el que tomó el mando, no el último que entró.
+    // Y quién es (`choferId`): Despacho le escribe en privado PERSONAL desde
+    // la tarjeta de la combi.
     u.driverName = nombre;
+    u.choferId = personId;
     scheduleStateBroadcast(u.routeId, true);
   }
 }
@@ -3483,7 +3502,7 @@ function cambiarCombiDe(personId, vehicleId, actor) {
     try {
       ws.send(JSON.stringify({ type: 'combi', vehicleId, routeId: ruta, routeName: routeOf(ruta)?.name || ruta }));
       ws.send(JSON.stringify({ type: 'state', ...buildState(ruta) }));
-      ws.send(JSON.stringify({ type: 'chat_history', routeId: ruta, items: recentHistory(ruta, vehicleId) }));
+      ws.send(JSON.stringify({ type: 'chat_history', routeId: ruta, items: recentHistory(ruta, vehicleId, personId) }));
       ws.send(mensajeGeometria(ruta));
     } catch {}
   }
@@ -5358,7 +5377,7 @@ function moverCombiDeRuta(vehicleId, origen, destino) {
     watching.set(ws, destino);
     try {
       ws.send(mensajeGeometria(destino));
-      ws.send(JSON.stringify({ type: 'chat_history', routeId: destino, items: recentHistory(destino, vehicleId) }));
+      ws.send(JSON.stringify({ type: 'chat_history', routeId: destino, items: recentHistory(destino, vehicleId, personId) }));
     } catch {}
   }
   scheduleStateBroadcast(origen, true);
@@ -5955,7 +5974,7 @@ const INFORMES = {
   // a buscar una de hace un mes.
   mensajes: (filtro) => {
     const filas = db.prepare(`
-      SELECT kind, unitId, driverName, vehicleId, toVehicleId, routeId, text, duration,
+      SELECT kind, unitId, driverName, vehicleId, toVehicleId, toPersonId, routeId, text, duration,
              CASE WHEN data IS NULL OR data = '' THEN 0 ELSE 1 END AS tieneMedio,
              timestamp
       FROM messages
@@ -5974,7 +5993,8 @@ const INFORMES = {
         QUE[m.kind] || m.kind,
         // Al grupo de la ruta, o en privado con una combi. Lo primero que se
         // pregunta de un mensaje es quién lo vio.
-        m.toVehicleId ? `privado con ${m.toVehicleId}` : 'al grupo de la ruta',
+        m.toPersonId ? `privado personal con ${m.toPersonId}`
+          : m.toVehicleId ? `privado con la combi ${m.toVehicleId}` : 'al grupo de la ruta',
         m.text || '',
         m.kind === 'voice' ? (m.duration ?? '') : '',
         m.kind === 'chat' ? '' : (m.tieneMedio ? 'sí' : 'no (se podó)'),
@@ -7860,6 +7880,7 @@ wss.on('connection', (ws) => {
           driverName: user.role === 'driver'
             ? displayName(user)
             : (previo?.driverName || vehicleId),
+          choferId: user.role === 'driver' ? user.unitId : (previo?.choferId || null),
           // La ruta de la COMBI primero: la de la persona puede no
           // coincidir, y el cobrador que se conectaba mudaba la unidad al
           // mapa de su ruta (barrido del 22/9).
@@ -7925,10 +7946,12 @@ wss.on('connection', (ws) => {
       ws.send(JSON.stringify({ type: 'state', ...buildState(rutaInicial) }));
       // Qué conversación privada le corresponde ver: Despacho todas las de
       // su ruta, una combi la suya, nadie la de otro.
-      const privados = (user.role === 'dispatch' || user.role === 'manager') ? '*' : (vehicleId || null);
+      const esDespacho = user.role === 'dispatch' || user.role === 'manager';
+      const privados = esDespacho ? '*' : (vehicleId || null);
       ws.send(JSON.stringify({
         type: 'chat_history', routeId: rutaInicial,
-        items: recentHistory(rutaInicial, privados),
+        // Y el privado PERSONAL de la persona, de cualquier ruta
+        items: recentHistory(rutaInicial, privados, esDespacho ? null : user.unitId),
       }));
       ws.send(mensajeGeometria(rutaInicial));
       // Los supervisores además reciben la lista de rutas para el selector
@@ -8106,10 +8129,10 @@ wss.on('connection', (ws) => {
       const prof = profiles.get(unitId) || {};
       const routeId = rutaDelEmisor();
 
-      const destino = destinoPrivado(prof, msg);
+      const destino = destinoPrivado(prof, msg, unitId);
       if (!destino) return;
-      const { toVehicleId } = destino;
-      // Un privado va con la ruta de la combi de destino (C19)
+      const { toVehicleId, toPersonId } = destino;
+      // Un privado va con la ruta de la combi (o de la persona) de destino (C19)
       const rutaDelMensaje = destino.routeId || routeId;
 
       const entry = {
@@ -8117,17 +8140,17 @@ wss.on('connection', (ws) => {
         driverName: prof.driverName || 'Conductor',
         vehicleId: prof.vehicleId || null,
         toVehicleId,
+        toPersonId,
         routeId: rutaDelMensaje,
         text: String(msg.text || '').slice(0, 500),
         timestamp: horaDeclarada(msg.timestamp),
       };
       remember({ kind: 'chat', ...entry });
       const payload = { type: 'chat_msg', role: prof.role || 'driver', ...entry };
-      if (toVehicleId) {
-        enviarPrivado(rutaDelMensaje, toVehicleId, payload, ws);
-        console.log(`Privado ${prof.role === 'dispatch' ? 'Despacho → ' + toVehicleId : toVehicleId + ' → Despacho'}`);
-      } else {
-        broadcastToRoute(routeId, payload);
+      repartir(routeId, destino, rutaDelMensaje, payload, ws);
+      if (toVehicleId || toPersonId) {
+        const con = toPersonId ? `persona ${toPersonId}` : toVehicleId;
+        console.log(`Privado ${prof.role === 'dispatch' ? 'Despacho → ' + con : con + ' → Despacho'}`);
       }
     }
 
@@ -8143,10 +8166,10 @@ wss.on('connection', (ws) => {
       const prof = profiles.get(unitId) || {};
       const routeId = rutaDelEmisor();
 
-      const destino = destinoPrivado(prof, msg);
+      const destino = destinoPrivado(prof, msg, unitId);
       if (!destino) return;
-      const { toVehicleId } = destino;
-      // Un privado va con la ruta de la combi de destino (C19)
+      const { toVehicleId, toPersonId } = destino;
+      // Un privado va con la ruta de la combi (o de la persona) de destino (C19)
       const rutaDelMensaje = destino.routeId || routeId;
 
       const entry = {
@@ -8154,6 +8177,7 @@ wss.on('connection', (ws) => {
         driverName: prof.driverName || 'Conductor',
         vehicleId: prof.vehicleId || null,
         toVehicleId,
+        toPersonId,
         routeId: rutaDelMensaje,
         duration: Math.max(1, Math.min(120, Math.round(msg.duration || 0))),
         data,
@@ -8161,8 +8185,7 @@ wss.on('connection', (ws) => {
       };
       remember({ kind: 'voice', ...entry });
       const payload = { type: 'voice_msg', role: prof.role || 'driver', ...entry };
-      if (toVehicleId) enviarPrivado(rutaDelMensaje, toVehicleId, payload, ws);
-      else broadcastToRoute(routeId, payload);
+      repartir(routeId, destino, rutaDelMensaje, payload, ws);
     }
 
     // TIPO: foto — una imagen sacada desde el celular
@@ -8183,10 +8206,10 @@ wss.on('connection', (ws) => {
       const prof = profiles.get(unitId) || {};
       const routeId = rutaDelEmisor();
 
-      const destino = destinoPrivado(prof, msg);
+      const destino = destinoPrivado(prof, msg, unitId);
       if (!destino) return;
-      const { toVehicleId } = destino;
-      // Un privado va con la ruta de la combi de destino (C19)
+      const { toVehicleId, toPersonId } = destino;
+      // Un privado va con la ruta de la combi (o de la persona) de destino (C19)
       const rutaDelMensaje = destino.routeId || routeId;
 
       const entry = {
@@ -8194,6 +8217,7 @@ wss.on('connection', (ws) => {
         driverName: prof.driverName || 'Conductor',
         vehicleId: prof.vehicleId || null,
         toVehicleId,
+        toPersonId,
         routeId: rutaDelMensaje,
         text: String(msg.text || '').slice(0, 200),   // pie de foto, opcional
         data,
@@ -8201,8 +8225,7 @@ wss.on('connection', (ws) => {
       };
       remember({ kind: 'photo', ...entry });
       const payload = { type: 'photo_msg', role: prof.role || 'driver', ...entry };
-      if (toVehicleId) enviarPrivado(rutaDelMensaje, toVehicleId, payload, ws);
-      else broadcastToRoute(routeId, payload);
+      repartir(routeId, destino, rutaDelMensaje, payload, ws);
     }
   };
   // Todo el manejo va adentro de un try: un mensaje que reviente en algún
@@ -8491,12 +8514,25 @@ const medioValido = (data, prefijo, tope) =>
 // alcanza con que un tipo nuevo se olvide de validar el destino para que un
 // privado termine en el grupo. Las suites `privado` y `seguridad` la cubren.
 //
-// Devuelve null cuando hay que descartar el mensaje, o `{ toVehicleId }` con
-// null adentro si es para el grupo.
-function destinoPrivado(prof, msg) {
+// Devuelve null cuando hay que descartar el mensaje, o `{ toVehicleId,
+// toPersonId }` con null en los dos si es para el grupo. El privado PERSONAL
+// (31/10) va aparte del de la combi: Despacho lo pide con `toPerson`, la
+// persona con `personal: true` —y es siempre el suyo—.
+function destinoPrivado(prof, msg, personId = null) {
   if (prof.role === 'dispatch' || prof.role === 'manager') {
+    const persona = idLimpio(msg.toPerson);
+    if (persona) {
+      // Misma regla que la combi: de su cooperativa, y del Despacho de ruta
+      // sólo la gente de su ruta. Una persona de otra empresa no existe. Y
+      // sólo choferes y cobradores: Despacho ↔ Despacho no es esto.
+      const u = db.prepare('SELECT unitId, role, routeId, companyId FROM users WHERE unitId = ?').get(persona);
+      if (!u || (u.companyId || empresaBase()) !== (prof.companyId || empresaBase())) return null;
+      if (u.role !== 'driver' && u.role !== 'collector') return null;
+      if (prof.routeId && u.routeId !== prof.routeId) return null;
+      return { toVehicleId: null, toPersonId: persona, routeId: u.routeId || null };
+    }
     const destino = idLimpio(msg.to);
-    if (!destino) return { toVehicleId: null };
+    if (!destino) return { toVehicleId: null, toPersonId: null };
     // La combi tiene que existir Y SER DE SU COOPERATIVA.
     //
     // Sin lo segundo esto era una puerta al otro lado del borde de empresa:
@@ -8523,14 +8559,47 @@ function destinoPrivado(prof, msg) {
     // (revisión del 10/9, C19). Desde la pantalla hoy no se puede elegir una
     // combi de otra ruta, pero el borde va en el servidor, que es donde
     // importa.
-    return { toVehicleId: destino, routeId: veh.routeId || null };
+    return { toVehicleId: destino, toPersonId: null, routeId: veh.routeId || null };
+  }
+  if (msg.personal === true) {
+    if (!personId) return null;
+    return { toVehicleId: null, toPersonId: personId, routeId: null };
   }
   if (msg.to || msg.privado) {
     const propio = prof.vehicleId || null;
     if (!propio) return null;
-    return { toVehicleId: propio, routeId: null };
+    return { toVehicleId: propio, toPersonId: null, routeId: null };
   }
-  return { toVehicleId: null, routeId: null };
+  return { toVehicleId: null, toPersonId: null, routeId: null };
+}
+
+// Reparto del privado PERSONAL: los teléfonos de ESA persona (esté en la
+// combi que esté), Despacho mirando su ruta, y el que lo mandó. Ni su
+// cobrador ni el que maneje su combi después.
+function enviarPrivadoPersona(routeId, personId, payload, emisorWs = null) {
+  const crudo = JSON.stringify(payload);
+  const mandados = new Set();
+  for (const [ws, id] of clients) {
+    if (ws.readyState !== 1) continue;
+    const prof = profiles.get(id);
+    if (!prof) continue;
+    const esElla = id === personId;
+    const esDespachoDeLaRuta = (prof.role === 'dispatch' || prof.role === 'manager') && watching.get(ws) === routeId;
+    if (esElla || esDespachoDeLaRuta) {
+      try { ws.send(crudo); } catch {}
+      mandados.add(ws);
+    }
+  }
+  if (emisorWs && emisorWs.readyState === 1 && !mandados.has(emisorWs)) {
+    try { emisorWs.send(crudo); } catch {}
+  }
+}
+
+// El reparto de cualquier mensaje según su destino
+function repartir(routeIdEmisor, destino, rutaDelMensaje, payload, ws) {
+  if (destino.toPersonId) enviarPrivadoPersona(rutaDelMensaje, destino.toPersonId, payload, ws);
+  else if (destino.toVehicleId) enviarPrivado(rutaDelMensaje, destino.toVehicleId, payload, ws);
+  else broadcastToRoute(routeIdEmisor, payload);
 }
 
 // Reparto de un mensaje privado: los que van ARRIBA de ese vehículo (chofer y
@@ -9082,6 +9151,7 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
     // que renacía por HTTP tras un reinicio quedaba sin chofer todo el turno
     // (REVISION-2026-09-10.md, C11).
     driverName: unit.driverName ?? prof.driverName ?? vehicleId,
+    choferId: unit.choferId ?? personId ?? null,
     label: unit.label ?? (vehicleOf(vehicleId)?.label || null),
     routeId,
     lat: pos.lat,

@@ -542,23 +542,30 @@ cuántas combis hay en la cadena.
 
 \section{El chat}
 
-A la izquierda de la pantalla de brechas está el chat, con dos canales:
+A la izquierda de la pantalla de brechas está el chat, con tres canales:
 
 \begin{itemize}
   \item \boton{GRUPO 18A}: toda la ruta. Lo leen todas las combis de la ruta y
     Despacho.
-  \item \boton{DESPACHO}: una conversación \textbf{privada} entre Despacho y
-    esta combi (la ven el chofer y su cobrador). Un chofer no puede escribirle
-    en privado a otro chofer.
+  \item \boton{COMBI M-01}: lo que Despacho habla \textbf{con la combi}. Lo ven
+    el chofer y el cobrador que van arriba, y el que la maneje después. Es
+    para lo de la calle: \emph{esperá en el mercado}.
+  \item \boton{PERSONAL}: lo que hablás \textbf{solo vos con Despacho}. Te
+    sigue aunque cambies de combi, y no lo ve nadie más: ni tu cobrador, ni el
+    que maneje tu combi después. Es para lo tuyo: \emph{pasá por la oficina}.
 \end{itemize}
+
+Un chofer no puede escribirle en privado a otro chofer. Cada pestaña con
+algo sin leer muestra cuántos.
 
 Se escribe abajo y se manda con la flecha. El botón del micrófono graba una
 \textbf{nota de voz}: se mantiene apretado mientras se habla y se suelta para
 enviar. Los mensajes de otro día llevan la fecha (\emph{21/10 09:18}).
 
 \begin{center}
-\cel[0.3]{c11-chat-grupo}{El grupo de la ruta.}\hspace{1.5cm}
-\cel[0.3]{c12-chat-despacho}{Un mensaje privado de Despacho.}
+\cel{c11-chat-grupo}{El grupo de la ruta.}\hfill
+\cel{c12-chat-despacho}{Despacho a la combi.}\hfill
+\cel{c12b-chat-personal}{Despacho, sólo a Rufino.}
 \end{center}
 
 \section{La app Android}
@@ -680,14 +687,29 @@ sé», no «no pasó», y queda registrado.
 Cada tarjeta tiene \boton{Mensaje directo}.
 \end{minipage}
 
-\section{Escribirle a una combi}
+\section{Escribirle a una combi o a una persona}
 
-\boton{Mensaje directo} en la tarjeta de una combi abre una conversación
-\textbf{sólo con esa unidad} (su chofer y su cobrador la ven en su canal
-\boton{DESPACHO}). El canal de la derecha lo indica con \rotulo{solo esa
-unidad}; \boton{$\leftarrow$ Grupo} vuelve al canal de la ruta.
+Hay dos privados, y no son lo mismo:
 
-\pc{d04-mensaje-directo}{Un mensaje directo a M-01.}
+\begin{itemize}
+  \item \boton{Mensaje directo} en la tarjeta de una combi abre la
+    conversación \textbf{con esa combi}: la ven su chofer y su cobrador (en su
+    canal \boton{COMBI}) y quien la maneje después. Arriba dice
+    \rotulo{toda esa combi}. Es para lo de la calle.
+  \item \boton{Solo a Rufo} (el que la maneja ahora) abre la conversación
+    \textbf{con esa persona}: la sigue a cualquier combi, y no la ve nadie más
+    —ni su cobrador—. Arriba dice \rotulo{solo esa persona}. Es para lo suyo:
+    las horas, una citación. A un cobrador, o a alguien que hoy no está en el
+    mapa, se le escribe desde \textbf{Gestión} \flecha \textbf{Personas} \flecha \boton{Escribir}.
+\end{itemize}
+
+\boton{$\leftarrow$ Grupo} vuelve al canal de la ruta. Lo que llega por un
+privado que no está abierto aparece arriba del canal, en \rotulo{privados sin
+leer}, con el nombre de la combi o de la persona: un toque y se abre.
+
+\pc{d04-mensaje-directo}{Un mensaje directo a la combi M-01.}
+
+\pc{d04b-mensaje-personal}{Un mensaje sólo a Rufino.}
 
 \section{Cuando llega un SOS}
 
@@ -736,6 +758,8 @@ nombre, alias o unidad, y se filtra por rol.
     genera una clave fácil de dictar. \boton{+ Alta} la crea.
   \item \boton{Clave} le pone una clave nueva. Su sesión abierta se cierra en
     el acto.
+  \item \boton{Escribir} le abre un privado \textbf{sólo a esa persona} (ver
+    \emph{Escribirle a una combi o a una persona}).
   \item \boton{Combis} marca las combis que puede manejar: entre ésas elige
     en la puerta, cada día. \rotulo{La de hoy} es en la que está ahora (no se
     le cambia a alguien en ruta). \boton{Cualquiera de su ruta} es para el
