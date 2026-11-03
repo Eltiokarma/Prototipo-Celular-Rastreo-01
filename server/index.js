@@ -207,6 +207,16 @@ if (String(process.env.MODO || '').trim().toLowerCase() !== 'demo' && process.en
   console.error('  En producción no se arranca con otra: revisá que el volumen esté montado.');
   process.exit(1);
 }
+// La salud (PENDIENTES 0.2): base que lee y escribe, disco, respaldo, hora,
+// WAL y bucle de eventos. Se crea acá, antes que nada que escriba, para que
+// cualquier error de base de cualquier lado quede anotado (ver `salud.js`).
+const { crearSalud, vigilar, avisarAfuera, textoDeAlerta, TEXTOS: TEXTOS_SALUD } = require('./salud');
+const salud = crearSalud({
+  db, respaldo,
+  demo: String(process.env.MODO || '').trim().toLowerCase() === 'demo',
+  discoCriticoMb: Number(process.env.DISCO_CRITICO_MB || 100),
+  discoAvisoMb: Number(process.env.DISCO_AVISO_MB || 500),
+});
 // Cada SQL se compila UNA vez. `db.prepare(...)` dentro de las funciones del
 // camino caliente (la sesión de cada pedido, el turno, la ruta, la combi)
 // compilaba en cada llamada: medido a 2000 unidades, el 17 % del tiempo del
@@ -854,6 +864,7 @@ function remember(item) {
     return info.lastInsertRowid;
   } catch (e) {
     console.error('No se pudo guardar el mensaje:', e.message);
+    salud.anotarFallaDeBase(e);
     return null;
   }
 }
@@ -1124,10 +1135,14 @@ function tokenDe(req) {
 // en un mes sigue venciendo, y cambiar la clave o «cerrar todas» la cortan
 // como siempre.
 const SESION_RENOVAR_MS = 7 * 86_400_000;
+// Mejor esfuerzo: con el disco lleno el UPDATE falla, y sin el try cada
+// pedido autenticado daba 500 —la app entera caída por una renovación que
+// puede esperar— (03/11, al armar /salud).
 const renovarSesion = (token, expiresAt, ahora = Date.now()) => {
-  if (expiresAt - ahora < SESION_RENOVAR_MS) {
+  if (expiresAt - ahora >= SESION_RENOVAR_MS) return;
+  try {
     db.prepare('UPDATE sessions SET expiresAt = ? WHERE token = ?').run(ahora + SESSION_DAYS * 86_400_000, token);
-  }
+  } catch (e) { salud.anotarFallaDeBase(e); }
 };
 
 function sessionUser(token) {
@@ -1442,6 +1457,7 @@ function audit(actor, action, target, detail, routeId, companyId) {
     `).run({ empresa, tope: AUDIT_POR_EMPRESA });
   } catch (e) {
     console.error('No se pudo auditar:', e.message);
+    salud.anotarFallaDeBase(e);
   }
 }
 
@@ -7344,6 +7360,35 @@ app.get('/ping', (req, res) => {
   res.json({ status: 'ok', message: 'pong', time: new Date().toISOString() });
 });
 
+// `/ping` dice que el proceso vive; `/salud` dice si está haciendo su
+// trabajo (03/11): la base lee y escribe, hay disco, hay respaldo, la hora
+// es la de Perú. 503 si hay un PROBLEMA (no guarda, no hay disco); 200 si
+// sólo hay avisos. Es lo que tiene que mirar un monitor externo y el
+// healthcheck del despliegue. Público y sin números: los números (cuánto
+// disco, hace cuánto el respaldo) son del panel del creador.
+app.get('/salud', (req, res) => {
+  const r = salud.chequear();
+  res.status(r.ok ? 200 : 503).json(salud.publico(r));
+});
+
+// Y el propio servidor se mira cada minuto: cuando el estado cambia lo dice
+// fuerte en el log y, si hay `ALERTA_URL` (un webhook de ntfy, Slack,
+// Discord…), lo avisa afuera. Un servidor CAÍDO no puede avisar de sí
+// mismo: para eso está el monitor externo mirando `/salud` (ver README, «Salud y alertas»).
+const NOMBRE_SERVIDOR = process.env.SERVIDOR_NOMBRE || process.env.RAILWAY_PUBLIC_DOMAIN || require('os').hostname();
+vigilar(salud, {
+  cadaMs: Number(process.env.SALUD_CADA_MS || 60_000),
+  alCambiar: (r) => {
+    const texto = textoDeAlerta(r, NOMBRE_SERVIDOR);
+    (r.estado === 'ok' ? console.log : console.error)('SALUD: ' + texto.replace(/\n/g, ' '));
+    if (process.env.ALERTA_URL) {
+      avisarAfuera(process.env.ALERTA_URL, r, NOMBRE_SERVIDOR).then(ok => {
+        if (!ok) console.error('SALUD: el webhook de ALERTA_URL no contestó bien');
+      });
+    }
+  },
+});
+
 // ─── PANEL DEL CREADOR ───────────────────────────────────────
 // El nivel de arriba de todas las cooperativas. Vive en `creador.js`, en su
 // propio archivo, para que toda su superficie se pueda leer de una sentada.
@@ -7370,6 +7415,11 @@ montarPanelDelCreador(app, {
   // recién dada de alta no tendría sobre qué dibujar.
   varianteActiva,
   estadoVivo: () => ({ unidades: units.size, conexiones: clients.size }),
+  // La salud con sus números, para la pestaña SISTEMA
+  salud: () => {
+    const r = salud.chequear();
+    return { ...r, detalle: [...r.problemas, ...r.avisos].map(c => ({ codigo: c, grave: r.problemas.includes(c), texto: TEXTOS_SALUD[c] || c })) };
+  },
 });
 
 // ─── APP WEB ─────────────────────────────────────────────────
@@ -9901,6 +9951,7 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ error: 'Cuerpo inválido: se espera JSON' });
   }
   console.error(`Error no atrapado en ${req.method} ${req.path}: ${err && err.stack || err}`);
+  salud.anotarFallaDeBase(err);
   res.status(500).json({ error: 'Error interno' });
 });
 
@@ -9910,6 +9961,7 @@ app.use((err, req, res, next) => {
 // es que un bug en un rincón no puede costar el mapa de todos.
 process.on('uncaughtException', (e) => {
   console.error(`EXCEPCIÓN NO ATRAPADA (el servidor sigue): ${e && e.stack || e}`);
+  salud.anotarFallaDeBase(e);
 });
 process.on('unhandledRejection', (e) => {
   console.error(`PROMESA RECHAZADA SIN ATRAPAR (el servidor sigue): ${e && e.stack || e}`);

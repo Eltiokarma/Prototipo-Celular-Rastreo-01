@@ -1623,6 +1623,8 @@ function Sistema({ datos }) {
   const tarjetas = [
     ['Encendido hace', duracion(datos.ahora - datos.arrancadoEn)],
     ['Último respaldo', resp ? `hace ${duracion(datos.ahora - resp.cuando)}` : 'nunca'],
+    ['Disco libre', datos.salud && datos.salud.numeros.discoLibreMb != null
+      ? `${datos.salud.numeros.discoLibreMb.toLocaleString('es-PE')} MB` : '—'],
     ['Unidades en el mapa', datos.unidades],
     ['Conexiones', datos.conexiones],
     ['Cooperativas', `${datos.empresasActivas} de ${datos.empresas}`],
@@ -1665,6 +1667,17 @@ function Sistema({ datos }) {
           decía "persistente" en verde con la base adentro del contenedor,
           que es exactamente el caso que hay que denunciar. */}
       <div style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
+        {/* Lo mismo que mira el monitor externo en /salud (03/11), con el
+            texto de cada cosa: los problemas en rojo (el servidor no está
+            haciendo su trabajo), los avisos en ámbar */}
+        {datos.salud && datos.salud.detalle.filter(d => d.codigo !== 'base_en_memoria').map(d => (
+          <Aviso key={d.codigo} tono={d.grave ? 'red' : 'amber'} titulo={d.grave ? 'SERVIDOR CON PROBLEMAS' : 'ATENCIÓN'}>
+            {d.texto}
+            {d.codigo === 'disco_lleno' || d.codigo === 'disco_poco'
+              ? ` Quedan ${datos.salud.numeros.discoLibreMb} MB de ${datos.salud.numeros.discoTotalMb}.` : ''}
+            {d.codigo === 'errores_de_base' ? ` Último: ${datos.salud.numeros.ultimoErrorDeBase}.` : ''}
+          </Aviso>
+        ))}
         {datos.baseEnMemoria && (
           <Aviso tono="red" titulo="RIESGO DE PÉRDIDA">
             La base está <strong>en memoria</strong>. Todo lo que se cargue se

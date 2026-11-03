@@ -213,6 +213,33 @@ calle. Suite `renovacion`.
 | `APP_VERSION_ACTUAL` | El `versionCode` del APK que se reparte hoy. La app compara el suyo y avisa «hay una versión nueva». Sin poner, no avisa |
 | `APP_VERSION_MIN` | El `versionCode` más viejo que todavía sirve. Por debajo, la app dice en rojo «esta app ya no sirve». Sin poner, no avisa |
 | `APP_URL` | De dónde bajar el APK; va en el aviso. Opcional |
+| `TZ` | **Poné `America/Lima`.** Sin ella el servidor corre en UTC y «hoy», los informes y los días de la tendencia van corridos cinco horas. `/salud` lo avisa |
+| `ALERTA_URL` | Un webhook al que el servidor avisa **solo** cuando su salud cambia (cae, empeora, vuelve). Sirve un tópico de [ntfy.sh](https://ntfy.sh) (`https://ntfy.sh/un-nombre-largo-y-secreto`, y la app ntfy en el teléfono), o un webhook de Slack o Discord. Ver *Salud y alertas* |
+| `SERVIDOR_NOMBRE` | Cómo se llama este servidor en las alertas (por defecto, el dominio de Railway) |
+| `DISCO_CRITICO_MB` / `DISCO_AVISO_MB` | Con menos de esto libre en el disco de la base, `/salud` da problema (100) o aviso (500) |
+| `SALUD_CADA_MS` | Cada cuánto se mira la salud solo (60 000) |
+
+**Salud y alertas** (03/11). `GET /ping` dice que el proceso vive; `GET
+/salud` dice si está haciendo su trabajo: que la base lea y **escriba**, que
+no haya habido errores de base en los últimos minutos, cuánto disco queda en
+el volumen, que el último respaldo no sea viejo, que la hora sea la de Perú,
+que la base esté en modo WAL y que el servidor no esté trabado. Contesta
+**503 si hay un problema** (no guarda, no hay disco) y 200 si sólo hay
+avisos, con qué pasa en castellano y sin números (los números están en el
+panel del creador, pestaña SISTEMA). Tres capas, porque cada una cubre lo que
+la otra no puede:
+
+1. **El despliegue** (`railway.json`): Railway no pasa el tráfico a una
+   versión nueva hasta que su `/salud` conteste 200. Un deploy con el volumen
+   sin montar o el disco lleno no reemplaza al que andaba.
+2. **El propio servidor** se mira cada minuto y, cuando el estado cambia, lo
+   escribe fuerte en el log (`SALUD: ✖ …`) y lo manda a `ALERTA_URL` si está.
+   Avisa al caer, al empeorar y al volver — no cada minuto lo mismo.
+3. **Un monitor externo**, para lo único que el servidor no puede avisar: que
+   esté **caído**. Cualquiera gratuito sirve (UptimeRobot, Better Stack): un
+   monitor HTTP a `https://<el dominio>/salud` cada 5 minutos que alerte si no
+   contesta 200, con el aviso al correo o al teléfono de quien opera. Son
+   diez minutos de configuración y no hay nada que instalar acá.
 
 **Persistencia:** el historial del grupo (últimos 200 mensajes: texto, notas
 de voz y SOS) vive en SQLite (`server/r14.db`). En Railway, para que
@@ -222,7 +249,7 @@ sobreviva redeploys, montar un volumen y apuntar la base ahí:
 audio — las más viejas quedan "expiradas" (burbuja sin reproducción).
 
 **Autenticación:** `POST /auth/login` con `{ user, password }` devuelve un
-token de sesión (30 días) que el WebSocket exige en el `identify` — sin
+token de sesión (30 días, que se renuevan con el uso) que el WebSocket exige en el `identify` — sin
 token válido no hay estado, historial ni chat. Contraseñas con scrypt+salt
 en la tabla `users` (roles `driver`/`collector`/`dispatch`/`manager`); 5 intentos fallidos
 bloquean la unidad 5 minutos. **El alta de choferes la hace Despacho**

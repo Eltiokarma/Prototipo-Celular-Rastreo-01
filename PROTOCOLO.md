@@ -804,6 +804,25 @@ eligió así no administra a sus cobradores. `GET /admin/users` trae
 `combis` y `todaLaRuta` de cada persona; `GET /admin/vehicles`, los
 `habilitados` de cada combi.
 
+## 4nonies. ¿Está bien el servidor?: `GET /ping` y `GET /salud`
+
+`/ping` (sin sesión) dice que el proceso vive: `200 { status: 'ok' }`.
+`/salud` (sin sesión, desde el 03/11) dice si está haciendo su trabajo:
+
+```json
+{ "ok": false, "estado": "falla", "problemas": ["disco_lleno"], "avisos": ["respaldo_viejo"],
+  "detalle": ["Queda muy poco disco: la base está por dejar de escribir.",
+              "El último respaldo es viejo: el automático no está corriendo."],
+  "time": "2026-11-03T10:36:33.412Z" }
+```
+
+`503` si hay algún **problema** (`base_no_lee`, `base_no_escribe`,
+`errores_de_base`, `disco_lleno`, `base_en_memoria` en producción); `200` si
+no, aunque haya **avisos** (`disco_poco`, `respaldo_nunca`, `respaldo_viejo`,
+`zona_horaria_utc`, `sin_wal`, `servidor_lento`, `base_en_memoria` en la
+demo). Sin números ni rutas: eso está en el panel del creador. Las apps no lo
+usan; es para el monitor externo y el healthcheck del despliegue.
+
 ## 5. Reconexión y caídas
 
 - La app web reconecta **cada 3 s** (`project/realtime.js`) y al volver a

@@ -819,3 +819,37 @@ silencio: cartel rojo y línea de chat, nada más.
 
 Suite nueva: `sos-despacho` (Chromium: cuenta los tonos que crea la página y
 reemplaza `Notification` para ver qué se notificó).
+
+## Tanda 17 — «Despacho vio tu SOS» y la salud del servidor (03/11, sin repasar)
+
+### «Despacho vio tu SOS»
+
+1. **`avisarAlQuePidio`**: el `sos_atendido` va también al que disparó y a
+   los que van en ESA combi (por `profiles.vehicleId`), con `propio: true`.
+   Si un cobrador disparó, el chofer también lo ve: es la misma emergencia.
+2. **Al reconectar** (`sosVistoAlConectar`): su último SOS (o el de su combi)
+   de las últimas 2 h, si ya está atendido. **La duda:** si dispara dos SOS y
+   atienden sólo el primero, al reconectar no se dice nada (el último sigue
+   abierto) — es lo correcto, pero conviene mirarlo.
+3. El cartel queda hasta tocarlo; los cerrados se recuerdan (web: en
+   `localStorage`; nativa: en memoria, así que reabrir la app dentro de las
+   2 h lo vuelve a mostrar una vez).
+
+### La salud (`server/salud.js`, `GET /salud`)
+
+4. **Problema vs aviso**: sólo lo que impide trabajar da 503. El respaldo
+   viejo o la hora en UTC son avisos: con 503 el deploy de Railway no pasaría
+   por algo que no frena a nadie.
+5. **El latido escribe** una fila (`salud.latido`) en cada chequeo: es la
+   única forma de ver el disco lleno. Una escritura por minuto.
+6. **Los errores de base de otros lados** los anota quien los atrapa
+   (`remember`, `audit`, el manejador de errores de Express,
+   `uncaughtException`, la renovación de sesión) y cuentan 10 minutos.
+7. **`vigilar`** avisa sólo cuando cambia la firma (estado + códigos).
+8. **`railway.json`** con `healthcheckPath: /salud`: cambia cómo despliega
+   Railway — un deploy cuyo `/salud` no da 200 en 5 min no reemplaza al que
+   anda. Si molesta, borrar el archivo deja todo como antes.
+9. De paso: **`renovarSesion` sin `try`** (de la tanda 15) hacía que, con el
+   disco lleno, todo pedido autenticado diera 500.
+
+Suite nueva: `salud`; `sos-despacho` y `nativas` ampliadas.

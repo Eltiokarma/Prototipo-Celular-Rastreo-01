@@ -602,6 +602,8 @@ function montarPanelDelCreador(app, deps) {
       segundoFactor: !!totpClave,
       ultimoRespaldo,                        // { archivo, bytes, cuando } o null
       respaldoCadaHoras: respaldo.CADA_HORAS,
+      // Lo mismo que GET /salud, con los números (03/11)
+      salud: deps.salud ? deps.salud() : null,
     });
   });
 
