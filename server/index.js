@@ -194,6 +194,25 @@ border-radius:6px;padding:2px 6px;font-size:14px}.d{color:#8FA8C0;font-size:14px
 }
 
 const Database = require('better-sqlite3');
+// Volver a un respaldo (PENDIENTES 0.3): con RESTAURAR_DESDE puesto, ANTES de
+// abrir la base —con la base cerrada mover archivos es seguro—. En otro
+// proceso y esperándolo, porque bajar de la copia afuera es asíncrono y acá
+// todavía no hay nada que pueda esperar. Si falla, no se arranca con la base
+// de siempre como si nada: se dice y se sale (ver `restaurar.js`).
+if (String(process.env.RESTAURAR_DESDE || '').trim()) {
+  if (!process.env.DB_FILE) {
+    console.error('✖ RESTAURAR_DESDE necesita DB_FILE: sin saber dónde vive la base no hay qué reemplazar.');
+    process.exit(1);
+  }
+  try {
+    require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'restaurar.js'), 'al-arrancar'],
+      { stdio: 'inherit', env: process.env });
+  } catch {
+    console.error('✖ No se pudo restaurar (el motivo está arriba). La base actual NO se tocó.');
+    console.error('  Corregí RESTAURAR_DESDE o sacala de las variables, y redesplegá.');
+    process.exit(1);
+  }
+}
 const db = openDatabase(Database);
 // En producción, la base es la configurada o no hay servidor. `openDatabase`
 // cae a `server/r14.db` y después a memoria para que una demo arranque igual;
@@ -211,8 +230,57 @@ if (String(process.env.MODO || '').trim().toLowerCase() !== 'demo' && process.en
 // WAL y bucle de eventos. Se crea acá, antes que nada que escriba, para que
 // cualquier error de base de cualquier lado quede anotado (ver `salud.js`).
 const { crearSalud, vigilar, avisarAfuera, textoDeAlerta, TEXTOS: TEXTOS_SALUD } = require('./salud');
+
+// La copia de los respaldos fuera del servidor (PENDIENTES 0.3): cada
+// respaldo verificado se sube cifrado a un almacenamiento S3 aparte. Lo que
+// pasó con la última se guarda acá para /salud y el panel del creador.
+const copiaAfuera = require('./copia-afuera');
+const configCopia = copiaAfuera.configDe();
+const estadoCopia = {
+  configurada: !!configCopia && !configCopia.error,
+  error: (configCopia && configCopia.error) || null,
+  revisada: false,          // ¿ya se miró qué hay afuera al arrancar?
+  ultimaOk: null,           // { clave, en, bytes }
+  ultimoFallo: null,        // { motivo, en }
+};
+if (estadoCopia.error) console.error('COPIA AFUERA: ' + estadoCopia.error);
+async function subirCopia(nombre) {
+  if (!estadoCopia.configurada || !db || db.memory) return null;
+  let r;
+  try {
+    const plano = fs.readFileSync(path.join(respaldo.dirDe(db.name), nombre));
+    r = await copiaAfuera.subir(configCopia, nombre, plano);
+  } catch (e) { r = { ok: false, motivo: e.message }; }
+  if (r.ok) {
+    estadoCopia.ultimaOk = { clave: r.clave, en: Date.now(), bytes: r.bytes };
+    console.log(`Copia afuera: ${r.clave} (${Math.round(r.bytes / 1024)} kB, cifrada)`);
+  } else {
+    estadoCopia.ultimoFallo = { motivo: r.motivo, en: Date.now() };
+    console.error(`COPIA AFUERA FALLÓ (${nombre}): ${r.motivo}`);
+  }
+  return r;
+}
+// Al arrancar: qué es lo último que hay afuera (para no decir «vieja» por
+// un reinicio) y, si el último respaldo del volumen no está, subirlo.
+async function sincronizarCopia() {
+  if (!estadoCopia.configurada || !db || db.memory) return;
+  try {
+    const afuera = await copiaAfuera.listar(configCopia);
+    if (afuera[0]) estadoCopia.ultimaOk = { clave: afuera[0].clave, en: afuera[0].cuando || Date.now(), bytes: afuera[0].bytes };
+    estadoCopia.revisada = true;
+    const locales = respaldo.listar(respaldo.dirDe(db.name));
+    const ultimo = locales[locales.length - 1];
+    if (ultimo && !afuera.some(x => x.clave === `${configCopia.prefijo}${ultimo.archivo}.gz.enc`)) await subirCopia(ultimo.archivo);
+  } catch (e) {
+    estadoCopia.revisada = true;
+    estadoCopia.ultimoFallo = { motivo: e.message, en: Date.now() };
+    console.error('COPIA AFUERA: no se pudo mirar el almacenamiento: ' + e.message);
+  }
+}
+
 const salud = crearSalud({
   db, respaldo,
+  copiaAfuera: () => estadoCopia,
   demo: String(process.env.MODO || '').trim().toLowerCase() === 'demo',
   discoCriticoMb: Number(process.env.DISCO_CRITICO_MB || 100),
   discoAvisoMb: Number(process.env.DISCO_AVISO_MB || 500),
@@ -7415,6 +7483,13 @@ montarPanelDelCreador(app, {
   // recién dada de alta no tendría sobre qué dibujar.
   varianteActiva,
   estadoVivo: () => ({ unidades: units.size, conexiones: clients.size }),
+  // La copia afuera: subir el respaldo manual, y listar lo que hay afuera
+  // (de ahí sale el nombre para RESTAURAR_DESDE)
+  alRespaldar: (r) => subirCopia(r.archivo),
+  copiaAfuera: {
+    estado: () => estadoCopia,
+    listar: () => copiaAfuera.listar(configCopia),
+  },
   // La salud con sus números, para la pestaña SISTEMA
   salud: () => {
     const r = salud.chequear();
@@ -9934,7 +10009,8 @@ function podarMapasEnMemoria(ahora = Date.now()) {
 // base, verificado y con rotación. Ver server/respaldo.js — y bajarse uno
 // desde el panel del creador de vez en cuando ES el respaldo fuera del
 // servidor.
-respaldo.programar(db, Database);
+respaldo.programar(db, Database, { alTerminar: (r) => subirCopia(r.archivo) });
+sincronizarCopia();
 
 // ─── ERRORES QUE NO SE ATRAPARON ─────────────────────────────
 // Un cuerpo JSON malformado —o cualquier throw en un handler— devolvía la

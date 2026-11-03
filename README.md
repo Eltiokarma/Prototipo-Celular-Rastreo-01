@@ -167,7 +167,8 @@ arrancar. Nada más: el respaldo ES la base.
 
 Limitaciones conocidas del sistema: ver **LIMITACIONES.md**.
 Plan de crecimiento a 20+ rutas con números: ver **ESCALABILIDAD.md**.
-Lo que falta construir, ordenado: ver **PENDIENTES.md**.
+Lo que falta construir, ordenado: ver **PENDIENTES.md**. Lo que tiene que hacer a mano el que opera —cuentas,
+variables, simulacros—: **TAREAS-FUERA-DEL-CODIGO.md**.
 
 **Variables de entorno**, todas opcionales salvo donde se aclare:
 
@@ -209,6 +210,11 @@ calle. Suite `renovacion`.
 | `RESPALDO_CADA_H` | Cada cuántas horas se respalda la base sola (6). `0` lo apaga |
 | `RESPALDO_CONSERVAR` | Cuántos respaldos se guardan antes de rotar (28 ≈ una semana) |
 | `RESPALDO_DIR` | Dónde se guardan (por defecto `respaldos/` junto a la base, adentro del volumen) |
+| `RESPALDO_S3_ENDPOINT` / `_BUCKET` / `_KEY_ID` / `_SECRET` | **La copia afuera**: un almacenamiento compatible con S3 (Cloudflare R2, Backblaze B2, AWS) adonde sube cada respaldo. Van las cuatro juntas. Ver *Copia afuera y cómo volver* |
+| `RESPALDO_S3_REGION` | `auto` (R2) por defecto; en B2 o AWS, la región del bucket |
+| `RESPALDO_S3_PREFIJO` | La «carpeta» adentro del bucket (`respaldos/`) |
+| `RESPALDO_CIFRADO` | **La frase con que se cifra cada copia** (16 caracteres o más). Sin ella no sale nada del servidor. **Guardala en un gestor de contraseñas: sin la frase, las copias no se pueden abrir — ni vos, ni nadie** |
+| `RESTAURAR_DESDE` | **Volver a un respaldo** al arrancar: el nombre de una copia afuera (`respaldos/respaldo-…db.gz.enc`) o `local:` + el de uno del volumen. Se pone, se redespliega, se verifica y **se saca** |
 | `OLVIDAR_MS` | A los cuántos ms se la borra de verdad y se descarta su vuelta en curso (180 000). El número bueno sale de la calle: tres minutos aguantan una llamada o un semáforo largo |
 | `APP_VERSION_ACTUAL` | El `versionCode` del APK que se reparte hoy. La app compara el suyo y avisa «hay una versión nueva». Sin poner, no avisa |
 | `APP_VERSION_MIN` | El `versionCode` más viejo que todavía sirve. Por debajo, la app dice en rojo «esta app ya no sirve». Sin poner, no avisa |
@@ -240,6 +246,34 @@ la otra no puede:
    monitor HTTP a `https://<el dominio>/salud` cada 5 minutos que alerte si no
    contesta 200, con el aviso al correo o al teléfono de quien opera. Son
    diez minutos de configuración y no hay nada que instalar acá.
+
+**Copia afuera y cómo volver** (03/11). Cada respaldo automático (y cada
+«Respaldar ahora» del creador), recién verificado, se sube **comprimido y
+cifrado** (AES-256-GCM, clave derivada de `RESPALDO_CIFRADO`) al bucket de la
+copia afuera. El proveedor guarda bytes que no puede leer: la base tiene datos
+personales. Al arrancar, el servidor mira qué hay afuera y, si falta el último
+respaldo, lo sube. `/salud` avisa si la copia no está configurada (en
+producción), si falla o si es vieja; el panel del creador, pestaña RESPALDOS,
+la lista con sus nombres. Los viejos los borra **el propio bucket** con una
+regla de ciclo de vida (por ejemplo, a los 30 días), no el servidor.
+
+Para **volver a un respaldo** no hace falta entrar al servidor:
+
+1. En el panel del creador → RESPALDOS, copiar el nombre (uno de la copia
+   afuera, o uno del disco con `local:` adelante).
+2. En Railway → Variables, `RESTAURAR_DESDE` = ese nombre, y redesplegar.
+3. Al arrancar, antes de abrir la base: la baja (y descifra), la verifica, **guarda
+   la base actual al lado** (`r14.db.antes-de-restaurar-<fecha>`) y la reemplaza.
+   El log y el panel (SISTEMA) dicen qué se restauró. Si algo falla —el nombre
+   no existe, la frase no es, el archivo no pasa la verificación— el servidor
+   **no arranca** y la base actual no se toca: se corrige la variable o se saca.
+4. Sacar `RESTAURAR_DESDE`. Si queda puesta no pasa nada grave: el próximo
+   arranque ve que ese pedido ya se hizo y no lo repite.
+
+Desde una computadora con Node y las mismas variables de la copia:
+`node server/restaurar.js listar`, `bajar <nombre> [destino.db]` y
+`descifrar <archivo.gz.enc> [destino.db]` — para mirar un respaldo sin tocar
+el servidor, o para el simulacro.
 
 **Persistencia:** el historial del grupo (últimos 200 mensajes: texto, notas
 de voz y SOS) vive en SQLite (`server/r14.db`). En Railway, para que

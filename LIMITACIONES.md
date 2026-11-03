@@ -122,9 +122,9 @@ limitación se resuelva o aparezca una nueva.
   empresa (1000 movimientos cada una), que era el caso donde la más movida
   le borraba el registro a las demás.
 - **Los respaldos automáticos quedan en el mismo volumen** (cada 6 h,
-  verificados y con rotación; ver PENDIENTES 1.2). Sacarlos de ahí —a otra
-  máquina— es a mano, descargándolos desde el panel del creador: si se
-  pierde el volumen, se pierden con él. Y con varias cooperativas adentro
+  verificados y con rotación) **y, si está configurada, una copia cifrada
+  sale a un bucket aparte** (PENDIENTES 0.3). Sin configurarla, perder el
+  volumen se lleva todo, y `/salud` lo avisa. Y con varias cooperativas adentro
   **no se puede restaurar una sola** — el respaldo es del archivo entero,
   así que volver atrás por un problema de una empresa arrastra a las otras.
 - **Un reinicio pierde lo que estaba a medias en memoria** (revisión del

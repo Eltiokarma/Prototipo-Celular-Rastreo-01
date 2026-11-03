@@ -853,3 +853,29 @@ reemplaza `Notification` para ver qué se notificó).
    disco lleno, todo pedido autenticado diera 500.
 
 Suite nueva: `salud`; `sos-despacho` y `nativas` ampliadas.
+
+## Tanda 18 — la copia afuera y cómo volver (03/11, sin repasar)
+
+1. **`server/copia-afuera.js`**: S3 sin dependencias. La firma (`firmarV4`)
+   está probada contra los tres ejemplos publicados por AWS (GET con Range,
+   listado con consulta, PUT con cuerpo y `$` en el nombre), y el S3 de
+   mentira de la suite recomputa la firma de cada pedido tal como llegó.
+   **La duda:** no se probó contra un R2 o B2 real desde acá (no hay cuenta);
+   el primer deploy con las variables lo dice en `/salud` y en RESPALDOS.
+2. **Cifrado obligatorio** (AES-256-GCM, scrypt N=2^15 sobre la frase,
+   gzip antes). Sin `RESPALDO_CIFRADO` no se sube nada: es una decisión,
+   no un olvido — la base tiene datos personales.
+3. **Los viejos los borra el bucket** (regla de ciclo de vida), no el
+   servidor: menos permisos para el token (sólo escribir y leer) y nada que
+   el servidor pueda borrar afuera por un bug.
+4. **`RESTAURAR_DESDE`** corre en un proceso aparte ANTES de abrir la base
+   (`execFileSync`): la base cerrada se puede mover sin riesgo. La anterior
+   queda al lado; la marca `restaurado.json` evita repetir con la variable
+   olvidada. Si falla, **el servidor no arranca** — preferible a arrancar con
+   la base de siempre haciéndole creer al operador que restauró. **A mirar:**
+   con un nombre mal escrito, el servicio queda caído hasta corregirlo.
+5. `/salud`: `sin_copia_afuera` (sólo producción), `copia_afuera_mal_configurada`,
+   `copia_afuera_falla`, `copia_afuera_vieja`. Todos avisos (200).
+6. **`TAREAS-FUERA-DEL-CODIGO.md`**: la lista de lo que hace el dueño, en orden.
+
+Suite nueva: `copia-afuera`.

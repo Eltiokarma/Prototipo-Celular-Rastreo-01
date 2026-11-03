@@ -1538,6 +1538,10 @@ function Rutas({ api, empresas, aviso, fallo, recargar, sucioPanelRef }) {
 // es un extra: es la mitad del plan.
 function Respaldos({ datos, api, recargar, aviso, fallo, token }) {
   const [ocupado, setOcupado] = React.useState(false);
+  // Lo que hay en la copia afuera (PENDIENTES 0.3)
+  const [afuera, setAfuera] = React.useState(null);
+  const cargarAfuera = () => api('/respaldos-afuera').then(setAfuera).catch(e => setAfuera({ configurada: false, error: e.message, copias: [] }));
+  React.useEffect(() => { cargarAfuera(); }, []);
   if (!datos) return <div style={{ color: 'var(--dim)' }}>Cargando…</div>;
 
   const kb = (b) => b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + ' MB' : Math.round(b / 1024) + ' kB';
@@ -1548,7 +1552,12 @@ function Respaldos({ datos, api, recargar, aviso, fallo, token }) {
   };
   const crear = async () => {
     setOcupado(true);
-    try { await api('/respaldos', { method: 'POST' }); aviso('Respaldo creado y verificado'); await recargar(); }
+    try {
+      const r = await api('/respaldos', { method: 'POST' });
+      if (r.afuera && !r.afuera.ok) fallo('Respaldo creado y verificado, pero la copia afuera falló: ' + r.afuera.motivo);
+      else aviso(r.afuera ? 'Respaldo creado, verificado y copiado afuera (cifrado)' : 'Respaldo creado y verificado');
+      await recargar(); cargarAfuera();
+    }
     catch (e) { fallo(e.message); }
     setOcupado(false);
   };
@@ -1589,6 +1598,38 @@ function Respaldos({ datos, api, recargar, aviso, fallo, token }) {
           que sobrevive a perder el servidor.
         </span>
       </div>
+      {/* La copia afuera: si no está, se dice; si está, qué hay y cómo se
+          vuelve a una */}
+      {afuera && !afuera.configurada && (
+        <div style={{
+          background: 'var(--ambarFondo)', border: '1px solid var(--ambarBorde)',
+          borderLeft: '3px solid var(--amber)', borderRadius: 11,
+          padding: '11px 13px', marginBottom: 14, fontSize: 13, lineHeight: 1.55, color: 'var(--ambarTinta)',
+        }}>
+          <b>Sin copia afuera.</b> {afuera.error || 'Estos respaldos viven sólo en el disco del servidor: si se pierde el volumen, se pierden con él.'}
+          {' '}Se configura con las variables <code>RESPALDO_S3_*</code> y <code>RESPALDO_CIFRADO</code> (README, «Copia afuera»).
+        </div>
+      )}
+      {afuera && afuera.configurada && (
+        <div style={{ marginBottom: 18 }}>
+          <div className="black" style={{ fontSize: 14, marginBottom: 6 }}>Copia afuera (cifrada)</div>
+          {afuera.error && <div style={{ color: 'var(--rojoTinta)', fontSize: 13, marginBottom: 8 }}>No se pudo leer el almacenamiento: {afuera.error}</div>}
+          {afuera.estado && afuera.estado.ultimoFallo && (!afuera.estado.ultimaOk || afuera.estado.ultimoFallo.en > afuera.estado.ultimaOk.en) && (
+            <div style={{ color: 'var(--rojoTinta)', fontSize: 13, marginBottom: 8 }}>La última subida falló: {afuera.estado.ultimoFallo.motivo}</div>
+          )}
+          <div style={{ fontSize: 12, color: 'var(--dim2)', marginBottom: 8 }}>
+            Para volver a una: en Railway, <code>RESTAURAR_DESDE</code> = el nombre de abajo, y redesplegar.
+            Para una de las del disco: <code>local:</code> + su nombre.
+          </div>
+          {afuera.copias.slice(0, 8).map(c => (
+            <div key={c.clave} style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12, padding: '4px 0' }}>
+              <span className="mono" style={{ flex: '1 1 300px', userSelect: 'all' }}>{c.clave}</span>
+              <span style={{ color: 'var(--dim2)' }}>{kb(c.bytes)} · {hace(c.cuando)}</span>
+            </div>
+          ))}
+          {afuera.copias.length === 0 && !afuera.error && <div style={{ fontSize: 13, color: 'var(--dim)' }}>Todavía no subió ninguna.</div>}
+        </div>
+      )}
       {(datos.respaldos || []).length === 0 && !datos.enMemoria && (
         <div style={{ color: 'var(--dim)', fontSize: 13 }}>
           Todavía no hay ninguno. El primero sale solo, o con el botón de arriba.
@@ -1600,7 +1641,7 @@ function Respaldos({ datos, api, recargar, aviso, fallo, token }) {
           background: 'var(--surface)', border: '1px solid var(--divider)',
           borderRadius: 10, padding: '10px 14px', marginBottom: 8,
         }}>
-          <span className="mono" style={{ fontSize: 12, flex: '1 1 240px' }}>{r.archivo}</span>
+          <span className="mono" style={{ fontSize: 12, flex: '1 1 240px', userSelect: 'all' }}>{r.archivo}</span>
           <span style={{ fontSize: 12, color: 'var(--dim2)' }}>{kb(r.bytes)} · {hace(r.cuando)}</span>
           <button onClick={() => bajar(r.archivo)} style={{
             padding: '7px 13px', fontSize: 12, background: 'var(--campo)',
@@ -1670,6 +1711,13 @@ function Sistema({ datos }) {
         {/* Lo mismo que mira el monitor externo en /salud (03/11), con el
             texto de cada cosa: los problemas en rojo (el servidor no está
             haciendo su trabajo), los avisos en ámbar */}
+        {datos.restauracion && Date.now() - datos.restauracion.en < 7 * 86400_000 && (
+          <Aviso tono="amber" titulo="BASE RESTAURADA">
+            El {new Date(datos.restauracion.en).toLocaleString('es-PE')} se restauró desde <code>{datos.restauracion.pedido}</code>.
+            {datos.restauracion.anterior ? <> La de antes quedó en el volumen como <code>{datos.restauracion.anterior}</code>.</> : null}
+            {' '}Si ya está todo bien, sacá <code>RESTAURAR_DESDE</code> de las variables.
+          </Aviso>
+        )}
         {datos.salud && datos.salud.detalle.filter(d => d.codigo !== 'base_en_memoria').map(d => (
           <Aviso key={d.codigo} tono={d.grave ? 'red' : 'amber'} titulo={d.grave ? 'SERVIDOR CON PROBLEMAS' : 'ATENCIÓN'}>
             {d.texto}

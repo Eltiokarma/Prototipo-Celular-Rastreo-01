@@ -8,11 +8,11 @@
 //
 // QUÉ PROTEGE Y QUÉ NO. El respaldo automático queda en el MISMO disco (el
 // volumen montado): eso cubre corrupción de la base, un borrado por error y
-// un bug que escriba mal — no cubre perder el volumen entero. Para eso está
-// la descarga desde el panel del creador: bajarse el archivo a otra máquina
-// ES el respaldo fuera del servidor, sin depender de una cuenta de nube que
-// hoy no existe. La rutina de verdad es: el panel avisa cuándo fue el último,
-// y bajarse uno de vez en cuando.
+// un bug que escriba mal — no cubre perder el volumen entero. Para eso, desde
+// el 03/11, cada respaldo verificado sale cifrado a un bucket aparte
+// (`copia-afuera.js`, con `alTerminar` de `programar`), y se vuelve a uno con
+// RESTAURAR_DESDE (`restaurar.js`). La descarga desde el panel del creador
+// sigue estando, para tener uno en la mano.
 //
 // CÓMO SE HACE. Con `db.backup()` de better-sqlite3, que usa la API de
 // respaldo en caliente de SQLite: consistente aunque el servidor esté
@@ -163,7 +163,8 @@ function listar(carpeta) {
 // El automático: uno ahora si el último quedó lejos, y de ahí en más uno cada
 // CADA_HORAS. Se cuelga del arranque del servidor y no de cron del sistema,
 // porque en Railway no hay cron: solo existe este proceso.
-function programar(db, Database, { log = console.log } = {}) {
+// `alTerminar(r)` corre después de cada respaldo bueno: la copia afuera.
+function programar(db, Database, { log = console.log, alTerminar = null } = {}) {
   if (!CADA_HORAS || CADA_HORAS <= 0) {
     log('Respaldo automático APAGADO (RESPALDO_CADA_H=0)');
     return null;
@@ -177,6 +178,7 @@ function programar(db, Database, { log = console.log } = {}) {
     const r = await respaldar(db, Database, { dir: carpeta });
     if (r.ok) log(`Respaldo: ${r.archivo} (${Math.round(r.bytes / 1024)} kB)${r.borrados ? `, ${r.borrados} viejo(s) rotado(s)` : ''}`);
     else console.error('RESPALDO FALLÓ: ' + r.motivo);
+    if (r.ok && alTerminar) { try { await alTerminar(r); } catch {} }
     return r;
   };
 

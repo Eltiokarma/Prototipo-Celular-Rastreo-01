@@ -34,11 +34,16 @@ const TEXTOS = {
   zona_horaria_utc: 'El servidor corre en UTC (falta TZ=America/Lima): «hoy» y los informes van corridos cinco horas.',
   sin_wal: 'La base no está en modo WAL: más lenta con mucha carga.',
   servidor_lento: 'El servidor tarda en atender: algo lo está trabando.',
+  sin_copia_afuera: 'Los respaldos están sólo en el disco del servidor: si se pierde el volumen, se pierden con ellos. Falta configurar la copia afuera.',
+  copia_afuera_mal_configurada: 'La copia afuera está a medio configurar: faltan variables o la frase de cifrado.',
+  copia_afuera_falla: 'La copia de los respaldos fuera del servidor está fallando.',
+  copia_afuera_vieja: 'La última copia fuera del servidor es vieja.',
 };
 
 function crearSalud({
   db,
   respaldo = null,            // el módulo `respaldo.js`, para la edad del último
+  copiaAfuera = null,         // () => estado de la copia afuera (ver index.js)
   demo = false,               // en la demo, la base en memoria es un aviso y no un problema
   discoCriticoMb = 100,
   discoAvisoMb = 500,
@@ -122,6 +127,25 @@ function crearSalud({
           if (t - (ultimo.cuando || 0) > 2 * respaldo.CADA_HORAS * 3600_000) avisos.push('respaldo_viejo');
         }
       } catch {}
+    }
+
+    // La copia afuera (PENDIENTES 0.3). Sin configurar, en producción, es un
+    // aviso y no un problema: el servidor trabaja igual, pero un volumen
+    // perdido se lleva todo. Fallando o vieja, también aviso.
+    if (copiaAfuera && archivo) {
+      const c = copiaAfuera() || {};
+      const cada = respaldo && respaldo.CADA_HORAS > 0 ? respaldo.CADA_HORAS : 6;
+      if (c.error) avisos.push('copia_afuera_mal_configurada');
+      else if (!c.configurada) { if (!demo) avisos.push('sin_copia_afuera'); }
+      else {
+        if (c.ultimaOk) numeros.copiaAfueraHaceMin = Math.round((t - c.ultimaOk.en) / 60_000);
+        if (c.ultimoFallo && (!c.ultimaOk || c.ultimoFallo.en > c.ultimaOk.en)) {
+          avisos.push('copia_afuera_falla');
+          numeros.copiaAfueraError = c.ultimoFallo.motivo;
+        } else if (c.revisada && (!c.ultimaOk || t - c.ultimaOk.en > 2 * cada * 3600_000)) {
+          avisos.push('copia_afuera_vieja');
+        }
+      }
     }
 
     // La misma regla que el aviso de arranque: la hora local es la del
