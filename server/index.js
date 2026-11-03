@@ -2454,6 +2454,71 @@ function avisarPuerta(routeId) {
     });
   }, 1000));
 }
+// ─── LA SALUD DEL TELÉFONO (PENDIENTES 0.4, 03/11) ───────────
+// «No aparece en el mapa» se diagnosticaba por teléfono: ¿se le acabó la
+// batería?, ¿Android le aplica ahorro de batería a la app?, ¿tiene la versión
+// vieja? La app ya lo sabe; ahora lo manda pegado a sus posiciones (un
+// objeto `telefono` en POST /gps y en el `gps` del socket) y Despacho lo ve
+// en la tarjeta de la combi. En memoria: es el estado de ahora, no historia.
+//
+// SÓLO a los paneles: la batería de un compañero no es asunto de los demás
+// choferes (por eso no va en el `state`, que les llega a todos).
+const telefonos = new Map();     // personId → { bateria, cargando, optimizada, origen, version, versionCode, vehicleId, routeId, en }
+const telefonosSucios = new Set();   // rutas con algo nuevo que avisar
+function anotarTelefono(user, vehicleId, t) {
+  if (!user || !t || typeof t !== 'object') return;
+  const b = Number(t.bateria);
+  const bool = (x) => x === true ? true : x === false ? false : null;
+  const nuevo = {
+    // De 0 a 1 llega; se guarda en % entero
+    bateria: Number.isFinite(b) && b >= 0 && b <= 1 ? Math.round(b * 100) : null,
+    cargando: bool(t.cargando),
+    optimizada: bool(t.optimizada),
+    origen: t.origen === 'web' ? 'web' : 'app',
+    version: t.origen === 'web' ? null : (user.appVersion || null),
+    versionCode: t.origen === 'web' ? null : (user.appVersionCode || null),
+    vehicleId: vehicleId || null,
+    routeId: rutaDeLaCombi(vehicleId, user.routeId),
+  };
+  const previo = telefonos.get(user.unitId);
+  const igual = previo && ['bateria', 'cargando', 'optimizada', 'origen', 'versionCode', 'vehicleId', 'routeId']
+    .every(k => previo[k] === nuevo[k]);
+  telefonos.set(user.unitId, { ...nuevo, en: Date.now() });
+  // Se avisa cuando cambia algo, y una vez cada 5 min aunque no cambie (para
+  // que el «hace cuánto» de Despacho no envejezca sin motivo)
+  if (!igual || Date.now() - (previo.avisadoEn || 0) > 5 * 60_000) {
+    telefonos.get(user.unitId).avisadoEn = Date.now();
+    if (nuevo.routeId) { telefonosSucios.add(nuevo.routeId); scheduleStateBroadcast(nuevo.routeId); }
+    if (previo && previo.routeId && previo.routeId !== nuevo.routeId) telefonosSucios.add(previo.routeId);
+  } else {
+    telefonos.get(user.unitId).avisadoEn = previo.avisadoEn;
+  }
+}
+// Cómo está la versión de la app contra la que se reparte (APP_VERSION_*)
+function estadoDeVersion(code) {
+  if (!code) return null;
+  if (APP_VERSION_MIN && code < APP_VERSION_MIN) return 'vieja';
+  if (APP_VERSION_ACTUAL && code < APP_VERSION_ACTUAL) return 'hay_nueva';
+  return 'al_dia';
+}
+function telefonosDeRuta(routeId) {
+  const items = {};
+  const ahora = Date.now();
+  for (const [personId, t] of telefonos) {
+    if (t.routeId !== routeId || ahora - t.en > 2 * 60 * 60_000) continue;
+    const { avisadoEn, ...visible } = t;
+    items[personId] = { ...visible, versionEstado: estadoDeVersion(t.versionCode) };
+  }
+  return items;
+}
+function avisarTelefonos(routeId) {
+  if (!telefonosSucios.delete(routeId)) return;
+  const msg = JSON.stringify({ type: 'telefonos', routeId, items: telefonosDeRuta(routeId) });
+  wss.clients.forEach((c) => {
+    if (c.readyState === 1 && esPanel(c) && watching.get(c) === routeId) c.send(msg);
+  });
+}
+
 // Los que vencen (sin app y sin señal hace media hora) dejan de mostrarse
 // solos: el barrido llama a esto y se avisa sólo a las rutas que cambiaron.
 function vencerPuerta(ahora = Date.now()) {
@@ -4598,6 +4663,7 @@ app.post('/gps', (req, res) => {
   // nunca, y si otro chofer tomó la unidad manda el otro.
   if (user.role !== 'driver') return res.status(403).json({ error: 'Solo el chofer reporta posición' });
   const vehicleId = user.vehicleId || user.unitId;
+  anotarTelefono(user, vehicleId, req.body && req.body.telefono);
   // El relevo: el dueño actual del GPS es OTRO chofer con el socket todavía
   // abierto (dejó la app abierta en el asiento al bajarse). El que sube entra
   // por HTTP con la pantalla apagada, y devolverle 409 lo dejaba mudo todo el
@@ -8258,6 +8324,7 @@ wss.on('connection', (ws) => {
       // sin atender: el que llegó mientras el panel recargaba no se pierde
       if (esPanel(ws)) {
         ws.send(JSON.stringify({ type: 'puerta', routeId: rutaInicial, items: puertaDeRuta(rutaInicial) }));
+        ws.send(JSON.stringify({ type: 'telefonos', routeId: rutaInicial, items: telefonosDeRuta(rutaInicial) }));
         ws.send(JSON.stringify({ type: 'sos_abiertos', items: sosAbiertosDe(profiles.get(user.unitId)) }));
       }
     }
@@ -8273,6 +8340,7 @@ wss.on('connection', (ws) => {
       watching.set(ws, msg.routeId);
       ws.send(JSON.stringify({ type: 'state', ...buildState(msg.routeId) }));
       ws.send(JSON.stringify({ type: 'puerta', routeId: msg.routeId, items: puertaDeRuta(msg.routeId) }));
+      ws.send(JSON.stringify({ type: 'telefonos', routeId: msg.routeId, items: telefonosDeRuta(msg.routeId) }));
       // Solo un supervisor llega acá, y ve los privados de la ruta que mira
       ws.send(JSON.stringify({
         type: 'chat_history', routeId: msg.routeId,
@@ -8288,6 +8356,10 @@ wss.on('connection', (ws) => {
       const prof = profiles.get(personId);
       const vehicleId = prof?.vehicleId;
       if (!vehicleId) return;
+      if (msg.telefono && prof.role === 'driver') {
+        // Por el socket manda la web (la nativa manda por POST /gps)
+        anotarTelefono({ unitId: personId, routeId: prof.routeId }, vehicleId, msg.telefono);
+      }
 
       // Se valida igual que en POST /gps: era la misma información entrando
       // por dos puertas y sólo una miraba lo que le daban. Antes que nada:
@@ -9822,6 +9894,7 @@ function flushState(routeId) {
   const estado = buildState(routeId, true);
   ultimoEstado.set(routeId, estado);
   broadcastToRoute(routeId, { type: 'state', ...estado });
+  avisarTelefonos(routeId);
 }
 
 // Agenda el envío del estado de UNA ruta respetando la cadencia. Con

@@ -4226,6 +4226,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // Los choferes que entraron y no salieron a ruta (opción A, 30/10): lo
   // manda el servidor sólo a Despacho, con la hora a la que entraron
   const [puerta, setPuerta] = React.useState([]);
+  // La salud del teléfono de cada persona de la ruta (PENDIENTES 0.4):
+  // personId → { bateria, cargando, optimizada, origen, version, versionEstado, en }
+  const [telefonos, setTelefonos] = React.useState({});
   const [gaps, setGaps] = React.useState({});
   const [messages, setMessages] = React.useState([]);
   // Las emergencias SIN ATENDER, en el orden en que llegaron. Era una sola:
@@ -4514,6 +4517,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           // De la ruta que se mira, y de ninguna otra (como el estado)
           if (rutaMiradaRef.current && msg.routeId !== rutaMiradaRef.current) return;
           setPuerta(msg.items || []);
+        } else if (msg.type === 'telefonos') {
+          if (rutaMiradaRef.current && msg.routeId !== rutaMiradaRef.current) return;
+          setTelefonos(msg.items || {});
         } else if (msg.type === 'routes') {
           setRoutes(msg.routes || []);
         } else if (msg.type === 'route_geometry') {
@@ -4724,7 +4730,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const cambiarRuta = (routeId) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    setUnits([]); setGaps({}); setMessages([]);
+    setUnits([]); setGaps({}); setMessages([]); setTelefonos({});
     rutaMiradaRef.current = routeId;
     ws.send(JSON.stringify({ type: 'watch', routeId }));
   };
@@ -5289,6 +5295,50 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     }}>EL RELOJ DEL TELÉFONO ATRASA {u.relojAtrasadoS >= 120
                       ? `${Math.round(u.relojAtrasadoS / 60)} MIN` : `${u.relojAtrasadoS} S`}</div>
                 )}
+                {/* El teléfono del que la maneja (PENDIENTES 0.4): batería,
+                    ahorro de batería y versión. «No aparece en el mapa» se
+                    averiguaba llamándolo; la mitad de las veces era esto. Ámbar
+                    lo que pide hacer algo; el resto, gris. */}
+                {u.choferId && telefonos[u.choferId] && (() => {
+                  const t = telefonos[u.choferId];
+                  const baja = t.bateria != null && t.bateria <= 20 && !t.cargando;
+                  const minutos = Math.round((ahora - t.en) / 60_000);
+                  const partes = [
+                    t.bateria != null ? `BATERÍA ${t.bateria} %${t.cargando ? ' · CARGANDO' : ''}` : null,
+                    t.origen === 'web' ? 'WEB' : t.version ? `APP ${t.version}` : null,
+                    minutos >= 10 ? `HACE ${minutos} MIN` : null,
+                  ].filter(Boolean);
+                  return (
+                    <div data-telefono={u.choferId} style={{ marginTop: 6 }}>
+                      {partes.length > 0 && (
+                        <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: .6, color: baja ? HUD.amber : HUD.dim2, fontWeight: baja ? 700 : 400 }}>
+                          {partes.join(' · ')}
+                        </div>
+                      )}
+                      {t.bateria != null && t.bateria <= 10 && !t.cargando && (
+                        <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                          SE ESTÁ POR APAGAR: QUE LO ENCHUFE
+                        </div>
+                      )}
+                      {t.optimizada === true && (
+                        <div title="Con el ahorro de batería, Android le corta la red a la app con la pantalla apagada: deja de aparecer en el mapa. Se apaga en Ajustes → Batería → la app → «Sin restricciones»."
+                          style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                          AHORRO DE BATERÍA ACTIVADO: PUEDE DESAPARECER DEL MAPA
+                        </div>
+                      )}
+                      {t.versionEstado === 'vieja' && (
+                        <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                          APP VIEJA: TIENE QUE ACTUALIZAR
+                        </div>
+                      )}
+                      {t.versionEstado === 'hay_nueva' && (
+                        <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: .6, color: HUD.dim2, marginTop: 3 }}>
+                          HAY UNA VERSIÓN NUEVA DE LA APP
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 {/* La presencia declarada desde la app. AUSENTE: comiendo o
                     en un repuesto — fuera de la cadena, a la vista. YENDO:
                     marcó "en ruta" pero el GPS todavía no lo vio sobre el

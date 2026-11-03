@@ -64,6 +64,12 @@ cooperativa creó: no tiene registro abierto ni usuarios anónimos.</p>
   y fotos que el usuario decide mandar, incluida la emergencia (SOS).</li>
   <li><strong>Actividad del turno</strong>: horas en ruta, vueltas al
   circuito y desvíos del trazado, calculados de la ubicación.</li>
+  <li><strong>Estado del teléfono</strong>, mientras está en ruta y junto
+  con la ubicación: el nivel de batería, si está cargando, si el sistema le
+  aplica ahorro de batería a la aplicación y la versión de la app. Sirve
+  para que la central sepa por qué una combi dejó de verse (batería
+  agotada, ahorro de batería) sin tener que llamar al conductor. No se
+  guarda: se ve sólo el último valor.</li>
   <li><strong>Grabación de recorrido</strong>: solo si el conductor la
   inicia (o acepta el pedido de su central), se guarda el trazado
   recorrido para cargarlo como recorrido oficial de la ruta.</li>
@@ -87,7 +93,9 @@ venden ni se comparten con terceros para sus propios fines.</strong></p>
   para funcionar: el servidor se aloja en Railway, y el fondo del mapa
   puede pedir imágenes de mapa a Geoapify (ese pedido lleva la dirección
   IP del teléfono, como cualquier descarga; no lleva la identidad de la
-  cuenta).</li>
+  cuenta). Las copias de respaldo de la base se guardan además en un
+  almacenamiento aparte, <strong>cifradas</strong>: ese proveedor guarda
+  archivos que no puede leer.</li>
 </ul>
 
 <h2>Cuánto tiempo se guardan</h2>
@@ -98,6 +106,8 @@ venden ni se comparten con terceros para sus propios fines.</strong></p>
   <tr><td>Turnos (horas trabajadas)</td><td>365 días</td></tr>
   <tr><td>Emergencias (SOS)</td><td>365 días</td></tr>
   <tr><td>Posición en vivo</td><td>Solo la última conocida; no se guarda el recorrido continuo</td></tr>
+  <tr><td>Estado del teléfono (batería, ahorro de batería)</td><td>Solo el último valor, en memoria; no se guarda</td></tr>
+  <tr><td>Copias de respaldo cifradas</td><td>Las borra el almacenamiento a los 30 días</td></tr>
   <tr><td>Grabaciones de recorrido</td><td>Hasta 25 por cooperativa; las más viejas se borran solas</td></tr>
 </table>
 

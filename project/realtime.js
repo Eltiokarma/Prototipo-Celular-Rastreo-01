@@ -379,8 +379,24 @@
         // Los metros de error del GPS, como manda la app nativa: con más de
         // 100 m el servidor no juzga desvío ni parada (TRUCOS, T11).
         ...(Number.isFinite(accuracy) && accuracy >= 0 ? { precision: Math.round(accuracy) } : {}),
+        ...(saludDelTelefono() ? { telefono } : {}),
       });
     }, 3000);
+  }
+
+  // La batería del teléfono para la tarjeta de Despacho (PENDIENTES 0.4).
+  // Chrome en Android la da; si el navegador no tiene `getBattery`, no se
+  // manda nada (no se inventa). Se lee una vez por minuto, sin esperar: va lo
+  // último leído. Si Android le aplica ahorro a la página la web no lo sabe.
+  let telefono = null, telefonoLeidoEn = 0;
+  function saludDelTelefono() {
+    if (navigator.getBattery && Date.now() - telefonoLeidoEn > 60_000) {
+      telefonoLeidoEn = Date.now();
+      navigator.getBattery().then(b => {
+        telefono = { origen: 'web', bateria: b.level, cargando: !!b.charging };
+      }).catch(() => {});
+    }
+    return telefono;
   }
 
   function stopGps() {
@@ -421,6 +437,7 @@
         speed: 25 + Math.round(Math.random() * 15),
         routeProgress: simProgress,
         simulado: true,
+        ...(saludDelTelefono() ? { telefono } : {}),
       });
     }, 3000);
   }

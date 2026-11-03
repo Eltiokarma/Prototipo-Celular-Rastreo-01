@@ -879,3 +879,23 @@ Suite nueva: `salud`; `sos-despacho` y `nativas` ampliadas.
 6. **`TAREAS-FUERA-DEL-CODIGO.md`**: la lista de lo que hace el dueño, en orden.
 
 Suite nueva: `copia-afuera`.
+
+## Tanda 19 — la salud del teléfono en Despacho (03/11, sin repasar)
+
+1. **La nativa lee sin esperar** (`saludDelTelefono` en `gps/servicio.js`):
+   devuelve lo último leído y, si tiene más de un minuto, pide de nuevo para
+   el próximo envío. Un `await` a un módulo nativo en el camino del POST
+   colgaba el envío y con la pantalla apagada no hay timer que lo corte.
+   **La duda:** que `expo-battery` conteste dentro de la tarea de fondo; si
+   no, el campo va en blanco y no se rompe nada. Se ve en el teléfono real.
+2. **Sólo a los paneles** (`telefonos`, `esPanel` + ruta mirada), aparte del
+   `state`: la batería de un compañero no es asunto de los demás choferes.
+3. **Por persona, no por combi**: la tarjeta lo busca por `choferId` (el que
+   tiene el mando). El cobrador no manda posiciones, así que no aparece.
+4. **`versionEstado`** sale de `APP_VERSION_MIN`/`_ACTUAL`: sin ponerlas, no
+   dice nada de la versión más que el número.
+5. **Privacidad**: la batería es un dato nuevo y quedó declarado en
+   `/privacidad` (y la copia cifrada de los respaldos, del punto 0.3).
+6. De paso, en el celular la cabecera de Despacho ya entraba (tanda 16).
+
+Suite nueva: `telefono`; `nativas` ampliada.

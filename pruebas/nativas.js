@@ -296,6 +296,11 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   ok('y el perfil apk sube el código solo', eas.build.apk.autoIncrement === true);
   // «Despacho vio tu SOS» (31/10): el cliente lo emite y la pantalla de ruta
   // lo muestra en las tres vistas (puerta, ruta y ausente), hasta tocarlo
+  // La salud del teléfono (PENDIENTES 0.4): viaja con las posiciones, sin
+  // esperar al módulo nativo (con la pantalla apagada no hay timer que corte)
+  ok('la batería y el ahorro de batería viajan con las posiciones',
+     /import \* as Battery from 'expo-battery'/.test(servicio) && /telefono: saludDelTelefono\(\)/.test(servicio) &&
+     /isBatteryOptimizationEnabledAsync/.test(servicio) && !/await Battery\./.test(servicio));
   ok('«Despacho vio tu SOS» llega a la pantalla',
      /case 'sos_atendido':/.test(cliente) && /emitir\('sosAtendido', m\)/.test(cliente) &&
      /DESPACHO VIO TU SOS/.test(app) && (app.match(/<SosVisto visto=/g) || []).length === 3);

@@ -43,6 +43,8 @@ se reconectan solas). Conviene hacerlo fuera de hora pico.
   - salir a ruta
   - un SOS de prueba (avisándole antes a Despacho), que Despacho marque
     ATENDIDO y que al teléfono le aparezca «DESPACHO VIO TU SOS»
+  - que en la tarjeta de esa combi, en Despacho, aparezca la batería del
+    teléfono y la versión 0.3.0 (tarda hasta un minuto)
 - [ ] **Cuando todos tengan la 0.3.0** (no antes), poner `APP_VERSION_MIN` =
       el mismo número. A partir de ahí la versión vieja deja de funcionar.
 
@@ -158,6 +160,11 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
 
 ## 6. Despacho
 
+- [ ] Contarles que la tarjeta de cada combi ahora dice **cómo está el
+      teléfono** del chofer: antes de llamarlo porque «no aparece», mirar si
+      dice «se está por apagar» o «ahorro de batería activado». Con el
+      ahorro activado, el chofer tiene que ir a Ajustes → Batería → la app →
+      **«Sin restricciones»** (en Xiaomi, además, «Inicio automático»).
 - [ ] Decirle a cada operador que **al empezar el turno** toque **«Activar
       alarma de SOS»** (el botón ámbar arriba) y **acepte las notificaciones**
       cuando el navegador pregunte. Mientras ese botón se vea, un SOS puede
@@ -183,4 +190,8 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
       pantalla apagada) y el contrato de encargado con cada cooperativa
       (PENDIENTES 0.10). Conviene con un abogado.
 - [ ] **Google Play** cuando quieras dejar de repartir la APK a mano: los
-      pasos están en `PLAYSTORE.md`.
+      pasos están en `PLAYSTORE.md`. En el formulario de *Seguridad de los
+      datos* hay que declarar, además de la ubicación, el **estado del
+      teléfono** (batería, ahorro de batería: «información y rendimiento de
+      la app») y que los respaldos se guardan **cifrados** con un tercero. La
+      política de privacidad (`/privacidad`) ya lo dice.

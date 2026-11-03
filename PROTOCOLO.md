@@ -309,6 +309,26 @@ Se poda **por tipo y no en conjunto**, a propósito: si el presupuesto fuera
 compartido, una ráfaga de fotos le borraría el audio a la nota de voz que
 justamente hace falta escuchar.
 
+### 3.6 `telefonos` — sólo a Despacho (desde el 03/11)
+
+Cómo está el teléfono de cada persona de la ruta que se mira: llega al
+identificarse un panel, con cada `watch` y, junto con el `state`, cuando algo
+cambió (o cada 5 min). Nunca a los choferes, ni dentro del `state`.
+
+```json
+{ "type": "telefonos", "routeId": "R-14", "items": {
+  "luis": { "bateria": 8, "cargando": false, "optimizada": true, "origen": "app",
+            "version": "0.2.3", "versionCode": 5, "versionEstado": "hay_nueva",
+            "vehicleId": "M-02", "routeId": "R-14", "en": 1793715372716 } } }
+```
+
+`bateria` en % (o null), `optimizada` = Android le aplica ahorro de batería a
+la app, `versionEstado` contra `APP_VERSION_MIN`/`_ACTUAL`: `vieja`,
+`hay_nueva`, `al_dia` (null en la web). Lo manda la app en el campo
+`telefono` de `POST /gps` y la web en el del `gps` del socket:
+`{ "origen": "app"|"web", "bateria": 0..1, "cargando": bool, "optimizada": bool }`.
+Lo que no sea eso queda en null. En memoria; lo de más de 2 h no se manda.
+
 ### 3.5 `puerta` — sólo a Despacho
 
 Desde el 30/10 («opción A»). Quién entró y no salió a ruta en la ruta que se
