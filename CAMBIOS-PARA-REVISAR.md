@@ -175,7 +175,7 @@ tanda 17.
 **Pruebas.** `telefono`. **Manual:** sí (avisos de la tarjeta). Detalle:
 REPASO, tanda 19.
 
-## 7. El SOS sin internet: llamar o mandar SMS a la central — (03/11, este parche)
+## 7. El SOS sin internet: llamar o mandar SMS a la central — `9b229a4` (03/11)
 
 **Qué.**
 - La cooperativa tiene un **teléfono de la central**
