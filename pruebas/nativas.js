@@ -294,6 +294,11 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   const eas = JSON.parse(fs.readFileSync(RAIZ + '/app/eas.json', 'utf8'));
   ok('la APK de la revisión: 0.3.0 / 6', config.expo.version === '0.3.0' && config.expo.android.versionCode >= 6, [config.expo.version, config.expo.android.versionCode]);
   ok('y el perfil apk sube el código solo', eas.build.apk.autoIncrement === true);
+  // «Despacho vio tu SOS» (31/10): el cliente lo emite y la pantalla de ruta
+  // lo muestra en las tres vistas (puerta, ruta y ausente), hasta tocarlo
+  ok('«Despacho vio tu SOS» llega a la pantalla',
+     /case 'sos_atendido':/.test(cliente) && /emitir\('sosAtendido', m\)/.test(cliente) &&
+     /DESPACHO VIO TU SOS/.test(app) && (app.match(/<SosVisto visto=/g) || []).length === 3);
 
   // ── Tanda 7 de la revisión del 10/9, por lectura ──────────────────────
   const notif = fs.readFileSync(RAIZ + '/app/notificacion.js', 'utf8');

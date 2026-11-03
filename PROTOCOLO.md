@@ -647,8 +647,13 @@ recargando no volvía a aparecer. Ahora es de la base (`messages.atendidoPor`
 - El `chat_history` trae en cada SOS `atendidoEn`, `atendidoPor` y
   `atendidoPorNombre` (null si sigue abierto); el informe `sos.csv` suma
   *Atendido por*, *Atendido* y *Minutos hasta atender*.
-- A los teléfonos no les llegan `sos_abiertos` ni `sos_atendido`. (Que el
-  chofer sepa que Despacho vio su SOS es lo siguiente que falta.)
+- **Al que pidió ayuda** (y a los que van en esa combi: el chofer y el
+  cobrador) le llega el mismo `sos_atendido` con `"propio": true`. Y si se
+  le cortó la señal, **al reconectar**: si su último SOS de las últimas
+  `SOS_VISTO_MS` (2 h) ya fue atendido, llega con `"alConectar": true`. La
+  app muestra «DESPACHO VIO TU SOS · Lo marcó atendido … a las …» hasta que
+  se lo toca, y el que ya cerró no vuelve. A los demás choferes, nada; y
+  `sos_abiertos` nunca llega a un teléfono.
 
 Y una regla del lado de `/gps` que va con la presencia: **un lote cuyas
 posiciones son todas anteriores al último «fuera» de la unidad se descarta

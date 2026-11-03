@@ -227,6 +227,8 @@ function Aplicacion() {
   const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0, personal: 0 });
   const cliente = React.useRef(null);
   const alCambiarDeCombi = React.useRef(() => {});
+  const [sosVisto, setSosVisto] = React.useState(null);
+  const sosVistosCerrados = React.useRef(new Set());
 
   // ── El cliente vive fuera de React ──────────────────────────
   // Se crea una sola vez: si se recreara en cada render, cada cambio de
@@ -295,6 +297,11 @@ function Aplicacion() {
       // eco se perdía en silencio (marcarTipoSos sin id no manda nada).
       c.on('sos', (m) => {
         if (c.sesion && m.unitId === c.sesion.unitId) setTipificarSos(true);
+      }),
+      // «Despacho vio tu SOS» (31/10): queda hasta que lo toca, y el que ya
+      // cerró no vuelve con cada reconexión
+      c.on('sosAtendido', (m) => {
+        if (!sosVistosCerrados.current.has(m.sosId)) setSosVisto(m);
       }),
       c.on('voz',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('foto', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
@@ -585,6 +592,7 @@ function Aplicacion() {
     // Las combis y el vigía del anterior tampoco: el siguiente veía la lista
     // del otro hasta que contestara el servidor (revisión previa a la APK)
     setCombis(null); calladoHasta.current = 0; setAvisoSalida(null); setReporta(false);
+    setSosVisto(null); sosVistosCerrados.current = new Set();
   };
 
   // El texto de la notificación va en un ref para que los oyentes se
@@ -823,6 +831,8 @@ function Aplicacion() {
         faltaPuerta={faltaPuerta}
         onNoManejo={noEstoyManejando}
         avisoSalida={avisoSalida}
+        sosVisto={sosVisto}
+        onSosVistoCerrar={() => { if (sosVisto) sosVistosCerrados.current.add(sosVisto.sosId); setSosVisto(null); }}
         onAvisoSalidaVisto={() => setAvisoSalida(null)}
         combis={combis}
         miCombi={sesion?.vehicleId || null}
@@ -1093,7 +1103,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
   );
 }
 
-function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, avisoApp, diag, pantalla, noLeidos, marca,
+function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, sosVisto, onSosVistoCerrar, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
                 tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol,
                 faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi }) {
@@ -1206,6 +1216,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
             {/* Y el SOS tiene que ESTAR: el cobrador siempre está «fuera», y
                 el deslizador sólo aparecía en ausente y en ruta — la pantalla
                 le prometía un SOS que no tenía (barrido del 22/9). */}
+            {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
             {tipificarSos && <TipoSos onElegir={onTipoSos} />}
             <SosDeslizable onDisparar={onSos} />
           </>
@@ -1241,6 +1252,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           </Text>
           {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
+        {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
         {tipificarSos && <TipoSos onElegir={onTipoSos} />}
         <SosDeslizable onDisparar={onSos} />
         <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
@@ -1382,6 +1394,8 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           </Text>
         </Pressable>
       </View>
+
+      {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
 
       {tipificarSos && <TipoSos onElegir={onTipoSos} />}
       <SosDeslizable onDisparar={onSos} />
@@ -2263,6 +2277,23 @@ function BotonTema() {
 // ENVIADA» recién ahí, y «NO SALIÓ — REPETÍ» en rojo si no llegó. Antes
 // decía «enviada» al soltar el dedo, con el socket muerto y la alerta en
 // ninguna parte (REVISION-2026-09-08.md, A1).
+// Despacho vio el SOS: verde lleno con tinta de fondo, arriba del
+// deslizador, hasta que se lo toca. Dice quién y a qué hora lo marcó; no
+// promete que la ayuda esté en camino (eso lo dice Despacho).
+function SosVisto({ visto, onCerrar }) {
+  const { s } = usarTema();
+  const d = new Date(visto.en || Date.now());
+  const hora = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return (
+    <Pressable onPress={onCerrar} style={s.sosVisto} accessibilityRole="button">
+      <Text style={s.vigiaTitulo}>DESPACHO VIO TU SOS</Text>
+      <Text style={s.vigiaTexto}>
+        Lo marcó atendido {visto.por || 'Despacho'} a las {hora}. Tocá para cerrar.
+      </Text>
+    </Pressable>
+  );
+}
+
 function SosDeslizable({ onDisparar }) {
   const { s, C } = usarTema();
   const [ancho, setAncho] = React.useState(0);
@@ -2671,6 +2702,7 @@ function crearEstilos(C) { return StyleSheet.create({
   // El vigía de la puerta: ámbar lleno con tinta de fondo, lo más fuerte
   // que hay sin ser el rojo de la emergencia
   vigiaPuerta: { backgroundColor: C.ambar, borderRadius: 14, padding: 14, marginBottom: 12 },
+  sosVisto: { backgroundColor: C.verde, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
   vigiaTitulo: { color: C.fondo, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
   vigiaTexto: { color: C.fondo, fontSize: 14, marginTop: 4, lineHeight: 19 },
   vigiaBoton: {

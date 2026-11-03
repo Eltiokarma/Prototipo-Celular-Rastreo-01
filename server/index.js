@@ -764,6 +764,9 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_sos_abiertos ON messages (timestamp) WHE
 // Hasta cuándo un SOS sin atender se sigue mostrando al conectar: el de
 // anteayer que nadie marcó no es una emergencia en curso.
 const SOS_ABIERTO_MS = Number(process.env.SOS_ABIERTO_MS || 24 * 60 * 60_000);
+// Hasta cuándo el que pidió ayuda se entera, al reconectar, de que Despacho
+// ya lo vio: con la pantalla apagada el socket estaba muerto cuando se marcó.
+const SOS_VISTO_MS = Number(process.env.SOS_VISTO_MS || 2 * 60 * 60_000);
 
 // El logo de la cooperativa, como data-URL. Va en la fila de la empresa y no
 // en un archivo: son ~100 kB, se piden una vez por sesión, y guardarlos en
@@ -8108,6 +8111,10 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'combi', vehicleId, routeId: rutaInicial,
           routeName: routeOf(rutaInicial)?.name || rutaInicial }));
       }
+      if (user.role === 'driver' || user.role === 'collector') {
+        const visto = sosVistoAlConectar(user.unitId, vehicleId);
+        if (visto) ws.send(JSON.stringify(visto));
+      }
       // Qué conversación privada le corresponde ver: Despacho todas las de
       // su ruta, una combi la suya, nadie la de otro.
       const esDespacho = user.role === 'dispatch' || user.role === 'manager';
@@ -8678,7 +8685,36 @@ function atenderSos(unitId, prof, sosIdCrudo) {
   const aviso = { type: 'sos_atendido', sosId: fila.id, routeId: fila.routeId, vehicleId: fila.vehicleId,
                   porId: unitId, por: nombreDe(unitId), en };
   avisarPaneles(fila.routeId, aviso);
+  avisarAlQuePidio(fila, aviso);
   return { ok: true, aviso };
+}
+// Y al que lo pidió, y a los que van en esa combi (el chofer y el cobrador):
+// lo primero que quiere saber el que mandó un SOS es si alguien lo vio
+// (31/10). A los demás choferes, nada.
+function avisarAlQuePidio(fila, aviso) {
+  const crudo = JSON.stringify({ ...aviso, propio: true });
+  for (const [c, id] of clients) {
+    if (c.readyState !== 1) continue;
+    const prof = profiles.get(id);
+    if (!prof || (prof.role !== 'driver' && prof.role !== 'collector')) continue;
+    if (id === fila.unitId || (fila.vehicleId && prof.vehicleId === fila.vehicleId)) {
+      try { c.send(crudo); } catch {}
+    }
+  }
+}
+// Al conectar: si el último SOS suyo (o de su combi) de las últimas
+// SOS_VISTO_MS ya fue atendido, se le dice. Si sigue abierto, nada.
+function sosVistoAlConectar(unitId, vehicleId) {
+  const f = db.prepare(`
+    SELECT id, vehicleId, routeId, atendidoPor, atendidoEn FROM messages
+    WHERE kind = 'sos' AND timestamp > ? AND (unitId = ? OR (? IS NOT NULL AND vehicleId = ?))
+    ORDER BY id DESC LIMIT 1
+  `).get(Date.now() - SOS_VISTO_MS, unitId, vehicleId || null, vehicleId || null);
+  if (!f || !f.atendidoEn) return null;
+  const u = db.prepare('SELECT name, alias, driverName, unitId FROM users WHERE unitId = ?').get(f.atendidoPor);
+  return { type: 'sos_atendido', sosId: f.id, routeId: f.routeId, vehicleId: f.vehicleId,
+           porId: f.atendidoPor, por: u ? displayName(u) : f.atendidoPor, en: f.atendidoEn,
+           propio: true, alConectar: true };
 }
 
 // El SOS por HTTP: la puerta que sobrevive a la pantalla apagada y al

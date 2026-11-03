@@ -150,6 +150,10 @@
           // lo está esperando como prueba de que salió.
           if (ecoTipo && msg.sosId === ecoTipo.sosId) { const r = ecoTipo.resolve; ecoTipo = null; r(msg); }
           emit('sostipo', msg);
+        } else if (msg.type === 'sos_atendido') {
+          // Despacho marcó atendido MI SOS (o el de mi combi): sólo llega al
+          // que lo pidió y a los que van arriba, también al reconectar
+          emit('sosatendido', msg);
         } else if (msg.type === 'chat_history') {
           emit('history', msg.items || []);
         } else if (msg.type === 'route_geometry') {

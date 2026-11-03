@@ -267,6 +267,11 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
         }
         emitir('sos', m);
         break;
+      case 'sos_atendido':
+        // Despacho marcó atendido MI SOS (o el de mi combi). Sólo le llega al
+        // que lo pidió y a los que van arriba; también al reconectar.
+        emitir('sosAtendido', m);
+        break;
       case 'sos_tipo':
         // El eco del tipo de MI emergencia: `marcarTipoSos` lo espera.
         if (esperandoEcoTipo && m.sosId === miUltimoSos) esperandoEcoTipo();

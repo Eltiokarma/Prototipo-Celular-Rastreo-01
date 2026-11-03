@@ -3116,6 +3116,18 @@ function Root() {
   // El id de MI último SOS, esperando (si puedo) que le ponga nombre. La
   // alerta ya salió: elegir es opcional y la barra se va sola a los 5 min.
   const [sosPropio, setSosPropio] = React.useState(null);
+  // «Despacho vio tu SOS» (31/10): lo primero que quiere saber el que pidió
+  // ayuda. Queda hasta que lo toca; los ya cerrados no vuelven al reconectar.
+  const [sosVisto, setSosVisto] = React.useState(null);
+  const cerrarSosVisto = () => {
+    if (sosVisto) {
+      try {
+        const vistos = JSON.parse(localStorage.getItem('r14_sos_vistos') || '[]');
+        localStorage.setItem('r14_sos_vistos', JSON.stringify([...vistos, sosVisto.sosId].slice(-20)));
+      } catch {}
+    }
+    setSosVisto(null);
+  };
   React.useEffect(() => {
     if (sosPropio == null) return;
     const t = setTimeout(() => setSosPropio(null), 5 * 60_000);
@@ -3240,7 +3252,7 @@ function Root() {
       // ni el privado con Despacho, ni el SOS a medio calificar.
       if (window.RealtimeClient.olvidarSesion) window.RealtimeClient.olvidarSesion();
     }
-    setMessages([]); setSosPropio(null); setRutaVigente(null);
+    setMessages([]); setSosPropio(null); setSosVisto(null); setRutaVigente(null);
     olvidarLoVivo();
     setUser(null);
     setScreen('login');
@@ -3270,7 +3282,7 @@ function Root() {
       try { localStorage.removeItem('r14_session'); localStorage.removeItem('r14_presencia'); } catch {}
       // Lo de esta persona no pasa a la siguiente (barrido del 22/9)
       if (window.RealtimeClient.olvidarSesion) window.RealtimeClient.olvidarSesion();
-      setMessages([]); setSosPropio(null); setPresencia('fuera'); setRutaVigente(null);
+      setMessages([]); setSosPropio(null); setSosVisto(null); setPresencia('fuera'); setRutaVigente(null);
       olvidarLoVivo();
       setUser(null);
       setAuthNotice('Tu sesión expiró. Ingresá de nuevo.');
@@ -3471,6 +3483,12 @@ function Root() {
       setIncomingSos(a);
     });
 
+    window.RealtimeClient.on('sosatendido', (e) => {
+      let vistos = [];
+      try { vistos = JSON.parse(localStorage.getItem('r14_sos_vistos') || '[]'); } catch {}
+      if (!vistos.includes(e.sosId)) setSosVisto(e);
+    });
+
     // El tipo llega después que el SOS y actualiza la burbuja ya dibujada:
     // en el hilo la emergencia es una sola, ahora con nombre.
     window.RealtimeClient.on('sostipo', (e) => {
@@ -3653,6 +3671,23 @@ function Root() {
               cursor: 'pointer', fontFamily: 'inherit',
             }}>VOLVER A RUTA</button>
           </div>
+        )}
+        {/* Despacho vio mi SOS: arriba, hasta que lo toque. Dice quién y a
+            qué hora lo marcó; no promete nada que no sepamos (que la ayuda
+            esté en camino lo dice Despacho, por el chat o por teléfono). */}
+        {screen === 'app' && sosVisto && (
+          <button role="status" data-sos-visto onClick={cerrarSosVisto} style={{
+            position: 'absolute', left: 10, right: 10, top: arriba, zIndex: 99, textAlign: 'left',
+            background: HUD.surface, border: `2px solid ${HUD.green}`, borderRadius: 12,
+            padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            {/* greenInk y no green: el verde sobre la superficie del tema
+                día da 3,8:1, poco para 13 px */}
+            <div style={{ color: HUD.greenInk, fontSize: 13, fontWeight: 900, letterSpacing: 1 }}>DESPACHO VIO TU SOS</div>
+            <div style={{ color: HUD.fg, fontSize: 12, lineHeight: 1.35, marginTop: 2 }}>
+              Lo marcó atendido {sosVisto.por || 'Despacho'} a las {nowTime(sosVisto.en)}. Tocá para cerrar.
+            </div>
+          </button>
         )}
         {/* ¿Qué pasó? — DESPUÉS de disparar mi SOS, con la alerta ya
             enviada. En una emergencia nadie navega un menú antes de pedir

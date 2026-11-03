@@ -210,7 +210,59 @@ const hayCartel = (pg) => pg.$('[data-sos-atendido]').then(Boolean);
   ok('el que llega segundo no lo pisa: se le dice quién fue', await hasta(() =>
     sup.visto.some(m => m.type === 'sos_atendido' && m.sosId === segundo && m.porId === 'DESP-14')));
   ok('y en la base queda el primero', base.prepare('SELECT atendidoPor FROM messages WHERE id = ?').get(segundo).atendidoPor === 'DESP-14');
-  ok('ningún SOS llega a los teléfonos como «abierto»', !pedro.visto.some(m => m.type === 'sos_abiertos' || m.type === 'sos_atendido'));
+  ok('a los teléfonos no les llega la lista de abiertos', !pedro.visto.some(m => m.type === 'sos_abiertos'));
+  ok('pero el que lo pidió se entera de que lo atendieron, y quién',
+     pedro.visto.some(m => m.type === 'sos_atendido' && m.sosId === segundo && m.propio === true && m.por === 'Despacho R-14'));
+
+  console.log('\nEL CHOFER SE ENTERA: «DESPACHO VIO TU SOS»');
+  base.prepare('INSERT OR IGNORE INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES (?,?,?,?,?)')
+    .run('M-02', 'Z1A-702', 'R-14', emp, Date.now());
+  base.prepare('INSERT OR IGNORE INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES (?,?,?,?,?)')
+    .run('M-03', 'Z1A-703', 'R-14', emp, Date.now());
+  for (const [u, n, v, rol] of [['luis', 'Luis Apaza', 'M-02', 'driver'], ['rosa', 'Rosa Ticona', 'M-02', 'collector'], ['juan', 'Juan Quispe', 'M-03', 'driver']]) {
+    const r = await pedir('/admin/users', { method: 'POST', headers: H,
+      body: JSON.stringify({ unitId: u, name: n, vehicleId: v, password: 'clave12345', personRole: rol }) });
+    if (r.status !== 200) throw new Error('alta: ' + JSON.stringify(r.body));
+  }
+  const rosa = await socket(await entrar('rosa', 'clave12345'));
+  const juan = await socket(await entrar('juan', 'clave12345'));
+  const lctx = await browser.newContext({
+    viewport: { width: 412, height: 892 }, isMobile: true, hasTouch: true,
+    permissions: ['geolocation'], geolocation: { latitude: -15.49, longitude: -70.133, accuracy: 10 },
+  });
+  await interceptarHttps(lctx);
+  const L = await lctx.newPage();
+  L.on('pageerror', e => errores.push('chofer: ' + e.message));
+  await L.goto(`http://localhost:${P}/Prototipo.html`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await L.waitForSelector('input[type="password"]', { timeout: 30000 });
+  await L.fill('input[type="text"]', 'luis');
+  await L.fill('input[type="password"]', 'clave12345');
+  await L.click('button:has-text("INGRESAR")');
+  await L.click('button:has-text("SALIR A RUTA")', { timeout: 15000 });
+  await L.waitForTimeout(2500);
+  const tLuis = await entrar('luis', 'clave12345');
+  const disparo = await pedir('/sos', { method: 'POST', headers: { Authorization: 'Bearer ' + tLuis },
+    body: JSON.stringify({ lat: -15.49, lng: -70.133, timestamp: Date.now() }) });
+  const tercero = disparo.body.sosId;
+  ok('Luis dispara un SOS', disparo.status === 200 && Number.isInteger(tercero), disparo.body);
+  ok('todavía no dice nada', !(await L.$('[data-sos-visto]')));
+  await A.waitForTimeout(1500);
+  await A.click('[data-sos-atendido]');
+  ok('Despacho lo atiende: a Luis le aparece «DESPACHO VIO TU SOS»', await hasta(() => L.$('[data-sos-visto]').then(Boolean)));
+  const cartel = await L.$eval('[data-sos-visto]', e => e.innerText).catch(() => '');
+  ok('con quién y a qué hora', /DESPACHO VIO TU SOS/.test(cartel) && /Lo marcó atendido Despacho a las \d\d:\d\d/.test(cartel), cartel);
+  ok('su cobradora, en la misma combi, también se entera', rosa.visto.some(m => m.type === 'sos_atendido' && m.sosId === tercero));
+  ok('otro chofer de la ruta, no', !juan.visto.some(m => m.type === 'sos_atendido'));
+  const otra = await socket(tLuis);
+  ok('si se le cortó la señal, al reconectar se le dice igual',
+     otra.visto.some(m => m.type === 'sos_atendido' && m.sosId === tercero && m.alConectar === true));
+  otra.close();
+  await L.click('[data-sos-visto]');
+  ok('tocarlo lo cierra', await hasta(async () => !(await L.$('[data-sos-visto]'))));
+  await L.reload({ waitUntil: 'domcontentloaded' });
+  await L.waitForTimeout(4000);
+  ok('y cerrado, no vuelve al recargar', !(await L.$('[data-sos-visto]')));
+  rosa.close(); juan.close();
 
   ok('ninguna página tiró errores', errores.length === 0, errores);
 
