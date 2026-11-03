@@ -168,7 +168,8 @@ arrancar. Nada más: el respaldo ES la base.
 Limitaciones conocidas del sistema: ver **LIMITACIONES.md**.
 Plan de crecimiento a 20+ rutas con números: ver **ESCALABILIDAD.md**.
 Lo que falta construir, ordenado: ver **PENDIENTES.md**. Lo que tiene que hacer a mano el que opera —cuentas,
-variables, simulacros—: **TAREAS-FUERA-DEL-CODIGO.md**.
+variables, simulacros—: **TAREAS-FUERA-DEL-CODIGO.md**. Y los últimos parches, con lo que conviene mirar
+de cada uno para una revisión integral: **CAMBIOS-PARA-REVISAR.md**.
 
 **Variables de entorno**, todas opcionales salvo donde se aclare:
 

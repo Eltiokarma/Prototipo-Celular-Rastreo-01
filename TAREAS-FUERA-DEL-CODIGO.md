@@ -160,6 +160,16 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
 
 ## 6. Despacho
 
+- [ ] **Cargar el teléfono de la central** (cuenta de gerencia → Gestión →
+      Empresa → *Teléfono de la central para emergencias*). Es a donde el
+      chofer llama o manda un SMS si el SOS no sale por falta de internet:
+      tiene que ser un número que **siempre** atienda alguien (un celular de
+      guardia, no el fijo de la oficina). Los choferes lo reciben la próxima
+      vez que abran la app.
+- [ ] **Probarlo una vez** con un teléfono: con los datos móviles apagados (y
+      el WiFi también), deslizar el SOS. Tiene que aparecer «SOS NO SALIÓ» con
+      LLAMAR y MANDAR SMS; el SMS tiene que llegar al celular de guardia con la
+      combi y un enlace al mapa (avisale antes a quien tenga ese celular).
 - [ ] Contarles que la tarjeta de cada combi ahora dice **cómo está el
       teléfono** del chofer: antes de llamarlo porque «no aparece», mirar si
       dice «se está por apagar» o «ahorro de batería activado». Con el

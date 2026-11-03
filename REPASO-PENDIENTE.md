@@ -899,3 +899,12 @@ Suite nueva: `copia-afuera`.
 6. De paso, en el celular la cabecera de Despacho ya entraba (tanda 16).
 
 Suite nueva: `telefono`; `nativas` ampliada.
+
+## Tanda 20 — el SOS sin internet (03/11, sin repasar)
+
+El punto 0.5 de PENDIENTES. El detalle —qué, archivos, qué mirar— está en
+**`CAMBIOS-PARA-REVISAR.md`, bloque 7**, que desde acá es el lugar donde se
+anota cada parche para la revisión integral. Lo más importante para el repaso:
+el chequeo nuevo de identificadores sin declarar encontró un error que ya
+estaba en la nativa (`Grabar` usaba `C` sin declararlo: mantener apretado el
+micrófono la hacía caer).

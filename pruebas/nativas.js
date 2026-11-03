@@ -301,6 +301,12 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   ok('la batería y el ahorro de batería viajan con las posiciones',
      /import \* as Battery from 'expo-battery'/.test(servicio) && /telefono: saludDelTelefono\(\)/.test(servicio) &&
      /isBatteryOptimizationEnabledAsync/.test(servicio) && !/await Battery\./.test(servicio));
+  // El SOS sin internet (PENDIENTES 0.5): el panel para llamar o mandar un
+  // SMS a la central, con el teléfono de la sesión guardada
+  ok('si el SOS no sale, el panel para llamar o mandar SMS a la central',
+     /function SosSinRed\(/.test(app) && /tel:\$\{central\}/.test(app) && /sms:\$\{central\}\?body=/.test(app) &&
+     /else setSosSinRed\(/.test(app) && (app.match(/<SosSinRed fallo=/g) || []).length === 3 &&
+     /central=\{sesion\?\.central/.test(app));
   ok('«Despacho vio tu SOS» llega a la pantalla',
      /case 'sos_atendido':/.test(cliente) && /emitir\('sosAtendido', m\)/.test(cliente) &&
      /DESPACHO VIO TU SOS/.test(app) && (app.match(/<SosVisto visto=/g) || []).length === 3);

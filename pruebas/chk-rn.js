@@ -41,11 +41,12 @@ for (const rel of ARCHIVOS) {
     const fuente = fs.readFileSync(abs, 'utf8');
     const usos = [];
     babel.transform(fuente, {
-      presets: ['react'], filename: abs, sourceType: 'unambiguous', plugins: [zonaMuerta(usos, fuente)],
+      presets: ['react'], filename: abs, sourceType: 'unambiguous',
+      plugins: [zonaMuerta(usos, fuente), zonaMuerta.sinDeclarar(usos, fuente, 'rn')],
     });
     if (usos.length) {
       malos++;
-      console.log('ERROR ' + rel + ': usada antes de declararse\n      ' + usos.join('\n      '));
+      console.log('ERROR ' + rel + '\n      ' + usos.join('\n      '));
     } else console.log('OK    ' + rel);
   } catch (e) {
     malos++;

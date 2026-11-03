@@ -691,12 +691,23 @@
     return data;
   }
   const misCombis = (token) => pedirConToken('/mis-combis', token);
+  // La marca y el teléfono de la central (PENDIENTES 0.5), para tenerlo al
+  // día sin volver a entrar
+  const pedirMarca = (token) => pedirConToken('/marca', token);
+  // La última posición si es reciente (la misma regla que el SOS): para el
+  // SMS a la central cuando el SOS no sale por internet
+  function posicionReciente() {
+    const fresca = lastPosition && Date.now() - (lastPosition.timestamp || 0) <= POSICION_SOS_MAX_MS;
+    return fresca ? { lat: lastPosition.coords.latitude, lng: lastPosition.coords.longitude } : null;
+  }
   const elegirCombi = (token, vehicleId) =>
     pedirConToken('/combi', token, { method: 'POST', body: JSON.stringify({ vehicleId }) });
 
   window.RealtimeClient = {
     login,
     misCombis,
+    pedirMarca,
+    posicionReciente,
     elegirCombi,
     connect,
     disconnect,

@@ -2629,7 +2629,22 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   );
 }
 
-function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, combi, persona, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
+// ─── EL SOS POR OTRO CAMINO (PENDIENTES 0.5, 03/11) ───────────────
+// Si el SOS no sale por internet, decir «NO SALIÓ» no alcanza: hay que
+// darle al chofer por dónde pedir ayuda igual. Una llamada o un SMS salen con
+// señal de voz aunque no haya datos, que es lo que pasa en las zonas sin
+// cobertura de internet. La central la carga la gerencia; los números de
+// emergencia del Perú están siempre.
+const EMERGENCIAS = [['105', 'Policía'], ['106', 'SAMU · ambulancia'], ['116', 'Bomberos']];
+function textoSmsSos({ combi, nombre, pos }) {
+  const donde = pos
+    ? ` Estoy en ${pos.lat.toFixed(5)},${pos.lng.toFixed(5)} https://maps.google.com/?q=${pos.lat.toFixed(5)},${pos.lng.toFixed(5)}`
+    : ' No tengo mi posición.';
+  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet).`;
+}
+const urlSms = (numero, texto) => `sms:${numero}?body=${encodeURIComponent(texto)}`;
+
+function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, combi, persona, nombre, central, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -2669,12 +2684,9 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
       return () => clearTimeout(t);
     }
   }, [emergencyFired]);
-  React.useEffect(() => {
-    if (sosFallo) {
-      const t = setTimeout(() => setSosFallo(false), 4000);
-      return () => clearTimeout(t);
-    }
-  }, [sosFallo]);
+  // El que NO salió ya no se borra solo a los 4 s: ahora trae por dónde
+  // pedir ayuda (llamar, SMS) y eso tiene que estar hasta que el chofer lo
+  // use o lo cierre. Si el siguiente intento sale, se va.
 
   const onDown = (x, y) => {
     setDragging(true);
@@ -2760,20 +2772,54 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
           </div>
         </div>
       )}
-      {sosFallo && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 99,
-          background: HUD.bg, border: `6px solid ${HUD.red}`, boxSizing: 'border-box',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
-        }}>
-          <div style={{
-            color: HUD.red, fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 30, fontWeight: 900, letterSpacing: 2, textAlign: 'center', lineHeight: 1.2,
+      {sosFallo && (() => {
+        const sms = central ? urlSms(central, textoSmsSos({ combi, nombre, pos: sosFallo.pos })) : null;
+        const boton = (fuerte) => ({
+          display: 'block', width: '100%', boxSizing: 'border-box', textAlign: 'center', textDecoration: 'none',
+          padding: fuerte ? '16px 12px' : '12px 10px', borderRadius: 12, marginBottom: 10,
+          fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: fuerte ? 17 : 14, letterSpacing: 0.5,
+          background: fuerte ? HUD.red : HUD.surface, color: fuerte ? P.white : HUD.fg,
+          border: `2px solid ${fuerte ? HUD.red : HUD.divider}`,
+        });
+        return (
+          <div role="alert" data-sos-sin-red style={{
+            position: 'absolute', inset: 0, zIndex: 99, overflowY: 'auto',
+            background: HUD.bg, border: `6px solid ${HUD.red}`, boxSizing: 'border-box',
+            display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 20,
           }}>
-            SOS<br/>NO SALIÓ<br/><span style={{ fontSize: 15, letterSpacing: 1, color: HUD.fg, fontFamily: 'system-ui, sans-serif' }}>Sin conexión. Volvé a deslizar, o llamá.</span>
+            <div style={{
+              color: HUD.red, fontFamily: '"Archivo Black", system-ui, sans-serif',
+              fontSize: 28, fontWeight: 900, letterSpacing: 2, textAlign: 'center', lineHeight: 1.15, marginBottom: 6,
+            }}>SOS NO SALIÓ</div>
+            <div style={{ color: HUD.fg, fontSize: 15, textAlign: 'center', lineHeight: 1.4, marginBottom: 16 }}>
+              Sin internet. Pedí ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+            </div>
+            {central ? (
+              <>
+                <a href={`tel:${central}`} data-llamar-central style={boton(true)}>LLAMAR A LA CENTRAL · {central}</a>
+                <a href={sms} data-sms-central style={boton(true)}>
+                  MANDAR SMS A LA CENTRAL{sosFallo.pos ? ' CON TU POSICIÓN' : ''}
+                </a>
+              </>
+            ) : (
+              <div style={{ color: HUD.dim2, fontSize: 13, textAlign: 'center', marginBottom: 12, lineHeight: 1.4 }}>
+                Tu cooperativa no cargó el teléfono de la central.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              {EMERGENCIAS.map(([n, quien]) => (
+                <a key={n} href={`tel:${n}`} style={{ ...boton(false), flex: 1, padding: '10px 4px', fontSize: 13 }}>
+                  {n}<br/><span style={{ fontFamily: 'system-ui, sans-serif', fontSize: 11, fontWeight: 700 }}>{quien}</span>
+                </a>
+              ))}
+            </div>
+            <button onClick={() => setSosFallo(false)} style={{
+              marginTop: 6, padding: 10, background: 'none', border: 'none', cursor: 'pointer',
+              color: HUD.dim2, fontSize: 13, fontFamily: 'inherit', textDecoration: 'underline',
+            }}>Cerrar y volver a deslizar el SOS</button>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div style={{
         display: 'flex',
@@ -2804,7 +2850,9 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
             onFireSos={async () => {
               // El cartel rojo sólo cuando LLEGÓ: el servidor contestó (C3)
               const r = onSos ? await onSos() : null;
-              if (r && r.ok) setEmergencyFired(true); else setSosFallo(true);
+              if (r && r.ok) { setEmergencyFired(true); setSosFallo(false); }
+              else setSosFallo({ en: Date.now(), pos: window.RealtimeClient && window.RealtimeClient.posicionReciente
+                ? window.RealtimeClient.posicionReciente() : null });
             }}
             presencia={presencia}
             onPresencia={onPresencia}
@@ -3119,6 +3167,23 @@ function Root() {
   // «Despacho vio tu SOS» (31/10): lo primero que quiere saber el que pidió
   // ayuda. Queda hasta que lo toca; los ya cerrados no vuelven al reconectar.
   const [sosVisto, setSosVisto] = React.useState(null);
+  // El teléfono de la central (PENDIENTES 0.5): el de la sesión guardada —que
+  // es lo que hay sin internet— y, si se puede, el de ahora. En su propio
+  // estado y no en `user`: el socket depende de `user` y se reconectaría.
+  const [central, setCentral] = React.useState(null);
+  React.useEffect(() => { setCentral(user?.central || null); }, [user?.central, user?.unitId]);
+  React.useEffect(() => {
+    if (screen !== 'app' || !user?.token || !window.RealtimeClient?.pedirMarca) return;
+    window.RealtimeClient.pedirMarca(user.token).then(m => {
+      const c = (m && m.marca && m.marca.central) || null;
+      setCentral(c);
+      // Y en la sesión guardada, para la próxima vez sin internet
+      try {
+        const g = JSON.parse(localStorage.getItem('r14_session') || 'null');
+        if (g && g.unitId === user.unitId && g.central !== c) localStorage.setItem('r14_session', JSON.stringify({ ...g, central: c }));
+      } catch {}
+    }).catch(() => {});
+  }, [screen, user?.token]);
   const cerrarSosVisto = () => {
     if (sosVisto) {
       try {
@@ -3592,6 +3657,8 @@ function Root() {
       tema={tema}
       combi={user?.vehicleId || user?.unitId || null}
       persona={user?.unitId || null}
+      nombre={user?.driverName || null}
+      central={central}
       onModo={(modo) => setTweaks(t => ({ ...t, mode: modo }))}
       otherUnits={otherUnits}
       gapMeta={gapMeta}

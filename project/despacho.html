@@ -1673,7 +1673,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
       setEmpresa(d);
       setEmpForm({
         name: d.empresa.name || '', ruc: d.empresa.ruc || '',
-        contacto: d.empresa.contacto || '',
+        contacto: d.empresa.contacto || '', telefonoCentral: d.empresa.telefonoCentral || '',
       });
     })
     .catch(e => setError(e.message));
@@ -3416,6 +3416,22 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           style={{ ...campo(44), width: '100%', fontFamily: mono }} />
                       </div>
                     </div>
+                    {/* A dónde llama o manda un SMS el chofer cuando el SOS no
+                        puede salir por internet (PENDIENTES 0.5). Tiene que
+                        atenderse siempre: un celular de guardia, no el fijo
+                        de la oficina que de noche no contesta nadie. */}
+                    <div>
+                      <div style={{ ...rotulo(9), marginBottom: 6 }}>Teléfono de la central para emergencias</div>
+                      <input value={empForm.telefonoCentral || ''} placeholder="+51 951 234 567" inputMode="tel"
+                        data-telefono-central
+                        onChange={e => setEmpForm({ ...empForm, telefonoCentral: e.target.value })}
+                        style={{ ...campo(44), width: '100%', fontFamily: mono }} />
+                      <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 6, lineHeight: 1.5 }}>
+                        Si un SOS no puede salir por falta de internet, la app le ofrece al chofer llamar a este
+                        número o mandarle un SMS con la combi y la posición. Que sea uno que <b>siempre</b> atienda
+                        alguien (un celular de guardia). Los choferes lo reciben al volver a entrar a la app.
+                      </div>
+                    </div>
                     <div style={{ display: 'flex', gap: 10 }}>
                       <button disabled={busy} onClick={() => run(async () => {
                         await api('/admin/company', { method: 'POST', body: JSON.stringify(empForm) });
@@ -3423,7 +3439,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       }, 'Datos de la cooperativa guardados')} style={btnPrimario(42)}>Guardar</button>
                       <button onClick={() => setEmpForm({
                         name: empresa.empresa.name || '', ruc: empresa.empresa.ruc || '',
-                        contacto: empresa.empresa.contacto || '',
+                        contacto: empresa.empresa.contacto || '', telefonoCentral: empresa.empresa.telefonoCentral || '',
                       })} style={btnSecundario(42)}>Descartar</button>
                     </div>
                   </div>
@@ -3434,6 +3450,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     </div>
                     {empresa.empresa.ruc && <div>RUC · {empresa.empresa.ruc}</div>}
                     {empresa.empresa.contacto && <div>Contacto · {empresa.empresa.contacto}</div>}
+                    <div>Central para emergencias · {empresa.empresa.telefonoCentral || 'sin cargar'}</div>
                     <div style={{ marginTop: 8 }}>Estos datos, y el logo, los corrige la cuenta de gerencia.</div>
                   </div>
                 )}

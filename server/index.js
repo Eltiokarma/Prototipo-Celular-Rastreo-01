@@ -852,6 +852,22 @@ const SOS_VISTO_MS = Number(process.env.SOS_VISTO_MS || 2 * 60 * 60_000);
 // cosa más. En la base viajan con el resto y se respaldan con el resto.
 addColumnIfMissing('companies', 'logo', 'TEXT');
 
+// El teléfono de la central de la cooperativa (PENDIENTES 0.5, 03/11): a
+// dónde llamar o mandar un SMS cuando el SOS no puede salir por internet. Va
+// con el login y queda guardado en el teléfono: tiene que servir justo sin
+// datos. Lo carga la gerencia en Gestión → Empresa.
+addColumnIfMissing('companies', 'telefonoCentral', 'TEXT');
+// Lo que se acepta: dígitos, con un + adelante si es internacional, entre 3
+// y 15 (los cortos son anexos o números de emergencia propios). Espacios,
+// guiones y paréntesis se sacan. '' es borrarlo; undefined, no tocarlo.
+function telefonoValido(crudo) {
+  if (crudo === undefined) return { sinCambio: true };
+  const t = String(crudo ?? '').replace(/[\s().-]/g, '');
+  if (!t) return { telefono: null };
+  if (!/^\+?\d{3,15}$/.test(t)) return { error: 'El teléfono de la central tiene que ser un número (dígitos, con + adelante si es internacional)' };
+  return { telefono: t };
+}
+
 const HISTORY_MAX = 200;   // mensajes que recibe un cliente al conectarse
 
 // Cuánto historial de mensajes se guarda, y por qué NO es un tope de filas.
@@ -3588,6 +3604,9 @@ app.post('/auth/login', (req, res) => {
     // pantalla que dice COOP-R14.
     companyId: user.companyId || null,
     companyName: empresa ? empresa.name : null,
+    // A dónde llamar si el SOS no sale por internet (PENDIENTES 0.5): queda
+    // guardado con la sesión, que es lo que hay cuando no hay datos
+    central: (empresa && empresa.telefonoCentral) || null,
     supervisor: (user.role === 'dispatch' || user.role === 'manager') && !user.routeId,
     // La clave de las tiles del mapa. Vive en la variable de entorno
     // GEOAPIFY_API_KEY y llega a la app nativa por acá: la app no puede leer
@@ -5006,7 +5025,9 @@ app.get('/marca', (req, res) => {
   const user = sessionUser(token);
   if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
   const empresa = companyOf(user.companyId);
-  res.json({ marca: marca.marcaDe(empresa) });
+  // Con el teléfono de la central: si la gerencia lo cambió, la app lo
+  // actualiza sin volver a entrar
+  res.json({ marca: { ...marca.marcaDe(empresa), central: (empresa && empresa.telefonoCentral) || null } });
 });
 
 // Cambiarlo es cosa del GERENTE, no del chofer ni del administrador del
@@ -5053,6 +5074,7 @@ app.get('/admin/company', requireDispatch, (req, res) => {
   res.json({
     empresa: {
       companyId: c.companyId, name: c.name, ruc: c.ruc, contacto: c.contacto,
+      telefonoCentral: c.telefonoCentral || null,
       activa: !!c.activa, createdAt: c.createdAt,
     },
     // El tamaño de la cooperativa, que es lo que se mira al facturar
@@ -5084,10 +5106,14 @@ app.post('/admin/company', requireGerente, (req, res) => {
   if (!name) return res.status(400).json({ error: 'El nombre de la cooperativa es obligatorio' });
   const ruc = String(req.body?.ruc || '').trim().slice(0, 20) || null;
   const contacto = String(req.body?.contacto || '').trim().slice(0, 80) || null;
-  db.prepare('UPDATE companies SET name = ?, ruc = ?, contacto = ? WHERE companyId = ?')
-    .run(name, ruc, contacto, req.empresa);
-  audit(req.dispatchUser.unitId, 'editar_empresa', req.empresa, name, null, req.empresa);
-  res.json({ ok: true, empresa: { companyId: c.companyId, name, ruc, contacto } });
+  const tel = telefonoValido(req.body?.telefonoCentral);
+  if (tel.error) return res.status(400).json({ error: tel.error });
+  const telefonoCentral = tel.sinCambio ? (c.telefonoCentral || null) : tel.telefono;
+  db.prepare('UPDATE companies SET name = ?, ruc = ?, contacto = ?, telefonoCentral = ? WHERE companyId = ?')
+    .run(name, ruc, contacto, telefonoCentral, req.empresa);
+  audit(req.dispatchUser.unitId, 'editar_empresa', req.empresa,
+    name + (telefonoCentral !== (c.telefonoCentral || null) ? ` · central: ${telefonoCentral || 'sin teléfono'}` : ''), null, req.empresa);
+  res.json({ ok: true, empresa: { companyId: c.companyId, name, ruc, contacto, telefonoCentral } });
 });
 
 // ─── RUTAS (alta y listado) ──────────────────────────────────

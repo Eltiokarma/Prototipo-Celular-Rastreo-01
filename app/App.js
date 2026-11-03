@@ -228,6 +228,9 @@ function Aplicacion() {
   const cliente = React.useRef(null);
   const alCambiarDeCombi = React.useRef(() => {});
   const [sosVisto, setSosVisto] = React.useState(null);
+  // El SOS que no salió (PENDIENTES 0.5): { en, pos } mientras el panel de
+  // llamar/SMS está abierto
+  const [sosSinRed, setSosSinRed] = React.useState(null);
   const sosVistosCerrados = React.useRef(new Set());
 
   // ── El cliente vive fuera de React ──────────────────────────
@@ -344,7 +347,21 @@ function Aplicacion() {
     // La sesión va JUNTO con el token: sin ella el cliente no sabe quién soy,
     // y la brecha, el chat y el mapa fallan en silencio. Ver `conectar()`.
     cliente.current.conectar(s.token, s);
-    cliente.current.pedirMarca(s.token).then(m => { if (m) setMarca(m); });
+    cliente.current.pedirMarca(s.token).then(m => {
+      if (!m) return;
+      setMarca(m);
+      // El teléfono de la central viene con la marca (PENDIENTES 0.5): si la
+      // gerencia lo cambió, queda en la sesión guardada, que es lo que hay
+      // cuando el SOS no sale por falta de internet
+      if (m.central !== undefined && m.central !== (s.central ?? null)) {
+        setSesion(prev => {
+          if (!prev) return prev;
+          const nueva = { ...prev, central: m.central };
+          SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
+          return nueva;
+        });
+      }
+    });
     // El GPS ya NO arranca al entrar: arranca al SALIR A RUTA. Pero si la
     // app murió a mitad de turno (Android la mató, el chofer la reabrió),
     // la presencia guardada retoma sola: nadie vuelve a marcar nada.
@@ -592,7 +609,7 @@ function Aplicacion() {
     // Las combis y el vigía del anterior tampoco: el siguiente veía la lista
     // del otro hasta que contestara el servidor (revisión previa a la APK)
     setCombis(null); calladoHasta.current = 0; setAvisoSalida(null); setReporta(false);
-    setSosVisto(null); sosVistosCerrados.current = new Set();
+    setSosVisto(null); sosVistosCerrados.current = new Set(); setSosSinRed(null);
   };
 
   // El texto de la notificación va en un ref para que los oyentes se
@@ -836,10 +853,22 @@ function Aplicacion() {
         onAvisoSalidaVisto={() => setAvisoSalida(null)}
         combis={combis}
         miCombi={sesion?.vehicleId || null}
+        miNombre={sesion?.driverName || null}
         onElegirCombi={elegirCombi}
         yo={cliente.current?.miUnidad ? cliente.current.miUnidad() : null}
         onTrafico={(activo) => cliente.current.marcarTrafico(activo)}
-        onSos={() => cliente.current.mandarSos(posicionParaSos())}
+        onSos={async () => {
+          const pos = posicionParaSos();
+          const r = await cliente.current.mandarSos(pos);
+          // Si no salió, el panel para pedir ayuda por teléfono; si salió
+          // (un reintento), se va
+          if (r && r.ok) setSosSinRed(null);
+          else setSosSinRed({ en: Date.now(), pos: pos && Number.isFinite(pos.lat) ? pos : null });
+          return r;
+        }}
+        sosSinRed={sosSinRed}
+        central={sesion?.central || null}
+        onSosSinRedCerrar={() => setSosSinRed(null)}
         tipificarSos={tipificarSos}
         onTipoSos={async (tipo) => {
           // El diálogo se cierra en el acto: el chofer está en una
@@ -1103,7 +1132,8 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
   );
 }
 
-function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, sosVisto, onSosVistoCerrar, avisoApp, diag, pantalla, noLeidos, marca,
+function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, sosVisto, onSosVistoCerrar,
+                sosSinRed, central, onSosSinRedCerrar, miNombre, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
                 tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol,
                 faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi }) {
@@ -1216,6 +1246,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
             {/* Y el SOS tiene que ESTAR: el cobrador siempre está «fuera», y
                 el deslizador sólo aparecía en ausente y en ruta — la pantalla
                 le prometía un SOS que no tenía (barrido del 22/9). */}
+            {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
             {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
             {tipificarSos && <TipoSos onElegir={onTipoSos} />}
             <SosDeslizable onDisparar={onSos} />
@@ -1252,6 +1283,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           </Text>
           {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
+        {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
         {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
         {tipificarSos && <TipoSos onElegir={onTipoSos} />}
         <SosDeslizable onDisparar={onSos} />
@@ -1394,6 +1426,8 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           </Text>
         </Pressable>
       </View>
+
+      {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
 
       {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
 
@@ -2294,6 +2328,54 @@ function SosVisto({ visto, onCerrar }) {
   );
 }
 
+// El SOS que no salió por internet (PENDIENTES 0.5): por dónde pedir ayuda
+// igual. Una llamada o un SMS salen con señal de voz aunque no haya datos.
+// Queda hasta que el chofer lo cierra o un reintento sale; la central la carga
+// la gerencia, los números de emergencia del Perú están siempre.
+const EMERGENCIAS = [['105', 'Policía'], ['106', 'SAMU'], ['116', 'Bomberos']];
+function textoSmsSos({ combi, nombre, pos }) {
+  const donde = pos
+    ? ` Estoy en ${pos.lat.toFixed(5)},${pos.lng.toFixed(5)} https://maps.google.com/?q=${pos.lat.toFixed(5)},${pos.lng.toFixed(5)}`
+    : ' No tengo mi posición.';
+  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet).`;
+}
+function SosSinRed({ fallo, central, combi, nombre, onCerrar }) {
+  const { s } = usarTema();
+  const abrir = (url) => Linking.openURL(url).catch(() => {});
+  return (
+    <View style={s.sosSinRed} accessibilityRole="alert">
+      <Text style={s.sosSinRedTitulo}>SOS NO SALIÓ</Text>
+      <Text style={s.sosSinRedTexto}>
+        Sin internet. Pedí ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+      </Text>
+      {central ? (
+        <>
+          <Pressable onPress={() => abrir(`tel:${central}`)} style={s.sosSinRedBoton}>
+            <Text style={s.sosSinRedBotonTexto}>LLAMAR A LA CENTRAL · {central}</Text>
+          </Pressable>
+          <Pressable onPress={() => abrir(`sms:${central}?body=${encodeURIComponent(textoSmsSos({ combi, nombre, pos: fallo.pos }))}`)}
+            style={s.sosSinRedBoton}>
+            <Text style={s.sosSinRedBotonTexto}>MANDAR SMS A LA CENTRAL{fallo.pos ? ' CON TU POSICIÓN' : ''}</Text>
+          </Pressable>
+        </>
+      ) : (
+        <Text style={s.sosSinRedTexto}>Tu cooperativa no cargó el teléfono de la central.</Text>
+      )}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {EMERGENCIAS.map(([n, quien]) => (
+          <Pressable key={n} onPress={() => abrir(`tel:${n}`)} style={s.sosSinRedChico}>
+            <Text style={s.sosSinRedChicoNum}>{n}</Text>
+            <Text style={s.sosSinRedChicoQuien}>{quien}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Pressable onPress={onCerrar} hitSlop={8} style={{ alignItems: 'center', marginTop: 10 }}>
+        <Text style={s.sosSinRedCerrar}>Cerrar y volver a deslizar el SOS</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function SosDeslizable({ onDisparar }) {
   const { s, C } = usarTema();
   const [ancho, setAncho] = React.useState(0);
@@ -2579,7 +2661,10 @@ function Camara({ onListo, habilitado }) {
 // gesto que no pide precisión ni mirar la pantalla. Soltar sin llegar al
 // segundo cancela, que es la salida para el toque sin querer.
 function Grabar({ onListo, habilitado }) {
-  const { s } = usarTema();
+  // Con C: el botón se pinta de rojo mientras graba. Faltaba, y mantener
+  // apretado el micrófono tiraba «C is not defined» (lo encontró el chequeo
+  // de identificadores sin declarar, 03/11)
+  const { s, C } = usarTema();
   const grabador = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [grabando, setGrabando] = React.useState(false);
   const [segundos, setSegundos] = React.useState(0);
@@ -2703,6 +2788,19 @@ function crearEstilos(C) { return StyleSheet.create({
   // que hay sin ser el rojo de la emergencia
   vigiaPuerta: { backgroundColor: C.ambar, borderRadius: 14, padding: 14, marginBottom: 12 },
   sosVisto: { backgroundColor: C.verde, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
+  // El SOS sin internet: fondo de la pantalla con el borde del SOS, y los
+  // botones grandes en rojo (es la emergencia, el único uso del rojo)
+  sosSinRed: { backgroundColor: C.fondo, borderWidth: 3, borderColor: C.rojo, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
+  sosSinRedTitulo: { color: C.rojo, fontSize: 22, fontWeight: '900', letterSpacing: 1, textAlign: 'center' },
+  sosSinRedTexto: { color: C.blanco, fontSize: 14, lineHeight: 19, textAlign: 'center', marginTop: 6, marginBottom: 10 },
+  sosSinRedBoton: { backgroundColor: C.rojo, borderRadius: 12, paddingVertical: 15, paddingHorizontal: 10, alignItems: 'center', marginBottom: 8 },
+  // Tinta de fondo sobre el rojo: 5,4:1 de día y 3,9 de noche; el blanco
+  // daba 3,0 y 3,4
+  sosSinRedBotonTexto: { color: C.fondo, fontSize: 15, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
+  sosSinRedChico: { flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 10, paddingVertical: 9, alignItems: 'center' },
+  sosSinRedChicoNum: { color: C.blanco, fontSize: 16, fontWeight: '900' },
+  sosSinRedChicoQuien: { color: C.cielo, fontSize: 11, fontWeight: '700' },
+  sosSinRedCerrar: { color: C.cielo, fontSize: 13, textDecorationLine: 'underline' },
   vigiaTitulo: { color: C.fondo, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
   vigiaTexto: { color: C.fondo, fontSize: 14, marginTop: 4, lineHeight: 19 },
   vigiaBoton: {

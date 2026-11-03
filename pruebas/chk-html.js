@@ -14,9 +14,10 @@ for (const f of process.argv.slice(2)) {
     const linea = html.slice(0, m.index).split('\n').length;
     try {
       const usos = [];
-      Babel.transform(m[1], { presets: ['react'], filename: f, plugins: [zonaMuerta(usos, m[1])] });
+      Babel.transform(m[1], { presets: ['react'], filename: f,
+        plugins: [zonaMuerta(usos, m[1]), zonaMuerta.sinDeclarar(usos, m[1], 'navegador')] });
       if (usos.length) {
-        console.log(`FAIL ${f} (bloque ${n}, empieza en la línea ${linea}): usada antes de declararse\n    ${usos.join('\n    ')}`);
+        console.log(`FAIL ${f} (bloque ${n}, empieza en la línea ${linea})\n    ${usos.join('\n    ')}`);
         malo = true;
       }
     } catch (e) {

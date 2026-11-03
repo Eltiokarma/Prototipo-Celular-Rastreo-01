@@ -55,6 +55,12 @@ Devuelve, tal cual:
   con el token, o la revisión periódica del socket abierto), vuelve a valer
   30. Antes, el chofer que trabajaba todos los días quedaba afuera el día 31
   en medio del turno. El que no la usa en 30 días, vence igual.
+- **`central`** (desde el 03/11): el teléfono de la central de la cooperativa,
+  o null. Se guarda con la sesión: es a dónde llamar o mandar un SMS cuando el
+  SOS no puede salir por internet. También viaja en `GET /marca`
+  (`marca.central`), para tomar un cambio sin volver a entrar. Lo carga la
+  gerencia con `POST /admin/company` (`telefonoCentral`; `''` lo borra, sin
+  mandarlo no se toca).
 - **`unitId` es la PERSONA, `vehicleId` es el fierro.** No son lo mismo y
   confundirlos rompe el chat privado y las brechas. Todo lo del mapa y las
   brechas va por `vehicleId`; el chat y la auditoría, por `unitId`.
