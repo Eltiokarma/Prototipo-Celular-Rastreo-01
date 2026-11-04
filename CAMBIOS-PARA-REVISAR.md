@@ -494,7 +494,7 @@ gestión y contra la otra cooperativa, los techos y los plazos por clase
 (rearrancando), la clasificación de lo viejo, el filtro y la paginación, el
 informe y la pantalla en Chromium. **Manual:** no.
 
-## 12. Ley 29733: el consentimiento y la carpeta `legal/` — (04/11, este parche)
+## 12. Ley 29733: el consentimiento y la carpeta `legal/` — `be68f11` (04/11)
 
 **Qué.** El punto 10 es sobre todo trámite, así que acá hay más papeles
 que código:
