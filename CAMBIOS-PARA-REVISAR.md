@@ -227,7 +227,7 @@ desliza el SOS y mira el panel, los `tel:`, el SMS y el caso sin central).
 `paneles` y `nativas` actualizadas. **Manual:** no (a pedido: todavía no va
 al PDF).
 
-## 8. Corregir horas a mano, con quién y por qué — (04/11, este parche)
+## 8. Corregir horas a mano, con quién y por qué — `2cf99d5` (04/11)
 
 **Qué.** Despacho (o la gerencia) puede, desde Gestión → Turnos:
 - **Corregir** la entrada o la salida de un turno (el que se olvidó de salir
