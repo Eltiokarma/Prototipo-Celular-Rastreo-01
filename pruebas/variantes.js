@@ -19,7 +19,7 @@ const ok = (n, c, e) => {
 };
 
 let servidor = null;
-async function arrancar() {
+async function arrancar(extra = {}) {
   if (servidor) { servidor.kill(); await sleep(600); }
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: {
@@ -28,6 +28,13 @@ async function arrancar() {
       // El revisor de vigencias corre cada 400 ms y no cada minuto: la
       // sección "la mano manda" necesita verlo intentar (y no poder).
       VIGENCIAS_MS: '400',
+      // Esta suite usa los reinicios como forma de que el revisor vuelva a
+      // decidir con la base cambiada a mano. Desde 0.12 la variante activada
+      // a mano SOBREVIVE a un reinicio (memoria caliente) y pausaría esas
+      // decisiones hasta medianoche: acá se arranca sin memoria, salvo en la
+      // comprobación de eso mismo, al final.
+      MEMORIA: '0',
+      ...extra,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -364,6 +371,21 @@ const punto = (norte, este = 0) => ({ lat: LAT + gLat * norte, lng: LNG + gLng *
     await sleep(1500);
     v = await pedir('/admin/routes/R-14/variantes', { headers: HD3 });
     ok('la elección manual del día no se revierte sola',
+       v.body.variantes.find(x => x.activa).name === 'Obra Circunvalación',
+       v.body.variantes.find(x => x.activa).name);
+
+    // …ni con un reinicio en el medio (PENDIENTES 0.12): un deploy a media
+    // mañana devolvía la programada y descartaba la vuelta de cada combi.
+    // Con memoria, este arranque y el siguiente.
+    await arrancar({ MEMORIA: '1' });
+    D3 = (await login('DESPACHO', 'despacho99')).body;
+    await pedir(`/admin/routes/R-14/variantes/${obraId}/activar`, { method: 'POST', headers: { Authorization: 'Bearer ' + D3.token } });
+    await sleep(800);
+    await arrancar({ MEMORIA: '1' });
+    await sleep(1500);
+    D3 = (await login('DESPACHO', 'despacho99')).body;
+    v = await pedir('/admin/routes/R-14/variantes', { headers: { Authorization: 'Bearer ' + D3.token } });
+    ok('ni un deploy en el medio la revierte: la mano sigue mandando hasta medianoche',
        v.body.variantes.find(x => x.activa).name === 'Obra Circunvalación',
        v.body.variantes.find(x => x.activa).name);
 

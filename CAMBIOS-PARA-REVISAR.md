@@ -738,6 +738,14 @@ el servidor y Despacho (Chromium). `nativas` cubre ahora `expo-updates`.
 - **Sin memoria** (foto vieja), lo de antes: la vuelta perdida y el desvío
   «cortado».
 
+`variantes` cambió (en un commit aparte, después de la regresión):
+- Usaba reinicios como truco para que el revisor de vigencias volviera a
+  decidir, y contaba con que el reinicio borrara la pausa de la variante
+  activada a mano. Ahora la pausa sobrevive, que es el punto, así que la
+  suite arranca con `MEMORIA=0`.
+- Ganó una comprobación nueva: activada a mano, un reinicio **con** memoria
+  no la revierte.
+
 **Manual:** no.
 
 ---
