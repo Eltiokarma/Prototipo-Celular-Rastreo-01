@@ -154,10 +154,10 @@ Qué tener listo de antemano:
     mensajes privados personales. **Lo que es registro de trabajo** (turnos,
     vueltas, mensajes del grupo, actividad) **se queda hasta su plazo**:
     **[confirmar]** que eso esté bien como excepción.
-  - *Acceso y portabilidad*: **hoy no hay un botón** que baje todo lo de una
-    persona. Se puede armar con los informes CSV filtrando por unidad, pero
-    es a mano. Si llega un pedido, avisame: es un cambio chico (está anotado
-    en `PENDIENTES.md`).
+  - *Acceso y portabilidad*: Despacho → Personas → Editar → **Bajar todos
+    sus datos (ZIP)**. Trae un LÉEME que explica cada archivo, y lo que es
+    de la combi (vueltas, desvíos…) sólo mientras esa persona la manejaba.
+    Queda en la Actividad quién lo bajó y cuándo.
 
 ## Los proveedores (sub-encargados)
 

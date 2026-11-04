@@ -748,6 +748,73 @@ el servidor y Despacho (Chromium). `nativas` cubre ahora `expo-updates`.
 
 **Manual:** no.
 
+## 15. Bajar todo lo de una persona — (04/11, este parche)
+
+**Qué.**
+- Despacho → Gestión → Personas → **Editar** → **«Bajar todos sus datos
+  (ZIP)»**. Es para cuando un chofer o cobrador pide una copia de lo que el
+  sistema tiene de él: los derechos de acceso y portabilidad de la Ley
+  29733. Antes había que armarlo a mano con los informes, y quedaban cosas
+  afuera.
+- El ZIP trae un **LEEME.txt**: de quién es, de qué cooperativa, quién lo
+  generó, en qué hora están las horas, qué hay en cada archivo (con
+  cuántos) y qué NO está y por qué.
+- Lo que está **a nombre de la persona**:
+  - su cuenta (sin la contraseña) y las combis que puede manejar;
+  - sus turnos y las correcciones de horas;
+  - sus mensajes y los privados que le mandaron, **con sus fotos y notas de
+    voz** como archivos (la que ya expiró se dice, no se inventa);
+  - sus grabaciones de recorrido, con los puntos;
+  - la Actividad donde ella hizo algo o se lo hicieron.
+- Lo que está **a nombre de la combi** (vueltas, tramos, desvíos, paradas,
+  cortes de señal, presencia, anomalías) entra **sólo mientras ella la
+  manejaba**, cruzado con sus turnos de chofer: la vuelta de la misma combi
+  con otro chofer no es suya.
+- Queda en la Actividad («bajó todos los datos de»).
+- `/privacidad` dice que se puede pedir la copia. `legal/LEEME.md` ya no
+  dice que falta.
+
+**Cómo.**
+- `server/zip.js` (nuevo): un ZIP escrito a mano sobre `zlib` (deflate y
+  `crc32` de Node 22), con los nombres en UTF-8 por las tildes; las fotos y
+  audios van sin recomprimir. Verificado con Python y con `unzip`.
+- `server/index.js`: `datosDePersona()` y
+  `GET /admin/users/:unitId/datos.zip`, con el mismo alcance que el resto
+  de Personas (`cuentaEnAlcance`). «Mientras manejaba» es un `EXISTS`
+  contra sus turnos de chofer en esa combi, para que dos turnos que se tocan
+  no dupliquen filas.
+- `project/despacho.html`: el botón en el panel de Editar y el rótulo de la
+  Actividad.
+
+**Archivos.** `server/zip.js` (nuevo), `server/index.js`,
+`server/privacidad.html`, `project/despacho.html`,
+`project/service-worker.js` (v90), `pruebas/datos-persona.js` (nueva),
+`legal/LEEME.md`, `PROTOCOLO.md`.
+
+**Mirar.**
+- **Lo que no entra, a propósito:**
+  - la contraseña (ni su huella);
+  - lo que escribieron otros en el chat del grupo;
+  - los privados **de la combi** (no de la persona): son del canal de la
+    combi, los ve quien la maneje.
+- Un turno **anulado** dura cero, así que lo de la combi en ese rato no se
+  le atribuye. Un turno corregido usa las horas corregidas.
+- No hay tope de tamaño. Lo más pesado son las fotos, que se conservan 30
+  días (bloque 10).
+
+**Pruebas.** `datos-persona` (nueva), con datos que **deben** entrar y otros
+que **no**:
+- el ZIP lo abre Python;
+- de dos vueltas de la misma combi, sólo la suya;
+- sus mensajes sí, los de otro no;
+- la foto idéntica byte por byte;
+- sin contraseña;
+- otra cooperativa no puede;
+- queda en la Actividad;
+- la descarga en Chromium.
+
+**Manual:** no.
+
 ---
 
 ## Para el manual (cuando toque)
@@ -769,6 +836,7 @@ Lo que todavía no está en `manual/manual.tex`:
   anotar la firma y el retiro; y cómo imprimir el formulario (bloque 12).
 - En el perfil del chofer, «actualizada dd/mm hh:mm»; y para el que opera,
   `publicar-arreglo.bat` (bloque 13).
+- Despacho → Personas → Editar → «Bajar todos sus datos (ZIP)» (bloque 15).
 - Para el que opera, no para el chofer: `/salud` y las alertas (bloque 4),
   y la copia afuera y cómo volver a un respaldo (bloque 5). Quizás va en un
   anexo de operación más que en el manual de uso.

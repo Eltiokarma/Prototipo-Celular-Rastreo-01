@@ -973,3 +973,10 @@ manejo de SIGTERM, y `exportar`/`importar` en `server/parada.js`. Lo
 delicado: qué mapas se guardan y cuáles no (la farsa, el reloj, el mando del
 GPS se vuelven a medir), y el corrimiento de `oidoEn` por el tiempo caído.
 
+## Tanda 28 — bajar todo lo de una persona (04/11, sin repasar)
+
+El punto 0.14 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 15**. Para el repaso, lo central: `datosDePersona` en `server/index.js`
+(qué entra y qué no; el `EXISTS` contra los turnos de chofer que decide qué
+es suyo de lo que es de la combi), y `server/zip.js` (el ZIP sin librerías).
+

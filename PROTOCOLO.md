@@ -738,6 +738,12 @@ mandando su cola como siempre; lo que cambia es que el servidor no la trata
 como recién llegada. Y el `state` que reciben las pantallas al reconectar ya
 trae las combis que estaban, antes de que manden su primera posición.
 
+Y el derecho de acceso (PENDIENTES 0.14, 04/11):
+`GET /admin/users/:unitId/datos.zip` (Despacho, sólo personas de su
+alcance) devuelve un ZIP con `LEEME.txt` y un CSV por cosa, más `fotos/`,
+`audios/` y `grabaciones/`. Lo de la combi va sólo dentro de los turnos de
+chofer de esa persona. Queda en la Actividad como `datos_exportados`.
+
 ## 4quater. Tráfico: `parado`, `trafico` (WS) y `POST /trafico`
 
 Dos cosas, y viajan juntas en cada unidad del `state`:

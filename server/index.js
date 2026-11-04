@@ -232,6 +232,7 @@ if (String(process.env.MODO || '').trim().toLowerCase() !== 'demo' && process.en
 // cerrar lo que se va a retomar. Se vuelve a poner en memoria al final, justo
 // antes de escuchar (ver `retomarMemoria`). Ver `server/memoria.js`.
 const memoria = require('./memoria');
+const { crearZip } = require('./zip');
 const RETOMAR_MS = Number(process.env.RETOMAR_MS || 10 * 60_000);
 // Si este arranque es para volver a un respaldo, la memoria de esa copia es
 // de otro momento: no se retoma.
@@ -6245,6 +6246,180 @@ app.post('/admin/users/:unitId/consentimiento', requireDispatch, (req, res) => {
   res.json({ ok: true, unitId, consentimientoFecha: firmado ? req.body.fecha : null,
              consentimientoVersion: firmado ? (req.body.version || CONSENTIMIENTO_VERSION) : null,
              versionVigente: CONSENTIMIENTO_VERSION });
+});
+
+// ─── TODO LO DE UNA PERSONA (PENDIENTES 0.14) ────────────────
+// Los derechos de acceso y de portabilidad (Ley 29733 y su reglamento): una
+// persona puede pedir todo lo que el sistema tiene de ella. Antes se armaba a
+// mano con los informes filtrando por unidad, y quedaban cosas afuera. Ahora
+// Despacho baja un ZIP con:
+//   - lo que está a su NOMBRE: su cuenta, sus combis, sus turnos y sus
+//     correcciones, sus mensajes (con las fotos y los audios que todavía
+//     están guardados) y los privados que le mandaron, sus grabaciones de
+//     recorrido, y la Actividad donde ella hizo algo o se lo hicieron;
+//   - lo que está a nombre de la COMBI pero es suyo: vueltas, tramos,
+//     desvíos, paradas, cortes de señal, presencia y anomalías, SÓLO
+//     mientras ella la manejaba (cruzado con sus turnos de chofer).
+// Lo que NO va, y el LÉEME lo dice: la contraseña (se guarda de forma
+// irreversible), lo que escribieron otros en el chat del grupo, y lo que ya
+// se borró por los plazos de conservación.
+const EXT_MEDIA = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/mp4': 'm4a',
+  'audio/m4a': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm' };
+function datosDePersona(unitId, empresa, quien) {
+  const ahora = Date.now();
+  const u = db.prepare(`SELECT unitId, name, alias, driverName, role, routeId, vehicleId, companyId, createdAt, lastLogin,
+                               appVersion, appVersionCode, appActualizacion, todaLaRuta,
+                               consentimientoFecha, consentimientoVersion, consentimientoPor
+                        FROM users WHERE unitId = ?`).get(unitId);
+  const archivos = [];
+  const csv = (nombre, cabecera, filas) => {
+    archivos.push({ nombre, datos: '﻿' + [csvLinea(cabecera), ...filas.map(csvLinea)].join('\r\n') + '\r\n' });
+    return filas.length;
+  };
+  const p = { p: unitId, empresa, ahora };
+  // Mientras la manejaba: el dato de la combi cae dentro de uno de SUS
+  // turnos de chofer en esa combi. EXISTS y no JOIN: dos turnos que se tocan
+  // no duplican la fila.
+  const suyo = (alias, col, t) => `EXISTS (SELECT 1 FROM shifts s WHERE s.personId = @p AND s.role = 'driver'
+      AND s.vehicleId = ${alias}.${col} AND ${alias}.${t} >= s.startedAt AND ${alias}.${t} <= COALESCE(s.endedAt, s.lastSeenAt, @ahora))`;
+  const deLaEmpresa = (alias) => `${alias}.routeId IN (SELECT routeId FROM routes WHERE companyId = @empresa)`;
+  const cuenta = {};
+
+  cuenta.persona = csv('persona.csv', ['Dato', 'Valor'], [
+    ['Usuario', u.unitId], ['Nombre', u.name || u.driverName], ['Alias', u.alias], ['Rol', u.role],
+    ['Ruta', u.routeId], ['Combi de hoy', u.vehicleId], ['Puede manejar cualquiera de su ruta', u.todaLaRuta ? 'sí' : 'no'],
+    ['Cuenta creada', fechaHora(u.createdAt)], ['Último ingreso', fechaHora(u.lastLogin)],
+    ['Versión de la app', u.appVersion ? `${u.appVersion} (${u.appVersionCode})${u.appActualizacion ? ' · actualización ' + u.appActualizacion : ''}` : ''],
+    ['Consentimiento firmado', u.consentimientoFecha ? `${u.consentimientoFecha} · versión ${u.consentimientoVersion} · anotado por ${u.consentimientoPor}` : 'no anotado'],
+    ['Contraseña', 'no se entrega: se guarda de forma irreversible y nadie puede leerla'],
+  ]);
+  cuenta.combis = csv('combis-habilitadas.csv', ['Combi'],
+    db.prepare('SELECT vehicleId FROM habilitaciones WHERE personId = ? ORDER BY vehicleId').all(unitId).map(r => [r.vehicleId]));
+  cuenta.turnos = csv('turnos.csv', ['Inicio', 'Fin', 'Duración (h:mm)', 'Combi', 'Ruta', 'Rol', 'Corregido a mano'],
+    db.prepare(`SELECT startedAt, endedAt, lastSeenAt, vehicleId, routeId, role, corregido FROM shifts
+                WHERE personId = @p ORDER BY startedAt`).all(p).map(t => [
+      fechaHora(t.startedAt), t.endedAt ? fechaHora(t.endedAt) : 'en curso',
+      duracionHm(Math.round(((t.endedAt ?? t.lastSeenAt) - t.startedAt) / 1000)), t.vehicleId, t.routeId,
+      t.role === 'collector' ? 'cobrador' : 'chofer', t.corregido ? 'sí' : '']));
+  cuenta.correcciones = csv('correcciones-de-turnos.csv', ['Cuándo', 'Quién', 'Qué', 'Antes', 'Después', 'Motivo'],
+    db.prepare('SELECT * FROM correcciones_turno WHERE personId = @p ORDER BY en').all(p).map(c => [
+      fechaHora(c.en), c.quien, c.tipo,
+      c.antesInicio ? `${fechaHora(c.antesInicio)} a ${fechaHora(c.antesFin)}` : '',
+      `${fechaHora(c.despuesInicio)} a ${fechaHora(c.despuesFin)}`, c.motivo]));
+
+  // Sus mensajes y los privados que le mandaron. Las fotos y los audios que
+  // siguen guardados van como archivos aparte.
+  const QUE = { chat: 'texto', voice: 'nota de voz', photo: 'foto', sos: 'SOS' };
+  let fotos = 0, audios = 0;
+  const filasMsj = db.prepare(`
+    SELECT m.* FROM messages m
+    WHERE (m.unitId = @p OR m.toPersonId = @p) AND ${deLaEmpresa('m')}
+    ORDER BY m.id`).all(p).map(m => {
+    let archivo = '';
+    const dm = m.data && /^data:([\w/+.-]+);base64,(.*)$/s.exec(m.data);
+    if (dm && (m.kind === 'photo' || m.kind === 'voice')) {
+      const d = new Date(m.timestamp);
+      const sello = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+      archivo = `${m.kind === 'photo' ? 'fotos' : 'audios'}/${sello}-${m.id}.${EXT_MEDIA[dm[1]] || 'bin'}`;
+      archivos.push({ nombre: archivo, datos: Buffer.from(dm[2], 'base64') });
+      if (m.kind === 'photo') fotos++; else audios++;
+    }
+    return [
+      fechaHora(m.timestamp), m.unitId === unitId ? 'lo mandó' : `se lo mandó ${m.driverName || m.unitId}`,
+      QUE[m.kind] || m.kind,
+      m.toPersonId ? `privado con ${m.toPersonId === unitId ? m.unitId : m.toPersonId}` : m.toVehicleId ? `privado de la combi ${m.toVehicleId}` : `grupo de la ruta ${m.routeId}`,
+      m.text, m.duration, archivo || ((m.kind === 'photo' || m.kind === 'voice') ? 'ya no se conserva' : ''),
+      m.kind === 'sos' && m.lat != null ? `${m.lat}, ${m.lng}` : '',
+      m.evidencia ? `guardado como evidencia: ${m.evidenciaMotivo}` : '',
+    ];
+  });
+  cuenta.mensajes = csv('mensajes.csv', ['Cuándo', 'Quién', 'Qué', 'Dónde', 'Texto o pie', 'Duración (s)', 'Archivo', 'Ubicación (SOS)', 'Evidencia'], filasMsj);
+
+  // Mientras manejaba
+  cuenta.vueltas = csv('vueltas.csv', ['Inicio', 'Fin', 'Duración (h:mm)', 'Combi', 'Ruta', 'Velocidad media (km/h)', 'Entera'],
+    db.prepare(`SELECT * FROM laps l WHERE ${suyo('l', 'unitId', 'startedAt')} ORDER BY l.startedAt`).all(p).map(l => [
+      fechaHora(l.startedAt), fechaHora(l.finishedAt), duracionHm(l.durationSec), l.unitId, l.routeId, l.avgSpeed, l.parcial ? 'no (empezó a mitad de ruta)' : 'sí']));
+  cuenta.tramos = csv('tramos.csv', ['Inicio', 'Fin', 'Duración (h:mm)', 'Combi', 'Ruta', 'Tramo', 'Entero'],
+    db.prepare(`SELECT * FROM legs l WHERE ${suyo('l', 'unitId', 'startedAt')} ORDER BY l.startedAt`).all(p).map(l => [
+      fechaHora(l.startedAt), fechaHora(l.finishedAt), duracionHm(l.durationSec), l.unitId, l.routeId, l.leg, l.parcial ? 'no' : 'sí']));
+  cuenta.desvios = csv('desvios.csv', ['Inicio', 'Fin', 'Combi', 'Ruta', 'Máximo (m)', 'Umbral (m)', 'Cómo terminó'],
+    db.prepare(`SELECT * FROM deviations d WHERE ${suyo('d', 'vehicleId', 'startedAt')} ORDER BY d.startedAt`).all(p).map(d => [
+      fechaHora(d.startedAt), d.endedAt ? fechaHora(d.endedAt) : '', d.vehicleId, d.routeId, d.maxM, d.umbralM, d.cierre]));
+  cuenta.paradas = csv('paradas.csv', ['Inicio', 'Fin', 'Combi', 'Ruta', 'Ubicación', 'Avisó tráfico', 'Cómo terminó'],
+    db.prepare(`SELECT * FROM paradas x WHERE ${suyo('x', 'vehicleId', 'startedAt')} ORDER BY x.startedAt`).all(p).map(x => [
+      fechaHora(x.startedAt), x.endedAt ? fechaHora(x.endedAt) : '', x.vehicleId, x.routeId,
+      x.lat != null ? `${x.lat}, ${x.lng}` : '', x.confirmado ? 'sí' : 'no', x.cierre]));
+  cuenta.cortes = csv('cortes-de-senal.csv', ['Desde', 'Hasta', 'Combi', 'Ruta', 'Dónde se cortó', 'Dónde volvió', 'Cómo terminó'],
+    db.prepare(`SELECT * FROM huecos h WHERE ${suyo('h', 'vehicleId', 'startedAt')} ORDER BY h.startedAt`).all(p).map(h => [
+      fechaHora(h.startedAt), h.endedAt ? fechaHora(h.endedAt) : '', h.vehicleId, h.routeId,
+      h.latDesde != null ? `${h.latDesde}, ${h.lngDesde}` : '', h.latHasta != null ? `${h.latHasta}, ${h.lngHasta}` : '', h.cierre]));
+  cuenta.presencia = csv('presencia.csv', ['Cuándo', 'Combi', 'Ruta', 'Estado', 'Ubicación'],
+    db.prepare(`SELECT * FROM presencia_log x WHERE ${suyo('x', 'vehicleId', 'cuando')} ORDER BY x.cuando`).all(p).map(x => [
+      fechaHora(x.cuando), x.vehicleId, x.routeId, x.estado, x.lat != null ? `${x.lat}, ${x.lng}` : '']));
+  cuenta.anomalias = csv('anomalias.csv', ['Cuándo', 'Combi', 'Ruta', 'Tipo', 'Valor', 'Detalle'],
+    db.prepare(`SELECT * FROM anomalias x WHERE ${suyo('x', 'vehicleId', 'cuando')} ORDER BY x.cuando`).all(p).map(x => [
+      fechaHora(x.cuando), x.vehicleId, x.routeId, x.tipo, x.valor, x.detalle]));
+
+  // Sus grabaciones de recorrido, con los puntos
+  const grab = db.prepare('SELECT * FROM recordings WHERE personId = @p AND (companyId IS NULL OR companyId = @empresa) ORDER BY createdAt').all(p);
+  for (const g of grab) archivos.push({ nombre: `grabaciones/${g.id}.json`, datos: g.puntos });
+  cuenta.grabaciones = csv('grabaciones.csv', ['Cuándo', 'Nombre', 'Ruta', 'Puntos', 'Largo (m)', 'Archivo'],
+    grab.map(g => [fechaHora(g.createdAt), g.nombre, g.routeId, g.cantidad, g.largoM, `grabaciones/${g.id}.json`]));
+
+  // La Actividad donde ella hizo algo o se lo hicieron
+  const TIPO = { acceso: 'acceso', operacion: 'operación', gestion: 'gestión' };
+  cuenta.actividad = csv('actividad.csv', ['Cuándo', 'Quién', 'Qué', 'Sobre', 'Detalle', 'Ruta', 'Tipo'],
+    db.prepare(`SELECT * FROM audit WHERE companyId = @empresa AND (actor = @p OR target = @p) ORDER BY id`).all(p).map(a => [
+      fechaHora(a.timestamp), a.actor, a.action, a.target, a.detail, a.routeId, TIPO[a.clase] || a.clase]));
+
+  const emp = companyOf(empresa);
+  const leeme = [
+    `TODO LO QUE EL SISTEMA TIENE DE ${String(u.name || u.driverName || u.unitId).toUpperCase()} (usuario ${u.unitId})`,
+    '',
+    `Cooperativa: ${emp ? emp.name : empresa} — responsable de estos datos (Ley N.º 29733).`,
+    `Generado el ${fechaHora(ahora)} por ${quien}. Las horas están en ${husoDelServidor(ahora)}.`,
+    '',
+    'Qué hay en cada archivo (CSV separados por punto y coma; se abren con Excel o Google Sheets):',
+    `  persona.csv                 su cuenta: nombre, rol, ruta, combi, consentimiento (${cuenta.persona} datos)`,
+    `  combis-habilitadas.csv      las combis que puede elegir al salir (${cuenta.combis})`,
+    `  turnos.csv                  sus turnos: cuándo entró y salió, en qué combi (${cuenta.turnos})`,
+    `  correcciones-de-turnos.csv  las horas que se corrigieron a mano, quién y por qué (${cuenta.correcciones})`,
+    `  mensajes.csv                lo que mandó al chat y los privados que le mandaron (${cuenta.mensajes})`,
+    `  fotos/ y audios/            las fotos (${fotos}) y notas de voz (${audios}) suyas que todavía se conservan`,
+    `  vueltas.csv, tramos.csv     las vueltas (${cuenta.vueltas}) y medias vueltas (${cuenta.tramos}) mientras manejaba`,
+    `  desvios.csv                 las veces que se salió del recorrido mientras manejaba (${cuenta.desvios})`,
+    `  paradas.csv                 las detenciones largas mientras manejaba (${cuenta.paradas})`,
+    `  cortes-de-senal.csv         los cortes de señal de su teléfono mientras manejaba (${cuenta.cortes})`,
+    `  presencia.csv               cuándo salió a ruta, se ausentó o terminó (${cuenta.presencia})`,
+    `  anomalias.csv               posiciones raras que el sistema anotó (${cuenta.anomalias})`,
+    `  grabaciones.csv y grabaciones/   los recorridos que grabó, con sus puntos (${cuenta.grabaciones})`,
+    `  actividad.csv               lo que hizo en el sistema o le hicieron: ingresos, altas, cambios (${cuenta.actividad})`,
+    '',
+    'Lo que NO está, y por qué:',
+    '  - La contraseña: se guarda de forma irreversible y nadie puede leerla.',
+    '  - Lo que escribieron otras personas en el chat del grupo: son datos de ellas.',
+    '  - La posición en vivo y el estado del teléfono: no se guardan, sólo se ve el último valor.',
+    '  - Lo que ya se borró por los plazos de conservación (ver /privacidad): el chat a los 30 días,',
+    '    las vueltas y desvíos a los 120, los turnos a los 365, la actividad según su tipo.',
+    '',
+    'Para corregir algo o pedir que se borre, hablar con la central de la cooperativa.',
+  ].join('\r\n');
+  archivos.unshift({ nombre: 'LEEME.txt', datos: '﻿' + leeme + '\r\n' });
+  return { archivos, cuenta, fotos, audios };
+}
+
+app.get('/admin/users/:unitId/datos.zip', requireDispatch, (req, res) => {
+  const chequeo = cuentaEnAlcance(req, req.params.unitId);
+  if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
+  const { archivos, fotos, audios } = datosDePersona(chequeo.user.unitId, req.empresa, req.dispatchUser.unitId);
+  const zip = crearZip(archivos);
+  audit(req.dispatchUser.unitId, 'datos_exportados', chequeo.user.unitId,
+    `${archivos.length} archivos (${fotos} fotos, ${audios} audios), ${Math.round(zip.length / 1024)} kB`, chequeo.user.routeId);
+  const hoy = new Date();
+  const fecha = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="datos-${chequeo.user.unitId}-${fecha}.zip"`);
+  res.send(zip);
 });
 
 // Las combis que puede manejar una persona (habilitaciones, 30/10). Se manda

@@ -2615,6 +2615,25 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             <button onClick={() => editarIdentidad(u.unitId)} disabled={busy}
                               style={btnPrimario(36)}>Guardar</button>
                             <button onClick={() => setEditFor(null)} style={btnSecundario(36)}>Cancelar</button>
+                            {/* Todo lo que el sistema tiene de esta persona, para
+                                entregárselo si lo pide (Ley 29733, PENDIENTES 0.14) */}
+                            <div style={{ flexBasis: '100%', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+                              marginTop: 4, fontSize: 12, color: HUD.dim2 }}>
+                              <button data-bajar-datos={u.unitId} disabled={busy}
+                                onClick={() => run(async () => {
+                                  const r = await fetch(`${HTTP_URL}/admin/users/${encodeURIComponent(u.unitId)}/datos.zip`,
+                                    { headers: { Authorization: 'Bearer ' + session.token } });
+                                  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'No se pudo armar el archivo');
+                                  const url = URL.createObjectURL(await r.blob());
+                                  const a = document.createElement('a');
+                                  a.href = url;
+                                  a.download = `datos-${u.unitId}.zip`;
+                                  a.click();
+                                  setTimeout(() => URL.revokeObjectURL(url), 5000);
+                                }, `Bajados todos los datos de ${u.name || u.driverName || u.unitId}`)}
+                                style={btnChico(HUD.fg2)}>Bajar todos sus datos (ZIP)</button>
+                              <span>Lo que el sistema tiene de {u.name || u.driverName || u.unitId}, para entregárselo si lo pide. Queda en la Actividad.</span>
+                            </div>
                           </div>
                         )}
                         {resetFor === u.unitId && (
@@ -4445,6 +4464,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   // Ley 29733 (PENDIENTES 0.10)
                   consentimiento_firmado: { label: 'anotó el consentimiento firmado de', color: HUD.green },
                   consentimiento_retirado: { label: 'anotó que retiró su consentimiento', color: HUD.amber },
+                  datos_exportados: { label: 'bajó todos los datos de', color: HUD.amber },
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
                   combis: { label: 'cambió las combis que puede manejar', color: HUD.bright },
                   cambio_combi: { label: 'cambió de combi a', color: HUD.bright },

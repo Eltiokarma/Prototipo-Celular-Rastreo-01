@@ -222,6 +222,9 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
       o un abogado quieren el registro de los SOS por más tiempo, se pasa a
       «gestión» (2 años). Y confirmar que 2 años alcanzan para altas, bajas y
       claves.
+- [ ] Contarle a Despacho que si un chofer pide **una copia de sus datos**
+      (tiene derecho por ley), es Personas → **Editar** → **Bajar todos sus
+      datos (ZIP)**, y se le entrega ese archivo.
 - [ ] Decirle a cada operador que **al empezar el turno** toque **«Activar
       alarma de SOS»** (el botón ámbar arriba) y **acepte las notificaciones**
       cuando el navegador pregunte. Mientras ese botón se vea, un SOS puede
