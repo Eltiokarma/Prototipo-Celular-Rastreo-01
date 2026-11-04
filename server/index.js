@@ -258,19 +258,42 @@ const estadoCopia = {
   ultimoFallo: null,        // { motivo, en }
 };
 if (estadoCopia.error) console.error('COPIA AFUERA: ' + estadoCopia.error);
-async function subirCopia(nombre) {
+// Si falla (un corte de red, el almacenamiento caído) se reintenta a los 5,
+// 15 y 60 minutos: antes quedaba 6 h atrasada hasta el próximo respaldo
+// (revisión integral del 04/11). Un reintento pendiente se descarta si
+// entretanto salió una copia más nueva.
+const REINTENTOS_COPIA_MIN = [5, 15, 60];
+// Una sola subida por respaldo a la vez: al arrancar, la sincronización y el
+// respaldo del arranque podían subir el mismo archivo juntos
+const copiasEnVuelo = new Map();   // nombre → promesa
+function subirCopia(nombre, intento = 0) {
+  if (copiasEnVuelo.has(nombre)) return copiasEnVuelo.get(nombre);
+  const p = subirCopiaUnaVez(nombre, intento).finally(() => copiasEnVuelo.delete(nombre));
+  copiasEnVuelo.set(nombre, p);
+  return p;
+}
+async function subirCopiaUnaVez(nombre, intento) {
   if (!estadoCopia.configurada || !db || db.memory) return null;
   let r;
   try {
-    const plano = fs.readFileSync(path.join(respaldo.dirDe(db.name), nombre));
-    r = await copiaAfuera.subir(configCopia, nombre, plano);
+    // La RUTA, no el contenido: se lee, comprime, cifra y sube por partes
+    r = await copiaAfuera.subir(configCopia, nombre, path.join(respaldo.dirDe(db.name), nombre));
   } catch (e) { r = { ok: false, motivo: e.message }; }
   if (r.ok) {
     estadoCopia.ultimaOk = { clave: r.clave, en: Date.now(), bytes: r.bytes };
     console.log(`Copia afuera: ${r.clave} (${Math.round(r.bytes / 1024)} kB, cifrada)`);
   } else {
     estadoCopia.ultimoFallo = { motivo: r.motivo, en: Date.now() };
-    console.error(`COPIA AFUERA FALLÓ (${nombre}): ${r.motivo}`);
+    const espera = REINTENTOS_COPIA_MIN[intento];
+    console.error(`COPIA AFUERA FALLÓ (${nombre}): ${r.motivo}` + (espera ? ` — se reintenta en ${espera} min` : ''));
+    if (espera) {
+      const pedidaEn = Date.now();
+      setTimeout(() => {
+        if (estadoCopia.ultimaOk && estadoCopia.ultimaOk.en > pedidaEn) return;
+        if (!fs.existsSync(path.join(respaldo.dirDe(db.name), nombre))) return;   // ya se rotó
+        subirCopia(nombre, intento + 1);
+      }, espera * 60_000).unref();
+    }
   }
   return r;
 }
@@ -1017,22 +1040,44 @@ function remember(item) {
 // `aparte: 1`, y Despacho lo pide con GET /admin/mensajes/:id/contenido.
 // Una ruta normal (≈3 fotos y 20 audios en 200 mensajes) entra entera.
 const HISTORIA_MEDIA_BYTES = Number(process.env.HISTORIA_MEDIA_KB || 3000) * 1000;
+// Primero se trae el TAMAÑO de lo pesado, no el contenido; se decide qué
+// entra y recién ahí se lee eso. Leer las 200 filas con su foto para tirar
+// casi todas congelaba el servidor ~2 s por conexión con 30 días de fotos
+// (revisión integral del 04/11).
 function conPresupuesto(filas) {
   let gastado = 0;
+  const entran = [];
   for (let i = filas.length - 1; i >= 0; i--) {
     const f = filas[i];
-    if (!f.data || f.kind === 'sos') continue;
-    if (gastado + f.data.length > HISTORIA_MEDIA_BYTES) { f.data = null; f.aparte = 1; }
-    else gastado += f.data.length;
+    const largo = f.largo || 0;
+    delete f.largo;
+    f.data = null;
+    if (!largo) continue;
+    if (f.kind === 'sos' || gastado + largo <= HISTORIA_MEDIA_BYTES) {
+      if (f.kind !== 'sos') gastado += largo;
+      entran.push(f);
+    } else {
+      f.aparte = 1;
+    }
+  }
+  if (entran.length) {
+    const datos = new Map(db.prepare('SELECT id, data FROM messages WHERE id IN (SELECT value FROM json_each(?))')
+      .all(JSON.stringify(entran.map(f => f.msgId))).map(r => [r.id, r.data]));
+    for (const f of entran) f.data = datos.get(f.msgId) ?? null;
   }
   return filas;
 }
 
+// `verPrivadosDe` = '*' es un PANEL (ve todos los privados de la ruta). Sólo
+// a los paneles les va la marca de evidencia con su motivo y quién la puso:
+// el motivo («descargo por agresión») no es para el teléfono de cada chofer
+// de la ruta (revisión integral del 04/11).
 function recentHistory(routeId, verPrivadosDe = null, persona = null) {
+  const esPanel = verPrivadosDe === '*';
   // El rol sale de la tabla users (los mensajes viejos no lo guardan)
-  return conPresupuesto(db.prepare(`
+  const filas = conPresupuesto(db.prepare(`
     SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.toVehicleId, m.toPersonId, m.text,
-           m.duration, m.data, m.lat, m.lng, m.timestamp,
+           m.duration, length(m.data) AS largo, m.lat, m.lng, m.timestamp,
            m.id AS sosId, m.id AS msgId, m.sosTipo, m.atendidoEn,
            m.evidencia, m.evidenciaMotivo, m.evidenciaEn,
            (SELECT COALESCE(e.alias, e.name, e.unitId) FROM users e WHERE e.unitId = m.evidenciaPor) AS evidenciaPorNombre,
@@ -1040,7 +1085,9 @@ function recentHistory(routeId, verPrivadosDe = null, persona = null) {
            m.atendidoPor,
            COALESCE(u.role, 'driver') AS role
     FROM (
-      SELECT * FROM messages
+      SELECT id, kind, unitId, driverName, vehicleId, toVehicleId, toPersonId, text, duration, data, lat, lng,
+             timestamp, sosTipo, atendidoEn, atendidoPor, evidencia, evidenciaMotivo, evidenciaEn, evidenciaPor
+      FROM messages
       WHERE (routeId = @routeId
              AND ((toVehicleId IS NULL AND toPersonId IS NULL)
                   OR @todos = 1
@@ -1052,10 +1099,12 @@ function recentHistory(routeId, verPrivadosDe = null, persona = null) {
     ORDER BY m.id ASC
   `).all({
     routeId,
-    todos: verPrivadosDe === '*' ? 1 : 0,
-    propio: verPrivadosDe && verPrivadosDe !== '*' ? verPrivadosDe : '',
+    todos: esPanel ? 1 : 0,
+    propio: verPrivadosDe && !esPanel ? verPrivadosDe : '',
     persona: persona || '',
   }));
+  if (!esPanel) for (const f of filas) { delete f.evidencia; delete f.evidenciaMotivo; delete f.evidenciaPorNombre; delete f.evidenciaEn; }
+  return filas;
 }
 
 function historyCount() {
@@ -1250,12 +1299,25 @@ db.exec(`
 db.exec('CREATE INDEX IF NOT EXISTS idx_habilitaciones_combi ON habilitaciones (vehicleId)');
 addColumnIfMissing('users', 'todaLaRuta', 'INTEGER NOT NULL DEFAULT 0');
 // La combi de hoy de cada uno queda habilitada (la del alta, para los que ya
-// estaban). Idempotente: corre en cada arranque y no duplica.
-db.prepare(`
+// estaban). UNA SOLA VEZ, la primera vez que existe la tabla. Corría en cada
+// arranque, y eso convertía en habilitación permanente la combi que un
+// comodín había ELEGIDO en la puerta: después de un deploy podía manejar al
+// cobrador de esa combi ajena —cambiarle la clave y entrar como él— y
+// destildar «cualquiera de su ruta» ya no le sacaba las elegidas (revisión
+// integral del 04/11, confirmado con prueba).
+db.exec('CREATE TABLE IF NOT EXISTS migraciones (nombre TEXT PRIMARY KEY, en INTEGER NOT NULL)');
+function unaVez(nombre, hacer) {
+  if (db.prepare('SELECT 1 FROM migraciones WHERE nombre = ?').get(nombre)) return;
+  db.transaction(() => {
+    hacer();
+    db.prepare('INSERT INTO migraciones (nombre, en) VALUES (?, ?)').run(nombre, Date.now());
+  })();
+}
+unaVez('habilitaciones_iniciales', () => db.prepare(`
   INSERT OR IGNORE INTO habilitaciones (personId, vehicleId, createdAt)
   SELECT unitId, vehicleId, ? FROM users
   WHERE role IN ('driver', 'collector') AND vehicleId IS NOT NULL
-`).run(Date.now());
+`).run(Date.now()));
 
 // Las combis que puede elegir esta persona: las habilitadas, las de su ruta
 // si es comodín, y la de hoy. Sólo de su empresa.
@@ -1776,7 +1838,7 @@ function abrirDesvio(vehicleId, routeId, maxM, umbralM, silenciado, cuando = Dat
 function cerrarDesvio(estado, cierre, cuando = Date.now()) {
   if (!estado || !estado.id) return;
   const fin = Math.max(cuando, estado.desde || 0);
-  db.prepare('UPDATE deviations SET endedAt = ?, durationSec = ?, maxM = ?, cierre = ? WHERE id = ?')
+  db.prepare('UPDATE deviations SET endedAt = ?, durationSec = ?, maxM = ?, cierre = ? WHERE id = ? AND endedAt IS NULL')
     .run(fin, Math.max(0, Math.round((fin - estado.desde) / 1000)), estado.maxM, cierre, estado.id);
   estado.id = null;
 }
@@ -2017,10 +2079,10 @@ function cerrarHueco(vehicleId, cierre, { cuando = null, lat = null, lng = null,
     const metros = lat !== null && h.lat != null ? Math.round(metrosEntre(h.lat, h.lng, lat, lng)) : null;
     const durSec = Math.round((fin - h.startedAt) / 1000);
     const kmh = metros !== null && durSec > 0 ? Math.round(metros / durSec * 3.6) : null;
-    db.prepare(`UPDATE huecos SET endedAt = ?, durationSec = ?, latHasta = ?, lngHasta = ?, progresoHasta = ?, metros = ?, kmh = ?, cierre = 'volvio' WHERE id = ?`)
+    db.prepare(`UPDATE huecos SET endedAt = ?, durationSec = ?, latHasta = ?, lngHasta = ?, progresoHasta = ?, metros = ?, kmh = ?, cierre = 'volvio' WHERE id = ? AND endedAt IS NULL AND cierre IS NULL`)
       .run(fin, durSec, lat, lng, progreso, metros, kmh, h.id);
   } else {
-    db.prepare('UPDATE huecos SET cierre = ? WHERE id = ?').run(cierre, h.id);
+    db.prepare('UPDATE huecos SET cierre = ? WHERE id = ? AND endedAt IS NULL AND cierre IS NULL').run(cierre, h.id);
   }
 }
 
@@ -2045,7 +2107,7 @@ function cerrarParada(vehicleId, cierre, cuando = Date.now()) {
   const id = paradasAbiertas.get(vehicleId);
   if (!id) return;
   const fila = db.prepare('SELECT startedAt FROM paradas WHERE id = ?').get(id);
-  db.prepare('UPDATE paradas SET endedAt = ?, durationSec = ?, cierre = ? WHERE id = ?')
+  db.prepare('UPDATE paradas SET endedAt = ?, durationSec = ?, cierre = ? WHERE id = ? AND endedAt IS NULL')
     .run(cuando, Math.max(0, Math.round((cuando - (fila ? fila.startedAt : cuando)) / 1000)), cierre, id);
   paradasAbiertas.delete(vehicleId);
 }
@@ -4541,7 +4603,12 @@ function cobradoresDe(vehicleId, desde) {
 // vueltas quedan: son de la cooperativa.
 function borrarLoDeLaPersona(unitId) {
   db.prepare('DELETE FROM habilitaciones WHERE personId = ?').run(unitId);
-  db.prepare('DELETE FROM messages WHERE toPersonId = ?').run(unitId);
+  // Lo guardado como EVIDENCIA no se borra con la baja: la baja suele llegar
+  // justo después del incidente (revisión integral del 04/11). Se lo
+  // desvincula de la persona —que un usuario nuevo con el mismo nombre no
+  // herede su privado— y Despacho lo sigue viendo por la ruta.
+  db.prepare("UPDATE messages SET toPersonId = '~baja~' || toPersonId WHERE toPersonId = ? AND evidencia = 1").run(unitId);
+  db.prepare('DELETE FROM messages WHERE toPersonId = ? AND evidencia IS NULL').run(unitId);
   borrarRelevado(unitId);
   quitarDeLaPuerta(unitId);
 }
@@ -6098,15 +6165,17 @@ function usuarioDesdeNombre(nombre, tomados) {
 }
 class Deshacer extends Error {}
 
-app.post('/admin/users/importar', requireDispatch, (req, res) => {
+app.post('/admin/users/importar', requireDispatch, async (req, res) => {
   let filas;
   try {
+    // En un hilo aparte con techo de memoria y de tiempo (ver planilla.js):
+    // una planilla dañada o armada a propósito no puede tirar el servidor
     if (typeof req.body?.texto === 'string' && req.body.texto.trim()) {
-      filas = planilla.leerPlanilla({ texto: req.body.texto });
+      filas = await planilla.leerPlanillaAislada({ texto: req.body.texto });
     } else if (typeof req.body?.archivo === 'string' && req.body.archivo) {
       const bytes = Buffer.from(req.body.archivo.replace(/^data:[^,]*,/, ''), 'base64');
       if (bytes.length > 700 * 1024) return res.status(413).json({ error: 'La planilla pesa más de 700 kB: partila en varias' });
-      filas = planilla.leerPlanilla({ bytes, nombre: String(req.body?.nombre || '') });
+      filas = await planilla.leerPlanillaAislada({ bytes, nombre: String(req.body?.nombre || '') });
     } else {
       return res.status(400).json({ error: 'Subí una planilla o pegá las celdas' });
     }
@@ -6263,8 +6332,9 @@ app.post('/admin/users/:unitId/consentimiento', requireDispatch, (req, res) => {
 // Lo que NO va, y el LÉEME lo dice: la contraseña (se guarda de forma
 // irreversible), lo que escribieron otros en el chat del grupo, y lo que ya
 // se borró por los plazos de conservación.
-const EXT_MEDIA = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/mp4': 'm4a',
-  'audio/m4a': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm' };
+const EXT_MEDIA = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/mp4': 'm4a',
+  'audio/m4a': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm',
+  'audio/3gpp': '3gp', 'audio/wav': 'wav', 'audio/x-wav': 'wav' };
 function datosDePersona(unitId, empresa, quien) {
   const ahora = Date.now();
   const u = db.prepare(`SELECT unitId, name, alias, driverName, role, routeId, vehicleId, companyId, createdAt, lastLogin,
@@ -6276,11 +6346,20 @@ function datosDePersona(unitId, empresa, quien) {
     archivos.push({ nombre, datos: '﻿' + [csvLinea(cabecera), ...filas.map(csvLinea)].join('\r\n') + '\r\n' });
     return filas.length;
   };
-  const p = { p: unitId, empresa, ahora };
+  // Sólo lo de ESTA cuenta: desde que se creó y en las rutas de esta
+  // cooperativa. Un usuario dado de baja deja sus turnos y vueltas (son
+  // registro de trabajo), y el nombre se puede volver a usar —en otra
+  // cooperativa, incluso—: sin este borde, el ZIP del nuevo traía lo del
+  // anterior (revisión integral del 04/11, confirmado con prueba).
+  const p = { p: unitId, empresa, ahora, creada: u.createdAt || 0 };
+  const RUTAS = '(SELECT routeId FROM routes WHERE companyId = @empresa)';
+  // Un turno viejo puede no tener la ruta anotada: entonces, por su combi
+  const TURNO_DE_LA_EMPRESA = (a) => `(${a}.routeId IN ${RUTAS} OR (${a}.routeId IS NULL AND ${a}.vehicleId IN (SELECT vehicleId FROM vehicles WHERE companyId = @empresa)))`;
   // Mientras la manejaba: el dato de la combi cae dentro de uno de SUS
   // turnos de chofer en esa combi. EXISTS y no JOIN: dos turnos que se tocan
   // no duplican la fila.
   const suyo = (alias, col, t) => `EXISTS (SELECT 1 FROM shifts s WHERE s.personId = @p AND s.role = 'driver'
+      AND s.startedAt >= @creada AND ${TURNO_DE_LA_EMPRESA('s')}
       AND s.vehicleId = ${alias}.${col} AND ${alias}.${t} >= s.startedAt AND ${alias}.${t} <= COALESCE(s.endedAt, s.lastSeenAt, @ahora))`;
   const deLaEmpresa = (alias) => `${alias}.routeId IN (SELECT routeId FROM routes WHERE companyId = @empresa)`;
   const cuenta = {};
@@ -6297,12 +6376,12 @@ function datosDePersona(unitId, empresa, quien) {
     db.prepare('SELECT vehicleId FROM habilitaciones WHERE personId = ? ORDER BY vehicleId').all(unitId).map(r => [r.vehicleId]));
   cuenta.turnos = csv('turnos.csv', ['Inicio', 'Fin', 'Duración (h:mm)', 'Combi', 'Ruta', 'Rol', 'Corregido a mano'],
     db.prepare(`SELECT startedAt, endedAt, lastSeenAt, vehicleId, routeId, role, corregido FROM shifts
-                WHERE personId = @p ORDER BY startedAt`).all(p).map(t => [
+                WHERE personId = @p AND startedAt >= @creada AND ${TURNO_DE_LA_EMPRESA('shifts')} ORDER BY startedAt`).all(p).map(t => [
       fechaHora(t.startedAt), t.endedAt ? fechaHora(t.endedAt) : 'en curso',
       duracionHm(Math.round(((t.endedAt ?? t.lastSeenAt) - t.startedAt) / 1000)), t.vehicleId, t.routeId,
       t.role === 'collector' ? 'cobrador' : 'chofer', t.corregido ? 'sí' : '']));
   cuenta.correcciones = csv('correcciones-de-turnos.csv', ['Cuándo', 'Quién', 'Qué', 'Antes', 'Después', 'Motivo'],
-    db.prepare('SELECT * FROM correcciones_turno WHERE personId = @p ORDER BY en').all(p).map(c => [
+    db.prepare(`SELECT * FROM correcciones_turno WHERE personId = @p AND en >= @creada AND routeId IN ${RUTAS} ORDER BY en`).all(p).map(c => [
       fechaHora(c.en), c.quien, c.tipo,
       c.antesInicio ? `${fechaHora(c.antesInicio)} a ${fechaHora(c.antesFin)}` : '',
       `${fechaHora(c.despuesInicio)} a ${fechaHora(c.despuesFin)}`, c.motivo]));
@@ -6313,10 +6392,12 @@ function datosDePersona(unitId, empresa, quien) {
   let fotos = 0, audios = 0;
   const filasMsj = db.prepare(`
     SELECT m.* FROM messages m
-    WHERE (m.unitId = @p OR m.toPersonId = @p) AND ${deLaEmpresa('m')}
+    WHERE (m.unitId = @p OR m.toPersonId = @p) AND ${deLaEmpresa('m')} AND m.timestamp >= @creada
     ORDER BY m.id`).all(p).map(m => {
     let archivo = '';
-    const dm = m.data && /^data:([\w/+.-]+);base64,(.*)$/s.exec(m.data);
+    // `data:audio/webm;codecs=opus;base64,…` es lo que graba la app web: los
+    // parámetros del tipo se saltean (revisión integral del 04/11)
+    const dm = m.data && /^data:([\w/+.-]+)(?:;[^;,]*)*?;base64,(.*)$/s.exec(m.data);
     if (dm && (m.kind === 'photo' || m.kind === 'voice')) {
       const d = new Date(m.timestamp);
       const sello = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
@@ -6361,7 +6442,7 @@ function datosDePersona(unitId, empresa, quien) {
       fechaHora(x.cuando), x.vehicleId, x.routeId, x.tipo, x.valor, x.detalle]));
 
   // Sus grabaciones de recorrido, con los puntos
-  const grab = db.prepare('SELECT * FROM recordings WHERE personId = @p AND (companyId IS NULL OR companyId = @empresa) ORDER BY createdAt').all(p);
+  const grab = db.prepare('SELECT * FROM recordings WHERE personId = @p AND companyId = @empresa AND createdAt >= @creada ORDER BY createdAt').all(p);
   for (const g of grab) archivos.push({ nombre: `grabaciones/${g.id}.json`, datos: g.puntos });
   cuenta.grabaciones = csv('grabaciones.csv', ['Cuándo', 'Nombre', 'Ruta', 'Puntos', 'Largo (m)', 'Archivo'],
     grab.map(g => [fechaHora(g.createdAt), g.nombre, g.routeId, g.cantidad, g.largoM, `grabaciones/${g.id}.json`]));
@@ -6369,7 +6450,7 @@ function datosDePersona(unitId, empresa, quien) {
   // La Actividad donde ella hizo algo o se lo hicieron
   const TIPO = { acceso: 'acceso', operacion: 'operación', gestion: 'gestión' };
   cuenta.actividad = csv('actividad.csv', ['Cuándo', 'Quién', 'Qué', 'Sobre', 'Detalle', 'Ruta', 'Tipo'],
-    db.prepare(`SELECT * FROM audit WHERE companyId = @empresa AND (actor = @p OR target = @p) ORDER BY id`).all(p).map(a => [
+    db.prepare(`SELECT * FROM audit WHERE companyId = @empresa AND (actor = @p OR target = @p) AND timestamp >= @creada ORDER BY id`).all(p).map(a => [
       fechaHora(a.timestamp), a.actor, a.action, a.target, a.detail, a.routeId, TIPO[a.clase] || a.clase]));
 
   const emp = companyOf(empresa);
@@ -8215,7 +8296,7 @@ app.get('/ping', (req, res) => {
 // healthcheck del despliegue. Público y sin números: los números (cuánto
 // disco, hace cuánto el respaldo) son del panel del creador.
 app.get('/salud', (req, res) => {
-  const r = salud.chequear();
+  const r = salud.paraAfuera();
   res.status(r.ok ? 200 : 503).json(salud.publico(r));
 });
 
@@ -9678,12 +9759,21 @@ function avisarAlQuePidio(fila, aviso) {
 }
 // Al conectar: si el último SOS suyo (o de su combi) de las últimas
 // SOS_VISTO_MS ya fue atendido, se le dice. Si sigue abierto, nada.
+// Su SOS, o el de su combi SI ÉL IBA ARRIBA en ese momento (el cobrador del
+// mismo viaje). Antes alcanzaba con que fuera la misma combi, y el chofer del
+// turno siguiente veía «DESPACHO VIO TU SOS» de uno que no pidió. Y con
+// índice: sin él recorría la tabla entera de mensajes en cada conexión
+// (revisión integral del 04/11).
+db.exec("CREATE INDEX IF NOT EXISTS idx_messages_sos ON messages (timestamp) WHERE kind = 'sos'");
 function sosVistoAlConectar(unitId, vehicleId) {
   const f = db.prepare(`
-    SELECT id, vehicleId, routeId, atendidoPor, atendidoEn FROM messages
-    WHERE kind = 'sos' AND timestamp > ? AND (unitId = ? OR (? IS NOT NULL AND vehicleId = ?))
+    SELECT id, vehicleId, routeId, atendidoPor, atendidoEn FROM messages m
+    WHERE kind = 'sos' AND timestamp > @desde
+      AND (unitId = @u OR (@v IS NOT NULL AND vehicleId = @v AND EXISTS (
+        SELECT 1 FROM shifts s WHERE s.personId = @u AND s.vehicleId = m.vehicleId
+          AND s.startedAt <= m.timestamp AND COALESCE(s.endedAt, s.lastSeenAt) >= m.timestamp - 60000)))
     ORDER BY id DESC LIMIT 1
-  `).get(Date.now() - SOS_VISTO_MS, unitId, vehicleId || null, vehicleId || null);
+  `).get({ desde: Date.now() - SOS_VISTO_MS, u: unitId, v: vehicleId || null });
   if (!f || !f.atendidoEn) return null;
   const u = db.prepare('SELECT name, alias, driverName, unitId FROM users WHERE unitId = ?').get(f.atendidoPor);
   return { type: 'sos_atendido', sosId: f.id, routeId: f.routeId, vehicleId: f.vehicleId,
@@ -10961,12 +11051,25 @@ function retomarMemoria(previa) {
     ponerUnidad(id, { ...u, oidoEn: (u.oidoEn ?? u.timestamp ?? previa.guardadoEn) + caido });
     retomadas.set(id, ahora + 2 * SIN_SENAL_MS);
   }
-  cargar(lapState, m.lapState);
-  cargar(tramoState, m.tramoState);
-  cargar(desvios, m.desvios);
-  cargar(paradasAbiertas, m.paradasAbiertas);
+  // La foto puede ser de unos segundos ANTES de lo último que pasó (un
+  // cuelgue sin aviso pierde lo de después de la última foto periódica). Lo
+  // que la base ya cerró en ese rato no se retoma: si no, se duplicaba la
+  // vuelta que ya se había guardado y se volvía a cerrar un desvío ya
+  // cerrado (revisión integral del 04/11, confirmado con prueba).
+  const vueltaGuardada = db.prepare('SELECT 1 FROM laps WHERE unitId = ? AND startedAt = ?');
+  const tramoGuardado = db.prepare('SELECT 1 FROM legs WHERE unitId = ? AND startedAt = ?');
+  const desvioAbierto = db.prepare('SELECT 1 FROM deviations WHERE id = ? AND endedAt IS NULL');
+  const paradaAbierta = db.prepare('SELECT 1 FROM paradas WHERE id = ? AND endedAt IS NULL');
+  const huecoAbierto = db.prepare('SELECT 1 FROM huecos WHERE id = ? AND endedAt IS NULL AND cierre IS NULL');
+  let descartados = 0;
+  const vigente = (ok) => { if (!ok) descartados++; return ok; };
+  for (const [id, st] of m.lapState || []) if (vigente(!vueltaGuardada.get(id, st.lapStart))) lapState.set(id, st);
+  for (const [id, st] of m.tramoState || []) if (vigente(!tramoGuardado.get(id, st.desde))) tramoState.set(id, st);
+  for (const [id, e] of m.desvios || []) if (vigente(!e.id || !!desvioAbierto.get(e.id))) desvios.set(id, e);
+  for (const [id, pid] of m.paradasAbiertas || []) if (vigente(!!paradaAbierta.get(pid))) paradasAbiertas.set(id, pid);
   cargar(traficos, m.traficos);
-  cargar(huecosAbiertos, m.huecosAbiertos);
+  for (const [id, h] of m.huecosAbiertos || []) if (vigente(!!huecoAbierto.get(h.id))) huecosAbiertos.set(id, h);
+  if (descartados) console.log(`Memoria caliente: ${descartados} cosa(s) de la foto ya estaban cerradas en la base: no se retoman`);
   cargar(presencias, m.presencias);
   cargar(ausenteEnMarcha, m.ausenteEnMarcha);
   cargar(salidas, m.salidas);

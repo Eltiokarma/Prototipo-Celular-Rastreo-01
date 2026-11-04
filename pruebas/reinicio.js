@@ -144,6 +144,63 @@ async function corrida(nombre, { retomar, senal = 'SIGTERM', extra = {} }) {
   return r;
 }
 
+// Un cuelgue justo después de cerrar una vuelta y un desvío: la última foto
+// periódica es de ANTES del cierre (revisión integral del 04/11)
+async function corridaCierre() {
+  const DB = `${S}/reinicio-cierre.db`;
+  for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
+  const extra = { MEMORIA_CADA_MS: '5000' };
+  await arrancar(DB, extra);
+  const d = await login('DESPACHO', 'despacho99');
+  const HD = { Authorization: 'Bearer ' + d.token };
+  const ida = Array.from({ length: 30 }, (_, i) => anillo(i / 58));
+  const vuelta = Array.from({ length: 30 }, (_, i) => anillo(0.5 + i / 58));
+  await pedir('/admin/routes/R-14/points', { method: 'PUT', headers: HD, body: JSON.stringify({ tramos: { ida, vuelta } }) });
+  { const b = new Database(DB); b.prepare("UPDATE routes SET durationMin=50, targetGapMin=2, autoTarget=0 WHERE routeId='R-14'").run(); b.close(); }
+  const HG = { Authorization: 'Bearer ' + await require('./gerente.js')(API, DB) };
+  const ses = {};
+  for (const u of ['M-01', 'M-02']) {
+    await pedir('/admin/users', { method: 'POST', headers: HG, body: JSON.stringify({ unitId: u, name: 'Chofer ' + u, password: 'chofer1234' }) });
+    ses[u] = await login(u, 'chofer1234');
+  }
+  const gps = (u, t, r = 900) => { const q = anillo(t, r); return pedir('/gps', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + ses[u].token },
+    body: JSON.stringify({ presencia: 'ruta', posiciones: [{ lat: q.lat, lng: q.lng, speed: 20, timestamp: Date.now() }] }),
+  }); };
+  for (const [i, t] of [0.02, 0.06, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].entries()) {
+    await gps('M-01', t); await gps('M-02', 0.62 + i * 0.003); await sleep(100);
+  }
+  for (let i = 0; i < 12; i++) { await gps('M-02', 0.68, 1300); await gps('M-01', 0.92 + i * 0.004); await sleep(120); }
+  // Se espera una foto periódica NUEVA (con la vuelta y el desvío abiertos)…
+  const fotoEn = () => { const b = new Database(DB, { readonly: true }); const f = b.prepare('SELECT guardadoEn FROM memoria_caliente').get(); b.close(); return f && f.guardadoEn; };
+  const antes = fotoEn();
+  for (let i = 0; i < 80 && fotoEn() === antes; i++) await sleep(100);
+  // …y enseguida, antes de la próxima, se cierran las dos cosas
+  for (const t of [0.97, 0.99, 0.02, 0.04, 0.06]) await gps('M-01', t);
+  for (let i = 0; i < 6; i++) await gps('M-02', 0.7 + i * 0.004);
+  let b = new Database(DB, { readonly: true });
+  const desvioAntes = b.prepare("SELECT endedAt, cierre FROM deviations WHERE vehicleId = 'M-02'").get();
+  b.close();
+  servidor.kill('SIGKILL'); await servidor.salida; await sleep(300);
+  await arrancar(DB, extra);
+  const log = servidor.log;
+  b = new Database(DB, { readonly: true });
+  const fotoDespues = b.prepare('SELECT guardadoEn FROM memoria_caliente').get();
+  b.close();
+  ses['M-01'] = await login('M-01', 'chofer1234'); ses['M-02'] = await login('M-02', 'chofer1234');
+  // Sigue andando: con la vuelta vieja retomada, esto la cerraba otra vez
+  for (const t of [0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 0.98, 0.02, 0.05]) { await gps('M-01', t); await gps('M-02', 0.75); await sleep(100); }
+  await sleep(600);
+  b = new Database(DB, { readonly: true });
+  const vueltas = b.prepare("SELECT startedAt, finishedAt FROM laps WHERE unitId = 'M-01' ORDER BY id").all();
+  const desvioDespues = b.prepare("SELECT endedAt, cierre FROM deviations WHERE vehicleId = 'M-02'").get();
+  b.close();
+  servidor.kill('SIGTERM'); await servidor.salida; await sleep(200);
+  for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
+  const repetidas = vueltas.length - new Set(vueltas.map(v => v.startedAt)).size;
+  return { vueltas, repetidas, desvioAntes, desvioDespues, log, fotoDespues };
+}
+
 (async () => {
   console.log('\nCON LA MEMORIA CALIENTE');
   const a = await corrida('con', { retomar: true });
@@ -164,6 +221,14 @@ async function corrida(nombre, { retomar, senal = 'SIGTERM', extra = {} }) {
   ok('no hubo tiempo de guardar al apagar: quedó la periódica', k.fin.sig === 'SIGKILL' && k.foto && k.foto.motivo === 'periodica', { fin: k.fin, foto: k.foto && k.foto.motivo });
   ok('y con ella la vuelta se cierra entera igual', k.vueltas.length === 1 && k.vueltas[0].parcial === 0, k.vueltas);
   ok('y el desvío vuelve por «regreso»', k.desvioDespues && k.desvioDespues.cierre === 'regreso', k.desvioDespues);
+
+  console.log('\nLO QUE SE CERRÓ DESPUÉS DE LA ÚLTIMA FOTO NO SE RETOMA');
+  const c = await corridaCierre();
+  ok('la vuelta cerrada después de la foto no se duplica', c.repetidas === 0, c.vueltas);
+  ok('el desvío cerrado después de la foto no se vuelve a cerrar', c.desvioAntes && c.desvioDespues &&
+     c.desvioDespues.endedAt === c.desvioAntes.endedAt && c.desvioDespues.cierre === 'regreso', [c.desvioAntes, c.desvioDespues]);
+  ok('y lo dice al arrancar', /ya estaban cerradas en la base: no se retoman/.test(c.log), c.log.split('\n').filter(l => /Memoria/.test(l)));
+  ok('la foto se usa una sola vez', c.fotoDespues === undefined, c.fotoDespues);
 
   console.log('\nSIN MEMORIA (la foto demasiado vieja: como antes)');
   const s = await corrida('sin', { retomar: false });

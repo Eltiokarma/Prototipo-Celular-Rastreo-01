@@ -37,6 +37,10 @@ function leerPrevia(db, { retomarMs, ahora = Date.now() } = {}) {
     console.log(`Memoria caliente: la última es de hace ${Math.round(edad / 1000)} s, demasiado vieja para retomarla`);
     return null;
   }
+  // Se usa UNA vez: un segundo arranque dentro de los 10 minutos (otro
+  // cuelgue, o uno intermedio sin memoria) no vuelve a aplicar la misma foto
+  // sobre lo que pasó después (revisión integral del 04/11).
+  db.prepare('DELETE FROM memoria_caliente WHERE id = 1').run();
   try {
     const d = JSON.parse(fila.datos);
     return { guardadoEn: fila.guardadoEn, motivo: fila.motivo, mapas: d.mapas || {}, extra: d.extra || {} };

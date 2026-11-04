@@ -73,8 +73,10 @@ let servidor = null;
   await post('/admin/users', HG, { unitId: 'juan', name: 'Juan Apaza', vehicleId: 'M-02', password: 'clave12345' });
   await post('/auth/login', null, { user: 'pedro', password: 'clave12345' });
 
-  // Pedro manejó M-01 de hace 5 h a hace 3 h; Juan, la MISMA combi, de hace 2 h a hace 1 h
+  // Pedro manejó M-01 de hace 5 h a hace 3 h; Juan, la MISMA combi, de hace 2 h a hace 1 h.
+  // Las cuentas existen desde ayer (un turno no puede ser anterior a la cuenta)
   const H = 3600_000, ahora = Date.now();
+  base.prepare("UPDATE users SET createdAt = ? WHERE unitId IN ('pedro', 'juan')").run(ahora - 24 * H);
   const turno = base.prepare('INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, lastSeenAt, endedAt) VALUES (?, ?, ?, ?, ?, ?, ?)');
   turno.run('pedro', 'M-01', 'R-14', 'driver', ahora - 5 * H, ahora - 3 * H, ahora - 3 * H);
   turno.run('juan', 'M-01', 'R-14', 'driver', ahora - 2 * H, ahora - 1 * H, ahora - 1 * H);
@@ -133,6 +135,21 @@ let servidor = null;
   ok('sin sesión, no', sin.status === 401, sin.status);
   const ev = base.prepare("SELECT actor, detail, clase FROM audit WHERE action = 'datos_exportados' AND target = 'pedro'").get();
   ok('bajarlo queda en la Actividad, como gestión', !!ev && ev.actor === 'DESPACHO' && ev.clase === 'gestion' && /1 fotos, 0 audios/.test(ev.detail), ev);
+
+  console.log('\nUN USUARIO QUE SE VUELVE A USAR');
+  // Se da de baja a juan (sus turnos y vueltas quedan: son registro de
+  // trabajo) y OTRA cooperativa da de alta a otro «juan»: su ZIP no puede
+  // traer nada del anterior (revisión integral del 04/11)
+  base.prepare("INSERT INTO laps (unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, parcial) VALUES ('M-01', 'R-14', ?, ?, 600, 30, 0)").run(ahora - 1.8 * H, ahora - 1.6 * H);
+  await fetch(`${API}/admin/users/juan`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + D } });
+  base.prepare("INSERT INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES ('M-90', NULL, 'R-9', 'OTRA', ?)").run(Date.now());
+  coop.gerente(base, { companyId: 'OTRA', usuario: 'GERENTE-OTRA', clave: 'gerente-otra-1' });
+  const HG2 = (await post('/auth/login', null, { user: 'GERENTE-OTRA', password: 'gerente-otra-1' })).body.token;
+  const alta2 = await post('/admin/users', HG2, { unitId: 'juan', name: 'Juan Otro', vehicleId: 'M-90', password: 'clave12345' });
+  const z2 = alta2.status === 200 && abrirZip(Buffer.from(await (await fetch(`${API}/admin/users/juan/datos.zip`, { headers: { Authorization: 'Bearer ' + D2 } })).arrayBuffer()));
+  ok('el «juan» nuevo de la otra cooperativa no trae nada del anterior',
+     !!z2 && z2.texto('turnos.csv').trim().split('\r\n').length === 1 && z2.texto('vueltas.csv').trim().split('\r\n').length === 1 &&
+     !/Juan en el grupo/.test(z2.texto('mensajes.csv')), alta2.status === 200 ? [z2.texto('turnos.csv'), z2.texto('vueltas.csv')] : alta2.body);
 
   console.log('\nEN LA PANTALLA DE DESPACHO (Chromium)');
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });

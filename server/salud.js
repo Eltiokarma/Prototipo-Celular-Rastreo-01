@@ -59,9 +59,16 @@ function crearSalud({
   // Los errores de base que pasaron en otros lados (un INSERT que falló en
   // un handler): los anota quien los atrapa
   let errores = [];
+  let noEscribe = false;
+  // Sólo los errores que dicen que la BASE está mal (disco lleno, de sólo
+  // lectura, de entrada/salida, dañada, no se abre). Un SQLITE_CONSTRAINT es
+  // un bug de un pedido, y un SQLITE_BUSY suelto pasa solo: contarlos ponía
+  // /salud en 503 diez minutos por un error cualquiera —y en los primeros
+  // minutos de un deploy, Railway lo rechazaba— (revisión integral del 04/11).
+  const GRAVES = /^SQLITE_(FULL|IOERR|READONLY|CORRUPT|CANTOPEN|NOTADB)/;
   function anotarFallaDeBase(e) {
     const codigo = e && typeof e.code === 'string' ? e.code : '';
-    if (!/^SQLITE_/.test(codigo)) return false;
+    if (!GRAVES.test(codigo)) return false;
     errores.push({ en: ahora(), codigo });
     if (errores.length > 50) errores = errores.slice(-50);
     return true;
@@ -83,7 +90,11 @@ function crearSalud({
     if (reloj.unref) reloj.unref();
   }
 
-  function chequear() {
+  // `latido`: si se prueba escribir. Lo hace el vigilante cada minuto; el
+  // GET /salud público NO escribe (cualquiera puede pedirlo las veces que
+  // quiera) y además contesta lo último que vio si es de hace menos de 10 s.
+  let ultimo = null;
+  function chequear({ latido = true } = {}) {
     const t = ahora();
     const problemas = [];
     const avisos = [];
@@ -93,12 +104,16 @@ function crearSalud({
     if (!archivo) (demo ? avisos : problemas).push('base_en_memoria');
 
     try { db.prepare('SELECT 1').get(); } catch { problemas.push('base_no_lee'); }
-    try {
-      db.prepare("INSERT OR REPLACE INTO salud (clave, valor) VALUES ('latido', ?)").run(t);
-    } catch (e) {
-      anotarFallaDeBase(e);
-      problemas.push('base_no_escribe');
+    if (latido) {
+      try {
+        db.prepare("INSERT OR REPLACE INTO salud (clave, valor) VALUES ('latido', ?)").run(t);
+        noEscribe = false;
+      } catch (e) {
+        anotarFallaDeBase(e);
+        noEscribe = true;
+      }
     }
+    if (noEscribe) problemas.push('base_no_escribe');
     const recientes = errores.filter(x => t - x.en < ventanaErroresMs);
     numeros.erroresDeBase = recientes.length;
     if (recientes.length) numeros.ultimoErrorDeBase = recientes[recientes.length - 1].codigo;
@@ -166,7 +181,8 @@ function crearSalud({
     if (numeros.atrasoMaxMs > lentoMs) avisos.push('servidor_lento');
 
     const estado = problemas.length ? 'falla' : avisos.length ? 'aviso' : 'ok';
-    return { ok: problemas.length === 0, estado, problemas, avisos, numeros, en: t };
+    ultimo = { ok: problemas.length === 0, estado, problemas, avisos, numeros, en: t };
+    return ultimo;
   }
 
   // Lo público: sin números ni rutas. Alcanza para que un monitor decida y
@@ -180,7 +196,12 @@ function crearSalud({
     };
   }
 
-  return { chequear, publico, anotarFallaDeBase, detener: () => reloj && clearInterval(reloj) };
+  // Para el GET público: lo último si es fresco, si no un chequeo sin escribir
+  function paraAfuera() {
+    if (ultimo && ahora() - ultimo.en < 10_000) return ultimo;
+    return chequear({ latido: false });
+  }
+  return { chequear, paraAfuera, publico, anotarFallaDeBase, detener: () => reloj && clearInterval(reloj) };
 }
 
 // El texto de una alerta, para el log y para el webhook

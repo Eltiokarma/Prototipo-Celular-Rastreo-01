@@ -21,6 +21,7 @@ const zlib = require('zlib');
 
 const MAX_DESCOMPRIMIDO = 20 * 1024 * 1024;   // un ZIP que se infla más que esto no es una planilla
 const MAX_FILAS = 2000;
+const MAX_COLUMNAS = 200;
 
 // ─── ZIP ─────────────────────────────────────────────────────
 // Lo justo para leer un archivo de adentro: el directorio central al final,
@@ -105,6 +106,11 @@ function leerXlsx(buf) {
     for (const cm of fm[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       const attrs = cm[1], cuerpo = cm[2] || '';
       const col = columna((/\br="([A-Z]+\d+)"/.exec(attrs) || [])[1]) ?? fila.length;
+      // El tope ANTES de asignar: `r="ZZZZZ1"` es la columna 12 millones, y
+      // asignarla primero armaba un arreglo de ese tamaño por fila —una
+      // planilla de 628 bytes tiraba el proceso por memoria (revisión del
+      // 04/11)—. Más allá de la columna 200 no hay nada que importar.
+      if (col == null || col > MAX_COLUMNAS) continue;
       const tipo = (/\bt="([^"]+)"/.exec(attrs) || [])[1];
       const v = (/<v>([\s\S]*?)<\/v>/.exec(cuerpo) || [])[1];
       let valor = '';
@@ -113,7 +119,6 @@ function leerXlsx(buf) {
       else if (v !== undefined) valor = entidades(v);
       if (tipo === 'b') valor = valor === '1' ? 'VERDADERO' : 'FALSO';
       fila[col] = valor;
-      if (col > 200) break;
     }
     filas.push(Array.from(fila, x => x ?? ''));
     if (filas.length > MAX_FILAS) break;
@@ -137,7 +142,8 @@ function leerOds(buf) {
     for (const cm of (fm[2] || '').matchAll(/<table:(?:covered-)?table-cell\b([^>]*?)(?:\/>|>([\s\S]*?)<\/table:(?:covered-)?table-cell>)/g)) {
       const veces = Math.min(Number((/number-columns-repeated="(\d+)"/.exec(cm[1]) || [])[1] || 1), 50);
       const valor = cm[2] ? textoDe(cm[2], 'text:p') : '';
-      for (let i = 0; i < veces; i++) fila.push(valor);
+      for (let i = 0; i < veces && fila.length <= MAX_COLUMNAS; i++) fila.push(valor);
+      if (fila.length > MAX_COLUMNAS) break;
     }
     while (fila.length && fila[fila.length - 1] === '') fila.pop();
     const repetida = Math.min(Number((/number-rows-repeated="(\d+)"/.exec(fm[1]) || [])[1] || 1), fila.length ? 50 : 1);
@@ -216,4 +222,47 @@ function leerPlanilla({ bytes = null, nombre = '', texto = null } = {}) {
   return filas;
 }
 
-module.exports = { leerPlanilla, leerTexto, leerXlsx, leerOds, leerZip, MAX_FILAS };
+// La planilla la manda cualquiera con una cuenta de Despacho, y el lector
+// es código propio sobre expresiones regulares: un archivo armado a propósito
+// (o simplemente dañado) puede pedir memoria o tiempo sin fin. Por eso se lee
+// en un hilo APARTE, con techo de memoria y de tiempo: si se pasa, muere ese
+// hilo y el servidor sigue — el GPS, el SOS y las demás cooperativas no se
+// enteran (revisión del 04/11: un .xlsx de 628 bytes tiraba el proceso, y uno
+// de 2 kB lo congelaba 14 s).
+const LECTOR_MEMORIA_MB = 256;
+const LECTOR_TIEMPO_MS = Number(process.env.PLANILLA_TIEMPO_MS || 5000);
+function leerPlanillaAislada(entrada) {
+  const { Worker } = require('worker_threads');
+  return new Promise((resolver, rechazar) => {
+    const w = new Worker(__filename, {
+      workerData: { entrada: { ...entrada, bytes: entrada.bytes ? new Uint8Array(entrada.bytes) : null } },
+      resourceLimits: { maxOldGenerationSizeMb: LECTOR_MEMORIA_MB, maxYoungGenerationSizeMb: 32 },
+    });
+    let listo = false;
+    const fin = (f, x) => { if (listo) return; listo = true; clearTimeout(reloj); f(x); };
+    const reloj = setTimeout(() => {
+      w.terminate();
+      fin(rechazar, new Error('La planilla tardó demasiado en leerse: puede estar dañada. Guardala de nuevo como .xlsx o CSV'));
+    }, LECTOR_TIEMPO_MS);
+    w.on('message', (m) => m.error ? fin(rechazar, new Error(m.error)) : fin(resolver, m.filas));
+    w.on('error', (e) => fin(rechazar, new Error(e && e.code === 'ERR_WORKER_OUT_OF_MEMORY'
+      ? 'La planilla es demasiado grande o está dañada. Guardala de nuevo como .xlsx o CSV'
+      : 'No se pudo leer la planilla: ' + (e && e.message))));
+    w.on('exit', (codigo) => fin(rechazar, new Error('No se pudo leer la planilla (el lector se cerró: ' + codigo + ')')));
+  });
+}
+
+// Adentro del hilo aparte
+{
+  const { isMainThread, parentPort, workerData } = require('worker_threads');
+  if (!isMainThread && workerData && workerData.entrada) {
+    const e = workerData.entrada;
+    try {
+      parentPort.postMessage({ filas: leerPlanilla({ ...e, bytes: e.bytes ? Buffer.from(e.bytes) : null }) });
+    } catch (err) {
+      parentPort.postMessage({ error: err.message });
+    }
+  }
+}
+
+module.exports = { leerPlanilla, leerPlanillaAislada, leerTexto, leerXlsx, leerOds, leerZip, MAX_FILAS };

@@ -20,6 +20,8 @@
 // y los datos son la base comprimida con gzip.
 const crypto = require('crypto');
 const zlib = require('zlib');
+const fs = require('fs');
+const { pipeline } = require('stream/promises');
 
 const MAGIA = Buffer.from('FLOTA1');
 const FRASE_MINIMA = 16;
@@ -35,6 +37,32 @@ function cifrar(plano, frase) {
   const datos = Buffer.concat([c.update(zlib.gzipSync(plano, { level: 9 })), c.final()]);
   return Buffer.concat([MAGIA, sal, iv, c.getAuthTag(), datos]);
 }
+// Lo mismo, pero de archivo a archivo y POR PARTES, sin frenar al servidor.
+// La versión de arriba lee la base entera, la comprime y la cifra de una vez
+// en el hilo principal: con 30 días de fotos (cientos de MB) eran segundos
+// con el GPS, el SOS y los WebSocket congelados, cada 6 h, y el proceso
+// pasaba los 500 MB de memoria (revisión integral del 04/11, medido). El
+// formato es EL MISMO —`descifrar` lo abre—: la etiqueta de GCM se conoce
+// recién al final, así que se deja su lugar y se escribe después.
+async function cifrarArchivo(origen, destino, frase) {
+  const sal = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
+  const clave = await new Promise((ok, mal) => crypto.scrypt(String(frase), sal, 32,
+    { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (e, k) => e ? mal(e) : ok(k)));
+  const c = crypto.createCipheriv('aes-256-gcm', clave, iv);
+  const salida = fs.createWriteStream(destino);
+  salida.write(Buffer.concat([MAGIA, sal, iv, Buffer.alloc(16)]));
+  await pipeline(fs.createReadStream(origen), zlib.createGzip({ level: 6 }), c, salida);
+  const fd = await fs.promises.open(destino, 'r+');
+  try { await fd.write(c.getAuthTag(), 0, 16, 34); } finally { await fd.close(); }
+  return (await fs.promises.stat(destino)).size;
+}
+async function hashArchivo(archivo) {
+  const h = crypto.createHash('sha256');
+  await pipeline(fs.createReadStream(archivo), h);
+  return h.digest('hex');
+}
+
 function descifrar(cifrado, frase) {
   if (!Buffer.isBuffer(cifrado) || cifrado.length < 50 || !cifrado.subarray(0, 6).equals(MAGIA)) {
     throw new Error('No es un respaldo cifrado de este sistema');
@@ -110,13 +138,16 @@ function configDe(env = process.env) {
 }
 
 // ─── EL ALMACENAMIENTO ──────────────────────────────────────
-async function pedirS3(cfg, { metodo = 'GET', clave = '', consulta = {}, cuerpo = null, cabeceras = {} }, fetchImpl = globalThis.fetch) {
+async function pedirS3(cfg, { metodo = 'GET', clave = '', consulta = {}, cuerpo = null, cabeceras = {}, archivo = null }, fetchImpl = globalThis.fetch) {
   const base = cfg.url.pathname.replace(/\/+$/, '');
   const ruta = `${base}/${codificar(cfg.bucket)}${clave ? '/' + clave.split('/').map(codificar).join('/') : '/'}`;
   const datos = cuerpo || Buffer.alloc(0);
+  // Un archivo se sube leyéndolo por partes, con su hash calculado igual
+  const hashCuerpo = archivo ? await hashArchivo(archivo) : sha256hex(datos);
+  if (archivo) cabeceras = { ...cabeceras, 'content-length': String((await fs.promises.stat(archivo)).size) };
   const { cabeceras: firmadas } = firmarV4({
     metodo, host: cfg.url.host, ruta, consulta, cabeceras,
-    hashCuerpo: sha256hex(datos), fecha: new Date(),
+    hashCuerpo, fecha: new Date(),
     region: cfg.region, idClave: cfg.idClave, secreto: cfg.secreto,
   });
   const qs = Object.keys(consulta).length
@@ -125,7 +156,8 @@ async function pedirS3(cfg, { metodo = 'GET', clave = '', consulta = {}, cuerpo 
   const t = setTimeout(() => control.abort(), 120_000);
   try {
     const r = await fetchImpl(`${cfg.url.protocol}//${cfg.url.host}${ruta}${qs}`, {
-      method: metodo, headers: firmadas, body: metodo === 'PUT' ? datos : undefined, signal: control.signal,
+      method: metodo, headers: firmadas, signal: control.signal,
+      ...(metodo === 'PUT' ? (archivo ? { body: fs.createReadStream(archivo), duplex: 'half' } : { body: datos }) : {}),
     });
     const cuerpoResp = Buffer.from(await r.arrayBuffer());
     return { status: r.status, ok: r.ok, cuerpo: cuerpoResp };
@@ -137,32 +169,45 @@ const errorDe = (r) => {
   return `el almacenamiento contestó ${r.status}${codigo ? ' (' + codigo + ')' : ''}`;
 };
 
-// Sube un respaldo (el .db verificado) cifrado. Devuelve { ok, clave, bytes }
-// o { ok: false, motivo }.
-async function subir(cfg, nombre, plano, fetchImpl) {
+// Sube un respaldo (el .db verificado, por su RUTA en el disco) cifrado.
+// Devuelve { ok, clave, bytes } o { ok: false, motivo }. Todo por partes y
+// asincrónico: el servidor sigue atendiendo mientras tanto.
+async function subir(cfg, nombre, origen, fetchImpl) {
   if (!cfg || cfg.error) return { ok: false, motivo: cfg ? cfg.error : 'no configurada' };
+  const temporal = `${origen}.subiendo-${process.pid}-${crypto.randomBytes(4).toString('hex')}.enc`;
   try {
-    const cifrado = cifrar(plano, cfg.frase);
+    const bytes = await cifrarArchivo(origen, temporal, cfg.frase);
     const clave = `${cfg.prefijo}${nombre}.gz.enc`;
-    const r = await pedirS3(cfg, { metodo: 'PUT', clave, cuerpo: cifrado,
+    const r = await pedirS3(cfg, { metodo: 'PUT', clave, archivo: temporal,
       cabeceras: { 'content-type': 'application/octet-stream' } }, fetchImpl);
     if (!r.ok) return { ok: false, motivo: errorDe(r) };
-    return { ok: true, clave, bytes: cifrado.length };
+    return { ok: true, clave, bytes };
   } catch (e) {
     return { ok: false, motivo: e.name === 'AbortError' ? 'el almacenamiento no contestó a tiempo' : e.message };
+  } finally {
+    fs.promises.unlink(temporal).catch(() => {});
   }
 }
 
 // Las que hay, la más nueva primero: [{ clave, bytes, cuando }]
+// Con paginación: S3 devuelve de a 1000 en orden alfabético —acá, de la
+// más vieja a la más nueva— y sin seguir las páginas, pasado el tiempo, las
+// recientes no aparecían (revisión integral del 04/11). Tope de 20 páginas.
 async function listar(cfg, fetchImpl) {
-  const r = await pedirS3(cfg, { consulta: { 'list-type': '2', prefix: cfg.prefijo, 'max-keys': '1000' } }, fetchImpl);
-  if (!r.ok) throw new Error(errorDe(r));
-  const xml = r.cuerpo.toString('utf8');
   const items = [];
-  for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
-    const campo = (n) => (m[1].match(new RegExp(`<${n}>([^<]*)</${n}>`)) || [])[1];
-    const clave = (campo('Key') || '').replace(/&amp;/g, '&');
-    items.push({ clave, bytes: Number(campo('Size') || 0), cuando: Date.parse(campo('LastModified') || '') || null });
+  let token = null;
+  for (let pagina = 0; pagina < 20; pagina++) {
+    const consulta = { 'list-type': '2', prefix: cfg.prefijo, 'max-keys': '1000', ...(token ? { 'continuation-token': token } : {}) };
+    const r = await pedirS3(cfg, { consulta }, fetchImpl);
+    if (!r.ok) throw new Error(errorDe(r));
+    const xml = r.cuerpo.toString('utf8');
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const campo = (n) => (m[1].match(new RegExp(`<${n}>([^<]*)</${n}>`)) || [])[1];
+      const clave = (campo('Key') || '').replace(/&amp;/g, '&');
+      items.push({ clave, bytes: Number(campo('Size') || 0), cuando: Date.parse(campo('LastModified') || '') || null });
+    }
+    token = /<IsTruncated>true<\/IsTruncated>/.test(xml) && ((xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/) || [])[1] || '').replace(/&amp;/g, '&');
+    if (!token) break;
   }
   return items.sort((a, b) => (b.cuando || 0) - (a.cuando || 0) || (a.clave < b.clave ? 1 : -1));
 }
@@ -175,4 +220,4 @@ async function bajar(cfg, clave, fetchImpl) {
   return /\.enc$/.test(clave) ? descifrar(r.cuerpo, cfg.frase) : r.cuerpo;
 }
 
-module.exports = { cifrar, descifrar, firmarV4, configDe, pedirS3, subir, listar, bajar, FRASE_MINIMA };
+module.exports = { cifrar, cifrarArchivo, descifrar, firmarV4, configDe, pedirS3, subir, listar, bajar, FRASE_MINIMA };

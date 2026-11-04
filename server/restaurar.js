@@ -48,6 +48,11 @@ async function obtener(pedido, dbFile, env, fetchImpl) {
     return fs.readFileSync(ruta);
   }
   if (!/^[\w./-]+$/.test(pedido) || pedido.includes('..')) throw new Error(`«${pedido}» no parece el nombre de un respaldo de la copia afuera`);
+  // Del almacenamiento, sólo lo CIFRADO: un .db plano ahí no tiene cómo
+  // probar que lo subió este sistema —quien tenga la llave del bucket podría
+  // dejar una base suya con nombre de respaldo— (revisión integral del
+  // 04/11). Un .db bajado a mano se restaura con `local:` o por la consola.
+  if (!/\.enc$/.test(pedido)) throw new Error(`«${pedido}» no es una copia cifrada (.gz.enc): desde el almacenamiento sólo se restauran ésas`);
   const cfg = copia.configDe(env);
   if (!cfg) throw new Error('Para bajar de la copia afuera hacen falta las variables RESPALDO_S3_* y RESPALDO_CIFRADO');
   if (cfg.error) throw new Error(cfg.error);
@@ -66,7 +71,13 @@ async function restaurarAlArrancar({ dbFile, pedido, env = process.env, fetchImp
   log(`Restaurando la base desde ${pedido}…`);
   const datos = await obtener(pedido, dbFile, env, fetchImpl);
   const nueva = `${dbFile}.restaurando`;
-  fs.writeFileSync(nueva, datos);
+  // Sin espacio, la escritura falla a la mitad: el pedazo no puede quedar
+  // ocupando el disco que ya faltaba (revisión integral del 04/11)
+  try { fs.writeFileSync(nueva, datos); }
+  catch (e) {
+    try { fs.unlinkSync(nueva); } catch {}
+    throw new Error(`No se pudo escribir el respaldo al lado de la base (${e.code === 'ENOSPC' ? 'no hay espacio en el disco' : e.message}): la base actual NO se tocó`);
+  }
   const v = respaldo.verificar(Database, nueva);
   // Abrirla para verificar deja sus -wal y -shm (vacíos): no viajan con ella
   for (const x of ['-wal', '-shm']) { try { fs.unlinkSync(nueva + x); } catch {} }
