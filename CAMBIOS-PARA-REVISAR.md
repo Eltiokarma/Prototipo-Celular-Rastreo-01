@@ -899,7 +899,11 @@ que **no**:
 - en `reinicio`, lo cerrado después de la foto;
 - en `datos-persona`, el usuario reusado en otra cooperativa;
 - en `actualizacion`, la guardia en el .bat, la vuelta atrás y el primer
-  chequeo.
+  chequeo;
+- en `combis`, que la migración corre una sola vez. Esa suite simulaba «una
+  base de antes» metiendo una persona después del primer arranque; ahora
+  borra la marca de la migración, que es lo que tiene una base vieja de
+  verdad.
 
 La planilla maliciosa y el cifrado por partes se midieron aparte (los
 números están en la tabla). **Manual:** no.

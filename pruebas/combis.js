@@ -88,7 +88,11 @@ async function conectar(token) {
   base.prepare(`INSERT INTO users (unitId, driverName, name, role, routeId, vehicleId, companyId, passHash, createdAt)
                 VALUES ('viejo', 'Viejo', 'Viejo', 'driver', 'R-14', 'M-07', ?, ?, ?)`)
     .run(empresa, hashPassword('clave12345'), Date.now());
-  // Reiniciar para que corra la migración
+  // Reiniciar para que corra la migración, como sobre una base de ANTES de
+  // las habilitaciones: sin la marca de que ya corrió (desde la revisión
+  // integral del 04/11 corre UNA sola vez; en cada arranque convertía la
+  // combi elegida por un comodín en habilitación permanente)
+  base.prepare("DELETE FROM migraciones WHERE nombre = 'habilitaciones_iniciales'").run();
   servidor.kill(); await sleep(600);
   await arrancar();
 
@@ -100,6 +104,15 @@ async function conectar(token) {
 
   console.log('\nLA COMBI DE SIEMPRE QUEDA HABILITADA');
   ok('el que ya estaba: su combi, por la migración', habil('viejo').join() === 'M-07', habil('viejo'));
+  {
+    // Y una sola vez: la combi que tiene «hoy» (la que eligió en la puerta)
+    // no se vuelve habilitación con el próximo reinicio
+    base.prepare("UPDATE users SET vehicleId = 'M-05' WHERE unitId = 'viejo'").run();
+    servidor.kill(); await sleep(600);
+    await arrancar();
+    ok('la migración no corre de nuevo: la combi elegida no queda habilitada con un reinicio', habil('viejo').join() === 'M-07', habil('viejo'));
+    base.prepare("UPDATE users SET vehicleId = 'M-07' WHERE unitId = 'viejo'").run();
+  }
   ok('el del alta: la combi del alta', habil('pedro').join() === 'M-05', habil('pedro'));
 
   console.log('\nLA PUERTA');
