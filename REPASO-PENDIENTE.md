@@ -962,3 +962,14 @@ baja y aplica (el único `Updates.reloadAsync`, detrás de `sePuedeAplicar`),
 `pruebas/actualizacion.js`). Nada de esto se probó en un teléfono todavía:
 la primera prueba de verdad es el paso 2 de `TAREAS-FUERA-DEL-CODIGO.md`.
 
+## Tanda 27 — un reinicio no tira las vueltas (04/11, sin repasar)
+
+El punto 0.12 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 14**. Para el repaso, lo central: `server/memoria.js` (guardar y leer
+la foto), en `server/index.js` la lectura temprana de `MEMORIA_PREVIA` y los
+tres cierres «corte» del arranque que ahora excluyen lo que se va a retomar,
+`retomarMemoria` y `guardarMemoria` al final (antes de `server.listen`), el
+manejo de SIGTERM, y `exportar`/`importar` en `server/parada.js`. Lo
+delicado: qué mapas se guardan y cuáles no (la farsa, el reloj, el mando del
+GPS se vuelven a medir), y el corrimiento de `oidoEn` por el tiempo caído.
+

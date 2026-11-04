@@ -226,6 +226,19 @@ if (String(process.env.MODO || '').trim().toLowerCase() !== 'demo' && process.en
   console.error('  En producción no se arranca con otra: revisá que el volumen esté montado.');
   process.exit(1);
 }
+// La memoria caliente de la vez anterior (PENDIENTES 0.12): las vueltas en
+// curso, los desvíos abiertos, la presencia de cada combi… Se lee ACÁ, antes
+// de que el arranque cierre como «cortado» lo que quedó abierto, para no
+// cerrar lo que se va a retomar. Se vuelve a poner en memoria al final, justo
+// antes de escuchar (ver `retomarMemoria`). Ver `server/memoria.js`.
+const memoria = require('./memoria');
+const RETOMAR_MS = Number(process.env.RETOMAR_MS || 10 * 60_000);
+// Si este arranque es para volver a un respaldo, la memoria de esa copia es
+// de otro momento: no se retoma.
+const MEMORIA_PREVIA = process.env.MEMORIA === '0' || process.env.RESTAURAR_DESDE ? null
+  : memoria.leerPrevia(db, { retomarMs: RETOMAR_MS });
+const ABIERTOS_A_RETOMAR = memoria.abiertosDe(MEMORIA_PREVIA);
+
 // La salud (PENDIENTES 0.2): base que lee y escribe, disco, respaldo, hora,
 // WAL y bucle de eventos. Se crea acá, antes que nada que escriba, para que
 // cualquier error de base de cualquier lado quede anotado (ver `salud.js`).
@@ -1734,8 +1747,10 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_deviations_ruta ON deviations (routeId, 
 // ensuciaría todos los informes con una duración que crece sola. Se los cierra
 // al arrancar, marcados como lo que son: cortados, no terminados.
 {
+  // Menos los que se van a retomar (PENDIENTES 0.12)
   const abiertos = db.prepare(
-    "UPDATE deviations SET endedAt = startedAt, durationSec = 0, cierre = 'corte' WHERE endedAt IS NULL").run();
+    "UPDATE deviations SET endedAt = startedAt, durationSec = 0, cierre = 'corte' WHERE endedAt IS NULL AND id NOT IN (SELECT value FROM json_each(?))")
+    .run(JSON.stringify(ABIERTOS_A_RETOMAR.desvios));
   if (abiertos.changes) {
     console.log(`${abiertos.changes} desvío(s) quedaron abiertos del arranque anterior: cerrados como cortados`);
   }
@@ -1819,7 +1834,8 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_paradas_ruta ON paradas (routeId, starte
 addColumnIfMissing('paradas', 'medida', 'INTEGER NOT NULL DEFAULT 0');
 {
   const abiertas = db.prepare(
-    "UPDATE paradas SET endedAt = startedAt, durationSec = 0, cierre = 'corte' WHERE endedAt IS NULL").run();
+    "UPDATE paradas SET endedAt = startedAt, durationSec = 0, cierre = 'corte' WHERE endedAt IS NULL AND id NOT IN (SELECT value FROM json_each(?))")
+    .run(JSON.stringify(ABIERTOS_A_RETOMAR.paradas));
   if (abiertas.changes) {
     console.log(`${abiertas.changes} parada(s) quedaron abiertas del arranque anterior: cerradas como cortadas`);
   }
@@ -1924,7 +1940,8 @@ db.exec(`
 `);
 {
   const abiertos = db.prepare(
-    "UPDATE huecos SET cierre = 'corte' WHERE endedAt IS NULL AND cierre IS NULL").run();
+    "UPDATE huecos SET cierre = 'corte' WHERE endedAt IS NULL AND cierre IS NULL AND id NOT IN (SELECT value FROM json_each(?))")
+    .run(JSON.stringify(ABIERTOS_A_RETOMAR.huecos));
   if (abiertos.changes) console.log(`${abiertos.changes} hueco(s) de señal quedaron abiertos del arranque anterior: cerrados como cortados`);
 }
 
@@ -5433,9 +5450,12 @@ function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
 // ruta de domingo no corre (procesión, calle cerrada), Despacho activa la
 // de siempre y eso tiene que sostenerse — sin esta pausa, el revisor de
 // vigencias la revertía al minuto, descartando las vueltas en curso en cada
-// ida y vuelta. A medianoche el día nuevo vuelve a decidir. En memoria a
-// propósito: un reinicio vuelve a la regla programada, que es el estado que
-// no depende de que nadie se acuerde.
+// ida y vuelta. A medianoche el día nuevo vuelve a decidir. Vivía sólo en
+// memoria —«un reinicio vuelve a la regla programada»—, pero eso es
+// justamente lo que tira las vueltas: un deploy a media mañana revertía la
+// variante que Despacho había puesto y descartaba la vuelta de cada combi.
+// Desde 0.12 sobrevive a un reinicio con el resto de la memoria caliente;
+// a medianoche vence igual.
 const vigenciaEnPausa = new Map();   // routeId → hasta cuándo (fin del día local)
 
 function finDeDiaLocal() {
@@ -10591,7 +10611,10 @@ setInterval(() => {
 
     // Entra en "sin señal". Se marca una sola vez: sin este chequeo se
     // reemitiría el estado cada diez segundos durante los tres minutos.
-    if (muda > SIN_SENAL_MS && !unit.sinSenal) {
+    // La recién retomada de un reinicio (PENDIENTES 0.12) tiene un rato para
+    // volver a mandar: que no le llegaran posiciones fue culpa del servidor
+    // caído, no un corte de señal del teléfono.
+    if (muda > SIN_SENAL_MS && !unit.sinSenal && !((retomadas.get(unitId) || 0) > ahora)) {
       ponerUnidad(unitId, { ...unit, sinSenal: true, sinSenalDesde: unit.timestamp });
       abrirHueco(unitId, unit);
       // Las dos edades van en el renglón: "posición vieja y teléfono mudo" es
@@ -10713,6 +10736,94 @@ server.on('error', (e) => {
 // `wss`, ese reenvío revienta y el de arriba no llega a correr. Medido: con
 // el puerto tomado, el proceso quedaba vivo sin escuchar.
 wss.on('error', () => {});
+
+// ─── LA MEMORIA CALIENTE (PENDIENTES 0.12) ───────────────────
+// Lo que sólo vive en memoria, para que un reinicio no le tire la vuelta a
+// cada combi. Ver `server/memoria.js`.
+const MEMORIA_CADA_MS = Number(process.env.MEMORIA_CADA_MS || 15_000);
+// Las recién retomadas, y hasta cuándo no se las marca «sin señal» (ver el
+// barrido). En un mapa aparte y no en la unidad: la unidad viaja entera a las
+// pantallas.
+const retomadas = new Map();   // vehicleId → hasta cuándo
+const memoriaCaliente = () => ({
+  units, lapState, tramoState, desvios, paradasAbiertas, traficos, huecosAbiertos,
+  presencias, ausenteEnMarcha, salidas, enLaPuerta, vigenciaEnPausa,
+});
+function guardarMemoria(motivo) {
+  try {
+    const r = memoria.guardar(db, memoriaCaliente(), { paradas: detectorParadas.exportar() }, { motivo });
+    if (motivo !== 'periodica') {
+      console.log(`Memoria caliente guardada (${motivo}): ${units.size} unidad(es), ` +
+        `${lapState.size} vuelta(s) en curso, ${Math.round(r.bytes / 1024)} kB en ${r.ms} ms`);
+    }
+    return r;
+  } catch (e) {
+    console.error('No se pudo guardar la memoria caliente:', e.message);
+    return null;
+  }
+}
+// La foto periódica es sólo para el cuelgue sin aviso (el deploy guarda con
+// el SIGTERM), así que su frecuencia se ajusta al peso. Medido: 20 combis
+// son ~30 kB; 5000 son 8 MB y 60 ms. Cada 15 s eso serían ~46 GB escritos por
+// día para cubrir un caso raro. Así: cada MEMORIA_CADA_MS hasta 1 MB, y un
+// intervalo más por cada MB, con techo de dos minutos (a 5000 combis, ~6 GB
+// por día, y un cuelgue pierde como mucho los últimos dos minutos).
+function proximaFoto(bytes) {
+  const mb = Math.max(1, Math.ceil((bytes || 0) / 1_048_576));
+  return Math.min(Math.max(MEMORIA_CADA_MS, 120_000), MEMORIA_CADA_MS * mb);
+}
+function retomarMemoria(previa) {
+  if (!previa) return;
+  const ahora = Date.now();
+  // Lo que el servidor estuvo caído no es silencio del teléfono
+  const caido = Math.max(0, ahora - previa.guardadoEn);
+  const m = previa.mapas;
+  const cargar = (mapa, entradas, filtro = () => true) => {
+    for (const [k, v] of entradas || []) if (filtro(v)) mapa.set(k, v);
+  };
+  for (const [id, u] of m.units || []) {
+    if (!u || !u.routeId) continue;
+    ponerUnidad(id, { ...u, oidoEn: (u.oidoEn ?? u.timestamp ?? previa.guardadoEn) + caido });
+    retomadas.set(id, ahora + 2 * SIN_SENAL_MS);
+  }
+  cargar(lapState, m.lapState);
+  cargar(tramoState, m.tramoState);
+  cargar(desvios, m.desvios);
+  cargar(paradasAbiertas, m.paradasAbiertas);
+  cargar(traficos, m.traficos);
+  cargar(huecosAbiertos, m.huecosAbiertos);
+  cargar(presencias, m.presencias);
+  cargar(ausenteEnMarcha, m.ausenteEnMarcha);
+  cargar(salidas, m.salidas);
+  cargar(enLaPuerta, m.enLaPuerta);
+  cargar(vigenciaEnPausa, m.vigenciaEnPausa, (hasta) => hasta > ahora);
+  detectorParadas.importar(previa.extra && previa.extra.paradas);
+  console.log(`Memoria caliente retomada (de hace ${Math.round(caido / 1000)} s, ${previa.motivo || '?'}): ` +
+    `${units.size} unidad(es), ${lapState.size} vuelta(s) y ${tramoState.size} tramo(s) en curso, ` +
+    `${[...desvios.values()].filter(e => e.fuera).length} desvío(s) y ${paradasAbiertas.size} parada(s) abiertos`);
+  setTimeout(() => retomadas.clear(), 2 * SIN_SENAL_MS + 1000).unref();
+  for (const r of new Set([...units.values()].map(u => u.routeId))) scheduleStateBroadcast(r, true);
+}
+retomarMemoria(MEMORIA_PREVIA);
+if (process.env.MEMORIA !== '0') {
+  memoria.crearTabla(db);
+  const fotoPeriodica = () => {
+    const r = guardarMemoria('periodica');
+    setTimeout(fotoPeriodica, proximaFoto(r && r.bytes)).unref();
+  };
+  setTimeout(fotoPeriodica, MEMORIA_CADA_MS).unref();
+  // Railway manda SIGTERM antes de apagar un deploy viejo: se guarda la foto
+  // y se sale enseguida. Un cuelgue sin aviso pierde como mucho los últimos
+  // MEMORIA_CADA_MS.
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.once(sig, () => {
+      guardarMemoria(sig);
+      try { db.close(); } catch {}
+      process.exit(0);
+    });
+  }
+}
+
 server.listen(PORT, () => {
   console.log(`Servidor de control de flota corriendo en puerto ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/ping`);

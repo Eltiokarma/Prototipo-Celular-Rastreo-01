@@ -129,10 +129,15 @@ limitación se resuelva o aparezca una nueva.
   volumen se lleva todo, y `/salud` lo avisa. Y con varias cooperativas adentro
   **no se puede restaurar una sola** — el respaldo es del archivo entero,
   así que volver atrás por un problema de una empresa arrastra a las otras.
-- **Un reinicio pierde lo que estaba a medias en memoria** (revisión del
-  31/10): las vueltas en curso, los desvíos abiertos y la variante forzada
-  a mano. La marca del relevado y las sesiones sí sobreviven. Un deploy en
-  hora pico le tira a cada combi la vuelta que estaba haciendo.
+- **Un reinicio ya no pierde lo que estaba a medias** (PENDIENTES 0.12,
+  04/11): las vueltas y tramos en curso, los desvíos y paradas abiertos, la
+  presencia de cada combi y la variante activada a mano se guardan al
+  recibir SIGTERM (un deploy) y cada 15 s, y se retoman al arrancar si la
+  foto tiene menos de 10 minutos. Lo que queda: un **cuelgue sin aviso**
+  pierde los últimos segundos (15 s en el piloto, hasta 2 minutos con miles
+  de combis); un servidor caído más de 10 minutos arranca de cero, como
+  antes; y la ventana del detector de GPS simulado y la estimación del reloj
+  de cada teléfono se vuelven a medir.
 - **Dar de alta una cooperativa lo hacemos nosotros**, desde el panel del
   creador o la consola. Es a propósito (ver README, Niveles de seguridad),
   pero significa que ninguna se da de alta sola ni la puede dar de alta un

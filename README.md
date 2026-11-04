@@ -237,6 +237,8 @@ calle. Suite `renovacion`.
 | `MEDIA_DIAS` | A los cuántos días una foto o nota de voz suelta su contenido (30, lo que dice /privacidad); la burbuja queda hasta que se borra el chat (`CHAT_DIAS`, 30) |
 | `PHOTO_KEEP` / `VOICE_KEEP` | Techo de fotos y de notas de voz con contenido **por cooperativa** (1500 de cada una). Es el cinturón para el disco; lo normal es que mande `MEDIA_DIAS` |
 | `EVIDENCIA_MAX` | Cuántos mensajes puede tener guardados como evidencia cada cooperativa (500). La evidencia se queda `SOS_DIAS` (365) |
+| `RETOMAR_MS` | Hasta qué edad se retoma la memoria caliente al arrancar (600 000 = 10 min): las vueltas en curso, los desvíos abiertos, la presencia de cada combi. Más vieja, se arranca de cero |
+| `MEMORIA_CADA_MS` | Cada cuánto se saca la foto de la memoria caliente para el caso de un cuelgue sin aviso (15 000). Con fotos de más de 1 MB se espacia sola, hasta 2 minutos. `MEMORIA=0` apaga todo esto |
 | `CONTACTO_PRIVACIDAD` | El correo que figura en `/privacidad` y en `/consentimiento` para ejercer los derechos (por ejemplo `soporte@microstempo.com`) |
 | `AUDIT_ACCESO_DIAS` / `AUDIT_OPERACION_DIAS` / `AUDIT_GESTION_DIAS` | Cuántos días se guarda cada tipo de movimiento de la auditoría: inicios de sesión (90), lo de la calle —desvíos, SOS, relevos— (365) y lo de gestión —altas, bajas, claves, correcciones, configuración— (730) |
 | `AUDIT_ACCESO_MAX` / `AUDIT_OPERACION_MAX` / `AUDIT_GESTION_MAX` | Techo de cada tipo **por cooperativa** (20 000 / 50 000 / 20 000), como cinturón para el disco |

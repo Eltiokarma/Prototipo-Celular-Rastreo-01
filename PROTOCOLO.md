@@ -731,6 +731,13 @@ cada persona `consentimientoFecha` y `consentimientoVersion`, y
 cooperativa, y queda en la Actividad (`consentimiento_firmado` /
 `consentimiento_retirado`, clase gestión).
 
+Y el reinicio del servidor (PENDIENTES 0.12, 04/11): las vueltas y tramos
+en curso, los desvíos y paradas abiertos y la presencia de cada combi se
+retoman tras un deploy. Para la app no cambia nada del protocolo: sigue
+mandando su cola como siempre; lo que cambia es que el servidor no la trata
+como recién llegada. Y el `state` que reciben las pantallas al reconectar ya
+trae las combis que estaban, antes de que manden su primera posición.
+
 ## 4quater. Tráfico: `parado`, `trafico` (WS) y `POST /trafico`
 
 Dos cosas, y viajan juntas en cada unidad del `state`:

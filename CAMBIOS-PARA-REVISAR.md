@@ -650,6 +650,96 @@ cabecera, el cableado de la app y de los `.bat`, la guardia de lo nativo, y
 el servidor y Despacho (Chromium). `nativas` cubre ahora `expo-updates`.
 **Manual:** no (es del que opera, no del chofer).
 
+## 14. Un reinicio no tira las vueltas — (04/11, este parche)
+
+**Qué.**
+- **Antes**, un reinicio del servidor (un deploy, un cuelgue) perdía todo lo
+  que estaba a medias:
+  - Cada combi que volvía a mandar parecía «recién llegada», y se le
+    **descartaba la vuelta en curso**.
+  - Los desvíos, paradas y huecos de señal abiertos se cerraban como
+    «cortados».
+  - La variante que Despacho había activado a mano volvía a la programada:
+    otro cambio de trazado y otra vez las vueltas descartadas.
+  - Un deploy en hora pico le tiraba la vuelta a cada combi.
+- **Ahora** el servidor saca una **foto de esa memoria** y la guarda en la
+  base:
+  - al recibir **SIGTERM**, que es lo que manda Railway antes de apagar un
+    deploy viejo;
+  - y **cada 15 s**, para el cuelgue sin aviso.
+- Al arrancar, si la foto tiene **menos de 10 minutos**, la retoma tal
+  cual:
+  - la flota en vivo, las vueltas y los tramos en curso, los desvíos,
+    paradas y huecos abiertos, el tráfico avisado;
+  - la presencia de cada combi y el «ausente en marcha»;
+  - la última salida, la puerta y la variante a mano (hasta medianoche,
+    como siempre);
+  - y la ventana del detector de paradas.
+- Lo que estaba viejo lo limpian las reglas de siempre (el olvido de 3
+  minutos, la poda), como si el servidor no se hubiera caído.
+- Dos cuidados:
+  - **El tiempo caído no cuenta como silencio del teléfono**: al retomar,
+    el «último que lo oí» de cada combi se corre por lo que el servidor
+    estuvo apagado. Si no, un deploy de 2 minutos más el silencio normal
+    hacía olvidar combis que seguían trabajando.
+  - **El reinicio no aparece como un corte de señal**: las combis
+    retomadas tienen un minuto para volver a mandar antes de marcarlas «sin
+    señal».
+- El mapa de Despacho muestra las combis **apenas arranca**, antes de que
+  manden su primera posición.
+
+**Cómo.**
+- `server/memoria.js` (nuevo): la tabla `memoria_caliente` (una fila),
+  `guardar`, `leerPrevia` y `abiertosDe`.
+- `server/index.js`:
+  - `MEMORIA_PREVIA` se lee **apenas se abre la base**, antes de los tres
+    cierres «corte» del arranque (desvíos, paradas, huecos), que ahora
+    excluyen los ids que se van a retomar (`json_each`).
+  - Al final, antes de `server.listen` (y antes de que el revisor de
+    vigencias pueda cambiar el trazado), `retomarMemoria()`.
+  - La foto periódica y el manejo de SIGTERM/SIGINT (guarda, cierra la base
+    y sale con 0).
+  - `retomadas` (aparte de la unidad, que viaja entera a las pantallas)
+    suspende el «sin señal» de las recién retomadas.
+  - El comentario de `vigenciaEnPausa` explica por qué ahora sobrevive.
+- `server/parada.js`: `exportar`/`importar` de la ventana del detector.
+- **La frecuencia se ajusta al peso.** Medido: 20 combis son ~30 kB; 5000
+  son 8 MB y 60 ms. Cada 15 s eso serían ~46 GB escritos por día para un
+  caso raro, así que hasta 1 MB es cada 15 s y después un intervalo más por
+  MB, con techo de 2 minutos.
+- No se retoma si el arranque es para volver a un respaldo
+  (`RESTAURAR_DESDE`), ni con `MEMORIA=0`.
+
+**Archivos.** `server/memoria.js` (nuevo), `server/index.js`,
+`server/parada.js`, `pruebas/reinicio.js` (nueva), `README.md`
+(`RETOMAR_MS`, `MEMORIA_CADA_MS`), `PROTOCOLO.md`, `LIMITACIONES.md`.
+
+**Mirar.**
+- **Qué NO se guarda**, a propósito: la ventana del detector de GPS
+  simulado, la estimación del reloj de cada teléfono, el mando del GPS (el
+  primero que manda lo toma), las sesiones de WebSocket y los cupos. Todo
+  eso se vuelve a medir en segundos.
+- **Los turnos ya se retomaban solos** (si la persona vuelve antes de 15
+  minutos): no se tocó.
+- Un **cuelgue sin aviso** pierde los últimos segundos (hasta 2 minutos con
+  miles de combis). Un servidor **caído más de 10 minutos** arranca de cero,
+  como antes: retomar una foto de hace media hora sería inventar.
+- Que Railway dé tiempo entre SIGTERM y SIGKILL: guardar tarda
+  milisegundos, así que alcanza aun con el mínimo. Pero conviene mirar en
+  el log del primer deploy que aparezca «Memoria caliente guardada
+  (SIGTERM)» y, en el arranque nuevo, «Memoria caliente retomada».
+
+**Pruebas.** `reinicio` (nueva), con tres corridas:
+- **Con memoria**: una combi a media vuelta y otra fuera del recorrido,
+  SIGTERM y arranque. La vuelta se cierra entera y con la hora de antes; el
+  desvío sigue abierto y se cierra por «regreso»; no hay entrada tardía ni
+  corte de señal falsos; el mapa las muestra antes de que manden nada.
+- **Cuelgue sin aviso** (SIGKILL): sirve la foto periódica.
+- **Sin memoria** (foto vieja), lo de antes: la vuelta perdida y el desvío
+  «cortado».
+
+**Manual:** no.
+
 ---
 
 ## Para el manual (cuando toque)
