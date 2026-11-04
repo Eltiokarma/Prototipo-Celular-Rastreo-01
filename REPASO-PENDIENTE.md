@@ -924,3 +924,13 @@ bloque 9**. Para el repaso, lo central: el alta de a uno pasó a ser una
 función (`altaDePersona`) que usan el formulario y la planilla, y el lector de
 planillas (`server/planilla.js`) abre .xlsx y .ods con un ZIP propio sobre
 `zlib`, sin librerías.
+
+## Tanda 23 — la evidencia y cuánto se guardan fotos y audios (04/11, sin repasar)
+
+El punto 0.8 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 10**. Para el repaso, lo central: todas las podas de `messages`
+(`pruneChatStmt`, `pruneRowsStmt`, `pruneMediaStmt`, `pruneMediaViejaStmt`)
+excluyen `evidencia = 1`, y `pruneEvidenciaStmt` la borra a los `SOS_DIAS`;
+el tope de lo pesado pasó a ser por cooperativa; y `conPresupuesto()` acota
+lo pesado del `chat_history`. Mirar también el modelo de costos: el volumen
+ahora cuenta los 28 respaldos enteros.

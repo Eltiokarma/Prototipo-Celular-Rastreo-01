@@ -893,9 +893,30 @@ const MENSAJES_MAX_FILAS = Number(process.env.MENSAJES_MAX_FILAS || 500_000);
 // poder probarlo: con los valores de producción, una suite tendría que mandar
 // 20 fotos, y el cupo por minuto (6) la frenaría antes — serían cuatro
 // minutos de prueba para una comprobación. Mismo criterio que SIN_SENAL_MS.
-const VOICE_KEEP = Number(process.env.VOICE_KEEP) || 30;  // notas que conservan su audio
-const PHOTO_KEEP = Number(process.env.PHOTO_KEEP) || 20;  // fotos que conservan su imagen
-                                                          // (menos: pesan más que un audio)
+//
+// Desde el 04/11 (PENDIENTES 0.8) estos topes son POR COOPERATIVA y no del
+// servidor entero: eran las 30 notas y las 20 fotos más nuevas de TODAS las
+// cooperativas juntas, así que con varias la foto de un choque se borraba en
+// horas —y la política de privacidad dice 30 días—. Ahora manda el tiempo
+// (MEDIA_DIAS) y el tope es el cinturón para el disco: una cooperativa muy
+// activa ya no le borra la evidencia a las demás.
+const VOICE_KEEP = Number(process.env.VOICE_KEEP) || 1500;  // notas con audio, por cooperativa
+const PHOTO_KEEP = Number(process.env.PHOTO_KEEP) || 1500;  // fotos con imagen, por cooperativa
+const MEDIA_DIAS = Number(process.env.MEDIA_DIAS || 30);    // lo que promete /privacidad
+
+// LA EVIDENCIA. Despacho marca un mensaje (una foto del choque, la nota de
+// voz de un pasajero agresivo, un texto) y queda fuera de toda poda: no
+// pierde su contenido a los MEDIA_DIAS ni se borra a los CHAT_DIAS; se queda
+// lo mismo que un SOS (SOS_DIAS). Con motivo, quién y cuándo. Con techo por
+// cooperativa, para que «evidencia» no se vuelva la forma de guardar todo.
+addColumnIfMissing('messages', 'evidencia', 'INTEGER');
+addColumnIfMissing('messages', 'evidenciaPor', 'TEXT');
+addColumnIfMissing('messages', 'evidenciaEn', 'INTEGER');
+addColumnIfMissing('messages', 'evidenciaMotivo', 'TEXT');
+const EVIDENCIA_MAX = Number(process.env.EVIDENCIA_MAX || 500);
+// Las que todavía tienen su contenido, por tipo: es lo que recorren las dos
+// podas de lo pesado
+db.exec("CREATE INDEX IF NOT EXISTS idx_messages_media_viva ON messages (kind, id) WHERE data IS NOT NULL");
 
 const insertStmt = db.prepare(`
   INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, toVehicleId, toPersonId, text, duration, data, lat, lng, timestamp)
@@ -905,7 +926,13 @@ const insertStmt = db.prepare(`
 // 6 h junto con el resto del historial y NO en cada mensaje: a esta escala
 // serían miles de recorridas de tabla por hora para borrar nada.
 const pruneChatStmt = db.prepare(
-  "DELETE FROM messages WHERE kind != 'sos' AND timestamp < @corte");
+  "DELETE FROM messages WHERE kind != 'sos' AND evidencia IS NULL AND timestamp < @corte");
+// La evidencia se va con el plazo del SOS
+const pruneEvidenciaStmt = db.prepare(
+  "DELETE FROM messages WHERE kind != 'sos' AND evidencia = 1 AND timestamp < @corte");
+// Lo pesado de más de MEDIA_DIAS suelta su contenido (la burbuja queda)
+const pruneMediaViejaStmt = db.prepare(
+  "UPDATE messages SET data = NULL WHERE data IS NOT NULL AND kind IN ('voice', 'photo') AND evidencia IS NULL AND timestamp < @corte");
 const pruneSosStmt = db.prepare(
   "DELETE FROM messages WHERE kind = 'sos' AND timestamp < @corte");
 // El techo de filas se corta por RANGO y no con `id NOT IN (…)`. Como `id` es
@@ -918,7 +945,7 @@ const pruneSosStmt = db.prepare(
 // retención por tiempo (365 días) y una ráfaga de fotos o chats no puede
 // empujarlo fuera del techo antes de tiempo (REVISION-2026-09-08.md, L8).
 const pruneRowsStmt = db.prepare(`
-  DELETE FROM messages WHERE kind != 'sos' AND id <= (
+  DELETE FROM messages WHERE kind != 'sos' AND evidencia IS NULL AND id <= (
     SELECT id FROM messages WHERE kind != 'sos' ORDER BY id DESC LIMIT 1 OFFSET @tope
   )
 `);
@@ -929,10 +956,15 @@ const pruneRowsStmt = db.prepare(`
 // audio a las notas de voz. Son dos presupuestos separados a propósito,
 // porque una foto pesa varias veces lo que un audio y el que manda fotos no
 // es necesariamente el que mandó la nota de voz que hace falta escuchar.
+//
+// Por cooperativa (las rutas de la empresa) y sin tocar la evidencia.
 const pruneMediaStmt = db.prepare(`
   UPDATE messages SET data = NULL
-  WHERE data IS NOT NULL AND kind = @kind
-    AND id NOT IN (SELECT id FROM messages WHERE kind = @kind AND data IS NOT NULL ORDER BY id DESC LIMIT @conservar)
+  WHERE data IS NOT NULL AND kind = @kind AND evidencia IS NULL
+    AND routeId IN (SELECT routeId FROM routes WHERE companyId = @empresa)
+    AND id NOT IN (SELECT id FROM messages WHERE kind = @kind AND data IS NOT NULL AND evidencia IS NULL
+                   AND routeId IN (SELECT routeId FROM routes WHERE companyId = @empresa)
+                   ORDER BY id DESC LIMIT @conservar)
 `);
 
 // Devuelve el id de la fila guardada: el SOS lo necesita para que el tipo
@@ -943,8 +975,12 @@ function remember(item) {
       vehicleId: null, toVehicleId: null, toPersonId: null, ...item });
     // Lo pesado sí se poda en el acto: una foto ocupa lugar de verdad y no
     // puede esperar seis horas. Las filas de texto se podan en la barrida.
-    pruneMediaStmt.run({ kind: 'voice', conservar: VOICE_KEEP });
-    pruneMediaStmt.run({ kind: 'photo', conservar: PHOTO_KEEP });
+    // Sólo al guardar algo pesado (antes corría con cada texto), y sólo en la
+    // cooperativa de ese mensaje.
+    if (item.kind === 'voice' || item.kind === 'photo') {
+      const empresa = item.routeId ? (routeOf(item.routeId)?.companyId || null) : null;
+      if (empresa) pruneMediaStmt.run({ kind: item.kind, conservar: item.kind === 'voice' ? VOICE_KEEP : PHOTO_KEEP, empresa });
+    }
     return info.lastInsertRowid;
   } catch (e) {
     console.error('No se pudo guardar el mensaje:', e.message);
@@ -958,12 +994,34 @@ function remember(item) {
 // ruta ('*'); sin eso, solo el grupo. `persona` suma su privado PERSONAL, de
 // cualquier ruta: la sigue aunque haya cambiado de combi. Un chofer nunca ve
 // lo privado de otro.
+// Cuánto de lo pesado (fotos y audios) viaja ADENTRO del historial que se
+// manda al conectar. Antes lo acotaba sin querer el tope global de 20 fotos;
+// con 30 días por cooperativa (PENDIENTES 0.8) nada lo acotaba, y un chat con
+// muchas fotos seguidas haría bajar decenas de MB a cada celular de la ruta
+// en cada reconexión —que en la calle son varias por hora—. Se llena de lo
+// más nuevo a lo más viejo; lo que no entra va sin contenido y con
+// `aparte: 1`, y Despacho lo pide con GET /admin/mensajes/:id/contenido.
+// Una ruta normal (≈3 fotos y 20 audios en 200 mensajes) entra entera.
+const HISTORIA_MEDIA_BYTES = Number(process.env.HISTORIA_MEDIA_KB || 3000) * 1000;
+function conPresupuesto(filas) {
+  let gastado = 0;
+  for (let i = filas.length - 1; i >= 0; i--) {
+    const f = filas[i];
+    if (!f.data || f.kind === 'sos') continue;
+    if (gastado + f.data.length > HISTORIA_MEDIA_BYTES) { f.data = null; f.aparte = 1; }
+    else gastado += f.data.length;
+  }
+  return filas;
+}
+
 function recentHistory(routeId, verPrivadosDe = null, persona = null) {
   // El rol sale de la tabla users (los mensajes viejos no lo guardan)
-  return db.prepare(`
+  return conPresupuesto(db.prepare(`
     SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.toVehicleId, m.toPersonId, m.text,
            m.duration, m.data, m.lat, m.lng, m.timestamp,
-           m.id AS sosId, m.sosTipo, m.atendidoEn,
+           m.id AS sosId, m.id AS msgId, m.sosTipo, m.atendidoEn,
+           m.evidencia, m.evidenciaMotivo, m.evidenciaEn,
+           (SELECT COALESCE(e.alias, e.name, e.unitId) FROM users e WHERE e.unitId = m.evidenciaPor) AS evidenciaPorNombre,
            (SELECT COALESCE(a.alias, a.name, a.driverName, a.unitId) FROM users a WHERE a.unitId = m.atendidoPor) AS atendidoPorNombre,
            m.atendidoPor,
            COALESCE(u.role, 'driver') AS role
@@ -983,7 +1041,7 @@ function recentHistory(routeId, verPrivadosDe = null, persona = null) {
     todos: verPrivadosDe === '*' ? 1 : 0,
     propio: verPrivadosDe && verPrivadosDe !== '*' ? verPrivadosDe : '',
     persona: persona || '',
-  });
+  }));
 }
 
 function historyCount() {
@@ -2984,6 +3042,9 @@ function podarHistorico() {
   db.prepare('DELETE FROM correcciones_turno WHERE despuesInicio < ? AND (antesInicio IS NULL OR antesInicio < ?)')
     .run(Date.now() - TURNOS_DIAS * 86400_000, Date.now() - TURNOS_DIAS * 86400_000);
   const chat = pruneChatStmt.run({ corte: Date.now() - CHAT_DIAS * 86400_000 }).changes;
+  pruneEvidenciaStmt.run({ corte: Date.now() - SOS_DIAS * 86400_000 });
+  const mediaVieja = pruneMediaViejaStmt.run({ corte: Date.now() - MEDIA_DIAS * 86400_000 }).changes;
+  if (mediaVieja) console.log(`Historial podado: ${mediaVieja} foto(s) o nota(s) de voz de más de ${MEDIA_DIAS} días soltaron su contenido`);
   const sos = pruneSosStmt.run({ corte: Date.now() - SOS_DIAS * 86400_000 }).changes;
   const mensajesDeMas = pruneRowsStmt.run({ tope: MENSAJES_MAX_FILAS }).changes;
   if (viejas || sobrantes || tramosViejos || tramosDeMas || desviosViejos || paradasViejas || turnosViejos || chat || sos || mensajesDeMas) {
@@ -6496,7 +6557,7 @@ const INFORMES = {
     const filas = db.prepare(`
       SELECT kind, unitId, driverName, vehicleId, toVehicleId, toPersonId, routeId, text, duration,
              CASE WHEN data IS NULL OR data = '' THEN 0 ELSE 1 END AS tieneMedio,
-             timestamp
+             timestamp, evidencia, evidenciaPor, evidenciaMotivo
       FROM messages
       WHERE kind IN ('chat', 'voice', 'photo') AND timestamp BETWEEN @desde AND @hasta
         AND routeId IN ${RUTAS_DE_LA_EMPRESA}
@@ -6507,7 +6568,7 @@ const INFORMES = {
     return {
       nombre: 'mensajes',
       cabecera: ['Cuándo', 'Quién', 'Usuario', 'Unidad', 'Ruta', 'Qué', 'Para',
-                 'Texto o pie de foto', 'Duración (s)', 'El audio o la foto siguen guardados'],
+                 'Texto o pie de foto', 'Duración (s)', 'El audio o la foto siguen guardados', 'Evidencia'],
       filas: filas.map(m => [
         fechaHora(m.timestamp), m.driverName, m.unitId, m.vehicleId, m.routeId,
         QUE[m.kind] || m.kind,
@@ -6518,6 +6579,7 @@ const INFORMES = {
         m.text || '',
         m.kind === 'voice' ? (m.duration ?? '') : '',
         m.kind === 'chat' ? '' : (m.tieneMedio ? 'sí' : 'no (se podó)'),
+        m.evidencia ? `sí · ${m.evidenciaPor} · ${m.evidenciaMotivo}` : '',
       ]),
     };
   },
@@ -8888,8 +8950,8 @@ wss.on('connection', (ws) => {
         text: String(msg.text || '').slice(0, 500),
         timestamp: horaDeclarada(msg.timestamp),
       };
-      remember({ kind: 'chat', ...entry });
-      const payload = { type: 'chat_msg', role: prof.role || 'driver', ...entry };
+      const msgId = remember({ kind: 'chat', ...entry });
+      const payload = { type: 'chat_msg', role: prof.role || 'driver', msgId, ...entry };
       repartir(routeId, destino, rutaDelMensaje, payload, ws);
       if (toVehicleId || toPersonId) {
         const con = toPersonId ? `persona ${toPersonId}` : toVehicleId;
@@ -8926,8 +8988,8 @@ wss.on('connection', (ws) => {
         data,
         timestamp: horaDeclarada(msg.timestamp),
       };
-      remember({ kind: 'voice', ...entry });
-      const payload = { type: 'voice_msg', role: prof.role || 'driver', ...entry };
+      const msgId = remember({ kind: 'voice', ...entry });
+      const payload = { type: 'voice_msg', role: prof.role || 'driver', msgId, ...entry };
       repartir(routeId, destino, rutaDelMensaje, payload, ws);
     }
 
@@ -8966,8 +9028,8 @@ wss.on('connection', (ws) => {
         data,
         timestamp: horaDeclarada(msg.timestamp),
       };
-      remember({ kind: 'photo', ...entry });
-      const payload = { type: 'photo_msg', role: prof.role || 'driver', ...entry };
+      const msgId = remember({ kind: 'photo', ...entry });
+      const payload = { type: 'photo_msg', role: prof.role || 'driver', msgId, ...entry };
       repartir(routeId, destino, rutaDelMensaje, payload, ws);
     }
   };
@@ -9202,6 +9264,51 @@ function avisarPaneles(routeId, data) {
     }
   }
 }
+// Marcar (o desmarcar) un mensaje como EVIDENCIA (PENDIENTES 0.8). Un panel
+// que ve esa ruta; con motivo para marcar. Se avisa a los demás paneles.
+app.post('/admin/mensajes/:id/evidencia', requireDispatch, (req, res) => {
+  const m = db.prepare("SELECT id, kind, routeId, unitId, data, evidencia FROM messages WHERE id = ? AND kind != 'sos'")
+    .get(Number(req.params.id) || -1);
+  const prof = { role: req.dispatchUser.role, routeId: req.scope, companyId: req.empresa };
+  if (!m || !panelVeRuta(prof, m.routeId)) return res.status(404).json({ error: 'Ese mensaje no existe' });
+  const marcar = req.body?.marcar !== false;
+  const motivo = String(req.body?.motivo ?? '').trim().replace(/\s+/g, ' ').slice(0, 200);
+  if (marcar) {
+    if (motivo.length < 5) return res.status(400).json({ error: 'Escribí por qué es evidencia (al menos 5 letras): queda registrado' });
+    if ((m.kind === 'voice' || m.kind === 'photo') && !m.data) {
+      return res.status(409).json({ error: `Esa ${m.kind === 'photo' ? 'foto' : 'nota de voz'} ya expiró: no queda qué guardar` });
+    }
+    if (!m.evidencia) {
+      const ya = db.prepare(`SELECT COUNT(*) n FROM messages WHERE evidencia = 1 AND routeId IN (SELECT routeId FROM routes WHERE companyId = ?)`).get(req.empresa).n;
+      if (ya >= EVIDENCIA_MAX) return res.status(409).json({ error: `La cooperativa ya tiene ${ya} mensajes guardados como evidencia (el tope es ${EVIDENCIA_MAX}). Desmarcá los que ya no hagan falta` });
+    }
+    db.prepare('UPDATE messages SET evidencia = 1, evidenciaPor = ?, evidenciaEn = ?, evidenciaMotivo = ? WHERE id = ?')
+      .run(req.dispatchUser.unitId, Date.now(), motivo, m.id);
+  } else {
+    db.prepare('UPDATE messages SET evidencia = NULL, evidenciaPor = NULL, evidenciaEn = NULL, evidenciaMotivo = NULL WHERE id = ?').run(m.id);
+  }
+  const QUE = { chat: 'un mensaje', voice: 'una nota de voz', photo: 'una foto' };
+  audit(req.dispatchUser.unitId, marcar ? 'evidencia_marcada' : 'evidencia_desmarcada', m.unitId,
+    `${QUE[m.kind] || 'un mensaje'}${motivo ? ' · ' + motivo : ''}`, m.routeId);
+  const u = db.prepare('SELECT name, alias, driverName, unitId FROM users WHERE unitId = ?').get(req.dispatchUser.unitId);
+  const aviso = { type: 'evidencia', msgId: m.id, marcada: marcar, por: u ? displayName(u) : req.dispatchUser.unitId,
+                  motivo: marcar ? motivo : null, en: Date.now(), routeId: m.routeId };
+  avisarPaneles(m.routeId, aviso);
+  res.json({ ok: true, ...aviso });
+});
+
+// El contenido de una foto o nota de voz que no entró en el historial
+// (`aparte`, ver conPresupuesto): Despacho lo pide al tocarla.
+app.get('/admin/mensajes/:id/contenido', requireDispatch, (req, res) => {
+  const m = db.prepare("SELECT id, kind, routeId, data FROM messages WHERE id = ? AND kind IN ('voice', 'photo')")
+    .get(Number(req.params.id) || -1);
+  const prof = { role: req.dispatchUser.role, routeId: req.scope, companyId: req.empresa };
+  if (!m || !panelVeRuta(prof, m.routeId)) return res.status(404).json({ error: 'Ese mensaje no existe' });
+  if (!m.data) return res.status(410).json({ error: `Esa ${m.kind === 'photo' ? 'foto' : 'nota de voz'} ya expiró` });
+  res.set('Cache-Control', 'private, max-age=3600');
+  res.json({ msgId: m.id, data: m.data });
+});
+
 // Despacho marca ATENDIDO: queda en la base, en la Actividad, y se cierra en
 // todos los paneles. El segundo que lo marca no lo pisa: se le contesta
 // quién lo atendió primero.

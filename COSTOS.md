@@ -834,3 +834,11 @@ línea de `modelo-costos.js` (objeto `P`):
    (el piloto de 500 lo va a decir solo).
 10. **Egress a $0,05/GB** (oficial Railway). Si tu factura dice $0,10,
     todos los números de egress se duplican.
+
+**Nota del 04/11 (PENDIENTES 0.8).** Las fotos y notas de voz ahora guardan
+su contenido 30 días (antes, sólo las 20 y 30 más nuevas de todo el
+servidor), y el volumen presupuestado cuenta los 28 respaldos locales
+**enteros** (antes, base × 1,5). Con el peor caso de foto, el volumen pasa de
+1 a 7 GB en el piloto y de 1 a 157 GB a 500 unidades, y el margen a 500
+unidades baja de 93,0 % a 91,1 %. Bajar `RESPALDO_CONSERVAR` (hay copia
+afuera) o sacar las fotos del respaldo local lo devuelve casi a lo de antes.

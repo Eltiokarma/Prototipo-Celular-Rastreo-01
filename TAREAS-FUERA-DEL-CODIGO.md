@@ -187,6 +187,21 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
       lo puede hacer cualquier Despacho o sólo la gerencia, y si al chofer se
       le avisa cuando le corrigen las horas (hoy las ve corregidas en su
       perfil, sin aviso).
+- [ ] Contarles **«Guardar como evidencia»** (debajo de cada mensaje del
+      chat): la foto de un choque, la nota de voz de un pasajero agresivo.
+      Con el motivo, queda un año; sin marcar, las fotos y audios se borran a
+      los 30 días. Y que lo que ya no haga falta se desmarque (hay un techo
+      de 500 por cooperativa).
+- [ ] **Decidir el disco** (ahora que las fotos y audios se guardan 30
+      días). Cada respaldo local es una copia entera de la base y se
+      guardan 28 (una semana). En el piloto, con fotos de peor caso, eso es
+      unos 7 GB de volumen en Railway (cerca de US$ 1 al mes); a 500
+      unidades, unos 150 GB. Ahora que hay copia afuera (punto 4), una
+      opción simple es bajar `RESPALDO_CONSERVAR` a 8 (dos días en el
+      volumen; la semana entera queda afuera). Otra, que el respaldo local
+      no lleve las fotos — eso es código, pedilo si lo querés. Mientras
+      tanto, mirar el tamaño del volumen en Railway: `/salud` avisa con
+      menos de 500 MB libres.
 - [ ] Decirle a cada operador que **al empezar el turno** toque **«Activar
       alarma de SOS»** (el botón ámbar arriba) y **acepte las notificaciones**
       cuando el navegador pregunte. Mientras ese botón se vea, un SOS puede

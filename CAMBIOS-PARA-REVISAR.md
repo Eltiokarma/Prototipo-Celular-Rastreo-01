@@ -342,6 +342,96 @@ sin guardar, crear con claves que sirven para entrar, que no se duplica, las
 mismas reglas que de a uno, lo que no se puede leer, y la pantalla en
 Chromium (subir, revisar, crear y bajar las claves). **Manual:** no.
 
+## 10. La evidencia, y cuánto se guardan fotos y audios — (04/11, este parche)
+
+**Qué.**
+- **Antes**, el servidor guardaba el contenido de las **20 fotos y las 30
+  notas de voz más nuevas de todo el servidor**. Con varias cooperativas, la
+  foto de un choque se podía perder en horas por el chat de otra, y la
+  política de privacidad dice «30 días».
+- **Ahora**:
+  - Fotos y audios guardan su contenido **30 días** (`MEDIA_DIAS`). Pasado
+    eso queda la burbuja («ya no disponible») hasta que se borra el chat.
+  - El tope de cantidad (1500 fotos y 1500 audios) es **por cooperativa** y
+    es sólo un cinturón para el disco: una cooperativa no le borra nada a
+    otra.
+  - En Despacho, debajo de cada mensaje del chat (texto, foto o audio), un
+    enlace **«Guardar como evidencia»**: se escribe el motivo (obligatorio) y
+    el mensaje queda marcado con **EVIDENCIA · quién: motivo** en ámbar.
+    - Lo marcado **no pierde el contenido ni se borra** con el chat: se queda
+      **365 días**, como un SOS.
+    - Se puede **quitar** la marca. Las dos cosas quedan en la Actividad.
+    - Los otros paneles lo ven al momento.
+    - No se puede marcar sin motivo, lo que ya expiró, ni lo de otra
+      cooperativa. Hay un techo de **500** por cooperativa para que
+      «evidencia» no se vuelva la forma de guardar todo.
+  - El informe de mensajes (`mensajes.csv`) tiene una columna **Evidencia**
+    (`sí · quién · motivo`).
+  - Al conectar, cada pantalla recibe el historial del chat. Ahora lo pesado
+    que viaja ahí tiene un **presupuesto de 3 MB** (de lo más nuevo a lo más
+    viejo). Lo que no entra llega como **«cargar foto»** o **«cargar nota de
+    voz»** en Despacho y se baja al tocarlo.
+
+**Cómo.**
+- `server/index.js`:
+  - Columnas nuevas en `messages`: `evidencia`, `evidenciaPor`,
+    `evidenciaEn`, `evidenciaMotivo`.
+  - Todas las podas de mensajes excluyen `evidencia = 1`
+    (`pruneChatStmt`, `pruneRowsStmt`, `pruneMediaStmt`,
+    `pruneMediaViejaStmt`); `pruneEvidenciaStmt` la borra a los `SOS_DIAS`.
+  - `pruneMediaStmt` ahora filtra por la cooperativa del mensaje (por
+    `routes.companyId`) y `remember()` lo corre con la de la ruta.
+  - `pruneMediaViejaStmt` (dentro de `podarHistorico`, que corre al arrancar
+    y cada 6 h) suelta el contenido de lo pesado pasado `MEDIA_DIAS`.
+  - Índice parcial `idx_messages_media_viva` para que las podas de lo pesado
+    no recorran la tabla.
+  - `msgId` en `chat_msg`/`voice_msg`/`photo_msg` en vivo y en el
+    historial, con los campos de evidencia.
+  - `POST /admin/mensajes/:id/evidencia` y `GET /admin/mensajes/:id/contenido`.
+  - `conPresupuesto()` sobre `recentHistory()`.
+- `project/despacho.html`: componente `Evidencia` en la burbuja, el aviso
+  `evidencia` por WebSocket, «cargar» para lo que vino aparte, y los dos
+  rótulos nuevos en la Actividad.
+- `server/privacidad.html`: la tabla de retención separa texto, fotos y
+  audios, y evidencia.
+- `modelo-costos.js`: cuenta 30 días de fotos y audios, y el volumen cuenta
+  los **28 respaldos enteros** (antes «base × 1,5»).
+
+**Archivos.** `server/index.js`, `project/despacho.html`,
+`project/service-worker.js` (v86), `server/privacidad.html`,
+`modelo-costos.js`, `pruebas/evidencia.js` (nueva), `pruebas/poda.js` (el
+patrón que lee la consulta admite el filtro de evidencia), `PROTOCOLO.md`,
+`README.md`.
+
+**Mirar.**
+- **El disco.** Es lo más importante de este parche. Antes el contenido
+  pesado era como mucho 50 archivos; ahora es un mes. Y cada respaldo local
+  es una copia entera de la base, y se guardan 28. El modelo de costos, con
+  el peor caso de foto (1,2 MB), da: piloto 0,24 GB de base → **7 GB de
+  volumen**; 500 unidades → 157 GB. En la calle una foto de la app pesa más
+  bien 250–350 kB, o sea cerca de un cuarto de eso. Ver la decisión en
+  `TAREAS-FUERA-DEL-CODIGO.md`.
+- La app del chofer (web y nativa) muestra lo que vino `aparte` como
+  expirado. Para el chofer está bien (es lo viejo del chat), pero no es
+  cierto: sigue guardado y Despacho lo ve.
+- La evidencia se marca **sobre el mensaje**: si el chofer manda tres fotos
+  del choque, son tres marcas.
+- Desmarcar no recupera nada: si una foto marcada tenía más de 30 días, en
+  la próxima barrida (cada 6 h) pierde la imagen.
+- `pruneMediaStmt` (el tope por cantidad) sigue escrito con
+  `id NOT IN (… LIMIT @conservar)`, el patrón que `poda.js` evita en las
+  otras tablas. Acá queda acotado por el índice parcial nuevo (sólo recorre
+  lo que todavía tiene contenido, de esa cooperativa) y corre una vez por
+  foto o audio, no por mensaje. Si con muchas cooperativas se nota, pasarlo
+  al corte por rango.
+
+**Pruebas.** `evidencia` (nueva): el tope por cooperativa, la poda por
+tiempo (insertando mensajes viejos y rearrancando), las reglas de marcar, el
+historial, el aviso al otro panel, el informe, el presupuesto del historial y
+el pedido aparte, y en Chromium marcar, verlo en otro panel, quitarlo y
+cargar una foto que vino aparte. Siguen pasando `foto`, `chat`, `poda`,
+`retencion`, `privado-persona`. **Manual:** no.
+
 ---
 
 ## Para el manual (cuando toque)
@@ -355,6 +445,8 @@ Lo que todavía no está en `manual/manual.tex`:
 - Despacho → Gestión → Turnos: Corregir, Anular y Agregar un turno que faltó
   (bloque 8).
 - Despacho → Gestión → Personas → Cargar una planilla (bloque 9).
+- En el chat de Despacho: «Guardar como evidencia», el motivo y «quitar»;
+  y «cargar foto» / «cargar nota de voz» (bloque 10).
 - Para el que opera, no para el chofer: `/salud` y las alertas (bloque 4),
   y la copia afuera y cómo volver a un respaldo (bloque 5). Quizás va en un
   anexo de operación más que en el manual de uso.

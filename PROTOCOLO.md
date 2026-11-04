@@ -294,6 +294,27 @@ El canal lo dicen dos campos, y nunca vienen los dos (desde el 31/10):
 | `"M-05"` | `null` | Despacho ↔ esa **combi**: la ven los que van arriba hoy (chofer y cobrador) y los que la manejen después |
 | `null` | `"pedro"` | Despacho ↔ esa **persona**: la sigue a cualquier combi y ruta, y no la ve nadie más |
 
+Desde el 04/11 (PENDIENTES 0.8) cada `chat_msg`, `voice_msg` y `photo_msg`
+—en vivo y en el `chat_history`— trae **`msgId`**, el id del mensaje en la
+base. En el historial vienen además `evidencia` (1 o null), `evidenciaMotivo`,
+`evidenciaEn` y `evidenciaPorNombre`. Dos cosas nuevas:
+
+- **`evidencia`** (servidor → paneles), cuando un Despacho marca o desmarca
+  un mensaje con `POST /admin/mensajes/:id/evidencia` `{ marcar, motivo }`:
+
+  ```json
+  { "type": "evidencia", "msgId": 57, "marcada": true, "por": "Despacho",
+    "motivo": "Choque en la Av. Circunvalación", "en": 1793761157831, "routeId": "R-14" }
+  ```
+
+  Nunca llega a un teléfono.
+- **`aparte: 1`** en un ítem del `chat_history`: una foto o nota de voz que
+  sigue guardada pero no entró en el presupuesto del historial
+  (`HISTORIA_MEDIA_KB`, 3000 kB, de lo más nuevo a lo más viejo). Viene con
+  `data: null`; Despacho la pide con `GET /admin/mensajes/:id/contenido`
+  (`{ msgId, data }`, 410 si ya expiró). La app del chofer la muestra como
+  expirada.
+
 El `chat_history` de un chofer o cobrador trae el grupo de su ruta, el privado
 de su combi de hoy y su privado personal **de cualquier ruta**. El de
 Despacho, todo lo de la ruta que mira (los personales guardados con la ruta

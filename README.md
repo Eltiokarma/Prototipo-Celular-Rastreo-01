@@ -225,6 +225,10 @@ calle. Suite `renovacion`.
 | `SERVIDOR_NOMBRE` | Cómo se llama este servidor en las alertas (por defecto, el dominio de Railway) |
 | `DISCO_CRITICO_MB` / `DISCO_AVISO_MB` | Con menos de esto libre en el disco de la base, `/salud` da problema (100) o aviso (500) |
 | `SALUD_CADA_MS` | Cada cuánto se mira la salud solo (60 000) |
+| `MEDIA_DIAS` | A los cuántos días una foto o nota de voz suelta su contenido (30, lo que dice /privacidad); la burbuja queda hasta que se borra el chat (`CHAT_DIAS`, 30) |
+| `PHOTO_KEEP` / `VOICE_KEEP` | Techo de fotos y de notas de voz con contenido **por cooperativa** (1500 de cada una). Es el cinturón para el disco; lo normal es que mande `MEDIA_DIAS` |
+| `EVIDENCIA_MAX` | Cuántos mensajes puede tener guardados como evidencia cada cooperativa (500). La evidencia se queda `SOS_DIAS` (365) |
+| `HISTORIA_MEDIA_KB` | Cuánto de fotos y audios viaja adentro del historial que recibe cada pantalla al conectar (3000). Lo que no entra, Despacho lo carga al tocarlo |
 
 **Salud y alertas** (03/11). `GET /ping` dice que el proceso vive; `GET
 /salud` dice si está haciendo su trabajo: que la base lea y **escriba**, que

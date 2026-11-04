@@ -554,7 +554,54 @@ let SEQ_MSG = 0;
 //               ve nadie más)
 const esPrivadoPersona = (clave) => typeof clave === 'string' && clave.startsWith('p:');
 
-function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, nombres = {}, noLeidos = {}, onAbrir }) {
+// Guardar un mensaje como evidencia (PENDIENTES 0.8): la foto del choque, la
+// nota de voz de un pasajero agresivo. No se borra con el resto (queda lo
+// mismo que un SOS). Con motivo; el que lo marcó y por qué se ven en la burbuja.
+function Evidencia({ m, onEvidencia }) {
+  const [abierto, setAbierto] = React.useState(false);
+  const [motivo, setMotivo] = React.useState('');
+  const [error, setError] = React.useState(null);
+  if (!onEvidencia || m.msgId == null || m.tone === 'sos') return null;
+  const mandar = async (marcar) => {
+    setError(null);
+    try { await onEvidencia(m.msgId, marcar, motivo); setAbierto(false); setMotivo(''); }
+    catch (e) { setError(e.message); }
+  };
+  if (m.evidencia) {
+    return (
+      <div data-evidencia={m.msgId} style={{ marginTop: 6, fontSize: 11, color: HUD.ambarTinta, background: HUD.ambarFondo,
+        border: `1px solid ${HUD.ambarBorde}`, borderRadius: 6, padding: '4px 6px', lineHeight: 1.4 }}>
+        <b>EVIDENCIA</b> · {m.evidencia.por || 'Despacho'}: {m.evidencia.motivo}
+        {' '}<button onClick={() => mandar(false)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+          color: HUD.ambarTinta, textDecoration: 'underline', fontSize: 11, fontFamily: 'inherit' }}>quitar</button>
+        {error && <div>{error}</div>}
+      </div>
+    );
+  }
+  if (!abierto) {
+    return (
+      <button data-marcar-evidencia={m.msgId} onClick={() => setAbierto(true)} style={{ marginTop: 4, background: 'none', border: 'none',
+        padding: 0, cursor: 'pointer', color: HUD.dim2, fontSize: 11, textDecoration: 'underline', fontFamily: 'inherit' }}>
+        Guardar como evidencia
+      </button>
+    );
+  }
+  return (
+    <div style={{ marginTop: 6, display: 'grid', gap: 4 }}>
+      <input data-motivo-evidencia={m.msgId} value={motivo} maxLength={200} autoFocus
+        placeholder="Por qué (queda registrado): choque en la Av. Circunvalación"
+        onChange={e => setMotivo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') mandar(true); }}
+        style={{ ...campo(30), fontSize: 12 }} />
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button data-guardar-evidencia={m.msgId} onClick={() => mandar(true)} style={btnChico(HUD.fg2)}>Guardar</button>
+        <button onClick={() => { setAbierto(false); setError(null); }} style={btnChico(HUD.dim2)}>Cancelar</button>
+      </div>
+      {error && <div role="alert" style={{ fontSize: 11, color: HUD.ambarTinta }}>{error}</div>}
+    </div>
+  );
+}
+
+function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, nombres = {}, noLeidos = {}, onAbrir, onEvidencia, onCargar }) {
   const nombreDe = (clave) => esPrivadoPersona(clave) ? (nombres[clave] || clave.slice(2)) : clave;
   // La bandeja: los privados con algo sin leer, para que lo de alguien que no
   // tiene tarjeta a la vista (un cobrador, el que está en la puerta) no se
@@ -655,6 +702,10 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
                   {m.voice
                     ? (m.audio
                         ? <audio controls src={m.audio} style={{ width: 220, height: 36 }} />
+                        : m.aparte && onCargar
+                        // Vino sin contenido para no hacer pesado el
+                        // historial: se pide al tocarla
+                        ? <button data-cargar={m.msgId} onClick={() => onCargar(m.msgId)} style={btnChico(HUD.fg2)}>🎙 cargar nota de voz ({m.voice}s)</button>
                         : <span style={{ color: HUD.dim3 }}>🎙 nota de voz ({m.voice}s{m.expired ? ' · expirada' : ''})</span>)
                     : m.photo
                     ? (m.image
@@ -667,12 +718,15 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
                             </a>
                             {m.text && m.text !== 'Foto' && <div style={{ marginTop: 4 }}>{m.text}</div>}
                           </div>
+                        : m.aparte && onCargar
+                        ? <button data-cargar={m.msgId} onClick={() => onCargar(m.msgId)} style={btnChico(HUD.fg2)}>📷 cargar foto{m.text && m.text !== 'Foto' ? ` · ${m.text}` : ''}</button>
                         : <span style={{ color: HUD.dim3 }}>📷 {m.text} · ya no disponible</span>)
                     : m.text}
                 </div>
                 {sos && m.atendido && (
                   <div style={{ ...rotulo(9, HUD.dim2), marginTop: 6 }}>{m.atendido}</div>
                 )}
+                <Evidencia m={m} onEvidencia={onEvidencia} />
               </div>
             </div>
           );
@@ -4270,6 +4324,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   mover_combi: { label: 'pasó a otra ruta la combi', color: HUD.bright },
                   alta_ruta: { label: 'creó la ruta', color: HUD.green },
                   editar_identidad: { label: 'corrigió los datos de', color: HUD.bright },
+                  evidencia_marcada: { label: 'guardó como evidencia', color: HUD.amber },
+                  evidencia_desmarcada: { label: 'dejó de guardar como evidencia', color: HUD.dim },
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
                   combis: { label: 'cambió las combis que puede manejar', color: HUD.bright },
                   cambio_combi: { label: 'cambió de combi a', color: HUD.bright },
@@ -4749,10 +4805,16 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       para: m.toPersonId ? 'p:' + m.toPersonId : (m.toVehicleId || null),
       time: horaChat(m.timestamp),
       tone: 'normal',
+      // Para marcarlo como evidencia (PENDIENTES 0.8)
+      msgId: m.msgId ?? null,
+      // Sin contenido porque no entró en el historial: se pide al tocarla
+      aparte: !!m.aparte,
+      evidencia: m.evidencia ? { por: m.evidenciaPorNombre || null, motivo: m.evidenciaMotivo || '' } : null,
     };
     if (kind === 'voice') return { ...base, voice: m.duration, audio: m.data || null, expired: m.expired };
-    // La foto puede llegar sin imagen: el servidor solo conserva las últimas
-    // 20. El pie de foto se queda, para que se sepa que existió.
+    // La foto puede llegar sin imagen: expiró (más de 30 días) o no entró en
+    // el historial (`aparte`). El pie de foto se queda, para que se sepa que
+    // existió.
     if (kind === 'photo') return { ...base, photo: true, image: m.data || null, text: m.text || 'Foto' };
     return { ...base, text: m.text };
   };
@@ -4847,6 +4909,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           setSosLista(l => l.some(x => x.sosId != null && x.sosId === msg.sosId)
             ? l : [...l, { ...msg, receivedAt: Date.now() }]);
           notificarSos(msg);
+        } else if (msg.type === 'evidencia') {
+          setMessages(ms => ms.map(x => (x.msgId != null && x.msgId === msg.msgId)
+            ? { ...x, evidencia: msg.marcada ? { por: msg.por, motivo: msg.motivo } : null } : x));
         } else if (msg.type === 'sos_abiertos') {
           // Los que siguen sin atender, al conectar: el que llegó mientras
           // el panel recargaba (o estaba cerrado) vuelve a estar acá
@@ -4882,7 +4947,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           }
         } else if (msg.type === 'chat_history') {
           setMessages((msg.items || []).map(it => mapMsg(
-            { ...it, expired: (it.kind === 'voice' || it.kind === 'photo') && !it.data },
+            { ...it, expired: (it.kind === 'voice' || it.kind === 'photo') && !it.data && !it.aparte },
             it.kind
           )));
         } else if (msg.type === 'auth_error') {
@@ -5013,6 +5078,33 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
         body: JSON.stringify({ silenciarMin: minutos }),
       });
+    } catch {}
+  };
+
+  // Marcar o desmarcar un mensaje como evidencia. La burbuja se actualiza con
+  // el aviso que el servidor manda a todos los paneles (este incluido).
+  const marcarEvidencia = async (msgId, marcar, motivo) => {
+    const r = await fetch(`${HTTP_URL}/admin/mensajes/${msgId}/evidencia`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+      body: JSON.stringify({ marcar, motivo }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'No se pudo');
+    setMessages(ms => ms.map(x => (x.msgId === msgId)
+      ? { ...x, evidencia: d.marcada ? { por: d.por, motivo: d.motivo } : null } : x));
+  };
+
+  // Una foto o nota de voz que vino `aparte` (no entró en el historial)
+  const cargarContenido = async (msgId) => {
+    try {
+      const r = await fetch(`${HTTP_URL}/admin/mensajes/${msgId}/contenido`, {
+        headers: { Authorization: 'Bearer ' + session.token },
+      });
+      const d = await r.json().catch(() => ({}));
+      setMessages(ms => ms.map(x => x.msgId !== msgId ? x
+        : !r.ok ? { ...x, aparte: false, expired: true }
+        : x.voice ? { ...x, aparte: false, audio: d.data } : { ...x, aparte: false, image: d.data }));
     } catch {}
   };
 
@@ -5750,7 +5842,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         }}>
           <ChatColumn messages={messages} onSend={sendChat} routeId={routeInfo.routeId}
             privadoCon={privadoCon} onCerrarPrivado={() => setPrivadoCon(null)}
-            nombres={nombres} noLeidos={noLeidos} onAbrir={(clave) => abrirPrivado(clave)} />
+            nombres={nombres} noLeidos={noLeidos} onAbrir={(clave) => abrirPrivado(clave)}
+            onEvidencia={marcarEvidencia} onCargar={cargarContenido} />
         </div>
       </div>
 
