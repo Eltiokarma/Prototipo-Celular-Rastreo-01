@@ -5886,7 +5886,8 @@ app.get('/admin/users', requireDispatch, (req, res) => {
   // sepa quién mira. Esconderlos sería peor que mostrarlos sin botones.
   const users = db.prepare(`
     SELECT unitId, driverName, name, alias, role, routeId, vehicleId, createdAt, lastLogin,
-           appVersion, appVersionCode, todaLaRuta FROM users
+           appVersion, appVersionCode, todaLaRuta,
+           consentimientoFecha, consentimientoVersion FROM users
     WHERE companyId = @empresa
       AND (@scope IS NULL OR routeId = @scope OR role IN ('dispatch', 'manager'))
     ORDER BY CASE role WHEN 'dispatch' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END,
@@ -5906,6 +5907,8 @@ app.get('/admin/users', requireDispatch, (req, res) => {
       online: online.has(u.unitId) })),
     supervisor: !req.scope,
     scope: req.scope,
+    // La versión del formulario de consentimiento que hay que firmar hoy
+    consentimientoVigente: CONSENTIMIENTO_VERSION,
   });
 });
 
@@ -6176,6 +6179,43 @@ function cuentaEnAlcance(req, unitId) {
   }
   return { user: u };
 }
+
+// Quién firmó el consentimiento y de qué versión (PENDIENTES 0.10). Lo anota
+// Despacho cuando recibe el papel firmado: el papel lo guarda la
+// cooperativa; acá queda que existe, de cuándo es y quién lo anotó. Retirar
+// el consentimiento también se anota (y queda en la Actividad, como gestión).
+addColumnIfMissing('users', 'consentimientoFecha', 'TEXT');     // 'AAAA-MM-DD', la del papel
+addColumnIfMissing('users', 'consentimientoVersion', 'TEXT');
+addColumnIfMissing('users', 'consentimientoPor', 'TEXT');
+app.post('/admin/users/:unitId/consentimiento', requireDispatch, (req, res) => {
+  const chequeo = cuentaEnAlcance(req, req.params.unitId);
+  if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
+  if (!['driver', 'collector'].includes(chequeo.user.role || 'driver')) {
+    return res.status(400).json({ error: 'El consentimiento es de los choferes y cobradores' });
+  }
+  const firmado = req.body?.firmado !== false;
+  const { unitId, routeId } = chequeo.user;
+  if (firmado) {
+    const fecha = String(req.body?.fecha || '');
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha);
+    const d = m && new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12);
+    if (!d || d.getMonth() !== Number(m[2]) - 1 || d.getFullYear() < 2024 || d.getTime() > Date.now() + 86400_000) {
+      return res.status(400).json({ error: 'Poné la fecha en que firmó el papel: una fecha real y que no sea futura' });
+    }
+    const version = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.version || '')) ? String(req.body.version) : CONSENTIMIENTO_VERSION;
+    db.prepare('UPDATE users SET consentimientoFecha = ?, consentimientoVersion = ?, consentimientoPor = ? WHERE unitId = ?')
+      .run(fecha, version, req.dispatchUser.unitId, unitId);
+    audit(req.dispatchUser.unitId, 'consentimiento_firmado', unitId, `firmado el ${fecha} · versión ${version}`, routeId);
+  } else {
+    const motivo = String(req.body?.motivo ?? '').trim().replace(/\s+/g, ' ').slice(0, 200);
+    if (motivo.length < 5) return res.status(400).json({ error: 'Escribí por qué (al menos 5 letras): queda registrado' });
+    db.prepare('UPDATE users SET consentimientoFecha = NULL, consentimientoVersion = NULL, consentimientoPor = NULL WHERE unitId = ?').run(unitId);
+    audit(req.dispatchUser.unitId, 'consentimiento_retirado', unitId, motivo, routeId);
+  }
+  res.json({ ok: true, unitId, consentimientoFecha: firmado ? req.body.fecha : null,
+             consentimientoVersion: firmado ? (req.body.version || CONSENTIMIENTO_VERSION) : null,
+             versionVigente: CONSENTIMIENTO_VERSION });
+});
 
 // Las combis que puede manejar una persona (habilitaciones, 30/10). Se manda
 // la lista entera: { combis: [...], todaLaRuta, actual? }. `actual` cambia la
@@ -8376,6 +8416,24 @@ const PRIVACIDAD_HTML = fs.readFileSync(path.join(__dirname, 'privacidad.html'),
     || 'la administración del sistema (su cooperativa tiene el contacto)');
 app.get('/privacidad', (req, res) => {
   res.type('text/html; charset=utf-8').send(PRIVACIDAD_HTML);
+});
+
+// ─── EL CONSENTIMIENTO DEL CHOFER (PENDIENTES 0.10) ─────────
+// Un formulario para imprimir y firmar en papel: la cooperativa es la
+// responsable de los datos de su gente (Ley 29733) y es ella la que tiene
+// que poder mostrar el consentimiento firmado. Dice lo mismo que /privacidad
+// —si una cambia, la otra también— y lleva VERSIÓN: Despacho anota quién
+// firmó cuál, y si el texto cambia se sabe a quién hay que hacerle firmar
+// el nuevo. `legal/LEEME.md` explica el resto del trámite.
+const CONSENTIMIENTO_VERSION = '2026-11-04';
+const CONSENTIMIENTO_HTML = fs.readFileSync(path.join(__dirname, 'consentimiento.html'), 'utf8')
+  .replaceAll('__CONTACTO__', String(process.env.CONTACTO_PRIVACIDAD || '').trim()
+    || 'la administración del sistema (su cooperativa tiene el contacto)')
+  .replaceAll('__VERSION__', CONSENTIMIENTO_VERSION);
+app.get('/consentimiento', (req, res) => {
+  // La dirección entera de /privacidad, porque esto se imprime
+  const base = `${req.protocol}://${String(req.get('host') || '').replace(/[^a-zA-Z0-9.:-]/g, '')}`;
+  res.type('text/html; charset=utf-8').send(CONSENTIMIENTO_HTML.replaceAll('__BASE__', base));
 });
 
 // ─── LA LANDING ──────────────────────────────────────────────

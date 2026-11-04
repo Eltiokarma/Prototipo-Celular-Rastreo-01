@@ -494,6 +494,70 @@ gestión y contra la otra cooperativa, los techos y los plazos por clase
 (rearrancando), la clasificación de lo viejo, el filtro y la paginación, el
 informe y la pantalla en Chromium. **Manual:** no.
 
+## 12. Ley 29733: el consentimiento y la carpeta `legal/` — (04/11, este parche)
+
+**Qué.** El punto 10 es sobre todo trámite, así que acá hay más papeles
+que código:
+- **`legal/LEEME.md`**: quién es quién ante la ley (la cooperativa es
+  responsable de los datos de su gente; el operador es *encargado*), los
+  pasos en orden, las preguntas para el abogado, qué hacer ante una
+  filtración (48 horas para avisar a la ANPD) y la lista de proveedores.
+  Con el reglamento vigente (D.S. 016-2024-JUS), verificado el 04/11.
+- **`legal/contrato-encargo.md`**: borrador del contrato con cada
+  cooperativa. Las cláusulas técnicas (seguridad, plazos, proveedores,
+  borrado al terminar) describen lo que el sistema hace de verdad.
+- **`/consentimiento`**: el formulario para imprimir y firmar, dos carillas
+  A4. Dice lo mismo que `/privacidad`, en particular **la ubicación con la
+  pantalla apagada** y la salida a ruta automática, cada una en su propia
+  casilla. Lleva la versión, el contacto y la dirección entera de la
+  política.
+- En Despacho → Gestión → Personas, arriba de la lista: **«Consentimiento de
+  datos personales: N de M firmaron · faltan K»**. Al abrirlo:
+  - Cada chofer y cobrador, con su estado: *firmó el dd/mm/aaaa*, *falta
+    firmar*, o *firmó la versión X: falta firmar la nueva*.
+  - **Anotar firma**, con la fecha del papel.
+  - **Lo retiró**, con cómo lo pidió; el botón nombra a la persona.
+  - El enlace para abrir el formulario e imprimirlo.
+- `/privacidad`: fecha de vigencia al 4 de noviembre (cambió en los puntos 8
+  y 9) y el enlace al formulario.
+
+**Cómo.**
+- `server/consentimiento.html` (nuevo, sin scripts) y la ruta
+  `/consentimiento`, que reemplaza el contacto, la versión y la dirección
+  del servidor.
+- `CONSENTIMIENTO_VERSION` en `server/index.js`.
+- Columnas `consentimientoFecha`, `consentimientoVersion` y
+  `consentimientoPor` en `users`, y `POST /admin/users/:unitId/consentimiento`
+  con sus reglas: fecha real y no futura, sólo choferes y cobradores, sólo
+  de la propia cooperativa, el retiro con motivo.
+- Dos acciones nuevas en la Actividad (clase gestión, se guardan 2 años).
+- `PanelConsentimiento` en `project/despacho.html`.
+
+**Archivos.** `legal/LEEME.md` y `legal/contrato-encargo.md` (nuevos),
+`server/consentimiento.html` (nuevo), `server/index.js`,
+`server/privacidad.html`, `project/despacho.html`,
+`project/service-worker.js` (v88), `pruebas/consentimiento.js` (nueva),
+`README.md` (`CONTACTO_PRIVACIDAD`), `PROTOCOLO.md`.
+
+**Mirar.**
+- **Los textos legales los tiene que revisar un abogado.** Lo marcado
+  **[confirmar]** en `legal/LEEME.md` es interpretación. La duda grande: si
+  la ubicación de un trabajador necesita consentimiento o entra en la
+  excepción de la relación laboral, y que muchos choferes son socios o
+  dueños de la combi, no empleados.
+- Si se cambia `/privacidad` hay que cambiar `/consentimiento` y subir
+  `CONSENTIMIENTO_VERSION`. Hoy eso depende de acordarse: está escrito en
+  los comentarios de los dos archivos, pero ninguna prueba compara los
+  plazos de uno con los del otro.
+- Retirar el consentimiento **no apaga nada**: lo anota. Qué hace la
+  cooperativa después es decisión de ella.
+- Faltante de código que apareció: **bajar todo lo de una persona**
+  (derechos de acceso y portabilidad). Quedó como PENDIENTES 0.14.
+
+**Pruebas.** `consentimiento` (nueva): el formulario, las reglas del
+registro, la Actividad, el panel en Chromium (contar, anotar, versión vieja,
+retiro) y que el formulario se lea en un teléfono. **Manual:** no.
+
 ---
 
 ## Para el manual (cuando toque)
@@ -511,6 +575,8 @@ Lo que todavía no está en `manual/manual.tex`:
   y «cargar foto» / «cargar nota de voz» (bloque 10).
 - Despacho → Gestión → Actividad: los botones de tipo y «Ver más viejos», y
   cuánto se guarda cada cosa (bloque 11).
+- Despacho → Gestión → Personas: el consentimiento de datos personales,
+  anotar la firma y el retiro; y cómo imprimir el formulario (bloque 12).
 - Para el que opera, no para el chofer: `/salud` y las alertas (bloque 4),
   y la copia afuera y cómo volver a un respaldo (bloque 5). Quizás va en un
   anexo de operación más que en el manual de uso.

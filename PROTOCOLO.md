@@ -713,6 +713,16 @@ Y desde el 04/11 (PENDIENTES 0.9), `GET /admin/audit` acepta
 atrás); cada evento trae `id` y `clase`, y la respuesta `hayMas` y `plazos`
 (los días de cada clase).
 
+Y la Ley 29733 (PENDIENTES 0.10, 04/11): `GET /consentimiento` sirve el
+formulario para imprimir (público, sin scripts). `GET /admin/users` trae en
+cada persona `consentimientoFecha` y `consentimientoVersion`, y
+`consentimientoVigente` (la versión que hay que firmar hoy).
+`POST /admin/users/:unitId/consentimiento` anota la firma
+`{ firmado: true, fecha: 'AAAA-MM-DD' }` o el retiro
+`{ firmado: false, motivo }`; sólo choferes y cobradores de la propia
+cooperativa, y queda en la Actividad (`consentimiento_firmado` /
+`consentimiento_retirado`, clase gestión).
+
 ## 4quater. Tráfico: `parado`, `trafico` (WS) y `POST /trafico`
 
 Dos cosas, y viajan juntas en cada unidad del `state`:

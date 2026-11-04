@@ -943,3 +943,12 @@ bloque 11**. Para el repaso, lo central: la lista `CLASE_AUDIT` de
 techo por rango (`auditTechoStmt`) que reemplaza al `NOT IN`, y la
 clasificación de lo viejo al arrancar.
 
+## Tanda 25 — Ley 29733: el consentimiento y la carpeta `legal/` (04/11, sin repasar)
+
+El punto 0.10 de PENDIENTES (preparado: el trámite es fuera del código). El
+detalle está en **`CAMBIOS-PARA-REVISAR.md`, bloque 12**. Para el repaso:
+que `server/consentimiento.html` diga lo mismo que `server/privacidad.html`
+(los plazos, sobre todo), `CONSENTIMIENTO_VERSION` y el endpoint del registro
+en `server/index.js`, y `PanelConsentimiento` en `project/despacho.html`. Los
+textos de `legal/` no son código: los revisa un abogado.
+

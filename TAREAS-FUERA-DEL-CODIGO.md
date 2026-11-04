@@ -228,7 +228,17 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
 - [ ] **El dominio propio** antes de repartir la APK a muchos teléfonos: la
       dirección del servidor queda compilada adentro (los pasos están en
       `DOMINIO.md`).
-- [ ] **Ley 29733 (datos personales)**: inscribir el banco de datos ante la
+- [ ] **Ley 29733 (datos personales)** — ahora con todo preparado en
+      **`legal/LEEME.md`** (pasos en orden y las preguntas para el abogado),
+      `legal/contrato-encargo.md` (borrador) y el formulario para imprimir en
+      `/consentimiento`. Lo tuyo, en orden: (1) una reunión con un abogado
+      con esa carpeta; (2) que cada cooperativa inscriba su banco de datos en
+      gob.pe (gratis desde 2025; ofrecé llenarle el formulario); (3) firmar
+      el contrato de encargo con cada una; (4) que cada chofer y cobrador
+      firme el consentimiento y Despacho lo anote en Personas; (5) tener
+      listo qué hacer si hay una filtración: **48 horas** para avisar a la
+      ANPD. Lo de abajo es el texto viejo de esta tarea:
+- [ ] ~~**Ley 29733 (datos personales)**~~: inscribir el banco de datos ante la
       ANPD, el consentimiento por escrito del chofer (la ubicación con la
       pantalla apagada) y el contrato de encargado con cada cooperativa
       (PENDIENTES 0.10). Conviene con un abogado.

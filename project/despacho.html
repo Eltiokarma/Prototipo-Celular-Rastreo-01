@@ -1491,6 +1491,90 @@ function Pie({ children }) {
   );
 }
 
+// El consentimiento firmado de cada chofer y cobrador (Ley 29733,
+// PENDIENTES 0.10). El papel lo guarda la cooperativa; acá se anota que
+// existe, de qué fecha y de qué versión del formulario. Si el formulario
+// cambia de versión, los que firmaron la vieja vuelven a figurar.
+function PanelConsentimiento({ users, vigente, api, run, busy }) {
+  const [abierto, setAbierto] = React.useState(false);
+  const [fechas, setFechas] = React.useState({});
+  const [retiro, setRetiro] = React.useState(null);      // { unitId, motivo }
+  const hoyIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const gente = (users || []).filter(u => u.role === 'driver' || u.role === 'collector' || !u.role);
+  const estado = (u) => !u.consentimientoFecha ? 'falta' : (vigente && u.consentimientoVersion !== vigente) ? 'vieja' : 'ok';
+  const faltan = gente.filter(u => estado(u) !== 'ok').length;
+  const nombre = (u) => u.alias || u.name || u.driverName || u.unitId;
+  const fecha = (iso) => iso ? iso.split('-').reverse().join('/') : '';
+  if (!gente.length) return null;
+  return (
+    <div data-consentimiento style={{ marginBottom: 14, border: `1px solid ${faltan ? HUD.ambarBorde : HUD.line}`,
+      background: faltan ? HUD.ambarFondo : HUD.surface, borderRadius: 10, padding: '10px 12px' }}>
+      <button data-consentimiento-abrir onClick={() => setAbierto(a => !a)} aria-expanded={abierto}
+        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
+          fontSize: 13, fontWeight: 700, color: faltan ? HUD.ambarTinta : HUD.fg2, textAlign: 'left' }}>
+        Consentimiento de datos personales: {gente.length - faltan} de {gente.length} firmaron
+        {faltan ? ` · faltan ${faltan}` : ''} {abierto ? '▴' : '▾'}
+      </button>
+      {abierto && (<div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 12, color: HUD.fg2, lineHeight: 1.5, marginBottom: 10 }}>
+          Cada chofer y cobrador firma en papel el formulario
+          {' '}<a href={`${HTTP_URL}/consentimiento`} target="_blank" rel="noreferrer" style={{ color: HUD.bright }}>(abrir para imprimir)</a>.
+          {' '}La cooperativa guarda el original y le da una copia. Acá se anota la fecha del papel.
+          {vigente && <> Versión vigente del formulario: <strong>{vigente}</strong>.</>}
+        </div>
+        {gente.map(u => {
+          const e = estado(u);
+          return (
+            <div key={u.unitId} data-consentimiento-de={u.unitId} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center',
+              gap: 8, padding: '6px 0', borderTop: `1px solid ${HUD.hueco}` }}>
+              <span style={{ flex: '1 1 180px', fontSize: 13, color: HUD.fg, minWidth: 0 }}>
+                <strong>{nombre(u)}</strong> <span style={{ color: HUD.dim3 }}>{u.unitId}</span>
+              </span>
+              <span data-estado={e} style={{ fontSize: 12, fontWeight: 700,
+                color: e === 'ok' ? HUD.verdeTinta : HUD.ambarTinta }}>
+                {e === 'ok' ? `firmó el ${fecha(u.consentimientoFecha)}`
+                  : e === 'vieja' ? `firmó la versión ${u.consentimientoVersion}: falta firmar la nueva`
+                  : 'falta firmar'}
+              </span>
+              {e !== 'ok' && (<>
+                <input type="date" data-fecha-consentimiento={u.unitId} value={fechas[u.unitId] || hoyIso()} max={hoyIso()}
+                  onChange={ev => setFechas(f => ({ ...f, [u.unitId]: ev.target.value }))}
+                  aria-label={`Fecha en que firmó ${nombre(u)}`} style={{ ...campo(30), fontSize: 12, width: 150 }} />
+                <button data-anotar-consentimiento={u.unitId} disabled={busy}
+                  onClick={() => run(() => api(`/admin/users/${encodeURIComponent(u.unitId)}/consentimiento`, {
+                    method: 'POST', body: JSON.stringify({ firmado: true, fecha: fechas[u.unitId] || hoyIso() }),
+                  }), `Anotado: ${nombre(u)} firmó el consentimiento`)}
+                  style={btnChico(HUD.fg2)}>Anotar firma</button>
+              </>)}
+              {e === 'ok' && retiro?.unitId !== u.unitId && (
+                <button data-retiro-consentimiento={u.unitId} onClick={() => setRetiro({ unitId: u.unitId, motivo: '' })}
+                  style={{ ...btnChico(HUD.dim2), fontWeight: 400 }}>Lo retiró</button>
+              )}
+              {retiro?.unitId === u.unitId && (
+                <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexBasis: '100%' }}>
+                  <input data-motivo-retiro={u.unitId} value={retiro.motivo} maxLength={200}
+                    placeholder="Cómo lo pidió (queda registrado): carta del 05/11"
+                    onChange={ev => setRetiro(r => ({ ...r, motivo: ev.target.value }))}
+                    style={{ ...campo(30), fontSize: 12, flex: '1 1 240px' }} />
+                  <button data-confirmar-retiro={u.unitId} disabled={busy}
+                    onClick={() => run(async () => {
+                      await api(`/admin/users/${encodeURIComponent(u.unitId)}/consentimiento`, {
+                        method: 'POST', body: JSON.stringify({ firmado: false, motivo: retiro.motivo }),
+                      });
+                      setRetiro(null);
+                    }, `Anotado: ${nombre(u)} retiró su consentimiento`)}
+                    style={btnChico(HUD.ambarTinta, HUD.ambarBorde)}>Anotar que {nombre(u)} lo retiró</button>
+                  <button onClick={() => setRetiro(null)} style={btnChico(HUD.dim2)}>Cancelar</button>
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>)}
+    </div>
+  );
+}
+
 function Vacio({ children }) {
   return <div style={{ padding: '18px 14px', fontSize: 14, color: HUD.dim3 }}>{children}</div>;
 }
@@ -1669,6 +1753,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   const [tab, setTab] = React.useState('users'); // users | vehicles | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
   const [events, setEvents] = React.useState(null);
+  const [consentVigente, setConsentVigente] = React.useState(null);
   // La Actividad por tipo (PENDIENTES 0.9): '' = todo
   const [claseAudit, setClaseAudit] = React.useState('');
   const [auditMas, setAuditMas] = React.useState(false);
@@ -1775,7 +1860,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   };
 
   const load = () => api('/admin/users')
-    .then(d => { setUsers(d.users); })
+    .then(d => { setUsers(d.users); setConsentVigente(d.consentimientoVigente || null); })
     .catch(e => setError(e.message));
 
   // `antes`: el id del último que se ve, para seguir hacia atrás
@@ -2346,6 +2431,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 </div>
               )}
 
+              <PanelConsentimiento users={users} vigente={consentVigente} api={api} run={run} busy={busy} />
               {!users && <Vacio>Cargando…</Vacio>}
               {users && (() => {
                 const q = filter.trim().toLowerCase();
@@ -4347,6 +4433,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   editar_identidad: { label: 'corrigió los datos de', color: HUD.bright },
                   evidencia_marcada: { label: 'guardó como evidencia', color: HUD.amber },
                   evidencia_desmarcada: { label: 'dejó de guardar como evidencia', color: HUD.dim },
+                  // Ley 29733 (PENDIENTES 0.10)
+                  consentimiento_firmado: { label: 'anotó el consentimiento firmado de', color: HUD.green },
+                  consentimiento_retirado: { label: 'anotó que retiró su consentimiento', color: HUD.amber },
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
                   combis: { label: 'cambió las combis que puede manejar', color: HUD.bright },
                   cambio_combi: { label: 'cambió de combi a', color: HUD.bright },
