@@ -432,7 +432,7 @@ el pedido aparte, y en Chromium marcar, verlo en otro panel, quitarlo y
 cargar una foto que vino aparte. Siguen pasando `foto`, `chat`, `poda`,
 `retencion`, `privado-persona`. **Manual:** no.
 
-## 11. La auditoría por tipo — (04/11, este parche)
+## 11. La auditoría por tipo — `7e54e25` (04/11)
 
 **Qué.**
 - **Antes**, la auditoría (la Actividad de Despacho) guardaba **1000
