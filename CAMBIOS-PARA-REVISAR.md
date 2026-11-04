@@ -432,6 +432,68 @@ el pedido aparte, y en Chromium marcar, verlo en otro panel, quitarlo y
 cargar una foto que vino aparte. Siguen pasando `foto`, `chat`, `poda`,
 `retencion`, `privado-persona`. **Manual:** no.
 
+## 11. La auditoría por tipo — (04/11, este parche)
+
+**Qué.**
+- **Antes**, la auditoría (la Actividad de Despacho) guardaba **1000
+  movimientos por cooperativa**, todos juntos. Con 20 combis, los inicios de
+  sesión y los desvíos que anota el sistema solo llenan eso en días, y se
+  llevaban puestas las altas, las bajas y los cambios de clave: justo lo que
+  hay que poder contestar meses después.
+- **Ahora** cada movimiento tiene un **tipo**, y cada tipo su plazo y su
+  techo por cooperativa:
+
+  | Tipo | Qué | Plazo | Techo |
+  |---|---|---|---|
+  | **Accesos** | inicios de sesión, bloqueos por intentos, entrar con la cooperativa suspendida | 90 días | 20 000 |
+  | **Operación** | desvíos, vueltas parciales, entradas tardías, GPS falso, SOS y SOS atendido, relevos, cambios de combi, grabaciones, avisos vistos | 365 días | 50 000 |
+  | **Gestión** | todo lo demás: altas, bajas, claves, correcciones de horas, evidencia, configuración de la ruta y de la empresa | 730 días | 20 000 |
+
+- Una acción **que nadie clasificó** (una nueva que se agregue mañana) es
+  **gestión**: se guarda de más, nunca de menos.
+- En Despacho → Gestión → **Actividad**: botones **Todo / Gestión /
+  Operación / Accesos**, **«Ver más viejos»** (de a 100) y el pie dice
+  cuánto se guarda cada tipo.
+- El informe *Actividad de administración* (CSV) tiene la columna **Tipo**.
+- `/privacidad` lo dice.
+
+**Cómo.**
+- `server/index.js`:
+  - Columna `clase` en `audit` e índice `(companyId, clase, id)`.
+  - `CLASE_AUDIT` (qué acción es qué) y `AUDIT_CLASES` (plazo y techo, por
+    variables de entorno).
+  - Al arrancar, lo que estaba sin clase se clasifica una vez.
+  - `audit()` guarda la clase y corta el techo **de esa clase** por rango
+    (`auditTechoStmt`). Antes era un `id NOT IN (…)` que recorría los 1000
+    de la empresa en cada movimiento.
+  - `podarHistorico()` borra cada clase pasado su plazo.
+  - `GET /admin/audit` acepta `?clase=` y `?antes=<id>`, y devuelve `id`,
+    `clase`, `hayMas` y `plazos`.
+- `project/despacho.html`: botones de tipo, «Ver más viejos» y el pie.
+- `modelo-costos.js`: la auditoría ocupa hasta los tres techos (unos 18 MB
+  por cooperativa en el peor caso).
+
+**Archivos.** `server/index.js`, `project/despacho.html`,
+`project/service-worker.js` (v87), `server/privacidad.html`,
+`modelo-costos.js`, `pruebas/auditoria.js` (nueva), `README.md`,
+`PROTOCOLO.md`, `LIMITACIONES.md`.
+
+**Mirar.**
+- **La lista de qué es qué** (`CLASE_AUDIT`). La decisión discutible: el
+  **SOS** quedó en operación (365 días, lo mismo que el mensaje del SOS), no
+  en gestión. Y *cerrar todas sus sesiones* o *cambié mi clave* quedaron en
+  gestión, aunque los haga el propio chofer.
+- Fue una tabla con un tipo y no dos tablas (la otra opción del pendiente):
+  así todo lo que ya lee la auditoría —la Actividad, el informe, las
+  entradas tardías del informe por unidad— sigue andando sin cambios.
+- El creador sigue escribiendo en su casillero (`__plataforma__`) con las
+  mismas clases: sus inicios de sesión se van a los 90 días.
+
+**Pruebas.** `auditoria` (nueva): la ráfaga de inicios de sesión contra la
+gestión y contra la otra cooperativa, los techos y los plazos por clase
+(rearrancando), la clasificación de lo viejo, el filtro y la paginación, el
+informe y la pantalla en Chromium. **Manual:** no.
+
 ---
 
 ## Para el manual (cuando toque)
@@ -447,6 +509,8 @@ Lo que todavía no está en `manual/manual.tex`:
 - Despacho → Gestión → Personas → Cargar una planilla (bloque 9).
 - En el chat de Despacho: «Guardar como evidencia», el motivo y «quitar»;
   y «cargar foto» / «cargar nota de voz» (bloque 10).
+- Despacho → Gestión → Actividad: los botones de tipo y «Ver más viejos», y
+  cuánto se guarda cada cosa (bloque 11).
 - Para el que opera, no para el chofer: `/salud` y las alertas (bloque 4),
   y la copia afuera y cómo volver a un respaldo (bloque 5). Quizás va en un
   anexo de operación más que en el manual de uso.

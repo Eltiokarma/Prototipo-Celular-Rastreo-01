@@ -179,7 +179,7 @@ function modelo(esc) {
     Math.min(u * P.fotosPorUnidadDia * 30, esc.coops * 1500) * fila.foto +
     u * P.desviosPorUnidadDia * fila.desvio * 120 +
     u * 1.5 * fila.shift * 365 +                            // shifts no se podan hoy
-    esc.coops * 1000 * fila.audit                           // AUDIT_POR_EMPRESA
+    esc.coops * (20_000 + 50_000 + 20_000) * fila.audit     // techos por clase de auditoría (0.9), peor caso
   ) / GB;
 
   // ── egress mensual del backend (GB) ──

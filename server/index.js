@@ -1573,7 +1573,55 @@ ligarAEmpresa('audit', true);
 // con varias cooperativas en el mismo servidor la más movida le borraba la
 // auditoría a las demás: el registro de quién tocó qué es justamente lo que
 // no puede depender de cuánto trabaja el vecino.
-const AUDIT_POR_EMPRESA = 1000;
+//
+// Y desde el 04/11 (PENDIENTES 0.9), POR CLASE. Eran 1000 movimientos por
+// empresa, todos en la misma bolsa: con 20 combis, los inicios de sesión y
+// los desvíos que anota el sistema solo llenan eso en días, y se llevaban
+// puestas las altas, las bajas y los cambios de clave —lo que una auditoría
+// existe para poder contestar meses después—. Ahora cada movimiento tiene
+// una clase, y cada clase su plazo y su techo:
+//
+//   acceso     inicios de sesión y bloqueos              90 días
+//   operacion  lo de la calle: desvíos, SOS, relevos…   365 días (como el SOS)
+//   gestion    altas, bajas, claves, correcciones,      730 días
+//              configuración, evidencia
+//
+// Lo que no está en ninguna lista es GESTIÓN: una acción nueva que alguien
+// se olvidó de clasificar se guarda de más, nunca de menos.
+const CLASE_AUDIT = {};
+for (const a of ['login', 'login_bloqueado', 'login_empresa_inactiva', 'creador_login', 'creador_bloqueo'])
+  CLASE_AUDIT[a] = 'acceso';
+for (const a of ['desvio', 'vuelta_parcial', 'entrada_tardia', 'gps_simulado', 'gps_sospechoso',
+                 'salio_solo', 'relevo', 'cambio_combi', 'sos', 'sos_atendido', 'grabacion',
+                 'grabacion_pedida', 'grabacion_pedido_cancelado', 'aviso_visto'])
+  CLASE_AUDIT[a] = 'operacion';
+const claseDeAudit = (action) => CLASE_AUDIT[action] || 'gestion';
+const AUDIT_CLASES = {
+  acceso:    { dias: Number(process.env.AUDIT_ACCESO_DIAS || 90),     tope: Number(process.env.AUDIT_ACCESO_MAX || 20_000) },
+  operacion: { dias: Number(process.env.AUDIT_OPERACION_DIAS || 365), tope: Number(process.env.AUDIT_OPERACION_MAX || 50_000) },
+  gestion:   { dias: Number(process.env.AUDIT_GESTION_DIAS || 730),   tope: Number(process.env.AUDIT_GESTION_MAX || 20_000) },
+};
+addColumnIfMissing('audit', 'clase', 'TEXT');
+{
+  // Lo que ya estaba, clasificado una vez
+  const sinClase = db.prepare('SELECT COUNT(*) n FROM audit WHERE clase IS NULL').get().n;
+  if (sinClase) {
+    const poner = db.prepare('UPDATE audit SET clase = ? WHERE clase IS NULL AND action = ?');
+    db.transaction(() => {
+      for (const [a, c] of Object.entries(CLASE_AUDIT)) poner.run(c, a);
+      db.prepare("UPDATE audit SET clase = 'gestion' WHERE clase IS NULL").run();
+    })();
+  }
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_audit_empresa_clase ON audit (companyId, clase, id)');
+// El techo se corta por RANGO, como en `messages` y `laps` (ver
+// podarHistorico): con `NOT IN` cada movimiento recorría los 20 000 de su
+// clase para borrar casi siempre nada.
+const auditTechoStmt = db.prepare(`
+  DELETE FROM audit WHERE companyId IS @empresa AND clase = @clase AND id <= (
+    SELECT id FROM audit WHERE companyId IS @empresa AND clase = @clase ORDER BY id DESC LIMIT 1 OFFSET @tope
+  )`);
+const auditPlazoStmt = db.prepare('DELETE FROM audit WHERE clase = @clase AND timestamp < @corte');
 
 function audit(actor, action, target, detail, routeId, companyId) {
   try {
@@ -1590,13 +1638,10 @@ function audit(actor, action, target, detail, routeId, companyId) {
       || (plataforma ? EMPRESA_PLATAFORMA
           : db.prepare('SELECT companyId FROM users WHERE unitId = ?').get(actor)?.companyId)
       || null;
-    db.prepare('INSERT INTO audit (actor, action, target, detail, routeId, companyId, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(actor, action, target || null, detail || null, routeId || null, empresa, Date.now());
-    db.prepare(`
-      DELETE FROM audit
-       WHERE companyId IS @empresa
-         AND id NOT IN (SELECT id FROM audit WHERE companyId IS @empresa ORDER BY id DESC LIMIT @tope)
-    `).run({ empresa, tope: AUDIT_POR_EMPRESA });
+    const clase = claseDeAudit(action);
+    db.prepare('INSERT INTO audit (actor, action, target, detail, routeId, companyId, clase, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(actor, action, target || null, detail || null, routeId || null, empresa, clase, Date.now());
+    auditTechoStmt.run({ empresa, clase, tope: AUDIT_CLASES[clase].tope });
   } catch (e) {
     console.error('No se pudo auditar:', e.message);
     salud.anotarFallaDeBase(e);
@@ -2957,7 +3002,7 @@ const DESVIOS_DIAS = Number(process.env.DESVIOS_DIAS || LAPS_DIAS);
 
 // Los TURNOS eran la única tabla de historial sin poda, y por eso crecían
 // para siempre: todo lo demás tiene retención —vueltas y tramos 120 días,
-// desvíos 120, chat 30, SOS 365, auditoría 1000 por empresa— y ésta se
+// desvíos 120, chat 30, SOS 365, auditoría 90/365/730 según la clase— y ésta se
 // escapó. Apareció midiendo la escala (`herramientas/escala.js`): a 2000
 // unidades son ~320 000 filas a los 120 días y siguen sumando.
 //
@@ -3046,6 +3091,11 @@ function podarHistorico() {
   const mediaVieja = pruneMediaViejaStmt.run({ corte: Date.now() - MEDIA_DIAS * 86400_000 }).changes;
   if (mediaVieja) console.log(`Historial podado: ${mediaVieja} foto(s) o nota(s) de voz de más de ${MEDIA_DIAS} días soltaron su contenido`);
   const sos = pruneSosStmt.run({ corte: Date.now() - SOS_DIAS * 86400_000 }).changes;
+  // La auditoría, cada clase con su plazo (PENDIENTES 0.9)
+  let auditViejo = 0;
+  for (const [clase, { dias }] of Object.entries(AUDIT_CLASES))
+    auditViejo += auditPlazoStmt.run({ clase, corte: Date.now() - dias * 86400_000 }).changes;
+  if (auditViejo) console.log(`Historial podado: ${auditViejo} movimiento(s) de auditoría pasados de su plazo`);
   const mensajesDeMas = pruneRowsStmt.run({ tope: MENSAJES_MAX_FILAS }).changes;
   if (viejas || sobrantes || tramosViejos || tramosDeMas || desviosViejos || paradasViejas || turnosViejos || chat || sos || mensajesDeMas) {
     console.log(`Historial podado: ${viejas + sobrantes} vuelta(s), ${tramosViejos + tramosDeMas} tramo(s), ` +
@@ -6245,15 +6295,27 @@ app.delete('/admin/users/:unitId', requireDispatch, (req, res) => {
   res.json({ ok: true });
 });
 
-// Últimos movimientos: logins, altas, resets, bajas y SOS
+// Últimos movimientos: logins, altas, resets, bajas y SOS. Desde 0.9 se
+// filtran por clase (`?clase=gestion`: lo que hay que poder contestar meses
+// después, sin los logins de por medio) y se pagina hacia atrás
+// (`?antes=<id>`, el `id` del último que se recibió).
+const POR_PAGINA_AUDIT = 100;
 app.get('/admin/audit', requireDispatch, (req, res) => {
+  const clase = AUDIT_CLASES[req.query.clase] ? req.query.clase : null;
+  const antes = Number(req.query.antes) || null;
   const events = db.prepare(`
-    SELECT actor, action, target, detail, routeId, timestamp FROM audit
+    SELECT id, actor, action, target, detail, routeId, clase, timestamp FROM audit
     WHERE companyId = @empresa
       AND (@scope IS NULL OR routeId = @scope)
-    ORDER BY id DESC LIMIT 100
-  `).all({ empresa: req.empresa, scope: req.scope });
-  res.json({ events });
+      AND (@clase IS NULL OR clase = @clase)
+      AND (@antes IS NULL OR id < @antes)
+    ORDER BY id DESC LIMIT ${POR_PAGINA_AUDIT + 1}
+  `).all({ empresa: req.empresa, scope: req.scope, clase, antes });
+  const hayMas = events.length > POR_PAGINA_AUDIT;
+  res.json({
+    events: events.slice(0, POR_PAGINA_AUDIT), hayMas,
+    plazos: Object.fromEntries(Object.entries(AUDIT_CLASES).map(([c, v]) => [c, v.dias])),
+  });
 });
 
 // ─── AVISOS DEL NIVEL DE ARRIBA ──────────────────────────────
@@ -6714,18 +6776,19 @@ const INFORMES = {
   // hay movimientos que no cuelgan de ninguna ruta, como un login.
   actividad: (filtro) => {
     const filas = db.prepare(`
-      SELECT actor, action, target, detail, routeId, timestamp
+      SELECT actor, action, target, detail, routeId, clase, timestamp
       FROM audit
       WHERE timestamp BETWEEN @desde AND @hasta
         AND companyId = @empresa
         AND (@ruta IS NULL OR routeId = @ruta)
       ORDER BY timestamp
     `).all(filtro);
+    const TIPO = { acceso: 'Acceso', operacion: 'Operación', gestion: 'Gestión' };
     return {
       nombre: 'actividad',
-      cabecera: ['Cuándo', 'Quién', 'Qué hizo', 'Sobre', 'Detalle', 'Ruta'],
+      cabecera: ['Cuándo', 'Quién', 'Qué hizo', 'Sobre', 'Detalle', 'Ruta', 'Tipo'],
       filas: filas.map(e => [
-        fechaHora(e.timestamp), e.actor, e.action, e.target, e.detail, e.routeId,
+        fechaHora(e.timestamp), e.actor, e.action, e.target, e.detail, e.routeId, TIPO[e.clase] || e.clase,
       ]),
     };
   },

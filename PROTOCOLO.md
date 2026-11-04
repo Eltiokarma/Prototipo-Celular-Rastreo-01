@@ -708,6 +708,11 @@ entero, presencia incluida**. Es el `POST /gps` que venía en vuelo con
 `presencia: 'ruta'` y llegó después del «fuera»: sin esto volvía a poner en
 el mapa a una combi que acababa de irse.
 
+Y desde el 04/11 (PENDIENTES 0.9), `GET /admin/audit` acepta
+`?clase=acceso|operacion|gestion` y `?antes=<id>` (páginas de 100, hacia
+atrás); cada evento trae `id` y `clase`, y la respuesta `hayMas` y `plazos`
+(los días de cada clase).
+
 ## 4quater. Tráfico: `parado`, `trafico` (WS) y `POST /trafico`
 
 Dos cosas, y viajan juntas en cada unidad del `state`:

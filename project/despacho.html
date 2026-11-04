@@ -1669,6 +1669,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   const [tab, setTab] = React.useState('users'); // users | vehicles | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
   const [events, setEvents] = React.useState(null);
+  // La Actividad por tipo (PENDIENTES 0.9): '' = todo
+  const [claseAudit, setClaseAudit] = React.useState('');
+  const [auditMas, setAuditMas] = React.useState(false);
+  const [plazosAudit, setPlazosAudit] = React.useState(null);
   const [metrics, setMetrics] = React.useState(null);
   const [routeList, setRouteList] = React.useState(routes || []);
   const [vehicles, setVehicles] = React.useState(null);
@@ -1774,8 +1778,14 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
     .then(d => { setUsers(d.users); })
     .catch(e => setError(e.message));
 
-  const loadAudit = () => api('/admin/audit')
-    .then(d => { setEvents(d.events); })
+  // `antes`: el id del último que se ve, para seguir hacia atrás
+  const loadAudit = (clase = claseAudit, antes = null) => api(
+      '/admin/audit?' + new URLSearchParams({ ...(clase ? { clase } : {}), ...(antes ? { antes } : {}) }))
+    .then(d => {
+      setEvents(ev => antes ? [...(ev || []), ...d.events] : d.events);
+      setAuditMas(!!d.hayMas);
+      if (d.plazos) setPlazosAudit(d.plazos);
+    })
     .catch(e => setError(e.message));
 
   // El período del cuadro por unidad. Abre en 7 días como el resto del panel:
@@ -4313,6 +4323,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
 
             {/* ─── ACTIVIDAD ────────────────────────────────────── */}
             {tab === 'audit' && (<div>
+              {/* Por tipo: lo de gestión (altas, bajas, claves) no tiene
+                  que buscarse entre cien inicios de sesión */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {[['', 'Todo'], ['gestion', 'Gestión'], ['operacion', 'Operación'], ['acceso', 'Accesos']].map(([c, nombre]) => (
+                  <button key={c || 'todo'} data-clase-audit={c || 'todo'} aria-pressed={claseAudit === c}
+                    onClick={() => { setClaseAudit(c); setEvents(null); loadAudit(c); }}
+                    style={btnChico(claseAudit === c ? HUD.fg : HUD.dim2, claseAudit === c ? HUD.fg2 : HUD.line)}>
+                    {nombre}
+                  </button>
+                ))}
+              </div>
               {!events && <Vacio>Cargando…</Vacio>}
               {events && events.length === 0 && <Vacio>Sin actividad registrada.</Vacio>}
               {events && events.length > 0 && (() => {
@@ -4392,10 +4413,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   </Tabla>
                 );
               })()}
+              {events && auditMas && (
+                <button data-audit-mas onClick={() => loadAudit(claseAudit, events[events.length - 1]?.id)}
+                  style={{ ...btnChico(HUD.fg2), marginTop: 8 }}>Ver más viejos</button>
+              )}
               <Pie>
-                Últimos 100 movimientos de <strong>esta</strong> cooperativa: logins,
-                altas, resets de clave, bajas y SOS. El registro guarda hasta 1000
-                eventos por cooperativa en la base.
+                Movimientos de <strong>esta</strong> cooperativa, del más nuevo al más viejo.
+                Se guardan según el tipo: <strong>gestión</strong> (altas, bajas, claves,
+                correcciones, configuración) {plazosAudit ? plazosAudit.gestion : 730} días;
+                {' '}<strong>operación</strong> (desvíos, SOS, relevos) {plazosAudit ? plazosAudit.operacion : 365};
+                {' '}<strong>accesos</strong> (inicios de sesión) {plazosAudit ? plazosAudit.acceso : 90}.
+                Para un período entero, el informe <em>Actividad de administración</em>.
               </Pie>
             </div>)}
 

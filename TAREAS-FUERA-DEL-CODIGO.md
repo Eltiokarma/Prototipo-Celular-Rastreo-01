@@ -202,6 +202,12 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
       no lleve las fotos — eso es código, pedilo si lo querés. Mientras
       tanto, mirar el tamaño del volumen en Railway: `/salud` avisa con
       menos de 500 MB libres.
+- [ ] **Mirar la lista de qué movimiento es de qué tipo** en la auditoría
+      (está en `CAMBIOS-PARA-REVISAR.md`, bloque 11) y decir si algo va en
+      otro lado. En particular: el SOS quedó con 365 días; si la cooperativa
+      o un abogado quieren el registro de los SOS por más tiempo, se pasa a
+      «gestión» (2 años). Y confirmar que 2 años alcanzan para altas, bajas y
+      claves.
 - [ ] Decirle a cada operador que **al empezar el turno** toque **«Activar
       alarma de SOS»** (el botón ámbar arriba) y **acepte las notificaciones**
       cuando el navegador pregunte. Mientras ese botón se vea, un SOS puede

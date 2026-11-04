@@ -119,8 +119,10 @@ limitación se resuelva o aparezca una nueva.
   aislamiento es lógico, no físico: los datos no se cruzan, pero la CPU, la
   memoria y el disco sí. Una cooperativa muy movida hace más lento a todo
   el mundo, y no hay cupos por empresa. La auditoría sí está acotada por
-  empresa (1000 movimientos cada una), que era el caso donde la más movida
-  le borraba el registro a las demás.
+  empresa, que era el caso donde la más movida le borraba el registro a las
+  demás; y desde el 04/11 también por tipo (accesos 90 días, operación 365,
+  gestión 730, cada uno con su techo), para que los inicios de sesión no se
+  lleven puestas las altas y los cambios de clave.
 - **Los respaldos automáticos quedan en el mismo volumen** (cada 6 h,
   verificados y con rotación) **y, si está configurada, una copia cifrada
   sale a un bucket aparte** (PENDIENTES 0.3). Sin configurarla, perder el

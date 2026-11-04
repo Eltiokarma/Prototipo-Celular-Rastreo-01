@@ -228,6 +228,8 @@ calle. Suite `renovacion`.
 | `MEDIA_DIAS` | A los cuántos días una foto o nota de voz suelta su contenido (30, lo que dice /privacidad); la burbuja queda hasta que se borra el chat (`CHAT_DIAS`, 30) |
 | `PHOTO_KEEP` / `VOICE_KEEP` | Techo de fotos y de notas de voz con contenido **por cooperativa** (1500 de cada una). Es el cinturón para el disco; lo normal es que mande `MEDIA_DIAS` |
 | `EVIDENCIA_MAX` | Cuántos mensajes puede tener guardados como evidencia cada cooperativa (500). La evidencia se queda `SOS_DIAS` (365) |
+| `AUDIT_ACCESO_DIAS` / `AUDIT_OPERACION_DIAS` / `AUDIT_GESTION_DIAS` | Cuántos días se guarda cada tipo de movimiento de la auditoría: inicios de sesión (90), lo de la calle —desvíos, SOS, relevos— (365) y lo de gestión —altas, bajas, claves, correcciones, configuración— (730) |
+| `AUDIT_ACCESO_MAX` / `AUDIT_OPERACION_MAX` / `AUDIT_GESTION_MAX` | Techo de cada tipo **por cooperativa** (20 000 / 50 000 / 20 000), como cinturón para el disco |
 | `HISTORIA_MEDIA_KB` | Cuánto de fotos y audios viaja adentro del historial que recibe cada pantalla al conectar (3000). Lo que no entra, Despacho lo carga al tocarlo |
 
 **Salud y alertas** (03/11). `GET /ping` dice que el proceso vive; `GET
@@ -391,7 +393,10 @@ un desplegable. Todo contra los endpoints `/admin/*` del servidor
   separando el que trajo después sus posiciones del que no (la antena contra
   el teléfono apagado); las paradas más largas una por una; y las anomalías.
 - **Actividad** — la auditoría: quién inició sesión, quién dio de alta/baja o
-  reseteó claves, bloqueos por intentos fallidos y SOS.
+  reseteó claves, bloqueos por intentos fallidos y SOS. Se filtra por tipo
+  (**Gestión**, **Operación**, **Accesos**) y se sigue hacia atrás con *Ver más
+  viejos*. Cada tipo se guarda distinto: accesos 90 días, operación 365,
+  gestión 730 (`AUDIT_*_DIAS` y `AUDIT_*_MAX`).
 
 ## Identidad: la persona no es la combi
 
