@@ -342,7 +342,7 @@ sin guardar, crear con claves que sirven para entrar, que no se duplica, las
 mismas reglas que de a uno, lo que no se puede leer, y la pantalla en
 Chromium (subir, revisar, crear y bajar las claves). **Manual:** no.
 
-## 10. La evidencia, y cuánto se guardan fotos y audios — (04/11, este parche)
+## 10. La evidencia, y cuánto se guardan fotos y audios — `ec42b7e` (04/11)
 
 **Qué.**
 - **Antes**, el servidor guardaba el contenido de las **20 fotos y las 30
