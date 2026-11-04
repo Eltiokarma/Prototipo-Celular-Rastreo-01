@@ -748,7 +748,7 @@ el servidor y Despacho (Chromium). `nativas` cubre ahora `expo-updates`.
 
 **Manual:** no.
 
-## 15. Bajar todo lo de una persona — (04/11, este parche)
+## 15. Bajar todo lo de una persona — `fd94fa0` (04/11)
 
 **Qué.**
 - Despacho → Gestión → Personas → **Editar** → **«Bajar todos sus datos
