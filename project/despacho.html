@@ -1486,6 +1486,131 @@ function Confirmacion({ kicker, tono, titulo, cuerpo, aceptar, onAceptar, onCanc
   );
 }
 
+// ─── ALTA DE MUCHAS PERSONAS DESDE UNA PLANILLA (PENDIENTES 0.7) ──────
+// La planilla que la cooperativa ya tiene: Excel (.xlsx), LibreOffice o
+// Google Sheets (.ods), CSV, o las celdas copiadas y pegadas. Dos pasos:
+// REVISAR (no guarda nada: dice fila por fila qué se crearía y qué no) y
+// CREAR (guarda las buenas y devuelve las claves, una sola vez).
+function CargaMasiva({ api, onListo }) {
+  const [archivo, setArchivo] = React.useState(null);     // { nombre, base64 }
+  const [texto, setTexto] = React.useState('');
+  const [revision, setRevision] = React.useState(null);
+  const [hecho, setHecho] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [ocupado, setOcupado] = React.useState(false);
+  const elegir = (e) => {
+    const f = e.target.files && e.target.files[0];
+    setRevision(null); setHecho(null); setError(null);
+    if (!f) { setArchivo(null); return; }
+    const lector = new FileReader();
+    lector.onload = () => setArchivo({ nombre: f.name, base64: String(lector.result) });
+    lector.onerror = () => setError('No se pudo leer el archivo');
+    lector.readAsDataURL(f);
+  };
+  const cuerpo = (confirmar) => JSON.stringify(texto.trim()
+    ? { texto, confirmar } : { archivo: archivo && archivo.base64, nombre: archivo && archivo.nombre, confirmar });
+  const pedir = async (confirmar) => {
+    setOcupado(true); setError(null);
+    try {
+      const r = await api('/admin/users/importar', { method: 'POST', body: cuerpo(confirmar) });
+      if (confirmar) { setHecho(r); setRevision(null); onListo && onListo(); } else setRevision(r);
+    } catch (e) { setError(e.message); }
+    setOcupado(false);
+  };
+  // Las claves, para repartir: un CSV que abre bien en Excel (con BOM)
+  const bajarClaves = () => {
+    const filas = [['Usuario', 'Nombre', 'Rol', 'Combi', 'Clave']]
+      .concat(hecho.filas.filter(f => f.ok).map(f => [f.usuario, f.nombre, f.rol === 'collector' ? 'cobrador' : 'chofer', f.combi || '', f.clave]));
+    const csv = '\uFEFF' + filas.map(f => f.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'claves-personas-nuevas.csv'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  const hayAlgo = !!archivo || !!texto.trim();
+  const lista = (r) => (
+    <div style={{ display: 'grid', gap: 4, marginTop: 10 }}>
+      {r.filas.map(f => (
+        <div key={f.fila} data-fila-planilla={f.fila} style={{
+          display: 'grid', gridTemplateColumns: '54px 150px 1fr 90px 70px 1.3fr', gap: 8, alignItems: 'baseline',
+          fontSize: 12, padding: '6px 8px', borderRadius: 8,
+          background: f.ok ? HUD.surface : HUD.ambarFondo, border: `1px solid ${f.ok ? HUD.divider : HUD.ambarBorde}`,
+        }}>
+          <span style={{ fontFamily: mono, color: HUD.dim2 }}>fila {f.fila}</span>
+          <span style={{ fontFamily: mono, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {f.usuario || '—'}{f.usuarioGenerado && f.usuario ? <span style={{ color: HUD.dim3, fontWeight: 400 }}> (armado)</span> : null}
+          </span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.nombre || '—'}</span>
+          <span>{f.rol === 'collector' ? 'cobrador' : f.rol === 'driver' ? 'chofer' : '¿?'}</span>
+          <span style={{ fontFamily: mono }}>{f.combi || '—'}</span>
+          <span style={{ color: f.ok ? HUD.verdeTinta : HUD.ambarTinta, fontWeight: 700 }}>
+            {f.ok ? (r.confirmado ? `creado · clave ${f.clave}` : `se crea${f.claveGenerada ? ' (clave generada)' : ''}`) : f.motivo}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div data-carga-masiva style={{
+      background: HUD.bg, border: `1px solid ${HUD.divider}`, borderRadius: 12, padding: 14, marginBottom: 16,
+    }}>
+      <div style={{ ...rotulo(9), marginBottom: 8 }}>Cargar muchas personas desde una planilla</div>
+      <div style={{ fontSize: 13, color: HUD.fg2, lineHeight: 1.55, marginBottom: 10 }}>
+        Excel (.xlsx), LibreOffice o Google Sheets (.ods), CSV, o copiá las celdas y pegalas abajo.
+        La primera fila tiene que decir qué es cada columna: <b>Nombre</b> y <b>Combi</b> (obligatorias, la
+        combi tiene que existir), y si querés <b>Usuario</b>, <b>Rol</b> (chofer o cobrador), <b>Clave</b>, <b>Alias</b>, <b>Ruta</b>.
+        Sin usuario se arma uno con el nombre; sin clave, se genera una.
+        {' '}<a href="planilla-alta-ejemplo.xlsx" download style={{ color: HUD.bright, fontWeight: 700 }}>Bajar una planilla de ejemplo</a>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+        <input type="file" data-planilla-archivo accept=".xlsx,.ods,.csv,.tsv,.txt,.xls"
+          onChange={elegir} style={{ fontSize: 13 }} />
+      </div>
+      <textarea data-planilla-texto value={texto} rows={3}
+        placeholder="…o pegá acá las celdas copiadas de Excel o Google Sheets (con la fila de títulos)"
+        onChange={e => { setTexto(e.target.value); setRevision(null); setHecho(null); }}
+        style={{ ...campo(80), width: '100%', boxSizing: 'border-box', fontFamily: mono, fontSize: 12, padding: 8, resize: 'vertical' }} />
+      {error && <div role="alert" style={{ marginTop: 8, fontSize: 13, color: HUD.ambarTinta, background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`, borderRadius: 8, padding: '8px 10px' }}>{error}</div>}
+      {!hecho && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button data-planilla-revisar disabled={!hayAlgo || ocupado} onClick={() => pedir(false)} style={btnSecundario(36)}>
+            {ocupado && !revision ? 'Revisando…' : 'Revisar'}
+          </button>
+          {revision && (
+            <button data-planilla-crear disabled={!revision.buenas || ocupado} onClick={() => pedir(true)} style={btnPrimario(36)}>
+              Crear {revision.buenas} persona{revision.buenas === 1 ? '' : 's'}
+            </button>
+          )}
+          {revision && (
+            <span style={{ fontSize: 12, color: HUD.dim2 }}>
+              {revision.buenas} se crean{revision.conError ? `, ${revision.conError} con algo que corregir (se saltan)` : ''}.
+              {' '}Columnas: {Object.entries(revision.columnas).map(([k, t]) => `${t} → ${k}`).join(', ')}
+              {revision.ignoradas.length ? `. No se usan: ${revision.ignoradas.join(', ')}` : ''}
+            </span>
+          )}
+        </div>
+      )}
+      {revision && lista(revision)}
+      {hecho && (
+        <div style={{ marginTop: 10 }}>
+          <div role="status" style={{
+            fontSize: 13, color: HUD.verdeTinta, background: HUD.verdeFondo, border: `1px solid ${HUD.verdeBorde}`,
+            borderRadius: 8, padding: '8px 10px', lineHeight: 1.5,
+          }}>
+            Se crearon {hecho.buenas} persona{hecho.buenas === 1 ? '' : 's'}{hecho.conError ? ` (${hecho.conError} se saltaron)` : ''}.
+            {' '}<b>Las claves se ven ahora y no se vuelven a mostrar:</b> bajalas para repartirlas.
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button data-planilla-claves onClick={bajarClaves} style={btnPrimario(36)}>Bajar las claves (CSV)</button>
+            <button onClick={() => { setHecho(null); setArchivo(null); setTexto(''); }} style={btnSecundario(36)}>Cargar otra</button>
+          </div>
+          {lista(hecho)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca, refrescarMarca, onEscribir }) {
   const [tab, setTab] = React.useState('users'); // users | vehicles | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
@@ -1494,6 +1619,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   const [routeList, setRouteList] = React.useState(routes || []);
   const [vehicles, setVehicles] = React.useState(null);
   const [shifts, setShifts] = React.useState(null);
+  const [masivaAbierta, setMasivaAbierta] = React.useState(false);
   // Corregir horas a mano (PENDIENTES 0.6): qué turno se está corrigiendo
   // (su id, o 'nuevo' para agregar uno que faltó), el formulario, su
   // historial y el paso de confirmar una anulación
@@ -2021,7 +2147,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 <button onClick={() => setAltaAbierta(a => !a)} style={btnPrimario(40)}>
                   {altaAbierta ? '✕ Cerrar' : '+ Persona'}
                 </button>
+                {/* Muchas de una vez, desde la planilla que ya tienen (0.7) */}
+                <button data-abrir-planilla onClick={() => setMasivaAbierta(a => !a)} style={btnSecundario(40)}>
+                  {masivaAbierta ? '✕ Cerrar' : 'Cargar una planilla'}
+                </button>
               </div>
+
+              {masivaAbierta && <CargaMasiva api={api} onListo={() => load()} />}
 
               {/* alta de PERSONA: nombre obligatorio, alias opcional, rol y vehículo */}
               {altaAbierta && (

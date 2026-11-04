@@ -286,6 +286,62 @@ se reabre, la otra ruta, y la pantalla en Chromium. Además pasan `horas`,
 `csv`, `gerencia`, `perfil`, `numeros`, `numeros-ui`, `poda`, `retencion`,
 `semana` y `periodo`. **Manual:** no.
 
+## 9. Alta de muchas personas desde una planilla — (04/11, este parche)
+
+**Qué.** En Despacho → Gestión → Personas → **Cargar una planilla**:
+- Acepta **Excel (.xlsx)**, **LibreOffice o Google Sheets (.ods)**, **CSV**
+  (con coma o punto y coma, en UTF-8 o en el Windows-1252 del Excel viejo) y
+  **las celdas copiadas y pegadas** de cualquier planilla.
+- El **.xls** viejo se reconoce y se explica cómo guardarlo.
+- Las columnas se reconocen por su título, como sea que esté escrito
+  («Nombre y apellidos», «Contraseña», «Vehículo», «Cargo»…).
+  - Obligatorias: **Nombre** y **Combi** (una que ya exista).
+  - Opcionales: Usuario, Rol, Clave, Alias, Ruta.
+- Va en dos pasos:
+  1. **Revisar** no guarda nada y muestra fila por fila qué se crearía y qué
+     no, y por qué.
+  2. **Crear** guarda las filas buenas, salta las otras y devuelve **las
+     claves una sola vez**, con un CSV para repartirlas.
+- Si falta el usuario, se arma uno con el nombre (`nusta.ccama`); si falta la
+  clave, se genera una.
+- Hay una **planilla de ejemplo** para bajar.
+
+**Cómo.**
+- `server/planilla.js` lee todos los formatos **sin dependencias nuevas**:
+  `.xlsx` y `.ods` son un ZIP con XML adentro y se abren con el `zlib` de
+  Node, con un tope contra archivos que se inflan de más.
+- Cada fila pasa por **`altaDePersona`**, la misma función que el alta de a
+  uno. La saqué del endpoint para que las dos den de alta exactamente igual.
+- «Revisar» corre el alta de verdad adentro de una transacción que después
+  se deshace.
+
+**Archivos.**
+- `server/planilla.js` (nuevo).
+- `server/index.js`: `altaDePersona`, `POST /admin/users/importar`,
+  `COLUMNAS_ALTA`, `usuarioDesdeNombre`.
+- `project/despacho.html`: `CargaMasiva`.
+- `project/planilla-alta-ejemplo.xlsx` (nuevo).
+- `pruebas/planillas/`: archivos de prueba hechos con LibreOffice y openpyxl.
+
+**Mirar.**
+- **Subir dos veces la misma planilla no duplica a nadie**: si una fila no
+  trae usuario y ya hay alguien con el mismo nombre, no se crea y se dice. El
+  costo: dos personas que de verdad se llaman igual necesitan un usuario en
+  la planilla.
+- **En la planilla la combi es obligatoria**, aunque de a uno no lo sea (de
+  a uno, la gerencia puede crear un chofer y su combi con el mismo código).
+  En una planilla eso llenaba la flota de combis llamadas «raul.condori».
+- Tope de 500 personas y 700 kB por planilla.
+- Las claves generadas son del estilo de las del formulario (`juliaca5094`):
+  conviene que cada uno la cambie al entrar.
+- Lo que no se lee: hojas protegidas con contraseña, fórmulas (se lee el
+  último valor que guardó el programa), y solo la **primera hoja**.
+
+**Pruebas.** `alta-masiva` (nueva): el lector con archivos de verdad, revisar
+sin guardar, crear con claves que sirven para entrar, que no se duplica, las
+mismas reglas que de a uno, lo que no se puede leer, y la pantalla en
+Chromium (subir, revisar, crear y bajar las claves). **Manual:** no.
+
 ---
 
 ## Para el manual (cuando toque)
@@ -298,6 +354,7 @@ Lo que todavía no está en `manual/manual.tex`:
   central para emergencias*.
 - Despacho → Gestión → Turnos: Corregir, Anular y Agregar un turno que faltó
   (bloque 8).
+- Despacho → Gestión → Personas → Cargar una planilla (bloque 9).
 - Para el que opera, no para el chofer: `/salud` y las alertas (bloque 4),
   y la copia afuera y cómo volver a un respaldo (bloque 5). Quizás va en un
   anexo de operación más que en el manual de uso.

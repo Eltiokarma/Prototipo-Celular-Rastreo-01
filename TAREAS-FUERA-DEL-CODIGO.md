@@ -175,6 +175,12 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
       dice «se está por apagar» o «ahorro de batería activado». Con el
       ahorro activado, el chofer tiene que ir a Ajustes → Batería → la app →
       **«Sin restricciones»** (en Xiaomi, además, «Inicio automático»).
+- [ ] Para cargar a todos los choferes y cobradores de una vez: Gestión →
+      Personas → **Cargar una planilla**. Sirve la planilla que ya tengan
+      (Excel, Google Sheets, LibreOffice o CSV) con una columna de **Nombre**
+      y una de **Combi**; hay una de ejemplo para bajar. Antes, que la
+      gerencia dé de alta las combis. Las claves se ven **una sola vez** al
+      crear: bajá el CSV de claves y repartilas en mano.
 - [ ] Contarles que las horas **se pueden corregir** (Gestión → Turnos →
       *Corregir* o *Agregar un turno que faltó*), siempre con un motivo que
       queda registrado. Y decidir dos cosas que el sistema deja abiertas: si

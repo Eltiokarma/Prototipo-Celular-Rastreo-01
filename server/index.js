@@ -5800,31 +5800,35 @@ app.get('/admin/users', requireDispatch, (req, res) => {
 
 // Alta de PERSONAS: el nombre real es obligatorio (queda en los registros
 // de la empresa) y el alias es opcional (como la llaman en la ruta).
-app.post('/admin/users', requireDispatch, (req, res) => {
-  const unitId = idLimpio(req.body?.unitId);
-  if (req.body?.unitId && !unitId) {
-    return res.status(400).json({ error: 'El usuario solo admite letras, números, punto, guion y guion bajo' });
+// El alta de UNA persona, con todas sus reglas. Es la misma para el
+// formulario y para la carga desde una planilla (PENDIENTES 0.7): las dos
+// tienen que dar de alta exactamente igual. Devuelve { ok, … } o
+// { status, error }; no responde nada.
+function altaDePersona(req, body, { silencioso = false } = {}) {
+  const unitId = idLimpio(body?.unitId);
+  if (body?.unitId && !unitId) {
+    return { status: 400, error: 'El usuario solo admite letras, números, punto, guion y guion bajo' };
   }
-  const name = String(req.body?.name || req.body?.driverName || '').trim().slice(0, 60);
-  const alias = String(req.body?.alias || '').trim().slice(0, 30) || null;
-  const rolPedido = String(req.body?.personRole || 'driver');
+  const name = String(body?.name || body?.driverName || '').trim().slice(0, 60);
+  const alias = String(body?.alias || '').trim().slice(0, 30) || null;
+  const rolPedido = String(body?.personRole || 'driver');
   const role = rolPedido === 'collector' ? 'collector' : 'driver';
-  const password = String(req.body?.password || '');
-  const routeId = rutaObjetivo(req);
-  const vehicleId = req.body?.vehicleId ? idLimpio(req.body.vehicleId) : null;
-  if (req.body?.vehicleId && !vehicleId) {
-    return res.status(400).json({ error: 'El código del vehículo no es válido' });
+  const password = String(body?.password || '');
+  const routeId = rutaObjetivo({ scope: req.scope, empresa: req.empresa, body, query: {} });
+  const vehicleId = body?.vehicleId ? idLimpio(body.vehicleId) : null;
+  if (body?.vehicleId && !vehicleId) {
+    return { status: 400, error: 'El código del vehículo no es válido' };
   }
 
-  if (!unitId) return res.status(400).json({ error: 'Falta el usuario con el que va a entrar' });
-  if (idReservado(unitId)) return res.status(400).json({ error: `${unitId} es un nombre reservado del sistema` });
-  if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  if (!unitId) return { status: 400, error: 'Falta el usuario con el que va a entrar' };
+  if (idReservado(unitId)) return { status: 400, error: `${unitId} es un nombre reservado del sistema` };
+  if (!name) return { status: 400, error: 'El nombre es obligatorio' };
   if (password.length < CLAVE_MINIMA || password.length > 64) {
-    return res.status(400).json({ error: `La contraseña necesita entre ${CLAVE_MINIMA} y 64 caracteres` });
+    return { status: 400, error: `La contraseña necesita entre ${CLAVE_MINIMA} y 64 caracteres` };
   }
-  if (!routeId) return res.status(400).json({ error: 'La empresa todavía no tiene ninguna ruta' });
+  if (!routeId) return { status: 400, error: 'La empresa todavía no tiene ninguna ruta' };
   if (db.prepare('SELECT unitId FROM users WHERE unitId = ?').get(unitId)) {
-    return res.status(409).json({ error: 'Ese usuario ya está tomado' });
+    return { status: 409, error: 'Ese usuario ya está tomado' };
   }
   // El vehículo tiene que existir; si no se indica y es chofer, se crea uno
   // con su mismo código (el caso habitual: el chofer y su combi).
@@ -5835,17 +5839,17 @@ app.post('/admin/users', requireDispatch, (req, res) => {
     // Un vehículo de otra empresa se responde igual que uno inexistente: si
     // no, este formulario sirve para averiguar las flotas de las demás.
     if (!veh || veh.companyId !== req.empresa) {
-      return res.status(400).json({ error: `El vehículo ${vehiculoFinal} no existe` });
+      return { status: 400, error: `El vehículo ${vehiculoFinal} no existe` };
     }
     if (req.scope && veh.routeId !== req.scope) {
-      return res.status(403).json({ error: 'Ese vehículo pertenece a otra ruta' });
+      return { status: 403, error: 'Ese vehículo pertenece a otra ruta' };
     }
     // La persona va a la ruta DE SU COMBI. Con la de otra, la unidad se
     // medía contra el trazado equivocado y aparecía en el mapa de otra ruta
     // (barrido del 22/9). Si se pidió una ruta explícita distinta, se dice.
-    const rutaPedida = String(req.body?.routeId || '').trim();
+    const rutaPedida = String(body?.routeId || '').trim();
     if (rutaPedida && veh.routeId && rutaPedida !== veh.routeId) {
-      return res.status(400).json({ error: `El vehículo ${vehiculoFinal} es de la ruta ${veh.routeId}, no de ${rutaPedida}` });
+      return { status: 400, error: `El vehículo ${vehiculoFinal} es de la ruta ${veh.routeId}, no de ${rutaPedida}` };
     }
     if (veh.routeId) rutaFinal = veh.routeId;
   } else if (role === 'driver') {
@@ -5857,10 +5861,10 @@ app.post('/admin/users', requireDispatch, (req, res) => {
     // ajena y quedaba subido a ella (barrido del 22/9).
     if (yaExiste) {
       if (yaExiste.companyId !== req.empresa) {
-        return res.status(400).json({ error: `El vehículo ${vehiculoFinal} no existe` });
+        return { status: 400, error: `El vehículo ${vehiculoFinal} no existe` };
       }
       if (req.scope && yaExiste.routeId !== req.scope) {
-        return res.status(403).json({ error: 'Ese vehículo pertenece a otra ruta' });
+        return { status: 403, error: 'Ese vehículo pertenece a otra ruta' };
       }
       if (yaExiste.routeId) rutaFinal = yaExiste.routeId;
     }
@@ -5868,15 +5872,16 @@ app.post('/admin/users', requireDispatch, (req, res) => {
       // Crear el vehículo al vuelo es crear un ACTIVO, y eso es del gerente.
       // El admin da de alta a la persona y la sube a un vehículo que exista.
       if (!req.esGerente) {
-        return res.status(403).json({
+        return {
+          status: 403,
           error: `No existe el vehículo ${vehiculoFinal}. Los vehículos (con su placa) los da de alta la cuenta de gerencia; elegí uno existente o pedile el alta.`,
-        });
+        };
       }
       db.prepare('INSERT INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES (?, ?, ?, ?, ?)')
         .run(vehiculoFinal, null, routeId, req.empresa, Date.now());
     }
   } else {
-    return res.status(400).json({ error: 'Un cobrador necesita un vehículo asignado' });
+    return { status: 400, error: 'Un cobrador necesita un vehículo asignado' };
   }
 
   db.prepare(`
@@ -5890,8 +5895,155 @@ app.post('/admin/users', requireDispatch, (req, res) => {
   const quien = alias ? `${name} (${alias})` : name;
   audit(req.dispatchUser.unitId, 'alta', unitId,
     `${quien} · ${role === 'collector' ? 'cobrador' : 'chofer'} · ${vehiculoFinal} · ruta ${rutaFinal}`, rutaFinal);
-  console.log(`Alta de ${role}: ${quien} en ${vehiculoFinal} (${rutaFinal})`);
-  res.json({ ok: true, unitId, routeId: rutaFinal, vehicleId: vehiculoFinal, role });
+  if (!silencioso) console.log(`Alta de ${role}: ${quien} en ${vehiculoFinal} (${rutaFinal})`);
+  return { ok: true, unitId, routeId: rutaFinal, vehicleId: vehiculoFinal, role };
+}
+
+
+app.post('/admin/users', requireDispatch, (req, res) => {
+  const r = altaDePersona(req, req.body || {});
+  if (r.error) return res.status(r.status || 400).json({ error: r.error });
+  res.json(r);
+});
+
+// ─── ALTA DE MUCHAS PERSONAS DESDE UNA PLANILLA (PENDIENTES 0.7, 04/11) ─
+// Cargar 40 choferes era de a uno. Ahora se sube la planilla que la
+// cooperativa ya tiene —Excel (.xlsx), LibreOffice o Google Sheets (.ods),
+// CSV— o se pegan las celdas copiadas, y se hace en dos pasos:
+//   1. REVISAR (`confirmar` falso): cada fila pasa por el alta de verdad
+//      (`altaDePersona`), adentro de una transacción que después se deshace.
+//      Se ve fila por fila qué se crearía y qué no, y por qué.
+//   2. CREAR (`confirmar: true`): lo mismo, pero se guardan las filas buenas;
+//      las que tienen error se saltan y se dicen. Las claves (las de la
+//      planilla o las generadas) vuelven UNA vez, para repartirlas.
+// Las columnas se reconocen por su título, como sea que esté escrito.
+const planilla = require('./planilla');
+const COLUMNAS_ALTA = {
+  usuario: ['usuario', 'user', 'login', 'unitid', 'cuenta', 'usuariodeingreso'],
+  nombre: ['nombre', 'nombres', 'name', 'nombreyapellidos', 'nombresyapellidos', 'apellidosynombres',
+    'nombrecompleto', 'apellidosnombres', 'persona', 'conductor', 'trabajador'],
+  alias: ['alias', 'apodo', 'sobrenombre'],
+  rol: ['rol', 'role', 'cargo', 'puesto', 'funcion', 'tipo'],
+  combi: ['combi', 'vehiculo', 'unidad', 'movil', 'vehicle', 'vehicleid', 'bus', 'micro', 'carro'],
+  clave: ['clave', 'contrasena', 'password', 'pass', 'claveinicial'],
+  // Sólo hace falta con varias rutas y sin combi (con combi, va a la de la combi)
+  ruta: ['ruta', 'route', 'linea'],
+};
+const sinTildes = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const tituloNormal = (t) => sinTildes(t).toLowerCase().replace(/[^a-z0-9]/g, '');
+function rolDe(t) {
+  const r = tituloNormal(t);
+  if (!r || ['chofer', 'conductor', 'driver', 'piloto', 'choferes'].includes(r)) return 'driver';
+  if (['cobrador', 'cobradora', 'collector', 'ayudante', 'cobra', 'cobradores'].includes(r)) return 'collector';
+  return null;
+}
+const PALABRAS_CLAVE = ['combi', 'ruta', 'puno', 'juliaca', 'terminal', 'micro', 'andes', 'titicaca'];
+const claveGenerada = () => `${PALABRAS_CLAVE[crypto.randomInt(PALABRAS_CLAVE.length)]}${crypto.randomInt(1000, 10000)}`;
+// Sin usuario en la planilla: «nombre.apellido», sin tildes, y si ya está
+// tomado (en la base o más arriba en la misma planilla), con un número
+function usuarioDesdeNombre(nombre, tomados) {
+  const partes = sinTildes(nombre).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+  if (!partes.length) return null;
+  const base = (partes.length > 1 ? `${partes[0]}.${partes[1]}` : partes[0]).slice(0, 28);
+  for (let i = 1; i < 100; i++) {
+    const u = i === 1 ? base : `${base}${i}`;
+    if (!tomados.has(u.toUpperCase()) && !db.prepare('SELECT 1 FROM users WHERE unitId = ? COLLATE NOCASE').get(u)) return u;
+  }
+  return null;
+}
+class Deshacer extends Error {}
+
+app.post('/admin/users/importar', requireDispatch, (req, res) => {
+  let filas;
+  try {
+    if (typeof req.body?.texto === 'string' && req.body.texto.trim()) {
+      filas = planilla.leerPlanilla({ texto: req.body.texto });
+    } else if (typeof req.body?.archivo === 'string' && req.body.archivo) {
+      const bytes = Buffer.from(req.body.archivo.replace(/^data:[^,]*,/, ''), 'base64');
+      if (bytes.length > 700 * 1024) return res.status(413).json({ error: 'La planilla pesa más de 700 kB: partila en varias' });
+      filas = planilla.leerPlanilla({ bytes, nombre: String(req.body?.nombre || '') });
+    } else {
+      return res.status(400).json({ error: 'Subí una planilla o pegá las celdas' });
+    }
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  if (!filas.length) return res.status(400).json({ error: 'La planilla está vacía' });
+
+  // La fila de títulos: la primera donde se reconoce una columna de nombre
+  const iTitulos = filas.findIndex(f => f.some(c => COLUMNAS_ALTA.nombre.includes(tituloNormal(c))));
+  if (iTitulos < 0 || iTitulos > 10) {
+    return res.status(400).json({ error: 'No encontré la fila de títulos. La primera fila tiene que decir qué es cada columna: por lo menos «Nombre» (y si querés «Usuario», «Rol», «Combi», «Clave», «Alias»)' });
+  }
+  const titulos = filas[iTitulos];
+  const indice = {};
+  const ignoradas = [];
+  titulos.forEach((t, i) => {
+    const n = tituloNormal(t);
+    const campo = Object.keys(COLUMNAS_ALTA).find(k => COLUMNAS_ALTA[k].includes(n));
+    if (campo && indice[campo] === undefined) indice[campo] = i;
+    else if (t) ignoradas.push(t);
+  });
+  const datos = filas.slice(iTitulos + 1);
+  if (datos.length > 500) return res.status(400).json({ error: `Son ${datos.length} personas: el tope por planilla es 500. Partila en varias` });
+
+  const confirmar = req.body?.confirmar === true;
+  const tomados = new Set();
+  const resultado = [];
+  const valor = (f, k) => (indice[k] === undefined ? '' : String(f[indice[k]] ?? '').trim());
+  const correr = () => {
+    datos.forEach((f, j) => {
+      const numero = iTitulos + j + 2;   // la fila como la ve la planilla (con títulos en la 1)
+      const nombre = valor(f, 'nombre');
+      const rolTexto = valor(f, 'rol');
+      const role = rolDe(rolTexto);
+      let usuario = valor(f, 'usuario');
+      const generadoUsuario = !usuario;
+      if (!usuario && nombre) usuario = usuarioDesdeNombre(nombre, tomados) || '';
+      const claveDada = valor(f, 'clave');
+      const clave = claveDada || claveGenerada();
+      const fila = { fila: numero, usuario, nombre, alias: valor(f, 'alias') || null,
+        rol: role, combi: valor(f, 'combi') || null, claveGenerada: !claveDada, usuarioGenerado: generadoUsuario };
+      if (!role) { resultado.push({ ...fila, ok: false, motivo: `No sé qué rol es «${rolTexto}»: tiene que ser chofer o cobrador` }); return; }
+      // La combi es obligatoria en la planilla. De a uno, un chofer sin combi
+      // crea una con su mismo código (sólo la gerencia); en una planilla eso
+      // llenaba la flota de combis llamadas «raul.condori».
+      if (!fila.combi) { resultado.push({ ...fila, ok: false, motivo: 'Falta la combi (columna «Combi»): tiene que ser una que ya exista' }); return; }
+      // Sin usuario en la planilla, alguien con el mismo nombre ya cargado
+      // es casi seguro la misma persona: subir dos veces la misma planilla la
+      // duplicaba («nusta.ccama» y «nusta.ccama2»). Si es otra, que le pongan
+      // un usuario.
+      if (generadoUsuario && nombre) {
+        const igual = db.prepare(`SELECT unitId FROM users WHERE companyId = ? AND lower(name) = lower(?)`).get(req.empresa, nombre);
+        if (igual) { resultado.push({ ...fila, ok: false, motivo: `Ya hay alguien con ese nombre (usuario ${igual.unitId}). Si es otra persona, ponele un usuario en la planilla` }); return; }
+      }
+      if (usuario && tomados.has(usuario.toUpperCase())) {
+        resultado.push({ ...fila, ok: false, motivo: `El usuario ${usuario} ya está más arriba en la planilla` }); return;
+      }
+      const r = altaDePersona(req, { unitId: usuario, name: nombre, alias: fila.alias, personRole: role,
+        vehicleId: fila.combi || undefined, routeId: valor(f, 'ruta') || undefined, password: clave }, { silencioso: !confirmar });
+      if (r.error) { resultado.push({ ...fila, ok: false, motivo: r.error }); return; }
+      tomados.add(r.unitId.toUpperCase());
+      resultado.push({ ...fila, usuario: r.unitId, ok: true, combi: r.vehicleId, ruta: r.routeId,
+        ...(confirmar ? { clave } : {}) });
+    });
+    if (!confirmar) throw new Deshacer();
+  };
+  try { db.transaction(correr)(); } catch (e) { if (!(e instanceof Deshacer)) throw e; }
+
+  const buenas = resultado.filter(r => r.ok).length;
+  if (confirmar && buenas) {
+    audit(req.dispatchUser.unitId, 'alta_masiva', null,
+      `${buenas} persona(s) desde una planilla${resultado.length > buenas ? `, ${resultado.length - buenas} con error` : ''}`, req.scope || null);
+  }
+  res.json({
+    confirmado: confirmar,
+    columnas: Object.fromEntries(Object.entries(indice).map(([k, i]) => [k, titulos[i]])),
+    ignoradas,
+    filas: resultado,
+    buenas,
+    conError: resultado.length - buenas,
+  });
 });
 
 // Un despachador de ruta solo puede administrar cuentas de SU ruta

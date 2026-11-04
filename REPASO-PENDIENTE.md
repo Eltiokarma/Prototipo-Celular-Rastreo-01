@@ -916,3 +916,11 @@ bloque 8**. Para el repaso, lo central: la corrección edita `shifts` (y lo
 marca `corregido`) en vez de agregar una capa que cada consulta tenga que
 leer, y `abrirTurno` no reabre un turno corregido. Las preguntas abiertas
 (¿se le avisa al chofer?, ¿sólo la gerencia?) están en ese bloque.
+
+## Tanda 22 — alta de muchas personas desde una planilla (04/11, sin repasar)
+
+El punto 0.7 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 9**. Para el repaso, lo central: el alta de a uno pasó a ser una
+función (`altaDePersona`) que usan el formulario y la planilla, y el lector de
+planillas (`server/planilla.js`) abre .xlsx y .ods con un ZIP propio sobre
+`zlib`, sin librerías.
