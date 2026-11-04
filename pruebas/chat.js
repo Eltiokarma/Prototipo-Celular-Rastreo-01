@@ -5,7 +5,7 @@
 // privado que aparece en el grupo es una filtración, y un mensaje de
 // Despacho que se ve como propio es peor que no mostrarlo.
 const RAIZ = require('path').join(__dirname, '..');
-const { aMensaje, hilo, sinLeer } = require(RAIZ + '/app/chat.js');
+const { aMensaje, hilo, sinLeer, hora } = require(RAIZ + '/app/chat.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -33,7 +33,7 @@ console.log('\nQUIÉN HABLÓ');
      desp.quien === 'DESPACHO' && desp.tono === 'despacho', desp);
 }
 
-console.log('\nLOS DOS CANALES');
+console.log('\nLOS TRES CANALES');
 {
   const grupo   = aMensaje(crudo({ unitId: 'M-08', text: 'grupo' }), YO);
   const directo = aMensaje(crudo({ unitId: 'DESPACHO', role: 'dispatch', toVehicleId: 'M-12', text: 'privado' }), YO);
@@ -45,6 +45,16 @@ console.log('\nLOS DOS CANALES');
      hilo(todos, 'grupo').every(m => m.texto !== 'privado'), hilo(todos, 'grupo').map(m => m.texto));
   ok('y el del directo NO trae el del grupo',
      hilo(todos, 'directo').every(m => m.texto !== 'grupo'), hilo(todos, 'directo').map(m => m.texto));
+
+  // El tercero (31/10): Despacho ↔ esta PERSONA, en la combi que sea
+  const personal = aMensaje(crudo({ unitId: 'DESPACHO', role: 'dispatch', toPersonId: 'M-12', text: 'personal' }), YO);
+  ok('con persona de destino es el personal', personal.canal === 'personal', personal.canal);
+  const tres = [grupo, directo, personal];
+  ok('el personal no se mezcla con el de la combi ni con el grupo',
+     hilo(tres, 'personal').map(m => m.texto).join() === 'personal' &&
+     hilo(tres, 'directo').map(m => m.texto).join() === 'privado' &&
+     hilo(tres, 'grupo').map(m => m.texto).join() === 'grupo');
+  ok('y cuenta sus sin leer aparte', sinLeer(tres, 'personal', 0) === 1 && sinLeer(tres, 'directo', 0) === 1);
 }
 
 console.log('\nEL HILO');
@@ -147,6 +157,16 @@ console.log('\nBORDES');
   ok('sin hora, la hora queda vacía',
      aMensaje({ unitId: 'M-08', text: 'x' }, YO).hora === '', aMensaje({ unitId: 'M-08', text: 'x' }, YO).hora);
   ok('un hilo vacío devuelve vacío', hilo([], 'grupo').length === 0);
+}
+
+console.log('\nLA HORA DE UN MENSAJE VIEJO LLEVA EL DÍA');
+{
+  // Un SOS de hace seis días salía «04:18» a secas y se leía como de hoy.
+  const hoy = new Date(2026, 9, 28, 15, 30);
+  const deHoy = new Date(2026, 9, 28, 4, 18).getTime();
+  const deOtroDia = new Date(2026, 9, 22, 4, 18).getTime();
+  ok('el de hoy, sólo la hora', hora(deHoy, hoy) === '04:18', hora(deHoy, hoy));
+  ok('el de otro día, con el día', hora(deOtroDia, hoy) === '22/10 04:18', hora(deOtroDia, hoy));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

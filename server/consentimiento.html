@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<!-- Formulario de consentimiento del conductor y del cobrador (PENDIENTES 0.10).
+     Para IMPRIMIR y firmar en papel: la cooperativa es la responsable de los
+     datos de su gente (Ley 29733) y es ella la que tiene que poder mostrar el
+     consentimiento firmado. Despacho anota en el sistema quién firmó y de qué
+     versión (Gestión → Personas → Consentimiento).
+
+     Dice LO MISMO que /privacidad (server/privacidad.html): si una cambia,
+     cambia la otra, y se sube CONSENTIMIENTO_VERSION en server/index.js —
+     así Despacho ve quién firmó una versión vieja.
+
+     ES UN BORRADOR: lo tiene que revisar un abogado antes de usarlo
+     (ver legal/LEEME.md). Sin scripts a propósito: es un documento.
+     Los marcadores __CONTACTO__, __VERSION__ y __BASE__ (la dirección del
+     servidor, para que en el papel figure la dirección entera) los reemplaza el servidor. -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consentimiento — Control de ruta</title>
+<style>
+  body {
+    margin: 0 auto; max-width: 760px; padding: 28px 20px 60px;
+    font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    background: #F7FAFD; color: #0B2239; line-height: 1.5; font-size: 15px;
+  }
+  h1 { font-size: 22px; line-height: 1.25; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 20px 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+  p, li { color: #2A4864; margin: 4px 0; }
+  ul { padding-left: 20px; margin: 4px 0; }
+  strong { color: #0B2239; }
+  .version { font-size: 12px; color: #5A7591; }
+  .aviso { background: #FFF6DB; border: 1px solid #E8C766; border-radius: 8px; padding: 10px 12px; color: #5C4300; font-size: 14px; }
+  .llenar { display: inline-block; min-width: 260px; border-bottom: 1px solid #0B2239; height: 1.2em; }
+  .corto { min-width: 120px; }
+  .casilla { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; }
+  .caja { flex: 0 0 auto; width: 16px; height: 16px; border: 1.5px solid #0B2239; margin-top: 3px; }
+  .firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 36px; }
+  .firma { border-top: 1px solid #0B2239; padding-top: 6px; font-size: 13px; color: #2A4864; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td { padding: 4px 8px; border-bottom: 1px solid #E1E9F2; color: #2A4864; vertical-align: top; }
+  .noimprimir { margin-bottom: 18px; }
+  .junto { break-inside: avoid; page-break-inside: avoid; }
+  @media print {
+    body { background: #fff; padding: 0; font-size: 12px; max-width: none; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 12px; margin-top: 12px; }
+    .noimprimir { display: none; }
+    .aviso { background: #fff; }
+    @page { size: A4; margin: 16mm 14mm; }
+  }
+</style>
+</head>
+<body>
+
+<div class="noimprimir aviso">
+  <strong>Para la cooperativa.</strong> Imprimí este formulario (Ctrl+P), uno
+  por persona, y entregale una copia firmada. Guardá el original. Después,
+  en Despacho → Gestión → Personas → <strong>Consentimiento</strong>, anotá
+  la fecha en que lo firmó. Es un borrador: que lo revise el abogado de la
+  cooperativa antes de usarlo.
+</div>
+
+<h1>Consentimiento para el tratamiento de datos personales</h1>
+<p class="version">Aplicación «Control de ruta» · versión __VERSION__ · Ley N.º 29733 y su Reglamento</p>
+
+<h2>Quién trata sus datos</h2>
+<p>
+  <strong>Responsable:</strong> la cooperativa <span class="llenar"></span>,
+  RUC <span class="llenar corto"></span>, con domicilio en
+  <span class="llenar"></span>.
+  Ella decide para qué se usan sus datos y es a quien usted les reclama.
+</p>
+<p>
+  <strong>Encargado:</strong> el operador del sistema de control de flota que la
+  cooperativa contrató, que guarda y procesa los datos solo por cuenta de ella
+  y según sus instrucciones. Contacto: __CONTACTO__.
+</p>
+
+<h2>Qué datos y para qué</h2>
+<ul>
+  <li><strong>Su identidad en el sistema:</strong> nombre, alias, la combi que maneja y su rol.</li>
+  <li><strong>Su ubicación durante el turno</strong>, de forma continua,
+    <strong>también con la pantalla apagada o la aplicación en segundo plano</strong>.
+    Sirve para mostrar la combi en el mapa de la cooperativa, medir la
+    separación con las demás, registrar las vueltas, los desvíos y las horas en
+    ruta con las que la cooperativa liquida el trabajo, y ubicarlo si pide
+    ayuda (SOS). Fuera del turno no se envía.</li>
+  <li><strong>En la pantalla de inicio de turno</strong>, con la aplicación
+    abierta, el teléfono mira la ubicación <strong>sin enviarla</strong> para
+    darse cuenta de si usted ya está manejando sin haber salido a ruta: le
+    avisa y, si no contesta en un minuto, sale a ruta por usted.</li>
+  <li><strong>El chat de la ruta:</strong> los textos, notas de voz y fotos que
+    usted decide mandar, y las emergencias (SOS).</li>
+  <li><strong>El estado del teléfono</strong> mientras está en ruta (batería,
+    ahorro de batería, versión de la app): solo el último valor, no se guarda.</li>
+</ul>
+<p>No se usan para publicidad, no se venden y no se entregan a terceros para fines propios.</p>
+
+<h2>Quién los ve y dónde se guardan</h2>
+<p>
+  El personal de Despacho y la gerencia de <strong>su</strong> cooperativa, y
+  el operador del sistema para darle soporte. Para funcionar, el sistema usa
+  proveedores de alojamiento y de mapas cuyos <strong>servidores están fuera
+  del Perú</strong>; las copias de respaldo se guardan cifradas. La lista
+  completa está en la política de privacidad:
+  <strong>__BASE__/privacidad</strong>.
+</p>
+
+<h2>Cuánto tiempo</h2>
+<table>
+  <tr><td>Chat (texto, fotos y notas de voz)</td><td>30 días; lo que Despacho guarda como evidencia de un hecho, hasta 365 días</td></tr>
+  <tr><td>Vueltas y desvíos</td><td>120 días</td></tr>
+  <tr><td>Turnos (horas trabajadas) y emergencias (SOS)</td><td>365 días</td></tr>
+  <tr><td>Registro de actividad</td><td>inicios de sesión 90 días; lo del recorrido 365 días; altas, bajas y cambios de clave 2 años</td></tr>
+  <tr><td>Posición en vivo</td><td>solo la última conocida</td></tr>
+</table>
+
+<h2>Sus derechos</h2>
+<p>
+  Puede pedir <strong>acceso</strong> a sus datos, su <strong>rectificación</strong>,
+  su <strong>cancelación</strong>, <strong>oponerse</strong> a su uso y pedir su
+  <strong>portabilidad</strong>, y puede <strong>revocar este consentimiento</strong>
+  cuando quiera, sin efecto hacia atrás. Se pide a la cooperativa (a su
+  central) o a __CONTACTO__. Si no le responden, puede reclamar ante la
+  Autoridad Nacional de Protección de Datos Personales.
+</p>
+<p>
+  La ubicación durante el turno es la función central de la aplicación: sin
+  ella no puede usarse para trabajar. La cooperativa le dirá cómo se registra
+  su trabajo si no da o revoca este consentimiento.
+</p>
+
+<div class="junto">
+<h2>Lo que usted autoriza</h2>
+<p>Marque cada casilla que acepta. Cada una es independiente.</p>
+<div class="casilla"><span class="caja"></span><span>Acepto que se use mi <strong>ubicación durante el turno, también con la pantalla apagada o la aplicación en segundo plano</strong>, para los fines de arriba.</span></div>
+<div class="casilla"><span class="caja"></span><span>Acepto que, en la pantalla de inicio de turno, la aplicación mire mi ubicación sin enviarla y <strong>salga a ruta por mí</strong> si ve que estoy manejando y no contesto.</span></div>
+<div class="casilla"><span class="caja"></span><span>Acepto que mis datos se guarden en <strong>servidores fuera del Perú</strong>, con las protecciones descritas.</span></div>
+<div class="casilla"><span class="caja"></span><span>Declaro que recibí una copia de este documento y que puedo leer la política de privacidad completa en <strong>__BASE__/privacidad</strong>.</span></div>
+
+<p style="margin-top: 22px;">
+  Nombre completo: <span class="llenar"></span><br><br>
+  DNI: <span class="llenar corto"></span> &nbsp; Usuario en la app: <span class="llenar corto"></span><br><br>
+  Lugar y fecha: <span class="llenar"></span>
+</p>
+
+<div class="firmas">
+  <div class="firma">Firma del conductor o cobrador</div>
+  <div class="firma">Por la cooperativa (nombre, cargo y firma)</div>
+</div>
+</div>
+
+</body>
+</html>

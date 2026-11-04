@@ -27,9 +27,11 @@ import * as SecureStore from 'expo-secure-store';
 import * as Battery from 'expo-battery';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Application from 'expo-application';
+import * as Updates from 'expo-updates';
 
 import { crearCliente } from './protocolo/cliente';
-import { cabeceraDeApp, avisoDeApp } from './version';
+import { cabeceraDeApp, avisoDeApp, actualizacionDe } from './version';
+import { tocaPreguntar, sePuedeAplicar } from './actualizacion';
 import { limpiarNotificacion, limpiarSiSinRol } from './notificacion.js';
 import { construirHud, textoNotificacion } from './hud';
 import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
@@ -43,6 +45,8 @@ import { useAudioRecorder, useAudioPlayer, RecordingPresets,
 import { tomarFoto, elegirFoto, comoTexto } from './foto';
 import { WebView } from 'react-native-webview';
 import * as gps from './gps/servicio';
+import * as Location from 'expo-location';
+import { crearVigiaPuerta, CALLADO_MS } from './puerta';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
 // un teléfono no depende de la red de casa. Para pegarle a un servidor local
@@ -59,6 +63,9 @@ const LLAVE_TEMA = 'r14_tema';
 const APP = {
   version: Application.nativeApplicationVersion || null,
   versionCode: Number(Application.nativeBuildVersion) || null,
+  // Si el JavaScript que corre llegó por una actualización (PENDIENTES 0.11):
+  // cuándo se publicó. null = el que vino en la APK
+  actualizacion: actualizacionDe(Updates),
 };
 const CABECERA_APP = cabeceraDeApp(APP);
 
@@ -221,9 +228,15 @@ function Aplicacion() {
     const t = setTimeout(() => setTipificarSos(false), 5 * 60_000);
     return () => clearTimeout(t);
   }, [tipificarSos]);
-  const [canal, setCanal] = React.useState('grupo');        // 'grupo' | 'directo'
-  const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0 });
+  const [canal, setCanal] = React.useState('grupo');        // 'grupo' | 'directo' | 'personal'
+  const [vistoHasta, setVistoHasta] = React.useState({ grupo: 0, directo: 0, personal: 0 });
   const cliente = React.useRef(null);
+  const alCambiarDeCombi = React.useRef(() => {});
+  const [sosVisto, setSosVisto] = React.useState(null);
+  // El SOS que no salió (PENDIENTES 0.5): { en, pos } mientras el panel de
+  // llamar/SMS está abierto
+  const [sosSinRed, setSosSinRed] = React.useState(null);
+  const sosVistosCerrados = React.useRef(new Set());
 
   // ── El cliente vive fuera de React ──────────────────────────
   // Se crea una sola vez: si se recreara en cada render, cada cambio de
@@ -234,9 +247,19 @@ function Aplicacion() {
     const off = [
       c.on('estado', () => { setHud(construirHud(c.miBrecha())); setEstado(c.estado); }),
       c.on('geometria', (g) => setGeometria(g)),
+      // La combi de hoy cambió (en la puerta, o Despacho): la sesión, y la
+      // guardada, para que al reabrir la app diga la que es
+      //
+      // El servidor la manda en cada identify: si es la misma, nada (antes
+      // reescribía el disco en cada reconexión).
+      c.on('combi', (m) => alCambiarDeCombi.current(m)),
       c.on('conexion', ({ conectado }) => setConectado(conectado)),
       c.on('rolGps', ({ reporta, motivo }) => {
-        setReporta(reporta); setAviso(motivo);
+        // «Modo acompañante» no es un aviso: es lo que es el cobrador, y el
+        // servidor lo repite en cada conexión. Pintado como aviso quedaba una
+        // barra ámbar fija en la puerta y en el chat que parecía un error y
+        // tapaba los avisos de verdad (repaso de la tanda 9).
+        setReporta(reporta); setAviso(motivo === 'Modo acompañante' ? null : motivo);
         // Si el servicio se había apagado por un 409 (otro chofer tomó la
         // unidad) y el rol volvió, el vigilante puede rearrancarlo.
         //
@@ -283,6 +306,11 @@ function Aplicacion() {
       c.on('sos', (m) => {
         if (c.sesion && m.unitId === c.sesion.unitId) setTipificarSos(true);
       }),
+      // «Despacho vio tu SOS» (31/10): queda hasta que lo toca, y el que ya
+      // cerró no vuelve con cada reconexión
+      c.on('sosAtendido', (m) => {
+        if (!sosVistosCerrados.current.has(m.sosId)) setSosVisto(m);
+      }),
       c.on('voz',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       c.on('foto', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
       // El cupo por minuto del servidor. Lo que se manda de más se descarta,
@@ -324,7 +352,21 @@ function Aplicacion() {
     // La sesión va JUNTO con el token: sin ella el cliente no sabe quién soy,
     // y la brecha, el chat y el mapa fallan en silencio. Ver `conectar()`.
     cliente.current.conectar(s.token, s);
-    cliente.current.pedirMarca(s.token).then(m => { if (m) setMarca(m); });
+    cliente.current.pedirMarca(s.token).then(m => {
+      if (!m) return;
+      setMarca(m);
+      // El teléfono de la central viene con la marca (PENDIENTES 0.5): si la
+      // gerencia lo cambió, queda en la sesión guardada, que es lo que hay
+      // cuando el SOS no sale por falta de internet
+      if (m.central !== undefined && m.central !== (s.central ?? null)) {
+        setSesion(prev => {
+          if (!prev) return prev;
+          const nueva = { ...prev, central: m.central };
+          SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
+          return nueva;
+        });
+      }
+    });
     // El GPS ya NO arranca al entrar: arranca al SALIR A RUTA. Pero si la
     // app murió a mitad de turno (Android la mató, el chofer la reabrió),
     // la presencia guardada retoma sola: nadie vuelve a marcar nada.
@@ -335,7 +377,7 @@ function Aplicacion() {
     if (s.role === 'collector') { setPresencia('fuera'); return; }
     if (previa === 'ruta' || previa === 'ausente') {
       setPresencia(previa);
-      cliente.current.marcarPresencia(previa);
+      cliente.current.marcarPresencia(previa, null, { retomada: true });
       const permisos = await gps.pedirPermisos();
       if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
       setAviso(null);   // el aviso de permisos viejo no sobrevive al permiso dado
@@ -346,10 +388,10 @@ function Aplicacion() {
   // Cambiar de presencia es UNA función porque toca tres mundos a la vez y
   // el orden importa: el disco (para la tarea de fondo y para retomar), el
   // servidor (la declaración), y el servicio de GPS (que emite o calla).
-  const cambiarPresencia = async (nueva) => {
+  const cambiarPresencia = async (nueva, motivo) => {
     setPresencia(nueva);
     try { await SecureStore.setItemAsync(gps.LLAVE_PRESENCIA, nueva); } catch {}
-    cliente.current.marcarPresencia(nueva);
+    cliente.current.marcarPresencia(nueva, motivo);
     if (nueva === 'fuera') {
       // Primero se le avisa al vigilante, DESPUÉS se para: la misma carrera
       // que ya nos costó un servicio huérfano en `onSalir`.
@@ -364,10 +406,172 @@ function Aplicacion() {
       // durante todo el almuerzo.
       if (nueva === 'ausente') limpiarNotificacion().catch(() => {});
       saliendo.current = false;
+      // El «el GPS se apagó: otro chofer tomó la unidad» de antes no vale
+      // para esta salida: el vigilante lo veía y no rearrancaba nunca el
+      // servicio que esta salida acaba de pedir (revisión previa a la APK).
+      // Si el otro sigue manejando, el servidor lo vuelve a decir.
+      gps.diagnostico.detenidoPor = null;
       const permisos = await gps.pedirPermisos();
       if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
       setAviso(null);   // ídem: al dar el permiso, el cartel viejo se va
-      await gps.arrancar({ textoNotificacion: textoRef.current });
+      // Recién salido todavía no hay rol: `reporta` es el de antes (o el
+      // inicial), y la notificación arrancaba diciendo «Modo acompañante» al
+      // que sale a manejar. Si de verdad lo es, el servicio la reemplaza
+      // con la primera respuesta del servidor.
+      await gps.arrancar({ textoNotificacion: reporta ? textoRef.current : 'Turno en curso' });
+    }
+  };
+
+  // ── El vigía de la puerta (opción C, 30/10) ──────────────────
+  // El chofer entró, no deslizó SALIR A RUTA y ya está manejando: trabaja
+  // invisible. En la puerta la app NO manda la ubicación (la política de
+  // privacidad lo promete), pero con la app ABIERTA puede mirarla sin
+  // mandarla, como el vigía de AUSENTE, y darse cuenta (`puerta.js`). Avisa
+  // fuerte con cuenta regresiva y, si nadie contesta, sale sola.
+  //
+  // Sólo en primer plano y sólo con el permiso YA dado: pedirlo acá sería
+  // pedir la ubicación antes de salir a ruta. Con la app atrás no mira nada:
+  // para eso haría falta el servicio de fondo, que es emitir.
+  const [primerPlano, setPrimerPlano] = React.useState(AppState.currentState === 'active');
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', (e) => setPrimerPlano(e === 'active'));
+    return () => sub.remove();
+  }, []);
+  const vigiaPuerta = React.useRef(null);
+  const [faltaPuerta, setFaltaPuerta] = React.useState(null);
+  // Las combis que puede elegir (ver más abajo): acá arriba porque el vigía
+  // necesita saber si la de hoy la está manejando otro
+  const [combis, setCombis] = React.useState(null);
+  const [avisoSalida, setAvisoSalida] = React.useState(null);   // cuándo salió solo
+  const salirSolo = React.useRef(null);
+  salirSolo.current = () => {
+    setFaltaPuerta(null);
+    cambiarPresencia('ruta', 'auto');
+    // En su propio estado y no en `aviso`: el `rolGps` de la conexión que
+    // abre la salida lo borraba al instante (revisión previa a la APK)
+    setAvisoSalida(Date.now());
+  };
+  // «No estoy manejando» vale media hora aunque el vigía se rehaga (la app
+  // fue atrás y volvió, cambió la combi): antes volvía a contar enseguida
+  const calladoHasta = React.useRef(0);
+  // La combi elegida la está manejando otro: ahí el que maneja es él, y éste
+  // va de pasajero o la está por relevar — eso se decide deslizando SALIR A
+  // RUTA, no con una cuenta que nadie contestó (revisión previa a la APK).
+  const deHoy = (combis || []).find(c => c.vehicleId === sesion?.vehicleId);
+  const ocupada = !!deHoy && deHoy.estado === 'ocupada';
+  const mirarPuerta = !!sesion && sesion.role !== 'collector' && presencia === 'fuera' && primerPlano && !ocupada;
+  React.useEffect(() => {
+    if (!mirarPuerta) { setFaltaPuerta(null); return; }
+    const v = crearVigiaPuerta({ calladoHasta: calladoHasta.current });
+    vigiaPuerta.current = v;
+    let vivo = true, sub = null;
+    const reloj = setInterval(() => {
+      if (!vivo) return;
+      setFaltaPuerta(v.faltaMs(Date.now()));
+      if (v.tic(Date.now()) === 'salir') { vivo = false; salirSolo.current(); }
+    }, 1000);
+    (async () => {
+      try {
+        // Los dos permisos YA dados, y la ubicación prendida: salir solo
+        // arranca el servicio de fondo, y sin el permiso de fondo eso
+        // abría el diálogo de permisos con nadie mirando. Y sin
+        // `mayShowUserSettingsDialog: false` Android ofrecía prender la
+        // ubicación en la puerta, que es pedirla antes de salir a ruta.
+        const p = await Location.getForegroundPermissionsAsync();
+        if (!vivo || !p.granted) return;
+        const f = await Location.getBackgroundPermissionsAsync();
+        if (!vivo || !f.granted) return;
+        if (!(await Location.hasServicesEnabledAsync()) || !vivo) return;
+        sub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 0, mayShowUserSettingsDialog: false },
+          (pos) => {
+            if (!vivo) return;
+            const r = v.posicion(pos.coords.latitude, pos.coords.longitude, Date.now(), pos.coords.accuracy);
+            if (r === 'avisar') {
+              setFaltaPuerta(v.faltaMs(Date.now()));
+              // El aviso está en la pantalla de ruta: si estaba en el chat o
+              // en el mapa, la cuenta corría sin que nada se viera
+              setPantalla('ruta');
+              Vibration.vibrate([0, 400, 200, 400, 200, 400]);
+            }
+            if (r === 'salir') { vivo = false; salirSolo.current(); }
+          });
+        if (!vivo && sub) sub.remove();
+      } catch {}
+    })();
+    return () => {
+      vivo = false; clearInterval(reloj);
+      if (sub) sub.remove();
+      vigiaPuerta.current = null;
+    };
+  }, [mirarPuerta]);
+  const noEstoyManejando = () => {
+    const ahora = Date.now();
+    if (vigiaPuerta.current) vigiaPuerta.current.callar(ahora);
+    calladoHasta.current = ahora + CALLADO_MS;
+    setFaltaPuerta(null);
+  };
+  React.useEffect(() => {
+    if (!avisoSalida) return;
+    const t = setTimeout(() => setAvisoSalida(null), 2 * 60_000);
+    return () => clearTimeout(t);
+  }, [avisoSalida]);
+
+  // ── ¿En qué combi salís? (habilitaciones, 30/10) ────────────
+  // En la puerta, la lista de las que puede elegir con su estado —libre, o
+  // quién la maneja—, refrescada cada 20 s. Elegir no toma nada: la combi se
+  // toma al deslizar SALIR A RUTA, y si otro la maneja eso es un relevo.
+  //
+  // El cobrador no: queda siempre «fuera» (no emite), y preguntaba cada 20 s
+  // todo el día una lista que no usa.
+  const enLaPuerta = !!sesion && sesion.role !== 'collector' && presencia === 'fuera' && primerPlano;
+  const recargarCombis = React.useCallback(() => {
+    if (!cliente.current) return;
+    cliente.current.misCombis().then(d => {
+      setCombis(d.combis || []);
+      // La de hoy la decide el servidor: Despacho pudo cambiarla con la app
+      // cerrada, y la sesión seguía con la vieja
+      const actual = d.actual && (d.combis || []).find(c => c.vehicleId === d.actual);
+      if (actual) alCambiarDeCombi.current(actual);
+    }).catch(() => {});
+  }, []);
+  React.useEffect(() => {
+    if (!enLaPuerta) return;
+    recargarCombis();
+    const t = setInterval(recargarCombis, 20_000);
+    return () => clearInterval(t);
+  }, [enLaPuerta, sesion?.vehicleId, recargarCombis]);
+  // Devuelve null si salió, o el motivo
+  const elegirCombi = async (vehicleId) => {
+    try {
+      const r = await cliente.current.elegirCombi(vehicleId);
+      alCambiarDeCombi.current(r);
+      recargarCombis();
+      return null;
+    } catch (e) {
+      recargarCombis();   // la lista puede estar vieja: otro la tomó
+      return e.message || 'No se pudo';
+    }
+  };
+  // La combi de hoy cambió: la eligió acá, la cambió Despacho, o llegó con
+  // la conexión. La sesión y la guardada; si es la misma, nada. Y si cambió
+  // con la app EN RUTA (iba de acompañante o lo relevaron), vuelve a la
+  // puerta: al reconectar re-declaraba 'ruta' en la combi nueva, que puede
+  // estar manejando otro. Salir en ella es deslizar SALIR A RUTA.
+  alCambiarDeCombi.current = (m) => {
+    if (!m || !m.vehicleId || !sesion) return;
+    const routeId = m.routeId || sesion.routeId, routeName = m.routeName || sesion.routeName;
+    if (m.vehicleId === sesion.vehicleId && routeId === sesion.routeId && routeName === sesion.routeName) return;
+    const otraCombi = m.vehicleId !== sesion.vehicleId;
+    setSesion(prev => {
+      if (!prev) return prev;
+      const nueva = { ...prev, vehicleId: m.vehicleId, routeId: m.routeId || prev.routeId, routeName: m.routeName || prev.routeName };
+      SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
+      return nueva;
+    });
+    if (otraCombi && presencia !== 'fuera' && sesion.role !== 'collector') {
+      cambiarPresencia('fuera');
+      setAviso(`Despacho te pasó a ${m.vehicleId}. Para salir en ella, deslizá SALIR A RUTA.`);
     }
   };
 
@@ -401,6 +605,16 @@ function Aplicacion() {
     ultimaPos.current = { lat: null, lng: null, t: 0 };
     setMensajes([]);
     setTipificarSos(false);
+    // Y lo que el primer estado del siguiente no siempre pisa: la marca (si
+    // /marca no contesta quedaba la de la cooperativa anterior) y lo leído
+    // (los privados viejos del siguiente contaban como vistos). El resto
+    // también, para no mostrar «en vivo» lo de otro (repaso de la tanda 9).
+    setMarca(null); setEstado(null); setGeometria(null); setHud(construirHud(null));
+    setCanal('grupo'); setVistoHasta({ grupo: 0, directo: 0, personal: 0 }); setAviso(null);
+    // Las combis y el vigía del anterior tampoco: el siguiente veía la lista
+    // del otro hasta que contestara el servidor (revisión previa a la APK)
+    setCombis(null); calladoHasta.current = 0; setAvisoSalida(null); setReporta(false);
+    setSosVisto(null); sosVistosCerrados.current = new Set(); setSosSinRed(null);
   };
 
   // El texto de la notificación va en un ref para que los oyentes se
@@ -514,6 +728,45 @@ function Aplicacion() {
     return () => sub.remove();
   }, [sesion]);
 
+  // ── Actualizaciones sin reinstalar (PENDIENTES 0.11) ────────
+  // El módulo pregunta solo al arrancar (y no lo espera: con mala señal el
+  // arranque no se cuelga). Además se pregunta al volver al frente, cada
+  // media hora como mucho, y se baja en silencio. Aplicarla es reiniciar la
+  // app: SÓLO si no está trabajando (ver `actualizacion.js`), nunca en ruta.
+  const preguntadoEn = React.useRef(0);
+  const estadoParaActualizar = React.useRef({});
+  estadoParaActualizar.current = { sesion, presencia, sosSinRed, vigiaContando: faltaPuerta != null };
+  React.useEffect(() => {
+    if (!Updates.isEnabled) return;            // Expo Go, desarrollo
+    let pendiente = false;
+    const mirar = async (alVolver) => {
+      try {
+        if (!pendiente && tocaPreguntar(preguntadoEn.current, Date.now())) {
+          preguntadoEn.current = Date.now();
+          const hay = await Updates.checkForUpdateAsync();
+          // La vuelta atrás (publicar-arreglo → VOLVER ATRÁS) llega como
+          // `isRollBackToEmbedded`, no como `isNew`: sin esto no se aplicaba
+          // por acá sino en el próximo arranque en frío, esté en ruta o no
+          // (revisión integral del 04/11)
+          if (hay.isAvailable || hay.isRollBackToEmbedded) {
+            const r = await Updates.fetchUpdateAsync();
+            pendiente = !!(r.isNew || r.isRollBackToEmbedded);
+          }
+        }
+        if (pendiente && sePuedeAplicar({ ...estadoParaActualizar.current, alVolver })) {
+          await Updates.reloadAsync();
+        }
+      } catch {}                                 // sin red: la próxima vez
+    };
+    // Al arrancar se pregunta y se baja, pero NO se aplica en la puerta: la
+    // descarga termina segundos después, con el chofer ya usando la app, y
+    // recargaba bajo el dedo. Se aplica en la próxima vuelta al frente (o ya,
+    // si está en la pantalla de entrada).
+    mirar(false);
+    const sub = AppState.addEventListener('change', (e) => { if (e === 'active') mirar(true); });
+    return () => sub.remove();
+  }, []);
+
   // ── Cadencia según la pantalla ──────────────────────────────
   // Con la pantalla apagada el chofer no mira el HUD: la posición ya solo
   // sirve para la brecha de los demás, y 10 s alcanzan. Baja mucho el gasto.
@@ -585,6 +838,7 @@ function Aplicacion() {
   const noLeidos = {
     grupo: sinLeer(mensajes, 'grupo', vistoHasta.grupo),
     directo: sinLeer(mensajes, 'directo', vistoHasta.directo),
+    personal: sinLeer(mensajes, 'personal', vistoHasta.personal),
   };
 
   // ¿El servidor ya me confirmó sobre el trazado? Es SU palabra, no la mía:
@@ -635,9 +889,30 @@ function Aplicacion() {
         avisoApp={avisoDeApp(sesion && sesion.app, APP)}
         confirmada={enRutaConfirmada}
         onPresencia={cambiarPresencia}
+        faltaPuerta={faltaPuerta}
+        onNoManejo={noEstoyManejando}
+        avisoSalida={avisoSalida}
+        sosVisto={sosVisto}
+        onSosVistoCerrar={() => { if (sosVisto) sosVistosCerrados.current.add(sosVisto.sosId); setSosVisto(null); }}
+        onAvisoSalidaVisto={() => setAvisoSalida(null)}
+        combis={combis}
+        miCombi={sesion?.vehicleId || null}
+        miNombre={sesion?.driverName || null}
+        onElegirCombi={elegirCombi}
         yo={cliente.current?.miUnidad ? cliente.current.miUnidad() : null}
         onTrafico={(activo) => cliente.current.marcarTrafico(activo)}
-        onSos={() => cliente.current.mandarSos(posicionParaSos())}
+        onSos={async () => {
+          const pos = posicionParaSos();
+          const r = await cliente.current.mandarSos(pos);
+          // Si no salió, el panel para pedir ayuda por teléfono; si salió
+          // (un reintento), se va
+          if (r && r.ok) setSosSinRed(null);
+          else setSosSinRed({ en: Date.now(), pos: pos && Number.isFinite(pos.lat) ? pos : null });
+          return r;
+        }}
+        sosSinRed={sosSinRed}
+        central={sesion?.central || null}
+        onSosSinRedCerrar={() => setSosSinRed(null)}
         tipificarSos={tipificarSos}
         onTipoSos={async (tipo) => {
           // El diálogo se cierra en el acto: el chofer está en una
@@ -660,7 +935,7 @@ function Aplicacion() {
           // El mensaje entra al hilo sólo por el eco del servidor, así que
           // sin socket no pasa NADA: ni burbuja, ni error. Antes el retorno
           // se descartaba (C10).
-          if (!cliente.current.mandarChat(texto, { privado: canal === 'directo' })) {
+          if (!cliente.current.mandarChat(texto, { privado: canal === 'directo', personal: canal === 'personal' })) {
             setAviso('Sin conexión: el mensaje no salió, probá de nuevo');
             return false;
           }
@@ -669,7 +944,7 @@ function Aplicacion() {
         onVoz={(data, duration) => {
           // Ídem la nota de voz, que es peor: el chofer graba cuarenta
           // segundos, suelta, y no pasa nada.
-          const r = cliente.current.mandarVoz({ data, duration, privado: canal === 'directo' });
+          const r = cliente.current.mandarVoz({ data, duration, privado: canal === 'directo', personal: canal === 'personal' });
           if (r === 'muy-larga') setAviso('La nota es muy larga y no salió: grabá una más corta');
           else if (r === 'sin-conexion') setAviso('Sin conexión: la nota no salió, probá de nuevo');
           else if (r) setAviso('Eso no es una nota de voz');
@@ -680,7 +955,7 @@ function Aplicacion() {
         onFoto={(data) => {
           // Si no salió, se dice por qué. Antes la pantalla ignoraba el
           // retorno y una foto pesada o sin conexión se perdía en silencio.
-          const r = cliente.current.mandarFoto({ data, privado: canal === 'directo' });
+          const r = cliente.current.mandarFoto({ data, privado: canal === 'directo', personal: canal === 'personal' });
           if (r === 'muy-pesada') setAviso('La foto pesa demasiado y no salió: sacala de más lejos');
           else if (r === 'sin-conexion') setAviso('Sin conexión: la foto no salió, probá de nuevo');
           else if (r) setAviso('Eso no es una foto');
@@ -844,9 +1119,68 @@ function abrirOptimizacionDeBateria() {
     .catch(() => Linking.openSettings().catch(() => {}));
 }
 
-function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeidos, marca,
+function ElegirCombi({ combis, miCombi, onElegir }) {
+  const { s, C } = usarTema();
+  const [confirmar, setConfirmar] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [eligiendo, setEligiendo] = React.useState(false);
+  const elegir = async (c, confirmado = false) => {
+    if (c.vehicleId === miCombi || eligiendo) return;
+    if (c.estado === 'ocupada' && !confirmado) { setConfirmar(c); return; }
+    setEligiendo(true); setError(null);
+    const motivo = await onElegir(c.vehicleId);
+    setEligiendo(false);
+    if (motivo) setError(motivo); else setConfirmar(null);
+  };
+  return (
+    <View style={{ marginBottom: 12 }}>
+      <Text style={s.combiRotulo}>¿EN QUÉ COMBI SALÍS?</Text>
+      {/* Con alto máximo: con cinco o seis combis la lista empujaba el
+          deslizador de SALIR A RUTA fuera de la pantalla */}
+      <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
+      {combis.map(c => {
+        const elegida = c.vehicleId === miCombi;
+        return (
+          <Pressable key={c.vehicleId} onPress={() => elegir(c)} disabled={eligiendo}
+            style={[s.combiFila, elegida && s.combiFilaElegida]}>
+            <Text style={s.combiCodigo}>{c.vehicleId}</Text>
+            <View style={{ flex: 1 }}>
+              {!!c.label && <Text style={s.combiPlaca}>{c.label}</Text>}
+              <Text style={[s.combiEstado, c.estado === 'ocupada' && { color: C.ambar }]}>
+                {c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}
+              </Text>
+            </View>
+            {elegida && <Text style={s.combiElegida}>ELEGIDA</Text>}
+          </Pressable>
+        );
+      })}
+      </ScrollView>
+      {confirmar && (
+        <View style={s.combiConfirmar}>
+          <Text style={s.combiConfirmarTexto}>
+            {confirmar.vehicleId} la está manejando {confirmar.quien}. Si es un relevo, al salir a
+            ruta la tomás vos y a {confirmar.quien} se le avisa.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+            <Pressable onPress={() => elegir(confirmar, true)} style={s.combiRelevo} disabled={eligiendo}>
+              <Text style={s.combiRelevoTexto}>ES UN RELEVO</Text>
+            </Pressable>
+            <Pressable onPress={() => setConfirmar(null)} style={s.combiCancelar}>
+              <Text style={s.combiCancelarTexto}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+      {!!error && <Text style={s.avisoBarra}>{error}</Text>}
+    </View>
+  );
+}
+
+function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, sosVisto, onSosVistoCerrar,
+                sosSinRed, central, onSosSinRedCerrar, miNombre, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
-                tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol }) {
+                tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol,
+                faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi }) {
   const { s, C } = usarTema();
   // ── Tráfico: lo que el servidor midió de MÍ, y lo que yo dije ───────
   // `yo.parado` es el hecho (N minutos sin avanzar por la ruta, lo mide el
@@ -916,11 +1250,34 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
           </Text>
           <Text style={[s.diagnostico, { marginTop: 18 }]}>
             Mientras tanto el chat queda abierto y no se emite nada. Al
-            salir de ruta, la ubicación se apaga.
+            salir de ruta, la ubicación se apaga. Si con la app abierta te
+            ve manejando sin haber salido, te avisa y sale sola al minuto.
           </Text>
           {/* «Te sacamos de ruta» cae justo en esta pantalla, y no se veía */}
           {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
+        {/* ¿En qué combi salís? Con más de una habilitada. Elegir una que
+            maneja otro pide confirmar, nombrándolo: es un relevo, y se hace
+            a propósito, no por un dedo que se corrió. */}
+        {/* Mientras cuenta el vigía, no: con varias combis el aviso quedaba
+            debajo de la lista, fuera de la pantalla de un teléfono chico. */}
+        {(combis || []).length > 1 && faltaPuerta == null && (
+          <ElegirCombi combis={combis} miCombi={miCombi} onElegir={onElegirCombi} />
+        )}
+        {/* ¿Ya estás manejando? (el vigía de la puerta). Fuerte y arriba del
+            deslizador que se olvidó: no es un aviso que se vaya solo — se va
+            saliendo, o diciendo que no. Salir sigue siendo deslizar. */}
+        {faltaPuerta != null && rol !== 'collector' && (
+          <View style={s.vigiaPuerta}>
+            <Text style={s.vigiaTitulo}>¿YA ESTÁS MANEJANDO?</Text>
+            <Text style={s.vigiaTexto}>
+              Tu combi no está en el mapa. Salís a ruta solo en {Math.ceil(faltaPuerta / 1000)} s.
+            </Text>
+            <Pressable onPress={onNoManejo} style={s.vigiaBoton} hitSlop={8}>
+              <Text style={s.vigiaBotonTexto}>NO ESTOY MANEJANDO</Text>
+            </Pressable>
+          </View>
+        )}
         {/* El cobrador no emite: la unidad la lleva el chofer, y el servidor
             le contesta 403 a cada posición. Antes podía deslizar igual y
             quedaba con el GPS alto y un 403 cada 3 s todo el turno (A4). */}
@@ -933,6 +1290,8 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
             {/* Y el SOS tiene que ESTAR: el cobrador siempre está «fuera», y
                 el deslizador sólo aparecía en ausente y en ruta — la pantalla
                 le prometía un SOS que no tenía (barrido del 22/9). */}
+            {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
+            {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
             {tipificarSos && <TipoSos onElegir={onTipoSos} />}
             <SosDeslizable onDisparar={onSos} />
           </>
@@ -968,6 +1327,8 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
           </Text>
           {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
+        {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
+        {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
         {tipificarSos && <TipoSos onElegir={onTipoSos} />}
         <SosDeslizable onDisparar={onSos} />
         <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
@@ -986,6 +1347,16 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
           servicio de ubicación ni arrancó por falta de permiso — la única
           pista visible era la línea roja del servicio. */}
       {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
+
+      {/* Salió solo (el vigía de la puerta): que lo sepa, hasta que lo toque */}
+      {!!avisoSalida && (
+        <Pressable onPress={onAvisoSalidaVisto} style={s.vigiaPuerta}>
+          <Text style={s.vigiaTitulo}>SALISTE A RUTA SOLO</Text>
+          <Text style={s.vigiaTexto}>
+            Te vimos manejando sin haber deslizado SALIR A RUTA. Despacho lo ve en la actividad. Tocá para cerrar.
+          </Text>
+        </Pressable>
+      )}
 
       {/* «Hay una versión nueva» / «ésta ya no sirve»: lo dice el servidor
           con el login (P5). Se queda a la vista; no es un toast. */}
@@ -1099,6 +1470,10 @@ function Ruta({ hud, conectado, reporta, aviso, avisoApp, diag, pantalla, noLeid
           </Text>
         </Pressable>
       </View>
+
+      {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
+
+      {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
 
       {tipificarSos && <TipoSos onElegir={onTipoSos} />}
       <SosDeslizable onDisparar={onSos} />
@@ -1670,6 +2045,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
             <Text style={s.perfilSeccion}>LA APP</Text>
             <Text style={s.diagnostico}>
               Versión {APP.version || '?'} ({APP.versionCode || '?'})
+              {APP.actualizacion ? ` · actualizada ${APP.actualizacion.slice(6, 8)}/${APP.actualizacion.slice(4, 6)} ${APP.actualizacion.slice(9, 11)}:${APP.actualizacion.slice(11, 13)}` : ''}
               {datos.app && datos.app.versionCodeActual ? ` · la que se reparte es la ${datos.app.versionCodeActual}` : ''}
               {'\n'}{SERVIDOR}
             </Text>
@@ -1980,6 +2356,71 @@ function BotonTema() {
 // ENVIADA» recién ahí, y «NO SALIÓ — REPETÍ» en rojo si no llegó. Antes
 // decía «enviada» al soltar el dedo, con el socket muerto y la alerta en
 // ninguna parte (REVISION-2026-09-08.md, A1).
+// Despacho vio el SOS: verde lleno con tinta de fondo, arriba del
+// deslizador, hasta que se lo toca. Dice quién y a qué hora lo marcó; no
+// promete que la ayuda esté en camino (eso lo dice Despacho).
+function SosVisto({ visto, onCerrar }) {
+  const { s } = usarTema();
+  const d = new Date(visto.en || Date.now());
+  const hora = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return (
+    <Pressable onPress={onCerrar} style={s.sosVisto} accessibilityRole="button">
+      <Text style={s.vigiaTitulo}>DESPACHO VIO TU SOS</Text>
+      <Text style={s.vigiaTexto}>
+        Lo marcó atendido {visto.por || 'Despacho'} a las {hora}. Tocá para cerrar.
+      </Text>
+    </Pressable>
+  );
+}
+
+// El SOS que no salió por internet (PENDIENTES 0.5): por dónde pedir ayuda
+// igual. Una llamada o un SMS salen con señal de voz aunque no haya datos.
+// Queda hasta que el chofer lo cierra o un reintento sale; la central la carga
+// la gerencia, los números de emergencia del Perú están siempre.
+const EMERGENCIAS = [['105', 'Policía'], ['106', 'SAMU'], ['116', 'Bomberos']];
+function textoSmsSos({ combi, nombre, pos }) {
+  const donde = pos
+    ? ` Estoy en ${pos.lat.toFixed(5)},${pos.lng.toFixed(5)} https://maps.google.com/?q=${pos.lat.toFixed(5)},${pos.lng.toFixed(5)}`
+    : ' No tengo mi posición.';
+  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet).`;
+}
+function SosSinRed({ fallo, central, combi, nombre, onCerrar }) {
+  const { s } = usarTema();
+  const abrir = (url) => Linking.openURL(url).catch(() => {});
+  return (
+    <View style={s.sosSinRed} accessibilityRole="alert">
+      <Text style={s.sosSinRedTitulo}>SOS NO SALIÓ</Text>
+      <Text style={s.sosSinRedTexto}>
+        Sin internet. Pedí ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+      </Text>
+      {central ? (
+        <>
+          <Pressable onPress={() => abrir(`tel:${central}`)} style={s.sosSinRedBoton}>
+            <Text style={s.sosSinRedBotonTexto}>LLAMAR A LA CENTRAL · {central}</Text>
+          </Pressable>
+          <Pressable onPress={() => abrir(`sms:${central}?body=${encodeURIComponent(textoSmsSos({ combi, nombre, pos: fallo.pos }))}`)}
+            style={s.sosSinRedBoton}>
+            <Text style={s.sosSinRedBotonTexto}>MANDAR SMS A LA CENTRAL{fallo.pos ? ' CON TU POSICIÓN' : ''}</Text>
+          </Pressable>
+        </>
+      ) : (
+        <Text style={s.sosSinRedTexto}>Tu cooperativa no cargó el teléfono de la central.</Text>
+      )}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {EMERGENCIAS.map(([n, quien]) => (
+          <Pressable key={n} onPress={() => abrir(`tel:${n}`)} style={s.sosSinRedChico}>
+            <Text style={s.sosSinRedChicoNum}>{n}</Text>
+            <Text style={s.sosSinRedChicoQuien}>{quien}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Pressable onPress={onCerrar} hitSlop={8} style={{ alignItems: 'center', marginTop: 10 }}>
+        <Text style={s.sosSinRedCerrar}>Cerrar y volver a deslizar el SOS</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function SosDeslizable({ onDisparar }) {
   const { s, C } = usarTema();
   const [ancho, setAncho] = React.useState(0);
@@ -2056,7 +2497,7 @@ function SosDeslizable({ onDisparar }) {
 // ═══════════════════════════════════════════════════════════════
 function Barra({ pantalla, noLeidos, onIr }) {
   const { s, C } = usarTema();
-  const total = (noLeidos?.grupo || 0) + (noLeidos?.directo || 0);
+  const total = (noLeidos?.grupo || 0) + (noLeidos?.directo || 0) + (noLeidos?.personal || 0);
   // Acá está el bug que se midió: sin este margen, estos botones quedan
   // DEBAJO de los de Android y hay que insistir para tocarlos. Ver
   // `margenes.js` — un elemento que se toca necesita más aire que un texto.
@@ -2077,9 +2518,10 @@ function Barra({ pantalla, noLeidos, onIr }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// El chat, con sus DOS canales. El grupo lo ven todos los de la ruta; el
-// directo, solo este chofer y Despacho. Chofer ↔ chofer privado no existe y
-// eso lo decide el servidor, no esta pantalla.
+// El chat, con sus TRES canales. El grupo lo ven todos los de la ruta; el
+// de la COMBI, Despacho y los que van arriba de ella (hoy y después); el
+// PERSONAL, sólo esta persona y Despacho, en la combi que sea. Chofer ↔
+// chofer privado no existe y eso lo decide el servidor, no esta pantalla.
 function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, onEnviar, onVoz, onFoto, onIr }) {
   const { s, C } = usarTema();
   const [texto, setTexto] = React.useState('');
@@ -2105,7 +2547,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
       <StatusBar style="light" />
 
       <View style={s.canales}>
-        {[['grupo', 'RUTA'], ['directo', 'DESPACHO']].map(([id, texto]) => (
+        {[['grupo', 'RUTA'], ['directo', 'COMBI'], ['personal', 'PERSONAL']].map(([id, texto]) => (
           <Pressable key={id} onPress={() => onCanal(id)}
             style={[s.canal, canal === id && s.canalActivo]}>
             <Text style={[s.canalTexto, canal === id && { color: '#fff' }]}>{texto}</Text>
@@ -2126,7 +2568,9 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
           <Text style={s.vacio}>
             {canal === 'grupo'
               ? 'Todavía no hay mensajes en el canal de la ruta.'
-              : 'Acá hablás solo con Despacho. Nadie más lo ve.'}
+              : canal === 'directo'
+                ? 'Acá va lo que Despacho habla con tu combi: lo ven el chofer y el cobrador que van arriba, y el que la maneje después.'
+                : 'Acá hablás solo vos con Despacho. Te sigue aunque cambies de combi, y no lo ve nadie más.'}
           </Text>
         }
         renderItem={({ item: m }) => (
@@ -2158,7 +2602,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
           style={s.campoChat}
           value={texto}
           onChangeText={setTexto}
-          placeholder={canal === 'grupo' ? 'Mensaje a la ruta…' : 'Mensaje a Despacho…'}
+          placeholder={canal === 'grupo' ? 'Mensaje a la ruta…' : canal === 'personal' ? 'Mensaje solo a Despacho…' : 'Mensaje a Despacho…'}
           placeholderTextColor={C.tenue}
           multiline
           maxLength={500}
@@ -2262,7 +2706,10 @@ function Camara({ onListo, habilitado }) {
 // gesto que no pide precisión ni mirar la pantalla. Soltar sin llegar al
 // segundo cancela, que es la salida para el toque sin querer.
 function Grabar({ onListo, habilitado }) {
-  const { s } = usarTema();
+  // Con C: el botón se pinta de rojo mientras graba. Faltaba, y mantener
+  // apretado el micrófono tiraba «C is not defined» (lo encontró el chequeo
+  // de identificadores sin declarar, 03/11)
+  const { s, C } = usarTema();
   const grabador = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [grabando, setGrabando] = React.useState(false);
   const [segundos, setSegundos] = React.useState(0);
@@ -2382,6 +2829,48 @@ function crearEstilos(C) { return StyleSheet.create({
   chip: { fontFamily: 'monospace', fontSize: 12, letterSpacing: 1, fontWeight: '700' },
   salir: { color: C.tenue, fontSize: 14, fontWeight: '700' },
   avisoBarra: { color: C.ambar, fontSize: 13, marginTop: 10 },
+  // El vigía de la puerta: ámbar lleno con tinta de fondo, lo más fuerte
+  // que hay sin ser el rojo de la emergencia
+  vigiaPuerta: { backgroundColor: C.ambar, borderRadius: 14, padding: 14, marginBottom: 12 },
+  sosVisto: { backgroundColor: C.verde, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
+  // El SOS sin internet: fondo de la pantalla con el borde del SOS, y los
+  // botones grandes en rojo (es la emergencia, el único uso del rojo)
+  sosSinRed: { backgroundColor: C.fondo, borderWidth: 3, borderColor: C.rojo, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
+  sosSinRedTitulo: { color: C.rojo, fontSize: 22, fontWeight: '900', letterSpacing: 1, textAlign: 'center' },
+  sosSinRedTexto: { color: C.blanco, fontSize: 14, lineHeight: 19, textAlign: 'center', marginTop: 6, marginBottom: 10 },
+  sosSinRedBoton: { backgroundColor: C.rojo, borderRadius: 12, paddingVertical: 15, paddingHorizontal: 10, alignItems: 'center', marginBottom: 8 },
+  // Tinta de fondo sobre el rojo: 5,4:1 de día y 3,9 de noche; el blanco
+  // daba 3,0 y 3,4
+  sosSinRedBotonTexto: { color: C.fondo, fontSize: 15, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
+  sosSinRedChico: { flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 10, paddingVertical: 9, alignItems: 'center' },
+  sosSinRedChicoNum: { color: C.blanco, fontSize: 16, fontWeight: '900' },
+  sosSinRedChicoQuien: { color: C.cielo, fontSize: 11, fontWeight: '700' },
+  sosSinRedCerrar: { color: C.cielo, fontSize: 13, textDecorationLine: 'underline' },
+  vigiaTitulo: { color: C.fondo, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
+  vigiaTexto: { color: C.fondo, fontSize: 14, marginTop: 4, lineHeight: 19 },
+  vigiaBoton: {
+    marginTop: 10, borderWidth: 2, borderColor: C.fondo, borderRadius: 10,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  vigiaBotonTexto: { color: C.fondo, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
+  // ¿En qué combi salís?
+  combiRotulo: { color: C.cielo, fontSize: 10, letterSpacing: 1.5, fontFamily: 'monospace', marginBottom: 8 },
+  combiFila: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
+  combiFilaElegida: { borderWidth: 2, borderColor: C.brillante, paddingHorizontal: 11, paddingVertical: 9 },
+  combiCodigo: { color: C.blanco, fontSize: 20, fontWeight: '900' },
+  combiPlaca: { color: C.cielo, fontSize: 10, letterSpacing: 1, fontFamily: 'monospace' },
+  combiEstado: { color: C.tenue, fontSize: 13, fontWeight: '700' },
+  combiElegida: { color: C.cielo, fontSize: 10, letterSpacing: 1.5, fontFamily: 'monospace' },
+  combiConfirmar: { backgroundColor: C.panel, borderWidth: 1, borderColor: C.ambar, borderRadius: 12, padding: 12 },
+  combiConfirmarTexto: { color: C.blanco, fontSize: 14, lineHeight: 19 },
+  combiRelevo: { flex: 1, backgroundColor: C.ambar, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  combiRelevoTexto: { color: C.fondo, fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
+  combiCancelar: { flex: 1, borderWidth: 1, borderColor: C.linea, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  combiCancelarTexto: { color: C.cielo, fontSize: 13, fontWeight: '700' },
   diagnostico: { color: C.tenue, fontSize: 11, fontFamily: 'monospace', marginTop: 8 },
 
   centro: { flex: 1, justifyContent: 'center' },

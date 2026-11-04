@@ -327,7 +327,11 @@ const entrar = (api, user, password, cab = {}) =>
     const sos = b0.prepare("SELECT lat, lng, timestamp FROM messages WHERE kind = 'sos' ORDER BY id DESC LIMIT 1").get();
     b0.close();
     ok('la emergencia quedó registrada igual', !!sos, sos);
-    ok('sin la coordenada inventada', !!sos && sos.lat === null, sos && sos.lat);
+    // Desde el 28/10, sin posición válida del que dispara va la de SU COMBI si
+    // es de menos de un minuto (el cobrador no prende el GPS): acá es la de
+    // la posición de hace un segundo, que es real. Lo que no entra nunca es
+    // la basura que mandó el cliente.
+    ok('sin la coordenada basura: guarda la última real de la combi', !!sos && sos.lat === -15.49 && sos.lng === -70.13, sos && [sos.lat, sos.lng]);
     // Con timestamp 1 la fila existía pero no aparecía en NINGÚN informe
     // fechado, y la poda la borraba por vieja: la emergencia ocurría y no
     // dejaba rastro.

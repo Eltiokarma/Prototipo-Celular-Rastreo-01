@@ -118,7 +118,7 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
      /s\.paradas \? `\$\{s\.paradas\}/.test(despacho));
   ok('la web del chofer también manda `precision` con cada posición', /precision: Math\.round\(accuracy\)/.test(realtime));
   // Tanda 4 de la revisión del 10/9: la web del chofer a la par de la app nativa
-  ok('el SOS de la web va por POST /sos y sólo dice «enviada» si llegó', /HTTP_URL \+ '\/sos'/.test(realtime) && /async function sendSos/.test(realtime) && /if \(r && r\.ok\) setEmergencyFired\(true\); else setSosFallo\(true\);/.test(prototipo) && /NO SALIÓ/.test(prototipo));
+  ok('el SOS de la web va por POST /sos y sólo dice «enviada» si llegó', /HTTP_URL \+ '\/sos'/.test(realtime) && /async function sendSos/.test(realtime) && /if \(r && r\.ok\) \{ setEmergencyFired\(true\); setSosFallo\(false\); \}\s*else setSosFallo\(/.test(prototipo) && /NO SALIÓ/.test(prototipo));
   ok('el GPS simulado sólo existe en demo, y va marcado como simulado', /const DEMO = !!window\.MODO_DEMO/.test(realtime) && /if \(DEMO\) \{ startSimulatedGps\(\); return; \}/.test(realtime) && /simulado: true,/.test(realtime));
   ok('y el servidor le dice a la web si está en demo', /window\.MODO_DEMO = \$\{ES_DEMO\}/.test(leer('server/index.js')));
   ok('sin GPS la web lo dice en vez de inventar', /emit\('gps', \{ ok: false, motivo \}\)/.test(realtime) && /SIN GPS/.test(prototipo));
@@ -138,6 +138,22 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   ok('CACHE_NAME subió (v62 o más)', Number(v) >= 62, v);
   // Tanda 1 de la revisión del 10/9: las horas por persona, en pantalla
   ok('Números tiene la tabla «Por persona» con las horas que se liquidan', /resumenGer\.porPersona\.map\(p =>/.test(despacho) && /'Persona', 'Rol', 'Turnos', 'Horas', 'Vueltas', 'Cumple', 'Salidas', 'Unidades'/.test(despacho));
+}
+
+console.log('\nLO QUE SALIÓ DE RECORRER LAS PANTALLAS (28/10)');
+{
+  // `var(--brand)` no existía: «Respaldar ahora» era texto blanco sin fondo,
+  // un botón invisible. Toda variable que se usa tiene que estar definida.
+  const definidas = new Set([...creador.matchAll(/--([A-Za-z0-9]+)\s*:/g)].map(m => m[1]));
+  const sueltas = [...new Set([...creador.matchAll(/var\(--([A-Za-z0-9]+)/g)].map(m => m[1]))].filter(v => !definidas.has(v));
+  ok('el creador no usa colores sin definir', sueltas.length === 0, sueltas);
+  ok('la web del chofer va a pantalla completa en el teléfono', /html\.telefono \.header/.test(prototipo) && /completo=\{telefono\}/.test(prototipo));
+  ok('«Olvidé mi contraseña» dice qué hacer (no es un enlace muerto)', !/href="#"/.test(prototipo) && /Pedile a Despacho/.test(prototipo));
+  ok('nada de pasajeros ni vueltas inventadas en la puerta', !/42 pasajeros/.test(prototipo) && !/RAÚL MAMANI/.test(prototipo));
+  ok('el ausente no lee «sos la única unidad en ruta»', /const ausente = presencia === 'ausente'/.test(prototipo) && /YENDO A LA RUTA/.test(prototipo));
+  ok('los mensajes viejos del chat llevan el día', /function horaChat/.test(prototipo) && /function horaChat/.test(despacho));
+  ok('el login de Despacho no habla de variables de entorno', !/DISPATCH_PASSWORD/.test(despacho.split('function Login(')[1]?.split('\nfunction ')[0] || ''));
+  ok('«Dónde se traba» explica las anomalías en pantalla', /QUE_ES_ANOMALIA/.test(despacho) && !/está en <strong>TRUCOS/.test(despacho));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

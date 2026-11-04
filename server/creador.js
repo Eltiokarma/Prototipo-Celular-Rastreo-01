@@ -540,7 +540,23 @@ function montarPanelDelCreador(app, deps) {
     const r = await respaldo.respaldar(db, db.constructor);
     if (!r.ok) return res.status(500).json({ error: r.motivo });
     anotar('respaldo_manual', null, `${r.archivo} (${Math.round(r.bytes / 1024)} kB)`);
-    res.json(r);
+    // Y también afuera, si está configurada: se espera, para que el panel
+    // diga si salió
+    const afuera = deps.alRespaldar ? await deps.alRespaldar(r) : null;
+    res.json({ ...r, afuera });
+  });
+
+  // Lo que hay en la copia afuera (PENDIENTES 0.3): de acá sale el nombre
+  // exacto para RESTAURAR_DESDE. Sin configurar, lo dice.
+  app.get(BASE + '/respaldos-afuera', requireCreador, async (req, res) => {
+    const c = deps.copiaAfuera;
+    const estado = c ? c.estado() : { configurada: false };
+    if (!estado.configurada) return res.json({ configurada: false, error: estado.error || null, copias: [] });
+    try {
+      res.json({ configurada: true, estado, copias: (await c.listar()).slice(0, 60) });
+    } catch (e) {
+      res.json({ configurada: true, estado, copias: [], error: e.message });
+    }
   });
 
   app.get(BASE + '/respaldos/:archivo', requireCreador, (req, res) => {
@@ -602,6 +618,10 @@ function montarPanelDelCreador(app, deps) {
       segundoFactor: !!totpClave,
       ultimoRespaldo,                        // { archivo, bytes, cuando } o null
       respaldoCadaHoras: respaldo.CADA_HORAS,
+      // Lo mismo que GET /salud, con los números (03/11)
+      salud: deps.salud ? deps.salud() : null,
+      // La última restauración, si hubo (ver restaurar.js)
+      restauracion: base ? require('./restaurar').marcaDe(base) : null,
     });
   });
 

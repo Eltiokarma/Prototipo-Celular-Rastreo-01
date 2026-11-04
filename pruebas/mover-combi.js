@@ -37,7 +37,11 @@ let salida = '';
 async function arrancar() {
   servidor = spawn('node', [RAIZ + '/server/index.js'], {
     env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: 'despacho99',
-           MODO: 'demo', STATE_INTERVAL_MS: '300' },
+           MODO: 'demo', STATE_INTERVAL_MS: '300',
+           // Sin la gracia del arranque: con ella, «vuelve como reanudación
+           // y no como entrada tardía» pasaba aunque se borrara el arreglo
+           // (repaso de la tanda 10).
+           ARRANQUE_GRACIA_MS: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   servidor.stdout.on('data', d => { salida += d; });
@@ -104,6 +108,10 @@ const enEstado = (c, ruta, veh) => !!(ultimoEstado(c, ruta)?.units || []).find(u
 
   const chofer = await login('M-01', 'clave1234');
   const cc = await conectar(chofer.token);
+  // El cobrador, sólo por el socket: nunca manda GPS, así que su turno sólo
+  // lo abre el `identify`… o el cambio de ruta.
+  const cobrador = await login('C-01', 'clave1234');
+  const cob = await conectar(cobrador.token);
   const mira14 = await conectar(d.token, 'R-14');
   const mira18 = await conectar(d.token, 'R-18B');
   await post('/presencia', chofer.token, { estado: 'ruta' });
@@ -133,6 +141,8 @@ const enEstado = (c, ruta, veh) => !!(ultimoEstado(c, ruta)?.units || []).find(u
 
   console.log('\nLA COMBI PASA DE LA R-14 A LA R-18B, ANDANDO');
   {
+    // Un pedido de grabación pendiente: tiene que irse con la combi
+    await post('/admin/grabaciones/pedir', d.token, { vehicleId: 'M-01' });
     const r = await mover(d.token, 'M-01', 'R-18B');
     ok('el supervisor la mueve', r.status === 200 && r.body.enVivo === true && r.body.desde === 'R-14', r.body);
     ok('y dice quiénes fueron con ella', (r.body.personas || []).sort().join(',') === 'C-01,M-01', r.body.personas);
@@ -148,6 +158,15 @@ const enEstado = (c, ruta, veh) => !!(ultimoEstado(c, ruta)?.units || []).find(u
        base.prepare("SELECT COUNT(*) c FROM laps WHERE unitId = 'M-01'").get().c === 0);
     ok('el cambio queda en la auditoría',
        !!base.prepare("SELECT 1 FROM audit WHERE action = 'mover_combi' AND target = 'M-01' AND detail = 'R-14 → R-18B'").get());
+    ok('también en la de la ruta de la que se fue',
+       !!base.prepare("SELECT 1 FROM audit WHERE action = 'mover_combi' AND target = 'M-01' AND routeId = 'R-14'").get());
+    ok('el pedido de grabación pendiente pasa a la ruta nueva',
+       (base.prepare("SELECT routeId FROM recording_requests WHERE vehicleId = 'M-01'").get() || {}).routeId === 'R-18B');
+    // Los conectados por el socket arrancan su turno en la ruta nueva YA, sin
+    // esperar a un POST /gps que el cobrador no manda nunca
+    const abiertos = base.prepare("SELECT personId, routeId FROM shifts WHERE vehicleId = 'M-01' AND endedAt IS NULL ORDER BY personId").all();
+    ok('chofer y cobrador conectados tienen turno abierto en la R-18B, sin mandar GPS',
+       abiertos.length === 2 && abiertos.every(t => t.routeId === 'R-18B'), abiertos);
 
     // Sigue andando, ahora por la mitad del circuito de la 18B
     await andar([0.40, 0.44, 0.48, 0.52]);
@@ -189,6 +208,13 @@ const enEstado = (c, ruta, veh) => !!(ultimoEstado(c, ruta)?.units || []).find(u
 
       const r = await mover(d.token, 'M-01', 'R-14');
       ok('el supervisor la devuelve a la R-14', r.status === 200, r.body);
+      // Ida y vuelta en menos de 15 minutos: el turno viejo de la R-14 NO se
+      // reabre (cubriría también el de la R-18B y esas horas contarían doble)
+      const t14 = base.prepare("SELECT id, endedAt FROM shifts WHERE personId = 'M-01' AND routeId = 'R-14' ORDER BY id").all();
+      ok('el turno viejo de la R-14 sigue cerrado y hay uno nuevo',
+         t14.length >= 2 && t14[0].endedAt !== null && t14[t14.length - 1].endedAt === null, t14);
+      ok('un solo turno abierto por persona',
+         base.prepare("SELECT COUNT(*) c FROM shifts WHERE personId = 'M-01' AND endedAt IS NULL").get().c === 1);
       await p.waitForTimeout(2000);
       const guardada = await p.evaluate(() => JSON.parse(localStorage.getItem('r14_session') || 'null'));
       ok('la sesión guardada pasa a la R-14', guardada && guardada.routeId === 'R-14' && guardada.routeName === nombre('R-14'),
@@ -208,7 +234,7 @@ const enEstado = (c, ruta, veh) => !!(ultimoEstado(c, ruta)?.units || []).find(u
     }
   }
 
-  for (const c of [cc, mira14, mira18]) { try { c.ws.close(); } catch {} }
+  for (const c of [cc, cob, mira14, mira18]) { try { c.ws.close(); } catch {} }
   base.close();
   servidor.kill();
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }

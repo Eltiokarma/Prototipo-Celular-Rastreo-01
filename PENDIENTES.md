@@ -12,6 +12,34 @@ al final).
 Revisado contra el código, no contra la memoria. El orden es el que sigue:
 primero lo que impide vender, después lo que impide escalar, después producto.
 
+### 0 · Lo que le falta para operar de verdad (revisión previa a la APK, 31/10)
+
+Salió de revisar la operación de punta a punta, no de una idea. En orden: lo
+primero es lo que puede costar una vida o un turno entero sin que nadie se
+entere.
+
+| # | Qué | Por qué | Tamaño |
+| --- | --- | --- | --- |
+| 0.1 | ~~**El SOS en Despacho grita**~~ | **HECHO** (31/10). Suena (Web Audio, sin archivo) hasta que alguien marca ATENDIDO, sale una notificación del navegador que queda hasta tocarla, y el título de la pestaña parpadea con la combi. «Activar alarma de SOS» en la cabecera mientras el navegador la tenga muda o falte el permiso. ATENDIDO es de la base: se cierra en todos los paneles, el hilo dice quién y a qué hora, queda en la Actividad y en el informe (con los minutos). Los abiertos llegan al conectar. Y el que pidió ayuda (y su combi) ve «DESPACHO VIO TU SOS» con quién y a qué hora, también si se le cortó la señal y reconecta. Suite `sos-despacho` | ✔ |
+| 0.2 | ~~**Saber que el servidor está mal antes que los choferes**~~ | **HECHO** (03/11). `GET /salud` (público, sin números): la base lee y escribe, errores de base recientes, disco del volumen, edad del respaldo, zona horaria, WAL y bucle trabado; 503 con un problema, 200 con avisos. El servidor se mira cada minuto y avisa al cambiar (log y `ALERTA_URL`: ntfy, Slack, Discord); `railway.json` no deja pasar un deploy cuyo `/salud` no da 200; el creador ve los números en SISTEMA. De paso: la renovación de sesión ya no tumba cada pedido con el disco lleno. **Falta (fuera del repo):** crear el monitor externo que mire `/salud` cada 5 min (README, «Salud y alertas») | ✔ |
+| 0.3 | ~~**El respaldo fuera del volumen, y cómo volver**~~ | **HECHO** (03/11). Cada respaldo verificado sube comprimido y **cifrado** (AES-256-GCM) a un bucket S3 (R2, B2, AWS), firmado sin dependencias (SigV4, probado contra los ejemplos de AWS). Volver: `RESTAURAR_DESDE` en Railway, que guarda la base anterior al lado, no se repite y, si algo falla, no arranca sin tocar nada; y `server/restaurar.js` para hacerlo desde una computadora. `/salud` avisa sin copia, con copia fallando o vieja; el creador la lista. Suite `copia-afuera`. **Falta (fuera del repo):** crear el bucket y las variables, y hacer el simulacro (TAREAS-FUERA-DEL-CODIGO.md) | ✔ |
+| 0.4 | ~~**La salud del teléfono en la tarjeta de Despacho**~~ | **HECHO** (03/11). La app manda con sus posiciones la batería, si carga y si Android le aplica ahorro de batería (leído una vez por minuto, sin esperar al módulo nativo); la web, la batería del navegador. El servidor lo guarda en memoria y lo manda sólo a los paneles de la ruta (`telefonos`). La tarjeta muestra batería, versión y, en ámbar, «se está por apagar», «ahorro de batería activado» y «app vieja». Política de privacidad actualizada. Suite `telefono`. **Requiere la APK 0.3.0** para la nativa | ✔ |
+| 0.5 | ~~**SOS sin red: el botón de llamar**~~ | **HECHO** (03/11). La gerencia carga el teléfono de la central (Gestión → Empresa); viaja con el login y queda guardado en el teléfono. Si el SOS no sale, queda un panel con LLAMAR A LA CENTRAL, MANDAR SMS (combi, nombre, posición y enlace al mapa) y 105/106/116, hasta cerrarlo. Suite `sos-sin-red`. Ver `CAMBIOS-PARA-REVISAR.md` | ✔ |
+| 0.6 | ~~**Corregir horas a mano**~~ | **HECHO** (04/11). Despacho corrige la entrada o la salida, anula o agrega un turno desde Gestión → Turnos, siempre con motivo; queda el antes, el después, quién y cuándo (`correcciones_turno`), en la Actividad y en el informe de horas. Reglas: 31 días atrás, 24 h máximo, sin superponerse. Suite `correccion-horas`. Ver `CAMBIOS-PARA-REVISAR.md`, bloque 8 | ✔ |
+| 0.7 | ~~**Alta masiva**~~ | **HECHO** (04/11). Desde una planilla: Excel (.xlsx), LibreOffice o Google Sheets (.ods), CSV o celdas pegadas, sin dependencias nuevas. Revisar (no guarda) y crear (las buenas, con las claves una vez). Cada fila pasa por la misma función que el alta de a uno. Suite `alta-masiva`. Ver `CAMBIOS-PARA-REVISAR.md`, bloque 9 | ✔ |
+| 0.8 | ~~**Retención de la evidencia**~~ | **HECHO** (04/11). Fotos y notas de voz **por tiempo** (`MEDIA_DIAS`, 30, lo que dice /privacidad) y con el tope de 1500 **por cooperativa** (antes 20 fotos y 30 audios en todo el servidor). Despacho marca un mensaje como **evidencia**, con motivo: no pierde el contenido ni se borra con el chat, se queda 365 días como un SOS; techo de 500 por cooperativa. El historial que se manda al conectar tiene un presupuesto (3 MB) y Despacho carga lo que quedó afuera al tocarlo. Suite `evidencia`. Ver `CAMBIOS-PARA-REVISAR.md`, bloque 10 | ✔ |
+| 0.9 | ~~**Auditoría separada**~~ | **HECHO** (04/11). Retención por tipo en la misma tabla: cada movimiento tiene clase —**acceso** (inicios de sesión, 90 días), **operación** (desvíos, SOS, relevos, 365) y **gestión** (altas, bajas, claves, correcciones, configuración, 730)— y cada clase su techo por cooperativa. Lo que nadie clasificó es gestión. Lo viejo se clasifica al arrancar. Despacho filtra la Actividad por tipo y la sigue hacia atrás; el informe dice el tipo. Suite `auditoria`. Ver `CAMBIOS-PARA-REVISAR.md`, bloque 11 | ✔ |
+| 0.10 | **Ley 29733 (datos personales, Perú)** | **PREPARADO** (04/11); falta lo de fuera del código. Guía con los pasos en orden y las preguntas para el abogado (`legal/LEEME.md`), borrador del contrato de encargo (`legal/contrato-encargo.md`), el formulario de consentimiento para imprimir (`/consentimiento`, con versión) y el registro en Despacho de quién firmó (Gestión → Personas). Suite `consentimiento`. Queda: el abogado, la inscripción de cada cooperativa en la ANPD, las firmas. Ver `CAMBIOS-PARA-REVISAR.md`, bloque 12 | fuera del repo |
+| 0.11 | ~~**Actualizar sin reinstalar**~~ | **HECHO** (04/11). EAS Update: la app trae `expo-updates`, el JavaScript se publica con `publicar-arreglo.bat` (canal de prueba para tu teléfono, después todos, y vuelta atrás) y los teléfonos lo aplican **sólo fuera de ruta**. Se ata a la `version` de app.json; la suite `actualizacion` falla si cambia algo nativo sin subirla. Despacho ve qué actualización tiene cada teléfono. La dirección del servidor va en el JavaScript: el dominio propio ya no obliga a reinstalar. Falta compilar la 0.3.0 con esto (`TAREAS-FUERA-DEL-CODIGO.md`, paso 2). Ver `CAMBIOS-PARA-REVISAR.md`, bloque 13 | ✔ |
+| 0.12 | ~~**Un reinicio no tira las vueltas**~~ | **HECHO** (04/11). La memoria caliente —vueltas y tramos en curso, desvíos y paradas abiertos, presencias, la flota en vivo, la variante activada a mano, la puerta— se guarda en la base al recibir SIGTERM y cada 15 s (más espaciado si pesa más de 1 MB), y se retoma al arrancar si tiene menos de 10 minutos. Lo abierto que se va a retomar no se cierra como «cortado», y el tiempo caído no cuenta como silencio del teléfono. Suite `reinicio` (con memoria, cuelgue sin aviso y sin memoria). Ver `CAMBIOS-PARA-REVISAR.md`, bloque 14 | ✔ |
+| 0.13 | **Zona horaria por empresa — y lo demás que es «de Perú»** | **Antes de Bolivia (La Paz, desde enero o febrero de 2027).** Hoy la hora es una sola (`TZ` del servidor): con una cooperativa en Bolivia (una hora más), «hoy», los informes por día, las horas y el cambio de variante de los domingos se corren una hora. Y hay más cosas que dan por hecho Perú: los **números de emergencia** del SOS sin red (105/106/116, en `Prototipo.html` y `app/App.js`; en Bolivia son otros — confirmar: 110 policía, 118 ambulancia, 119 bomberos), el **formulario de consentimiento** (DNI, Ley 29733: Bolivia tiene otra normativa), y el **mapa propio** (La Paz y Arequipa ya están en `herramientas/mapa-propio/zonas.js`, comentadas: falta correr el workflow). Arequipa es Perú: no cambia nada de esto | 1 día |
+| 0.14 | ~~**Bajar todo lo de una persona**~~ | **HECHO** (04/11). Despacho → Personas → Editar → **Bajar todos sus datos (ZIP)**: un LÉEME y un CSV por cosa (cuenta, combis, turnos y correcciones, mensajes y privados recibidos con sus fotos y audios, vueltas/tramos/desvíos/paradas/cortes/presencia/anomalías **sólo mientras manejaba**, grabaciones, actividad). Sin la contraseña ni lo que escribieron otros. ZIP propio sobre `zlib`, sin librerías. Queda en la Actividad. Suite `datos-persona`. Ver `CAMBIOS-PARA-REVISAR.md`, bloque 15 | ✔ |
+
+Ya resuelto en la misma revisión: la sesión que vencía a los 30 días en medio
+del turno (ahora se renueva con el uso), la marca del relevado que un reinicio
+borraba, y la base vacía con la que el servidor arrancaba si el volumen no
+estaba montado (ver REPASO-PENDIENTE, tanda 15).
+
 ### 1 · Bloqueantes. Nada de esto puede quedar así con un cliente pagando
 
 | # | Qué | Por qué bloquea | Tamaño |
@@ -275,8 +303,9 @@ Los dos estaban en la misma pantalla y ninguno se veía en la regresión.
 | 4.16 | ~~Avisar a los otros choferes que hay tráfico~~ | **HECHO** (8/9), como se conversó: N minutos, automático y de un toque. El servidor marca `parado` a la unidad confirmada en ruta que en 3 min (`PARADA_MS`) avanzó menos de 150 m por el trazado —metros sobre la ruta, no velocidad: la fila que arrastra a paso de hombre cuenta igual—, salvo en los extremos del tramo (el terminal), fuera de ruta o fuera de la cadena. El chofer confirma o avisa antes con un botón de un toque (`trafico`, por WS o `POST /trafico`); la app vibra una vez cuando el servidor lo ve parado y pregunta. Las dos marcas se apagan solas al andar 100 m en un minuto. Al de atrás le llega en la brecha (`aheadEnTrafico`…) y su instrucción pasa a «mantené», nunca «apurá» hacia el embotellamiento; la notificación con la pantalla apagada lo dice igual. Despacho lo ve en la fila de la unidad. Cada episodio queda en `paradas` (dónde, punto del circuito, duración, confirmado, cómo terminó) y `GET /admin/paradas` lo lista: la materia prima para predecir dónde se traba cada ruta. Suites `parada` (pura), `trafico` (servidor) y `hud`. Falta el APK y verlo en la calle; la web del chofer no tiene el botón (la app nativa es la que se reparte). **Corregido el 10/9**: la parada automática **no se detectaba nunca en la calle** — la ventana de `server/parada.js` descartaba toda muestra más vieja que 3 min y exigía que la primera guardada tuviera 3 min, cosa que con posiciones cada ~10 s (nunca múltiplos exactos) no pasaba jamás; las suites usaban pasos de 10 s exactos y por eso no lo veían. Ahora se guarda la última muestra de antes del borde y la ventana mide de verdad 3 min (suite `parada`, sección «no caen justo en el borde») | ✔ |
 | 4.15 | **`TILES_RELEASE_URL` en producción: ¿está puesta?** | Decide si el mapa propio sirve los tiles o si la cascada cae entera a Geoapify. Diferencia medida: **$59/mes contra $0** a 5000 unidades (medio céntimo por unidad/día). Es configuración del despliegue, no código. Conviene, no urge |
 | 4.12 | **El envío WS end-to-end a 5000 conexiones no se midió** | `emision.js` mide el CPU de ARMAR el estado, no el de serializar y mandarlo a cada conexión abierta. Montar 5000 WebSockets reales acá pondría al generador a competir por CPU con el servidor —mediría el banco, no el sistema—. El número real de un despacho lleno necesita el piloto de ~500 conexiones que ya pide el supuesto 9 de `COSTOS.md`. Hasta entonces, el egress (los bytes) sigue siendo el rubro caro del WS, ya mitigado por compresión |
-| 4.19 | **Las fotos y las notas de voz del informe de mensajes** | El CSV `mensajes` (E18, 11/9) trae cuándo, quién, de qué combi, al grupo o en privado, el texto o el pie de foto, la duración y si el medio SIGUE guardado — y deja fuera el contenido de la voz y la foto **a propósito**: son data-URL en base64 de hasta 2 MB y una sola fila de esas hace un archivo que no abre en ninguna planilla. El día que alguien pida las fotos, la respuesta es un ZIP con los archivos o un enlace por mensaje, **no** meter base64 en el CSV. Hay que decidirlo antes de que lo pidan, no improvisarlo ese día (repaso del 21/9) |
-| 4.10 | **Quedan dos `NOT IN` de la misma familia** | El de grabaciones (`pruneMediaStmt`) y el de `audit` por empresa. Mismo patrón lento que 4.9, pero llevan un `WHERE` adentro del subselect, así que la reescritura tiene que repetirlo. **No se tocaron a propósito**: en la medición del arranque a 5000 unidades salieron 49 ms y menos, y reescribir sin un número que lo justifique es cómo se rompe algo a cambio de nada. El día que pesen, la forma ya está probada en `pruebas/poda.js` |
+| 4.19 | **Las fotos y las notas de voz del informe de mensajes** | **PARCIAL** (04/11). Para **una persona** está resuelto como se había decidido acá —un ZIP con los archivos, no base64 en el CSV—: Despacho → Personas → Editar → *Bajar todos sus datos* (PENDIENTES 0.14). El informe `mensajes.csv` de toda la cooperativa sigue sin las fotos y los audios, a propósito: si alguien lo pide, es el mismo ZIP (`server/zip.js`) armado por período en vez de por persona. Y la foto de un hecho puntual se conserva con *Guardar como evidencia* (PENDIENTES 0.8) |
+| 4.10 | **Quedan dos `NOT IN` de la misma familia** | **PARCIAL** (04/11). El de `audit` por empresa ya no está: en la auditoría por tipo (PENDIENTES 0.9) el techo se corta por rango y por clase. Quedan dos: el tope de fotos y audios por cooperativa (`pruneMediaStmt`, desde 0.8 con la empresa y la evidencia adentro, acotado por el índice parcial `idx_messages_media_viva`) y el de grabaciones (`DELETE FROM recordings … NOT IN`). Mismo patrón lento que 4.9; **no se tocaron a propósito**: a 5000 unidades midieron 49 ms y menos, y reescribir sin un número que lo justifique es cómo se rompe algo a cambio de nada. El día que pesen, la forma ya está probada en `pruebas/poda.js` |
+| 4.20 | ~~**El hilo único ocupado al 85 % con 2000 unidades**~~ | **HECHO** (28/10). Lo de «sobra 30×» venía de un banco que medía sólo la escritura. Con 2000 choferes reales por `POST /gps` cada 3 s (~660 pedidos/s) el hilo estaba ocupado el ~80 % y el p99 del pedido tardaba segundos. Medido con un perfilador por fuera (`node -r`), el tiempo se iba en: `abrirTurno` en cada POST (dos SELECT sobre el año de turnos de la persona y un commit al WAL: 36 %) y compilar las mismas sentencias en cada llamada (17 %). Arreglado: el turno se toca como mucho una vez por minuto por persona, como ya hacía el socket; cada SQL se compila una vez; el objetivo automático lee las últimas vueltas por el índice de la ruta (congelaba 855 ms por minuto con 50 rutas en automático); las ventanas de turnos y de presencia tienen piso (el resumen del gerente de 500 a 300 ms, `/admin/shifts` de 39 a 6); y un índice parcial de los turnos abiertos saca el congelamiento del barrido cada 10 s. **Medido después, mismo banco: el hilo pasa de ~80 % a ~35 % y la mediana del pedido de 5,8 a 1,2 ms.** Descartado con número: un índice `shifts(personId, endedAt)` (1 % por 21 MB), memoizar el panel de Despacho (menos del 1 % de un CPU), `proyectarEnRuta` (16 µs por posición) | ✔ |
 
 ---
 
@@ -450,6 +479,48 @@ cada vuelta** y **guardar los desvíos**— ya están hechas (2.3 y 2.4), la que
 apareció midiendo —**la palabra al lado del color**— también (3.2), y la que
 salió de usar el SOS en un teléfono de verdad —**el tipo de emergencia**—
 quedó cerrada el 6/8 (ver 3.1).
+
+### ~~VARIAS COMBIS POR CHOFER~~ — HECHO (30/10), como estaba propuesto
+
+Decidido por el dueño y hecho: tabla `habilitaciones`, «cualquiera de su
+ruta», la elección en la puerta (web y nativa) con la confirmación del
+relevo, la edición en Despacho → Personas (y la combi de hoy, que antes sólo
+cambiaba con baja y alta), los habilitados en Vehículos. PROTOCOLO §4octies.
+Suites `combis`, `combis-web` y `cliente`. Lo que sigue es la propuesta tal
+como se escribió:
+
+Lo que se ve en la calle: una combi la manejan varios choferes, se prestan
+combis, se llama a un suplente, y a veces se le pasa la cuenta y la clave al
+que maneja. Hoy la combi es un dato FIJO de la cuenta: se elige en el alta y
+no hay cómo cambiarla después (ni Despacho, ni el chofer). Pedro en M-01 hoy y
+en M-05 mañana no tiene camino honesto: o una cuenta por combi, o la cuenta
+prestada —y las horas, las vueltas y el SOS quedan a nombre de otro—.
+
+**La propuesta: habilitaciones, y la combi se elige en la PUERTA.**
+
+1. Despacho (o la gerencia) **habilita** a cada chofer las combis que puede
+   manejar —o, mirado del otro lado, a cada combi sus choferes—. Una tabla
+   persona ↔ combi; la del alta queda como la primera. Opcional: «cualquiera
+   de su ruta» para el suplente comodín.
+2. En la **puerta** —no en el login— el chofer con más de una elige «¿en qué
+   combi salís?», con la última por defecto y el estado de cada una: libre, o
+   «la maneja Juan (hace 1 min)». Elegir una ocupada pide confirmar el relevo
+   nombrando al que la tiene. En la puerta y no en el login porque: el login
+   se hace una vez (la sesión dura 30 días) y la combi cambia cada día; antes
+   de la clave no se le puede mostrar la flota a cualquiera; y SALIR A RUTA
+   ya es el acto que toma el mando (opción B): elegir la combi es parte de ese
+   acto.
+3. El servidor sigue leyendo `users.vehicleId` como «la combi de hoy» —lo
+   cambia la elección de la puerta, sólo entre las habilitadas—: el resto
+   (turnos, brechas, chat privado, cobradores, SOS) no se toca. Un detalle a
+   saber: el privado con Despacho es por COMBI, así que el de hoy en M-05 ve
+   lo que Despacho le escribió ayer al de M-05.
+4. La cuenta prestada no se puede impedir con software (T9 de
+   `TRUCOS-2026-09-10.md`): se la hace innecesaria —un suplente se da de alta
+   en un minuto y se lo habilita en la combi— y se la hace visible.
+
+Toca servidor, la puerta de la web y de la nativa (APK nueva) y la gestión de
+Despacho. Ver la conversación del 30/10.
 
 ### EL LEGAJO: decidido que NO (11/9)
 

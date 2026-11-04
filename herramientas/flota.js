@@ -44,6 +44,11 @@ const SERVIDOR = opcion('servidor', 'http://localhost:3001');
 const RUTA = opcion('ruta', 'R-14');
 const CUANTAS = Math.max(1, Math.min(60, Number(opcion('unidades', 20))));
 const CLAVE_DESPACHO = opcion('despacho', process.env.DISPATCH_PASSWORD || 'despacho99');
+// Los vehículos los da de alta la GERENCIA, no Despacho: sin combi el alta del
+// chofer se rechaza y el servidor tira su GPS. «USUARIO:CLAVE» de una cuenta
+// de gerencia de la misma cooperativa (panel del creador, o
+// `node server/empresa.js gerencia R14 GERENTE unaclavelarga`).
+const GERENCIA = opcion('gerencia', process.env.FLOTA_GERENCIA || '');
 const CLAVE_CHOFER = 'flota1234';
 const CADENCIA_MS = Number(opcion('cadencia', 3000));
 const PREFIJO = opcion('prefijo', 'F');
@@ -247,13 +252,46 @@ function crearUnidad(i, tramos) {
 
   const unidades = Array.from({ length: CUANTAS }, (_, i) => crearUnidad(i, tramos));
 
-  // Alta y login. Si el usuario ya existe, el alta falla y el login funciona
-  // igual: correr esto dos veces no tiene que romperse.
-  for (const u of unidades) {
-    await pedir('/admin/users', {
-      method: 'POST', headers: H,
-      body: JSON.stringify({ unitId: u.id, name: u.nombre, password: CLAVE_CHOFER, routeId: RUTA }),
+  // Las combis primero, con la cuenta de gerencia: desde que la persona dejó
+  // de ser la unidad, un chofer sin combi no se puede dar de alta. Esta
+  // herramienta seguía pidiéndolo como antes y TODAS las altas fallaban; como
+  // el error no se mostraba, lo único visible era «no pudo entrar (401)».
+  let HG = null;
+  if (GERENCIA) {
+    const [usuario, ...resto] = GERENCIA.split(':');
+    const g = await pedir('/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user: usuario, password: resto.join(':') }),
     });
+    if (!g.ok) {
+      console.log(`No pude entrar con la cuenta de gerencia ${usuario} (${g.status}).`);
+      process.exit(1);
+    }
+    HG = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + g.cuerpo.token };
+  }
+  if (HG) {
+    for (const u of unidades) {
+      await pedir('/admin/vehicles', {
+        method: 'POST', headers: HG,
+        body: JSON.stringify({ vehicleId: u.id, label: 'Flota ' + u.id, routeId: RUTA }),
+      });
+    }
+  }
+
+  // Alta y login. Si el usuario ya existe, el alta falla y el login funciona
+  // igual: correr esto dos veces no tiene que romperse. Cualquier OTRO motivo
+  // de rechazo se dice, que es lo que faltaba.
+  let sinCombi = false;
+  for (const u of unidades) {
+    const alta = await pedir('/admin/users', {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ unitId: u.id, name: u.nombre, password: CLAVE_CHOFER, routeId: RUTA, vehicleId: u.id }),
+    });
+    if (!alta.ok && alta.status !== 409) {
+      const motivo = alta.cuerpo?.error || alta.status;
+      if (/vehículo/i.test(String(motivo))) sinCombi = true;
+      console.log(`  ${u.id}: no se pudo dar de alta — ${motivo}`);
+    }
     const s = await pedir('/auth/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user: u.id, password: CLAVE_CHOFER }),
@@ -264,6 +302,11 @@ function crearUnidad(i, tramos) {
   }
   const vivas = unidades.filter(u => u.token);
   console.log(`Entraron ${vivas.length}/${CUANTAS}.  Ctrl+C para parar.\n`);
+  if (sinCombi && !HG) {
+    console.log('Las combis no existen y Despacho no las puede crear. Pasá una cuenta de gerencia:');
+    console.log('  node herramientas/flota.js --gerencia GERENTE:clave');
+    console.log('(se crea en el panel del creador, o con  node server/empresa.js gerencia <EMPRESA> GERENTE <clave>)\n');
+  }
   if (!vivas.length) process.exit(1);
 
   // Quiénes son los raros, para saber qué mirar en el mapa sin adivinar.

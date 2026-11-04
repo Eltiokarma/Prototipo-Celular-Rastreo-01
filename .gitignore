@@ -18,8 +18,21 @@ pruebas/cdn/
 # creador-ui.js saca las suyas al lado del script, no en shots/
 pruebas/*.png
 pruebas/respaldos/
+# La carpeta de trabajo de `copia-afuera` (se borra sola al terminar)
+pruebas/copia-afuera-tmp/
 # Los volúmenes de mentira que arman `renovacion` y `cascada` a partir de
 # tiles-fixture/. El fixture SÍ va al repo; estas copias no.
 pruebas/renovacion-tiles/
 pruebas/renovacion-release/
 pruebas/cascada-tiles/
+
+# Manual: la base y el servidor de las capturas, y lo que deja LaTeX. Las
+# capturas (manual/img/) y el PDF SÍ van al repo.
+manual/.tmp/
+manual/*.aux
+manual/*.log
+manual/*.toc
+manual/*.out
+manual/*.fls
+manual/*.fdb_latexmk
+manual/*.synctex.gz

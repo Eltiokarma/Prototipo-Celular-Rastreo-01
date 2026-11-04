@@ -11,6 +11,10 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Despacho">
+<!-- El ícono de la pestaña. Sin él el navegador pedía /favicon.ico (404) —
+     más seguido desde que el título parpadea con un SOS—, y es lo que se ve
+     en la pestaña que hay que encontrar entre otras -->
+<link rel="icon" type="image/png" href="icon-despacho-192.png">
 
 <!-- Leaflet: mapa de calles reales. Lo sirve ESTE servidor, no un CDN.
      Pasó en producción con el panel del creador: unpkg no entregó leaflet.js
@@ -187,6 +191,69 @@ const TARGET_GAP_DEFAULT = 2;
 // emergencia ya mostrada. Sin tipo, es el SOS genérico de siempre.
 const TIPOS_SOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
 
+// ─── LA ALARMA DEL SOS (31/10) ──────────────────────────────────
+// Un SOS entraba como cartel y línea de chat, en silencio: con otra pestaña o
+// ventana adelante, Despacho no se enteraba. Ahora suena —dos tonos cada
+// 2,5 s, hasta que alguien marque ATENDIDO—, avisa con una notificación del
+// navegador y hace parpadear el título de la pestaña.
+//
+// Sin archivo de sonido (Web Audio: cero bytes). El navegador no deja sonar
+// hasta el primer gesto en la página: el clic en INGRESAR ya cuenta, y al
+// retomar una sesión guardada se ofrece «Activar alarma» hasta el primer clic.
+const alarmaSos = (() => {
+  let ctx = null, reloj = null;
+  const oyentes = new Set();
+  const avisar = () => oyentes.forEach(fn => { try { fn(); } catch {} });
+  const crear = () => {
+    if (ctx) return ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try { ctx = new AC(); ctx.onstatechange = avisar; } catch { ctx = null; }
+    return ctx;
+  };
+  const tonos = () => {
+    if (!ctx || ctx.state !== 'running') return;
+    const t0 = ctx.currentTime;
+    [880, 660, 880, 660].forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain(), t = t0 + i * 0.25;
+      o.type = 'square'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.2, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t + 0.24);
+    });
+  };
+  return {
+    desbloquear() {
+      const c = crear();
+      if (c && c.state === 'suspended') c.resume().then(avisar, () => {});
+      avisar();
+    },
+    lista: () => !!ctx && ctx.state === 'running',
+    soportada: () => !!(window.AudioContext || window.webkitAudioContext),
+    sonar() { if (reloj) return; tonos(); reloj = setInterval(tonos, 2500); },
+    callar() { clearInterval(reloj); reloj = null; },
+    suscribir(fn) { oyentes.add(fn); return () => oyentes.delete(fn); },
+  };
+})();
+['pointerdown', 'keydown'].forEach(ev =>
+  document.addEventListener(ev, () => alarmaSos.desbloquear(), { capture: true }));
+
+// La notificación del navegador: se ve aunque el panel esté tapado por otra
+// ventana. Queda hasta que se la toca (`requireInteraction`).
+function notificarSos(s) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(`SOS · ${(s.vehicleId || s.unitId || 'Unidad').toUpperCase()}`, {
+      body: `${s.driverName || s.unitId || 'Un chofer'} pide ayuda` +
+        (s.routeId ? ` · ruta ${s.routeId}` : '') + '. Abrí el panel y marcá ATENDIDO.',
+      tag: 'sos-' + (s.sosId ?? s.timestamp), requireInteraction: true,
+    });
+    n.onclick = () => { try { window.focus(); } catch {} n.close(); };
+  } catch {}
+}
+
 function parseMin(s) {
   if (!s) return null;
   const [m, sec] = String(s).split(':').map(Number);
@@ -237,6 +304,16 @@ function nowTime(ts) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+// La hora de un mensaje del chat. El historial guarda 30 días (los SOS, un
+// año): un SOS de hace seis días salía con «04:18» a secas y se leía como de
+// esta mañana. Si no es de hoy, lleva el día.
+function horaChat(ts) {
+  if (!ts) return nowTime();
+  const d = new Date(ts);
+  if (d.toDateString() === new Date().toDateString()) return nowTime(ts);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${nowTime(ts)}`;
+}
+
 // Los roles que una persona tuvo en un período, para leer de un vistazo. El
 // servidor manda `roles` (lista) y `role` (en el que puso más horas); con una
 // pantalla vieja o un turno sin rol, se cae al `role` de siempre.
@@ -253,6 +330,13 @@ function manejo(p) {
 }
 
 // "hoy 14:05" / "ayer 09:12" / "12/07 18:40" — para la última conexión
+// La etiqueta de una actualización de la app ('20261104-1530') como se lee:
+// '04/11 15:30' (PENDIENTES 0.11)
+function fechaActualizacion(a) {
+  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})$/.exec(String(a || ''));
+  return m ? `${m[3]}/${m[2]} ${m[4]}:${m[5]}` : '';
+}
+
 function fmtWhen(ts) {
   if (!ts) return '—';
   const d = new Date(ts);
@@ -276,8 +360,9 @@ const TIPOS_SOS_ES = { mecanica: 'Falla mecánica', accidente: 'Accidente', poli
 // cambió el recorrido con el que se medía, así que de esa salida ya no se
 // puede afirmar nada.
 // Cómo terminó una parada, y qué vio el servidor de raro. Los slugs son los
-// del servidor; acá se dicen en castellano (lo que significa cada anomalía
-// está en TRUCOS-2026-09-10.md).
+// del servidor; acá se dicen en castellano. Lo que significa cada anomalía
+// va en QUE_ES_ANOMALIA, a la vista (el detalle técnico, en
+// TRUCOS-2026-09-10.md).
 const CIERRE_PARADA = {
   movio: 'VOLVIÓ A ANDAR',
   ausente: 'SE DECLARÓ AUSENTE',
@@ -294,6 +379,15 @@ const ANOMALIA_ES = {
   gps_sospechoso: 'GPS sospechoso',
   gps_impreciso: 'GPS impreciso',
 };
+const QUE_ES_ANOMALIA = [
+  ['salto', 'dos posiciones seguidas que pedirían una velocidad que una combi no tiene.'],
+  ['ausente_en_marcha', 'la combi se movía mientras estaba declarada AUSENTE.'],
+  ['reloj', 'el reloj del teléfono está atrasado; el servidor lo corrige y sigue.'],
+  ['descartadas', 'llegaron posiciones con una hora que no puede ser (del futuro o de horas atrás) y no se usaron.'],
+  ['gps_simulado', 'el propio teléfono marcó la ubicación como simulada.'],
+  ['gps_sospechoso', 'posiciones sin el ruido de un GPS de verdad: clavadas sobre el trazado o con una velocidad que no varía.'],
+  ['gps_impreciso', 'el teléfono declaró mucho error en su ubicación; mientras dura no se juzgan desvíos ni paradas.'],
+];
 
 const CIERRE_DESVIO = {
   regreso: 'VOLVIÓ AL RECORRIDO',
@@ -444,8 +538,9 @@ function Login({ onSuccess, notice }) {
         }}>{loading ? 'VERIFICANDO...' : 'INGRESAR'}</button>
 
         <div style={{ marginTop: 18, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-          La primera vez que se ingresa como DESPACHO, esa contraseña queda
-          registrada. En producción se fija con la variable DISPATCH_PASSWORD.
+          ¿Olvidaste la clave? La de un chofer o un cobrador la cambia Despacho,
+          en Gestión → Personas. La de Despacho y la de gerencia, quien les
+          entregó el sistema.
         </div>
       </div>
     </div>
@@ -460,7 +555,65 @@ function Login({ onSuccess, notice }) {
 // de voz que se estaba escuchando cambiaba de audio a mitad (barrido 22/9).
 let SEQ_MSG = 0;
 
-function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) {
+// Los privados son de dos clases (31/10), y la clave del hilo lo dice:
+//   'M-05'      Despacho ↔ esa COMBI (los que van arriba hoy y después)
+//   'p:pedro'   Despacho ↔ esa PERSONA (la sigue a cualquier combi; no lo
+//               ve nadie más)
+const esPrivadoPersona = (clave) => typeof clave === 'string' && clave.startsWith('p:');
+
+// Guardar un mensaje como evidencia (PENDIENTES 0.8): la foto del choque, la
+// nota de voz de un pasajero agresivo. No se borra con el resto (queda lo
+// mismo que un SOS). Con motivo; el que lo marcó y por qué se ven en la burbuja.
+function Evidencia({ m, onEvidencia }) {
+  const [abierto, setAbierto] = React.useState(false);
+  const [motivo, setMotivo] = React.useState('');
+  const [error, setError] = React.useState(null);
+  if (!onEvidencia || m.msgId == null || m.tone === 'sos') return null;
+  const mandar = async (marcar) => {
+    setError(null);
+    try { await onEvidencia(m.msgId, marcar, motivo); setAbierto(false); setMotivo(''); }
+    catch (e) { setError(e.message); }
+  };
+  if (m.evidencia) {
+    return (
+      <div data-evidencia={m.msgId} style={{ marginTop: 6, fontSize: 11, color: HUD.ambarTinta, background: HUD.ambarFondo,
+        border: `1px solid ${HUD.ambarBorde}`, borderRadius: 6, padding: '4px 6px', lineHeight: 1.4 }}>
+        <b>EVIDENCIA</b> · {m.evidencia.por || 'Despacho'}: {m.evidencia.motivo}
+        {' '}<button onClick={() => mandar(false)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+          color: HUD.ambarTinta, textDecoration: 'underline', fontSize: 11, fontFamily: 'inherit' }}>quitar</button>
+        {error && <div>{error}</div>}
+      </div>
+    );
+  }
+  if (!abierto) {
+    return (
+      <button data-marcar-evidencia={m.msgId} onClick={() => setAbierto(true)} style={{ marginTop: 4, background: 'none', border: 'none',
+        padding: 0, cursor: 'pointer', color: HUD.dim2, fontSize: 11, textDecoration: 'underline', fontFamily: 'inherit' }}>
+        Guardar como evidencia
+      </button>
+    );
+  }
+  return (
+    <div style={{ marginTop: 6, display: 'grid', gap: 4 }}>
+      <input data-motivo-evidencia={m.msgId} value={motivo} maxLength={200} autoFocus
+        placeholder="Por qué (queda registrado): choque en la Av. Circunvalación"
+        onChange={e => setMotivo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') mandar(true); }}
+        style={{ ...campo(30), fontSize: 12 }} />
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button data-guardar-evidencia={m.msgId} onClick={() => mandar(true)} style={btnChico(HUD.fg2)}>Guardar</button>
+        <button onClick={() => { setAbierto(false); setError(null); }} style={btnChico(HUD.dim2)}>Cancelar</button>
+      </div>
+      {error && <div role="alert" style={{ fontSize: 11, color: HUD.ambarTinta }}>{error}</div>}
+    </div>
+  );
+}
+
+function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, nombres = {}, noLeidos = {}, onAbrir, onEvidencia, onCargar }) {
+  const nombreDe = (clave) => esPrivadoPersona(clave) ? (nombres[clave] || clave.slice(2)) : clave;
+  // La bandeja: los privados con algo sin leer, para que lo de alguien que no
+  // tiene tarjeta a la vista (un cobrador, el que está en la puerta) no se
+  // pierda. Sólo en el canal de la ruta.
+  const pendientes = Object.entries(noLeidos).filter(([, n]) => n > 0);
   const [draft, setDraft] = React.useState('');
   const [noSalio, setNoSalio] = React.useState(false);
   const scrollRef = React.useRef(null);
@@ -491,9 +644,16 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
           <>
             <button onClick={onCerrarPrivado} title="Volver al grupo de la ruta"
               style={btnChico(HUD.fg2)}>← Grupo</button>
-            <span style={{ fontFamily: black, fontSize: 14 }}>{privadoCon}</span>
+            <span style={{ fontFamily: black, fontSize: 14, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {nombreDe(privadoCon)}
+            </span>
             <div style={{ flex: 1 }} />
-            <span style={{ ...rotulo(10, HUD.ambarTinta2), letterSpacing: 1.5 }}>Solo esa unidad</span>
+            <span title={esPrivadoPersona(privadoCon)
+                ? 'Sólo esa persona, en la combi que esté. Su cobrador no lo ve.'
+                : 'Los que van arriba de esa combi hoy (chofer y cobrador), y los que la manejen después.'}
+              style={{ ...rotulo(10, HUD.ambarTinta2), letterSpacing: 1.5, whiteSpace: 'nowrap' }}>
+              {esPrivadoPersona(privadoCon) ? 'Solo esa persona' : 'Toda esa combi'}
+            </span>
           </>
         ) : (
           <>
@@ -504,6 +664,22 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
           </>
         )}
       </div>
+
+      {!privadoCon && pendientes.length > 0 && (
+        <div data-bandeja style={{
+          padding: '8px 14px', borderBottom: `1px solid ${HUD.divider}`,
+          display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
+        }}>
+          <span style={{ ...rotulo(9, HUD.dim2) }}>Privados sin leer</span>
+          {pendientes.map(([clave, n]) => (
+            <button key={clave} onClick={() => onAbrir && onAbrir(clave)}
+              title={esPrivadoPersona(clave) ? 'Privado con esa persona' : 'Privado con esa combi'}
+              style={{ ...btnChico(HUD.ambarTinta, HUD.ambarBorde), background: HUD.ambarFondo, fontSize: 12 }}>
+              {esPrivadoPersona(clave) ? '👤 ' : ''}{nombreDe(clave)} · {n}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto', padding: '14px 16px',
@@ -533,6 +709,10 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
                   {m.voice
                     ? (m.audio
                         ? <audio controls src={m.audio} style={{ width: 220, height: 36 }} />
+                        : m.aparte && onCargar
+                        // Vino sin contenido para no hacer pesado el
+                        // historial: se pide al tocarla
+                        ? <button data-cargar={m.msgId} onClick={() => onCargar(m.msgId)} style={btnChico(HUD.fg2)}>🎙 cargar nota de voz ({m.voice}s)</button>
                         : <span style={{ color: HUD.dim3 }}>🎙 nota de voz ({m.voice}s{m.expired ? ' · expirada' : ''})</span>)
                     : m.photo
                     ? (m.image
@@ -545,9 +725,15 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
                             </a>
                             {m.text && m.text !== 'Foto' && <div style={{ marginTop: 4 }}>{m.text}</div>}
                           </div>
+                        : m.aparte && onCargar
+                        ? <button data-cargar={m.msgId} onClick={() => onCargar(m.msgId)} style={btnChico(HUD.fg2)}>📷 cargar foto{m.text && m.text !== 'Foto' ? ` · ${m.text}` : ''}</button>
                         : <span style={{ color: HUD.dim3 }}>📷 {m.text} · ya no disponible</span>)
                     : m.text}
                 </div>
+                {sos && m.atendido && (
+                  <div style={{ ...rotulo(9, HUD.dim2), marginTop: 6 }}>{m.atendido}</div>
+                )}
+                <Evidencia m={m} onEvidencia={onEvidencia} />
               </div>
             </div>
           );
@@ -564,7 +750,7 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado }) 
           value={draft}
           onChange={e => { setDraft(e.target.value); setNoSalio(false); }}
           onKeyDown={e => { if (e.key === 'Enter') send(); }}
-          placeholder={privadoCon ? `Mensaje solo para ${privadoCon}…` : 'Escribí al canal de la ruta…'}
+          placeholder={privadoCon ? `Mensaje solo para ${nombreDe(privadoCon)}…` : 'Escribí al canal de la ruta…'}
           style={{ ...campo(40), flex: 1 }}
         />
         <button onClick={send} style={{
@@ -1312,6 +1498,90 @@ function Pie({ children }) {
   );
 }
 
+// El consentimiento firmado de cada chofer y cobrador (Ley 29733,
+// PENDIENTES 0.10). El papel lo guarda la cooperativa; acá se anota que
+// existe, de qué fecha y de qué versión del formulario. Si el formulario
+// cambia de versión, los que firmaron la vieja vuelven a figurar.
+function PanelConsentimiento({ users, vigente, api, run, busy }) {
+  const [abierto, setAbierto] = React.useState(false);
+  const [fechas, setFechas] = React.useState({});
+  const [retiro, setRetiro] = React.useState(null);      // { unitId, motivo }
+  const hoyIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const gente = (users || []).filter(u => u.role === 'driver' || u.role === 'collector' || !u.role);
+  const estado = (u) => !u.consentimientoFecha ? 'falta' : (vigente && u.consentimientoVersion !== vigente) ? 'vieja' : 'ok';
+  const faltan = gente.filter(u => estado(u) !== 'ok').length;
+  const nombre = (u) => u.alias || u.name || u.driverName || u.unitId;
+  const fecha = (iso) => iso ? iso.split('-').reverse().join('/') : '';
+  if (!gente.length) return null;
+  return (
+    <div data-consentimiento style={{ marginBottom: 14, border: `1px solid ${faltan ? HUD.ambarBorde : HUD.line}`,
+      background: faltan ? HUD.ambarFondo : HUD.surface, borderRadius: 10, padding: '10px 12px' }}>
+      <button data-consentimiento-abrir onClick={() => setAbierto(a => !a)} aria-expanded={abierto}
+        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
+          fontSize: 13, fontWeight: 700, color: faltan ? HUD.ambarTinta : HUD.fg2, textAlign: 'left' }}>
+        Consentimiento de datos personales: {gente.length - faltan} de {gente.length} firmaron
+        {faltan ? ` · faltan ${faltan}` : ''} {abierto ? '▴' : '▾'}
+      </button>
+      {abierto && (<div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 12, color: HUD.fg2, lineHeight: 1.5, marginBottom: 10 }}>
+          Cada chofer y cobrador firma en papel el formulario
+          {' '}<a href={`${HTTP_URL}/consentimiento`} target="_blank" rel="noreferrer" style={{ color: HUD.bright }}>(abrir para imprimir)</a>.
+          {' '}La cooperativa guarda el original y le da una copia. Acá se anota la fecha del papel.
+          {vigente && <> Versión vigente del formulario: <strong>{vigente}</strong>.</>}
+        </div>
+        {gente.map(u => {
+          const e = estado(u);
+          return (
+            <div key={u.unitId} data-consentimiento-de={u.unitId} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center',
+              gap: 8, padding: '6px 0', borderTop: `1px solid ${HUD.hueco}` }}>
+              <span style={{ flex: '1 1 180px', fontSize: 13, color: HUD.fg, minWidth: 0 }}>
+                <strong>{nombre(u)}</strong> <span style={{ color: HUD.dim3 }}>{u.unitId}</span>
+              </span>
+              <span data-estado={e} style={{ fontSize: 12, fontWeight: 700,
+                color: e === 'ok' ? HUD.verdeTinta : HUD.ambarTinta }}>
+                {e === 'ok' ? `firmó el ${fecha(u.consentimientoFecha)}`
+                  : e === 'vieja' ? `firmó la versión ${u.consentimientoVersion}: falta firmar la nueva`
+                  : 'falta firmar'}
+              </span>
+              {e !== 'ok' && (<>
+                <input type="date" data-fecha-consentimiento={u.unitId} value={fechas[u.unitId] || hoyIso()} max={hoyIso()}
+                  onChange={ev => setFechas(f => ({ ...f, [u.unitId]: ev.target.value }))}
+                  aria-label={`Fecha en que firmó ${nombre(u)}`} style={{ ...campo(30), fontSize: 12, width: 150 }} />
+                <button data-anotar-consentimiento={u.unitId} disabled={busy}
+                  onClick={() => run(() => api(`/admin/users/${encodeURIComponent(u.unitId)}/consentimiento`, {
+                    method: 'POST', body: JSON.stringify({ firmado: true, fecha: fechas[u.unitId] || hoyIso() }),
+                  }), `Anotado: ${nombre(u)} firmó el consentimiento`)}
+                  style={btnChico(HUD.fg2)}>Anotar firma</button>
+              </>)}
+              {e === 'ok' && retiro?.unitId !== u.unitId && (
+                <button data-retiro-consentimiento={u.unitId} onClick={() => setRetiro({ unitId: u.unitId, motivo: '' })}
+                  style={{ ...btnChico(HUD.dim2), fontWeight: 400 }}>Lo retiró</button>
+              )}
+              {retiro?.unitId === u.unitId && (
+                <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexBasis: '100%' }}>
+                  <input data-motivo-retiro={u.unitId} value={retiro.motivo} maxLength={200}
+                    placeholder="Cómo lo pidió (queda registrado): carta del 05/11"
+                    onChange={ev => setRetiro(r => ({ ...r, motivo: ev.target.value }))}
+                    style={{ ...campo(30), fontSize: 12, flex: '1 1 240px' }} />
+                  <button data-confirmar-retiro={u.unitId} disabled={busy}
+                    onClick={() => run(async () => {
+                      await api(`/admin/users/${encodeURIComponent(u.unitId)}/consentimiento`, {
+                        method: 'POST', body: JSON.stringify({ firmado: false, motivo: retiro.motivo }),
+                      });
+                      setRetiro(null);
+                    }, `Anotado: ${nombre(u)} retiró su consentimiento`)}
+                    style={btnChico(HUD.ambarTinta, HUD.ambarBorde)}>Anotar que {nombre(u)} lo retiró</button>
+                  <button onClick={() => setRetiro(null)} style={btnChico(HUD.dim2)}>Cancelar</button>
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>)}
+    </div>
+  );
+}
+
 function Vacio({ children }) {
   return <div style={{ padding: '18px 14px', fontSize: 14, color: HUD.dim3 }}>{children}</div>;
 }
@@ -1361,14 +1631,156 @@ function Confirmacion({ kicker, tono, titulo, cuerpo, aceptar, onAceptar, onCanc
   );
 }
 
-function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca, refrescarMarca }) {
+// ─── ALTA DE MUCHAS PERSONAS DESDE UNA PLANILLA (PENDIENTES 0.7) ──────
+// La planilla que la cooperativa ya tiene: Excel (.xlsx), LibreOffice o
+// Google Sheets (.ods), CSV, o las celdas copiadas y pegadas. Dos pasos:
+// REVISAR (no guarda nada: dice fila por fila qué se crearía y qué no) y
+// CREAR (guarda las buenas y devuelve las claves, una sola vez).
+function CargaMasiva({ api, onListo }) {
+  const [archivo, setArchivo] = React.useState(null);     // { nombre, base64 }
+  const [texto, setTexto] = React.useState('');
+  const [revision, setRevision] = React.useState(null);
+  const [hecho, setHecho] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [ocupado, setOcupado] = React.useState(false);
+  const elegir = (e) => {
+    const f = e.target.files && e.target.files[0];
+    setRevision(null); setHecho(null); setError(null);
+    if (!f) { setArchivo(null); return; }
+    const lector = new FileReader();
+    lector.onload = () => setArchivo({ nombre: f.name, base64: String(lector.result) });
+    lector.onerror = () => setError('No se pudo leer el archivo');
+    lector.readAsDataURL(f);
+  };
+  const cuerpo = (confirmar) => JSON.stringify(texto.trim()
+    ? { texto, confirmar } : { archivo: archivo && archivo.base64, nombre: archivo && archivo.nombre, confirmar });
+  const pedir = async (confirmar) => {
+    setOcupado(true); setError(null);
+    try {
+      const r = await api('/admin/users/importar', { method: 'POST', body: cuerpo(confirmar) });
+      if (confirmar) { setHecho(r); setRevision(null); onListo && onListo(); } else setRevision(r);
+    } catch (e) { setError(e.message); }
+    setOcupado(false);
+  };
+  // Las claves, para repartir: un CSV que abre bien en Excel (con BOM)
+  const bajarClaves = () => {
+    const filas = [['Usuario', 'Nombre', 'Rol', 'Combi', 'Clave']]
+      .concat(hecho.filas.filter(f => f.ok).map(f => [f.usuario, f.nombre, f.rol === 'collector' ? 'cobrador' : 'chofer', f.combi || '', f.clave]));
+    // Un nombre de la planilla que empieza con = + - @ sería una FÓRMULA al
+    // abrir este archivo en Excel, al lado de la clave: se le antepone un
+    // apóstrofo, igual que en server/csv.js (revisión integral del 04/11)
+    const celda = (c) => { let t = String(c ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
+    const csv = '\uFEFF' + filas.map(f => f.map(celda).join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'claves-personas-nuevas.csv'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  const hayAlgo = !!archivo || !!texto.trim();
+  const lista = (r) => (
+    <div style={{ display: 'grid', gap: 4, marginTop: 10 }}>
+      {r.filas.map(f => (
+        <div key={f.fila} data-fila-planilla={f.fila} style={{
+          display: 'grid', gridTemplateColumns: '54px 150px 1fr 90px 70px 1.3fr', gap: 8, alignItems: 'baseline',
+          fontSize: 12, padding: '6px 8px', borderRadius: 8,
+          background: f.ok ? HUD.surface : HUD.ambarFondo, border: `1px solid ${f.ok ? HUD.divider : HUD.ambarBorde}`,
+        }}>
+          <span style={{ fontFamily: mono, color: HUD.dim2 }}>fila {f.fila}</span>
+          <span style={{ fontFamily: mono, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {f.usuario || '—'}{f.usuarioGenerado && f.usuario ? <span style={{ color: HUD.dim3, fontWeight: 400 }}> (armado)</span> : null}
+          </span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.nombre || '—'}</span>
+          <span>{f.rol === 'collector' ? 'cobrador' : f.rol === 'driver' ? 'chofer' : '¿?'}</span>
+          <span style={{ fontFamily: mono }}>{f.combi || '—'}</span>
+          <span style={{ color: f.ok ? HUD.verdeTinta : HUD.ambarTinta, fontWeight: 700 }}>
+            {f.ok ? (r.confirmado ? `creado · clave ${f.clave}` : `se crea${f.claveGenerada ? ' (clave generada)' : ''}`) : f.motivo}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div data-carga-masiva style={{
+      background: HUD.bg, border: `1px solid ${HUD.divider}`, borderRadius: 12, padding: 14, marginBottom: 16,
+    }}>
+      <div style={{ ...rotulo(9), marginBottom: 8 }}>Cargar muchas personas desde una planilla</div>
+      <div style={{ fontSize: 13, color: HUD.fg2, lineHeight: 1.55, marginBottom: 10 }}>
+        Excel (.xlsx), LibreOffice o Google Sheets (.ods), CSV, o copiá las celdas y pegalas abajo.
+        La primera fila tiene que decir qué es cada columna: <b>Nombre</b> y <b>Combi</b> (obligatorias, la
+        combi tiene que existir), y si querés <b>Usuario</b>, <b>Rol</b> (chofer o cobrador), <b>Clave</b>, <b>Alias</b>, <b>Ruta</b>.
+        Sin usuario se arma uno con el nombre; sin clave, se genera una.
+        {' '}<a href="planilla-alta-ejemplo.xlsx" download style={{ color: HUD.bright, fontWeight: 700 }}>Bajar una planilla de ejemplo</a>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+        <input type="file" data-planilla-archivo accept=".xlsx,.ods,.csv,.tsv,.txt,.xls"
+          onChange={elegir} style={{ fontSize: 13 }} />
+      </div>
+      <textarea data-planilla-texto value={texto} rows={3}
+        placeholder="…o pegá acá las celdas copiadas de Excel o Google Sheets (con la fila de títulos)"
+        onChange={e => { setTexto(e.target.value); setRevision(null); setHecho(null); }}
+        style={{ ...campo(80), width: '100%', boxSizing: 'border-box', fontFamily: mono, fontSize: 12, padding: 8, resize: 'vertical' }} />
+      {error && <div role="alert" style={{ marginTop: 8, fontSize: 13, color: HUD.ambarTinta, background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`, borderRadius: 8, padding: '8px 10px' }}>{error}</div>}
+      {!hecho && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button data-planilla-revisar disabled={!hayAlgo || ocupado} onClick={() => pedir(false)} style={btnSecundario(36)}>
+            {ocupado && !revision ? 'Revisando…' : 'Revisar'}
+          </button>
+          {revision && (
+            <button data-planilla-crear disabled={!revision.buenas || ocupado} onClick={() => pedir(true)} style={btnPrimario(36)}>
+              Crear {revision.buenas} persona{revision.buenas === 1 ? '' : 's'}
+            </button>
+          )}
+          {revision && (
+            <span style={{ fontSize: 12, color: HUD.dim2 }}>
+              {revision.buenas} se crean{revision.conError ? `, ${revision.conError} con algo que corregir (se saltan)` : ''}.
+              {' '}Columnas: {Object.entries(revision.columnas).map(([k, t]) => `${t} → ${k}`).join(', ')}
+              {revision.ignoradas.length ? `. No se usan: ${revision.ignoradas.join(', ')}` : ''}
+            </span>
+          )}
+        </div>
+      )}
+      {revision && lista(revision)}
+      {hecho && (
+        <div style={{ marginTop: 10 }}>
+          <div role="status" style={{
+            fontSize: 13, color: HUD.verdeTinta, background: HUD.verdeFondo, border: `1px solid ${HUD.verdeBorde}`,
+            borderRadius: 8, padding: '8px 10px', lineHeight: 1.5,
+          }}>
+            Se crearon {hecho.buenas} persona{hecho.buenas === 1 ? '' : 's'}{hecho.conError ? ` (${hecho.conError} se saltaron)` : ''}.
+            {' '}<b>Las claves se ven ahora y no se vuelven a mostrar:</b> bajalas para repartirlas.
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button data-planilla-claves onClick={bajarClaves} style={btnPrimario(36)}>Bajar las claves (CSV)</button>
+            <button onClick={() => { setHecho(null); setArchivo(null); setTexto(''); }} style={btnSecundario(36)}>Cargar otra</button>
+          </div>
+          {lista(hecho)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca, refrescarMarca, onEscribir }) {
   const [tab, setTab] = React.useState('users'); // users | vehicles | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
   const [events, setEvents] = React.useState(null);
+  const [consentVigente, setConsentVigente] = React.useState(null);
+  // La Actividad por tipo (PENDIENTES 0.9): '' = todo
+  const [claseAudit, setClaseAudit] = React.useState('');
+  const [auditMas, setAuditMas] = React.useState(false);
+  const [plazosAudit, setPlazosAudit] = React.useState(null);
   const [metrics, setMetrics] = React.useState(null);
   const [routeList, setRouteList] = React.useState(routes || []);
   const [vehicles, setVehicles] = React.useState(null);
   const [shifts, setShifts] = React.useState(null);
+  const [masivaAbierta, setMasivaAbierta] = React.useState(false);
+  // Corregir horas a mano (PENDIENTES 0.6): qué turno se está corrigiendo
+  // (su id, o 'nuevo' para agregar uno que faltó), el formulario, su
+  // historial y el paso de confirmar una anulación
+  const [corrigiendo, setCorrigiendo] = React.useState(null);
+  const [corrForm, setCorrForm] = React.useState({ inicio: '', fin: '', motivo: '', personId: '', vehicleId: '' });
+  const [historialTurno, setHistorialTurno] = React.useState(null);
+  const [confirmarAnular, setConfirmarAnular] = React.useState(false);
   const [rangoTurnos, setRangoTurnos] = React.useState('hoy'); // hoy | ayer | semana
   const [vueltas, setVueltas] = React.useState(null);
   // Alta de persona: cerrada de entrada. Ocho formularios abiertos a la vez
@@ -1431,6 +1843,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   // con el código de la unidad como nombre)
   const [editFor, setEditFor] = React.useState(null);
   const [editForm, setEditForm] = React.useState({ name: '', alias: '' });
+  // Las combis que puede manejar cada uno (habilitaciones, 30/10): la lista,
+  // la de hoy, y si es comodín de su ruta
+  const [combisFor, setCombisFor] = React.useState(null);
+  const [combisForm, setCombisForm] = React.useState({ combis: [], actual: null, todaLaRuta: false });
   const [confirmDel, setConfirmDel] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [filter, setFilter] = React.useState('');
@@ -1455,11 +1871,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   };
 
   const load = () => api('/admin/users')
-    .then(d => { setUsers(d.users); })
+    .then(d => { setUsers(d.users); setConsentVigente(d.consentimientoVigente || null); })
     .catch(e => setError(e.message));
 
-  const loadAudit = () => api('/admin/audit')
-    .then(d => { setEvents(d.events); })
+  // `antes`: el id del último que se ve, para seguir hacia atrás
+  const loadAudit = (clase = claseAudit, antes = null) => api(
+      '/admin/audit?' + new URLSearchParams({ ...(clase ? { clase } : {}), ...(antes ? { antes } : {}) }))
+    .then(d => {
+      setEvents(ev => antes ? [...(ev || []), ...d.events] : d.events);
+      setAuditMas(!!d.hayMas);
+      if (d.plazos) setPlazosAudit(d.plazos);
+    })
     .catch(e => setError(e.message));
 
   // El período del cuadro por unidad. Abre en 7 días como el resto del panel:
@@ -1499,6 +1921,33 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
       .then(d => setShifts({ ...d, rango }))
       .catch(e => setError(e.message));
   };
+
+  // <input type="datetime-local"> habla en hora local, sin zona
+  const aLocal = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts), p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const deLocal = (v) => (v ? new Date(v).getTime() : NaN);
+  const abrirCorreccion = (t) => {
+    setCorrigiendo(t.id); setConfirmarAnular(false); setHistorialTurno(null);
+    setCorrForm({ inicio: aLocal(t.startedAt), fin: aLocal(t.endedAt || t.lastSeenAt), motivo: '', personId: '', vehicleId: '' });
+    api(`/admin/shifts/${t.id}/correcciones`).then(d => setHistorialTurno(d.correcciones || [])).catch(() => setHistorialTurno([]));
+  };
+  const guardarCorreccion = (t, anular = false) => run(async () => {
+    if (corrigiendo === 'nuevo') {
+      await api('/admin/shifts', { method: 'POST', body: JSON.stringify({
+        personId: corrForm.personId, vehicleId: corrForm.vehicleId || undefined,
+        startedAt: deLocal(corrForm.inicio), endedAt: deLocal(corrForm.fin), motivo: corrForm.motivo,
+      }) });
+    } else {
+      await api(`/admin/shifts/${t.id}/correccion`, { method: 'POST', body: JSON.stringify(anular
+        ? { anular: true, motivo: corrForm.motivo }
+        : { startedAt: deLocal(corrForm.inicio), endedAt: deLocal(corrForm.fin), motivo: corrForm.motivo }) });
+    }
+    setCorrigiendo(null); setConfirmarAnular(false);
+    await loadShifts();
+  }, corrigiendo === 'nuevo' ? 'Turno agregado' : anular ? 'Turno anulado' : 'Turno corregido');
 
   const loadVueltas = () => {
     const ruta = esSupervisor && currentRoute ? `?routeId=${encodeURIComponent(currentRoute)}` : '';
@@ -1544,7 +1993,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
       setEmpresa(d);
       setEmpForm({
         name: d.empresa.name || '', ruc: d.empresa.ruc || '',
-        contacto: d.empresa.contacto || '',
+        contacto: d.empresa.contacto || '', telefonoCentral: d.empresa.telefonoCentral || '',
       });
     })
     .catch(e => setError(e.message));
@@ -1651,6 +2100,14 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
     setEditFor(null);
     await loadVehicles();
   }, 'Identidad actualizada');
+
+  const guardarCombis = (unitId) => run(async () => {
+    await api(`/admin/users/${encodeURIComponent(unitId)}/combis`, {
+      method: 'POST', body: JSON.stringify(combisForm),
+    });
+    setCombisFor(null);
+    await loadVehicles();
+  }, 'Combis actualizadas');
 
   const resetPassword = (unitId) => run(async () => {
     const password = resetPass || suggestPassword();
@@ -1792,7 +2249,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
 
         {/* contenido */}
         <div style={{ overflowY: 'auto', padding: angosto ? '16px 14px 40px' : '24px 28px 40px' }}>
-          <div style={{ maxWidth: 940 }}>
+          <div style={{ maxWidth: tab === 'gerencia' ? 1200 : 940 }}>
             {angosto && (
               <select value={tab} onChange={e => setTab(e.target.value)}
                 style={{ ...campo(44), width: '100%', marginBottom: 18, fontWeight: 700, cursor: 'pointer' }}>
@@ -1850,7 +2307,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 <button onClick={() => setAltaAbierta(a => !a)} style={btnPrimario(40)}>
                   {altaAbierta ? '✕ Cerrar' : '+ Persona'}
                 </button>
+                {/* Muchas de una vez, desde la planilla que ya tienen (0.7) */}
+                <button data-abrir-planilla onClick={() => setMasivaAbierta(a => !a)} style={btnSecundario(40)}>
+                  {masivaAbierta ? '✕ Cerrar' : 'Cargar una planilla'}
+                </button>
               </div>
+
+              {masivaAbierta && <CargaMasiva api={api} onListo={() => load()} />}
 
               {/* alta de PERSONA: nombre obligatorio, alias opcional, rol y vehículo */}
               {altaAbierta && (
@@ -1923,7 +2386,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   </div>
                   <div style={{ fontSize: 12, color: HUD.dim3, marginTop: 10, lineHeight: 1.5 }}>
                     {form.personRole === 'driver'
-                      ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no eliges vehículo, se crea uno con el mismo código del usuario.'
+                      // Crear la combi al vuelo es crear un ACTIVO: sólo la
+                      // gerencia. A Despacho el servidor le contesta 403, y
+                      // el texto le prometía lo contrario (recorrido del 28/10).
+                      ? (esGerente
+                        ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no elegís vehículo, se crea uno con el mismo código del usuario.'
+                        : 'El chofer maneja: su celular es el que reporta la posición de la unidad. Elegí la combi en la que va: las combis las da de alta la cuenta de gerencia.')
                       : 'El cobrador necesita un vehículo ya creado. Ve brechas, mapa y chat, pero su GPS no se usa.'}
                   </div>
                 </div>
@@ -1974,6 +2442,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 </div>
               )}
 
+              <PanelConsentimiento users={users} vigente={consentVigente} api={api} run={run} busy={busy} />
               {!users && <Vacio>Cargando…</Vacio>}
               {users && (() => {
                 const q = filter.trim().toLowerCase();
@@ -1984,9 +2453,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   : u.role === 'collector' ? 'collector' : 'driver';
                 const lista = users.filter(u =>
                   (!q || coincide(u, q)) && (!filtroRol || rolDe(u) === filtroRol));
-                const cols = '150px 1fr 96px 90px 128px 200px';
+                const cols = '128px 1fr 80px 96px 110px 312px';
                 return (
-                  <Tabla cols={cols} ancho={880}
+                  <Tabla cols={cols} ancho={900}
                     cabeceras={['Persona', 'Identidad', 'Rol', 'Unidad', 'Última conexión', 'Acciones']}>
                     {lista.length === 0 && <Vacio>Nadie coincide con lo buscado.</Vacio>}
                     {lista.map(u => (
@@ -2010,8 +2479,15 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           <span style={rotulo(10, HUD.dim2)}>
                             {u.role === 'dispatch' ? 'Despacho' : u.role === 'manager' ? 'Gerencia' : u.role === 'collector' ? 'Cobrador' : 'Chofer'}
                           </span>
-                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>
+                          {/* La de hoy, y cuántas más puede elegir en la puerta */}
+                          <span title={(u.combis || []).length > 1 || u.todaLaRuta
+                              ? `Puede manejar: ${(u.combis || []).join(', ')}${u.todaLaRuta ? ' y cualquiera de su ruta' : ''}` : undefined}
+                            style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.fg2 }}>
                             {u.vehicleId || '—'}
+                            {(u.combis || []).length > 1 && (
+                              <span style={{ color: HUD.dim3, fontWeight: 400 }}> +{u.combis.length - 1}</span>
+                            )}
+                            {u.todaLaRuta && <span style={{ color: HUD.dim3, fontWeight: 400 }}> · ruta</span>}
                           </span>
                           <span style={{ fontFamily: mono, fontSize: 11, color: u.lastLogin || u.online ? HUD.dim3 : HUD.amber }}>
                             {u.online ? 'conectado' : u.lastLogin ? fmtWhen(u.lastLogin) : 'nunca entró'}
@@ -2019,18 +2495,41 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 sin esto no se sabe quién tiene cuál cuando un APK cambia
                                 lo que manda (REVISION-2026-09-10.md, P5) */}
                             {u.appVersionCode ? ` · app ${u.appVersionCode}` : ''}
+                            {/* Y la actualización sin reinstalar que tomó (PENDIENTES 0.11) */}
+                            {u.appVersionCode && u.appActualizacion ? ` · act. ${fechaActualizacion(u.appActualizacion)}` : ''}
                           </span>
                           <span style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                             {u.role !== 'manager' && (
-                            <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setResetPass(''); }}
+                            <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setCombisFor(null); setResetPass(''); }}
                               style={btnChico(HUD.fg2)}>Clave</button>
+                            )}
+                            {u.role !== 'dispatch' && u.role !== 'manager' && onEscribir && (
+                              <button title="Escribirle en privado, solo a esta persona (en la combi que esté)"
+                                onClick={() => onEscribir(u.unitId, u.alias || u.name || u.unitId, u.routeId)}
+                                style={btnChico(HUD.fg2)}>Escribir</button>
+                            )}
+                            {u.role !== 'dispatch' && u.role !== 'manager' && (
+                              <button title="Las combis que puede elegir en la puerta, y la de hoy"
+                                onClick={() => {
+                                  setCombisFor(u.unitId);
+                                  // Las habilitadas más la de hoy (que puede no estar entre
+                                  // ellas), y «la de hoy» nunca vacía si hay alguna: con
+                                  // `vehicleId` null el select mostraba la primera y se
+                                  // guardaba nada (revisión previa a la APK)
+                                  const combis = [...new Set([...(u.combis || []), u.vehicleId].filter(Boolean))];
+                                  setCombisForm({
+                                    combis, actual: u.vehicleId || combis[0] || null, todaLaRuta: !!u.todaLaRuta,
+                                  });
+                                  setEditFor(null); setResetFor(null); setConfirmDel(null);
+                                }}
+                                style={btnChico(HUD.fg2)}>Combis</button>
                             )}
                             {u.role !== 'dispatch' && u.role !== 'manager' && (
                               <button title="Corregir nombre o alias"
                                 onClick={() => {
                                   setEditFor(u.unitId);
                                   setEditForm({ name: u.name || u.driverName || '', alias: u.alias || '' });
-                                  setResetFor(null); setConfirmDel(null);
+                                  setResetFor(null); setConfirmDel(null); setCombisFor(null);
                                 }}
                                 style={btnChico(HUD.fg2)}>Editar</button>
                             )}
@@ -2039,12 +2538,67 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 <button onClick={() => remove(u.unitId)} disabled={busy}
                                   style={{ ...btnChico('#fff', HUD.red), background: HUD.red }}>¿Confirmar?</button>
                               ) : (
-                                <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); }}
+                                <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); setCombisFor(null); }}
                                   style={btnChico(HUD.red, HUD.rojoBorde)}>Baja</button>
                               )
                             )}
                           </span>
                         </FilaTabla>
+                        {/* Las combis que puede manejar. Se marcan las que
+                            puede elegir en la puerta y cuál es la de hoy;
+                            la de hoy no se le cambia a alguien en ruta (el
+                            servidor lo rechaza y lo dice). */}
+                        {combisFor === u.unitId && (
+                          <div data-combis-de={u.unitId} style={{
+                            padding: '12px 14px', background: HUD.bg, borderBottom: `1px solid ${HUD.hueco}`,
+                          }}>
+                            <div style={{ ...rotulo(9), marginBottom: 8 }}>Combis que puede manejar {u.unitId}</div>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                              {(vehicles || []).map(v => {
+                                const marcada = combisForm.combis.includes(v.vehicleId);
+                                const hoy = combisForm.actual === v.vehicleId;
+                                return (
+                                  <button key={v.vehicleId} data-habilitar={v.vehicleId} aria-pressed={marcada}
+                                    disabled={hoy}
+                                    title={hoy ? 'Es la de hoy: para sacarla, elegí otra como la de hoy' : (v.label || undefined)}
+                                    onClick={() => setCombisForm(f => ({
+                                      ...f,
+                                      combis: marcada ? f.combis.filter(c => c !== v.vehicleId) : [...f.combis, v.vehicleId],
+                                    }))}
+                                    style={{
+                                      ...btnChico(marcada ? HUD.bright : HUD.dim2, marcada ? HUD.bright : HUD.line),
+                                      fontFamily: mono, fontWeight: 700, cursor: hoy ? 'default' : 'pointer',
+                                      borderWidth: marcada ? 2 : 1,
+                                    }}>
+                                    {marcada ? '✓ ' : ''}{v.vehicleId}{hoy ? ' · hoy' : ''}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <label style={{ fontSize: 13, color: HUD.fg2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                La de hoy
+                                <select value={combisForm.actual || ''}
+                                  onChange={e => setCombisForm(f => ({ ...f, actual: e.target.value }))}
+                                  style={{ ...campo(34), cursor: 'pointer' }}>
+                                  {combisForm.combis.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                              </label>
+                              <label style={{ fontSize: 13, color: HUD.fg2, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={combisForm.todaLaRuta}
+                                  onChange={e => setCombisForm(f => ({ ...f, todaLaRuta: e.target.checked }))} />
+                                Cualquiera de su ruta (suplente)
+                              </label>
+                              <span style={{ flex: 1 }} />
+                              <button onClick={() => guardarCombis(u.unitId)} disabled={busy} style={btnPrimario(34)}>Guardar</button>
+                              <button onClick={() => setCombisFor(null)} style={btnSecundario(34)}>Cancelar</button>
+                            </div>
+                            <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 8, lineHeight: 1.45 }}>
+                              Entre éstas elige en la puerta, al salir a ruta. Si elige una que está manejando otro,
+                              la app le pide confirmar el relevo.
+                            </div>
+                          </div>
+                        )}
                         {/* El formulario abre debajo de su fila en vez de
                             exprimirse dentro de la columna de acciones */}
                         {editFor === u.unitId && (
@@ -2065,6 +2619,25 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             <button onClick={() => editarIdentidad(u.unitId)} disabled={busy}
                               style={btnPrimario(36)}>Guardar</button>
                             <button onClick={() => setEditFor(null)} style={btnSecundario(36)}>Cancelar</button>
+                            {/* Todo lo que el sistema tiene de esta persona, para
+                                entregárselo si lo pide (Ley 29733, PENDIENTES 0.14) */}
+                            <div style={{ flexBasis: '100%', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+                              marginTop: 4, fontSize: 12, color: HUD.dim2 }}>
+                              <button data-bajar-datos={u.unitId} disabled={busy}
+                                onClick={() => run(async () => {
+                                  const r = await fetch(`${HTTP_URL}/admin/users/${encodeURIComponent(u.unitId)}/datos.zip`,
+                                    { headers: { Authorization: 'Bearer ' + session.token } });
+                                  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'No se pudo armar el archivo');
+                                  const url = URL.createObjectURL(await r.blob());
+                                  const a = document.createElement('a');
+                                  a.href = url;
+                                  a.download = `datos-${u.unitId}.zip`;
+                                  a.click();
+                                  setTimeout(() => URL.revokeObjectURL(url), 5000);
+                                }, `Bajados todos los datos de ${u.name || u.driverName || u.unitId}`)}
+                                style={btnChico(HUD.fg2)}>Bajar todos sus datos (ZIP)</button>
+                              <span>Lo que el sistema tiene de {u.name || u.driverName || u.unitId}, para entregárselo si lo pide. Queda en la Actividad.</span>
+                            </div>
                           </div>
                         )}
                         {resetFor === u.unitId && (
@@ -2146,6 +2719,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     cabeceras={['Vehículo', 'Ruta', 'Placa', 'Tripulación', 'Estado']}>
                     {vehicles.map(v => {
                       const asignados = (users || []).filter(u => u.vehicleId === v.vehicleId);
+                      // Los que hoy van en otra pero también la pueden manejar
+                      // (habilitaciones): se dicen aparte, después
+                      const tambien = (v.habilitados || []).filter(h => !asignados.some(u => u.unitId === h.personId));
                       const arriba = (v.tripulacion || []).length;
                       return (
                         <FilaTabla key={v.vehicleId} cols={cols}>
@@ -2175,12 +2751,16 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             fontSize: 13, color: v.label ? HUD.fg2 : HUD.dim3, minWidth: 0,
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}>{v.label || 'sin placa'}</span>
-                          <span style={{
-                            fontFamily: mono, fontSize: 11, color: HUD.dim2, minWidth: 0,
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}>
+                          <span title={tambien.length ? `También la pueden manejar: ${tambien.map(h => h.nombre).join(', ')}` : undefined}
+                            style={{
+                              fontFamily: mono, fontSize: 11, color: HUD.dim2, minWidth: 0,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}>
                             {asignados.length === 0 ? 'sin asignar'
                               : asignados.map(u => `${u.alias || u.name}${u.role === 'collector' ? ' (cobr.)' : ''}`).join(' · ')}
+                            {tambien.length > 0 && (
+                              <span style={{ color: HUD.dim3 }}> · también {tambien.map(h => h.nombre).join(', ')}</span>
+                            )}
                           </span>
                           <span style={{
                             ...rotulo(10, arriba ? HUD.green : v.enLinea ? HUD.amber : HUD.dim3),
@@ -2325,7 +2905,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 padding: 3, marginBottom: 16,
               }}>
                 {[['hoy', 'Hoy'], ['ayer', 'Ayer'], ['semana', 'Esta semana']].map(([k, l]) => (
-                  <button key={k} onClick={() => { setRangoTurnos(k); setShifts(null); loadShifts(k); }}
+                  <button key={k} onClick={() => { setRangoTurnos(k); setShifts(null); setCorrigiendo(null); loadShifts(k); }}
                     style={{
                       padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
                       fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
@@ -2334,6 +2914,15 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     }}>{l}</button>
                 ))}
               </div>
+              {/* El turno que no se registró (el teléfono se apagó, se cayó
+                  el servidor): se agrega a mano, con motivo */}
+              <button data-agregar-turno onClick={() => {
+                setCorrigiendo(corrigiendo === 'nuevo' ? null : 'nuevo'); setConfirmarAnular(false);
+                const ahora = Date.now();
+                setCorrForm({ inicio: aLocal(ahora - 8 * 3600e3), fin: aLocal(ahora), motivo: '', personId: '', vehicleId: '' });
+              }} style={{ ...btnSecundario(34), marginLeft: 12, verticalAlign: 'top' }}>
+                {corrigiendo === 'nuevo' ? 'Cerrar' : 'Agregar un turno que faltó'}
+              </button>
 
               {!shifts && <Vacio>Cargando…</Vacio>}
               {shifts && (() => {
@@ -2342,15 +2931,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 const turnos = rangoTurnos === 'ayer'
                   ? shifts.turnos.filter(t => t.startedAt < hoy)
                   : shifts.turnos;
-                if (!turnos.length) {
-                  return (
-                    <Vacio>
-                      {rangoTurnos === 'hoy'
-                        ? 'Todavía nadie salió a ruta hoy. El turno se abre solo cuando alguien entra a su unidad.'
-                        : 'No hay turnos en ese rango.'}
-                    </Vacio>
-                  );
-                }
+                const vacio = !turnos.length;
                 const horas = (sec) => {
                   // Se redondea a minutos PRIMERO y después se parte en horas:
                   // al revés, 4 h 59 min 59 s salía como "4 h 60 min".
@@ -2358,7 +2939,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   const h = Math.floor(min / 60);
                   return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
                 };
-                const cols = '110px 1fr 110px 110px 120px';
+                const cols = '110px 1fr 110px 110px 120px 92px';
                 // De qué día es cada fila. «Esta semana» son hasta 500 filas
                 // con la hora sola: «08:12» no dice si fue hoy o el martes, y
                 // sin eso la lista no se puede leer ni discutir con nadie
@@ -2408,10 +2989,113 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             <span style={{ color: HUD.dim3 }}> +1</span>}
                         </span>
                         <span style={{ fontFamily: black, fontSize: 14, textAlign: 'right' }}>
-                          {horas(t.duracionSec)}
+                          {t.anulado ? <span style={{ color: HUD.dim2 }}>anulado</span> : horas(t.duracionSec)}
+                          {/* Corregido a mano: se dice en la fila, con quién y por
+                              qué en el título. Nadie lee las horas de un turno
+                              corregido como si las hubiera medido el sistema. */}
+                          {t.correccion && (
+                            <div title={`${t.correccion.tipo === 'agregar' ? 'Agregado' : t.correccion.tipo === 'anular' ? 'Anulado' : 'Corregido'} por ${t.correccion.quien}: ${t.correccion.motivo}`}
+                              data-corregido={t.id}
+                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 2 }}>
+                              {t.correccion.tipo === 'agregar' ? 'AGREGADO A MANO' : t.correccion.tipo === 'anular' ? 'ANULADO A MANO' : 'CORREGIDO A MANO'}
+                            </div>
+                          )}
+                        </span>
+                        <span style={{ textAlign: 'right' }}>
+                          <button data-corregir-turno={t.id} onClick={() => corrigiendo === t.id ? setCorrigiendo(null) : abrirCorreccion(t)}
+                            style={btnChico(HUD.fg2)}>{corrigiendo === t.id ? 'Cerrar' : 'Corregir'}</button>
                         </span>
                       </FilaTabla>
                 );
+                // El formulario abre debajo de su fila. Corregir NO es editar a
+                // escondidas: el motivo es obligatorio, y queda el antes y el
+                // después con quién lo hizo.
+                const editor = (t) => {
+                  const nuevo = t === 'nuevo';
+                  const personas = (users || []).filter(u => u.role === 'driver' || u.role === 'collector');
+                  const quien = !nuevo && (t.alias || t.name || t.personId);
+                  return (
+                    <div key={'corr-' + (nuevo ? 'nuevo' : t.id)} data-editor-turno={nuevo ? 'nuevo' : t.id} style={{
+                      ...tarjeta('14px 16px'), margin: '8px 0 12px', background: HUD.bg,
+                      display: 'grid', gap: 10,
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>
+                        {nuevo ? 'Agregar un turno que no se registró' : `Corregir el turno de ${quien} en ${t.vehicleId}`}
+                      </div>
+                      {nuevo && (
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          <label style={{ fontSize: 12, color: HUD.fg2, display: 'grid', gap: 4 }}>Persona
+                            <select data-turno-persona value={corrForm.personId}
+                              onChange={e => setCorrForm(f => ({ ...f, personId: e.target.value }))}
+                              style={{ ...campo(36), minWidth: 200 }}>
+                              <option value="">Elegí…</option>
+                              {personas.map(u => <option key={u.unitId} value={u.unitId}>{u.alias || u.name || u.unitId} ({u.unitId})</option>)}
+                            </select>
+                          </label>
+                          <label style={{ fontSize: 12, color: HUD.fg2, display: 'grid', gap: 4 }}>Combi
+                            <select data-turno-combi value={corrForm.vehicleId}
+                              onChange={e => setCorrForm(f => ({ ...f, vehicleId: e.target.value }))}
+                              style={{ ...campo(36), minWidth: 120 }}>
+                              <option value="">La de hoy</option>
+                              {(vehicles || []).map(v => <option key={v.vehicleId} value={v.vehicleId}>{v.vehicleId}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        <label style={{ fontSize: 12, color: HUD.fg2, display: 'grid', gap: 4 }}>Entrada
+                          <input type="datetime-local" data-turno-inicio value={corrForm.inicio}
+                            onChange={e => setCorrForm(f => ({ ...f, inicio: e.target.value }))} style={campo(36)} />
+                        </label>
+                        <label style={{ fontSize: 12, color: HUD.fg2, display: 'grid', gap: 4 }}>Salida
+                          <input type="datetime-local" data-turno-fin value={corrForm.fin}
+                            onChange={e => setCorrForm(f => ({ ...f, fin: e.target.value }))} style={campo(36)} />
+                        </label>
+                        <label style={{ fontSize: 12, color: HUD.fg2, display: 'grid', gap: 4, flex: '1 1 260px' }}>Motivo (obligatorio, queda registrado)
+                          <input data-turno-motivo value={corrForm.motivo} maxLength={200}
+                            placeholder="Ej.: se olvidó de salir de ruta; volvió a las 18:10"
+                            onChange={e => setCorrForm(f => ({ ...f, motivo: e.target.value }))} style={campo(36)} />
+                        </label>
+                      </div>
+                      {confirmarAnular && !nuevo ? (
+                        <div role="alert" style={{
+                          background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`, borderRadius: 10,
+                          padding: '10px 12px', fontSize: 13, color: HUD.ambarTinta, lineHeight: 1.5,
+                        }}>
+                          ¿Anular el turno de <b>{quien}</b> en <b>{t.vehicleId}</b> del {new Date(t.startedAt).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' })}, {hhmm(t.startedAt)}–{t.abierto ? 'ahora' : hhmm(t.endedAt)}?
+                          {' '}Sus horas quedan en cero. El turno no se borra: queda anulado, con el motivo.
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            <button data-turno-anular-si disabled={busy} onClick={() => guardarCorreccion(t, true)} style={btnPrimario(34)}>Sí, anular</button>
+                            <button onClick={() => setConfirmarAnular(false)} style={btnSecundario(34)}>No</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button data-turno-guardar disabled={busy} onClick={() => guardarCorreccion(t)} style={btnPrimario(34)}>
+                            {nuevo ? 'Agregar turno' : 'Guardar corrección'}
+                          </button>
+                          {!nuevo && !t.anulado && (
+                            <button data-turno-anular onClick={() => setConfirmarAnular(true)} style={btnSecundario(34)}>Anular este turno…</button>
+                          )}
+                          <button onClick={() => setCorrigiendo(null)} style={btnSecundario(34)}>Cancelar</button>
+                        </div>
+                      )}
+                      {!nuevo && historialTurno && historialTurno.length > 0 && (
+                        <div data-historial-turno style={{ fontSize: 12, color: HUD.dim2, lineHeight: 1.6 }}>
+                          <div style={rotulo(9)}>Correcciones anteriores</div>
+                          {historialTurno.map((c, i) => (
+                            <div key={i}>
+                              {hhmm(c.en)} · <b style={{ color: HUD.fg2 }}>{c.quienNombre}</b>:{' '}
+                              {c.tipo === 'anular' ? 'lo anuló' : c.tipo === 'agregar' ? `lo agregó (${hhmm(c.despuesInicio)}–${hhmm(c.despuesFin)})`
+                                : `${hhmm(c.antesInicio)}–${hhmm(c.antesFin)} → ${hhmm(c.despuesInicio)}–${hhmm(c.despuesFin)}`}
+                              {' '}· «{c.motivo}»
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                };
                 let diaImpreso = null;
                 const filas = [];
                 for (const t of turnos) {
@@ -2427,12 +3111,24 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     );
                   }
                   filas.push(fila(t));
+                  if (corrigiendo === t.id) filas.push(editor(t));
                 }
                 return (
-                  <Tabla cols={cols} ancho={700}
-                    cabeceras={['Unidad', 'Tripulación', 'Entrada', 'Salida', 'En ruta']}>
-                    {filas}
-                  </Tabla>
+                  <div>
+                    {corrigiendo === 'nuevo' && editor('nuevo')}
+                    {vacio ? (
+                      <Vacio>
+                        {rangoTurnos === 'hoy'
+                          ? 'Todavía nadie salió a ruta hoy. El turno se abre solo cuando alguien entra a su unidad.'
+                          : 'No hay turnos en ese rango.'}
+                      </Vacio>
+                    ) : (
+                      <Tabla cols={cols} ancho={800}
+                        cabeceras={['Unidad', 'Tripulación', 'Entrada', 'Salida', 'En ruta', '']}>
+                        {filas}
+                      </Tabla>
+                    )}
+                  </div>
                 );
               })()}
               <Pie>
@@ -2441,6 +3137,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 vuelve dentro de los 15 minutos, se retoma el mismo. Si el servidor se
                 reinicia, los turnos que quedaron abiertos se cierran con la última
                 señal que se les vio.
+                {' '}Cuando eso no refleja lo que pasó, <strong>Corregir</strong> cambia la
+                entrada o la salida, o anula el turno, y <strong>Agregar un turno que faltó</strong>
+                {' '}suma uno que no se registró. Siempre con motivo, hasta 31 días atrás:
+                queda quién lo hizo, el antes y el después, y el informe de horas lo dice.
               </Pie>
             </div>)}
 
@@ -2943,7 +3643,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               <div style={{ fontFamily: mono }}>{min(g.segundos)}</div>
                               <div style={{ fontFamily: mono, color: g.unidades > 1 ? HUD.fg : HUD.dim3 }}>{g.unidades}</div>
                               <div title="Cortes que no trajeron después las posiciones que faltaban: el teléfono estaba apagado o la app muerta, no es la antena"
-                                style={{ fontFamily: mono, color: g.sinDatos ? HUD.amber : HUD.dim3 }}>
+                                style={{ fontFamily: mono, color: g.sinDatos ? HUD.amber : HUD.dim3, textAlign: 'right' }}>
                                 {g.sinDatos || '—'}
                               </div>
                             </div>
@@ -3010,7 +3710,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                         </Tabla>
                         <Pie>
                           Se anota, no se acusa: es lo que el servidor vio raro en las posiciones, para
-                          poder preguntarlo. Lo que cada una significa está en <strong>TRUCOS-2026-09-10.md</strong>.
+                          poder preguntarlo.
+                          {QUE_ES_ANOMALIA.filter(([t]) => trabas.anomalias.some(a => a.tipo === t)).map(([t, que]) => (
+                            <span key={t} style={{ display: 'block', marginTop: 4 }}>
+                              <strong>{ANOMALIA_ES[t]}</strong>: {que}
+                            </span>
+                          ))}
                         </Pie>
                       </div>
                     )}
@@ -3089,7 +3794,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       </div>
                       <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 12 }}>
                         {dias ? `${dias} día${dias === 1 ? '' : 's'}` : 'fechas incompletas'}
-                        {' · '}{(vehicles || []).length} unidades
+                        {' · '}{(vehicles || []).filter(v => !(esSupervisor && currentRoute) || v.routeId === currentRoute).length} unidades
                         {' · '}{esSupervisor && currentRoute ? currentRoute : `${routeList.length} ruta${routeList.length === 1 ? '' : 's'}`}
                       </div>
                       {/* El servidor recorta el rango a 90 días y lo dice en
@@ -3111,7 +3816,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
                         {informes.map(([tipo, etiqueta, principal]) => (
                           <button key={tipo} onClick={() => bajar(tipo)}
-                            style={principal ? btnPrimario(40) : btnSecundario(40)}>{etiqueta}</button>
+                            style={{
+                              ...(principal ? btnPrimario(40) : btnSecundario(40)),
+                              // que un rótulo largo baje de renglón y no se salga
+                              height: 'auto', minHeight: 40, padding: '9px 14px',
+                              whiteSpace: 'normal', textAlign: 'left', maxWidth: '100%',
+                            }}>{etiqueta}</button>
                         ))}
                       </div>
                     </div>
@@ -3140,7 +3850,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     ['Rutas', empresa.resumen.rutas],
                     ['Vehículos', empresa.resumen.vehiculos],
                     ['Personas', empresa.resumen.personas],
-                    ['Cuentas de despacho', empresa.resumen.despacho],
+                    [empresa.resumen.despacho === 1 ? 'Cuenta de despacho' : 'Cuentas de despacho', empresa.resumen.despacho],
                     ['En línea ahora', empresa.resumen.enLinea],
                   ].map(([etiqueta, valor]) => (
                     <div key={etiqueta} style={{ ...tarjeta(14), background: HUD.bg }}>
@@ -3174,6 +3884,22 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           style={{ ...campo(44), width: '100%', fontFamily: mono }} />
                       </div>
                     </div>
+                    {/* A dónde llama o manda un SMS el chofer cuando el SOS no
+                        puede salir por internet (PENDIENTES 0.5). Tiene que
+                        atenderse siempre: un celular de guardia, no el fijo
+                        de la oficina que de noche no contesta nadie. */}
+                    <div>
+                      <div style={{ ...rotulo(9), marginBottom: 6 }}>Teléfono de la central para emergencias</div>
+                      <input value={empForm.telefonoCentral || ''} placeholder="+51 951 234 567" inputMode="tel"
+                        data-telefono-central
+                        onChange={e => setEmpForm({ ...empForm, telefonoCentral: e.target.value })}
+                        style={{ ...campo(44), width: '100%', fontFamily: mono }} />
+                      <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 6, lineHeight: 1.5 }}>
+                        Si un SOS no puede salir por falta de internet, la app le ofrece al chofer llamar a este
+                        número o mandarle un SMS con la combi y la posición. Que sea uno que <b>siempre</b> atienda
+                        alguien (un celular de guardia). Los choferes lo reciben al volver a entrar a la app.
+                      </div>
+                    </div>
                     <div style={{ display: 'flex', gap: 10 }}>
                       <button disabled={busy} onClick={() => run(async () => {
                         await api('/admin/company', { method: 'POST', body: JSON.stringify(empForm) });
@@ -3181,7 +3907,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       }, 'Datos de la cooperativa guardados')} style={btnPrimario(42)}>Guardar</button>
                       <button onClick={() => setEmpForm({
                         name: empresa.empresa.name || '', ruc: empresa.empresa.ruc || '',
-                        contacto: empresa.empresa.contacto || '',
+                        contacto: empresa.empresa.contacto || '', telefonoCentral: empresa.empresa.telefonoCentral || '',
                       })} style={btnSecundario(42)}>Descartar</button>
                     </div>
                   </div>
@@ -3192,6 +3918,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     </div>
                     {empresa.empresa.ruc && <div>RUC · {empresa.empresa.ruc}</div>}
                     {empresa.empresa.contacto && <div>Contacto · {empresa.empresa.contacto}</div>}
+                    <div>Central para emergencias · {empresa.empresa.telefonoCentral || 'sin cargar'}</div>
                     <div style={{ marginTop: 8 }}>Estos datos, y el logo, los corrige la cuenta de gerencia.</div>
                   </div>
                 )}
@@ -3386,7 +4113,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             dos se ven igual. */}
                         <div title={(u.desvios ? `${Math.round((u.desvioSec || 0) / 60)} min fuera del recorrido en total` : 'No se salió del recorrido') +
                                     (u.desviosAparte ? ` · ${u.desviosAparte} episodio(s) aparte: silenciado(s) por Despacho o cerrado(s) por cambio de trazado, que no cuentan como salidas` : '')}
-                          style={{ fontFamily: mono, color: u.desvios ? HUD.amber : HUD.dim3 }}>
+                          style={{ fontFamily: mono, color: u.desvios ? HUD.amber : HUD.dim3, textAlign: 'right' }}>
                           {u.desvios ? `${u.desvios} · ${Math.round((u.desvioSec || 0) / 60)}′` : '—'}
                         </div>
                       </div>
@@ -3430,7 +4157,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           <div style={{ fontFamily: mono, color: manejo(p) ? HUD.fg : HUD.dim3 }}>{manejo(p) ? (p.vueltas || 0) : '—'}</div>
                           <div style={{ fontFamily: mono, color: p.cumplimiento == null ? HUD.dim3 : HUD.fg }}>{p.cumplimiento == null ? '—' : `${p.cumplimiento}%`}</div>
                           <div style={{ fontFamily: mono, color: p.desvios ? HUD.amber : HUD.dim3 }}>{manejo(p) ? (p.desvios || '—') : '—'}</div>
-                          <div style={{ fontFamily: mono, color: HUD.dim2 }}>{(p.unidades || []).join(' · ') || '—'}</div>
+                          <div style={{ fontFamily: mono, color: HUD.dim2, textAlign: 'right' }}>{(p.unidades || []).join(' · ') || '—'}</div>
                         </div>
                       ))}
                     </Tabla>
@@ -3714,6 +4441,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
 
             {/* ─── ACTIVIDAD ────────────────────────────────────── */}
             {tab === 'audit' && (<div>
+              {/* Por tipo: lo de gestión (altas, bajas, claves) no tiene
+                  que buscarse entre cien inicios de sesión */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {[['', 'Todo'], ['gestion', 'Gestión'], ['operacion', 'Operación'], ['acceso', 'Accesos']].map(([c, nombre]) => (
+                  <button key={c || 'todo'} data-clase-audit={c || 'todo'} aria-pressed={claseAudit === c}
+                    onClick={() => { setClaseAudit(c); setEvents(null); loadAudit(c); }}
+                    style={btnChico(claseAudit === c ? HUD.fg : HUD.dim2, claseAudit === c ? HUD.fg2 : HUD.line)}>
+                    {nombre}
+                  </button>
+                ))}
+              </div>
               {!events && <Vacio>Cargando…</Vacio>}
               {events && events.length === 0 && <Vacio>Sin actividad registrada.</Vacio>}
               {events && events.length > 0 && (() => {
@@ -3725,9 +4463,22 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   mover_combi: { label: 'pasó a otra ruta la combi', color: HUD.bright },
                   alta_ruta: { label: 'creó la ruta', color: HUD.green },
                   editar_identidad: { label: 'corrigió los datos de', color: HUD.bright },
+                  evidencia_marcada: { label: 'guardó como evidencia', color: HUD.amber },
+                  evidencia_desmarcada: { label: 'dejó de guardar como evidencia', color: HUD.dim },
+                  // Ley 29733 (PENDIENTES 0.10)
+                  consentimiento_firmado: { label: 'anotó el consentimiento firmado de', color: HUD.green },
+                  consentimiento_retirado: { label: 'anotó que retiró su consentimiento', color: HUD.amber },
+                  datos_exportados: { label: 'bajó todos los datos de', color: HUD.amber },
                   reset_clave: { label: 'reseteó la clave de', color: HUD.amber },
+                  combis: { label: 'cambió las combis que puede manejar', color: HUD.bright },
+                  cambio_combi: { label: 'cambió de combi a', color: HUD.bright },
                   baja: { label: 'dio de baja a', color: HUD.red },
                   sos: { label: 'disparó un SOS', color: HUD.red },
+                  sos_atendido: { label: 'atendió el SOS de', color: HUD.green },
+                  // Las horas corregidas a mano (PENDIENTES 0.6)
+                  turno_corregido: { label: 'corrigió el turno de', color: HUD.amber },
+                  turno_agregado: { label: 'agregó un turno a', color: HUD.amber },
+                  turno_anulado: { label: 'anuló un turno de', color: HUD.amber },
                   // Las tres del perfil del chofer (se editan desde la app)
                   alias_propio: { label: 'se puso el alias', color: HUD.bright },
                   clave_propia: { label: 'cambió su propia contraseña', color: HUD.amber },
@@ -3755,6 +4506,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   grabacion_pedido_cancelado: { label: 'canceló el pedido de grabación a', color: HUD.dim },
                   aviso_visto: { label: 'marcó como visto el aviso', color: HUD.dim },
                   login_empresa_inactiva: { label: 'intentó entrar con la cooperativa suspendida', color: HUD.red },
+                  // El mando de la combi (opciones B y C, 30/10)
+                  relevo: { label: 'tomó la combi que manejaba', color: HUD.bright },
+                  salio_solo: { label: 'salió a ruta solo en', color: HUD.amber },
                 };
                 const cols = '120px 150px 1fr';
                 return (
@@ -3781,10 +4535,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   </Tabla>
                 );
               })()}
+              {events && auditMas && (
+                <button data-audit-mas onClick={() => loadAudit(claseAudit, events[events.length - 1]?.id)}
+                  style={{ ...btnChico(HUD.fg2), marginTop: 8 }}>Ver más viejos</button>
+              )}
               <Pie>
-                Últimos 100 movimientos de <strong>esta</strong> cooperativa: logins,
-                altas, resets de clave, bajas y SOS. El registro guarda hasta 1000
-                eventos por cooperativa en la base.
+                Movimientos de <strong>esta</strong> cooperativa, del más nuevo al más viejo.
+                Se guardan según el tipo: <strong>gestión</strong> (altas, bajas, claves,
+                correcciones, configuración) {plazosAudit ? plazosAudit.gestion : 730} días;
+                {' '}<strong>operación</strong> (desvíos, SOS, relevos) {plazosAudit ? plazosAudit.operacion : 365};
+                {' '}<strong>accesos</strong> (inicios de sesión) {plazosAudit ? plazosAudit.acceso : 90}.
+                Para un período entero, el informe <em>Actividad de administración</em>.
               </Pie>
             </div>)}
 
@@ -3975,6 +4736,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const [marca, refrescarMarca] = useMarca(session.token);
   const [connected, setConnected] = React.useState(false);
   const [units, setUnits] = React.useState([]);
+  // Los choferes que entraron y no salieron a ruta (opción A, 30/10): lo
+  // manda el servidor sólo a Despacho, con la hora a la que entraron
+  const [puerta, setPuerta] = React.useState([]);
+  // La salud del teléfono de cada persona de la ruta (PENDIENTES 0.4):
+  // personId → { bateria, cargando, optimizada, origen, version, versionEstado, en }
+  const [telefonos, setTelefonos] = React.useState({});
   const [gaps, setGaps] = React.useState({});
   const [messages, setMessages] = React.useState([]);
   // Las emergencias SIN ATENDER, en el orden en que llegaron. Era una sola:
@@ -3983,6 +4750,61 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // (barrido 22/9). El cartel muestra la más vieja y dice cuántas esperan.
   const [sosLista, setSosLista] = React.useState([]);
   const sos = sosLista[0] || null;
+  const [sosError, setSosError] = React.useState(null);
+  // Suena mientras haya alguno sin atender; calla al vaciarse la lista o al salir
+  React.useEffect(() => {
+    if (sosLista.length) alarmaSos.sonar(); else alarmaSos.callar();
+  }, [sosLista.length]);
+  React.useEffect(() => () => alarmaSos.callar(), []);
+  // ¿Puede sonar? (el navegador la tiene muda hasta el primer gesto) y ¿hay
+  // permiso de notificaciones? Si falta algo, la cabecera lo ofrece.
+  const [, refrescarAlarma] = React.useState(0);
+  React.useEffect(() => alarmaSos.suscribir(() => refrescarAlarma(n => n + 1)), []);
+  const permisoNotif = ('Notification' in window) ? Notification.permission : 'denied';
+  const faltaAlarma = (alarmaSos.soportada() && !alarmaSos.lista()) || permisoNotif === 'default';
+  const activarAlarma = () => {
+    alarmaSos.desbloquear();
+    if ('Notification' in window && Notification.permission === 'default') {
+      try { Notification.requestPermission().then(() => refrescarAlarma(n => n + 1)).catch(() => {}); } catch {}
+    }
+  };
+  // El título de la pestaña parpadea: se ve desde otra pestaña
+  React.useEffect(() => {
+    if (!sosLista.length) return;
+    const base = document.title;
+    const primero = sosLista[0];
+    const marca = `SOS · ${(primero.vehicleId || primero.unitId || '').toUpperCase()}` +
+      (sosLista.length > 1 ? ` y ${sosLista.length - 1} más` : '');
+    let prendido = true;
+    document.title = marca;
+    const t = setInterval(() => { prendido = !prendido; document.title = prendido ? marca : base; }, 1000);
+    return () => { clearInterval(t); document.title = base; };
+  }, [sosLista]);
+  // ATENDIDO es de la base, no de esta pantalla: se cierra en todos los
+  // paneles y queda quién y cuándo. Sin socket no se finge: se dice.
+  const atenderSos = (s) => {
+    const ws = wsRef.current;
+    if (s.sosId == null) { setSosLista(l => l.filter(x => x !== s)); return; }
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setSosError('Sin conexión: ATENDIDO no salió. Probá de nuevo.');
+      return;
+    }
+    // Se saca de la lista recién cuando el servidor lo confirma (el
+    // `sos_atendido` que les manda a todos los paneles, éste incluido). Con
+    // la conexión medio muerta el envío no da error y no sale nada: antes se
+    // daba por atendido igual, y no lo estaba (revisión integral del 04/11).
+    ws.send(JSON.stringify({ type: 'sos_atender', sosId: s.sosId }));
+    setSosError(null);
+    setSosLista(l => l.map(x => x.sosId === s.sosId ? { ...x, atendiendo: Date.now() } : x));
+    setTimeout(() => {
+      setSosLista(l => {
+        const sigue = l.find(x => x.sosId === s.sosId && x.atendiendo);
+        if (!sigue) return l;
+        setSosError('ATENDIDO no se confirmó: la conexión está fallando. Probá de nuevo.');
+        return l.map(x => x.sosId === s.sosId ? { ...x, atendiendo: null } : x);
+      });
+    }, 8000);
+  };
   // La combi en emergencia se reconoce por el VEHÍCULO: `unitId` del SOS es
   // la persona, y en el estado `unitId` es la combi. Con un cobrador o un
   // chofer cuyo usuario no es el código de la combi, nunca se pintaba.
@@ -3995,6 +4817,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const [privadoCon, setPrivadoCon] = React.useState(null);
   // Privados sin leer por unidad, para el punto en la lista
   const [noLeidos, setNoLeidos] = React.useState({});
+  // Cómo se llama cada persona con la que hay un privado PERSONAL ('p:pedro'
+  // → 'Pedro'): lo dicen sus mensajes, la tarjeta de su combi o Personas
+  const [nombres, setNombres] = React.useState({});
   const [routeInfo, setRouteInfo] = React.useState({
     routeId: session.routeId || null,
     routeName: session.routeName || null,
@@ -4004,6 +4829,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // el estado se acaba de pisar unas líneas más arriba: ver el comentario
   // del cierre de la conversación privada, abajo.
   const rutaPreviaRef = React.useRef(session.routeId || null);
+  // De qué ruta es cada privado personal ('p:pedro' → 'R-14'): su hilo vive ahí
+  const rutaDelPrivadoRef = React.useRef({});
   // La ruta que el supervisor ELIGIÓ mirar. El servidor arranca cada
   // conexión en la primera ruta y no recuerda el `watch`: tras un corte de
   // 3 s mirando R-20 se volvía en silencio a R-14, y lo que se escribía iba
@@ -4098,10 +4925,17 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // texto, la voz y la foto: sólo el texto sumaba, y la foto privada de un
   // accidente no aparecía en ningún lado si no se abría ese privado (22/9).
   const marcarNoLeido = (msg) => {
-    if (!msg.toVehicleId || msg.role === 'dispatch' || msg.role === 'manager') return;
+    const clave = msg.toPersonId ? 'p:' + msg.toPersonId : msg.toVehicleId;
+    if (msg.toPersonId && msg.routeId) rutaDelPrivadoRef.current[clave] = msg.routeId;
+    // El nombre, de lo que escribe la PERSONA: el eco de lo que le manda
+    // Despacho viene firmado «Despacho» y pisaba el de ella
+    if (msg.toPersonId && msg.unitId === msg.toPersonId) {
+      setNombres(n => ({ ...n, [clave]: msg.driverName || msg.toPersonId }));
+    }
+    if (!clave || msg.role === 'dispatch' || msg.role === 'manager') return;
     setPrivadoCon(actual => {
-      if (actual !== msg.toVehicleId) {
-        setNoLeidos(n => ({ ...n, [msg.toVehicleId]: (n[msg.toVehicleId] || 0) + 1 }));
+      if (actual !== clave) {
+        setNoLeidos(n => ({ ...n, [clave]: (n[clave] || 0) + 1 }));
       }
       return actual;
     });
@@ -4118,21 +4952,31 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         from: m.driverName || m.unitId, unit: m.vehicleId || null, tone: 'sos',
         text: `SOS — ${m.driverName || m.unitId} pide ayuda${m.vehicleId ? ' desde ' + m.vehicleId : ''}` +
           (TIPOS_SOS[m.sosTipo] ? ` · ${TIPOS_SOS[m.sosTipo].toUpperCase()}` : ''),
-        time: nowTime(m.timestamp),
+        // Quién lo atendió y a qué hora, aparte del texto: el sufijo del
+        // tipo se reemplaza por el final y no puede tener nada detrás
+        atendido: m.atendidoEn ? `Atendido por ${m.atendidoPorNombre || m.atendidoPor || 'Despacho'} · ${horaChat(m.atendidoEn)}` : null,
+        time: horaChat(m.timestamp),
       };
     }
     const base = {
       from: m.role === 'dispatch' ? 'DESPACHO' : m.role === 'manager' ? 'GERENCIA' : (m.driverName || m.unitId || 'Conductor'),
       role: own ? 'dispatch-self' : m.role,
       unit: m.role === 'dispatch' ? null : (m.vehicleId || null),
-      // Con qué unidad es la conversación privada; null = mensaje del grupo
-      para: m.toVehicleId || null,
-      time: nowTime(m.timestamp),
+      // Con qué combi ('M-05') o persona ('p:pedro') es la conversación
+      // privada; null = mensaje del grupo
+      para: m.toPersonId ? 'p:' + m.toPersonId : (m.toVehicleId || null),
+      time: horaChat(m.timestamp),
       tone: 'normal',
+      // Para marcarlo como evidencia (PENDIENTES 0.8)
+      msgId: m.msgId ?? null,
+      // Sin contenido porque no entró en el historial: se pide al tocarla
+      aparte: !!m.aparte,
+      evidencia: m.evidencia ? { por: m.evidenciaPorNombre || null, motivo: m.evidenciaMotivo || '' } : null,
     };
     if (kind === 'voice') return { ...base, voice: m.duration, audio: m.data || null, expired: m.expired };
-    // La foto puede llegar sin imagen: el servidor solo conserva las últimas
-    // 20. El pie de foto se queda, para que se sepa que existió.
+    // La foto puede llegar sin imagen: expiró (más de 30 días) o no entró en
+    // el historial (`aparte`). El pie de foto se queda, para que se sepa que
+    // existió.
     if (kind === 'photo') return { ...base, photo: true, image: m.data || null, text: m.text || 'Foto' };
     return { ...base, text: m.text };
   };
@@ -4142,19 +4986,23 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     let closedByUs = false;
     let reconnect = null;
     let ws = null;
+    let oidoEn = Date.now();   // la última vez que llegó algo (ver el latido)
 
     const open = () => {
       ws = new WebSocket(SERVER_URL);
       wsRef.current = ws;
       ws.onopen = () => {
         setConnected(true);
+        oidoEn = Date.now();
         ws.send(JSON.stringify({ type: 'identify', token: session.token }));
         // Y la ruta que se estaba mirando, si se eligió una
         if (rutaMiradaRef.current) ws.send(JSON.stringify({ type: 'watch', routeId: rutaMiradaRef.current }));
       };
       ws.onmessage = (ev) => {
+        oidoEn = Date.now();
         let msg;
         try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'pong') return;
         if (msg.type === 'state') {
           // Al reconectar, el servidor manda primero el estado de la ruta
           // inicial y recién después atiende el `watch`: ese estado no es de
@@ -4169,8 +5017,13 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           // `msg.routeId`, la condición nunca daba verdadera y el privado
           // quedaba abierto apuntando a una combi de la ruta anterior.
           if (rutaPreviaRef.current && rutaPreviaRef.current !== msg.routeId) {
-            setPrivadoCon(null);
-            setNoLeidos({});
+            // Menos el personal de alguien de ESTA ruta: «Escribir» a una
+            // persona de otra ruta pasa primero a mirar la suya, y esto lo
+            // cerraba apenas llegaba el estado (revisión previa a la APK).
+            // Los no leídos personales tampoco son de una ruta: se quedan.
+            const sigue = (clave) => esPrivadoPersona(clave) && (rutaDelPrivadoRef.current[clave] || msg.routeId) === msg.routeId;
+            setPrivadoCon(actual => sigue(actual) ? actual : null);
+            setNoLeidos(n => Object.fromEntries(Object.entries(n).filter(([k]) => esPrivadoPersona(k))));
             // Reencuadrar SÓLO al cambiar de ruta. Estaba afuera de este if y
             // corría con cada estado: cada ~3 s el mapa volvía a la flota
             // entera y no había forma de quedarse mirando un SOS (22/9).
@@ -4195,6 +5048,13 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             yendo: msg.yendo ?? 0,
             ausentes: msg.ausentes ?? 0,
           });
+        } else if (msg.type === 'puerta') {
+          // De la ruta que se mira, y de ninguna otra (como el estado)
+          if (rutaMiradaRef.current && msg.routeId !== rutaMiradaRef.current) return;
+          setPuerta(msg.items || []);
+        } else if (msg.type === 'telefonos') {
+          if (rutaMiradaRef.current && msg.routeId !== rutaMiradaRef.current) return;
+          setTelefonos(msg.items || {});
         } else if (msg.type === 'routes') {
           setRoutes(msg.routes || []);
         } else if (msg.type === 'route_geometry') {
@@ -4214,6 +5074,30 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           pushMsg(mapMsg(msg, 'sos'));
           setSosLista(l => l.some(x => x.sosId != null && x.sosId === msg.sosId)
             ? l : [...l, { ...msg, receivedAt: Date.now() }]);
+          notificarSos(msg);
+        } else if (msg.type === 'evidencia') {
+          setMessages(ms => ms.map(x => (x.msgId != null && x.msgId === msg.msgId)
+            ? { ...x, evidencia: msg.marcada ? { por: msg.por, motivo: msg.motivo } : null } : x));
+        } else if (msg.type === 'sos_abiertos') {
+          // Los que siguen sin atender, al conectar: el que llegó mientras
+          // el panel recargaba (o estaba cerrado) vuelve a estar acá
+          // Es la lista ENTERA de los abiertos: el que otro panel atendió
+          // mientras éste estaba cortado se va (antes se quedaba sonando
+          // hasta que alguien tocara ATENDIDO acá; revisión integral 04/11)
+          setSosLista(l => {
+            const abiertos = new Set((msg.items || []).map(x => x.sosId));
+            const siguen = l.filter(x => x.sosId == null || abiertos.has(x.sosId));
+            const ya = new Set(siguen.map(x => x.sosId));
+            const nuevos = (msg.items || []).filter(x => !ya.has(x.sosId)).map(x => ({ ...x, receivedAt: Date.now() }));
+            return [...siguen, ...nuevos].sort((a, b) => a.timestamp - b.timestamp);
+          });
+        } else if (msg.type === 'sos_atendido') {
+          // Lo atendió alguien (este panel u otro): se cierra en todos, y el
+          // hilo dice quién
+          setSosLista(l => l.filter(x => x.sosId !== msg.sosId));
+          setSosError(null);
+          setMessages(ms => ms.map(x => (x.sosId != null && x.sosId === msg.sosId)
+            ? { ...x, atendido: `Atendido por ${msg.por || 'Despacho'} · ${horaChat(msg.en)}` } : x));
         } else if (msg.type === 'sos_tipo') {
           // El chofer le puso nombre a la emergencia ya disparada: "falla
           // mecánica" pide una grúa, "accidente" una ambulancia, "policía"
@@ -4234,7 +5118,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           }
         } else if (msg.type === 'chat_history') {
           setMessages((msg.items || []).map(it => mapMsg(
-            { ...it, expired: (it.kind === 'voice' || it.kind === 'photo') && !it.data },
+            { ...it, expired: (it.kind === 'voice' || it.kind === 'photo') && !it.data && !it.aparte },
             it.kind
           )));
         } else if (msg.type === 'auth_error') {
@@ -4249,9 +5133,19 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       };
     };
     open();
+    // El latido, igual que la app web: un ping cada 15 s y, si en 40 s no
+    // llegó NADA, el socket está muerto aunque no lo sepa (wifi que cambió,
+    // notebook que se durmió): se lo cierra y se reconecta. Sin esto, un SOS
+    // podía no llegar y ATENDIDO podía no salir (revisión integral del 04/11).
+    const latido = setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - oidoEn > 40_000) { try { ws.close(); } catch {} return; }
+      try { ws.send(JSON.stringify({ type: 'ping' })); } catch {}
+    }, 15_000);
 
     return () => {
       closedByUs = true;
+      clearInterval(latido);
       clearTimeout(reconnect);
       if (ws) ws.close();
     };
@@ -4345,8 +5239,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     if (ws && ws.readyState === WebSocket.OPEN) {
       // Con una conversación abierta el mensaje va solo a esa unidad
       try {
+        // Con una persona: `toPerson`; con una combi: `to`
+        const destino = esPrivadoPersona(privadoCon) ? { toPerson: privadoCon.slice(2) }
+          : privadoCon ? { to: privadoCon } : {};
         ws.send(JSON.stringify({
-          type: 'chat', text, to: privadoCon || undefined, timestamp: Date.now(),
+          type: 'chat', text, ...destino, timestamp: Date.now(),
         }));
         return true;
       } catch { return false; }
@@ -4365,9 +5262,47 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     } catch {}
   };
 
-  const abrirPrivado = (vehicleId) => {
-    setPrivadoCon(vehicleId);
-    setNoLeidos(n => ({ ...n, [vehicleId]: 0 }));
+  // Marcar o desmarcar un mensaje como evidencia. La burbuja se actualiza con
+  // el aviso que el servidor manda a todos los paneles (este incluido).
+  const marcarEvidencia = async (msgId, marcar, motivo) => {
+    const r = await fetch(`${HTTP_URL}/admin/mensajes/${msgId}/evidencia`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+      body: JSON.stringify({ marcar, motivo }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'No se pudo');
+    setMessages(ms => ms.map(x => (x.msgId === msgId)
+      ? { ...x, evidencia: d.marcada ? { por: d.por, motivo: d.motivo } : null } : x));
+  };
+
+  // Una foto o nota de voz que vino `aparte` (no entró en el historial)
+  const cargarContenido = async (msgId) => {
+    try {
+      const r = await fetch(`${HTTP_URL}/admin/mensajes/${msgId}/contenido`, {
+        headers: { Authorization: 'Bearer ' + session.token },
+      });
+      const d = await r.json().catch(() => ({}));
+      setMessages(ms => ms.map(x => x.msgId !== msgId ? x
+        : !r.ok ? { ...x, aparte: false, expired: true }
+        : x.voice ? { ...x, aparte: false, audio: d.data } : { ...x, aparte: false, image: d.data }));
+    } catch {}
+  };
+
+  // `clave` es la combi ('M-05') o la persona ('p:pedro'); `nombre`, cómo
+  // mostrar a la persona.
+  //
+  // Una persona de OTRA ruta: primero se pasa a mirar la suya, que es donde
+  // está su hilo (el historial es por ruta). Sin esto el hilo se abría vacío
+  // y lo que ella contestaba no se veía (revisión previa a la APK).
+  const abrirPrivado = (clave, nombre, routeId) => {
+    const suya = routeId || (esPrivadoPersona(clave) ? rutaDelPrivadoRef.current[clave] : null);
+    if (suya && esPrivadoPersona(clave)) rutaDelPrivadoRef.current[clave] = suya;
+    const mirada = rutaMiradaRef.current || routeInfo.routeId;
+    if (suya && suya !== mirada && routes.some(r => r.routeId === suya)) cambiarRuta(suya);
+    if (nombre && esPrivadoPersona(clave)) setNombres(n => ({ ...n, [clave]: nombre }));
+    setPrivadoCon(clave);
+    setNoLeidos(n => ({ ...n, [clave]: 0 }));
     if (isMobile) setView('chat');
   };
 
@@ -4375,7 +5310,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const cambiarRuta = (routeId) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    setUnits([]); setGaps({}); setMessages([]);
+    setUnits([]); setGaps({}); setMessages([]); setTelefonos({});
     rutaMiradaRef.current = routeId;
     ws.send(JSON.stringify({ type: 'watch', routeId }));
   };
@@ -4464,9 +5399,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           </span>
         )}
 
+        {/* En el celular es lo único de la cabecera que cede: con todo
+            fijo, «Salir» quedaba afuera de la pantalla (terminaba en x=406
+            en una de 390). El punto de conexión queda siempre a la vista. */}
         <span style={{
-          display: 'flex', alignItems: 'center', gap: 7, height: 36, padding: '0 11px',
-          borderRadius: 9, flexShrink: 0, minWidth: 0,
+          display: 'flex', alignItems: 'center', gap: 7, height: 36, padding: isMobile ? '0 8px' : '0 11px',
+          borderRadius: 9, flexShrink: isMobile ? 1 : 0, minWidth: 0,
           background: connected ? HUD.verdeFondo : HUD.ambarFondo,
           border: `1px solid ${connected ? HUD.verdeBorde : HUD.ambarBorde}`,
         }}>
@@ -4509,6 +5447,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             </div>
           </div>
         )}
+        {/* Si la alarma está muda o falta el permiso de notificaciones, se
+            ofrece acá, siempre a la vista: no puede descubrirse recién con
+            un SOS. Ámbar, no rojo: el rojo es del SOS. */}
+        {faltaAlarma && !isMobile && (
+          <button data-activar-alarma onClick={activarAlarma}
+            title="Para que un SOS suene y avise aunque el panel esté tapado por otra ventana"
+            style={{
+              height: 36, padding: '0 12px', borderRadius: 8, cursor: 'pointer', flexShrink: 0,
+              background: HUD.ambarFondo, color: HUD.ambarTinta, border: `1px solid ${HUD.ambarBorde}`,
+              fontSize: 13, fontWeight: 800, fontFamily: 'inherit',
+            }}>Activar alarma de SOS</button>
+        )}
         <button onClick={() => setAdminOpen(true)} style={{ ...btnPrimario(36), flexShrink: 0 }}>Gestión</button>
         <button onClick={onAlternarModo}
           title={modo === 'day' ? 'Pasar a modo noche' : 'Pasar a modo día'}
@@ -4530,7 +5480,19 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           // abría tumbaba el panel entero con un ReferenceError (barrido 22/9).
           marca={marca}
           refrescarMarca={refrescarMarca}
+          // «Escribir» en Personas: abre su privado personal en el mapa
+          onEscribir={(personId, nombre, routeId) => { setAdminOpen(false); abrirPrivado('p:' + personId, nombre, routeId); }}
         />
+      )}
+
+      {/* En el celular no entra en la cabecera (empujaba «Salir» afuera):
+          va en su propia franja, a todo el ancho */}
+      {faltaAlarma && isMobile && (
+        <button data-activar-alarma onClick={activarAlarma} style={{
+          flexShrink: 0, width: '100%', padding: '10px 14px', cursor: 'pointer', textAlign: 'left',
+          background: HUD.ambarFondo, color: HUD.ambarTinta, border: 'none',
+          borderBottom: `1px solid ${HUD.ambarBorde}`, fontSize: 13, fontWeight: 800, fontFamily: 'inherit',
+        }}>Activar alarma de SOS: que suene y avise aunque el panel esté tapado</button>
       )}
 
       {/* banner SOS activo */}
@@ -4558,10 +5520,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
               color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
             }}>Ver en mapa</button>
           )}
-          <button onClick={() => setSosLista(l => l.slice(1))} style={{
+          {sosError && <span role="alert" style={{ fontSize: 13, fontWeight: 800 }}>{sosError}</span>}
+          {alarmaSos.soportada() && !alarmaSos.lista() && (
+            <button onClick={activarAlarma} style={{
+              height: 34, padding: '0 12px', background: 'rgba(255,255,255,.16)',
+              border: '1px solid rgba(255,255,255,.55)', borderRadius: 8,
+              color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+            }}>Activar sonido</button>
+          )}
+          <button data-sos-atendido onClick={() => atenderSos(sos)} disabled={!!sos.atendiendo} style={{
             height: 34, padding: '0 12px', background: '#fff', border: 'none', borderRadius: 8,
-            color: HUD.red, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
-          }}>ATENDIDO</button>
+            color: HUD.red, fontSize: 13, fontWeight: 800, cursor: sos.atendiendo ? 'wait' : 'pointer', fontFamily: 'inherit',
+          }}>{sos.atendiendo ? 'ENVIANDO…' : 'ATENDIDO'}</button>
         </div>
       )}
 
@@ -4684,6 +5654,42 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
               </div>
             );
           })()}
+          {/* Entraron y no salieron a ruta. SALIR A RUTA es lo que pone a la
+              combi en el mapa, y se olvida: el que guardó el teléfono y
+              arrancó trabaja invisible. El servidor no mira dónde está (en la
+              puerta la app no manda la ubicación): sabe que entró y que no
+              declaró nada. A los diez minutos se pone en ámbar: es para
+              llamarlo. */}
+          {puerta.length > 0 && (() => {
+            const minutos = (e) => Math.max(0, Math.floor((ahora - e.desde) / 60_000));
+            const llamar = puerta.some(e => minutos(e) >= 10);
+            return (
+              <div data-puerta style={{
+                margin: '0 12px 10px', padding: '11px 12px', borderRadius: 11,
+                background: llamar ? HUD.ambarFondo : HUD.hueco,
+                border: `1px solid ${llamar ? HUD.ambarBorde : HUD.line}`,
+                borderLeft: `3px solid ${llamar ? HUD.amber : HUD.line}`,
+              }}>
+                <div style={{ fontFamily: black, fontSize: 13, color: llamar ? HUD.ambarTinta : HUD.fg, marginBottom: 6 }}>
+                  {puerta.length === 1 ? '1 chofer entró y no salió a ruta' : `${puerta.length} choferes entraron y no salieron a ruta`}
+                </div>
+                {puerta.map(e => (
+                  <div key={e.personId} style={{
+                    display: 'flex', gap: 8, alignItems: 'baseline',
+                    fontFamily: mono, fontSize: 11, fontWeight: 700,
+                    color: llamar ? HUD.ambarTinta2 : HUD.dim2, lineHeight: 1.6,
+                  }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {e.nombre} · {e.vehicleId}
+                    </span>
+                    <span title={`Entró a las ${nowTime(e.desde)}`}>
+                      {minutos(e) < 1 ? 'recién' : `hace ${minutos(e)} min`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
           {units.length === 0 && (
             <div style={{ padding: '8px 16px', fontSize: 14, color: HUD.dim3 }}>
               Sin unidades conectadas.
@@ -4709,8 +5715,10 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
               }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   <span style={{ fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg }}>{u.unitId}</span>
+                  {/* Sin señal la última velocidad es vieja: mostrarla haría
+                      creer que la combi sigue andando a ese ritmo. */}
                   <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim2 }}>
-                    {u.speed || 0} KM/H
+                    {u.sinSenal ? '—' : Math.round(u.speed || 0)} KM/H
                   </span>
                   <div style={{ flex: 1 }} />
                   {/* Entró a la ruta empezada: no salió del paradero inicial,
@@ -4845,7 +5853,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                   <div style={{
                     fontFamily: mono, fontSize: 10, letterSpacing: .6,
                     color: HUD.amber, marginTop: 4,
-                  }}>{ahora - u.oidoEn <= 60_000
+                  }}>{/* «Sigue mandando» es que llega DESPUÉS de su última
+                        posición. Con «oído hace menos de 60 s» a secas, el
+                        teléfono que se calló del todo figuraba 30 s como
+                        que seguía mandando: sin señal se marca a los 30
+                        (recorrido del 28/10). */}
+                      {ahora - u.oidoEn <= 60_000 && u.oidoEn - (u.timestamp || 0) > 15_000
                         ? `EL TELÉFONO SIGUE MANDANDO · OÍDO HACE ${Math.max(0, Math.round((ahora - u.oidoEn) / 1000))} S`
                         : `SIN NOTICIAS DEL TELÉFONO HACE ${Math.max(0, Math.round((ahora - u.oidoEn) / 1000))} S`}</div>
                 )}
@@ -4862,6 +5875,50 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     }}>EL RELOJ DEL TELÉFONO ATRASA {u.relojAtrasadoS >= 120
                       ? `${Math.round(u.relojAtrasadoS / 60)} MIN` : `${u.relojAtrasadoS} S`}</div>
                 )}
+                {/* El teléfono del que la maneja (PENDIENTES 0.4): batería,
+                    ahorro de batería y versión. «No aparece en el mapa» se
+                    averiguaba llamándolo; la mitad de las veces era esto. Ámbar
+                    lo que pide hacer algo; el resto, gris. */}
+                {u.choferId && telefonos[u.choferId] && (() => {
+                  const t = telefonos[u.choferId];
+                  const baja = t.bateria != null && t.bateria <= 20 && !t.cargando;
+                  const minutos = Math.round((ahora - t.en) / 60_000);
+                  const partes = [
+                    t.bateria != null ? `BATERÍA ${t.bateria} %${t.cargando ? ' · CARGANDO' : ''}` : null,
+                    t.origen === 'web' ? 'WEB' : t.version ? `APP ${t.version}${t.actualizacion ? ' · ' + fechaActualizacion(t.actualizacion) : ''}` : null,
+                    minutos >= 10 ? `HACE ${minutos} MIN` : null,
+                  ].filter(Boolean);
+                  return (
+                    <div data-telefono={u.choferId} style={{ marginTop: 6 }}>
+                      {partes.length > 0 && (
+                        <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: .6, color: baja ? HUD.amber : HUD.dim2, fontWeight: baja ? 700 : 400 }}>
+                          {partes.join(' · ')}
+                        </div>
+                      )}
+                      {t.bateria != null && t.bateria <= 10 && !t.cargando && (
+                        <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                          SE ESTÁ POR APAGAR: QUE LO ENCHUFE
+                        </div>
+                      )}
+                      {t.optimizada === true && (
+                        <div title="Con el ahorro de batería, Android le corta la red a la app con la pantalla apagada: deja de aparecer en el mapa. Se apaga en Ajustes → Batería → la app → «Sin restricciones»."
+                          style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                          AHORRO DE BATERÍA ACTIVADO: PUEDE DESAPARECER DEL MAPA
+                        </div>
+                      )}
+                      {t.versionEstado === 'vieja' && (
+                        <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                          APP VIEJA: TIENE QUE ACTUALIZAR
+                        </div>
+                      )}
+                      {t.versionEstado === 'hay_nueva' && (
+                        <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: .6, color: HUD.dim2, marginTop: 3 }}>
+                          HAY UNA VERSIÓN NUEVA DE LA APP
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 {/* La presencia declarada desde la app. AUSENTE: comiendo o
                     en un repuesto — fuera de la cadena, a la vista. YENDO:
                     marcó "en ruta" pero el GPS todavía no lo vio sobre el
@@ -4900,6 +5957,34 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     }}>{noLeidos[u.unitId]}</span>
                   )}
                 </button>
+                {/* Y el privado PERSONAL con el que la maneja: lo que es de él
+                    y no de la combi (sus horas, «pasá por la oficina»). No lo
+                    ve su cobrador ni el que maneje la combi después. */}
+                {u.choferId && (() => {
+                  const clave = 'p:' + u.choferId;
+                  const abierto = privadoCon === clave;
+                  return (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); abrirPrivado(clave, u.driverName || u.choferId); }}
+                      title={`Escribirle solo a ${u.driverName || u.choferId}, en la combi que esté`}
+                      style={{
+                        ...btnChico(abierto ? '#fff' : HUD.fg2, HUD.line),
+                        marginTop: 9, marginLeft: 6, background: abierto ? HUD.bright : HUD.surface,
+                        borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
+                      }}>
+                      {/* El primer nombre, para que entre al lado de «Mensaje
+                          directo»; el completo va en el título y en el chat */}
+                      Solo a {String(u.driverName || u.choferId).split(' ')[0]}
+                      {noLeidos[clave] > 0 && (
+                        <span style={{
+                          background: HUD.amber, color: HUD.oscuro ? '#000' : '#fff',
+                          borderRadius: 9, minWidth: 18, padding: '0 5px',
+                          fontFamily: mono, fontSize: 11, fontWeight: 800, textAlign: 'center',
+                        }}>{noLeidos[clave]}</span>
+                      )}
+                    </button>
+                  );
+                })()}
               </div>
             );
           })}
@@ -4937,7 +6022,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             : { borderLeft: `1px solid ${HUD.divider}` }),
         }}>
           <ChatColumn messages={messages} onSend={sendChat} routeId={routeInfo.routeId}
-            privadoCon={privadoCon} onCerrarPrivado={() => setPrivadoCon(null)} />
+            privadoCon={privadoCon} onCerrarPrivado={() => setPrivadoCon(null)}
+            nombres={nombres} noLeidos={noLeidos} onAbrir={(clave) => abrirPrivado(clave)}
+            onEvidencia={marcarEvidencia} onCargar={cargarContenido} />
         </div>
       </div>
 

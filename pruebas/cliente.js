@@ -95,14 +95,18 @@ async function hasta(cond, ms = 6000) {
   ['rolGps', 'estado', 'geometria', 'historial'].forEach(e => c12.on(e, () => eventos.push(e)));
   c12.conectar(s12.token);
   ok('llega el estado al identificarse', await hasta(() => c12.conectado));
-  ok('y también el rol de GPS y la geometría',
-     eventos.includes('rolGps') && eventos.includes('geometria'), eventos);
+  ok('y también la geometría', await hasta(() => eventos.includes('geometria')), eventos);
+  // Entrar no es salir (30/10): el rol de GPS llega al SALIR A RUTA, no al
+  // identificarse. La app nativa se conecta en la puerta.
+  ok('pero no el rol de GPS: todavía no salió a ruta', !eventos.includes('rolGps') && c12.reportaGps === false, eventos);
+  c12.marcarPresencia('ruta');
+  ok('al salir a ruta llega el rol de GPS', await hasta(() => eventos.includes('rolGps')), eventos);
   ok('la geometría viene normalizada a {lat,lng}',
      typeof c12.geometria?.tramos?.ida?.[0]?.lat === 'number',
      c12.geometria?.tramos?.ida?.[0]);
 
   console.log('\nEL ROL DE GPS');
-  ok('el chofer que entra primero reporta', c12.reportaGps === true);
+  ok('el chofer que sale primero reporta', c12.reportaGps === true);
 
   const c20 = nuevo();      // un acompañante en OTRA unidad, para no robar rol
   await c20.entrar('M-20', 'chofer1234');
@@ -134,6 +138,7 @@ async function hasta(cond, ms = 6000) {
   const s08 = await c08.entrar('M-08', 'chofer1234');
   c08.conectar(s08.token);
   await hasta(() => c08.conectado);
+  c08.marcarPresencia('ruta');
 
   // M-08 adelante, el relevo de M-12 atrás, separados 1/25 del anillo.
   const posA = anillo(0.10), posB = anillo(0.06);
@@ -222,7 +227,9 @@ async function hasta(cond, ms = 6000) {
   const frenado = nuevo();
   const sf = await frenado.entrar('M-20', 'chofer1234');
   frenado.conectar(sf.token);
-  await hasta(() => frenado.conectado && frenado.reportaGps);
+  await hasta(() => frenado.conectado);
+  frenado.marcarPresencia('ruta');
+  await hasta(() => frenado.reportaGps);
   let rechazos = 0, aceptados = 0;
   for (let i = 0; i < 60; i++) {
     const r = frenado.mandarGps({ lat: posB.lat, lng: posB.lng, speed: 10 });
@@ -305,6 +312,35 @@ async function hasta(cond, ms = 6000) {
     const otra = nuevo();
     ok('sin sesión, mandarSos dice que no salió en vez de mentir',
        (await otra.mandarSos({})).ok === false);
+  }
+
+  console.log('\nLA COMBI EN LA PUERTA (habilitaciones, 30/10)');
+  {
+    // Un suplente de M-08 a quien Despacho le habilita también M-12, que
+    // maneja Elmer (el relevo de arriba sigue conectado y reportando)
+    await fetch(`${API}/admin/users`, { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: 'SUP-1', name: 'Rubén Suplente', vehicleId: 'M-08', password: 'chofer1234' }) });
+    await fetch(`${API}/admin/users/SUP-1/combis`, { method: 'POST', headers: H,
+      body: JSON.stringify({ combis: ['M-08', 'M-12'] }) });
+    const sup = nuevo();
+    const sSup = await sup.entrar('SUP-1', 'chofer1234');
+    sup.conectar(sSup.token, sSup);
+    await hasta(() => sup.conectado);
+    const lista = await sup.misCombis();
+    const m12 = (lista.combis || []).find(c => c.vehicleId === 'M-12');
+    ok('misCombis trae las dos, con la de hoy primero', lista.actual === 'M-08' && lista.combis[0].vehicleId === 'M-08' && !!m12,
+       lista.combis.map(c => c.vehicleId));
+    ok('y dice quién maneja la otra', m12?.estado === 'ocupada' && m12?.quien === 'Elmer Ccama', m12);
+    let combiEv = null;
+    sup.on('combi', m => { combiEv = m; });
+    const r = await sup.elegirCombi('M-12');
+    ok('elegirCombi cambia la combi de hoy', r.vehicleId === 'M-12' && sup.sesion.vehicleId === 'M-12', r);
+    ok('y el socket avisa con «combi»', await hasta(() => combiEv?.vehicleId === 'M-12'), combiEv);
+    ok('elegir no toma nada: sigue reportando el de M-12', relevo.reportaGps === true);
+    let err = null;
+    try { await sup.elegirCombi('M-20'); } catch (e) { err = e; }
+    ok('una que no tiene habilitada: tira con el motivo del servidor', err?.status === 404 && /habilitada/.test(err.message), err?.message);
+    sup.salir();
   }
 
   console.log('\nCAÍDAS');

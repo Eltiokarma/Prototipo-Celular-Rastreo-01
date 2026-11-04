@@ -65,15 +65,15 @@ echo === 4 de 4: Que se compila? ===
 echo.
 echo   [1] APK de PRUEBA  - para instalar a mano en los telefonos (parches)
 echo   [2] AAB PRODUCCION - para subir a Google Play
+echo   [3] APK de PRUEBA DE ACTUALIZACIONES - para TU telefono: recibe
+echo       primero los arreglos que publica publicar-arreglo.bat
 echo       OJO: el de produccion compila https://app.microstempo.com
 echo       adentro. NO usarlo hasta que ese dominio responda.
 echo.
 set /p opcion="Eleccion [1]: "
-if "%opcion%"=="2" (
-  set perfil=production
-) else (
-  set perfil=apk
-)
+set perfil=apk
+if "%opcion%"=="2" set perfil=production
+if "%opcion%"=="3" set perfil=prueba
 
 echo.
 echo Compilando con el perfil "%perfil%" en la nube de Expo...

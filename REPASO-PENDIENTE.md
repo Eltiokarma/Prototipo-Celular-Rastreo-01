@@ -302,7 +302,55 @@ relevo— sigue esperando al APK 5. Lo nuevo está en la tanda 9.
 
 ---
 
-## Tanda 9 — el barrido completo del 22/9 (sin repasar)
+## ~~Tanda 9 — el barrido completo del 22/9~~ — REPASADA el 28/10
+
+**Repaso del 28/10**, con tres lectores de ojos frescos (el servidor, los
+clientes y la tanda 10), cada hallazgo verificado contra un servidor de
+verdad antes de tocarlo. Lo que se arregló, con su caso en `barrido`,
+`mover-combi` o `chat` (los quince casos nuevos fallan sin el arreglo):
+
+1. ~~**Los bordes.**~~ Se sostienen. La duda de la migración: no quedó
+   ninguna escritura del creador o del sistema con la empresa equivocada.
+   Faltaba una puerta: el alta de cooperativa (y el auto-registro de la demo)
+   aceptaba `SISTEMA` como usuario de Despacho. Cerrada.
+2. ~~**El mando del GPS.**~~ Tenía un agujero de verdad: al cerrarse el
+   socket dueño, el mando VIVO de otra persona se le pasaba a un tercero (el
+   relevado con la web abierta), y el que manejaba por HTTP quedaba mudo. Ahora
+   sólo lo hereda la persona que tiene el mando (otra pestaña suya sí, que
+   antes tampoco), y tomar el mando sin dueño suelta el socket ajeno.
+3. ~~**La vuelta.**~~ Dos bugs: un salto suelto HACIA ADELANTE (0,06 → 0,90,
+   el rebote por la misma calle) quedaba como «lo alto» y las dos lecturas
+   siguientes cerraban una vuelta de segundos; y la vuelta siguiente nacía en
+   la lectura mala y quedaba «parcial», con una entrada tardía falsa en la
+   auditoría. Ver tanda 11, punto 1.
+4. ~~**El SOS.**~~ Se sostiene. Faltaba el del cobrador: salía sin
+   coordenadas (no prende el GPS). Ahora lleva la posición de su combi si es
+   de menos de un minuto.
+5. ~~**Los números.**~~ Se sostienen, pero sacar el tope dejó `?desde=0`
+   armando 120 días de vueltas y 365 de turnos en el hilo único: 2,8 s con
+   todo congelado. Turnos y Vueltas acotan a 8 días; lo largo es de los
+   informes.
+6. ~~**La app nativa.**~~ Se sostiene; tres arreglos chicos: «Modo
+   acompañante» se pintaba como un aviso fijo; en un teléfono compartido
+   pasaban la marca, lo leído y el estado vivo al siguiente; y el «fuera»
+   que reintentaba por HTTP podía llegar después de un «ruta» y sacar de ruta
+   al que volvía.
+7. ~~**La web y el creador.**~~ Se sostienen; lo mismo del estado compartido
+   en la web, y el «fuera» por HTTP sólo cuando el socket puede estar medio
+   muerto.
+
+También: `POST /gps` abría el turno y fijaba la presencia con la ruta de la
+PERSONA mientras el `identify` usaba la de la COMBI; con datos viejos donde
+no coinciden, los turnos se partían y se solapaban. Ahora los dos usan la de
+la combi.
+
+**Lo que se dejó como estaba, a conciencia:** el `identify` toma el mando
+sin condición —el relevado que deja la app abierta en su casa y reconecta le
+saca el mando al que maneja—. Arreglarlo cambia `PROTOCOLO.md` §3.1 (tomar
+una combi ocupada pasaría a ser sólo declarar «ruta») y es una decisión del
+dueño, no un arreglo: queda en la tanda 11 para decidir.
+
+### Lo que decía antes del repaso
 
 No un diff: el código ENTERO, por primera vez desde la revisión del 10/9,
 repartido en seis frentes (el servidor en tres partes, la app nativa, la web
@@ -417,7 +465,30 @@ verde.
 
 ---
 
-## Tanda 10 — pasar una combi de una ruta a otra (29/9, sin repasar)
+## ~~Tanda 10 — pasar una combi de una ruta a otra (29/9)~~ — REPASADA el 28/10
+
+**Repaso del 28/10.** Los permisos, lo que se lleva la combi, los clientes y
+la pantalla se sostienen. Lo que se arregló (suite `mover-combi`, que además
+ahora corre sin la gracia del arranque —con ella, «vuelve como reanudación»
+pasaba aunque se borrara el arreglo—):
+
+- **El turno no se reabría** para quien seguía conectado por el socket: el
+  chofer de la web y el cobrador quedaban sin turno hasta reconectar, y esas
+  horas faltaban en Turnos y en el CSV. Ahora arrancan su turno en la ruta
+  nueva en el mismo momento.
+- **Ida y vuelta en menos de 15 minutos** (A → B → A) reabría el turno de A,
+  que pasaba a cubrir también el de B: horas dobles. Se retoma sólo el último
+  turno de la persona.
+- La presencia queda «perdida» sólo si estaba confirmada (la que iba
+  «yendo» no tenía corrida que cortar), y la marca de entrada tardía de la
+  ruta vieja no viaja a la nueva.
+- El Despacho de la ruta de origen ve el cambio en su auditoría, y el pedido
+  de grabación pendiente va con la combi.
+
+Lo de «no se tocó» (el tronco compartido de la 18A y la 18B, los códigos
+únicos en todo el servidor) sigue igual.
+
+### Lo que decía antes del repaso
 
 La 18A y la 18B son dos rutas de una misma cooperativa y a veces rotan
 combis. Hasta ahora `vehicles.routeId` se fijaba al crear la combi y no había
@@ -460,3 +531,460 @@ Vehículos (`POST /admin/vehicles/:vehicleId/ruta`). Suite nueva
 - **Los códigos únicos en todo el servidor** (rutas, combis, personas). Para
   Juliaca y Puno alcanza; el prefijo de ciudad o cooperativa con el número
   corto visible queda para después, como se habló.
+
+---
+
+## Tanda 11 — recorrer las pantallas para el manual (28/10, sin repasar)
+
+Se armó el manual de usuario (`manual/`) usando cada pantalla con un
+navegador, con una cooperativa de demostración dada de alta por las
+pantallas y una flota andando por calles de Juliaca. Lo que apareció se
+arregló antes de sacar las capturas. Regresión completa verde.
+
+### Lo que más conviene mirar, en orden
+
+1. **La vuelta que salta hacia adelante** (`trackLap`). Un salto de más de
+   medio circuito en una sola lectura se confirma con una segunda antes de
+   creerlo. **La duda:** una combi que reaparece tras un corte largo justo una
+   lectura antes de cruzar el paradero pierde esa vuelta (antes la contaba).
+   Es raro y la vuelta con un hueco así es dudosa igual, pero es un cambio de
+   conteo. La suite `brecha` hacía exactamente ese salto —la ida hasta el
+   40 % y de ahí al final de la vuelta— y se rehízo para recorrer el circuito
+   entero.
+2. **La unidad sin señal no tiene brechas propias** (`calculateGaps`). Antes
+   se medía su posición congelada contra los vecinos y Despacho la mostraba
+   «sin señal» con brechas en rojo. `PROTOCOLO.md` §3 lo dice.
+3. **La web del chofer a pantalla completa en el teléfono** (hasta 600 px de
+   ancho, o instalada como app). Se dibujaba dentro de un teléfono de
+   mentira, con un reloj falso. **La duda:** una tablet en horizontal sigue
+   viendo el marco de vitrina.
+4. **AUSENTE y YENDO A LA RUTA en la web**, como en la nativa. El ausente
+   leía «Sos la única unidad en ruta». Mientras está ausente no se ven
+   «Estoy en tráfico» ni «Ausente».
+5. **«El teléfono sigue mandando»** en Despacho ahora exige que se lo oiga
+   15 s después de su última posición; con «oído hace menos de 60 s» a secas,
+   el que se calló del todo figuraba 30 s como que seguía mandando.
+6. **La velocidad de la web** sale de la posición anterior cuando el
+   navegador no la da (`coords.speed` nulo): el chofer andando veía «0 km/h».
+7. **Lo inventado de la maqueta, fuera**: «48 min · 42 pasajeros», el nombre
+   de reserva, «· TERMINAL» en el mapa, «Juliaca · Puno · 3 824 m». El conteo
+   del mapa es el de la cadena (C17), y la tarjeta ya no tapa la atribución.
+8. **Lo chico de los paneles**: el login de Despacho hablaba de
+   `DISPATCH_PASSWORD`; «Dónde se traba» mandaba a leer un `.md`; el alta de
+   persona le prometía a Despacho crear la combi (el servidor contesta 403);
+   «Respaldar ahora» era invisible (`var(--brand)` no existe); un botón de
+   Informes se salía de su tarjeta; Números cortaba sus tablas; los mensajes
+   de otro día no decían el día; la tarjeta de la unidad mostraba la
+   velocidad con decimales o, sin señal, la última que tuvo.
+9. **Herramientas**: `flota.js` no lograba meter ni una combi (las crea la
+   gerencia: `--gerencia USUARIO:CLAVE`), y la consola describía la cuenta de
+   gerencia como la de antes de la fusión.
+10. **La optimización del hilo** (`PENDIENTES.md` §4.20). **Las dudas:**
+    `lastSeenAt` del que reporta por HTTP pasa a tener resolución de un
+    minuto, igual que por el socket: un turno puede cerrar hasta un minuto más
+    corto. `db.prepare` queda memoizado por texto: es seguro mientras nadie
+    use `.iterate()`, `.pluck()` o `.raw()` sobre una sentencia compartida —si
+    algún día hace falta, que sea con un `preparar` aparte—. Y las ventanas de
+    turnos (7 días) y de presencia (2 días) suponen que nada dura más que eso
+    sin cerrarse o anotarse.
+
+### Para decidir (no es un arreglo)
+
+- **El `identify` que toma el mando sin condición** (repaso de la tanda 9,
+  hallazgo 7). Si se cambia, tomar una combi ocupada pasa a ser sólo declarar
+  «ruta», y hay que reescribir `PROTOCOLO.md` §3.1.
+- ~~**El tema de la web del chofer**~~: decidido y hecho (28/10). La web tiene
+  ahora el botón DÍA / NOCHE / AUTO arriba a la derecha, en las tres
+  pantallas, con la regla horaria de la nativa (noche de 18:30 a 5:30) y el
+  mismo ciclo. **La diferencia que queda:** de fábrica la web sigue en DÍA
+  (invariante de diseño) y la nativa en AUTO; la NOCHE de la web es la OLED
+  original con resplandor, no la ámbar de poco azul de la nativa. SOL EXTREMO
+  sigue sólo en el panel de diseño. Suite nueva `tema-web`.
+
+- ~~**El `identify` que toma el mando sin condición**~~: decidido (30/10),
+  opción B. Ver tanda 12.
+
+## Tanda 12 — el mando es de SALIR A RUTA (30/10, sin repasar)
+
+Decisión del dueño sobre el `identify` (tanda 9, hallazgo 7): opción B, y
+para el olvido de SALIR A RUTA, las opciones A y C. Probado contra el
+servidor de verdad antes de tocar nada: la app nativa se conecta al poner la
+clave, así que el turno y el mando arrancaban en la PUERTA —Pedro llegando al
+relevo ya le sacaba la combi a Juan— y el relevado que reconectaba desde su
+casa la recuperaba sola.
+
+### Lo que más conviene mirar, en orden
+
+1. **Entrar no es salir** (`identify`, `asumirMando`). El `identify` de un
+   chofer sin el mando ya no da mando, ni turno, ni le pone su nombre a la
+   combi. Lo da declarar `ruta` (aunque otro la tenga: el relevo) o, si nadie
+   la tiene viva, declarar `ausente` o mandar una posición. **La duda:** las
+   horas de la nativa ahora cuentan desde SALIR A RUTA y no desde la clave —
+   es lo pedido, pero cambia los números de Turnos y Números desde hoy—.
+2. **El relevado no recupera solo** (`relevados`). Marcado al perder el mando
+   contra otra persona; mientras dure, su `ruta`, su `ausente` y sus
+   posiciones no le devuelven esa combi, **ni cuando el otro termina el
+   turno**. Se va con un acto suyo (`fuera`, volver a entrar con la clave) o
+   a las 6 h. **La duda:** la marca vive en memoria; un reinicio del servidor
+   la borra y el relevado con la app en `ruta` puede retomar si el otro no
+   está vivo. Es el mismo alcance que `duenoDe`.
+3. **El relevo del socket** (cierre): ya no pasa el mando a otro chofer
+   conectado aunque el mando esté muerto; sólo a otra conexión de la misma
+   persona.
+4. **La puerta en Despacho** (opción A, mensaje `puerta` sólo a
+   supervisores). Sin ubicación: entró y no declaró. Vence a los 30 min sin
+   app. **La duda:** la nativa con la pantalla apagada pierde el socket y
+   figura 30 min; el que puso la clave sólo para leer el chat también figura.
+5. **El vigía de la puerta** (opción C, `app/puerta.js` y su copia web). Mira
+   el GPS sin mandarlo, sólo con la app abierta y el permiso ya dado; avisa y
+   sale solo al minuto; queda `salio_solo` en la Actividad. **Las dudas:** la
+   nativa necesita APK nueva; con la pantalla apagada en la puerta no mira
+   (haría falta el servicio de fondo, que es emitir); la política de
+   privacidad cambió (vigente desde el 30/10) y habría que avisarlo en la
+   ficha de Google Play.
+6. **El relevo en la Actividad** (`relevo`): sólo si el otro estaba vivo.
+
+Suites nuevas: `relevo`, `vigia-puerta`, `puerta-web`.
+
+## Tanda 13 — varias combis por persona (30/10, sin repasar)
+
+La propuesta de `PENDIENTES.md` («varias combis por chofer»), decidida por el
+dueño y hecha como estaba escrita.
+
+### Lo que más conviene mirar, en orden
+
+1. **`users.vehicleId` sigue siendo «la combi de hoy»** y lo cambia la puerta
+   (`POST /combi`) o Despacho (`actual`). Todo lo demás lo sigue leyendo de
+   ahí. **La duda:** las pantallas guardan la sesión con la combi; la web y
+   la nativa la corrigen con el mensaje `combi` o con la respuesta, pero una
+   app vieja (APK sin esto) que esté conectada cuando Despacho le cambia la
+   combi no se entera hasta volver a entrar.
+2. **`cambiarCombiDe`**: cierra el turno abierto, suelta un mando muerto a su
+   nombre en la combi de antes, mueve la entrada de la puerta, y pasa los
+   sockets de la persona a la ruta nueva con su privado. **La duda:** el
+   privado es por COMBI —así era—: el de hoy en M-05 ve lo que Despacho le
+   escribió al de ayer.
+3. **En ruta no se cambia** (`enRutaEn`: el mando vivo de su combi de hoy):
+   ni la puerta ni Despacho.
+4. **«Cualquiera de su ruta»** (`users.todaLaRuta`): la ruta es la de su
+   combi de hoy; si elige una de otra ruta habilitada a mano, «su ruta»
+   pasa a ser esa.
+5. **La migración** habilita la combi de cada uno en cada arranque (`INSERT
+   OR IGNORE`): idempotente, y la de hoy está siempre en la lista de la
+   puerta aunque Despacho la sacara (el editor no deja sacarla).
+
+Suites nuevas: `combis`, `combis-web`; `cliente` ampliada.
+
+## Tanda 14 — dos privados: con la combi y con la persona (31/10, sin repasar)
+
+Pedido del dueño: «que el privado sea por persona y por combi». Con varias
+combis por persona, el privado de combi quedaba de los dos lados del borde: lo
+personal de Pedro lo leía su cobrador y el que manejara su combi después.
+
+### Lo que más conviene mirar, en orden
+
+1. **`messages.toPersonId`** al lado de `toVehicleId`, nunca los dos.
+   `destinoPrivado` decide: Despacho con `toPerson` (chofer o cobrador de su
+   cooperativa; el de ruta, sólo los de su ruta), la persona con
+   `personal: true` (siempre el suyo). `repartir` elige el reparto.
+2. **El historial** (`recentHistory(ruta, privados, persona)`): el personal
+   va por persona y de cualquier ruta. Medido con la base de 2000 unidades
+   (42 mil mensajes): el plan es el mismo de antes —recorre por id hasta
+   juntar 200, porque `messages` no tiene índice por ruta— y pasa de 0,6 a
+   0,9 ms por conexión. **La duda:** con una ruta muy callada y mucho
+   historial de otras, ese recorrido se alarga (era así antes también).
+3. **Despacho ve el personal guardado con la ruta que la persona tenía en ese
+   momento.** Si Pedro pasa de la 18A a la 18B, el Despacho de la 18B no ve lo
+   que le escribió el de la 18A (el supervisor sí, mirando la 18A).
+4. **`choferId` en la unidad** (el estado): el que tiene el mando. Es lo que
+   usa la tarjeta para «Solo a …».
+5. **La bandeja de privados sin leer** en Despacho: cuenta desde que se abrió
+   el panel (como los «Mensaje directo»); al recargar arranca en cero.
+
+Suites nuevas: `privado-persona`, `privado-web`; `chat` ampliada.
+
+
+## Tanda 15 — revisión previa a la APK (31/10, sin repasar)
+
+Pedido del dueño: «antes de generar la APK, métele una revisión a todo».
+Cuatro revisiones en paralelo —servidor, app nativa, web y operación— que
+reprodujeron cada hallazgo contra el servidor de verdad antes de arreglarlo.
+Lo arreglado, con el escenario que lo rompía:
+
+### Servidor (suite `revision-apk`)
+
+1. **La marca del relevado vive en la base** (tabla `relevos`). Un deploy la
+   borraba y Juan, desde su casa, le volvía a sacar la combi a Pedro. Al
+   arrancar se cargan también las de más de `RELEVO_MAX_MS` (hasta un día):
+   en memoria esas siguen valiendo mientras el otro maneje.
+2. **La marca no vence mientras el otro maneje.** Con vencimiento fijo, a las
+   6 h el relevado que seguía en 'ruta' re-declaraba y se la sacaba.
+3. **`motivo: 'auto'` y `redeclara: true` no relevan.** El vigía de un
+   pasajero (o la reconexión de alguien que va de acompañante) le cerraba el
+   turno al que manejaba. Relevo es sólo tocar SALIR A RUTA.
+4. **`fuera` suelta el socket de GPS** (`soltarMando`): el socket viejo
+   quedaba como el que reporta y una segunda conexión lo heredaba.
+5. **Dos conexiones de la misma persona** no se roban el GPS en cada posición.
+6. **`combi` al identificarse**: Despacho cambiaba la de hoy con la app
+   cerrada y el teléfono no se enteraba.
+7. **`puerta` a todo panel de la ruta** (`esPanel`): el Despacho atado a una
+   ruta no la recibía nunca. Y la media hora cuenta desde que se perdió la
+   app, no desde que entró.
+8. **La baja se lleva el privado personal, las habilitaciones y la marca**
+   (`borrarLoDeLaPersona`): un usuario reusado leía lo del anterior.
+9. **El comodín no administra cobradores** (`cobradorDeSuCombi` exige
+   habilitación explícita): con «cualquiera de su ruta», un chofer le
+   cambiaba la clave a la cobradora de cualquier combi y entraba como ella.
+10. **La sesión se renueva con el uso** (`renovarSesion`, a 7 días del final).
+11. **En producción, la base configurada o nada**: si `DB_FILE` no abre, el
+    servidor sale con 1 en vez de arrancar con una base vacía al lado.
+12. **El editor de combis de un Despacho de ruta** ya no borra las de otras
+    rutas; una nueva de otra ruta, 403. `cambiarCombiDe` no habilita sola.
+13. **El privado personal llega a todo panel que puede mirar la ruta** de la
+    persona, aunque esté mirando otra. Y «personal» sin persona no sale al grupo.
+
+### Web
+
+14. **Bucle de reconexión** (crítico con el punto 6): `cambiarCombi` armaba un
+    `user` nuevo aunque la combi fuera la misma; el socket depende de `user`.
+    Medido: 869 sockets en 10 s → 1.
+15. **La combi de hoy, del servidor**: la puerta marcaba ELEGIDA la vieja y
+    al salir la pantalla seguía con la otra combi.
+16. **El vigía no arma** con la combi ocupada ni con la página escondida, y
+    su aviso va arriba (debajo de la lista quedaba fuera de la pantalla).
+17. **`combi` con la pantalla en ruta** vuelve al chofer a la puerta (el
+    cobrador se queda).
+18. **Contadores de privados por hora, guardados**; los privados no compiten
+    con el tope del grupo.
+19. **«Escribir» a alguien de otra ruta** pasa a mirar su ruta primero, y el
+    hilo personal no se cierra al cambiar de ruta.
+20. Contraste: la insignia de privado sobre el ámbar de noche daba 1,79:1
+    (token `warnEdgeInk`, medido en `contraste`); «libre» en la puerta, 3:1.
+
+### Nativa
+
+21. `redeclara` en la reconexión y al retomar; 'ruta' por HTTP con 3 intentos.
+22. El vigía: no arma con la combi ocupada, sin permiso de fondo o con la
+    ubicación apagada (y sin ofrecer prenderla); recuerda «no estoy
+    manejando» aunque se rehaga; al avisar lleva a la pantalla de ruta.
+23. La combi de hoy se sincroniza con `/mis-combis`; el cobrador no la
+    pregunta cada 20 s todo el día; lo de la sesión se limpia al salir.
+24. «Saliste a ruta solo» en su propio estado (el `rolGps` lo borraba).
+25. El «GPS apagado: otro tomó la unidad» viejo no frena la salida nueva.
+26. La notificación no arranca diciendo «Modo acompañante» al que sale.
+27. La lista de combis con alto máximo; errores de red en castellano.
+28. **0.3.0 / versionCode 6**, y `autoIncrement` en el perfil `apk`.
+
+### Lo que más conviene mirar
+
+- **El punto 1 con un APK viejo** (sin `redeclara`): lo cubre la marca. Un
+  chofer al que NO lo relevaron pero cuyo teléfono quedó en 'ruta' con otro
+  manejando sigue pudiendo tomarla al reconectar con el APK 0.2.3.
+- **Punto 17**: vuelve a la puerta y declara `fuera`. Si Despacho lo cambia
+  justo cuando está por salir, puede sorprender; el aviso lo dice.
+- **Punto 13**: un supervisor recibe ahora los privados personales de todas
+  las rutas en su bandeja. Era lo pedido (que no se pierda ninguno), pero en
+  una empresa con muchas rutas puede ser mucho.
+
+Suites: `revision-apk` (nueva); `vigia-puerta`, `nativas`, `contraste` y
+`combis` ampliadas.
+
+## Tanda 16 — el SOS grita en Despacho (31/10, sin repasar)
+
+El punto 0.1 de PENDIENTES, el primero de «lo que le falta». Un SOS entraba en
+silencio: cartel rojo y línea de chat, nada más.
+
+### Lo que más conviene mirar, en orden
+
+1. **La alarma** (`alarmaSos`, a nivel de módulo en `despacho.html`): Web
+   Audio, dos tonos cada 2,5 s mientras `sosLista` no esté vacía. Sin archivo
+   de sonido. El navegador la tiene muda hasta el primer gesto en la página:
+   se desbloquea con cualquier clic o tecla (el de INGRESAR cuenta). Al
+   retomar una sesión guardada no hubo gesto: la cabecera ofrece «Activar
+   alarma de SOS» y el cartel «Activar sonido». **La duda:** si nadie toca el
+   panel en todo el turno después de recargarlo, el SOS suena recién al
+   primer clic. No hay forma de evitarlo en un navegador; el botón ámbar a la
+   vista es la mitigación.
+2. **La notificación** pide permiso sólo con un clic en ese botón, nunca sola.
+   Con `requireInteraction` queda hasta que se la toca.
+3. **ATENDIDO es de la base** (`messages.atendidoPor/atendidoEn`, índice
+   parcial `idx_sos_abiertos`). `atenderSos` no pisa al primero. Se avisa a
+   todo panel que ve la ruta (`panelVeRuta`), mire la que mire.
+4. **`sos_abiertos` al identificarse**: los de las últimas 24 h
+   (`SOS_ABIERTO_MS`). Uno de anteayer sin marcar no vuelve.
+5. **El informe** `sos.csv` suma quién, cuándo y los minutos.
+6. De paso: en el celular la cabecera de Despacho dejaba «Salir» fuera de la
+   pantalla (x=406 en una de 390, ya pasaba antes). La píldora «EN RUTA» es
+   ahora lo único que cede.
+
+Suite nueva: `sos-despacho` (Chromium: cuenta los tonos que crea la página y
+reemplaza `Notification` para ver qué se notificó).
+
+## Tanda 17 — «Despacho vio tu SOS» y la salud del servidor (03/11, sin repasar)
+
+### «Despacho vio tu SOS»
+
+1. **`avisarAlQuePidio`**: el `sos_atendido` va también al que disparó y a
+   los que van en ESA combi (por `profiles.vehicleId`), con `propio: true`.
+   Si un cobrador disparó, el chofer también lo ve: es la misma emergencia.
+2. **Al reconectar** (`sosVistoAlConectar`): su último SOS (o el de su combi)
+   de las últimas 2 h, si ya está atendido. **La duda:** si dispara dos SOS y
+   atienden sólo el primero, al reconectar no se dice nada (el último sigue
+   abierto) — es lo correcto, pero conviene mirarlo.
+3. El cartel queda hasta tocarlo; los cerrados se recuerdan (web: en
+   `localStorage`; nativa: en memoria, así que reabrir la app dentro de las
+   2 h lo vuelve a mostrar una vez).
+
+### La salud (`server/salud.js`, `GET /salud`)
+
+4. **Problema vs aviso**: sólo lo que impide trabajar da 503. El respaldo
+   viejo o la hora en UTC son avisos: con 503 el deploy de Railway no pasaría
+   por algo que no frena a nadie.
+5. **El latido escribe** una fila (`salud.latido`) en cada chequeo: es la
+   única forma de ver el disco lleno. Una escritura por minuto.
+6. **Los errores de base de otros lados** los anota quien los atrapa
+   (`remember`, `audit`, el manejador de errores de Express,
+   `uncaughtException`, la renovación de sesión) y cuentan 10 minutos.
+7. **`vigilar`** avisa sólo cuando cambia la firma (estado + códigos).
+8. **`railway.json`** con `healthcheckPath: /salud`: cambia cómo despliega
+   Railway — un deploy cuyo `/salud` no da 200 en 5 min no reemplaza al que
+   anda. Si molesta, borrar el archivo deja todo como antes.
+9. De paso: **`renovarSesion` sin `try`** (de la tanda 15) hacía que, con el
+   disco lleno, todo pedido autenticado diera 500.
+
+Suite nueva: `salud`; `sos-despacho` y `nativas` ampliadas.
+
+## Tanda 18 — la copia afuera y cómo volver (03/11, sin repasar)
+
+1. **`server/copia-afuera.js`**: S3 sin dependencias. La firma (`firmarV4`)
+   está probada contra los tres ejemplos publicados por AWS (GET con Range,
+   listado con consulta, PUT con cuerpo y `$` en el nombre), y el S3 de
+   mentira de la suite recomputa la firma de cada pedido tal como llegó.
+   **La duda:** no se probó contra un R2 o B2 real desde acá (no hay cuenta);
+   el primer deploy con las variables lo dice en `/salud` y en RESPALDOS.
+2. **Cifrado obligatorio** (AES-256-GCM, scrypt N=2^15 sobre la frase,
+   gzip antes). Sin `RESPALDO_CIFRADO` no se sube nada: es una decisión,
+   no un olvido — la base tiene datos personales.
+3. **Los viejos los borra el bucket** (regla de ciclo de vida), no el
+   servidor: menos permisos para el token (sólo escribir y leer) y nada que
+   el servidor pueda borrar afuera por un bug.
+4. **`RESTAURAR_DESDE`** corre en un proceso aparte ANTES de abrir la base
+   (`execFileSync`): la base cerrada se puede mover sin riesgo. La anterior
+   queda al lado; la marca `restaurado.json` evita repetir con la variable
+   olvidada. Si falla, **el servidor no arranca** — preferible a arrancar con
+   la base de siempre haciéndole creer al operador que restauró. **A mirar:**
+   con un nombre mal escrito, el servicio queda caído hasta corregirlo.
+5. `/salud`: `sin_copia_afuera` (sólo producción), `copia_afuera_mal_configurada`,
+   `copia_afuera_falla`, `copia_afuera_vieja`. Todos avisos (200).
+6. **`TAREAS-FUERA-DEL-CODIGO.md`**: la lista de lo que hace el dueño, en orden.
+
+Suite nueva: `copia-afuera`.
+
+## Tanda 19 — la salud del teléfono en Despacho (03/11, sin repasar)
+
+1. **La nativa lee sin esperar** (`saludDelTelefono` en `gps/servicio.js`):
+   devuelve lo último leído y, si tiene más de un minuto, pide de nuevo para
+   el próximo envío. Un `await` a un módulo nativo en el camino del POST
+   colgaba el envío y con la pantalla apagada no hay timer que lo corte.
+   **La duda:** que `expo-battery` conteste dentro de la tarea de fondo; si
+   no, el campo va en blanco y no se rompe nada. Se ve en el teléfono real.
+2. **Sólo a los paneles** (`telefonos`, `esPanel` + ruta mirada), aparte del
+   `state`: la batería de un compañero no es asunto de los demás choferes.
+3. **Por persona, no por combi**: la tarjeta lo busca por `choferId` (el que
+   tiene el mando). El cobrador no manda posiciones, así que no aparece.
+4. **`versionEstado`** sale de `APP_VERSION_MIN`/`_ACTUAL`: sin ponerlas, no
+   dice nada de la versión más que el número.
+5. **Privacidad**: la batería es un dato nuevo y quedó declarado en
+   `/privacidad` (y la copia cifrada de los respaldos, del punto 0.3).
+6. De paso, en el celular la cabecera de Despacho ya entraba (tanda 16).
+
+Suite nueva: `telefono`; `nativas` ampliada.
+
+## Tanda 20 — el SOS sin internet (03/11, sin repasar)
+
+El punto 0.5 de PENDIENTES. El detalle —qué, archivos, qué mirar— está en
+**`CAMBIOS-PARA-REVISAR.md`, bloque 7**, que desde acá es el lugar donde se
+anota cada parche para la revisión integral. Lo más importante para el repaso:
+el chequeo nuevo de identificadores sin declarar encontró un error que ya
+estaba en la nativa (`Grabar` usaba `C` sin declararlo: mantener apretado el
+micrófono la hacía caer).
+
+## Tanda 21 — corregir horas a mano (04/11, sin repasar)
+
+El punto 0.6 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 8**. Para el repaso, lo central: la corrección edita `shifts` (y lo
+marca `corregido`) en vez de agregar una capa que cada consulta tenga que
+leer, y `abrirTurno` no reabre un turno corregido. Las preguntas abiertas
+(¿se le avisa al chofer?, ¿sólo la gerencia?) están en ese bloque.
+
+## Tanda 22 — alta de muchas personas desde una planilla (04/11, sin repasar)
+
+El punto 0.7 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 9**. Para el repaso, lo central: el alta de a uno pasó a ser una
+función (`altaDePersona`) que usan el formulario y la planilla, y el lector de
+planillas (`server/planilla.js`) abre .xlsx y .ods con un ZIP propio sobre
+`zlib`, sin librerías.
+
+## Tanda 23 — la evidencia y cuánto se guardan fotos y audios (04/11, sin repasar)
+
+El punto 0.8 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 10**. Para el repaso, lo central: todas las podas de `messages`
+(`pruneChatStmt`, `pruneRowsStmt`, `pruneMediaStmt`, `pruneMediaViejaStmt`)
+excluyen `evidencia = 1`, y `pruneEvidenciaStmt` la borra a los `SOS_DIAS`;
+el tope de lo pesado pasó a ser por cooperativa; y `conPresupuesto()` acota
+lo pesado del `chat_history`. Mirar también el modelo de costos: el volumen
+ahora cuenta los 28 respaldos enteros.
+
+## Tanda 24 — la auditoría por tipo (04/11, sin repasar)
+
+El punto 0.9 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 11**. Para el repaso, lo central: la lista `CLASE_AUDIT` de
+`server/index.js` (qué acción va en qué clase; lo que falta es gestión), el
+techo por rango (`auditTechoStmt`) que reemplaza al `NOT IN`, y la
+clasificación de lo viejo al arrancar.
+
+## Tanda 25 — Ley 29733: el consentimiento y la carpeta `legal/` (04/11, sin repasar)
+
+El punto 0.10 de PENDIENTES (preparado: el trámite es fuera del código). El
+detalle está en **`CAMBIOS-PARA-REVISAR.md`, bloque 12**. Para el repaso:
+que `server/consentimiento.html` diga lo mismo que `server/privacidad.html`
+(los plazos, sobre todo), `CONSENTIMIENTO_VERSION` y el endpoint del registro
+en `server/index.js`, y `PanelConsentimiento` en `project/despacho.html`. Los
+textos de `legal/` no son código: los revisa un abogado.
+
+## Tanda 26 — actualizar la app sin reinstalar (04/11, sin repasar)
+
+El punto 0.11 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 13**. Para el repaso, lo central: el efecto de `App.js` que pregunta,
+baja y aplica (el único `Updates.reloadAsync`, detrás de `sePuedeAplicar`),
+`app/actualizacion.js`, la configuración de `app.json` y `eas.json`,
+`publicar-arreglo.bat`, y la guardia de lo nativo (`app/nativo.json` +
+`pruebas/actualizacion.js`). Nada de esto se probó en un teléfono todavía:
+la primera prueba de verdad es el paso 2 de `TAREAS-FUERA-DEL-CODIGO.md`.
+
+## Tanda 27 — un reinicio no tira las vueltas (04/11, sin repasar)
+
+El punto 0.12 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 14**. Para el repaso, lo central: `server/memoria.js` (guardar y leer
+la foto), en `server/index.js` la lectura temprana de `MEMORIA_PREVIA` y los
+tres cierres «corte» del arranque que ahora excluyen lo que se va a retomar,
+`retomarMemoria` y `guardarMemoria` al final (antes de `server.listen`), el
+manejo de SIGTERM, y `exportar`/`importar` en `server/parada.js`. Lo
+delicado: qué mapas se guardan y cuáles no (la farsa, el reloj, el mando del
+GPS se vuelven a medir), y el corrimiento de `oidoEn` por el tiempo caído.
+
+## Tanda 28 — bajar todo lo de una persona (04/11, sin repasar)
+
+El punto 0.14 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 15**. Para el repaso, lo central: `datosDePersona` en `server/index.js`
+(qué entra y qué no; el `EXISTS` contra los turnos de chofer que decide qué
+es suyo de lo que es de la combi), y `server/zip.js` (el ZIP sin librerías).
+
+## Tanda 29 — los arreglos de la revisión integral (04/11, sin repasar)
+
+**`CAMBIOS-PARA-REVISAR.md`, bloque 16**: 27 arreglos que salieron de revisar
+los bloques 1 a 15 con cuatro revisores independientes. Lo más delicado para
+repasar: el lector de planillas en un hilo aparte (`leerPlanillaAislada`), la
+copia afuera por partes (`cifrarArchivo`, `subir` con archivo), la migración
+`unaVez('habilitaciones_iniciales')`, y la reconciliación de `retomarMemoria`.
+

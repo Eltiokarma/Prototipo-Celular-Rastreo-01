@@ -25,21 +25,57 @@ import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Application from 'expo-application';
+import * as Battery from 'expo-battery';
 import { crearVigia } from '../ausencia.js';
 import { crearVigiaDeEnvio, mezclarCola, filtrarEntregadas } from '../envio.js';
 import { crearPedidor } from '../pedido.js';
 import { notificarBrecha, notificarGrabacionPedida, notificarSinRol, limpiarNotificacion } from '../notificacion.js';
 import { crearGrabador } from '../grabador.js';
-import { cabeceraDeApp } from '../version.js';
+import { cabeceraDeApp, actualizacionDe } from '../version.js';
+import * as Updates from 'expo-updates';
 
 // Qué APK es éste, para que el servidor lo anote con cada envío: el que
 // actualizó sin volver a entrar (la sesión dura 30 días) queda al día así.
 const CABECERA_APP = cabeceraDeApp({
   version: Application.nativeApplicationVersion || null,
   versionCode: Number(Application.nativeBuildVersion) || null,
+  actualizacion: actualizacionDe(Updates),
 });
 
 export const TAREA_GPS = 'coop-r14-gps';
+
+// La salud del teléfono para Despacho (PENDIENTES 0.4, 03/11): batería, si
+// está cargando, y si Android le aplica ahorro de batería a la app —la causa
+// número uno de «no aparece en el mapa»—. Viaja pegada a las posiciones.
+//
+// Sin esperar a nadie: se manda lo último que se leyó y, si tiene más de un
+// minuto, se pide de nuevo para el envío siguiente. Un `await` acá colgaba el
+// envío entero si el módulo nativo tardaba, y con la pantalla apagada no hay
+// timer que lo corte (la lección de `pedido.js`).
+let telefono = { origen: 'app' };
+let telefonoLeidoEn = 0;
+let leyendoTelefono = false;
+function saludDelTelefono() {
+  if (!leyendoTelefono && Date.now() - telefonoLeidoEn > 60_000) {
+    leyendoTelefono = true;
+    Promise.all([
+      Battery.getBatteryLevelAsync().catch(() => null),
+      Battery.getBatteryStateAsync().catch(() => null),
+      Battery.isBatteryOptimizationEnabledAsync().catch(() => null),
+    ]).then(([nivel, estado, optimizada]) => {
+      telefono = {
+        origen: 'app',
+        bateria: typeof nivel === 'number' && nivel >= 0 ? nivel : null,
+        // CHARGING = 2, FULL = 3 (enchufado y lleno también es enchufado)
+        cargando: estado == null ? null : (estado === Battery.BatteryState.CHARGING || estado === Battery.BatteryState.FULL),
+        optimizada: typeof optimizada === 'boolean' ? optimizada : null,
+      };
+      if (typeof optimizada === 'boolean') diagnostico.bateriaOptimizada = optimizada;
+      telefonoLeidoEn = Date.now();
+    }).finally(() => { leyendoTelefono = false; });
+  }
+  return telefono;
+}
 
 // Dónde quedan guardados el token y el servidor. Tienen que estar en disco y
 // no en memoria: cuando Android revive la tarea, el proceso arranca de cero.
@@ -573,6 +609,7 @@ async function subirAhora(nuevas) {
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...CABECERA_APP },
       body: JSON.stringify({
         posiciones,
+        telefono: saludDelTelefono(),
         ...(presenciaEfectiva === 'ruta' || presenciaEfectiva === 'ausente'
           ? { presencia: presenciaEfectiva } : {}),
         // Si se está grabando, para que un pedido de Despacho (4.5) se dé

@@ -140,8 +140,23 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       // La presencia declarada se repite en cada conexión: el servidor la
       // guarda en memoria y un reinicio suyo la olvidaría — el chofer que
       // marcó "en ruta" a las 6 no tiene por qué volver a marcarla a las 9.
+      //
+      // Si ya había llegado (esto es una reconexión, o la app que retoma),
+      // va como re-declaración: con otro manejando esa combi, el servidor
+      // no la toma como un relevo — un relevo es deslizar SALIR A RUTA, no
+      // que vuelva la señal (revisión previa a la APK).
+      // Y si nunca llegó y la había declarado el VIGÍA (`motivo: 'auto'`),
+      // va con su motivo: sin él, el servidor la tomaba como un SALIR A RUTA
+      // del chofer —un relevo de verdad— y no anotaba «salió solo» (revisión
+      // integral del 04/11; la web ya lo hacía).
       if (presenciaDeclarada && presenciaDeclarada !== 'fuera') {
-        ws.send(JSON.stringify({ type: 'presencia', estado: presenciaDeclarada }));
+        ws.send(JSON.stringify(motivoPendiente && !presenciaEntregada
+          ? { type: 'presencia', estado: presenciaDeclarada, motivo: motivoPendiente }
+          : presenciaEntregada
+            ? { type: 'presencia', estado: presenciaDeclarada, redeclara: true }
+            : { type: 'presencia', estado: presenciaDeclarada }));
+        presenciaEntregada = true;
+        motivoPendiente = null;
       }
     };
     const alMensaje = (crudo) => {
@@ -196,8 +211,15 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
         cerradoAdrede = true;
         // Lo declarado era de esta sesión: el próximo login en este mismo
         // teléfono no puede entrar declarando la presencia del anterior.
-        presenciaDeclarada = null;
+        presenciaDeclarada = null; presenciaEntregada = false; motivoPendiente = null;
         emitir('authError', m.error);
+        break;
+
+      case 'combi':
+        // La combi de hoy cambió (la eligió en la puerta, o Despacho): la
+        // sesión la corrige, o `miUnidad` buscaría la de antes
+        if (sesion) sesion = { ...sesion, vehicleId: m.vehicleId, routeId: m.routeId, routeName: m.routeName };
+        emitir('combi', { vehicleId: m.vehicleId, routeId: m.routeId, routeName: m.routeName });
         break;
 
       case 'gps_role':
@@ -251,6 +273,11 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
           if (esperandoEcoSos) esperandoEcoSos();
         }
         emitir('sos', m);
+        break;
+      case 'sos_atendido':
+        // Despacho marcó atendido MI SOS (o el de mi combi). Sólo le llega al
+        // que lo pidió y a los que van arriba; también al reconectar.
+        emitir('sosAtendido', m);
         break;
       case 'sos_tipo':
         // El eco del tipo de MI emergencia: `marcarTipoSos` lo espera.
@@ -349,11 +376,14 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
 
   // `privado` manda al canal con Despacho. Un chofer no puede elegir
   // destinatario: el servidor lo reemplaza por su propio vehículo igual.
-  function mandarChat(texto, { privado = false } = {}) {
+  // `privado`: con Despacho sobre la combi; `personal`: con Despacho, sólo
+  // esta persona (31/10). Ninguno: al grupo de la ruta.
+  const destino = (privado, personal) => (personal ? { personal: true } : privado ? { privado: true } : {});
+  function mandarChat(texto, { privado = false, personal = false } = {}) {
     const t = String(texto || '').trim();
     if (!t) return false;
     return enviar({ type: 'chat', text: t.slice(0, 500),
-                    timestamp: ahora(), ...(privado ? { privado: true } : {}) });
+                    timestamp: ahora(), ...destino(privado, personal) });
   }
 
   // Nota de voz. Viaja como data-URL en base64 dentro del mismo WebSocket que
@@ -361,12 +391,12 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // avisa: pasado eso descarta el mensaje **en silencio**, así que se corta
   // acá con margen y se devuelve el motivo.
   const TOPE_AUDIO = 1_900_000;
-  function mandarVoz({ data, duration, privado = false }) {
+  function mandarVoz({ data, duration, privado = false, personal = false }) {
     if (!data || !String(data).startsWith('data:audio')) return 'formato';
     if (String(data).length > TOPE_AUDIO) return 'muy-larga';
     const ok = enviar({
       type: 'voice', data, duration: Math.round(duration || 0),
-      timestamp: ahora(), ...(privado ? { privado: true } : {}),
+      timestamp: ahora(), ...destino(privado, personal),
     });
     return ok ? null : 'sin-conexion';
   }
@@ -379,12 +409,12 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // (1 150 000 acá, 1 200 000 allá) y una foto entre los dos se perdía en
   // silencio: la pantalla la veía salir y nunca salía (REVISION, A6).
   const TOPE_IMAGEN = MAX_DATAURL;
-  function mandarFoto({ data, text = '', privado = false }) {
+  function mandarFoto({ data, text = '', privado = false, personal = false }) {
     if (!data || !String(data).startsWith('data:image')) return 'formato';
     if (String(data).length > TOPE_IMAGEN) return 'muy-pesada';
     const ok = enviar({
       type: 'photo', data, text: String(text || '').slice(0, 200),
-      timestamp: ahora(), ...(privado ? { privado: true } : {}),
+      timestamp: ahora(), ...destino(privado, personal),
     });
     return ok ? null : 'sin-conexion';
   }
@@ -461,11 +491,50 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     }).finally(() => clearTimeout(t));
   }
 
+  // ─── La combi, en la puerta (habilitaciones, 30/10) ──────────
+  // Las que puede elegir, con su estado (libre, o quién la maneja), y
+  // elegir una. Elegir no toma nada: la combi se toma al salir a ruta. Por
+  // HTTP y no por el socket: la puerta puede estar sin conexión viva, y el
+  // servidor contesta lo que quedó. Tiran con el mensaje del servidor.
+  async function pedirJson(ruta, opciones = {}) {
+    if (!token) throw new Error('Sin sesión');
+    const control = new AbortController();
+    const t = setTimeout(() => control.abort(), 8000);
+    try {
+      let r;
+      try {
+        r = await fetch(servidor + ruta, {
+          ...opciones, signal: control.signal,
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        });
+      } catch (e) {
+        // Sin red, fetch tira «Network request failed», en inglés
+        throw new Error(e && e.name === 'AbortError'
+          ? 'El servidor no contesta. Probá de nuevo.'
+          : 'Sin conexión con el servidor. Probá de nuevo.');
+      }
+      const datos = await r.json().catch(() => ({}));
+      if (!r.ok) { const e = new Error(datos.error || 'No se pudo'); e.status = r.status; throw e; }
+      return datos;
+    } finally { clearTimeout(t); }
+  }
+  const misCombis = () => pedirJson('/mis-combis');
+  async function elegirCombi(vehicleId) {
+    const r = await pedirJson('/combi', { method: 'POST', body: JSON.stringify({ vehicleId }) });
+    if (sesion) sesion = { ...sesion, vehicleId: r.vehicleId, routeId: r.routeId, routeName: r.routeName };
+    return r;
+  }
+
   // Declarar algo por HTTP, con reintento: `true` si el servidor lo tomó.
   // Un 4xx no se reintenta (va a dar lo mismo); la falta de red, sí.
-  async function declararPorHttp(ruta, cuerpo, intentos) {
+  //
+  // `vigente`, si viene, se pregunta antes de cada intento: un «fuera» que
+  // reintentaba por mala señal llegaba DESPUÉS del «ruta» que el chofer
+  // declaró enseguida por el socket, y lo sacaba de ruta (repaso de la tanda 9).
+  async function declararPorHttp(ruta, cuerpo, intentos, vigente) {
     if (!token) return false;
     for (let i = 0; i < intentos; i++) {
+      if (vigente && !vigente()) return false;
       try {
         const r = await pedirHttp(ruta, cuerpo, 8000);
         if (r.ok) return true;
@@ -547,9 +616,16 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     ws = null;
     conectado = false;
     reportaGps = false;
+    // Lo vivo de esta sesión tampoco: el que entra después en el mismo
+    // teléfono veía las brechas y el trazado del anterior hasta su primer
+    // estado (repaso de la tanda 9).
+    estado = null;
+    geometria = null;
+    motivoGps = null;
     miUltimoSos = null;   // el SOS calificable no sobrevive a la sesión
     viaUltimoSos = null;
     presenciaDeclarada = null;   // ni lo declarado (barrido del 22/9)
+    presenciaEntregada = false;
   }
 
   // Declarar el estado: en ruta, ausente, fuera. Por el WebSocket si está
@@ -566,15 +642,33 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // queda tras la pantalla apagada, en `OPEN` hasta que el servidor lo
   // termina— se escribía en la nada y la combi seguía en el mapa hasta el
   // olvido. El servidor acepta el repetido (barrido del 22/9).
+  //
+  // `motivo` = 'auto' cuando la declaró el vigía de la puerta y no el chofer
+  // (opción C, 30/10): el servidor lo anota para Despacho. Viaja sólo esta
+  // vez; la re-declaración al reconectar no lo lleva.
+  //
+  // `retomada`: la que la app guardó y retoma al reabrirse. No la eligió
+  // nadie ahora: viaja como re-declaración, igual que al reconectar.
+  //
+  // Y 'ruta' también con tres intentos: con uno solo, sin señal en la
+  // puerta, Despacho no se enteraba hasta la próxima conexión.
   let presenciaDeclarada = null;
-  async function marcarPresencia(estado) {
+  let presenciaEntregada = false;   // ¿ya llegó al servidor? (ver `alAbrir`)
+  let motivoPendiente = null;       // el motivo de la que todavía no llegó
+  async function marcarPresencia(estado, motivo, { retomada = false } = {}) {
     presenciaDeclarada = estado;
+    presenciaEntregada = retomada;
+    motivoPendiente = motivo || null;
+    const cuerpo = motivo ? { estado, motivo } : retomada ? { estado, redeclara: true } : { estado };
     if (ws && conectado) {
       let salio = false;
-      try { ws.send(JSON.stringify({ type: 'presencia', estado })); salio = true; } catch {}
+      try { ws.send(JSON.stringify({ type: 'presencia', ...cuerpo })); salio = true; } catch {}
+      if (salio) { presenciaEntregada = true; motivoPendiente = null; }
       if (salio && estado !== 'fuera') return true;
     }
-    return declararPorHttp('/presencia', { estado }, estado === 'fuera' ? 3 : 1);
+    const ok = await declararPorHttp('/presencia', cuerpo, 3, () => presenciaDeclarada === estado);
+    if (ok && presenciaDeclarada === estado) { presenciaEntregada = true; motivoPendiente = null; }
+    return ok;
   }
 
   // La presencia que cambió SIN pasar por acá: la tarea de fondo la declara
@@ -585,6 +679,8 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // la vuelta en curso (barrido del 22/9).
   function recordarPresencia(estado) {
     presenciaDeclarada = estado;
+    presenciaEntregada = true;
+    motivoPendiente = null;
   }
 
   // "Estoy en tráfico" / "ya no". Mismo camino que la presencia: WebSocket
@@ -603,6 +699,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     entrar, conectar, salir, cerrarSesion,
     mandarGps, mandarChat, mandarVoz, mandarFoto, mandarSos,
     marcarTipoSos, pedirMarca, marcarPresencia, recordarPresencia, marcarTrafico,
+    misCombis, elegirCombi,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {
       if (!oyentes.has(evento)) oyentes.set(evento, new Set());

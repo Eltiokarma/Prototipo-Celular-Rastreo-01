@@ -164,7 +164,20 @@ function crearDetectorDeParada({
     return e ? { parado: e.parado, desde: e.desde } : { parado: false, desde: null };
   }
 
-  return { posicion, olvidar, estadoDe };
+  // Para que un reinicio no la pierda (PENDIENTES 0.12): la ventana de cada
+  // combi es datos planos, se guarda y se vuelve a poner tal cual.
+  function exportar() {
+    return [...estados.entries()];
+  }
+  function importar(entradas) {
+    for (const [id, e] of entradas || []) {
+      if (!e || !Array.isArray(e.muestras)) continue;
+      estados.set(id, { muestras: e.muestras.filter(x => x && Number.isFinite(x.t) && Number.isFinite(x.m)),
+                        parado: !!e.parado, desde: Number.isFinite(e.desde) ? e.desde : null });
+    }
+  }
+
+  return { posicion, olvidar, estadoDe, exportar, importar };
 }
 
 module.exports = { crearDetectorDeParada, PARADA_MS, AVANCE_M, LIBRE_MS, LIBRE_AVANCE_M };

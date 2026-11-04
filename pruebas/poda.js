@@ -76,10 +76,11 @@ for (const tabla of ['laps', 'legs']) {
     lento.test(fuente) ? 'volvió el NOT IN' : rapido.test(fuente) ? '' : 'no encontré el corte por rango');
 }
 
-// `messages` es igual pero EXCLUYENDO el SOS de las dos partes (L8, abajo)
+// `messages` es igual pero EXCLUYENDO el SOS de las dos partes (L8, abajo),
+// y desde 0.8 tampoco toca lo marcado como evidencia
 {
   const lento = /id NOT IN \(SELECT id FROM messages ORDER BY id DESC LIMIT/;
-  const rapido = /DELETE FROM messages WHERE kind != 'sos' AND id <= \(\s*SELECT id FROM messages WHERE kind != 'sos' ORDER BY id DESC LIMIT 1 OFFSET/;
+  const rapido = /DELETE FROM messages WHERE kind != 'sos' AND (?:evidencia IS NULL AND )?id <= \(\s*SELECT id FROM messages WHERE kind != 'sos' ORDER BY id DESC LIMIT 1 OFFSET/;
   ok(`${++n}. messages: el techo se corta por rango y sin tocar el SOS`,
     !lento.test(fuente) && rapido.test(fuente),
     rapido.test(fuente) ? '' : 'no encontre el corte por rango que excluye SOS');

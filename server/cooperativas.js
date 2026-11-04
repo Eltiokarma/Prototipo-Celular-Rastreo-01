@@ -111,6 +111,9 @@ function alta(db, datos = {}) {
   if (datos.despacho) {
     usuario = idLimpio(datos.despacho);
     if (!usuario) return { error: 'El usuario de despacho tiene caracteres no permitidos' };
+    // Como en las otras dos altas de cuentas: un Despacho llamado SISTEMA o
+    // CREADOR firmaba la auditoría como la plataforma (repaso de la tanda 9).
+    if (idReservado(usuario)) return { error: `${usuario} es un nombre reservado del sistema` };
     if (!datos.clave || String(datos.clave).length < CLAVE_MINIMA) {
       return { error: `La cuenta de despacho necesita una clave de al menos ${CLAVE_MINIMA} caracteres` };
     }
@@ -189,8 +192,10 @@ function supervisor(db, { companyId, usuario, clave } = {}) {
 }
 
 // ─── CUENTA DE GERENCIA ──────────────────────────────────────
-// El gerente MIRA: métricas, tendencias, cumplimiento y descarga de
-// informes. No administra nada y no entra al tiempo real.
+// El gerente entra al MISMO panel que Despacho (gerencia.html quedó como
+// redirección) y ve lo mismo, más la pestaña Números: cumplimiento,
+// tendencias y horas. Además administra los ACTIVOS —vehículos, datos y logo
+// de la empresa—, que Despacho no.
 //
 // La crea el nivel de arriba y no Despacho, por la misma razón por la que
 // nadie se audita a sí mismo: buena parte de lo que el gerente mira es qué

@@ -21,6 +21,14 @@ Despacho lo ve en Unidades. Cualquier pedido autenticado puede traer lo
 mismo en la cabecera `X-App-Version: 0.2.3/5` (el perfil y cada `POST /gps`
 la llevan): así el que actualizó sin volver a entrar queda al día.
 
+Desde el 04/11 (PENDIENTES 0.11, actualizaciones sin reinstalar) `app` trae
+además `actualizacion`: `'AAAAMMDD-HHmm'`, cuándo se publicó el JavaScript
+que corre, o `null` si es el que vino en la APK. En la cabecera va después
+de un `+`: `X-App-Version: 0.3.0/6+20261104-1530`. El servidor lo anota en
+`users.appActualizacion`, y viaja en `/admin/users` (`appActualizacion`) y
+en el estado del teléfono de la tarjeta (`actualizacion`). Una etiqueta con
+otro formato se ignora.
+
 Devuelve, tal cual:
 
 ```json
@@ -50,7 +58,17 @@ Devuelve, tal cual:
   (`app/version.js`).
 
 - **El token dura 30 días** (`SESSION_DAYS`). Se guarda en el dispositivo y se
-  reusa; no hace falta pedir contraseña cada turno.
+  reusa; no hace falta pedir contraseña cada turno. Desde el 31/10 **se
+  renueva con el uso**: si le quedan menos de 7 días y se usa (una petición
+  con el token, o la revisión periódica del socket abierto), vuelve a valer
+  30. Antes, el chofer que trabajaba todos los días quedaba afuera el día 31
+  en medio del turno. El que no la usa en 30 días, vence igual.
+- **`central`** (desde el 03/11): el teléfono de la central de la cooperativa,
+  o null. Se guarda con la sesión: es a dónde llamar o mandar un SMS cuando el
+  SOS no puede salir por internet. También viaja en `GET /marca`
+  (`marca.central`), para tomar un cambio sin volver a entrar. Lo carga la
+  gerencia con `POST /admin/company` (`telefonoCentral`; `''` lo borra, sin
+  mandarlo no se toca).
 - **`unitId` es la PERSONA, `vehicleId` es el fierro.** No son lo mismo y
   confundirlos rompe el chat privado y las brechas. Todo lo del mapa y las
   brechas va por `vehicleId`; el chat y la auditoría, por `unitId`.
@@ -82,11 +100,14 @@ Observado, en este orden:
 
 | # | Tipo | Qué trae |
 |---|---|---|
-| 1 | `gps_role` | **si esta conexión es la que reporta GPS** |
-| 2 | `unit_joined` | aviso a la ruta de que la unidad entró |
+| 1 | `gps_role` | **si esta conexión es la que reporta GPS** (ver §3.1: al chofer sin el mando no le llega acá) |
+| 2 | `unit_joined` | aviso a la ruta de que la unidad entró (ídem) |
 | 3 | `state` | el estado completo de la ruta |
 | 4 | `chat_history` | los últimos mensajes que le corresponde ver |
 | 5 | `route_geometry` | el trazado dibujado de la ruta |
+| 6 | `puerta` | **sólo a Despacho**: quién entró y no salió a ruta (ver §3.5) |
+| 6b | `sos_abiertos` | **sólo a Despacho y gerencia**: los SOS sin atender que le tocan (ver §4quinquies, «Atender») |
+| 7 | `combi` | **chofer y cobrador**: su combi de hoy (ver §4octies). Desde el 31/10, en cada conexión: Despacho puede haberla cambiado con la app cerrada. Si es la que ya tiene, el cliente no hace nada |
 
 Después, `state` cada 3 s (`STATE_INTERVAL_MS`) mientras haya movimiento.
 
@@ -97,11 +118,53 @@ Después, `state` cada 3 s (`STATE_INTERVAL_MS`) mientras haya movimiento.
 ```
 
 **Solo UNA conexión reporta la posición de cada vehículo.** El servidor
-descarta el `gps` de cualquier otra, sin avisar. Las reglas:
+descarta el `gps` de cualquier otra. Las reglas (desde el 30/10, «opción B»):
 
-- El cobrador nunca reporta → `reporting: false`, `reason: "Modo acompañante"`.
-- Entre choferes **manda el último que entra** (es el relevo de turno). Al
-  anterior le llega un `gps_role` con `reporting: false` y el motivo.
+- El cobrador nunca reporta → al identificarse, `reporting: false`,
+  `reason: "Modo acompañante"`.
+- **Entrar no es salir.** El `identify` de un chofer que no tiene el mando
+  —recién entrado y en la puerta, o el relevado que reconecta— no se lo da:
+  no le llega `gps_role`, no se le abre turno y no le cambia el nombre a la
+  combi del mapa. Sólo el MISMO chofer que tiene el mando vivo y reconecta
+  (otra red, otra pestaña) lo conserva al identificarse, con
+  `reporting: true`.
+- **El mando se toma estando en ruta:**
+  - declarar `ruta` lo toma **aunque otro lo tenga**: es el relevo. Al
+    anterior le llega `gps_role` con `reporting: false` y el motivo, y se le
+    cierra el turno;
+  - declarar `ausente`, o mandar una posición (WS o HTTP), lo toma sólo si
+    nadie lo tiene vivo (se lo oyó hace menos de `OLVIDAR_MS` o tiene el
+    socket abierto).
+
+  Al tomarlo, por el socket llega `gps_role` con `reporting: true`.
+- **El relevado no recupera solo.** Al que le sacaron el mando le queda la
+  app en `ruta`, que la re-declara en cada reconexión. Mientras dure su
+  marca, ni su `ruta`, ni su `ausente`, ni sus posiciones le devuelven ESA
+  combi — ni siquiera si el que la manejaba termina el turno. Le llega
+  `reporting: false` con el motivo, que dice cómo volver: *«… Para volver a
+  manejarla: SALIR DE RUTA y después SALIR A RUTA.»* (por HTTP,
+  `gpsRole: false` y el mismo `motivo`). La marca se va con un acto suyo
+  —declarar `fuera`, o volver a entrar con usuario y clave—. Pasadas las
+  `RELEVO_MAX_MS` (6 h) se va sola **sólo si nadie está manejando esa
+  combi**: mientras el otro siga, la marca sigue (31/10; antes, a las seis
+  horas el relevado se la volvía a sacar). Está en la base (tabla
+  `relevos`), no sólo en memoria: un reinicio del servidor ya no la borra.
+  El `gps_role` del relevado trae `"relevado": true`.
+- **La salida automática y la re-declaración no relevan** (31/10). `ruta`
+  con `motivo: "auto"` (el vigía de la puerta) o con `redeclara: true` (la
+  conexión que vuelve) encuentra la combi con otro manejando: no la toma.
+  Le llega `reporting: false` con *«Juan está manejando esta combi: la app
+  no la toma sola. Si es un relevo, tocá SALIR A RUTA vos.»* (por HTTP,
+  `ignorada: true`, `gpsRole: false`). Relevo es sólo `ruta` sin esas dos
+  marcas: el chofer que tocó SALIR A RUTA.
+- **Dos conexiones de la misma persona** (el teléfono y la web) no se roban
+  el GPS en cada posición: el socket que reporta sigue siéndolo mientras
+  esté abierto.
+- **`fuera` suelta el mando y el socket.** Antes el socket quedaba apuntado
+  como el que reporta, y al cerrarse otra conexión de la misma persona se lo
+  heredaba.
+- Un chofer conectado no hereda el mando de otro al cerrarse el socket de
+  éste: sólo otra conexión de la MISMA persona.
 
 Para la app nativa esto es lo más importante de toda la página: **el servicio
 de fondo no puede mandar GPS si `reporting` es `false`**, y una reconexión
@@ -149,6 +212,11 @@ Lo que hay que tener claro:
   de la fila, porque entonces este lado se mediría contra la que sigue —el
   doble de lejos— y la pantalla diría *"apurá"* hacia una combi que el chofer
   tiene justo adelante. Está medido; ver la sección 5.
+- **La unidad sin señal tampoco tiene brechas propias** (desde el 28/10):
+  sus `toAhead` y `toBehind` vienen en `null`, con `aheadUnit`/`behindUnit`
+  igual. Su posición es la de hace minutos, así que contra quien sea el número
+  mentiría; Despacho la mostraba como «SIN SEÑAL» con dos brechas en rojo
+  debajo.
 - **Los vecinos son del mismo tramo.** La cadena es por tramo (ida o
   vuelta), no un anillo: la primera de la vuelta no tiene «atrás» a la última
   de la ida, y la primera de la ida no tiene «adelante» a nadie de la vuelta.
@@ -226,8 +294,46 @@ así hoy; si se toca, se rompen las dos pantallas web.
   "timestamp": 1785728569716 }
 ```
 
-`toVehicleId` distingue el canal: `null` es el grupo de la ruta, y con valor
-es la conversación privada de esa unidad con Despacho.
+El canal lo dicen dos campos, y nunca vienen los dos (desde el 31/10):
+
+| `toVehicleId` | `toPersonId` | Canal |
+|---|---|---|
+| `null` | `null` | el grupo de la ruta |
+| `"M-05"` | `null` | Despacho ↔ esa **combi**: la ven los que van arriba hoy (chofer y cobrador) y los que la manejen después |
+| `null` | `"pedro"` | Despacho ↔ esa **persona**: la sigue a cualquier combi y ruta, y no la ve nadie más |
+
+Desde el 04/11 (PENDIENTES 0.8) cada `chat_msg`, `voice_msg` y `photo_msg`
+—en vivo y en el `chat_history`— trae **`msgId`**, el id del mensaje en la
+base. En el historial vienen además `evidencia` (1 o null), `evidenciaMotivo`,
+`evidenciaEn` y `evidenciaPorNombre`. Dos cosas nuevas:
+
+- **`evidencia`** (servidor → paneles), cuando un Despacho marca o desmarca
+  un mensaje con `POST /admin/mensajes/:id/evidencia` `{ marcar, motivo }`:
+
+  ```json
+  { "type": "evidencia", "msgId": 57, "marcada": true, "por": "Despacho",
+    "motivo": "Choque en la Av. Circunvalación", "en": 1793761157831, "routeId": "R-14" }
+  ```
+
+  Nunca llega a un teléfono.
+- **`aparte: 1`** en un ítem del `chat_history`: una foto o nota de voz que
+  sigue guardada pero no entró en el presupuesto del historial
+  (`HISTORIA_MEDIA_KB`, 3000 kB, de lo más nuevo a lo más viejo). Viene con
+  `data: null`; Despacho la pide con `GET /admin/mensajes/:id/contenido`
+  (`{ msgId, data }`, 410 si ya expiró). La app del chofer la muestra como
+  expirada.
+
+El `chat_history` de un chofer o cobrador trae el grupo de su ruta, el privado
+de su combi de hoy y su privado personal **de cualquier ruta**. El de
+Despacho, todo lo de la ruta que mira (los personales guardados con la ruta
+que la persona tenía en ese momento).
+
+El privado PERSONAL que llega en vivo le llega a todo panel que puede mirar la
+ruta de la persona —el Despacho de esa ruta y los supervisores de la empresa—,
+aunque en ese momento esté mirando otra (31/10: lo que contestaba alguien de
+otra ruta no le llegaba nunca a Despacho). Con «personal» y sin `toPerson`,
+lo de Despacho no sale (antes salía al grupo). Y la baja de una persona borra
+su privado personal: el usuario reusado no lee lo del anterior.
 
 **El contenido pesado caduca, la burbuja no.** El servidor conserva el `data`
 de las **30** notas de voz y las **20** fotos más recientes; pasado eso lo
@@ -237,6 +343,49 @@ expirado, que es honesto: existió, ya no está.
 Se poda **por tipo y no en conjunto**, a propósito: si el presupuesto fuera
 compartido, una ráfaga de fotos le borraría el audio a la nota de voz que
 justamente hace falta escuchar.
+
+### 3.6 `telefonos` — sólo a Despacho (desde el 03/11)
+
+Cómo está el teléfono de cada persona de la ruta que se mira: llega al
+identificarse un panel, con cada `watch` y, junto con el `state`, cuando algo
+cambió (o cada 5 min). Nunca a los choferes, ni dentro del `state`.
+
+```json
+{ "type": "telefonos", "routeId": "R-14", "items": {
+  "luis": { "bateria": 8, "cargando": false, "optimizada": true, "origen": "app",
+            "version": "0.2.3", "versionCode": 5, "versionEstado": "hay_nueva",
+            "vehicleId": "M-02", "routeId": "R-14", "en": 1793715372716 } } }
+```
+
+`bateria` en % (o null), `optimizada` = Android le aplica ahorro de batería a
+la app, `versionEstado` contra `APP_VERSION_MIN`/`_ACTUAL`: `vieja`,
+`hay_nueva`, `al_dia` (null en la web). Lo manda la app en el campo
+`telefono` de `POST /gps` y la web en el del `gps` del socket:
+`{ "origen": "app"|"web", "bateria": 0..1, "cargando": bool, "optimizada": bool }`.
+Lo que no sea eso queda en null. En memoria; lo de más de 2 h no se manda.
+
+### 3.5 `puerta` — sólo a Despacho
+
+Desde el 30/10 («opción A»). Quién entró y no salió a ruta en la ruta que se
+mira: el chofer que se identificó o puso la clave y desde entonces no declaró
+nada ni mandó una posición. Llega al identificarse un supervisor, con cada
+`watch`, y cada vez que la lista cambia (con un segundo de espera, para no
+parpadear con la web, que entra y declara en el mismo instante). A todo panel
+que mira esa ruta —también al Despacho atado a una ruta, que hasta el 31/10
+no la recibía nunca—. Nunca a los teléfonos de los choferes.
+
+```json
+{ "type": "puerta", "routeId": "R-14",
+  "items": [{ "personId": "pedro", "nombre": "Pedro", "vehicleId": "M-05", "desde": 1793393000000 }] }
+```
+
+Sale de la lista con cualquier declaración (`ruta`, `ausente` o `fuera`), una
+posición aceptada, cerrar sesión o la baja. Y deja de mostrarse si no tiene la
+app conectada y pasaron `PUERTA_SIN_SOCKET_MS` (30 min) de su última señal —que
+cuenta también el momento en que se le cerró el socket—: la
+web en la puerta no tiene socket, y la nativa lo pierde con la pantalla
+apagada. El servidor no sabe dónde está: en la puerta la app no manda la
+ubicación.
 
 ## 4. Lo que el cliente manda
 
@@ -269,7 +418,11 @@ agresivo tras una reconexión lo puede quemar.
   para rutas sin trazado cargado. Con geometría, el servidor lo ignora.
 - `chat` privado: **un chofer solo puede escribirle a Despacho.** Cualquier
   `to` que mande se reemplaza por su propio vehículo. Chofer ↔ chofer privado
-  no existe a propósito. Despacho sí elige destinatario, y el mensaje se
+  no existe a propósito. Con `"personal": true` (en vez de `privado`) va a su
+  privado PERSONAL —siempre el suyo, pida lo que pida—. Despacho escribe a
+  una combi con `to` o a una persona con `toPerson` (chofer o cobrador de su
+  cooperativa; el Despacho de ruta, sólo a la gente de su ruta). Lo mismo vale
+  para `voice` y `photo`. Despacho sí elige destinatario, y el mensaje se
   guarda y se reparte con **la ruta de la combi de destino**, no con la que
   Despacho está mirando: el historial del chofer se filtra por SU ruta, así
   que con la del emisor el privado a una combi de otra ruta se veía en vivo y
@@ -402,7 +555,22 @@ cliente debe RE-DECLARAR su presencia al reconectar el WebSocket: el
 servidor la guarda en memoria. Un cliente que no declara nada se comporta
 como siempre: en cadena desde la primera posición.
 
-**El relevado no declara por la combi** (desde el 22/9). Si OTRA persona
+**`motivo: "auto"`** (desde el 30/10, opcional, sólo con `ruta`): la
+declaró el vigía de la puerta de la app, no el chofer —lo vio manejando sin
+haber salido y nadie contestó el aviso—. El servidor lo anota en la
+Actividad de Despacho (`salio_solo`). Viaja una sola vez: la re-declaración
+al reconectar no lo lleva. Por HTTP va en el cuerpo: `{ "estado": "ruta",
+"motivo": "auto" }`. Con otro manejando esa combi no la toma (§3.1).
+
+**`redeclara: true`** (desde el 31/10, opcional): esta declaración no la
+eligió nadie ahora —es la que el cliente re-manda al reconectar, o la que
+retoma la app al reabrirse—. Con otro manejando la combi, no es un relevo
+(§3.1). Los clientes la mandan en toda re-declaración; la primera, la del
+toque en SALIR A RUTA, va sin ella. Un APK viejo no la manda: lo cubre la
+marca del relevado, que ahora sobrevive al reinicio.
+
+**El relevado no declara por la combi** (desde el 22/9; y desde el 30/10, ni
+`ruta` le devuelve la combi mientras dure su marca: ver §3.1). Si OTRA persona
 tiene el mando del GPS de ese vehículo y se la oye —la misma prueba con la
 que `POST /gps` le contesta `gpsRole: false`—, su `ausente` y su tráfico se
 ignoran, y su `fuera` sólo le cierra el turno a ÉL: `POST /presencia` y
@@ -502,11 +670,79 @@ HTTP, el tipo no insiste con el socket. Del lado del servidor, **el mismo
 tipo dos veces es una sola cosa**: contesta `200 { ok: true }` y no vuelve a
 avisar a la ruta, así que un eco perdido no duplica nada.
 
+### Atender: `sos_abiertos`, `sos_atender`, `sos_atendido` (desde el 31/10)
+
+«ATENDIDO» era un botón de esa pantalla: el otro Despacho seguía viendo el SOS
+abierto, nadie sabía quién lo había tomado, y uno que llegaba con el panel
+recargando no volvía a aparecer. Ahora es de la base (`messages.atendidoPor`
+—la cuenta— y `atendidoEn`; NULL = abierto).
+
+- **Al identificarse**, todo panel (Despacho o gerencia) recibe los SOS sin
+  atender de las últimas `SOS_ABIERTO_MS` (24 h) que puede ver: el de ruta,
+  los de su ruta; el supervisor y la gerencia, los de su empresa.
+
+  ```json
+  { "type": "sos_abiertos", "items": [{ "sosId": 41, "unitId": "pedro",
+    "driverName": "Pedro Mamani", "vehicleId": "M-01", "routeId": "R-14",
+    "lat": -15.49, "lng": -70.133, "sosTipo": null, "timestamp": 1793449827573 }] }
+  ```
+
+- **Despacho lo marca** con `{ "type": "sos_atender", "sosId": 41 }`. Sólo un
+  panel que ve esa ruta; un chofer, o el Despacho de otra ruta, no cambia
+  nada. Queda en la Actividad (`sos_atendido`, con los minutos que tardó).
+- **A todo panel que ve esa ruta** —mire la que mire— le llega:
+
+  ```json
+  { "type": "sos_atendido", "sosId": 41, "routeId": "R-14", "vehicleId": "M-01",
+    "porId": "DESP-14", "por": "Despacho R-14", "en": 1793449900000 }
+  ```
+
+  El que lo marca segundo no lo pisa: sólo a él le vuelve ese mismo aviso con
+  quién lo atendió primero.
+- El `chat_history` trae en cada SOS `atendidoEn`, `atendidoPor` y
+  `atendidoPorNombre` (null si sigue abierto); el informe `sos.csv` suma
+  *Atendido por*, *Atendido* y *Minutos hasta atender*.
+- **Al que pidió ayuda** (y a los que van en esa combi: el chofer y el
+  cobrador) le llega el mismo `sos_atendido` con `"propio": true`. Y si se
+  le cortó la señal, **al reconectar**: si su último SOS de las últimas
+  `SOS_VISTO_MS` (2 h) ya fue atendido, llega con `"alConectar": true`. La
+  app muestra «DESPACHO VIO TU SOS · Lo marcó atendido … a las …» hasta que
+  se lo toca, y el que ya cerró no vuelve. A los demás choferes, nada; y
+  `sos_abiertos` nunca llega a un teléfono.
+
 Y una regla del lado de `/gps` que va con la presencia: **un lote cuyas
 posiciones son todas anteriores al último «fuera» de la unidad se descarta
 entero, presencia incluida**. Es el `POST /gps` que venía en vuelo con
 `presencia: 'ruta'` y llegó después del «fuera»: sin esto volvía a poner en
 el mapa a una combi que acababa de irse.
+
+Y desde el 04/11 (PENDIENTES 0.9), `GET /admin/audit` acepta
+`?clase=acceso|operacion|gestion` y `?antes=<id>` (páginas de 100, hacia
+atrás); cada evento trae `id` y `clase`, y la respuesta `hayMas` y `plazos`
+(los días de cada clase).
+
+Y la Ley 29733 (PENDIENTES 0.10, 04/11): `GET /consentimiento` sirve el
+formulario para imprimir (público, sin scripts). `GET /admin/users` trae en
+cada persona `consentimientoFecha` y `consentimientoVersion`, y
+`consentimientoVigente` (la versión que hay que firmar hoy).
+`POST /admin/users/:unitId/consentimiento` anota la firma
+`{ firmado: true, fecha: 'AAAA-MM-DD' }` o el retiro
+`{ firmado: false, motivo }`; sólo choferes y cobradores de la propia
+cooperativa, y queda en la Actividad (`consentimiento_firmado` /
+`consentimiento_retirado`, clase gestión).
+
+Y el reinicio del servidor (PENDIENTES 0.12, 04/11): las vueltas y tramos
+en curso, los desvíos y paradas abiertos y la presencia de cada combi se
+retoman tras un deploy. Para la app no cambia nada del protocolo: sigue
+mandando su cola como siempre; lo que cambia es que el servidor no la trata
+como recién llegada. Y el `state` que reciben las pantallas al reconectar ya
+trae las combis que estaban, antes de que manden su primera posición.
+
+Y el derecho de acceso (PENDIENTES 0.14, 04/11):
+`GET /admin/users/:unitId/datos.zip` (Despacho, sólo personas de su
+alcance) devuelve un ZIP con `LEEME.txt` y un CSV por cosa, más `fotos/`,
+`audios/` y `grabaciones/`. Lo de la combi va sólo dentro de los turnos de
+chofer de esa persona. Queda en la Actividad como `datos_exportados`.
 
 ## 4quater. Tráfico: `parado`, `trafico` (WS) y `POST /trafico`
 
@@ -596,6 +832,79 @@ que lo dice en castellano: no es lo mismo «ese apodo ya lo usa alguien» que
 cierra TODAS las sesiones de esa persona, incluida la que lo pide, y corta sus
 WebSocket abiertos. Es el remedio para el teléfono perdido: lo que da acceso
 no es la contraseña sino el token, que vive 30 días (P11).
+
+## 4octies. La combi, en la puerta: `GET /mis-combis`, `POST /combi`
+
+Desde el 30/10 (habilitaciones). Una persona puede tener **varias combis
+habilitadas** —las elige Despacho, o «cualquiera de su ruta» para el
+suplente— y en la puerta, antes de salir a ruta, elige en cuál sale. Lo
+demás del protocolo no cambia: todo sigue leyendo «la combi de hoy»
+(`vehicleId` de la sesión).
+
+`GET /mis-combis` (Bearer, chofer o cobrador; Despacho recibe 403):
+
+```json
+{ "actual": "M-05", "todaLaRuta": false, "enRuta": false,
+  "combis": [
+    { "vehicleId": "M-05", "label": "Z1A-705", "routeId": "R-14", "routeName": "…", "estado": "libre", "quien": null, "desde": null },
+    { "vehicleId": "M-01", "label": "Z1A-701", "routeId": "R-14", "routeName": "…", "estado": "ocupada", "quien": "Juan", "desde": 1793393000000 }
+  ] }
+```
+
+`estado` es `libre`, `tuya` (el mando vivo es tuyo) u `ocupada` (otro la
+maneja ahora, con `quien` y la hora en que se lo oyó por última vez). La de
+hoy va primero.
+
+`POST /combi` con `{ "vehicleId": "M-01" }` la pasa a ser la de hoy:
+`200 { ok, vehicleId, routeId, routeName, label }`. La ruta va con la combi.
+**Elegir no toma nada**: la combi se toma al declarar `ruta` (§3.1), y si
+otro la maneja eso es un relevo —la app pide confirmarlo antes, nombrando a
+quién la tiene—. Una combi que no tiene habilitada (o de otra cooperativa)
+contesta `404`; estando en ruta en la de hoy, `409` («tocá SALIR DE RUTA
+antes de cambiar de combi»). Por el socket, a todas las conexiones de la
+persona les llega:
+
+```json
+{ "type": "combi", "vehicleId": "M-01", "routeId": "R-14", "routeName": "…" }
+```
+
+Y también al identificarse (§3). Si cambia con la pantalla EN RUTA (el que iba
+de acompañante, o el relevado), el chofer vuelve a la puerta: salir en la combi
+nueva es tocar SALIR A RUTA. El cobrador se queda donde está.
+
+seguido del `state`, el `chat_history` (el privado de COMBI es de la combi:
+el de hoy en M-01 ve lo que Despacho le escribió a M-01; lo suyo va por el
+privado PERSONAL, que lo sigue) y el `route_geometry` de su ruta. El cliente
+corrige su sesión con eso.
+
+Despacho: `POST /admin/users/:unitId/combis` con `{ "combis": ["M-01",
+"M-05"], "todaLaRuta": false, "actual": "M-05" }` (la lista entera; `actual`
+opcional cambia la de hoy, con la misma regla de no estar en ruta). Un
+Despacho de ruta sólo habilita combis de su ruta: una de otra que no tenía,
+`403`; las de otras rutas que ya tenía se conservan aunque no vengan en la
+lista. Elegir una combi con «cualquiera de su ruta» no la habilita: el que la
+eligió así no administra a sus cobradores. `GET /admin/users` trae
+`combis` y `todaLaRuta` de cada persona; `GET /admin/vehicles`, los
+`habilitados` de cada combi.
+
+## 4nonies. ¿Está bien el servidor?: `GET /ping` y `GET /salud`
+
+`/ping` (sin sesión) dice que el proceso vive: `200 { status: 'ok' }`.
+`/salud` (sin sesión, desde el 03/11) dice si está haciendo su trabajo:
+
+```json
+{ "ok": false, "estado": "falla", "problemas": ["disco_lleno"], "avisos": ["respaldo_viejo"],
+  "detalle": ["Queda muy poco disco: la base está por dejar de escribir.",
+              "El último respaldo es viejo: el automático no está corriendo."],
+  "time": "2026-11-03T10:36:33.412Z" }
+```
+
+`503` si hay algún **problema** (`base_no_lee`, `base_no_escribe`,
+`errores_de_base`, `disco_lleno`, `base_en_memoria` en producción); `200` si
+no, aunque haya **avisos** (`disco_poco`, `respaldo_nunca`, `respaldo_viejo`,
+`zona_horaria_utc`, `sin_wal`, `servidor_lento`, `base_en_memoria` en la
+demo). Sin números ni rutas: eso está en el panel del creador. Las apps no lo
+usan; es para el monitor externo y el healthcheck del despliegue.
 
 ## 5. Reconexión y caídas
 

@@ -164,17 +164,22 @@ function modelo(esc) {
     u * P.vueltasPorUnidadDia * fila.lap +
     u * P.chatPorUnidadHora * P.horasOperacionDia * fila.chat +
     u * P.vozPorUnidadDia * fila.voz +
-    u * P.fotosPorUnidadDia * fila.foto * 0.02 +   // solo 20 fotos conservan data
+    u * P.fotosPorUnidadDia * fila.foto +          // desde 0.8 todas conservan su imagen 30 días
     u * P.desviosPorUnidadDia * fila.desvio +
     u * 1.5 * fila.shift
   ) / 1024 ** 2;
   const establesGB = (
     u * P.vueltasPorUnidadDia * fila.lap * 120 +            // LAPS_DIAS
     u * P.chatPorUnidadHora * P.horasOperacionDia * fila.chat * 30 + // CHAT_DIAS
-    30 * fila.voz + 20 * fila.foto +                        // VOICE/PHOTO_KEEP (global)
+    // Fotos y voz: 30 días (MEDIA_DIAS), con el tope de 1500 de cada una POR
+    // cooperativa como techo (PENDIENTES 0.8; antes eran 20 y 30 en total).
+    // `fila.foto` es el peor caso (900 kB): la app las manda a 1280 px y
+    // calidad 0,5, que en la calle da más bien 200–300 kB.
+    Math.min(u * P.vozPorUnidadDia * 30, esc.coops * 1500) * fila.voz +
+    Math.min(u * P.fotosPorUnidadDia * 30, esc.coops * 1500) * fila.foto +
     u * P.desviosPorUnidadDia * fila.desvio * 120 +
     u * 1.5 * fila.shift * 365 +                            // shifts no se podan hoy
-    esc.coops * 1000 * fila.audit                           // AUDIT_POR_EMPRESA
+    esc.coops * (20_000 + 50_000 + 20_000) * fila.audit     // techos por clase de auditoría (0.9), peor caso
   ) / GB;
 
   // ── egress mensual del backend (GB) ──
@@ -249,7 +254,11 @@ function modelo(esc) {
   //    es CPU de JSON+WS y margen de punta) ──
   const vcpu = u <= 100 ? 0.5 : u <= 600 ? 1 : 2;
   const ramGB = vcpu;
-  const volumenGB = Math.max(1, Math.ceil(establesGB * 1.5));  // + respaldos rotados
+  // + los respaldos rotados. Cada uno es una copia ENTERA de la base (no
+  // comprimida: `db.backup()`), y se guardan RESPALDO_CONSERVAR = 28. El ×1,5
+  // que había acá venía de cuando la base era casi sólo texto; con las fotos
+  // de 30 días (PENDIENTES 0.8) la base y cada copia pesan lo mismo.
+  const volumenGB = Math.max(1, Math.ceil(establesGB * (1 + 28)));
 
   const costo = {
     vcpu: vcpu * PRECIOS.vcpuMes,

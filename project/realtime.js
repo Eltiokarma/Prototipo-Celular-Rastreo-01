@@ -40,6 +40,8 @@
   // servidor la tiene en memoria, y un reinicio suyo (o un corte de señal)
   // no puede convertir a alguien que declaró en alguien que nunca declaró.
   let presenciaDeclarada = null;
+  // ¿Ya llegó al servidor alguna vez? (ver `onopen`)
+  let presenciaEntregada = false;
 
   function emit(event, data) {
     (listeners[event] || []).forEach(fn => fn(data));
@@ -99,7 +101,22 @@
       // reinicio del servidor tampoco. Sin declarar (la puerta todavía no
       // se cruzó, o un cliente viejo), no se manda nada — el servidor trata
       // la ausencia de declaración como 'ruta', la compatibilidad de siempre.
-      if (presenciaDeclarada) send({ type: 'presencia', estado: presenciaDeclarada });
+      // El motivo 'auto' del vigía de la puerta viaja en ESTA si todavía no
+      // salió: en la puerta la web no tiene socket ni token (opción C).
+      //
+      // Y si ya se había entregado (esto es una reconexión, o la página que
+      // retoma tras un recargo), va como re-declaración: con otro manejando
+      // esa combi, el servidor no la toma como un relevo — un relevo es
+      // tocar SALIR A RUTA, no que vuelva la señal (revisión previa a la APK).
+      if (presenciaDeclarada) {
+        send(motivoPendiente
+          ? { type: 'presencia', estado: presenciaDeclarada, motivo: motivoPendiente }
+          : presenciaEntregada
+            ? { type: 'presencia', estado: presenciaDeclarada, redeclara: true }
+            : { type: 'presencia', estado: presenciaDeclarada });
+        motivoPendiente = null;
+        presenciaEntregada = true;
+      }
 
       // Arrancar el envío de GPS
       startGps();
@@ -133,6 +150,10 @@
           // lo está esperando como prueba de que salió.
           if (ecoTipo && msg.sosId === ecoTipo.sosId) { const r = ecoTipo.resolve; ecoTipo = null; r(msg); }
           emit('sostipo', msg);
+        } else if (msg.type === 'sos_atendido') {
+          // Despacho marcó atendido MI SOS (o el de mi combi): sólo llega al
+          // que lo pidió y a los que van arriba, también al reconectar
+          emit('sosatendido', msg);
         } else if (msg.type === 'chat_history') {
           emit('history', msg.items || []);
         } else if (msg.type === 'route_geometry') {
@@ -142,6 +163,10 @@
         } else if (msg.type === 'gps_role') {
           reportaGps = msg.reporting !== false;
           emit('gpsrole', msg);
+        } else if (msg.type === 'combi') {
+          // La combi de hoy cambió (la eligió en la puerta, o Despacho):
+          // la página corrige su sesión
+          emit('combi', msg);
         } else if (msg.type === 'auth_error') {
           // Sesión inválida o expirada: no tiene sentido reintentar
           authFailed = true;
@@ -196,6 +221,8 @@
     authToken = null;
     authUnitId = null;
     presenciaDeclarada = null;
+    presenciaEntregada = false;
+    motivoPendiente = null;
     reportaGps = true;
     lastPosition = null;
   }
@@ -284,6 +311,7 @@
     // hay primer fix, la demo sigue viva con el simulado; en producción se
     // dice «sin GPS».
     let gotFix = false;
+    let previaEnviada = null;   // { lat, lng, t } para la velocidad sin `speed`
     fallbackTimer = setTimeout(() => {
       if (!gotFix) sinGps('sin respuesta en 12 s');
     }, 12000);
@@ -315,6 +343,27 @@
       if (!reportaGps) return;
 
       const { latitude, longitude, speed, accuracy } = lastPosition.coords;
+      // Sin velocidad del aparato (`speed` nulo: ubicación por red, o un
+      // navegador que no la da) se mandaba 0, y el chofer andando veía «0
+      // km/h». Sale de la posición anterior: metros sobre segundos.
+      // Si entre dos envíos el GPS no trajo una posición nueva, se repite la
+      // última velocidad calculada (con la misma posición daría cero).
+      let kmh = speed != null && Number.isFinite(speed) ? speed * 3.6 : null;
+      if (kmh == null && previaEnviada) {
+        if (lastPosition.timestamp === previaEnviada.t) {
+          kmh = previaEnviada.kmh;
+        } else {
+          const dt = (lastPosition.timestamp - previaEnviada.t) / 1000;
+          if (dt >= 1 && dt <= 60) {
+            const kLng = Math.cos(latitude * Math.PI / 180);
+            const m = Math.hypot((latitude - previaEnviada.lat) * 111320, (longitude - previaEnviada.lng) * 111320 * kLng);
+            kmh = Math.min(120, (m / dt) * 3.6);
+          }
+        }
+      }
+      if (!previaEnviada || lastPosition.timestamp !== previaEnviada.t) {
+        previaEnviada = { lat: latitude, lng: longitude, t: lastPosition.timestamp, kmh };
+      }
 
       // routeProgress: estimamos qué tan avanzado está en la ruta
       // usando la latitud (simplificación para Juliaca).
@@ -325,13 +374,29 @@
         type: 'gps',
         lat: latitude,
         lng: longitude,
-        speed: speed ? Math.round(speed * 3.6) : 0, // m/s → km/h
+        speed: kmh ? Math.round(kmh) : 0, // km/h
         routeProgress,
         // Los metros de error del GPS, como manda la app nativa: con más de
         // 100 m el servidor no juzga desvío ni parada (TRUCOS, T11).
         ...(Number.isFinite(accuracy) && accuracy >= 0 ? { precision: Math.round(accuracy) } : {}),
+        ...(saludDelTelefono() ? { telefono } : {}),
       });
     }, 3000);
+  }
+
+  // La batería del teléfono para la tarjeta de Despacho (PENDIENTES 0.4).
+  // Chrome en Android la da; si el navegador no tiene `getBattery`, no se
+  // manda nada (no se inventa). Se lee una vez por minuto, sin esperar: va lo
+  // último leído. Si Android le aplica ahorro a la página la web no lo sabe.
+  let telefono = null, telefonoLeidoEn = 0;
+  function saludDelTelefono() {
+    if (navigator.getBattery && Date.now() - telefonoLeidoEn > 60_000) {
+      telefonoLeidoEn = Date.now();
+      navigator.getBattery().then(b => {
+        telefono = { origen: 'web', bateria: b.level, cargando: !!b.charging };
+      }).catch(() => {});
+    }
+    return telefono;
   }
 
   function stopGps() {
@@ -372,6 +437,7 @@
         speed: 25 + Math.round(Math.random() * 15),
         routeProgress: simProgress,
         simulado: true,
+        ...(saludDelTelefono() ? { telefono } : {}),
       });
     }, 3000);
   }
@@ -407,10 +473,16 @@
 
   // privado = va solo a Despacho (y a quien vaya en la misma combi), no al
   // grupo de la ruta. El servidor decide el destinatario: la propia unidad.
+  // `privado`: 'combi' (o true, como antes) = con Despacho sobre esta combi;
+  // 'persona' = con Despacho, sólo yo (31/10); falso = al grupo de la ruta
+  const aDestino = (privado) => ({
+    privado: privado === true || privado === 'combi',
+    ...(privado === 'persona' ? { personal: true } : {}),
+  });
   function sendChat(text, privado) {
     send({
       type: 'chat', text: String(text).slice(0, 500),
-      privado: !!privado, timestamp: Date.now(),
+      ...aDestino(privado), timestamp: Date.now(),
     });
   }
 
@@ -418,7 +490,7 @@
   // a todo el grupo y la guarda en el historial.
   function sendVoice(dataUrl, duration, privado) {
     if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:audio')) return;
-    send({ type: 'voice', data: dataUrl, duration, privado: !!privado, timestamp: Date.now() });
+    send({ type: 'voice', data: dataUrl, duration, ...aDestino(privado), timestamp: Date.now() });
   }
 
   // El SOS, con confirmación: devuelve { ok, via, sosId } y `ok` quiere decir
@@ -540,22 +612,42 @@
   // a la unidad en la cadena de brechas: eso lo confirma el servidor cuando
   // el GPS pisa el trazado.
   //
-  // «Fuera» va SIEMPRE también por HTTP: la pantalla corta el socket en el
-  // acto, y por uno medio muerto el «fuera» no llegaba — la combi quedaba en
-  // el mapa tres minutos, hasta el olvido. El servidor acepta el repetido.
-  function setPresencia(estado) {
+  // «Fuera» va también por HTTP cuando el socket puede estar medio muerto:
+  // la pantalla lo corta en el acto, y por uno así el «fuera» no llegaba — la
+  // combi quedaba en el mapa tres minutos, hasta el olvido. Pero SÓLO en ese
+  // caso: con el socket oído hace poco, el POST podía llegar DESPUÉS de un
+  // «ruta» declarado enseguida en la puerta (que ya va por HTTP) y sacar de
+  // ruta al que acababa de volver (repaso de la tanda 9). El servidor acepta
+  // el repetido.
+  const OIDO_RECIENTE_MS = 20_000;
+  // `motivo` = 'auto' cuando la declaró el vigía de la puerta y no el chofer
+  // (opción C, 30/10): el servidor lo anota para Despacho. Sólo viaja esta
+  // vez; lo que se re-declara al reconectar ya no lo lleva.
+  let motivoPendiente = null;
+  // `retomada`: la presencia que la página guardó antes de un recargo. No la
+  // eligió nadie ahora: viaja como re-declaración, igual que al reconectar.
+  function setPresencia(estado, motivo, { retomada = false } = {}) {
     presenciaDeclarada = estado;
+    presenciaEntregada = retomada;
+    motivoPendiente = null;
+    const cuerpo = motivo ? { estado, motivo } : retomada ? { estado, redeclara: true } : { estado };
     let porSocket = false;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ type: 'presencia', estado })); porSocket = true; } catch {}
+      try { ws.send(JSON.stringify({ type: 'presencia', ...cuerpo })); porSocket = true; presenciaEntregada = true; } catch {}
     }
-    if (porSocket && estado !== 'fuera') return;
+    const socketVivo = porSocket && Date.now() - ultimoOido < OIDO_RECIENTE_MS;
+    if (porSocket && (estado !== 'fuera' || socketVivo)) return;
+    // Sin socket ni token (la puerta de la web): sale con la conexión
+    if (!porSocket && !authToken && motivo) motivoPendiente = motivo;
     if (authToken) {
+      // «Entregada» recién cuando el servidor contesta bien: marcada antes,
+      // un socket que abría mientras tanto re-declaraba (`redeclara`), y con
+      // otro manejando quedaba sin GPS ni mando (revisión integral 04/11)
       fetch(HTTP_URL + '/presencia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
-        body: JSON.stringify({ estado }),
-      }).catch(() => {});
+        body: JSON.stringify(cuerpo),
+      }).then(r => { if (r.ok && presenciaDeclarada === estado) presenciaEntregada = true; }).catch(() => {});
     }
   }
 
@@ -582,8 +674,43 @@
     return reportaGps;
   }
 
+  // ─── LA COMBI, EN LA PUERTA (habilitaciones, 30/10) ─────────
+  // Antes de salir a ruta no hay socket ni token guardado acá: el token va
+  // explícito. Devuelven el JSON del servidor, o tiran con el mensaje.
+  async function pedirConToken(ruta, token, opciones = {}) {
+    let res;
+    try {
+      res = await fetch(HTTP_URL + ruta, {
+        ...opciones,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      });
+    } catch {
+      // Sin red el navegador dice «Failed to fetch», en inglés
+      const e = new Error('Sin conexión con el servidor. Probá de nuevo.'); e.status = 0; throw e;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { const e = new Error(data.error || 'No se pudo'); e.status = res.status; throw e; }
+    return data;
+  }
+  const misCombis = (token) => pedirConToken('/mis-combis', token);
+  // La marca y el teléfono de la central (PENDIENTES 0.5), para tenerlo al
+  // día sin volver a entrar
+  const pedirMarca = (token) => pedirConToken('/marca', token);
+  // La última posición si es reciente (la misma regla que el SOS): para el
+  // SMS a la central cuando el SOS no sale por internet
+  function posicionReciente() {
+    const fresca = lastPosition && Date.now() - (lastPosition.timestamp || 0) <= POSICION_SOS_MAX_MS;
+    return fresca ? { lat: lastPosition.coords.latitude, lng: lastPosition.coords.longitude } : null;
+  }
+  const elegirCombi = (token, vehicleId) =>
+    pedirConToken('/combi', token, { method: 'POST', body: JSON.stringify({ vehicleId }) });
+
   window.RealtimeClient = {
     login,
+    misCombis,
+    pedirMarca,
+    posicionReciente,
+    elegirCombi,
     connect,
     disconnect,
     logout,

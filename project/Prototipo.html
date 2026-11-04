@@ -132,7 +132,22 @@ if (typeof L === 'undefined') {
     white-space: nowrap;
   }
   .map-tooltip::before { display: none !important; }
+
+  /* En el teléfono la app ocupa la pantalla entera. El marco de Android, el
+     título y el texto de abajo son la vitrina para mirarla en una
+     computadora: en el celular del chofer dibujaban un teléfono adentro del
+     teléfono, con un reloj de mentira y la app achicada. */
+  html.telefono .page { padding: 0; gap: 0; }
+  html.telefono .header, html.telefono .meta { display: none; }
+  html.telefono .stage { margin: 0; width: 100%; }
+  .pantalla-completa { width: 100vw; height: 100vh; height: 100dvh; }
 </style>
+<script>
+  // Antes que React: así el primer cuadro ya sale sin marco.
+  window.ES_TELEFONO = () =>
+    matchMedia('(max-width: 600px)').matches || matchMedia('(display-mode: standalone)').matches;
+  document.documentElement.classList.toggle('telefono', window.ES_TELEFONO());
+</script>
 </head>
 <body>
 
@@ -145,10 +160,6 @@ if (typeof L === 'undefined') {
 
   <div class="stage" id="stage"></div>
 
-  <div class="meta">
-    Activa <strong style="color:#bbb">Tweaks</strong> desde la barra superior<br>
-    para cambiar escenarios, tipografía y modo de luz.
-  </div>
 </div>
 
 <div id="tweaks-mount"></div>
@@ -341,7 +352,7 @@ const TEMAS = {
     burbuja:      '#FFFFFF', burbujaInk:    '#0B2239',
     burbujaPropia:'#DCF5E4', burbujaPropiaInk:'#0C3B1E',
     burbujaAdmin: '#DCEBFB',
-    burbujaWarn:  '#FFF4D6', burbujaWarnInk: '#5C4100', warnEdge: '#A67300',
+    burbujaWarn:  '#FFF4D6', burbujaWarnInk: '#5C4100', warnEdge: '#A67300', warnEdgeInk: '#100B00',
     burbujaSos:   '#FFE1E7', burbujaSosInk:  '#68001A',
     // Mapa: tiles claros y tarjetas claras encima
     tiles: tilesUrl('positron'),
@@ -368,7 +379,7 @@ const TEMAS = {
     burbuja:      '#FFFFFF', burbujaInk:    '#04121F',
     burbujaPropia:'#D2F2DC', burbujaPropiaInk:'#04220F',
     burbujaAdmin: '#D2E6FA',
-    burbujaWarn:  '#FFEFC2', burbujaWarnInk: '#3D2B00', warnEdge: '#7A5400',
+    burbujaWarn:  '#FFEFC2', burbujaWarnInk: '#3D2B00', warnEdge: '#7A5400', warnEdgeInk: '#FFFFFF',
     burbujaSos:   '#FFD6DE', burbujaSosInk:  '#3D000B',
     tiles: tilesUrl('positron'),
     tarjeta: 'rgba(255,255,255,.96)', tarjetaSolida: '#FFFFFF',
@@ -394,7 +405,7 @@ const TEMAS = {
     burbuja:      '#141a21', burbujaInk:    '#DCE8F5',
     burbujaPropia:'#0b2e17', burbujaPropiaInk:'#DFFFD6',
     burbujaAdmin: '#14273c',
-    burbujaWarn:  '#2b2008', burbujaWarnInk: '#FFE6B8', warnEdge: '#FFB300',
+    burbujaWarn:  '#2b2008', burbujaWarnInk: '#FFE6B8', warnEdge: '#FFB300', warnEdgeInk: '#03060a',
     burbujaSos:   '#2b0812', burbujaSosInk:  '#FFD9E0',
     tiles: tilesUrl('dark-matter'),
     tarjeta: 'rgba(3,6,10,.8)', tarjetaSolida: 'rgba(3,6,10,.9)',
@@ -419,6 +430,31 @@ function aplicarTema(modo) {
   HUD_STATUS.none   = { c: HUD.dim3, ink: HUD.dim3 };
 }
 aplicarTema('day');
+
+// DÍA / NOCHE / AUTO, como la app nativa. AUTO va por el reloj con la misma
+// regla de `app/tema.js`: a 15° de latitud sur anochece entre 18:00 y 18:40 y
+// amanece entre 5:20 y 6:00 todo el año, así que alcanza con la hora. El
+// manual existe porque un túnel, una tormenta o un parabrisas polarizado no
+// los sabe el reloj. SOL EXTREMO queda en el panel de diseño, fuera del ciclo.
+const NOCHE_DESDE = 18.5;   // 18:30
+const NOCHE_HASTA = 5.5;    // 05:30
+function esDeNoche(fecha = new Date()) {
+  const h = fecha.getHours() + fecha.getMinutes() / 60;
+  return h >= NOCHE_DESDE || h < NOCHE_HASTA;
+}
+// El modo elegido ('auto' incluido) → el juego de tokens que se aplica
+function temaDe(modo, deNoche) {
+  if (modo === 'auto') return deNoche ? 'night' : 'day';
+  return TEMAS[modo] ? modo : 'day';
+}
+// El mismo orden que la nativa. De fábrica sigue siendo DÍA (no AUTO): el
+// primer toque lleva a NOCHE, que es para lo que se lo busca.
+const MODOS_CHOFER = ['auto', 'day', 'night'];
+const ETIQUETA_MODO = { auto: 'AUTO', day: 'DÍA', night: 'NOCHE', sun: 'SOL' };
+function siguienteModo(modo) {
+  const i = MODOS_CHOFER.indexOf(modo);
+  return MODOS_CHOFER[(i < 0 ? 0 : i + 1) % MODOS_CHOFER.length];
+}
 
 // Estado por lado: desvío relativo al objetivo (verde ≤15%, ámbar ≤30%)
 function sideStatus(gapStr, target) {
@@ -599,7 +635,35 @@ function AndroidNavBar({ dark = false }) {
   );
 }
 
-function AndroidDevice({ children, width = 412, height = 892, dark = false }) {
+// ¿Se está viendo en un teléfono? Escucha los cambios: girar la pantalla o
+// instalar la app como PWA lo puede cambiar con la página abierta.
+function usarTelefono() {
+  const [tel, setTel] = React.useState(() => window.ES_TELEFONO());
+  React.useEffect(() => {
+    const consultas = [matchMedia('(max-width: 600px)'), matchMedia('(display-mode: standalone)')];
+    const revisar = () => {
+      const t = window.ES_TELEFONO();
+      document.documentElement.classList.toggle('telefono', t);
+      setTel(t);
+    };
+    consultas.forEach(q => q.addEventListener('change', revisar));
+    return () => consultas.forEach(q => q.removeEventListener('change', revisar));
+  }, []);
+  return tel;
+}
+
+function AndroidDevice({ children, width = 412, height = 892, dark = false, completo = false }) {
+  // En el teléfono: sin marco ni barras de mentira. Las de verdad ya están.
+  if (completo) {
+    return (
+      <div className="pantalla-completa" style={{
+        background: dark ? '#1d1b20' : MD_C.surface,
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
+        {children}
+      </div>
+    );
+  }
   return (
     <div style={{
       width, height, borderRadius: 18, overflow: 'hidden',
@@ -672,7 +736,7 @@ function sinSenalPinHtml() {
   return `<div title="Sin señal: última posición conocida" style="width:12px;height:12px;border-radius:50%;background:transparent;border:2px dashed ${HUD.dim3};box-sizing:border-box;opacity:.7;"></div>`;
 }
 
-function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, routeId, modo, trazado }) {
+function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, routeId, modo, trazado, enLaCadena = otherUnits.length + 1 }) {
   const leafletRef = React.useRef(null);
   const tilesRef = React.useRef(null);
   const trazadoRef = React.useRef(null);
@@ -835,14 +899,20 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
       <div ref={initMap} style={{ position: 'absolute', inset: 0 }} data-noswipe="map" />
 
       {/* Chips superiores: ruta y unidades en línea */}
-      <div style={{ ...chipStyle, left: 18, color: HUD.fg }}>{routeId || 'RUTA'} · TERMINAL</div>
+      {/* La ruta, sin «· TERMINAL»: eso era de la maqueta y lo decía en
+          cualquier punto del recorrido. El conteo es el de la cadena, el
+          mismo número del HUD y de Despacho (C17): contar los puntos del
+          mapa sumaba ausentes y combis sin señal. */}
+      <div style={{ ...chipStyle, left: 18, color: HUD.fg }}>{routeId || 'RUTA'}</div>
       <div style={{ ...chipStyle, right: 18, color: HUD.green }}>
-        {otherUnits.length > 0 ? `${otherUnits.length + 1} EN RUTA` : 'SOLO TÚ'}
+        {enLaCadena > 1 ? `${enLaCadena} EN RUTA` : 'SOLO TÚ'}
       </div>
 
       {/* Barra inferior: la brecha del HUD nunca se pierde */}
       <div style={{
-        position: 'absolute', left: 18, right: 18, bottom: 26,
+        // 48 y no 26: en un teléfono la atribución del mapa ocupa dos
+        // renglones y la tarjeta la tapaba. Es obligatoria (licencia de OSM).
+        position: 'absolute', left: 18, right: 18, bottom: 48,
         background: HUD.tarjetaSolida, border: `1px solid ${HUD.line}`,
         borderRadius: 22, padding: '18px 20px',
         display: 'flex', flexDirection: 'column', gap: 14,
@@ -942,6 +1012,16 @@ function fmtDur(s) {
 function nowTime(ts) {
   const d = ts ? new Date(ts) : new Date();
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// La hora de un mensaje del historial. El chat guarda 30 días y los SOS un
+// año: un SOS de hace seis días aparecía con «04:18» a secas y se leía como
+// de esta mañana. Si no es de hoy, lleva el día.
+function horaChat(ts) {
+  if (!ts) return nowTime();
+  const d = new Date(ts);
+  if (d.toDateString() === new Date().toDateString()) return nowTime(ts);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${nowTime(ts)}`;
 }
 
 // Onda de 12 barras con alturas fijas del handoff.
@@ -1077,9 +1157,11 @@ function ChatMsg({ msg }) {
           <span style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 11, background: msg.privado ? HUD.warnEdge : P.bright,
-            color: '#fff',
+            // blanco sobre el ámbar de noche daba 1,79:1 (revisión previa a la APK)
+            color: msg.privado ? HUD.warnEdgeInk : P.white,
             padding: '2px 6px', borderRadius: 4, letterSpacing: 0.5,
-          }}>{msg.privado ? 'DESPACHO · PARA TU UNIDAD' : 'DESPACHO'}</span>
+          }}>{msg.privado === 'persona' ? 'DESPACHO · SOLO PARA VOS'
+            : msg.privado ? 'DESPACHO · PARA TU COMBI' : 'DESPACHO'}</span>
         )}
         <span style={{
           fontSize: 15, fontWeight: 700, color: nameColor,
@@ -1124,13 +1206,39 @@ function MicGlyph({ color, size = 24 }) {
   );
 }
 
-function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onSendVoice }) {
+// Los tres canales del chofer, y qué privado es cada uno (31/10):
+//   grupo     toda la ruta
+//   despacho  Despacho ↔ esta COMBI: lo ven los que van arriba hoy (chofer y
+//             cobrador) y los que la manejen después. Lo de la calle.
+//   personal  Despacho ↔ esta PERSONA: la sigue a cualquier combi, y no lo ve
+//             nadie más. Lo personal.
+const PRIVADO_DE_CANAL = { grupo: false, despacho: 'combi', personal: 'persona' };
+
+// 100 del grupo y 50 privados, los más nuevos de cada uno
+function recortarHilo(ms, grupo = 100, privados = 50) {
+  let g = 0, p = 0;
+  const fuera = new Set();
+  for (let i = ms.length - 1; i >= 0; i--) {
+    if (ms[i].privado) { if (++p > privados) fuera.add(i); }
+    else if (++g > grupo) fuera.add(i);
+  }
+  return fuera.size ? ms.filter((_, i) => !fuera.has(i)) : ms;
+}
+
+function ChatScreen({ messages, hud, online, connected, routeId, combi, persona, onSendText, onSendVoice }) {
   const scrollRef = React.useRef(null);
-  // 'grupo' = toda la ruta · 'despacho' = solo con Despacho, sobre esta unidad
   const [canal, setCanal] = React.useState('grupo');
-  // Cuántos privados de Despacho ya vio el chofer, para que el número de la
-  // pestaña sea "lo que falta ver" y no el total de la conversación.
-  const [privadosVistos, setPrivadosVistos] = React.useState(0);
+  const privadoDelCanal = PRIVADO_DE_CANAL[canal];
+  // Hasta qué hora vio el chofer los privados de Despacho en cada canal: el
+  // número de la pestaña es lo que llegó después. Antes se contaban, y el
+  // hilo tiene tope: al salirse uno viejo, uno nuevo quedaba sin número; y
+  // al recargar volvían como nuevos los ya leídos (revisión previa a la APK).
+  // Guardado por persona: en un teléfono compartido cada uno tiene lo suyo.
+  const claveVistos = 'r14_vistos_' + (persona || '');
+  const [privadosVistos, setPrivadosVistos] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(claveVistos) || 'null') || { despacho: 0, personal: 0 }; }
+    catch { return { despacho: 0, personal: 0 }; }
+  });
   const [draft, setDraft] = React.useState('');
   const [recording, setRecording] = React.useState(false);
   const [recElapsed, setRecElapsed] = React.useState(0);
@@ -1167,7 +1275,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
     setRecording(false);
     setRecElapsed(0);
     const dur = Math.round((Date.now() - rec.started) / 1000);
-    const privado = canal === 'despacho';
+    const privado = privadoDelCanal;
     const finish = (dataUrl) => { if (dur >= 1) onSendVoice(Math.min(dur, 60), dataUrl || null, privado); };
     if (rec.recorder && rec.recorder.state === 'recording') {
       rec.recorder.onstop = () => {
@@ -1204,17 +1312,22 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
   }, [recording]);
 
   // Los que manda Despacho: son los que exigen atención del chofer
-  const privadosDeDespacho = messages.filter(m => m.privado && m.role === 'admin').length;
+  const deDespacho = (k) => messages.filter(m => m.privado === PRIVADO_DE_CANAL[k] && m.role === 'admin');
+  const ultimoDe = (k) => deDespacho(k).reduce((max, m) => Math.max(max, m.ts || 0), 0);
+  const ultimoAbierto = canal === 'grupo' ? 0 : ultimoDe(canal);
   React.useEffect(() => {
-    if (canal === 'despacho') setPrivadosVistos(privadosDeDespacho);
-  }, [canal, privadosDeDespacho]);
-  const privadosPendientes = canal === 'despacho'
-    ? 0 : Math.max(0, privadosDeDespacho - privadosVistos);
+    if (canal === 'grupo' || ultimoAbierto <= (privadosVistos[canal] || 0)) return;
+    const v = { ...privadosVistos, [canal]: ultimoAbierto };
+    setPrivadosVistos(v);
+    try { localStorage.setItem(claveVistos, JSON.stringify(v)); } catch {}
+  }, [canal, ultimoAbierto]);
+  const pendientesDe = (k) => (k === 'grupo' || k === canal) ? 0
+    : deDespacho(k).filter(m => (m.ts || 0) > (privadosVistos[k] || 0)).length;
 
   const send = () => {
     const text = draft.trim();
     if (!text) return;
-    onSendText(text, canal === 'despacho');
+    onSendText(text, privadoDelCanal);
     setDraft('');
   };
 
@@ -1237,13 +1350,14 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
           <div style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 24, color: HUD.fg, letterSpacing: -0.5,
-          }}>{canal === 'despacho' ? 'DESPACHO' : `GRUPO ${routeId || 'RUTA'}`}</div>
+          }}>{canal === 'despacho' ? `COMBI ${combi || ''}`.trim()
+            : canal === 'personal' ? 'PERSONAL' : `GRUPO ${routeId || 'RUTA'}`}</div>
           <div style={{
             fontSize: 15, fontWeight: 700,
-            color: canal === 'despacho' ? HUD.warnEdge : (connected ? HUD.dim2 : HUD.amber),
+            color: canal !== 'grupo' ? HUD.warnEdge : (connected ? HUD.dim2 : HUD.amber),
             fontFamily: 'system-ui, sans-serif',
-          }}>{canal === 'despacho'
-            ? 'solo con tu unidad'
+          }}>{canal === 'despacho' ? 'con Despacho · lo ve tu combi'
+            : canal === 'personal' ? 'con Despacho · solo vos'
             : (connected ? `${online} en línea` : 'sin conexión')}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -1264,26 +1378,27 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
         </div>
       </div>
 
-      {/* Canales: el grupo de la ruta y lo de Despacho con esta unidad */}
+      {/* Canales: el grupo de la ruta, lo de Despacho con esta combi, y lo
+          de Despacho con esta persona */}
       <div style={{
-        display: 'flex', gap: 8, padding: '10px 16px 0',
+        display: 'flex', gap: 6, padding: '10px 14px 0',
       }}>
-        {[['grupo', `GRUPO ${routeId || 'RUTA'}`], ['despacho', 'DESPACHO']].map(([k, etiqueta]) => {
+        {[['grupo', `GRUPO ${routeId || 'RUTA'}`], ['despacho', `COMBI ${combi || ''}`.trim()], ['personal', 'PERSONAL']].map(([k, etiqueta]) => {
           const activo = canal === k;
-          const pendientes = k === 'despacho' ? privadosPendientes : 0;
+          const pendientes = pendientesDe(k);
           return (
-            <button key={k} onClick={() => setCanal(k)} style={{
-              flex: 1, height: 40, borderRadius: 12, cursor: 'pointer',
+            <button key={k} data-canal={k} onClick={() => setCanal(k)} style={{
+              flex: 1, minWidth: 0, height: 40, borderRadius: 12, cursor: 'pointer', padding: '0 4px',
               border: `1px solid ${activo ? P.bright : HUD.line}`,
               background: activo ? P.bright : 'transparent',
-              color: activo ? '#fff' : HUD.dim,
-              fontFamily: 'system-ui, sans-serif', fontSize: 14, fontWeight: 700,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+              color: activo ? P.white : HUD.dim,
+              fontFamily: 'system-ui, sans-serif', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             }}>
               {etiqueta}
               {pendientes > 0 && (
                 <span style={{
-                  background: HUD.warnEdge, color: '#fff', borderRadius: 9,
+                  background: HUD.warnEdge, color: HUD.warnEdgeInk, borderRadius: 9,
                   minWidth: 18, padding: '1px 5px', fontSize: 12, fontWeight: 800,
                 }}>{pendientes}</span>
               )}
@@ -1298,14 +1413,20 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
         padding: '12px 16px 10px',
         display: 'flex', flexDirection: 'column', gap: 14,
       }}>
-        {(canal === 'despacho'
-          ? messages.filter(m => m.privado)
-          : messages.filter(m => !m.privado)
-        ).map((m, i) => <ChatMsg key={i} msg={m} />)}
-        {canal === 'despacho' && !messages.some(m => m.privado) && (
+        {messages.filter(m => (m.privado || false) === privadoDelCanal)
+          .map((m, i) => <ChatMsg key={i} msg={m} />)}
+        {canal === 'despacho' && !messages.some(m => m.privado === 'combi') && (
           <div style={{ fontSize: 15, color: HUD.dim2, lineHeight: 1.5, padding: '4px 2px' }}>
-            Acá va lo que hablás <strong>solo con Despacho</strong> sobre tu unidad.
-            Lo que escribas de este lado no lo ven los otros choferes.
+            Acá va lo que Despacho habla <strong>con tu combi</strong>: lo ven el
+            chofer y el cobrador que van arriba, y el que la maneje después.
+            Los otros choferes, no.
+          </div>
+        )}
+        {canal === 'personal' && !messages.some(m => m.privado === 'persona') && (
+          <div style={{ fontSize: 15, color: HUD.dim2, lineHeight: 1.5, padding: '4px 2px' }}>
+            Acá va lo que hablás <strong>solo vos con Despacho</strong>. Te sigue
+            aunque cambies de combi, y no lo ve nadie más: ni tu cobrador, ni el
+            que maneje tu combi después.
           </div>
         )}
       </div>
@@ -1343,7 +1464,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, onSendText, onS
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') send(); }}
-            placeholder={canal === 'despacho' ? 'Mensaje a Despacho…' : 'Mensaje…'}
+            placeholder={canal === 'grupo' ? 'Mensaje…' : canal === 'personal' ? 'Mensaje solo a Despacho…' : 'Mensaje a Despacho…'}
             style={{
               flex: 1, minWidth: 0, height: controlH, boxSizing: 'border-box',
               borderRadius: controlH / 2,
@@ -1576,6 +1697,10 @@ function LoginScreen({ onSuccess, notice }) {
   const [error, setError] = React.useState(null);
   const [offerDemo, setOfferDemo] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  // «Olvidé mi contraseña» era un enlace a "#": tocarlo no hacía nada. No hay
+  // recuperación por correo (nadie tiene uno cargado): la clave nueva la pone
+  // Despacho, y eso es lo que hay que decir.
+  const [olvido, setOlvido] = React.useState(false);
   // La cooperativa de la última vez. En un celular recién instalado no hay
   // ninguna, y la pantalla queda genérica hasta el primer ingreso.
   const coop = coopRecordada();
@@ -1698,7 +1823,16 @@ function LoginScreen({ onSuccess, notice }) {
       </button>
 
       <div style={{ marginTop: 18, textAlign: 'center', fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, color: P.mute }}>
-        <a href="#" style={{ color: P.sky, textDecoration: 'none' }}>Olvidé mi contraseña</a>
+        <button onClick={() => setOlvido(o => !o)} style={{
+          background: 'none', border: 'none', padding: 6, cursor: 'pointer',
+          color: P.sky, fontSize: 13, fontFamily: 'inherit',
+        }}>Olvidé mi contraseña</button>
+        {olvido && (
+          <div style={{ marginTop: 8, lineHeight: 1.45, color: P.mute }}>
+            Pedile a Despacho de tu cooperativa que te ponga una clave nueva.
+            Si sos cobrador, también te la puede cambiar el chofer de tu combi.
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1 }} />
@@ -1708,13 +1842,193 @@ function LoginScreen({ onSuccess, notice }) {
         fontSize: 9, letterSpacing: 1.5, color: P.mute,
         textAlign: 'center', textTransform: 'uppercase',
       }}>
-        {coop ? 'Juliaca · Puno · 3 824 m' : COOP.full}
+        {/* Sin cooperativa recordada el subtítulo de arriba ya dice esto */}
+        {coop ? COOP.full : ''}
       </div>
     </div>
   );
 }
 
-function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRest, onLogout }) {
+// ── VIGÍA DE LA PUERTA (copia de app/puerta.js) ─────────────────
+// El chofer que entró, no tocó SALIR A RUTA y ya está manejando. En la puerta
+// la app no manda la ubicación —la política de privacidad lo promete—, pero
+// con la página abierta puede MIRARLA sin mandarla y darse cuenta: lejos de
+// donde entró y rodando a velocidad de combi, sostenido. Primero avisa con
+// cuenta regresiva; si nadie contesta, sale a ruta sola (opción C, 30/10).
+// Las razones de cada número están en app/puerta.js; la suite
+// `vigia-puerta` corre los mismos casos contra las dos copias y compara los
+// números. JS puro a propósito, sin JSX: la suite lo evalúa fuera de acá.
+const PUERTA_RADIO_M = 300;
+const PUERTA_MARCHA_KMH = 15;
+const PUERTA_VENTANA_MS = 30_000;
+const PUERTA_SEGUIDAS = 2;
+const PUERTA_AVISO_MS = 60_000;
+const PUERTA_CALLADO_MS = 30 * 60_000;
+const PUERTA_PRECISION_MAX_M = 100;
+function metrosEntrePuerta(aLat, aLng, bLat, bLng) {
+  const kLng = Math.cos((aLat + bLat) / 2 * Math.PI / 180);
+  return Math.hypot((bLat - aLat) * 111320, (bLng - aLng) * 111320 * kLng);
+}
+function crearVigiaPuerta({ calladoHasta: callado = 0 } = {}) {
+  let ancla = null, recientes = [], seguidas = 0, avisoDesde = null, calladoHasta = callado;
+  const vencio = (ts) => avisoDesde !== null && ts - avisoDesde >= PUERTA_AVISO_MS;
+  return {
+    posicion(lat, lng, ts = Date.now(), precisionM = null) {
+      if (avisoDesde !== null) return vencio(ts) ? 'salir' : null;
+      if (ts < calladoHasta) return null;
+      if (precisionM != null && precisionM > PUERTA_PRECISION_MAX_M) return null;
+      if (!ancla) ancla = { lat, lng };
+      recientes.push({ lat, lng, ts });
+      recientes = recientes.filter(p => ts - p.ts <= PUERTA_VENTANA_MS * 4);
+      const anterior = (t) => { let b = null; for (const p of recientes) if (t - p.ts >= PUERTA_VENTANA_MS) b = p; return b; };
+      const b1 = anterior(ts);
+      const b2 = b1 && anterior(b1.ts);
+      if (!b2) return null;
+      const kmh = (a, b) => metrosEntrePuerta(a.lat, a.lng, b.lat, b.lng) / ((b.ts - a.ts) / 1000) * 3.6;
+      const rodando = kmh(b1, { lat, lng, ts }) >= PUERTA_MARCHA_KMH && kmh(b2, b1) >= PUERTA_MARCHA_KMH;
+      const lejos = metrosEntrePuerta(ancla.lat, ancla.lng, lat, lng) > PUERTA_RADIO_M;
+      if (lejos && rodando) {
+        seguidas++;
+        if (seguidas >= PUERTA_SEGUIDAS) { avisoDesde = ts; return 'avisar'; }
+      } else {
+        seguidas = 0;
+      }
+      return null;
+    },
+    tic(ts = Date.now()) { return vencio(ts) ? 'salir' : null; },
+    faltaMs(ts = Date.now()) { return avisoDesde === null ? null : Math.max(0, PUERTA_AVISO_MS - (ts - avisoDesde)); },
+    callar(ts = Date.now()) { avisoDesde = null; seguidas = 0; ancla = null; recientes = []; calladoHasta = ts + PUERTA_CALLADO_MS; },
+  };
+}
+// ── FIN DEL VIGÍA DE LA PUERTA
+
+// La puerta mira el GPS sólo si el permiso YA está dado: pedirlo acá sería
+// pedir la ubicación antes de salir a ruta, que es lo que no se hace. El
+// primer día el permiso se pide al tocar SALIR A RUTA, como siempre.
+// Con la página escondida (pantalla apagada, otra app) el vigía no mira ni
+// cuenta, como en la nativa: la cuenta de 60 s corriendo a oscuras sacaba a
+// ruta a uno que no la veía (revisión previa a la APK).
+function usarPaginaVisible() {
+  const [visible, setVisible] = React.useState(() => typeof document === 'undefined' || !document.hidden);
+  React.useEffect(() => {
+    const cambio = () => setVisible(!document.hidden);
+    document.addEventListener('visibilitychange', cambio);
+    return () => document.removeEventListener('visibilitychange', cambio);
+  }, []);
+  return visible;
+}
+
+function usarVigiaPuerta(activo, onSalir) {
+  const vigia = React.useRef(null);
+  const [falta, setFalta] = React.useState(null);   // ms de la cuenta, o null
+  const salirRef = React.useRef(onSalir);
+  salirRef.current = onSalir;
+  // «No estoy manejando» vale media hora aunque el vigía se rehaga (la
+  // página se escondió y volvió)
+  const calladoHasta = React.useRef(0);
+  React.useEffect(() => {
+    if (!activo || !navigator.geolocation) { setFalta(null); return; }
+    vigia.current = crearVigiaPuerta({ calladoHasta: calladoHasta.current });
+    let vivo = true, watchId = null;
+    const reloj = setInterval(() => {
+      const v = vigia.current;
+      if (!v) return;
+      setFalta(v.faltaMs(Date.now()));
+      if (v.tic(Date.now()) === 'salir') { vivo = false; clearInterval(reloj); salirRef.current && salirRef.current(); }
+    }, 1000);
+    const mirar = () => {
+      if (!vivo) return;
+      watchId = navigator.geolocation.watchPosition((pos) => {
+        const v = vigia.current;
+        if (!vivo || !v) return;
+        const r = v.posicion(pos.coords.latitude, pos.coords.longitude, Date.now(), pos.coords.accuracy);
+        if (r === 'avisar') {
+          setFalta(v.faltaMs(Date.now()));
+          try { navigator.vibrate && navigator.vibrate([400, 200, 400, 200, 400]); } catch {}
+        }
+        if (r === 'salir') { vivo = false; salirRef.current && salirRef.current(); }
+      }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 });
+    };
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'geolocation' })
+        .then(p => { if (p.state === 'granted') mirar(); }).catch(() => {});
+    }
+    return () => {
+      vivo = false; clearInterval(reloj);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      vigia.current = null;
+    };
+  }, [activo]);
+  const callar = () => {
+    const ahora = Date.now();
+    if (vigia.current) vigia.current.callar(ahora);
+    calladoHasta.current = ahora + PUERTA_CALLADO_MS;
+    setFalta(null);
+  };
+  return { falta, callar };
+}
+
+// ¿En qué combi salís? (habilitaciones, 30/10). La lista y su estado —libre,
+// o quién la maneja— se refrescan cada 20 s: en la puerta de un relevo, el
+// otro puede estar llegando o yéndose.
+function usarCombis(token, actual) {
+  const [datos, setDatos] = React.useState(null);
+  const cargar = React.useCallback(() => {
+    if (!token || !window.RealtimeClient || !window.RealtimeClient.misCombis) return;
+    window.RealtimeClient.misCombis(token).then(setDatos).catch(() => {});
+  }, [token]);
+  React.useEffect(() => {
+    cargar();
+    const t = setInterval(cargar, 20_000);
+    return () => clearInterval(t);
+  }, [cargar, actual]);
+  return [datos, cargar];
+}
+
+function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRest, onLogout, onAutoStart, token, onCombi }) {
+  // Las combis que puede elegir. Elegir NO toma nada: la combi se toma al
+  // salir a ruta, y si otro la está manejando, eso es un relevo — por eso
+  // elegir una ocupada pide confirmar, nombrando a quién la tiene.
+  const [datosCombis, recargarCombis] = usarCombis(token, unidad);
+  const combis = (datosCombis && datosCombis.combis) || [];
+  // La de hoy la decide el servidor: si Despacho la cambió con la página en
+  // la puerta (o cerrada), la lista ya la trae primera y la sesión seguía
+  // con la vieja —y al salir a ruta el servidor la corría como M-05 y la
+  // pantalla como M-01— (revisión previa a la APK). Sólo cuando llega una
+  // lista nueva: elegir una acá cambia `unidad` antes que la lista.
+  React.useEffect(() => {
+    const actual = datosCombis && datosCombis.actual;
+    if (!actual || actual === unidad || !onCombi) return;
+    const c = combis.find(x => x.vehicleId === actual);
+    onCombi({ vehicleId: actual, routeId: c ? c.routeId : null, routeName: c ? c.routeName : null });
+  }, [datosCombis]);
+  // ¿Ya está manejando sin haber salido? (ver el vigía, arriba). No si la
+  // combi la está manejando otro: ahí el que maneja es él, y éste va de
+  // pasajero o la está por relevar — eso lo decide tocando SALIR A RUTA, no
+  // una cuenta que nadie contestó. Ni con la página escondida.
+  const deHoy = combis.find(c => c.vehicleId === unidad);
+  const ocupada = !!deHoy && deHoy.estado === 'ocupada';
+  const visible = usarPaginaVisible();
+  const { falta, callar } = usarVigiaPuerta(!!onAutoStart && !ocupada && visible, onAutoStart);
+  const [confirmar, setConfirmar] = React.useState(null);
+  const [errorCombi, setErrorCombi] = React.useState(null);
+  const [eligiendo, setEligiendo] = React.useState(false);
+  const elegir = async (c, confirmado = false) => {
+    if (c.vehicleId === unidad || eligiendo) return;
+    if (c.estado === 'ocupada' && !confirmado) { setConfirmar(c); return; }
+    setEligiendo(true); setErrorCombi(null);
+    try {
+      const r = await window.RealtimeClient.elegirCombi(token, c.vehicleId);
+      setConfirmar(null);
+      if (onCombi) onCombi(r);
+      recargarCombis();
+    } catch (e) {
+      setErrorCombi(e.message);
+      // La lista puede estar vieja (otro la tomó mientras tanto)
+      recargarCombis();
+    }
+    setEligiendo(false);
+  };
   const [countdown, setCountdown] = React.useState(15);
   React.useEffect(() => {
     if (countdown <= 0) return;
@@ -1727,7 +2041,8 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
   // cuando deja de verse, así que no hay una franja que mostrar. Se muestra
   // la ruta, que sí está en la sesión, y la tarjeta que no tiene dato no se
   // dibuja en vez de inventarlo.
-  const tarjetas = [['Unidad', unidad], ['Ruta', ruta]].filter(([, v]) => v);
+  // Con más de una combi, la unidad se elige abajo y no va en tarjeta
+  const tarjetas = [combis.length > 1 ? null : ['Unidad', unidad], ['Ruta', ruta]].filter(t => t && t[1]);
 
   return (
     <div style={{
@@ -1747,7 +2062,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 18, color: P.white, letterSpacing: -0.3,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>{user || 'RAÚL MAMANI'}</div>
+          }}>{user}</div>
         </div>
         {onLogout && (
           <button onClick={onLogout} style={{
@@ -1759,29 +2074,44 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
         )}
       </div>
 
-      {!isFirstLap && (
-        <div style={{
-          background: P.panel, border: `1px solid ${P.line}`, borderRadius: 14,
-          padding: '14px 16px', marginBottom: 16,
-          display: 'flex', alignItems: 'center', gap: 12,
+      {/* Parece que ya está manejando. Fuerte y arriba de todo: amarillo
+          sobre la pantalla, con la cuenta a la vista. Abajo, con dos o más
+          combis para elegir, quedaba fuera de la pantalla de un celular chico
+          y no se podía contestar (revisión previa a la APK). No es un toast
+          que se va solo: se va saliendo o diciendo que no. */}
+      {falta !== null && (
+        <div role="alert" data-vigia-puerta style={{
+          background: P.yellow, color: P.bg, borderRadius: 14,
+          padding: '14px 14px 12px', marginBottom: 12,
         }}>
           <div style={{
-            width: 40, height: 40, borderRadius: '50%',
-            background: P.green, color: P.bg,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: '"Archivo Black", system-ui', fontSize: 18, flexShrink: 0,
-          }}>✓</div>
-          <div>
-            <div style={{
-              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-              fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
-            }}>Vuelta {lapNumber - 1} completada</div>
-            <div style={{
-              fontFamily: '"Helvetica Neue", system-ui', fontSize: 15, fontWeight: 600, color: P.white,
-            }}>48 min · 42 pasajeros</div>
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 19, lineHeight: 1.15, marginBottom: 4,
+          }}>¿Ya estás manejando?</div>
+          <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, marginBottom: 10 }}>
+            Tu combi no está en el mapa. Salís a ruta solo en{' '}
+            <strong style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onStart} style={{
+              flex: 1, padding: '12px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              background: P.bg, color: P.yellow,
+              fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 14, letterSpacing: 1,
+            }}>SALIR AHORA</button>
+            <button onClick={callar} style={{
+              flex: 1, padding: '12px 8px', borderRadius: 10, cursor: 'pointer',
+              background: 'transparent', color: P.bg, border: `2px solid ${P.bg}`,
+              fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 800,
+            }}>No estoy manejando</button>
           </div>
         </div>
       )}
+
+      {/* Acá había una tarjeta «Vuelta N completada · 48 min · 42
+          pasajeros» de la maqueta: nadie cuenta pasajeros y la duración era
+          inventada. Nunca se llegó a ver (la vuelta no se lleva acá), pero
+          un número inventado esperando a que alguien lo conecte es una
+          trampa. La vuelta de verdad está en Despacho. */}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{
@@ -1828,6 +2158,71 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
               }}>{val}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {combis.length > 1 && (
+        <div data-combis style={{ marginBottom: 14 }}>
+          <div style={{
+            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+            fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase', marginBottom: 8,
+          }}>¿En qué combi salís?</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {combis.map(c => {
+              const elegida = c.vehicleId === unidad;
+              return (
+                <button key={c.vehicleId} data-combi={c.vehicleId} aria-pressed={elegida}
+                  onClick={() => elegir(c)} disabled={eligiendo} style={{
+                    display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', width: '100%',
+                    background: elegida ? P.navy : P.panel, color: P.white, cursor: 'pointer',
+                    border: `${elegida ? 2 : 1}px solid ${elegida ? P.bright : P.line}`,
+                    borderRadius: 12, padding: elegida ? '9px 11px' : '10px 12px',
+                  }}>
+                  <span style={{ fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 20, letterSpacing: -0.3 }}>{c.vehicleId}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{
+                      display: 'block', fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10,
+                      letterSpacing: 1, color: P.sky, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>{[c.label, c.routeId !== rutaId ? c.routeName : null].filter(Boolean).join(' · ')}</span>
+                    <span style={{
+                      display: 'block', fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 700,
+                      color: c.estado === 'ocupada' ? P.yellow : P.sky,
+                    }}>{c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}</span>
+                  </span>
+                  {elegida && (
+                    <span style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10, letterSpacing: 1.5, color: P.sky }}>ELEGIDA</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {/* Elegir una que maneja otro: se confirma nombrando a quién. Es
+              un relevo, y se hace a propósito, no por un dedo que se corrió. */}
+          {confirmar && (
+            <div role="alert" style={{
+              marginTop: 8, background: P.panel, border: `1px solid ${P.yellow}`, borderRadius: 12, padding: 12,
+            }}>
+              <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, color: P.white, marginBottom: 10 }}>
+                {confirmar.vehicleId} la está manejando <strong>{confirmar.quien}</strong>. Si es un relevo, al
+                salir a ruta la tomás vos y a {confirmar.quien} se le avisa.
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => elegir(confirmar, true)} disabled={eligiendo} style={{
+                  flex: 1, padding: '11px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                  background: P.yellow, color: P.bg,
+                  fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 13, letterSpacing: 0.5,
+                }}>ES UN RELEVO</button>
+                <button onClick={() => setConfirmar(null)} style={{
+                  flex: 1, padding: '11px 8px', borderRadius: 10, cursor: 'pointer',
+                  background: 'transparent', color: P.sky, border: `1px solid ${P.line}`,
+                  fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 700,
+                }}>Cancelar</button>
+              </div>
+            </div>
+          )}
+          {errorCombi && (
+            <div style={{ marginTop: 8, fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, color: P.red }}>{errorCombi}</div>
+          )}
         </div>
       )}
 
@@ -1978,7 +2373,15 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   // apurar hacia un embotellamiento es el pelotón que este sistema existe
   // para evitar. El de ATRÁS trabado no es un peligro: se dice, ritmo normal.
   // Mismas frases que `instruccionDe` en app/hud.js.
-  const instruction = hud.front.enTrafico
+  // AUSENTE y YENDO, como en la app nativa. Sin esto el ausente leía
+  // «Sos la única unidad en ruta» (está fuera de la cadena: nadie se mide
+  // contra él), y el que acaba de salir y todavía no pisó el trazado, lo
+  // mismo — que se lee como una falla del sistema.
+  const ausente = presencia === 'ausente';
+  const yendo = !ausente && presencia === 'ruta' && connected && miEstado?.confirmada === false;
+  const instruction = yendo
+    ? 'YENDO A LA RUTA: tu brecha y tu vuelta arrancan al pisar el trazado.'
+    : hud.front.enTrafico
     ? `${hud.front.unit} ${hud.front.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada'} ${hud.front.traficoMin} min. Mantené: no te apures hacia el embotellamiento.`
     : hud.back.enTrafico
       ? `${hud.back.unit} (atrás) ${hud.back.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${hud.back.traficoMin} min. Mantené el ritmo.`
@@ -2050,7 +2453,30 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         </div>
       </div>
 
+      {/* AUSENTE: fuera de la cadena. No hay brecha que mostrar y decir
+          «sin nadie» sería mentir: hay gente, sólo que no se mide contra vos. */}
+      {ausente && (
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+          padding: '0 18px', position: 'relative', minHeight: 0,
+        }}>
+          <div style={{
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 30, letterSpacing: 1, color: HUD.amber,
+          }}>AUSENTE</div>
+          <div style={{
+            fontSize: 16, lineHeight: 1.5, color: sun ? '#3D5C7A' : '#93AAC2',
+            marginTop: 10, fontFamily: 'system-ui, sans-serif',
+          }}>
+            Estás fuera de la cadena: nadie se mide contra vos y tu vuelta quedó
+            descartada. Despacho te sigue viendo en el mapa. Para volver, tocá
+            VOLVER A RUTA arriba.
+          </div>
+        </div>
+      )}
+
       {/* bloque héroe */}
+      {!ausente && (
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
         padding: '0 18px', position: 'relative', minHeight: 0,
@@ -2081,7 +2507,8 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
           </div>
         )}
         <div style={{
-          fontSize: 16, lineHeight: 1.5, color: sun ? '#3D5C7A' : '#93AAC2',
+          fontSize: 16, lineHeight: 1.5, color: yendo ? HUD.amber : sun ? '#3D5C7A' : '#93AAC2',
+          fontWeight: yendo ? 700 : 400,
           marginTop: 10, fontFamily: 'system-ui, sans-serif',
         }}>{instruction}</div>
 
@@ -2133,6 +2560,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
           </div>
         )}
       </div>
+      )}
 
       {/* tramo — los paraderos no existen en el modelo del servidor: son de
           la maqueta. En vivo esta línea se calla en vez de decir el nombre
@@ -2158,7 +2586,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
       {/* «Estoy en tráfico», de un toque, como en la app nativa: al de atrás
           le cambia la instrucción a «mantené». Si el servidor ya vio la
           parada, el botón pregunta. Se apaga solo al andar (C16). */}
-      {onTrafico && (
+      {onTrafico && !ausente && (
         <div style={{ padding: '0 18px 8px' }}>
           <button data-noswipe="trafico" onClick={() => onTrafico(!miEstado?.trafico)} style={{
             width: '100%', height: 42, borderRadius: 12, cursor: 'pointer',
@@ -2172,12 +2600,12 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
       )}
       {onPresencia && (
         <div style={{ padding: '0 18px 10px', position: 'relative', display: 'flex', gap: 8 }}>
-          <button data-noswipe="presencia" onClick={() => onPresencia('ausente')} style={{
+          {!ausente && <button data-noswipe="presencia" onClick={() => onPresencia('ausente')} style={{
             flex: 1, height: 42, borderRadius: 12, cursor: 'pointer',
             border: `1px solid ${HUD.amber}`, background: 'transparent',
             color: HUD.amber, fontSize: 12, fontWeight: 800, letterSpacing: 1,
             fontFamily: 'system-ui, sans-serif',
-          }}>AUSENTE</button>
+          }}>AUSENTE</button>}
           <button data-noswipe="presencia" onClick={() => {
             if (!confirmarSalida) { setConfirmarSalida(true); return; }
             setConfirmarSalida(false);
@@ -2201,7 +2629,22 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   );
 }
 
-function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
+// ─── EL SOS POR OTRO CAMINO (PENDIENTES 0.5, 03/11) ───────────────
+// Si el SOS no sale por internet, decir «NO SALIÓ» no alcanza: hay que
+// darle al chofer por dónde pedir ayuda igual. Una llamada o un SMS salen con
+// señal de voz aunque no haya datos, que es lo que pasa en las zonas sin
+// cobertura de internet. La central la carga la gerencia; los números de
+// emergencia del Perú están siempre.
+const EMERGENCIAS = [['105', 'Policía'], ['106', 'SAMU · ambulancia'], ['116', 'Bomberos']];
+function textoSmsSos({ combi, nombre, pos }) {
+  const donde = pos
+    ? ` Estoy en ${pos.lat.toFixed(5)},${pos.lng.toFixed(5)} https://maps.google.com/?q=${pos.lat.toFixed(5)},${pos.lng.toFixed(5)}`
+    : ' No tengo mi posición.';
+  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet).`;
+}
+const urlSms = (numero, texto) => `sms:${numero}?body=${encodeURIComponent(texto)}`;
+
+function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, combi, persona, nombre, central, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
   // mide 0×0 y no renderiza nada.
@@ -2218,6 +2661,19 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
   const startY = React.useRef(0);
   const lockedAxis = React.useRef(null);
   const containerRef = React.useRef(null);
+  // El ancho de una página del carrusel, medido. Leerlo en el render daba
+  // 380 en el primer cuadro (todavía no hay ref) y no se enteraba de un giro
+  // de pantalla: en un teléfono de 360 px se veía el borde de la otra página.
+  const [w, setW] = React.useState(380);
+  React.useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const medir = () => { if (el.offsetWidth) setW(el.offsetWidth); };
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [emergencyFired, setEmergencyFired] = React.useState(false);
   // El SOS que NO salió: se dice, en rojo, en vez de mentir «enviada» (C3)
   const [sosFallo, setSosFallo] = React.useState(false);
@@ -2228,12 +2684,9 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
       return () => clearTimeout(t);
     }
   }, [emergencyFired]);
-  React.useEffect(() => {
-    if (sosFallo) {
-      const t = setTimeout(() => setSosFallo(false), 4000);
-      return () => clearTimeout(t);
-    }
-  }, [sosFallo]);
+  // El que NO salió ya no se borra solo a los 4 s: ahora trae por dónde
+  // pedir ayuda (llamar, SMS) y eso tiene que estar hasta que el chofer lo
+  // use o lo cierre. Si el siguiente intento sale, se va.
 
   const onDown = (x, y) => {
     setDragging(true);
@@ -2254,7 +2707,6 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
   };
   const onUp = () => {
     if (!dragging) return;
-    const w = containerRef.current?.offsetWidth || 380;
     const threshold = w * 0.25;
     if (lockedAxis.current === 'x') {
       if (dragDx < -threshold && page < 2) goToPage(page + 1);
@@ -2289,7 +2741,6 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
   // excluye ausentes y «yendo»), el mismo número que Despacho. Antes se
   // contaba `otherUnits + 1` y los dos paneles decían cosas distintas (C17).
   const unitsOnRoute = Number.isFinite(totalOnRoute) ? totalOnRoute : otherUnits.length + 1;
-  const w = containerRef.current?.offsetWidth || 380;
   const translateX = -page * w + (lockedAxis.current === 'x' ? dragDx : 0);
 
   return (
@@ -2321,20 +2772,54 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
           </div>
         </div>
       )}
-      {sosFallo && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 99,
-          background: HUD.bg, border: `6px solid ${HUD.red}`, boxSizing: 'border-box',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
-        }}>
-          <div style={{
-            color: HUD.red, fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 30, fontWeight: 900, letterSpacing: 2, textAlign: 'center', lineHeight: 1.2,
+      {sosFallo && (() => {
+        const sms = central ? urlSms(central, textoSmsSos({ combi, nombre, pos: sosFallo.pos })) : null;
+        const boton = (fuerte) => ({
+          display: 'block', width: '100%', boxSizing: 'border-box', textAlign: 'center', textDecoration: 'none',
+          padding: fuerte ? '16px 12px' : '12px 10px', borderRadius: 12, marginBottom: 10,
+          fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: fuerte ? 17 : 14, letterSpacing: 0.5,
+          background: fuerte ? HUD.red : HUD.surface, color: fuerte ? P.white : HUD.fg,
+          border: `2px solid ${fuerte ? HUD.red : HUD.divider}`,
+        });
+        return (
+          <div role="alert" data-sos-sin-red style={{
+            position: 'absolute', inset: 0, zIndex: 99, overflowY: 'auto',
+            background: HUD.bg, border: `6px solid ${HUD.red}`, boxSizing: 'border-box',
+            display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 20,
           }}>
-            SOS<br/>NO SALIÓ<br/><span style={{ fontSize: 15, letterSpacing: 1, color: HUD.fg, fontFamily: 'system-ui, sans-serif' }}>Sin conexión. Volvé a deslizar, o llamá.</span>
+            <div style={{
+              color: HUD.red, fontFamily: '"Archivo Black", system-ui, sans-serif',
+              fontSize: 28, fontWeight: 900, letterSpacing: 2, textAlign: 'center', lineHeight: 1.15, marginBottom: 6,
+            }}>SOS NO SALIÓ</div>
+            <div style={{ color: HUD.fg, fontSize: 15, textAlign: 'center', lineHeight: 1.4, marginBottom: 16 }}>
+              Sin internet. Pedí ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+            </div>
+            {central ? (
+              <>
+                <a href={`tel:${central}`} data-llamar-central style={boton(true)}>LLAMAR A LA CENTRAL · {central}</a>
+                <a href={sms} data-sms-central style={boton(true)}>
+                  MANDAR SMS A LA CENTRAL{sosFallo.pos ? ' CON TU POSICIÓN' : ''}
+                </a>
+              </>
+            ) : (
+              <div style={{ color: HUD.dim2, fontSize: 13, textAlign: 'center', marginBottom: 12, lineHeight: 1.4 }}>
+                Tu cooperativa no cargó el teléfono de la central.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              {EMERGENCIAS.map(([n, quien]) => (
+                <a key={n} href={`tel:${n}`} style={{ ...boton(false), flex: 1, padding: '10px 4px', fontSize: 13 }}>
+                  {n}<br/><span style={{ fontFamily: 'system-ui, sans-serif', fontSize: 11, fontWeight: 700 }}>{quien}</span>
+                </a>
+              ))}
+            </div>
+            <button onClick={() => setSosFallo(false)} style={{
+              marginTop: 6, padding: 10, background: 'none', border: 'none', cursor: 'pointer',
+              color: HUD.dim2, fontSize: 13, fontFamily: 'inherit', textDecoration: 'underline',
+            }}>Cerrar y volver a deslizar el SOS</button>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div style={{
         display: 'flex',
@@ -2349,6 +2834,8 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
             online={unitsOnRoute}
             connected={connected}
             routeId={routeId}
+            combi={combi}
+            persona={persona}
             onSendText={onSendText}
             onSendVoice={onSendVoice}
           />
@@ -2363,7 +2850,9 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
             onFireSos={async () => {
               // El cartel rojo sólo cuando LLEGÓ: el servidor contestó (C3)
               const r = onSos ? await onSos() : null;
-              if (r && r.ok) setEmergencyFired(true); else setSosFallo(true);
+              if (r && r.ok) { setEmergencyFired(true); setSosFallo(false); }
+              else setSosFallo({ en: Date.now(), pos: window.RealtimeClient && window.RealtimeClient.posicionReciente
+                ? window.RealtimeClient.posicionReciente() : null });
             }}
             presencia={presencia}
             onPresencia={onPresencia}
@@ -2389,8 +2878,9 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
             currentStop={tweaks.currentStop}
             nextStop={tweaks.nextStop}
             routeId={routeId}
-            modo={tweaks.mode}
+            modo={tema}
             trazado={trazado}
+            enLaCadena={unitsOnRoute}
           />
         </div>
       )}
@@ -2402,7 +2892,7 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
         gap: 8, zIndex: 10, height: 36,
       }}>
         {[0,1,2].map(i => (
-          <button key={i}
+          <button key={i} aria-label={['Chat', 'Brechas', 'Mapa'][i]}
             onClick={(e) => { e.stopPropagation(); goToPage(i); }}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => { e.stopPropagation(); goToPage(i); }}
@@ -2423,6 +2913,33 @@ function Carousel({ tweaks, otherUnits = [], gapMeta, routeId, connected, gpsRol
           </button>
         ))}
       </div>
+
+      {/* El tema va en esta barra y no en la pantalla de la brecha: está en
+          las tres, y si se hace de noche mientras el chofer mira el mapa
+          tiene que poder apagarlo sin volver. Un toque, sin confirmar: se
+          deshace con otro. Fondo de tarjeta porque sobre el mapa no hay. */}
+      {onModo && (
+        <button data-tema={tweaks.mode}
+          aria-label={`Tema: ${ETIQUETA_MODO[tweaks.mode] || 'DÍA'}. Tocá para cambiar`}
+          onClick={(e) => { e.stopPropagation(); onModo(siguienteModo(tweaks.mode)); }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute', top: 0, right: 6, zIndex: 10,
+            height: 36, minWidth: 64, padding: '0 4px',
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            WebkitTapHighlightColor: 'transparent',
+          }}
+        >
+          <span style={{
+            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+            fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: HUD.dim2,
+            background: HUD.tarjeta, border: `1px solid ${HUD.line}`, borderRadius: 6,
+            padding: '4px 8px', pointerEvents: 'none',
+          }}>{ETIQUETA_MODO[tweaks.mode] || 'DÍA'}</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -2564,7 +3081,7 @@ function TweaksPanel({ tweaks, setTweaks, visible, onNav, currentScreen }) {
 
       <TweakRow label="Modo de luz">
         <Seg value={tweaks.mode} onChange={v => update({ mode: v })}
-          options={[{ v: 'day', l: 'Día' }, { v: 'sun', l: 'Sol extremo' }, { v: 'night', l: 'Noche' }]}
+          options={[{ v: 'auto', l: 'Auto' }, { v: 'day', l: 'Día' }, { v: 'sun', l: 'Sol' }, { v: 'night', l: 'Noche' }]}
         />
       </TweakRow>
 
@@ -2594,15 +3111,27 @@ function Root() {
     // cada mañana. De fábrica es DÍA, que es como se usa la app.
     try {
       const guardado = localStorage.getItem('r14_modo');
-      if (guardado && TEMAS[guardado]) return { ...DEFAULT_TWEAKS, mode: guardado };
+      if (guardado && (TEMAS[guardado] || guardado === 'auto')) return { ...DEFAULT_TWEAKS, mode: guardado };
     } catch {}
     return DEFAULT_TWEAKS;
   });
 
+  // En AUTO la hora se revisa cada minuto, no en cada render: el cambio
+  // ocurre una vez por turno y nadie está mirando cuando se hace de noche.
+  // Sólo se guarda si es de noche o no, así React no re-dibuja si nada cambió.
+  const [deNoche, setDeNoche] = React.useState(() => esDeNoche());
+  React.useEffect(() => {
+    if (tweaks.mode !== 'auto') return;   // elegido a mano: el reloj no manda
+    setDeNoche(esDeNoche());
+    const t = setInterval(() => setDeNoche(esDeNoche()), 60_000);
+    return () => clearInterval(t);
+  }, [tweaks.mode]);
+  const tema = temaDe(tweaks.mode, deNoche);
+
   // Los tokens del tema se aplican ANTES de renderizar los hijos: HUD es un
   // objeto que se muta, así que tiene que estar en su valor final cuando las
   // pantallas lo leen. Es idempotente, no importa que corra en cada render.
-  aplicarTema(tweaks.mode);
+  aplicarTema(tema);
   React.useEffect(() => {
     try { localStorage.setItem('r14_modo', tweaks.mode); } catch {}
     // El marco de la página también, para que no quede un fondo negro
@@ -2612,8 +3141,12 @@ function Root() {
     r.setProperty('--pag-fg', HUD.resplandor ? '#eee' : HUD.fg);
     r.setProperty('--pag-dim', HUD.resplandor ? '#888' : HUD.dim2);
     r.setProperty('--pag-dim2', HUD.resplandor ? '#666' : HUD.dim3);
-  }, [tweaks.mode]);
+  }, [tweaks.mode, tema]);
   const [tweaksVisible, setTweaksVisible] = React.useState(false);
+  // En el teléfono no hay marco: los avisos de arriba van pegados al borde
+  // y no debajo de una barra de estado dibujada.
+  const telefono = usarTelefono();
+  const arriba = telefono ? 8 : 40;
   const [screen, setScreen] = React.useState(DEFAULT_TWEAKS.initialScreen || 'login');
   const [user, setUser] = React.useState(null);
   const [lap, setLap] = React.useState(1);
@@ -2631,6 +3164,35 @@ function Root() {
   // El id de MI último SOS, esperando (si puedo) que le ponga nombre. La
   // alerta ya salió: elegir es opcional y la barra se va sola a los 5 min.
   const [sosPropio, setSosPropio] = React.useState(null);
+  // «Despacho vio tu SOS» (31/10): lo primero que quiere saber el que pidió
+  // ayuda. Queda hasta que lo toca; los ya cerrados no vuelven al reconectar.
+  const [sosVisto, setSosVisto] = React.useState(null);
+  // El teléfono de la central (PENDIENTES 0.5): el de la sesión guardada —que
+  // es lo que hay sin internet— y, si se puede, el de ahora. En su propio
+  // estado y no en `user`: el socket depende de `user` y se reconectaría.
+  const [central, setCentral] = React.useState(null);
+  React.useEffect(() => { setCentral(user?.central || null); }, [user?.central, user?.unitId]);
+  React.useEffect(() => {
+    if (screen !== 'app' || !user?.token || !window.RealtimeClient?.pedirMarca) return;
+    window.RealtimeClient.pedirMarca(user.token).then(m => {
+      const c = (m && m.marca && m.marca.central) || null;
+      setCentral(c);
+      // Y en la sesión guardada, para la próxima vez sin internet
+      try {
+        const g = JSON.parse(localStorage.getItem('r14_session') || 'null');
+        if (g && g.unitId === user.unitId && g.central !== c) localStorage.setItem('r14_session', JSON.stringify({ ...g, central: c }));
+      } catch {}
+    }).catch(() => {});
+  }, [screen, user?.token]);
+  const cerrarSosVisto = () => {
+    if (sosVisto) {
+      try {
+        const vistos = JSON.parse(localStorage.getItem('r14_sos_vistos') || '[]');
+        localStorage.setItem('r14_sos_vistos', JSON.stringify([...vistos, sosVisto.sosId].slice(-20)));
+      } catch {}
+    }
+    setSosVisto(null);
+  };
   React.useEffect(() => {
     if (sosPropio == null) return;
     const t = setTimeout(() => setSosPropio(null), 5 * 60_000);
@@ -2645,21 +3207,31 @@ function Root() {
   const connectedRef = React.useRef(false);
   const myUnitIdRef = React.useRef(null);
 
-  const pushMsg = (m) => setMessages(ms => [...ms.slice(-99), m]);
+  // El hilo tiene tope, pero los privados no compiten con el grupo: con 150
+  // del grupo, un mensaje más sacaba del hilo los tres de Despacho y la
+  // pestaña COMBI quedaba vacía (revisión previa a la APK).
+  const pushMsg = (m) => setMessages(ms => recortarHilo([...ms, m]));
 
   // La presencia declarada, igual que en la app nativa: 'fuera' (la puerta),
   // 'ruta', 'ausente'. Cambiarla toca tres mundos y el orden importa: el
   // estado de React (la pantalla), el disco (para retomar tras un recargo) y
   // el servidor (la declaración — RealtimeClient la re-manda al reconectar).
   const [presencia, setPresencia] = React.useState('fuera');
-  const declararPresencia = (nueva) => {
+  const declararPresencia = (nueva, motivo) => {
     setPresencia(nueva);
     try {
       if (nueva === 'fuera') localStorage.removeItem('r14_presencia');
       else localStorage.setItem('r14_presencia', nueva);
     } catch {}
-    if (window.RealtimeClient) window.RealtimeClient.setPresencia(nueva);
+    if (window.RealtimeClient) window.RealtimeClient.setPresencia(nueva, motivo);
   };
+  // «Saliste a ruta solo»: se ve arriba unos segundos al entrar a la pantalla
+  const [avisoSalida, setAvisoSalida] = React.useState(null);
+  React.useEffect(() => {
+    if (!avisoSalida) return;
+    const t = setTimeout(() => setAvisoSalida(null), 12_000);
+    return () => clearTimeout(t);
+  }, [avisoSalida]);
 
   // Restaurar la sesión guardada: el chofer no tipea su clave cada día.
   // Y si la página murió a mitad de turno (recargo, batería), la presencia
@@ -2672,7 +3244,7 @@ function Root() {
         const previa = localStorage.getItem('r14_presencia');
         if (previa === 'ruta' || previa === 'ausente') {
           setPresencia(previa);
-          if (window.RealtimeClient) window.RealtimeClient.setPresencia(previa);
+          if (window.RealtimeClient) window.RealtimeClient.setPresencia(previa, null, { retomada: true });
           setScreen('app');
         } else {
           setScreen('start');
@@ -2680,6 +3252,43 @@ function Root() {
       }
     } catch {}
   }, []);
+
+  // La combi de hoy cambió: la eligió en la puerta, o Despacho. La sesión
+  // guardada también, para que mañana la puerta diga la que es.
+  //
+  // Si es la misma, nada: el socket depende de `user`, un objeto nuevo lo
+  // reconecta, y el servidor manda la combi en cada identify — eran cientos
+  // de reconexiones por minuto (revisión previa a la APK).
+  const cambiarCombi = (r, { delServidor = false } = {}) => {
+    if (!r || !r.vehicleId || !user) return;
+    const routeId = r.routeId || user.routeId, routeName = r.routeName || user.routeName;
+    if (r.vehicleId === user.vehicleId && routeId === user.routeId && routeName === user.routeName) return;
+    const otraCombi = r.vehicleId !== user.vehicleId;
+    setUser(u => {
+      if (!u) return u;
+      const nuevo = { ...u, vehicleId: r.vehicleId, routeId: r.routeId || u.routeId, routeName: r.routeName || u.routeName };
+      try {
+        // El teléfono de la central que se guardó DESPUÉS del login (lo
+        // actualiza `/marca`) no se pisa con el de `user`, que es el del
+        // login: si no, sin internet el SOS mostraba el número viejo
+        // (revisión integral del 04/11)
+        const g = JSON.parse(localStorage.getItem('r14_session') || 'null');
+        const guardar = g && g.unitId === nuevo.unitId && 'central' in g ? { ...nuevo, central: g.central } : nuevo;
+        if (nuevo.token) localStorage.setItem('r14_session', JSON.stringify(guardar));
+      } catch {}
+      return nuevo;
+    });
+    setRutaVigente(null);
+    // Despacho le cambió la combi con la pantalla en ruta (iba de
+    // acompañante, o lo habían relevado): vuelve a la puerta. Si no, al
+    // reconectar re-declaraba 'ruta' en la combi nueva —que puede estar
+    // manejando otro—. Salir a ruta en ella es tocar SALIR A RUTA. El
+    // cobrador no: no maneja, sigue arriba de la que le digan.
+    if (delServidor && otraCombi && screen === 'app' && user.role !== 'collector') {
+      declararPresencia('fuera');
+      setScreen('start');
+    }
+  };
 
   const onLogin = (session) => {
     setUser(session);
@@ -2689,6 +3298,16 @@ function Root() {
       if (session.token) localStorage.setItem('r14_session', JSON.stringify(session));
     } catch {}
     setScreen('start');
+  };
+
+  // Lo «en vivo» de la sesión: brechas, vecinos, trazado, rol de GPS. En un
+  // teléfono compartido el que entra después veía «en vivo» las brechas del
+  // anterior hasta que llegaba su primer estado (repaso de la tanda 9).
+  const olvidarLoVivo = () => {
+    setGapMeta(null); setOtherUnits([]); setTotalOnRoute(null);
+    setRouteId(null); setTrazado({ ida: [], vuelta: [] });
+    setGpsRole({ reporting: true, reason: null }); setGpsAviso(null);
+    setMiEstado({ trafico: false, parado: false });
   };
 
   const logout = () => {
@@ -2706,7 +3325,8 @@ function Root() {
       // ni el privado con Despacho, ni el SOS a medio calificar.
       if (window.RealtimeClient.olvidarSesion) window.RealtimeClient.olvidarSesion();
     }
-    setMessages([]); setSosPropio(null); setRutaVigente(null);
+    setMessages([]); setSosPropio(null); setSosVisto(null); setRutaVigente(null);
+    olvidarLoVivo();
     setUser(null);
     setScreen('login');
   };
@@ -2735,7 +3355,8 @@ function Root() {
       try { localStorage.removeItem('r14_session'); localStorage.removeItem('r14_presencia'); } catch {}
       // Lo de esta persona no pasa a la siguiente (barrido del 22/9)
       if (window.RealtimeClient.olvidarSesion) window.RealtimeClient.olvidarSesion();
-      setMessages([]); setSosPropio(null); setPresencia('fuera'); setRutaVigente(null);
+      setMessages([]); setSosPropio(null); setSosVisto(null); setPresencia('fuera'); setRutaVigente(null);
+      olvidarLoVivo();
       setUser(null);
       setAuthNotice('Tu sesión expiró. Ingresá de nuevo.');
       setScreen('login');
@@ -2747,6 +3368,9 @@ function Root() {
     });
     // Sin GPS (permiso denegado, sin fix): se dice, no se inventa (C4)
     window.RealtimeClient.on('gps', ({ ok, motivo }) => setGpsAviso(ok ? null : (motivo || 'sin GPS')));
+    // La combi de hoy cambió con la página conectada (Despacho, o el
+    // cobrador): se corrige la sesión
+    window.RealtimeClient.on('combi', (m) => cambiarCombi(m, { delServidor: true }));
 
     window.RealtimeClient.on('state', (state) => {
       // La ruta y su objetivo de brecha los define el servidor, no la app:
@@ -2784,8 +3408,14 @@ function Root() {
       // chofer detenido en el paradero veía que iba a 28.
       if (miUnidad) {
         setTweaks(t => ({ ...t, avgSpeed: Math.round(miUnidad.speed || 0) }));
-        setMiEstado({ trafico: !!miUnidad.trafico, parado: !!miUnidad.parado });
       }
+      // ¿El servidor ya me vio sobre el trazado? Es SU palabra, igual que en
+      // la app nativa: mientras no, la pantalla dice «yendo a la ruta» en vez
+      // de «sos la única unidad en ruta».
+      setMiEstado({
+        trafico: !!miUnidad?.trafico, parado: !!miUnidad?.parado,
+        confirmada: !!miUnidad && miUnidad.enRuta !== false,
+      });
       setTotalOnRoute(Number.isFinite(state.totalOnRoute) ? state.totalOnRoute : null);
       // `vivo` le dice al HUD que a partir de acá manda el servidor, null
       // incluido: sin esta marca no hay forma de distinguir "no hay nadie
@@ -2819,12 +3449,12 @@ function Root() {
         const own = it.unitId === myUnitId;
         const from = own ? 'TÚ' : (it.driverName || it.unitId || 'Conductor');
         const role = own ? 'you' : 'driver';
-        const time = nowTime(it.timestamp);
+        const time = horaChat(it.timestamp);
         const isDispatch = it.role === 'dispatch' && !own;
         const msgRole = own ? 'you' : (isDispatch ? 'admin' : 'driver');
         const tone = isDispatch ? 'info' : 'normal';
         const unit = it.vehicleId && it.vehicleId !== myVehicleId ? it.vehicleId : null;
-        const privado = !!it.toVehicleId;
+        const privado = it.toPersonId ? 'persona' : (it.toVehicleId ? 'combi' : false);
         if (it.kind === 'sos') {
           return { from: it.driverName || it.unitId || 'Conductor', role: 'driver', unit,
                    sosId: it.sosId ?? null,
@@ -2833,13 +3463,13 @@ function Root() {
         }
         if (it.kind === 'voice') {
           // las notas viejas pierden el audio en el servidor: quedan expiradas
-          return { from, role: msgRole, unit, privado, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
+          return { from, role: msgRole, unit, privado, ts: it.timestamp, voice: it.duration, audio: it.data || null, expired: !it.data, time, tone };
         }
         if (it.kind === 'photo') {
           // ídem las fotos: la burbuja queda, la imagen se fue
-          return { from, role: msgRole, unit, privado, photo: it.data || null, expired: !it.data, text: it.text || '', time, tone };
+          return { from, role: msgRole, unit, privado, ts: it.timestamp, photo: it.data || null, expired: !it.data, text: it.text || '', time, tone };
         }
-        return { from, role: msgRole, unit, privado, text: it.text, time, tone };
+        return { from, role: msgRole, unit, privado, ts: it.timestamp, text: it.text, time, tone };
       }));
     });
 
@@ -2852,9 +3482,10 @@ function Root() {
         from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
         role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
         unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
-        privado: !!m.toVehicleId,
+        privado: m.toPersonId ? 'persona' : (m.toVehicleId ? 'combi' : false),
+        ts: m.timestamp,
         text: m.text,
-        time: nowTime(m.timestamp),
+        time: horaChat(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
       });
     });
@@ -2867,10 +3498,11 @@ function Root() {
         from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
         role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
         unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
-        privado: !!m.toVehicleId,
+        privado: m.toPersonId ? 'persona' : (m.toVehicleId ? 'combi' : false),
+        ts: m.timestamp,
         voice: m.duration,
         audio: m.data,
-        time: nowTime(m.timestamp),
+        time: horaChat(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
       });
     });
@@ -2885,9 +3517,10 @@ function Root() {
         from: own ? 'TÚ' : (m.driverName || m.unitId || 'Conductor'),
         role: own ? 'you' : (isDispatch ? 'admin' : 'driver'),
         unit: m.vehicleId && m.vehicleId !== myVehicleId ? m.vehicleId : null,
-        privado: !!m.toVehicleId,
+        privado: m.toPersonId ? 'persona' : (m.toVehicleId ? 'combi' : false),
+        ts: m.timestamp,
         photo: m.data || null, expired: !m.data, text: m.text || '',
-        time: nowTime(m.timestamp),
+        time: horaChat(m.timestamp),
         tone: isDispatch ? 'info' : 'normal',
       });
     });
@@ -2917,10 +3550,16 @@ function Root() {
         unit: a.vehicleId && a.vehicleId !== myVehicleId ? a.vehicleId : null,
         sosId: a.sosId ?? null,
         text: 'SOS — pide ayuda',
-        time: nowTime(a.timestamp),
+        time: horaChat(a.timestamp),
         tone: 'sos',
       });
       setIncomingSos(a);
+    });
+
+    window.RealtimeClient.on('sosatendido', (e) => {
+      let vistos = [];
+      try { vistos = JSON.parse(localStorage.getItem('r14_sos_vistos') || '[]'); } catch {}
+      if (!vistos.includes(e.sosId)) setSosVisto(e);
     });
 
     // El tipo llega después que el SOS y actualiza la burbuja ya dibujada:
@@ -2948,14 +3587,15 @@ function Root() {
     return () => window.RealtimeClient.disconnect();
   }, [user, screen]);
 
-  // privado = solo con Despacho, sobre esta unidad; si no, al grupo de la ruta
+  // privado = 'combi' (con Despacho, sobre esta combi), 'persona' (con
+  // Despacho, sólo yo) o false (al grupo de la ruta)
   const sendText = (text, privado) => {
     if (connectedRef.current) {
       window.RealtimeClient.sendChat(text, privado); // el eco del servidor lo agrega al hilo
     } else {
       // Sin conexión NO salió, y se dice: se pintaba «Tú ✓✓» y desaparecía
       // al volver la señal, sin haber salido nunca (barrido del 22/9).
-      pushMsg({ from: 'TÚ', role: 'you', privado: !!privado, text, time: nowTime(), tone: 'normal', noSalio: true });
+      pushMsg({ from: 'TÚ', role: 'you', privado: privado || false, text, time: nowTime(), tone: 'normal', noSalio: true });
     }
   };
 
@@ -2965,7 +3605,7 @@ function Root() {
     if (connectedRef.current && dataUrl) {
       window.RealtimeClient.sendVoice(dataUrl, seconds, privado);
     } else {
-      pushMsg({ from: 'TÚ', role: 'you', privado: !!privado, voice: seconds, audio: dataUrl || null, time: nowTime(), tone: 'normal', noSalio: true });
+      pushMsg({ from: 'TÚ', role: 'you', privado: privado || false, voice: seconds, audio: dataUrl || null, time: nowTime(), tone: 'normal', noSalio: true });
     }
   };
 
@@ -3008,11 +3648,26 @@ function Root() {
       lapNumber={lap}
       onStart={() => { declararPresencia('ruta'); setScreen('app'); }}
       onRest={() => { declararPresencia('ausente'); setScreen('app'); }}
+      // El vigía vio que ya maneja y nadie contestó: sale solo, y se le dice
+      // (y al servidor, para que Despacho lo vea en Actividad)
+      onAutoStart={user?.role === 'collector' ? null : () => {
+        declararPresencia('ruta', 'auto');
+        setAvisoSalida('Te vimos manejando: saliste a ruta solo');
+        setScreen('app');
+      }}
       onLogout={logout}
+      token={user?.token || null}
+      onCombi={cambiarCombi}
     />;
   } else {
     content = <CombiScreen
       tweaks={tweaks}
+      tema={tema}
+      combi={user?.vehicleId || user?.unitId || null}
+      persona={user?.unitId || null}
+      nombre={user?.driverName || null}
+      central={central}
+      onModo={(modo) => setTweaks(t => ({ ...t, mode: modo }))}
       otherUnits={otherUnits}
       gapMeta={gapMeta}
       routeId={routeId || user?.routeId || null}
@@ -3038,7 +3693,7 @@ function Root() {
 
   return (
     <>
-      <AndroidDevice width={380} height={780} dark={HUD.resplandor}>
+      <AndroidDevice width={380} height={780} dark={HUD.resplandor} completo={telefono}>
         {content}
         {/* AUSENTE, dicho todo el tiempo: fuera de la cadena, la vuelta
             descartada, Despacho lo sigue viendo quieto. La barra vive
@@ -3048,7 +3703,7 @@ function Root() {
             en vez de dibujar una posición inventada (C4). */}
         {screen === 'app' && gpsAviso && (
           <div style={{
-            position: 'absolute', left: 10, right: 10, top: presencia === 'ausente' ? 112 : 40, zIndex: 96,
+            position: 'absolute', left: 10, right: 10, top: presencia === 'ausente' ? arriba + 72 : arriba, zIndex: 96,
             background: HUD.surface, border: `2px solid ${HUD.red}`,
             borderRadius: 12, padding: '10px 12px',
           }}>
@@ -3058,9 +3713,22 @@ function Root() {
             </div>
           </div>
         )}
+        {/* Salió solo (el vigía de la puerta): que lo sepa, unos segundos */}
+        {screen === 'app' && avisoSalida && !gpsAviso && presencia !== 'ausente' && (
+          <div role="status" style={{
+            position: 'absolute', left: 10, right: 10, top: arriba, zIndex: 95,
+            background: HUD.surface, border: `2px solid ${HUD.amber}`,
+            borderRadius: 12, padding: '10px 12px',
+          }}>
+            <div style={{ color: HUD.amber, fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>SALISTE A RUTA SOLO</div>
+            <div style={{ color: HUD.dim2, fontSize: 11, lineHeight: 1.35 }}>
+              Te vimos manejando sin haber tocado SALIR A RUTA. Despacho lo ve en la actividad.
+            </div>
+          </div>
+        )}
         {screen === 'app' && presencia === 'ausente' && (
           <div style={{
-            position: 'absolute', left: 10, right: 10, top: 40, zIndex: 97,
+            position: 'absolute', left: 10, right: 10, top: arriba, zIndex: 97,
             background: HUD.surface, border: `2px solid ${HUD.amber}`,
             borderRadius: 12, padding: '10px 12px',
             display: 'flex', alignItems: 'center', gap: 10,
@@ -3079,13 +3747,30 @@ function Root() {
             }}>VOLVER A RUTA</button>
           </div>
         )}
+        {/* Despacho vio mi SOS: arriba, hasta que lo toque. Dice quién y a
+            qué hora lo marcó; no promete nada que no sepamos (que la ayuda
+            esté en camino lo dice Despacho, por el chat o por teléfono). */}
+        {screen === 'app' && sosVisto && (
+          <button role="status" data-sos-visto onClick={cerrarSosVisto} style={{
+            position: 'absolute', left: 10, right: 10, top: arriba, zIndex: 99, textAlign: 'left',
+            background: HUD.surface, border: `2px solid ${HUD.green}`, borderRadius: 12,
+            padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            {/* greenInk y no green: el verde sobre la superficie del tema
+                día da 3,8:1, poco para 13 px */}
+            <div style={{ color: HUD.greenInk, fontSize: 13, fontWeight: 900, letterSpacing: 1 }}>DESPACHO VIO TU SOS</div>
+            <div style={{ color: HUD.fg, fontSize: 12, lineHeight: 1.35, marginTop: 2 }}>
+              Lo marcó atendido {sosVisto.por || 'Despacho'} a las {nowTime(sosVisto.en)}. Tocá para cerrar.
+            </div>
+          </button>
+        )}
         {/* ¿Qué pasó? — DESPUÉS de disparar mi SOS, con la alerta ya
             enviada. En una emergencia nadie navega un menú antes de pedir
             ayuda: esto es lo de después, si el chofer puede. Sin tocar
             nada queda como SOS genérico y la barra se va sola. */}
         {sosPropio != null && (
           <div style={{
-            position: 'absolute', left: 10, right: 10, bottom: 84, zIndex: 98,
+            position: 'absolute', left: 10, right: 10, bottom: telefono ? 60 : 84, zIndex: 98,
             background: HUD.surface, border: `2px solid ${HUD.red}`,
             borderRadius: 14, padding: 12,
           }}>

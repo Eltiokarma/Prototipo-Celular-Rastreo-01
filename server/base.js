@@ -59,6 +59,14 @@ function hashPassword(password) {
   return `${salt}:${hash}`;
 }
 
+// La misma huella, sin frenar el hilo principal (scrypt corre en el pool de
+// libuv). Para las altas en tanda: 500 huellas seguidas eran 22 s de
+// servidor congelado (revisión integral del 04/11).
+function hashPasswordAsync(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return new Promise((ok, mal) => crypto.scrypt(password, salt, 32, (e, k) => e ? mal(e) : ok(`${salt}:${k.toString('hex')}`)));
+}
+
 function verifyPassword(password, stored) {
   const [salt, hash] = String(stored).split(':');
   if (!salt || !hash) return false;
@@ -85,4 +93,5 @@ function idLimpio(v) {
 const ID_RESERVADOS = new Set(['CREADOR', 'SISTEMA']);
 const idReservado = (id) => ID_RESERVADOS.has(String(id || '').toUpperCase());
 
-module.exports = { openDatabase, hashPassword, verifyPassword, idLimpio, idReservado, ID_VALIDO };
+module.exports = {
+  hashPasswordAsync, openDatabase, hashPassword, verifyPassword, idLimpio, idReservado, ID_VALIDO };

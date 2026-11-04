@@ -34,7 +34,7 @@
 </head>
 <body>
 <h1>Política de privacidad — Control de ruta</h1>
-<p class="fecha">Vigente desde el 24 de agosto de 2026.</p>
+<p class="fecha">Vigente desde el 4 de noviembre de 2026.</p>
 
 <p><strong>Control de ruta</strong> es la aplicación del conductor y el
 cobrador de una cooperativa de transporte que contrató este sistema de
@@ -50,7 +50,13 @@ cooperativa creó: no tiene registro abierto ni usuarios anónimos.</p>
   ubicación se dibuja la combi en el mapa de su cooperativa y se calcula
   la separación con las demás. <strong>Fuera del turno no se emite
   ubicación</strong>: al declarar «fuera de ruta» (o al cerrar sesión) el
-  GPS se apaga, y una ausencia prolongada lo apaga sola.</li>
+  GPS se apaga, y una ausencia prolongada lo apaga sola. En la pantalla de
+  inicio de turno, con la aplicación abierta y el permiso ya dado, el
+  teléfono <strong>mira</strong> la ubicación sin enviarla, sólo para darse
+  cuenta de si el conductor ya está manejando sin haber salido a ruta: si es
+  así le avisa, y si no contesta en un minuto sale a ruta por él —desde ahí
+  emite como en cualquier turno, y la cooperativa ve que la salida fue
+  automática—.</li>
   <li><strong>Identidad de la cuenta.</strong> Nombre, alias opcional,
   vehículo y rol, cargados por la cooperativa. Las contraseñas se
   guardan cifradas de forma irreversible.</li>
@@ -58,6 +64,12 @@ cooperativa creó: no tiene registro abierto ni usuarios anónimos.</p>
   y fotos que el usuario decide mandar, incluida la emergencia (SOS).</li>
   <li><strong>Actividad del turno</strong>: horas en ruta, vueltas al
   circuito y desvíos del trazado, calculados de la ubicación.</li>
+  <li><strong>Estado del teléfono</strong>, mientras está en ruta y junto
+  con la ubicación: el nivel de batería, si está cargando, si el sistema le
+  aplica ahorro de batería a la aplicación y la versión de la app. Sirve
+  para que la central sepa por qué una combi dejó de verse (batería
+  agotada, ahorro de batería) sin tener que llamar al conductor. No se
+  guarda: se ve sólo el último valor.</li>
   <li><strong>Grabación de recorrido</strong>: solo si el conductor la
   inicia (o acepta el pedido de su central), se guarda el trazado
   recorrido para cargarlo como recorrido oficial de la ruta.</li>
@@ -81,17 +93,26 @@ venden ni se comparten con terceros para sus propios fines.</strong></p>
   para funcionar: el servidor se aloja en Railway, y el fondo del mapa
   puede pedir imágenes de mapa a Geoapify (ese pedido lleva la dirección
   IP del teléfono, como cualquier descarga; no lleva la identidad de la
-  cuenta).</li>
+  cuenta). Las copias de respaldo de la base se guardan además en un
+  almacenamiento aparte, <strong>cifradas</strong>: ese proveedor guarda
+  archivos que no puede leer.</li>
 </ul>
 
 <h2>Cuánto tiempo se guardan</h2>
 <table>
   <tr><th>Dato</th><th>Retención</th></tr>
-  <tr><td>Mensajes del chat (texto, voz, fotos)</td><td>30 días</td></tr>
+  <tr><td>Mensajes del chat (texto)</td><td>30 días</td></tr>
+  <tr><td>Fotos y notas de voz</td><td>30 días. Si una cooperativa junta más de 1500 de cada una, las más viejas se borran antes; queda el aviso de que existieron</td></tr>
+  <tr><td>Mensajes que Despacho guardó como evidencia (con el motivo y quién lo hizo)</td><td>365 días, como un SOS; Despacho puede quitarles la marca antes</td></tr>
   <tr><td>Vueltas y desvíos de ruta</td><td>120 días</td></tr>
   <tr><td>Turnos (horas trabajadas)</td><td>365 días</td></tr>
   <tr><td>Emergencias (SOS)</td><td>365 días</td></tr>
+  <tr><td>Registro de actividad: inicios de sesión</td><td>90 días</td></tr>
+  <tr><td>Registro de actividad: lo del recorrido (desvíos, SOS, cambios de combi)</td><td>365 días</td></tr>
+  <tr><td>Registro de actividad: altas, bajas, cambios de clave y correcciones</td><td>2 años</td></tr>
   <tr><td>Posición en vivo</td><td>Solo la última conocida; no se guarda el recorrido continuo</td></tr>
+  <tr><td>Estado del teléfono (batería, ahorro de batería)</td><td>Solo el último valor, en memoria; no se guarda</td></tr>
+  <tr><td>Copias de respaldo cifradas</td><td>Las borra el almacenamiento a los 30 días</td></tr>
   <tr><td>Grabaciones de recorrido</td><td>Hasta 25 por cooperativa; las más viejas se borran solas</td></tr>
 </table>
 
@@ -104,7 +125,11 @@ auditadas.</p>
 <h2>Sus derechos</h2>
 <p>La cuenta la administra su cooperativa: para corregir sus datos, o
 para darse de baja y pedir el borrado de lo que no sea registro laboral
-de la cooperativa, el primer canal es su central (Despacho). También
+de la cooperativa, el primer canal es su central (Despacho). También puede
+pedirle una copia de todo lo que el sistema tiene de usted: Despacho la baja
+en un archivo, con sus mensajes, fotos, turnos y vueltas. El formulario
+de consentimiento que firma con su cooperativa está en
+<a href="/consentimiento">/consentimiento</a>. También
 puede escribir a <strong>__CONTACTO__</strong>.</p>
 
 <h2>Cambios</h2>

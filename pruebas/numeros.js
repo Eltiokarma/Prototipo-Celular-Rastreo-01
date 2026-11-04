@@ -236,7 +236,7 @@ let servidor = null;
        /;texto;/.test(csv) && /;nota de voz;/.test(csv) && /;foto;/.test(csv),
        filas.slice(5, 7));
     ok('dice si fue al grupo o en privado, y con quién',
-       /al grupo de la ruta/.test(csv) && /privado con M-01/.test(csv),
+       /al grupo de la ruta/.test(csv) && /privado con la combi M-01/.test(csv),
        filas.filter(l => /privado|grupo/.test(l)).slice(0, 2));
     ok('la nota de voz lleva su duración', /;nota de voz;[^;]*;;12;/.test(csv),
        filas.filter(l => /nota de voz/.test(l)));

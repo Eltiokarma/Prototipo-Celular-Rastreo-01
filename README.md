@@ -79,11 +79,20 @@ app/                La app del chofer, nativa (Expo). El servidor no cambia.
                       herramientas/vendor-leaflet.js — no se edita a mano
   voz.js / foto.js    Grabar audio y sacar fotos. Acá SÍ hay Expo
   gps/servicio.js     GPS en segundo plano: foreground service y cadencia
+  actualizacion.js    Cuándo se aplica una actualización sin reinstalar
+                      (EAS Update): nunca en ruta. Ver app/README.md
+  nativo.json         La foto de lo nativo de esta versión: si cambia sin
+                      subir la versión, la suite `actualizacion` falla
   App.js              Las pantallas. Solo dibujan
                     Todos menos los tres últimos son JS puro y sin React a
                     propósito: corren en Node, así que tienen suites de verdad
                     y no hace falta un teléfono para saber si andan. Es donde
                     vivieron todos los bugs de esta pantalla
+
+compilar-app.bat    Compila la APK en la nube de Expo (lo nativo)
+publicar-arreglo.bat  Publica un arreglo de JavaScript a los teléfonos sin
+                    reinstalar (EAS Update): primero a tu teléfono, después
+                    a todos; y vuelve atrás si algo sale mal
 
 herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
   flota.js            Veinte combis falsas manejando la ruta de verdad, para
@@ -95,6 +104,9 @@ herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
                       corre a mano y SOLO al subir la versión de Leaflet; la
                       suite `vendor` falla si alguien se olvida
 
+manual/             El manual de usuario (manual.pdf) y su fuente en LaTeX,
+                    con capturas sacadas de la app de verdad por
+                    `capturas.js`. Ver manual/README.md
 pruebas/            Sesenta y ocho suites de regresión. La mayoría contra el servidor de verdad.
                     `npm test` desde la raíz. Ver pruebas/README.md
 chats/              Transcripts históricos del diseño (solo referencia)
@@ -164,7 +176,9 @@ arrancar. Nada más: el respaldo ES la base.
 
 Limitaciones conocidas del sistema: ver **LIMITACIONES.md**.
 Plan de crecimiento a 20+ rutas con números: ver **ESCALABILIDAD.md**.
-Lo que falta construir, ordenado: ver **PENDIENTES.md**.
+Lo que falta construir, ordenado: ver **PENDIENTES.md**. Lo que tiene que hacer a mano el que opera —cuentas,
+variables, simulacros—: **TAREAS-FUERA-DEL-CODIGO.md**. Y los últimos parches, con lo que conviene mirar
+de cada uno para una revisión integral: **CAMBIOS-PARA-REVISAR.md**.
 
 **Variables de entorno**, todas opcionales salvo donde se aclare:
 
@@ -206,10 +220,79 @@ calle. Suite `renovacion`.
 | `RESPALDO_CADA_H` | Cada cuántas horas se respalda la base sola (6). `0` lo apaga |
 | `RESPALDO_CONSERVAR` | Cuántos respaldos se guardan antes de rotar (28 ≈ una semana) |
 | `RESPALDO_DIR` | Dónde se guardan (por defecto `respaldos/` junto a la base, adentro del volumen) |
+| `RESPALDO_S3_ENDPOINT` / `_BUCKET` / `_KEY_ID` / `_SECRET` | **La copia afuera**: un almacenamiento compatible con S3 (Cloudflare R2, Backblaze B2, AWS) adonde sube cada respaldo. Van las cuatro juntas. Ver *Copia afuera y cómo volver* |
+| `RESPALDO_S3_REGION` | `auto` (R2) por defecto; en B2 o AWS, la región del bucket |
+| `RESPALDO_S3_PREFIJO` | La «carpeta» adentro del bucket (`respaldos/`) |
+| `RESPALDO_CIFRADO` | **La frase con que se cifra cada copia** (16 caracteres o más). Sin ella no sale nada del servidor. **Guardala en un gestor de contraseñas: sin la frase, las copias no se pueden abrir — ni vos, ni nadie** |
+| `RESTAURAR_DESDE` | **Volver a un respaldo** al arrancar: el nombre de una copia afuera (`respaldos/respaldo-…db.gz.enc`) o `local:` + el de uno del volumen. Se pone, se redespliega, se verifica y **se saca** |
 | `OLVIDAR_MS` | A los cuántos ms se la borra de verdad y se descarta su vuelta en curso (180 000). El número bueno sale de la calle: tres minutos aguantan una llamada o un semáforo largo |
 | `APP_VERSION_ACTUAL` | El `versionCode` del APK que se reparte hoy. La app compara el suyo y avisa «hay una versión nueva». Sin poner, no avisa |
 | `APP_VERSION_MIN` | El `versionCode` más viejo que todavía sirve. Por debajo, la app dice en rojo «esta app ya no sirve». Sin poner, no avisa |
 | `APP_URL` | De dónde bajar el APK; va en el aviso. Opcional |
+| `TZ` | **Poné `America/Lima`.** Sin ella el servidor corre en UTC y «hoy», los informes y los días de la tendencia van corridos cinco horas. `/salud` lo avisa |
+| `ALERTA_URL` | Un webhook al que el servidor avisa **solo** cuando su salud cambia (cae, empeora, vuelve). Sirve un tópico de [ntfy.sh](https://ntfy.sh) (`https://ntfy.sh/un-nombre-largo-y-secreto`, y la app ntfy en el teléfono), o un webhook de Slack o Discord. Ver *Salud y alertas* |
+| `SERVIDOR_NOMBRE` | Cómo se llama este servidor en las alertas (por defecto, el dominio de Railway) |
+| `DISCO_CRITICO_MB` / `DISCO_AVISO_MB` | Con menos de esto libre en el disco de la base, `/salud` da problema (100) o aviso (500) |
+| `SALUD_CADA_MS` | Cada cuánto se mira la salud solo (60 000) |
+| `MEDIA_DIAS` | A los cuántos días una foto o nota de voz suelta su contenido (30, lo que dice /privacidad); la burbuja queda hasta que se borra el chat (`CHAT_DIAS`, 30) |
+| `PHOTO_KEEP` / `VOICE_KEEP` | Techo de fotos y de notas de voz con contenido **por cooperativa** (1500 de cada una). Es el cinturón para el disco; lo normal es que mande `MEDIA_DIAS` |
+| `EVIDENCIA_MAX` | Cuántos mensajes puede tener guardados como evidencia cada cooperativa (500). La evidencia se queda `SOS_DIAS` (365) |
+| `RETOMAR_MS` | Hasta qué edad se retoma la memoria caliente al arrancar (600 000 = 10 min): las vueltas en curso, los desvíos abiertos, la presencia de cada combi. Más vieja, se arranca de cero |
+| `MEMORIA_CADA_MS` | Cada cuánto se saca la foto de la memoria caliente para el caso de un cuelgue sin aviso (15 000). Con fotos de más de 1 MB se espacia sola, hasta 2 minutos. `MEMORIA=0` apaga todo esto |
+| `CONTACTO_PRIVACIDAD` | El correo que figura en `/privacidad` y en `/consentimiento` para ejercer los derechos (por ejemplo `soporte@microstempo.com`) |
+| `AUDIT_ACCESO_DIAS` / `AUDIT_OPERACION_DIAS` / `AUDIT_GESTION_DIAS` | Cuántos días se guarda cada tipo de movimiento de la auditoría: inicios de sesión (90), lo de la calle —desvíos, SOS, relevos— (365) y lo de gestión —altas, bajas, claves, correcciones, configuración— (730) |
+| `AUDIT_ACCESO_MAX` / `AUDIT_OPERACION_MAX` / `AUDIT_GESTION_MAX` | Techo de cada tipo **por cooperativa** (20 000 / 50 000 / 20 000), como cinturón para el disco |
+| `HISTORIA_MEDIA_KB` | Cuánto de fotos y audios viaja adentro del historial que recibe cada pantalla al conectar (3000). Lo que no entra, Despacho lo carga al tocarlo |
+
+**Salud y alertas** (03/11). `GET /ping` dice que el proceso vive; `GET
+/salud` dice si está haciendo su trabajo: que la base lea y **escriba**, que
+no haya habido errores de base en los últimos minutos, cuánto disco queda en
+el volumen, que el último respaldo no sea viejo, que la hora sea la de Perú,
+que la base esté en modo WAL y que el servidor no esté trabado. Contesta
+**503 si hay un problema** (no guarda, no hay disco) y 200 si sólo hay
+avisos, con qué pasa en castellano y sin números (los números están en el
+panel del creador, pestaña SISTEMA). Tres capas, porque cada una cubre lo que
+la otra no puede:
+
+1. **El despliegue** (`railway.json`): Railway no pasa el tráfico a una
+   versión nueva hasta que su `/salud` conteste 200. Un deploy con el volumen
+   sin montar o el disco lleno no reemplaza al que andaba.
+2. **El propio servidor** se mira cada minuto y, cuando el estado cambia, lo
+   escribe fuerte en el log (`SALUD: ✖ …`) y lo manda a `ALERTA_URL` si está.
+   Avisa al caer, al empeorar y al volver — no cada minuto lo mismo.
+3. **Un monitor externo**, para lo único que el servidor no puede avisar: que
+   esté **caído**. Cualquiera gratuito sirve (UptimeRobot, Better Stack): un
+   monitor HTTP a `https://<el dominio>/salud` cada 5 minutos que alerte si no
+   contesta 200, con el aviso al correo o al teléfono de quien opera. Son
+   diez minutos de configuración y no hay nada que instalar acá.
+
+**Copia afuera y cómo volver** (03/11). Cada respaldo automático (y cada
+«Respaldar ahora» del creador), recién verificado, se sube **comprimido y
+cifrado** (AES-256-GCM, clave derivada de `RESPALDO_CIFRADO`) al bucket de la
+copia afuera. El proveedor guarda bytes que no puede leer: la base tiene datos
+personales. Al arrancar, el servidor mira qué hay afuera y, si falta el último
+respaldo, lo sube. `/salud` avisa si la copia no está configurada (en
+producción), si falla o si es vieja; el panel del creador, pestaña RESPALDOS,
+la lista con sus nombres. Los viejos los borra **el propio bucket** con una
+regla de ciclo de vida (por ejemplo, a los 30 días), no el servidor.
+
+Para **volver a un respaldo** no hace falta entrar al servidor:
+
+1. En el panel del creador → RESPALDOS, copiar el nombre (uno de la copia
+   afuera, o uno del disco con `local:` adelante).
+2. En Railway → Variables, `RESTAURAR_DESDE` = ese nombre, y redesplegar.
+3. Al arrancar, antes de abrir la base: la baja (y descifra), la verifica, **guarda
+   la base actual al lado** (`r14.db.antes-de-restaurar-<fecha>`) y la reemplaza.
+   El log y el panel (SISTEMA) dicen qué se restauró. Si algo falla —el nombre
+   no existe, la frase no es, el archivo no pasa la verificación— el servidor
+   **no arranca** y la base actual no se toca: se corrige la variable o se saca.
+4. Sacar `RESTAURAR_DESDE`. Si queda puesta no pasa nada grave: el próximo
+   arranque ve que ese pedido ya se hizo y no lo repite.
+
+Desde una computadora con Node y las mismas variables de la copia:
+`node server/restaurar.js listar`, `bajar <nombre> [destino.db]` y
+`descifrar <archivo.gz.enc> [destino.db]` — para mirar un respaldo sin tocar
+el servidor, o para el simulacro.
 
 **Persistencia:** el historial del grupo (últimos 200 mensajes: texto, notas
 de voz y SOS) vive en SQLite (`server/r14.db`). En Railway, para que
@@ -219,7 +302,7 @@ sobreviva redeploys, montar un volumen y apuntar la base ahí:
 audio — las más viejas quedan "expiradas" (burbuja sin reproducción).
 
 **Autenticación:** `POST /auth/login` con `{ user, password }` devuelve un
-token de sesión (30 días) que el WebSocket exige en el `identify` — sin
+token de sesión (30 días, que se renuevan con el uso) que el WebSocket exige en el `identify` — sin
 token válido no hay estado, historial ni chat. Contraseñas con scrypt+salt
 en la tabla `users` (roles `driver`/`collector`/`dispatch`/`manager`); 5 intentos fallidos
 bloquean la unidad 5 minutos. **El alta de choferes la hace Despacho**
@@ -322,7 +405,10 @@ un desplegable. Todo contra los endpoints `/admin/*` del servidor
   separando el que trajo después sus posiciones del que no (la antena contra
   el teléfono apagado); las paradas más largas una por una; y las anomalías.
 - **Actividad** — la auditoría: quién inició sesión, quién dio de alta/baja o
-  reseteó claves, bloqueos por intentos fallidos y SOS.
+  reseteó claves, bloqueos por intentos fallidos y SOS. Se filtra por tipo
+  (**Gestión**, **Operación**, **Accesos**) y se sigue hacia atrás con *Ver más
+  viejos*. Cada tipo se guarda distinto: accesos 90 días, operación 365,
+  gestión 730 (`AUDIT_*_DIAS` y `AUDIT_*_MAX`).
 
 ## Identidad: la persona no es la combi
 

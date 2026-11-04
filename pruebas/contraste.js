@@ -111,6 +111,7 @@ const PARES_PROTO = [
   ['burbuja de Despacho (usa fg)',  t => t.fg,               t => t.burbujaAdmin, AA],
   ['burbuja de aviso',              t => t.burbujaWarnInk,   t => t.burbujaWarn, AA],
   ['burbuja de SOS',                t => t.burbujaSosInk,    t => t.burbujaSos, AA],
+  ['insignia de privado / su ámbar', t => t.warnEdgeInk,     t => t.warnEdge, AA],
 ];
 const PARES_DESP = [
   ['texto primario / fondo',        t => t.fg,   t => t.bg, AA],

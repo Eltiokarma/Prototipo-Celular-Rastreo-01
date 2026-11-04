@@ -115,6 +115,8 @@ const conectar = (token) => new Promise((res) => {
 
   console.log('\nLOS NOMBRES DEL SISTEMA NO SON CUENTAS');
   {
+    const alta = coop.alta(base, { companyId: 'COOP-SIS', name: 'Coop Sistema', despacho: 'SISTEMA', clave: 'clavelarga3' });
+    ok('una cooperativa nueva no puede llamar SISTEMA a su Despacho', !!alta.error, alta);
     const r = await post('/admin/users', H, { unitId: 'CREADOR', name: 'x', password: 'clave1234' });
     ok('CREADOR no se da de alta', r.status === 400, r);
     const r2 = await post('/admin/users', H, { unitId: 'sistema', name: 'x', password: 'clave1234' });
@@ -198,6 +200,96 @@ const conectar = (token) => new Promise((res) => {
     ok('la vuelta de verdad sí se cierra', vueltas() === 1, vueltas());
     const v = base.prepare("SELECT parcial, progresoInicial FROM laps WHERE unitId = 'M-05'").get();
     ok('entera, y no acusa una entrada tardía', v && v.parcial === 0, v);
+  }
+
+  console.log('\nUN SALTO SUELTO HACIA ADELANTE TAMPOCO CIERRA LA VUELTA');
+  {
+    // Ida y vuelta por la misma calle: un rebote del GPS invierte el rumbo y
+    // el progreso salta de 0,22 a 0,90 en una sola lectura. Quedaba como «lo
+    // alto», y las dos lecturas normales siguientes confirmaban la caída: una
+    // vuelta de segundos guardada como entera.
+    // Una combi propia: la M-04 tiene el mando de M-03 desde la prueba de
+    // ir y volver de combi, y su GPS se descartaría
+    base.prepare("INSERT INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES ('M-07', NULL, 'R-14', ?, ?)").run(empresa, Date.now());
+    await post('/admin/users', HG, { unitId: 'M-07', name: 'Chofer M-07', personRole: 'driver', vehicleId: 'M-07', password: 'clave1234' });
+    const s4 = await login('M-07', 'clave1234');
+    await post('/presencia', s4.token, { estado: 'ruta' });
+    let t0 = Date.now() - 300_000;
+    const mandar = async (ts) => {
+      for (const t of ts) {
+        await post('/gps', s4.token, { presencia: 'ruta', posiciones: [{ ...anillo(t), speed: 25, timestamp: t0 }] });
+        t0 += 2000;
+      }
+    };
+    const vueltas = () => base.prepare("SELECT COUNT(*) c FROM laps WHERE unitId = 'M-07'").get().c;
+    await mandar([0.02, 0.06, 0.10, 0.14, 0.18, 0.22]);
+    await mandar([0.90]);                                   // el salto suelto
+    await mandar([0.26, 0.30]);
+    await sleep(200);
+    ok('el salto suelto no cierra una vuelta', vueltas() === 0, vueltas());
+
+    // Y una lectura mala JUSTO antes del cruce: la vuelta se cierra bien, y la
+    // siguiente no nace «parcial» por haber tomado la lectura mala como inicio
+    await mandar(Array.from({ length: 16 }, (_, i) => 0.34 + i * 0.04));   // hasta 0.94
+    await mandar([0.30, 0.01, 0.03]);
+    await sleep(200);
+    ok('la vuelta se cierra con la lectura mala antes del cruce', vueltas() === 1, vueltas());
+    await mandar(Array.from({ length: 24 }, (_, i) => 0.05 + i * 0.04));   // hasta 0.97
+    await mandar([0.01, 0.03]);
+    await sleep(200);
+    const segunda = base.prepare("SELECT parcial, progresoInicial FROM laps WHERE unitId = 'M-07' ORDER BY id DESC LIMIT 1").get();
+    ok('y la siguiente es entera: no acusa una entrada al 30 %', vueltas() === 2 && segunda.parcial === 0 && segunda.progresoInicial < 0.1, segunda);
+    ok('sin auditoría de vuelta parcial para M-07',
+       !base.prepare("SELECT 1 FROM audit WHERE action = 'vuelta_parcial' AND target = 'M-07'").get());
+  }
+
+  console.log('\nLAS LISTAS DEL DÍA NO ARMAN TODO EL HISTORIAL');
+  {
+    // `?desde=0` armaba en memoria 120 días de vueltas y 365 de turnos en el
+    // hilo único. La pantalla pide como mucho una semana.
+    const viejo = Date.now() - 20 * 86400_000;
+    base.prepare(`INSERT INTO laps (unitId, routeId, startedAt, finishedAt, durationSec, avgSpeed, parcial)
+                  VALUES ('M-05', 'R-14', ?, ?, 3000, 20, 0)`).run(viejo - 3000_000, viejo);
+    base.prepare(`INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, lastSeenAt, endedAt)
+                  VALUES ('M-05', 'M-05', 'R-14', 'driver', ?, ?, ?)`).run(viejo, viejo + 3600_000, viejo + 3600_000);
+    const v = await pedir('/admin/vueltas?desde=0', H);
+    const nueveDias = Date.now() - 9 * 86400_000;
+    ok('/admin/vueltas con desde=0 se acota a una semana y no trae la de hace 20 días',
+       v.status === 200 && v.body.desde > nueveDias && !(v.body.vueltas || []).some(x => x.finishedAt === viejo), v.body.desde);
+    const t = await pedir('/admin/shifts?desde=0', H);
+    ok('/admin/shifts con desde=0 tampoco',
+       t.status === 200 && t.body.desde > nueveDias && !(t.body.turnos || []).some(x => x.startedAt === viejo), t.body.desde);
+  }
+
+  console.log('\nEL MANDO VIVO NO SE LO HEREDA UN TERCERO');
+  {
+    // X3 y X1 con la web abierta en V-20; X1 sale de ruta por el socket y la
+    // deja abierta; X2 maneja por HTTP. Cuando X1 cierra la web, el socket
+    // le pasaba el mando a X3 y X2 quedaba mudo.
+    for (const u of ['X-1', 'X-2', 'X-3']) {
+      await post('/admin/users', HG, { unitId: u, name: 'Chofer ' + u, personRole: 'driver', vehicleId: 'V-20', password: 'clave1234' });
+    }
+    const x1 = await login('X-1', 'clave1234'), x2 = await login('X-2', 'clave1234'), x3 = await login('X-3', 'clave1234');
+    const w3 = await conectar(x3.token);
+    const w1 = await conectar(x1.token);
+    w1.ws.send(JSON.stringify({ type: 'presencia', estado: 'fuera' }));
+    await sleep(300);
+    const gps2 = () => post('/gps', x2.token, { presencia: 'ruta', posiciones: [{ ...anillo(0.3), speed: 20, timestamp: Date.now() }] });
+    await post('/presencia', x2.token, { estado: 'ruta' });
+    let r = await gps2();
+    ok('X2 toma la combi por HTTP', r.status === 200 && r.body.gpsRole !== false, r.body);
+    w1.ws.close();
+    await sleep(400);
+    r = await gps2();
+    ok('cerrar la web de X1 no le pasa el mando a X3: X2 sigue reportando', r.status === 200 && r.body.gpsRole !== false, r.body);
+    ok('y X3 no recibió el rol', !w3.visto.slice(-5).some(m => m.type === 'gps_role' && m.reporting === true && m !== w3.visto[0]));
+
+    // El SOS del cobrador sale con la posición de la combi (no manda GPS)
+    const c20 = await login('C-20', 'clave1234');
+    const sos = await post('/sos', c20.token, {});
+    ok('el SOS del cobrador lleva la posición reciente de su combi',
+       sos.status === 200 && Math.abs((sos.body.lat || 0) - anillo(0.3).lat) < 1e-6, sos.body);
+    w3.ws.close();
   }
 
   console.log('\nLOS INFORMES NO REVIENTAN');
