@@ -79,11 +79,20 @@ app/                La app del chofer, nativa (Expo). El servidor no cambia.
                       herramientas/vendor-leaflet.js — no se edita a mano
   voz.js / foto.js    Grabar audio y sacar fotos. Acá SÍ hay Expo
   gps/servicio.js     GPS en segundo plano: foreground service y cadencia
+  actualizacion.js    Cuándo se aplica una actualización sin reinstalar
+                      (EAS Update): nunca en ruta. Ver app/README.md
+  nativo.json         La foto de lo nativo de esta versión: si cambia sin
+                      subir la versión, la suite `actualizacion` falla
   App.js              Las pantallas. Solo dibujan
                     Todos menos los tres últimos son JS puro y sin React a
                     propósito: corren en Node, así que tienen suites de verdad
                     y no hace falta un teléfono para saber si andan. Es donde
                     vivieron todos los bugs de esta pantalla
+
+compilar-app.bat    Compila la APK en la nube de Expo (lo nativo)
+publicar-arreglo.bat  Publica un arreglo de JavaScript a los teléfonos sin
+                    reinstalar (EAS Update): primero a tu teléfono, después
+                    a todos; y vuelve atrás si algo sale mal
 
 herramientas/       Cosas que se corren a mano para trabajar, no pruebas.
   flota.js            Veinte combis falsas manejando la ruta de verdad, para

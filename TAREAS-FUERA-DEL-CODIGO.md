@@ -29,9 +29,23 @@ se reconectan solas). Conviene hacerlo fuera de hora pico.
 - [ ] **Unir la rama `claude/eager-einstein-shid7d` a `main`** (un pull request
       en GitHub y «Merge»). `compilar-app.bat` compila lo que está en `main`:
       sin este paso sale la APK vieja.
-- [ ] **Correr `compilar-app.bat`.** Sale la **0.3.0**. El número interno
-      (`versionCode`) ahora sube solo en cada compilación: anotá el que muestra
-      EAS al terminar (debería ser **6**).
+- [ ] **Correr `compilar-app.bat` dos veces.** Desde el 04/11 la 0.3.0
+      trae las **actualizaciones sin reinstalar** (PENDIENTES 0.11): es la
+      última APK que los choferes instalan a mano para los arreglos de
+      JavaScript.
+  - Primero la opción **[1] APK de prueba**, la de los choferes.
+  - Después la **[3] APK de prueba de actualizaciones**, para **tu**
+    teléfono: es la que recibe primero lo que publiques.
+- [ ] **Probar una actualización antes de repartir**: cambiá algo chico
+      (por ejemplo un texto), corré `publicar-arreglo.bat` → **[1] PRUEBA**,
+      y en tu teléfono cerrá la app del todo y abrila dos veces (la primera
+      la baja, la segunda arranca con ella). En Despacho → Personas, al lado
+      de «app», tiene que aparecer «act.» con la fecha. Si anda, volvé a
+      publicar con **[2] TODOS**.
+- [ ] **Anotá el número de la de los choferes.** El número interno
+      (`versionCode`) sube solo en cada compilación: anotá el que muestra EAS
+      al terminar la primera (debería ser **6**; la de tu teléfono queda en
+      7).
 - [ ] **Subir la APK** donde la descargan los choferes y poner en Railway:
   - `APP_URL` = el enlace de descarga
   - `APP_VERSION_ACTUAL` = el `versionCode` que anotaste
@@ -225,9 +239,13 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
 - [ ] **Un turno de 8 horas midiendo la batería**, y probar la app en
       Xiaomi, Huawei u Oppo, que son los que más matan apps en segundo plano
       (PENDIENTES 1.3).
-- [ ] **El dominio propio** antes de repartir la APK a muchos teléfonos: la
-      dirección del servidor queda compilada adentro (los pasos están en
-      `DOMINIO.md`).
+- [ ] **El dominio propio** (los pasos están en `DOMINIO.md`). Lo que
+      compraste en Hostinger es el **dominio** `microstempo.com` y el
+      **correo**; el **servidor** es Railway. Al 04/11, `microstempo.com`
+      apunta a Hostinger, pero **`app.microstempo.com` todavía no existe**:
+      falta el paso de conectarlo a Railway. Ya no es urgente: desde las
+      actualizaciones sin reinstalar (PENDIENTES 0.11), la dirección del
+      servidor se cambia con una actualización, sin tocar los teléfonos.
 - [ ] **Ley 29733 (datos personales)** — ahora con todo preparado en
       **`legal/LEEME.md`** (pasos en orden y las preguntas para el abogado),
       `legal/contrato-encargo.md` (borrador) y el formulario para imprimir en

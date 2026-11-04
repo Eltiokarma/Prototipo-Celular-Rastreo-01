@@ -31,13 +31,15 @@ import { crearVigiaDeEnvio, mezclarCola, filtrarEntregadas } from '../envio.js';
 import { crearPedidor } from '../pedido.js';
 import { notificarBrecha, notificarGrabacionPedida, notificarSinRol, limpiarNotificacion } from '../notificacion.js';
 import { crearGrabador } from '../grabador.js';
-import { cabeceraDeApp } from '../version.js';
+import { cabeceraDeApp, actualizacionDe } from '../version.js';
+import * as Updates from 'expo-updates';
 
 // Qué APK es éste, para que el servidor lo anote con cada envío: el que
 // actualizó sin volver a entrar (la sesión dura 30 días) queda al día así.
 const CABECERA_APP = cabeceraDeApp({
   version: Application.nativeApplicationVersion || null,
   versionCode: Number(Application.nativeBuildVersion) || null,
+  actualizacion: actualizacionDe(Updates),
 });
 
 export const TAREA_GPS = 'coop-r14-gps';

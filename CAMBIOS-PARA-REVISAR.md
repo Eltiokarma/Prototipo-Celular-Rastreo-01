@@ -558,6 +558,98 @@ que código:
 registro, la Actividad, el panel en Chromium (contar, anotar, versión vieja,
 retiro) y que el formulario se lea en un teléfono. **Manual:** no.
 
+## 13. Actualizar la app sin reinstalar (EAS Update) — (04/11, este parche)
+
+**Qué.**
+- La app del chofer trae `expo-updates`. El **JavaScript** (pantallas, chat,
+  SOS, puerta…) se publica con **`publicar-arreglo.bat`** y los teléfonos lo
+  bajan solos, ~1 MB comprimido.
+- Lo **nativo** (un permiso, un módulo, la versión de Expo) sigue
+  necesitando una APK nueva con `compilar-app.bat`.
+- **Cuándo se aplica.** Aplicar es reiniciar el JavaScript, así que:
+  - **nunca en ruta**, ni ausente, ni con el vigía de la puerta contando,
+    ni con un SOS sin salir en pantalla;
+  - en la puerta, sólo cuando la app **vuelve al frente**;
+  - en la pantalla de entrada, siempre.
+  - La app pregunta al arrancar (sin esperar la respuesta: con mala señal no
+    se cuelga) y al volver al frente, cada media hora como mucho.
+- **Canales.** `prueba` (una APK aparte para tu teléfono), `apk` (los
+  choferes), `produccion` (Google Play). El `.bat` ofrece:
+  1. **PRUEBA** — empezar siempre por acá;
+  2. **TODOS**;
+  3. **PLAY**;
+  4. **VOLVER ATRÁS** — los teléfonos vuelven al JavaScript de su APK.
+- **Despacho ve quién la tomó**: en Personas, «app 6 · act. 05/11 09:00»;
+  en la tarjeta del mapa, «APP 0.3.0 · 05/11 09:00». En el perfil del
+  chofer, «actualizada 05/11 09:00».
+- **La guardia de lo nativo.** Una actualización sólo llega a las APK con
+  la misma `version` de `app.json`. Si cambia algo nativo y la versión no
+  sube, caería en teléfonos sin esa parte y la app se rompería. La suite
+  `actualizacion` guarda una foto de lo nativo (`app/nativo.json`) y falla
+  si cambió sin subir la versión.
+- `compilar-app.bat` tiene la opción **[3]**: la APK de prueba de
+  actualizaciones.
+
+**Cómo.**
+- App:
+  - `app/actualizacion.js` (nuevo, puro): `sePuedeAplicar` y `tocaPreguntar`.
+  - `app/version.js`: `actualizacionDe()` y la cabecera
+    `0.3.0/6+AAAAMMDD-HHmm`.
+  - `app/App.js`: un efecto pregunta, baja y aplica. Es el único
+    `Updates.reloadAsync`, y está detrás de `sePuedeAplicar`.
+  - `app/gps/servicio.js`: la etiqueta en cada envío.
+  - `app.json`: `runtimeVersion: appVersion`, `updates.url`, `ON_LOAD`,
+    `fallbackToCacheTimeout: 0`.
+  - `eas.json`: los canales y el perfil `prueba`.
+  - `package.json` y el lockfile: `expo-updates ~29.0.19`, la del SDK 54
+    según el propio paquete de Expo.
+- Servidor: `users.appActualizacion`; `versionDeApp` lee la etiqueta del
+  cuerpo o de la cabecera (una con otro formato se ignora); va en
+  `/admin/users` y en el estado del teléfono.
+- Despacho: `fechaActualizacion()` y las dos líneas que la muestran.
+
+**Verificado fuera de las pruebas.** En una copia aparte, con las
+dependencias instaladas:
+- `expo config` lee la configuración nueva;
+- `expo export` arma el paquete de Android (803 módulos, 2,5 MB, 1 MB
+  comprimido);
+- la dirección del servidor queda adentro del JavaScript.
+
+**Archivos.**
+- Nuevos: `app/actualizacion.js`, `app/nativo.json`,
+  `publicar-arreglo.bat`, `pruebas/actualizacion.js`.
+- Cambiados: `app/App.js`, `app/version.js`, `app/gps/servicio.js`,
+  `app/app.json`, `app/eas.json`, `app/package.json`,
+  `app/package-lock.json`, `compilar-app.bat`, `server/index.js`,
+  `project/despacho.html` y `project/service-worker.js` (v89).
+- Pruebas: `pruebas/nativas.js` (`expo-updates` en la lista del SDK).
+- Docs: `app/README.md`, `README.md`, `PROTOCOLO.md`.
+
+**Mirar.**
+- **Nada de esto se probó en un teléfono.** La primera prueba de verdad es
+  el paso 2 de `TAREAS-FUERA-DEL-CODIGO.md`: compilar las dos APK, publicar
+  un cambio chico a PRUEBA y verlo llegar.
+- **La dirección del servidor de cada canal está escrita en
+  `publicar-arreglo.bat`.** Cuando se conecte `app.microstempo.com`, se
+  cambia ahí y se publica: los teléfonos pasan al dominio sin reinstalar.
+  Pero mientras tanto, un arreglo publicado con la dirección equivocada
+  manda a todos los teléfonos a otro servidor. Por eso: siempre a PRUEBA
+  primero.
+- `runtimeVersion: appVersion` (y no `fingerprint`, que lo calcula solo):
+  es predecible y se entiende («si cambia algo nativo, subí la versión»), y
+  la guardia de la suite cubre el olvido. `fingerprint` puede dar distinto
+  en la PC de Windows que en la nube de Expo, y entonces las actualizaciones
+  no llegan sin que nadie se entere.
+- El cobrador nunca «sale a ruta»: para él la actualización también se
+  aplica sólo al volver la app al frente.
+- EAS Update es gratis hasta 1000 teléfonos activos por mes. Después,
+  US$ 19 por mes cubre 3000.
+
+**Pruebas.** `actualizacion` (nueva): cuándo se aplica, la etiqueta y la
+cabecera, el cableado de la app y de los `.bat`, la guardia de lo nativo, y
+el servidor y Despacho (Chromium). `nativas` cubre ahora `expo-updates`.
+**Manual:** no (es del que opera, no del chofer).
+
 ---
 
 ## Para el manual (cuando toque)
@@ -577,6 +669,8 @@ Lo que todavía no está en `manual/manual.tex`:
   cuánto se guarda cada cosa (bloque 11).
 - Despacho → Gestión → Personas: el consentimiento de datos personales,
   anotar la firma y el retiro; y cómo imprimir el formulario (bloque 12).
+- En el perfil del chofer, «actualizada dd/mm hh:mm»; y para el que opera,
+  `publicar-arreglo.bat` (bloque 13).
 - Para el que opera, no para el chofer: `/salud` y las alertas (bloque 4),
   y la copia afuera y cómo volver a un respaldo (bloque 5). Quizás va en un
   anexo de operación más que en el manual de uso.

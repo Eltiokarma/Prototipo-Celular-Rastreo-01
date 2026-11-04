@@ -52,6 +52,8 @@ const ESPERADO = {
   'expo-splash-screen': '~31.0.13',
   'expo-status-bar':   '~3.0.9',
   'expo-task-manager': '~14.0.9',
+  // Actualizaciones sin reinstalar (PENDIENTES 0.11): del bundledNativeModules.json de expo@54.0.36
+  'expo-updates':      '~29.0.19',
   'babel-preset-expo': '~54.0.12',
   'react-native-safe-area-context': '~5.6.0',
   'react-native-webview': '13.15.0',

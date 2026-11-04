@@ -3,6 +3,14 @@
     "name": "Control de ruta",
     "slug": "coop-r14",
     "version": "0.3.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/7bfd5a4f-e25e-4bd9-b3c3-66edcd2f8600",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,

@@ -952,3 +952,13 @@ que `server/consentimiento.html` diga lo mismo que `server/privacidad.html`
 en `server/index.js`, y `PanelConsentimiento` en `project/despacho.html`. Los
 textos de `legal/` no son código: los revisa un abogado.
 
+## Tanda 26 — actualizar la app sin reinstalar (04/11, sin repasar)
+
+El punto 0.11 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 13**. Para el repaso, lo central: el efecto de `App.js` que pregunta,
+baja y aplica (el único `Updates.reloadAsync`, detrás de `sePuedeAplicar`),
+`app/actualizacion.js`, la configuración de `app.json` y `eas.json`,
+`publicar-arreglo.bat`, y la guardia de lo nativo (`app/nativo.json` +
+`pruebas/actualizacion.js`). Nada de esto se probó en un teléfono todavía:
+la primera prueba de verdad es el paso 2 de `TAREAS-FUERA-DEL-CODIGO.md`.
+

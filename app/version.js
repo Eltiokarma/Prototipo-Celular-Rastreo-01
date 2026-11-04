@@ -8,9 +8,28 @@
 
 // La cabecera que va en cada pedido al servidor, para que anote quién tiene
 // cuál. Sin versión (Expo Go, un build raro) no se manda nada.
+//
+// Desde 0.11 (actualizaciones sin reinstalar, 04/11) lleva además, si el
+// JavaScript que corre llegó por una actualización y no venía en la APK,
+// cuándo se publicó: `0.3.0/6+20261104-1530`. Así Despacho ve quién ya tomó
+// el último arreglo.
 function cabeceraDeApp(mia) {
   if (!mia || !mia.versionCode) return {};
-  return { 'X-App-Version': `${mia.version || '?'}/${mia.versionCode}` };
+  const act = mia.actualizacion ? `+${mia.actualizacion}` : '';
+  return { 'X-App-Version': `${mia.version || '?'}/${mia.versionCode}${act}` };
+}
+
+// La etiqueta de la actualización que corre: la fecha y hora en que se
+// publicó (`AAAAMMDD-HHmm`, hora del teléfono). `null` si es el JavaScript
+// que vino adentro de la APK, o si el módulo de actualizaciones no está
+// (Expo Go, desarrollo). Recibe lo que dice `expo-updates` y no lo importa:
+// esto se prueba en Node.
+function actualizacionDe(u) {
+  if (!u || !u.isEnabled || u.isEmbeddedLaunch || !u.createdAt) return null;
+  const d = u.createdAt instanceof Date ? u.createdAt : new Date(u.createdAt);
+  if (isNaN(d.getTime())) return null;
+  const dos = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${dos(d.getMonth() + 1)}${dos(d.getDate())}-${dos(d.getHours())}${dos(d.getMinutes())}`;
 }
 
 // «Hay una nueva» o «ésta ya no sirve», contra lo que el servidor reparte
@@ -36,4 +55,4 @@ function avisoDeApp(app, mia) {
   return null;
 }
 
-module.exports = { cabeceraDeApp, avisoDeApp };
+module.exports = { cabeceraDeApp, avisoDeApp, actualizacionDe };

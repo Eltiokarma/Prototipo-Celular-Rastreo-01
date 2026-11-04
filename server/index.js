@@ -1085,6 +1085,10 @@ addColumnIfMissing('users', 'lastLogin', 'INTEGER');
 // quién tiene cuál, y Despacho no puede decirle a nadie «actualizá».
 addColumnIfMissing('users', 'appVersion', 'TEXT');
 addColumnIfMissing('users', 'appVersionCode', 'INTEGER');
+// Y desde 0.11, la actualización que corre sobre esa APK: cuándo se publicó
+// (`AAAAMMDD-HHmm`), o NULL si es el JavaScript que vino adentro de la APK.
+// Con eso Despacho ve quién ya tomó el último arreglo sin reinstalar.
+addColumnIfMissing('users', 'appActualizacion', 'TEXT');
 
 // El APK que se reparte hoy y el más viejo que todavía sirve, por el entorno.
 // La app compara su `versionCode` con los dos: por debajo del actual avisa
@@ -1097,29 +1101,34 @@ function loQueSeReparte() {
   return { versionCodeActual: APP_VERSION_ACTUAL, versionCodeMin: APP_VERSION_MIN, url: APP_URL };
 }
 // Lo que dice el teléfono de sí mismo: en el cuerpo (`app: { version,
-// versionCode }`) o en la cabecera (`X-App-Version: 0.2.3/5`). `null` si no
-// dice nada o dice cualquier cosa.
+// versionCode, actualizacion }`) o en la cabecera (`X-App-Version: 0.2.3/5`,
+// o `0.3.0/6+20261104-1530` si corre una actualización). `null` si no dice
+// nada o dice cualquier cosa.
+const ACTUALIZACION_VALIDA = /^\d{8}-\d{4}$/;
 function versionDeApp(req) {
-  let version = null, code = null;
+  let version = null, code = null, act = null;
   const c = req.body && req.body.app;
-  if (c && typeof c === 'object') { version = c.version; code = c.versionCode; }
+  if (c && typeof c === 'object') { version = c.version; code = c.versionCode; act = c.actualizacion; }
   else {
-    const m = String(req.headers['x-app-version'] || '').match(/^\s*([\w.+-]{1,20})\/(\d{1,6})\s*$/);
-    if (m) { version = m[1]; code = m[2]; }
+    const m = String(req.headers['x-app-version'] || '').match(/^\s*([\w.-]{1,20})\/(\d{1,6})(?:\+(\d{8}-\d{4}))?\s*$/);
+    if (m) { version = m[1]; code = m[2]; act = m[3]; }
   }
   code = Number(code);
   if (!Number.isInteger(code) || code <= 0) return null;
-  return { version: String(version || '').slice(0, 20) || null, versionCode: code };
+  return { version: String(version || '').slice(0, 20) || null, versionCode: code,
+           actualizacion: ACTUALIZACION_VALIDA.test(String(act || '')) ? String(act) : null };
 }
 // Se anota sólo si cambió: el que actualizó el APK sin volver a entrar (la
 // sesión dura 30 días) queda al día con su primer POST /gps.
 function anotarVersionDeApp(user, req) {
   const v = versionDeApp(req);
-  if (!v || (user.appVersionCode === v.versionCode && user.appVersion === v.version)) return;
-  db.prepare('UPDATE users SET appVersion = ?, appVersionCode = ? WHERE unitId = ?')
-    .run(v.version, v.versionCode, user.unitId);
+  if (!v || (user.appVersionCode === v.versionCode && user.appVersion === v.version
+             && (user.appActualizacion || null) === v.actualizacion)) return;
+  db.prepare('UPDATE users SET appVersion = ?, appVersionCode = ?, appActualizacion = ? WHERE unitId = ?')
+    .run(v.version, v.versionCode, v.actualizacion, user.unitId);
   user.appVersion = v.version;
   user.appVersionCode = v.versionCode;
+  user.appActualizacion = v.actualizacion;
 }
 
 // Migración a multi-ruta. En users, routeId significa:
@@ -1295,7 +1304,7 @@ function sessionUser(token) {
   if (!s) return null;
   renovarSesion(token, s.expiresAt, ahora);
   return db.prepare(
-    'SELECT unitId, driverName, name, alias, role, routeId, vehicleId, companyId, appVersion, appVersionCode FROM users WHERE unitId = ?'
+    'SELECT unitId, driverName, name, alias, role, routeId, vehicleId, companyId, appVersion, appVersionCode, appActualizacion FROM users WHERE unitId = ?'
   ).get(s.unitId) || null;
 }
 
@@ -2621,11 +2630,12 @@ function anotarTelefono(user, vehicleId, t) {
     origen: t.origen === 'web' ? 'web' : 'app',
     version: t.origen === 'web' ? null : (user.appVersion || null),
     versionCode: t.origen === 'web' ? null : (user.appVersionCode || null),
+    actualizacion: t.origen === 'web' ? null : (user.appActualizacion || null),
     vehicleId: vehicleId || null,
     routeId: rutaDeLaCombi(vehicleId, user.routeId),
   };
   const previo = telefonos.get(user.unitId);
-  const igual = previo && ['bateria', 'cargando', 'optimizada', 'origen', 'versionCode', 'vehicleId', 'routeId']
+  const igual = previo && ['bateria', 'cargando', 'optimizada', 'origen', 'versionCode', 'actualizacion', 'vehicleId', 'routeId']
     .every(k => previo[k] === nuevo[k]);
   telefonos.set(user.unitId, { ...nuevo, en: Date.now() });
   // Se avisa cuando cambia algo, y una vez cada 5 min aunque no cambie (para
@@ -5886,7 +5896,7 @@ app.get('/admin/users', requireDispatch, (req, res) => {
   // sepa quién mira. Esconderlos sería peor que mostrarlos sin botones.
   const users = db.prepare(`
     SELECT unitId, driverName, name, alias, role, routeId, vehicleId, createdAt, lastLogin,
-           appVersion, appVersionCode, todaLaRuta,
+           appVersion, appVersionCode, appActualizacion, todaLaRuta,
            consentimientoFecha, consentimientoVersion FROM users
     WHERE companyId = @empresa
       AND (@scope IS NULL OR routeId = @scope OR role IN ('dispatch', 'manager'))

@@ -12,7 +12,8 @@
       },
       "env": {
         "EXPO_PUBLIC_SERVIDOR": "https://prototipo-celular-rastreo-01-production.up.railway.app"
-      }
+      },
+      "channel": "desarrollo"
     },
     "apk": {
       "autoIncrement": true,
@@ -22,13 +23,19 @@
       },
       "env": {
         "EXPO_PUBLIC_SERVIDOR": "https://prototipo-celular-rastreo-01-production.up.railway.app"
-      }
+      },
+      "channel": "apk"
+    },
+    "prueba": {
+      "extends": "apk",
+      "channel": "prueba"
     },
     "production": {
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_SERVIDOR": "https://app.microstempo.com"
-      }
+      },
+      "channel": "produccion"
     }
   }
 }

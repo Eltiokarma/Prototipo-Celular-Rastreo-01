@@ -27,9 +27,11 @@ import * as SecureStore from 'expo-secure-store';
 import * as Battery from 'expo-battery';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Application from 'expo-application';
+import * as Updates from 'expo-updates';
 
 import { crearCliente } from './protocolo/cliente';
-import { cabeceraDeApp, avisoDeApp } from './version';
+import { cabeceraDeApp, avisoDeApp, actualizacionDe } from './version';
+import { tocaPreguntar, sePuedeAplicar } from './actualizacion';
 import { limpiarNotificacion, limpiarSiSinRol } from './notificacion.js';
 import { construirHud, textoNotificacion } from './hud';
 import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
@@ -61,6 +63,9 @@ const LLAVE_TEMA = 'r14_tema';
 const APP = {
   version: Application.nativeApplicationVersion || null,
   versionCode: Number(Application.nativeBuildVersion) || null,
+  // Si el JavaScript que corre llegó por una actualización (PENDIENTES 0.11):
+  // cuándo se publicó. null = el que vino en la APK
+  actualizacion: actualizacionDe(Updates),
 };
 const CABECERA_APP = cabeceraDeApp(APP);
 
@@ -722,6 +727,37 @@ function Aplicacion() {
     const sub = AppState.addEventListener('change', (e) => { if (e === 'active') preguntar(); });
     return () => sub.remove();
   }, [sesion]);
+
+  // ── Actualizaciones sin reinstalar (PENDIENTES 0.11) ────────
+  // El módulo pregunta solo al arrancar (y no lo espera: con mala señal el
+  // arranque no se cuelga). Además se pregunta al volver al frente, cada
+  // media hora como mucho, y se baja en silencio. Aplicarla es reiniciar la
+  // app: SÓLO si no está trabajando (ver `actualizacion.js`), nunca en ruta.
+  const preguntadoEn = React.useRef(0);
+  const estadoParaActualizar = React.useRef({});
+  estadoParaActualizar.current = { sesion, presencia, sosSinRed, vigiaContando: faltaPuerta != null };
+  React.useEffect(() => {
+    if (!Updates.isEnabled) return;            // Expo Go, desarrollo
+    let pendiente = false;
+    const mirar = async (alVolver) => {
+      try {
+        if (!pendiente && tocaPreguntar(preguntadoEn.current, Date.now())) {
+          preguntadoEn.current = Date.now();
+          const hay = await Updates.checkForUpdateAsync();
+          if (hay.isAvailable) {
+            const r = await Updates.fetchUpdateAsync();
+            pendiente = !!r.isNew;
+          }
+        }
+        if (pendiente && sePuedeAplicar({ ...estadoParaActualizar.current, alVolver })) {
+          await Updates.reloadAsync();
+        }
+      } catch {}                                 // sin red: la próxima vez
+    };
+    mirar(true);
+    const sub = AppState.addEventListener('change', (e) => { if (e === 'active') mirar(true); });
+    return () => sub.remove();
+  }, []);
 
   // ── Cadencia según la pantalla ──────────────────────────────
   // Con la pantalla apagada el chofer no mira el HUD: la posición ya solo
@@ -2001,6 +2037,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
             <Text style={s.perfilSeccion}>LA APP</Text>
             <Text style={s.diagnostico}>
               Versión {APP.version || '?'} ({APP.versionCode || '?'})
+              {APP.actualizacion ? ` · actualizada ${APP.actualizacion.slice(6, 8)}/${APP.actualizacion.slice(4, 6)} ${APP.actualizacion.slice(9, 11)}:${APP.actualizacion.slice(11, 13)}` : ''}
               {datos.app && datos.app.versionCodeActual ? ` · la que se reparte es la ${datos.app.versionCodeActual}` : ''}
               {'\n'}{SERVIDOR}
             </Text>

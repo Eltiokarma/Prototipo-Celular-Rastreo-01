@@ -21,6 +21,14 @@ Despacho lo ve en Unidades. Cualquier pedido autenticado puede traer lo
 mismo en la cabecera `X-App-Version: 0.2.3/5` (el perfil y cada `POST /gps`
 la llevan): así el que actualizó sin volver a entrar queda al día.
 
+Desde el 04/11 (PENDIENTES 0.11, actualizaciones sin reinstalar) `app` trae
+además `actualizacion`: `'AAAAMMDD-HHmm'`, cuándo se publicó el JavaScript
+que corre, o `null` si es el que vino en la APK. En la cabecera va después
+de un `+`: `X-App-Version: 0.3.0/6+20261104-1530`. El servidor lo anota en
+`users.appActualizacion`, y viaja en `/admin/users` (`appActualizacion`) y
+en el estado del teléfono de la tarjeta (`actualizacion`). Una etiqueta con
+otro formato se ignora.
+
 Devuelve, tal cual:
 
 ```json

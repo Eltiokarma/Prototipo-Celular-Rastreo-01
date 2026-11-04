@@ -269,6 +269,46 @@ Corren con el resto: `npm test` desde la raíz.
   SEÑAL»: un cerro y una app mandando atraso ya no se ven igual. Suite
   `gpshttp`.
 
+## Actualizar sin reinstalar (EAS Update, 04/11)
+
+Desde la 0.3.0 la app trae `expo-updates`. El **JavaScript** (pantallas,
+chat, SOS, puerta, todo lo de esta carpeta que no es nativo) se publica con
+`publicar-arreglo.bat` (en la raíz) y los teléfonos lo bajan solos. Lo
+**nativo** sigue necesitando una APK nueva con `compilar-app.bat`.
+
+Cómo está armado:
+
+- `app.json`: `updates.url` (el proyecto de EAS), `checkAutomatically:
+  ON_LOAD` con `fallbackToCacheTimeout: 0` (pregunta al arrancar **sin
+  esperar** la respuesta: con mala señal el arranque no se cuelga) y
+  `runtimeVersion: { policy: 'appVersion' }`: **una actualización sólo llega
+  a las APK con la misma `version`** de `app.json`.
+- `eas.json`: cada perfil de compilación tiene su **canal**: `apk` (los
+  choferes), `prueba` (tu teléfono: lo prueba primero), `produccion` (Google
+  Play), `desarrollo`.
+- `actualizacion.js`: **cuándo** se aplica. Aplicar es reiniciar el
+  JavaScript, así que **nunca en ruta** (ni ausente, ni con el vigía de la
+  puerta contando, ni con un SOS sin salir en pantalla). En la puerta, sólo
+  al volver la app al frente; en la pantalla de entrada, siempre. Además de
+  la pregunta al arrancar, pregunta al volver al frente cada media hora.
+- `version.js`: la etiqueta de la actualización (`AAAAMMDD-HHmm`) viaja en
+  `X-App-Version` (`0.3.0/6+20261104-1530`): Despacho ve en Personas y en
+  la tarjeta quién ya la tomó.
+- La dirección del servidor (`EXPO_PUBLIC_SERVIDOR`) va **adentro del
+  JavaScript**: `publicar-arreglo.bat` pone la de cada canal. Por eso se
+  puede cambiar de servidor (al dominio propio, por ejemplo) con una
+  actualización, sin reinstalar.
+
+**La regla que no se puede olvidar: si cambia algo nativo, sube la
+`version` de `app.json`.** Un módulo nuevo, un permiso, un plugin, subir de
+SDK. Si no sube, una actualización caería en teléfonos sin esa parte nativa
+y la app se rompería. `pruebas/actualizacion.js` guarda una foto de lo
+nativo en `app/nativo.json` y **falla** si cambió sin subir la versión.
+Después de subirla y compilar: `node pruebas/actualizacion.js --anotar`.
+
+Cada actualización pesa ~1 MB comprimida por teléfono. EAS Update es gratis
+hasta 1000 teléfonos activos por mes.
+
 ## Las versiones de los módulos nativos NO se adivinan
 
 Cada librería nativa tiene una versión por SDK, y mezclarlas rompe la app

@@ -330,6 +330,13 @@ function manejo(p) {
 }
 
 // "hoy 14:05" / "ayer 09:12" / "12/07 18:40" — para la última conexión
+// La etiqueta de una actualización de la app ('20261104-1530') como se lee:
+// '04/11 15:30' (PENDIENTES 0.11)
+function fechaActualizacion(a) {
+  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})$/.exec(String(a || ''));
+  return m ? `${m[3]}/${m[2]} ${m[4]}:${m[5]}` : '';
+}
+
 function fmtWhen(ts) {
   if (!ts) return '—';
   const d = new Date(ts);
@@ -2484,6 +2491,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 sin esto no se sabe quién tiene cuál cuando un APK cambia
                                 lo que manda (REVISION-2026-09-10.md, P5) */}
                             {u.appVersionCode ? ` · app ${u.appVersionCode}` : ''}
+                            {/* Y la actualización sin reinstalar que tomó (PENDIENTES 0.11) */}
+                            {u.appVersionCode && u.appActualizacion ? ` · act. ${fechaActualizacion(u.appActualizacion)}` : ''}
                           </span>
                           <span style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                             {u.role !== 'manager' && (
@@ -5821,7 +5830,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                   const minutos = Math.round((ahora - t.en) / 60_000);
                   const partes = [
                     t.bateria != null ? `BATERÍA ${t.bateria} %${t.cargando ? ' · CARGANDO' : ''}` : null,
-                    t.origen === 'web' ? 'WEB' : t.version ? `APP ${t.version}` : null,
+                    t.origen === 'web' ? 'WEB' : t.version ? `APP ${t.version}${t.actualizacion ? ' · ' + fechaActualizacion(t.actualizacion) : ''}` : null,
                     minutos >= 10 ? `HACE ${minutos} MIN` : null,
                   ].filter(Boolean);
                   return (
