@@ -175,6 +175,12 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
       dice «se está por apagar» o «ahorro de batería activado». Con el
       ahorro activado, el chofer tiene que ir a Ajustes → Batería → la app →
       **«Sin restricciones»** (en Xiaomi, además, «Inicio automático»).
+- [ ] Contarles que las horas **se pueden corregir** (Gestión → Turnos →
+      *Corregir* o *Agregar un turno que faltó*), siempre con un motivo que
+      queda registrado. Y decidir dos cosas que el sistema deja abiertas: si
+      lo puede hacer cualquier Despacho o sólo la gerencia, y si al chofer se
+      le avisa cuando le corrigen las horas (hoy las ve corregidas en su
+      perfil, sin aviso).
 - [ ] Decirle a cada operador que **al empezar el turno** toque **«Activar
       alarma de SOS»** (el botón ámbar arriba) y **acepte las notificaciones**
       cuando el navegador pregunte. Mientras ese botón se vea, un SOS puede

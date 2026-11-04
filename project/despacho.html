@@ -1494,6 +1494,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   const [routeList, setRouteList] = React.useState(routes || []);
   const [vehicles, setVehicles] = React.useState(null);
   const [shifts, setShifts] = React.useState(null);
+  // Corregir horas a mano (PENDIENTES 0.6): qué turno se está corrigiendo
+  // (su id, o 'nuevo' para agregar uno que faltó), el formulario, su
+  // historial y el paso de confirmar una anulación
+  const [corrigiendo, setCorrigiendo] = React.useState(null);
+  const [corrForm, setCorrForm] = React.useState({ inicio: '', fin: '', motivo: '', personId: '', vehicleId: '' });
+  const [historialTurno, setHistorialTurno] = React.useState(null);
+  const [confirmarAnular, setConfirmarAnular] = React.useState(false);
   const [rangoTurnos, setRangoTurnos] = React.useState('hoy'); // hoy | ayer | semana
   const [vueltas, setVueltas] = React.useState(null);
   // Alta de persona: cerrada de entrada. Ocho formularios abiertos a la vez
@@ -1628,6 +1635,33 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
       .then(d => setShifts({ ...d, rango }))
       .catch(e => setError(e.message));
   };
+
+  // <input type="datetime-local"> habla en hora local, sin zona
+  const aLocal = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts), p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const deLocal = (v) => (v ? new Date(v).getTime() : NaN);
+  const abrirCorreccion = (t) => {
+    setCorrigiendo(t.id); setConfirmarAnular(false); setHistorialTurno(null);
+    setCorrForm({ inicio: aLocal(t.startedAt), fin: aLocal(t.endedAt || t.lastSeenAt), motivo: '', personId: '', vehicleId: '' });
+    api(`/admin/shifts/${t.id}/correcciones`).then(d => setHistorialTurno(d.correcciones || [])).catch(() => setHistorialTurno([]));
+  };
+  const guardarCorreccion = (t, anular = false) => run(async () => {
+    if (corrigiendo === 'nuevo') {
+      await api('/admin/shifts', { method: 'POST', body: JSON.stringify({
+        personId: corrForm.personId, vehicleId: corrForm.vehicleId || undefined,
+        startedAt: deLocal(corrForm.inicio), endedAt: deLocal(corrForm.fin), motivo: corrForm.motivo,
+      }) });
+    } else {
+      await api(`/admin/shifts/${t.id}/correccion`, { method: 'POST', body: JSON.stringify(anular
+        ? { anular: true, motivo: corrForm.motivo }
+        : { startedAt: deLocal(corrForm.inicio), endedAt: deLocal(corrForm.fin), motivo: corrForm.motivo }) });
+    }
+    setCorrigiendo(null); setConfirmarAnular(false);
+    await loadShifts();
+  }, corrigiendo === 'nuevo' ? 'Turno agregado' : anular ? 'Turno anulado' : 'Turno corregido');
 
   const loadVueltas = () => {
     const ruta = esSupervisor && currentRoute ? `?routeId=${encodeURIComponent(currentRoute)}` : '';
@@ -2557,7 +2591,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 padding: 3, marginBottom: 16,
               }}>
                 {[['hoy', 'Hoy'], ['ayer', 'Ayer'], ['semana', 'Esta semana']].map(([k, l]) => (
-                  <button key={k} onClick={() => { setRangoTurnos(k); setShifts(null); loadShifts(k); }}
+                  <button key={k} onClick={() => { setRangoTurnos(k); setShifts(null); setCorrigiendo(null); loadShifts(k); }}
                     style={{
                       padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
                       fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
@@ -2566,6 +2600,15 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     }}>{l}</button>
                 ))}
               </div>
+              {/* El turno que no se registró (el teléfono se apagó, se cayó
+                  el servidor): se agrega a mano, con motivo */}
+              <button data-agregar-turno onClick={() => {
+                setCorrigiendo(corrigiendo === 'nuevo' ? null : 'nuevo'); setConfirmarAnular(false);
+                const ahora = Date.now();
+                setCorrForm({ inicio: aLocal(ahora - 8 * 3600e3), fin: aLocal(ahora), motivo: '', personId: '', vehicleId: '' });
+              }} style={{ ...btnSecundario(34), marginLeft: 12, verticalAlign: 'top' }}>
+                {corrigiendo === 'nuevo' ? 'Cerrar' : 'Agregar un turno que faltó'}
+              </button>
 
               {!shifts && <Vacio>Cargando…</Vacio>}
               {shifts && (() => {
@@ -2574,15 +2617,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 const turnos = rangoTurnos === 'ayer'
                   ? shifts.turnos.filter(t => t.startedAt < hoy)
                   : shifts.turnos;
-                if (!turnos.length) {
-                  return (
-                    <Vacio>
-                      {rangoTurnos === 'hoy'
-                        ? 'Todavía nadie salió a ruta hoy. El turno se abre solo cuando alguien entra a su unidad.'
-                        : 'No hay turnos en ese rango.'}
-                    </Vacio>
-                  );
-                }
+                const vacio = !turnos.length;
                 const horas = (sec) => {
                   // Se redondea a minutos PRIMERO y después se parte en horas:
                   // al revés, 4 h 59 min 59 s salía como "4 h 60 min".
@@ -2590,7 +2625,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   const h = Math.floor(min / 60);
                   return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
                 };
-                const cols = '110px 1fr 110px 110px 120px';
+                const cols = '110px 1fr 110px 110px 120px 92px';
                 // De qué día es cada fila. «Esta semana» son hasta 500 filas
                 // con la hora sola: «08:12» no dice si fue hoy o el martes, y
                 // sin eso la lista no se puede leer ni discutir con nadie
@@ -2640,10 +2675,113 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             <span style={{ color: HUD.dim3 }}> +1</span>}
                         </span>
                         <span style={{ fontFamily: black, fontSize: 14, textAlign: 'right' }}>
-                          {horas(t.duracionSec)}
+                          {t.anulado ? <span style={{ color: HUD.dim2 }}>anulado</span> : horas(t.duracionSec)}
+                          {/* Corregido a mano: se dice en la fila, con quién y por
+                              qué en el título. Nadie lee las horas de un turno
+                              corregido como si las hubiera medido el sistema. */}
+                          {t.correccion && (
+                            <div title={`${t.correccion.tipo === 'agregar' ? 'Agregado' : t.correccion.tipo === 'anular' ? 'Anulado' : 'Corregido'} por ${t.correccion.quien}: ${t.correccion.motivo}`}
+                              data-corregido={t.id}
+                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 2 }}>
+                              {t.correccion.tipo === 'agregar' ? 'AGREGADO A MANO' : t.correccion.tipo === 'anular' ? 'ANULADO A MANO' : 'CORREGIDO A MANO'}
+                            </div>
+                          )}
+                        </span>
+                        <span style={{ textAlign: 'right' }}>
+                          <button data-corregir-turno={t.id} onClick={() => corrigiendo === t.id ? setCorrigiendo(null) : abrirCorreccion(t)}
+                            style={btnChico(HUD.fg2)}>{corrigiendo === t.id ? 'Cerrar' : 'Corregir'}</button>
                         </span>
                       </FilaTabla>
                 );
+                // El formulario abre debajo de su fila. Corregir NO es editar a
+                // escondidas: el motivo es obligatorio, y queda el antes y el
+                // después con quién lo hizo.
+                const editor = (t) => {
+                  const nuevo = t === 'nuevo';
+                  const personas = (users || []).filter(u => u.role === 'driver' || u.role === 'collector');
+                  const quien = !nuevo && (t.alias || t.name || t.personId);
+                  return (
+                    <div key={'corr-' + (nuevo ? 'nuevo' : t.id)} data-editor-turno={nuevo ? 'nuevo' : t.id} style={{
+                      ...tarjeta('14px 16px'), margin: '8px 0 12px', background: HUD.bg,
+                      display: 'grid', gap: 10,
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>
+                        {nuevo ? 'Agregar un turno que no se registró' : `Corregir el turno de ${quien} en ${t.vehicleId}`}
+                      </div>
+                      {nuevo && (
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          <label style={{ fontSize: 12, color: HUD.fg2, display: 'grid', gap: 4 }}>Persona
+                            <select data-turno-persona value={corrForm.personId}
+                              onChange={e => setCorrForm(f => ({ ...f, personId: e.target.value }))}
+                              style={{ ...campo(36), minWidth: 200 }}>
+                              <option value="">Elegí…</option>
+                              {personas.map(u => <option key={u.unitId} value={u.unitId}>{u.alias || u.name || u.unitId} ({u.unitId})</option>)}
+                            </select>
+                          </label>
+                          <label style={{ fontSize: 12, color: HUD.fg2, display: 'grid', gap: 4 }}>Combi
+                            <select data-turno-combi value={corrForm.vehicleId}
+                              onChange={e => setCorrForm(f => ({ ...f, vehicleId: e.target.value }))}
+                              style={{ ...campo(36), minWidth: 120 }}>
+                              <option value="">La de hoy</option>
+                              {(vehicles || []).map(v => <option key={v.vehicleId} value={v.vehicleId}>{v.vehicleId}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        <label style={{ fontSize: 12, color: HUD.fg2, display: 'grid', gap: 4 }}>Entrada
+                          <input type="datetime-local" data-turno-inicio value={corrForm.inicio}
+                            onChange={e => setCorrForm(f => ({ ...f, inicio: e.target.value }))} style={campo(36)} />
+                        </label>
+                        <label style={{ fontSize: 12, color: HUD.fg2, display: 'grid', gap: 4 }}>Salida
+                          <input type="datetime-local" data-turno-fin value={corrForm.fin}
+                            onChange={e => setCorrForm(f => ({ ...f, fin: e.target.value }))} style={campo(36)} />
+                        </label>
+                        <label style={{ fontSize: 12, color: HUD.fg2, display: 'grid', gap: 4, flex: '1 1 260px' }}>Motivo (obligatorio, queda registrado)
+                          <input data-turno-motivo value={corrForm.motivo} maxLength={200}
+                            placeholder="Ej.: se olvidó de salir de ruta; volvió a las 18:10"
+                            onChange={e => setCorrForm(f => ({ ...f, motivo: e.target.value }))} style={campo(36)} />
+                        </label>
+                      </div>
+                      {confirmarAnular && !nuevo ? (
+                        <div role="alert" style={{
+                          background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`, borderRadius: 10,
+                          padding: '10px 12px', fontSize: 13, color: HUD.ambarTinta, lineHeight: 1.5,
+                        }}>
+                          ¿Anular el turno de <b>{quien}</b> en <b>{t.vehicleId}</b> del {new Date(t.startedAt).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' })}, {hhmm(t.startedAt)}–{t.abierto ? 'ahora' : hhmm(t.endedAt)}?
+                          {' '}Sus horas quedan en cero. El turno no se borra: queda anulado, con el motivo.
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            <button data-turno-anular-si disabled={busy} onClick={() => guardarCorreccion(t, true)} style={btnPrimario(34)}>Sí, anular</button>
+                            <button onClick={() => setConfirmarAnular(false)} style={btnSecundario(34)}>No</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button data-turno-guardar disabled={busy} onClick={() => guardarCorreccion(t)} style={btnPrimario(34)}>
+                            {nuevo ? 'Agregar turno' : 'Guardar corrección'}
+                          </button>
+                          {!nuevo && !t.anulado && (
+                            <button data-turno-anular onClick={() => setConfirmarAnular(true)} style={btnSecundario(34)}>Anular este turno…</button>
+                          )}
+                          <button onClick={() => setCorrigiendo(null)} style={btnSecundario(34)}>Cancelar</button>
+                        </div>
+                      )}
+                      {!nuevo && historialTurno && historialTurno.length > 0 && (
+                        <div data-historial-turno style={{ fontSize: 12, color: HUD.dim2, lineHeight: 1.6 }}>
+                          <div style={rotulo(9)}>Correcciones anteriores</div>
+                          {historialTurno.map((c, i) => (
+                            <div key={i}>
+                              {hhmm(c.en)} · <b style={{ color: HUD.fg2 }}>{c.quienNombre}</b>:{' '}
+                              {c.tipo === 'anular' ? 'lo anuló' : c.tipo === 'agregar' ? `lo agregó (${hhmm(c.despuesInicio)}–${hhmm(c.despuesFin)})`
+                                : `${hhmm(c.antesInicio)}–${hhmm(c.antesFin)} → ${hhmm(c.despuesInicio)}–${hhmm(c.despuesFin)}`}
+                              {' '}· «{c.motivo}»
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                };
                 let diaImpreso = null;
                 const filas = [];
                 for (const t of turnos) {
@@ -2659,12 +2797,24 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     );
                   }
                   filas.push(fila(t));
+                  if (corrigiendo === t.id) filas.push(editor(t));
                 }
                 return (
-                  <Tabla cols={cols} ancho={700}
-                    cabeceras={['Unidad', 'Tripulación', 'Entrada', 'Salida', 'En ruta']}>
-                    {filas}
-                  </Tabla>
+                  <div>
+                    {corrigiendo === 'nuevo' && editor('nuevo')}
+                    {vacio ? (
+                      <Vacio>
+                        {rangoTurnos === 'hoy'
+                          ? 'Todavía nadie salió a ruta hoy. El turno se abre solo cuando alguien entra a su unidad.'
+                          : 'No hay turnos en ese rango.'}
+                      </Vacio>
+                    ) : (
+                      <Tabla cols={cols} ancho={800}
+                        cabeceras={['Unidad', 'Tripulación', 'Entrada', 'Salida', 'En ruta', '']}>
+                        {filas}
+                      </Tabla>
+                    )}
+                  </div>
                 );
               })()}
               <Pie>
@@ -2673,6 +2823,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 vuelve dentro de los 15 minutos, se retoma el mismo. Si el servidor se
                 reinicia, los turnos que quedaron abiertos se cierran con la última
                 señal que se les vio.
+                {' '}Cuando eso no refleja lo que pasó, <strong>Corregir</strong> cambia la
+                entrada o la salida, o anula el turno, y <strong>Agregar un turno que faltó</strong>
+                {' '}suma uno que no se registró. Siempre con motivo, hasta 31 días atrás:
+                queda quién lo hizo, el antes y el después, y el informe de horas lo dice.
               </Pie>
             </div>)}
 
@@ -3990,6 +4144,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   baja: { label: 'dio de baja a', color: HUD.red },
                   sos: { label: 'disparó un SOS', color: HUD.red },
                   sos_atendido: { label: 'atendió el SOS de', color: HUD.green },
+                  // Las horas corregidas a mano (PENDIENTES 0.6)
+                  turno_corregido: { label: 'corrigió el turno de', color: HUD.amber },
+                  turno_agregado: { label: 'agregó un turno a', color: HUD.amber },
+                  turno_anulado: { label: 'anuló un turno de', color: HUD.amber },
                   // Las tres del perfil del chofer (se editan desde la app)
                   alias_propio: { label: 'se puso el alias', color: HUD.bright },
                   clave_propia: { label: 'cambió su propia contraseña', color: HUD.amber },

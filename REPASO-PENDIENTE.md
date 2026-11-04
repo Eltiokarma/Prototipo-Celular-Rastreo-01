@@ -908,3 +908,11 @@ anota cada parche para la revisión integral. Lo más importante para el repaso:
 el chequeo nuevo de identificadores sin declarar encontró un error que ya
 estaba en la nativa (`Grabar` usaba `C` sin declararlo: mantener apretado el
 micrófono la hacía caer).
+
+## Tanda 21 — corregir horas a mano (04/11, sin repasar)
+
+El punto 0.6 de PENDIENTES. El detalle está en **`CAMBIOS-PARA-REVISAR.md`,
+bloque 8**. Para el repaso, lo central: la corrección edita `shifts` (y lo
+marca `corregido`) en vez de agregar una capa que cada consulta tenga que
+leer, y `abrirTurno` no reabre un turno corregido. Las preguntas abiertas
+(¿se le avisa al chofer?, ¿sólo la gerencia?) están en ese bloque.

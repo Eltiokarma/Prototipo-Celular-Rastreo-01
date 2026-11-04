@@ -2151,6 +2151,30 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_persona ON shifts (personId, star
 // las lecturas de este panel preguntan por una empresa y un período.
 db.exec('CREATE INDEX IF NOT EXISTS idx_shifts_ruta ON shifts (routeId, startedAt)');
 
+// Las correcciones a mano (PENDIENTES 0.6, 04/11). Las horas salen del turno
+// que abre y cierra el sistema; cuando eso no refleja lo que pasó —el que se
+// olvidó de salir de ruta, el teléfono que se apagó, el que dejó la app
+// abierta en su casa—, Despacho lo corrige. La corrección EDITA el turno
+// (así todos los informes de horas la ven sin cambiar cada consulta) y deja
+// acá el antes, el después, quién y por qué. Un turno corregido queda marcado
+// y el sistema no lo vuelve a tocar solo (ver `abrirTurno`).
+addColumnIfMissing('shifts', 'corregido', 'INTEGER');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS correcciones_turno (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    turnoId INTEGER NOT NULL,
+    personId TEXT NOT NULL,
+    routeId TEXT,
+    tipo TEXT NOT NULL,           -- 'corregir' | 'agregar' | 'anular'
+    antesInicio INTEGER, antesFin INTEGER,
+    despuesInicio INTEGER NOT NULL, despuesFin INTEGER NOT NULL,
+    motivo TEXT NOT NULL,
+    quien TEXT NOT NULL,          -- la cuenta de Despacho o gerencia
+    en INTEGER NOT NULL
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_correcciones_turno ON correcciones_turno (turnoId, id)');
+
 // Un corte de señal no es un turno nuevo. Si la misma persona vuelve a la
 // misma unidad antes de esto, se retoma el turno que estaba en vez de
 // partirlo en pedazos — en la ruta se pierde la señal todo el tiempo.
@@ -2178,6 +2202,7 @@ function abrirTurno(personId, vehicleId, routeId, role) {
   const previo = db.prepare(`
     SELECT id FROM shifts
     WHERE personId = ? AND vehicleId = ? AND routeId IS ? AND endedAt IS NOT NULL AND endedAt > ?
+      AND corregido IS NULL
       AND id = (SELECT MAX(id) FROM shifts WHERE personId = ?)
     ORDER BY id DESC LIMIT 1
   `).get(personId, vehicleId, routeId || null, ahora - RECONEXION_MS, personId);
@@ -2955,6 +2980,9 @@ function podarHistorico() {
   const turnosViejos = db.prepare(
     'DELETE FROM shifts WHERE endedAt IS NOT NULL AND startedAt < ?')
     .run(Date.now() - TURNOS_DIAS * 86400_000).changes;
+  // Y sus correcciones, con el mismo plazo
+  db.prepare('DELETE FROM correcciones_turno WHERE despuesInicio < ? AND (antesInicio IS NULL OR antesInicio < ?)')
+    .run(Date.now() - TURNOS_DIAS * 86400_000, Date.now() - TURNOS_DIAS * 86400_000);
   const chat = pruneChatStmt.run({ corte: Date.now() - CHAT_DIAS * 86400_000 }).changes;
   const sos = pruneSosStmt.run({ corte: Date.now() - SOS_DIAS * 86400_000 }).changes;
   const mensajesDeMas = pruneRowsStmt.run({ tope: MENSAJES_MAX_FILAS }).changes;
@@ -6238,7 +6266,10 @@ const INFORMES = {
   horas: (filtro) => {
     const filas = db.prepare(`
       SELECT s.personId, s.vehicleId, s.routeId, s.role, s.startedAt, s.endedAt, s.lastSeenAt,
-             u.name, u.alias
+             u.name, u.alias,
+             -- La última corrección a mano, si hubo (PENDIENTES 0.6)
+             (SELECT c.tipo || ' · ' || c.quien || ' · ' || c.motivo FROM correcciones_turno c
+              WHERE c.turnoId = s.id ORDER BY c.id DESC LIMIT 1) AS correccion
       FROM shifts s
       LEFT JOIN users u ON u.unitId = s.personId
       WHERE ${TURNOS_EN_VENTANA}
@@ -6251,7 +6282,8 @@ const INFORMES = {
     // el momento de bajar el archivo (REVISION-2026-09-10.md, L1 y L11).
     return {
       nombre: 'horas',
-      cabecera: ['Persona', 'Nombre', 'Alias', 'Rol', 'Unidad', 'Ruta', 'Entrada', 'Salida', 'Horas en el período (h:mm)', 'Abierto', 'Última señal'],
+      cabecera: ['Persona', 'Nombre', 'Alias', 'Rol', 'Unidad', 'Ruta', 'Entrada', 'Salida', 'Horas en el período (h:mm)', 'Abierto', 'Última señal',
+                 'Corrección a mano'],
       filas: filas.map(t => [
         t.personId, t.name, t.alias,
         t.role === 'collector' ? 'cobrador' : 'chofer',
@@ -6260,6 +6292,7 @@ const INFORMES = {
         duracionHm(duracionTurnoSec(t, filtro.desde, filtro.hasta)),
         t.endedAt ? 'no' : 'sí',
         fechaHora(t.lastSeenAt),
+        t.correccion || '',
       ]),
     };
   },
@@ -6572,7 +6605,7 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
   // con más de 500 turnos en la semana las horas salían cortas.
   const filas = db.prepare(`
     SELECT s.id, s.personId, s.vehicleId, s.routeId, s.role,
-           s.startedAt, s.endedAt, s.lastSeenAt,
+           s.startedAt, s.endedAt, s.lastSeenAt, s.corregido,
            u.name, u.alias
     FROM shifts s
     LEFT JOIN users u ON u.unitId = s.personId
@@ -6582,8 +6615,22 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
     ORDER BY s.startedAt DESC
   `).all({ desde: inicio, hasta, empresa: req.empresa, scope: req.scope });
 
+  // La última corrección de cada turno corregido (quién y por qué), para
+  // que la lista lo diga
+  const corregidos = filas.filter(t => t.corregido).map(t => t.id);
+  const ultimaCorreccion = new Map();
+  if (corregidos.length) {
+    const marcas = corregidos.map(() => '?').join(',');
+    for (const c of db.prepare(`SELECT c.*, COALESCE(u.alias, u.name, u.unitId, c.quien) AS quienNombre
+        FROM correcciones_turno c LEFT JOIN users u ON u.unitId = c.quien
+        WHERE c.turnoId IN (${marcas}) ORDER BY c.id`).all(...corregidos)) {
+      ultimaCorreccion.set(c.turnoId, { tipo: c.tipo, motivo: c.motivo, quien: c.quienNombre, en: c.en });
+    }
+  }
   const todos = filas.map(t => ({
     ...t,
+    correccion: ultimaCorreccion.get(t.id) || null,
+    anulado: !!t.corregido && t.endedAt !== null && t.endedAt === t.startedAt,
     abierto: t.endedAt === null,
     // Lo que lleva arriba, con el mismo criterio que el gerente y el CSV: el
     // abierto cuenta hasta la última señal, y el que empezó antes del día se
@@ -6624,6 +6671,125 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
       }))
       .sort((a, b) => b.totalSec - a.totalSec),
   });
+});
+
+// ─── CORREGIR HORAS A MANO (PENDIENTES 0.6, 04/11) ───────────
+// Las reglas, todas del lado del servidor:
+//   - con motivo (de 5 a 200 caracteres): sin él no hay corrección;
+//   - hasta CORRECCION_DIAS para atrás: lo de antes ya se liquidó;
+//   - un turno no dura más de 24 h, ni termina en el futuro;
+//   - no se pisa con otro turno de la misma persona (las horas se contarían
+//     dos veces);
+//   - sólo los turnos de las rutas que ese Despacho ve.
+// Anular un turno lo deja con duración cero (entrada = salida), visible y
+// marcado: no se borra, para que se vea qué se anuló y por qué.
+const CORRECCION_DIAS = Number(process.env.CORRECCION_DIAS || 31);
+const TURNO_MAX_MS = 24 * 60 * 60_000;
+function motivoValido(m) {
+  const t = String(m ?? '').trim().replace(/\s+/g, ' ');
+  if (t.length < 5) return { error: 'Escribí el motivo de la corrección (al menos 5 letras): queda registrado' };
+  return { motivo: t.slice(0, 200) };
+}
+// Valida entrada y salida nuevas. `anular`: duración cero permitida.
+function horarioValido(ini, fin, { anular = false } = {}) {
+  ini = Number(ini); fin = Number(fin);
+  const ahora = Date.now();
+  if (!Number.isFinite(ini) || !Number.isFinite(fin)) return { error: 'Faltan la entrada o la salida' };
+  if (ini < ahora - CORRECCION_DIAS * 86400_000) return { error: `Sólo se corrigen turnos de los últimos ${CORRECCION_DIAS} días` };
+  if (fin > ahora + 60_000) return { error: 'La salida no puede ser en el futuro' };
+  if (anular ? fin !== ini : fin <= ini) return { error: 'La salida tiene que ser después de la entrada' };
+  if (fin - ini > TURNO_MAX_MS) return { error: 'Un turno no puede durar más de 24 horas' };
+  return { ini, fin };
+}
+// ¿Se pisa con otro turno de la persona? (los anulados no cuentan)
+function seSuperpone(personId, ini, fin, excepto = null) {
+  return db.prepare(`
+    SELECT id, vehicleId, startedAt, COALESCE(endedAt, lastSeenAt) AS fin FROM shifts
+    WHERE personId = ? AND id IS NOT ? AND startedAt < ? AND COALESCE(endedAt, lastSeenAt, ?) > ?
+      AND NOT (endedAt IS NOT NULL AND endedAt = startedAt)
+    LIMIT 1
+  `).get(personId, excepto, fin, Date.now(), ini) || null;
+}
+const horaCorta = (ts) => { const d = new Date(ts); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+function turnoVisible(req, id) {
+  const t = db.prepare('SELECT * FROM shifts WHERE id = ?').get(Number(id) || -1);
+  if (!t || !t.routeId || !rutaDeEmpresa(t.routeId, req.empresa) || (req.scope && t.routeId !== req.scope)) return null;
+  return t;
+}
+
+// Corregir (o anular) un turno existente
+app.post('/admin/shifts/:id/correccion', requireDispatch, (req, res) => {
+  const t = turnoVisible(req, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Ese turno no existe' });
+  const m = motivoValido(req.body?.motivo);
+  if (m.error) return res.status(400).json({ error: m.error });
+  const anular = req.body?.anular === true;
+  const iniPedido = anular ? t.startedAt : (req.body?.startedAt ?? t.startedAt);
+  const finPedido = anular ? t.startedAt : req.body?.endedAt;
+  const h = horarioValido(iniPedido, finPedido, { anular });
+  if (h.error) return res.status(400).json({ error: h.error });
+  if (!anular) {
+    const otro = seSuperpone(t.personId, h.ini, h.fin, t.id);
+    if (otro) return res.status(409).json({ error: `Se pisa con otro turno suyo (${otro.vehicleId}, ${horaCorta(otro.startedAt)}–${horaCorta(otro.fin)}): las horas se contarían dos veces` });
+  }
+  const antesFin = t.endedAt ?? t.lastSeenAt;
+  const ahora = Date.now();
+  db.transaction(() => {
+    db.prepare('UPDATE shifts SET startedAt = ?, endedAt = ?, lastSeenAt = ?, corregido = 1 WHERE id = ?')
+      .run(h.ini, h.fin, h.fin, t.id);
+    db.prepare(`INSERT INTO correcciones_turno (turnoId, personId, routeId, tipo, antesInicio, antesFin, despuesInicio, despuesFin, motivo, quien, en)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(t.id, t.personId, t.routeId, anular ? 'anular' : 'corregir', t.startedAt, antesFin, h.ini, h.fin, m.motivo, req.dispatchUser.unitId, ahora);
+  })();
+  audit(req.dispatchUser.unitId, anular ? 'turno_anulado' : 'turno_corregido', t.personId,
+    `${t.vehicleId} ${horaCorta(t.startedAt)}–${horaCorta(antesFin)}${anular ? '' : ` → ${horaCorta(h.ini)}–${horaCorta(h.fin)}`} · ${m.motivo}`, t.routeId);
+  res.json({ ok: true, turno: { ...t, startedAt: h.ini, endedAt: h.fin, lastSeenAt: h.fin, corregido: 1 } });
+});
+
+// Agregar un turno que no se registró (el teléfono se apagó, manejó con otra
+// app, se cayó el servidor): con motivo, igual que corregir
+app.post('/admin/shifts', requireDispatch, (req, res) => {
+  const personId = idLimpio(req.body?.personId);
+  const persona = personId && db.prepare('SELECT unitId, role, routeId, companyId, vehicleId FROM users WHERE unitId = ?').get(personId);
+  if (!persona || persona.companyId !== req.empresa || (persona.role !== 'driver' && persona.role !== 'collector')) {
+    return res.status(404).json({ error: 'Esa persona no existe (o no es chofer ni cobrador)' });
+  }
+  const vehicleId = idLimpio(req.body?.vehicleId) || persona.vehicleId;
+  const veh = vehicleId && vehicleOf(vehicleId);
+  if (!veh || veh.companyId !== req.empresa) return res.status(404).json({ error: 'Esa combi no existe' });
+  const routeId = veh.routeId || persona.routeId;
+  if (!routeId || !rutaDeEmpresa(routeId, req.empresa) || (req.scope && routeId !== req.scope)) {
+    return res.status(403).json({ error: 'Esa combi es de otra ruta' });
+  }
+  const m = motivoValido(req.body?.motivo);
+  if (m.error) return res.status(400).json({ error: m.error });
+  const h = horarioValido(req.body?.startedAt, req.body?.endedAt);
+  if (h.error) return res.status(400).json({ error: h.error });
+  const otro = seSuperpone(personId, h.ini, h.fin);
+  if (otro) return res.status(409).json({ error: `Se pisa con otro turno suyo (${otro.vehicleId}, ${horaCorta(otro.startedAt)}–${horaCorta(otro.fin)}): las horas se contarían dos veces` });
+  let id;
+  db.transaction(() => {
+    id = db.prepare(`INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, lastSeenAt, endedAt, corregido)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 1)`)
+      .run(personId, vehicleId, routeId, persona.role, h.ini, h.fin, h.fin).lastInsertRowid;
+    db.prepare(`INSERT INTO correcciones_turno (turnoId, personId, routeId, tipo, antesInicio, antesFin, despuesInicio, despuesFin, motivo, quien, en)
+                VALUES (?, ?, ?, 'agregar', NULL, NULL, ?, ?, ?, ?, ?)`)
+      .run(id, personId, routeId, h.ini, h.fin, m.motivo, req.dispatchUser.unitId, Date.now());
+  })();
+  audit(req.dispatchUser.unitId, 'turno_agregado', personId, `${vehicleId} ${horaCorta(h.ini)}–${horaCorta(h.fin)} · ${m.motivo}`, routeId);
+  res.json({ ok: true, turno: { id, personId, vehicleId, routeId, role: persona.role, startedAt: h.ini, endedAt: h.fin, corregido: 1 } });
+});
+
+// El historial de un turno: cada corrección, con el antes y el después
+app.get('/admin/shifts/:id/correcciones', requireDispatch, (req, res) => {
+  const t = turnoVisible(req, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Ese turno no existe' });
+  res.json({ correcciones: db.prepare(`
+    SELECT c.tipo, c.antesInicio, c.antesFin, c.despuesInicio, c.despuesFin, c.motivo, c.en,
+           c.quien, COALESCE(u.alias, u.name, u.unitId, c.quien) AS quienNombre
+    FROM correcciones_turno c LEFT JOIN users u ON u.unitId = c.quien
+    WHERE c.turnoId = ? ORDER BY c.id
+  `).all(t.id) });
 });
 
 // Las vueltas cerradas, una por una, con la brecha que mantuvo cada una.

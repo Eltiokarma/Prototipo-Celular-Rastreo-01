@@ -227,6 +227,65 @@ desliza el SOS y mira el panel, los `tel:`, el SMS y el caso sin central).
 `paneles` y `nativas` actualizadas. **Manual:** no (a pedido: todavía no va
 al PDF).
 
+## 8. Corregir horas a mano, con quién y por qué — (04/11, este parche)
+
+**Qué.** Despacho (o la gerencia) puede, desde Gestión → Turnos:
+- **Corregir** la entrada o la salida de un turno (el que se olvidó de salir
+  de ruta, el que dejó la combi antes de lo que marcó).
+- **Anular** un turno (el que dejó la app abierta en su casa). Queda con
+  duración cero, visible y marcado; no se borra.
+- **Agregar** un turno que no se registró (el teléfono se apagó, se cayó el
+  servidor).
+
+Siempre con **motivo obligatorio**. Queda en una tabla nueva
+(`correcciones_turno`) con el antes, el después, quién y cuándo, y además en
+la Actividad. La lista de turnos marca cada fila «CORREGIDO / AGREGADO /
+ANULADO A MANO» (el título dice quién y por qué), el editor muestra las
+correcciones anteriores, y el informe de horas (`horas.csv`) tiene una
+columna nueva, *Corrección a mano*.
+
+**Cómo.** La corrección **edita el turno** en `shifts` y lo marca
+(`corregido = 1`). Así todo lo que calcula horas —la lista, el informe, el
+resumen del gerente, el perfil del chofer, las vueltas propias— ve lo
+corregido sin cambiar cada consulta. Un turno corregido **no se vuelve a
+abrir solo** cuando la persona reconecta dentro de los 15 minutos
+(`abrirTurno` lo excluye).
+
+**Reglas** (del lado del servidor):
+- el motivo, de 5 a 200 caracteres;
+- hasta **31 días** atrás (`CORRECCION_DIAS`);
+- un turno no puede durar más de **24 h** ni terminar en el futuro;
+- **no se puede pisar** con otro turno de la misma persona (las horas se
+  contarían dos veces);
+- solo los turnos de las rutas que ese Despacho ve; al agregar, solo choferes
+  y cobradores de la cooperativa, en una combi de su ruta.
+
+**Archivos.**
+- `server/index.js`: `correcciones_turno`, `horarioValido`, `seSuperpone`,
+  `POST /admin/shifts/:id/correccion`, `POST /admin/shifts`,
+  `GET /admin/shifts/:id/correcciones`, la lista y el informe de horas, y
+  `abrirTurno`.
+- `project/despacho.html`: la pestaña Turnos y las etiquetas de la Actividad.
+
+**Mirar.**
+- **El chofer no se entera** de que le corrigieron las horas: las ve
+  corregidas en su perfil, sin marca ni aviso. ¿Debería llegarle un aviso, o
+  ver la marca? Es una decisión de política laboral, no técnica.
+- Corregir un turno **abierto** lo cierra. Si la persona sigue manejando,
+  sus horas siguientes no se cuentan hasta que el sistema le abra un turno
+  nuevo (al volver a salir a ruta). Es lo que se quiere en «se olvidó de
+  salir», pero no en otros casos.
+- **Los 31 días** son una decisión: lo de antes se supone liquidado.
+- Corrige cualquier Despacho, no solo la gerencia. ¿Debería ser solo la
+  gerencia?
+- Las fechas del formulario salen en el formato del navegador (`datetime-local`).
+
+**Pruebas.** `correccion-horas` (nueva): las reglas, corregir, agregar,
+anular, el historial, la Actividad, la lista, el informe, que un corregido no
+se reabre, la otra ruta, y la pantalla en Chromium. Además pasan `horas`,
+`csv`, `gerencia`, `perfil`, `numeros`, `numeros-ui`, `poda`, `retencion`,
+`semana` y `periodo`. **Manual:** no.
+
 ---
 
 ## Para el manual (cuando toque)
@@ -237,6 +296,8 @@ Lo que todavía no está en `manual/manual.tex`:
 - El SOS sin internet: el panel, el SMS y los números de emergencia
   (bloque 7). Y en Despacho → Gestión → Empresa, el campo *Teléfono de la
   central para emergencias*.
+- Despacho → Gestión → Turnos: Corregir, Anular y Agregar un turno que faltó
+  (bloque 8).
 - Para el que opera, no para el chofer: `/salud` y las alertas (bloque 4),
   y la copia afuera y cómo volver a un respaldo (bloque 5). Quizás va en un
   anexo de operación más que en el manual de uso.
