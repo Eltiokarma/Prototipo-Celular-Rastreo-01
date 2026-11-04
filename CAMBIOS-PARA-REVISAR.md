@@ -558,7 +558,7 @@ que código:
 registro, la Actividad, el panel en Chromium (contar, anotar, versión vieja,
 retiro) y que el formulario se lea en un teléfono. **Manual:** no.
 
-## 13. Actualizar la app sin reinstalar (EAS Update) — (04/11, este parche)
+## 13. Actualizar la app sin reinstalar (EAS Update) — `3b98cea` (04/11)
 
 **Qué.**
 - La app del chofer trae `expo-updates`. El **JavaScript** (pantallas, chat,
