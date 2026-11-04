@@ -815,7 +815,7 @@ que **no**:
 
 **Manual:** no.
 
-## 16. Revisión integral de los bloques 1 a 15 — (04/11, este parche)
+## 16. Revisión integral de los bloques 1 a 15 — `31b3eea`, `5b6d644` (04/11)
 
 **Cómo se hizo.**
 - Cuatro revisores independientes, cada uno con un grupo de bloques
