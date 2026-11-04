@@ -286,7 +286,7 @@ se reabre, la otra ruta, y la pantalla en Chromium. Además pasan `horas`,
 `csv`, `gerencia`, `perfil`, `numeros`, `numeros-ui`, `poda`, `retencion`,
 `semana` y `periodo`. **Manual:** no.
 
-## 9. Alta de muchas personas desde una planilla — (04/11, este parche)
+## 9. Alta de muchas personas desde una planilla — `c45d582` (04/11)
 
 **Qué.** En Despacho → Gestión → Personas → **Cargar una planilla**:
 - Acepta **Excel (.xlsx)**, **LibreOffice o Google Sheets (.ods)**, **CSV**
