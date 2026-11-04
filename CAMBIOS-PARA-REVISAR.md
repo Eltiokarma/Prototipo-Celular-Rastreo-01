@@ -650,7 +650,7 @@ cabecera, el cableado de la app y de los `.bat`, la guardia de lo nativo, y
 el servidor y Despacho (Chromium). `nativas` cubre ahora `expo-updates`.
 **Manual:** no (es del que opera, no del chofer).
 
-## 14. Un reinicio no tira las vueltas — (04/11, este parche)
+## 14. Un reinicio no tira las vueltas — `ddb84d8` (04/11)
 
 **Qué.**
 - **Antes**, un reinicio del servidor (un deploy, un cuelgue) perdía todo lo
