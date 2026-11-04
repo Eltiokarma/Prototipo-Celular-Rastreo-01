@@ -980,3 +980,11 @@ bloque 15**. Para el repaso, lo central: `datosDePersona` en `server/index.js`
 (qué entra y qué no; el `EXISTS` contra los turnos de chofer que decide qué
 es suyo de lo que es de la combi), y `server/zip.js` (el ZIP sin librerías).
 
+## Tanda 29 — los arreglos de la revisión integral (04/11, sin repasar)
+
+**`CAMBIOS-PARA-REVISAR.md`, bloque 16**: 27 arreglos que salieron de revisar
+los bloques 1 a 15 con cuatro revisores independientes. Lo más delicado para
+repasar: el lector de planillas en un hilo aparte (`leerPlanillaAislada`), la
+copia afuera por partes (`cifrarArchivo`, `subir` con archivo), la migración
+`unaVez('habilitaciones_iniciales')`, y la reconciliación de `retomarMemoria`.
+

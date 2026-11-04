@@ -31,14 +31,39 @@ const pkg = JSON.parse(fs.readFileSync(RAIZ + '/app/package.json', 'utf8'));
 const eas = JSON.parse(fs.readFileSync(RAIZ + '/app/eas.json', 'utf8'));
 
 // Lo nativo: lo que, si cambia, pide una APK nueva
+// Todo lo de app.json que va a la parte nativa (la revisión integral del
+// 04/11 vio que faltaban `newArchEnabled`, `scheme` y el resto de `android`)
 const fotoNativa = () => ({
   version: appJson.version,
   dependencias: pkg.dependencies,
   plugins: appJson.plugins,
-  permisos: (appJson.android || {}).permissions,
-  paquete: (appJson.android || {}).package,
+  android: appJson.android,
+  newArchEnabled: appJson.newArchEnabled ?? null,
+  scheme: appJson.scheme ?? null,
+  ios: appJson.ios ?? null,
 });
 const NATIVO = RAIZ + '/app/nativo.json';
+
+// Sólo la guardia, para `publicar-arreglo.bat`: sale con 1 si cambió algo
+// nativo sin subir la versión (y entonces NO se publica)
+if (process.argv.includes('--guardia')) {
+  const anotado = fs.existsSync(NATIVO) ? JSON.parse(fs.readFileSync(NATIVO, 'utf8')) : null;
+  const ahora = fotoNativa();
+  if (!anotado) { console.log('Falta app/nativo.json: corré «node pruebas/actualizacion.js --anotar» después de compilar la APK.'); process.exit(1); }
+  if (anotado.version !== ahora.version) {
+    console.log(`La versión es ${ahora.version} pero lo nativo anotado es de la ${anotado.version}: compilá la APK nueva y anotá (node pruebas/actualizacion.js --anotar).`);
+    process.exit(1);
+  }
+  const cambio = Object.keys(ahora).filter(k => JSON.stringify(ahora[k]) !== JSON.stringify(anotado[k]));
+  if (cambio.length) {
+    console.log(`Cambió algo NATIVO (${cambio.join(', ')}) y la versión sigue en ${ahora.version}.`);
+    console.log('Un arreglo publicado así caería en teléfonos que no tienen esa parte y la app se rompería.');
+    console.log('Subí "version" en app/app.json, compilá una APK nueva con compilar-app.bat y anotá lo nativo.');
+    process.exit(1);
+  }
+  console.log(`Lo nativo no cambió desde la versión ${ahora.version}: se puede publicar.`);
+  process.exit(0);
+}
 
 if (process.argv.includes('--anotar')) {
   fs.writeFileSync(NATIVO, JSON.stringify(fotoNativa(), null, 2) + '\n');
@@ -93,6 +118,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const bat = fs.readFileSync(RAIZ + '/publicar-arreglo.bat', 'utf8');
   ok('publicar-arreglo.bat existe y publica con la dirección del servidor de cada canal',
      /eas-cli update --channel/.test(bat) && /EXPO_PUBLIC_SERVIDOR/.test(bat) && /roll-back-to-embedded/.test(bat));
+  ok('y no publica sin pasar la guardia de lo nativo', /actualizacion\.js --guardia/.test(bat) && /--guardia[\s\S]*errorlevel 1[\s\S]*eas-cli update --channel/.test(bat));
+  ok('el primer chequeo al arrancar no aplica en la puerta (sólo al volver al frente)', /mirar\(false\);/.test(app));
+  ok('la vuelta atrás cuenta como pendiente', /isRollBackToEmbedded/.test(app));
 
   console.log('\nLA GUARDIA DE LO NATIVO');
   const anotado = fs.existsSync(NATIVO) ? JSON.parse(fs.readFileSync(NATIVO, 'utf8')) : null;

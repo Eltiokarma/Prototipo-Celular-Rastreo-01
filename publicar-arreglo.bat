@@ -67,6 +67,17 @@ if errorlevel 1 (
 REM La version de la APK a la que va el arreglo (runtimeVersion)
 for /f "delims=" %%v in ('node -p "require('./app.json').expo.version"') do set version=%%v
 
+REM La guardia: si cambio algo NATIVO sin subir la version, NO se publica
+REM (el arreglo caeria en telefonos sin esa parte y la app se romperia)
+echo.
+call node ..\pruebas\actualizacion.js --guardia
+if errorlevel 1 (
+  echo.
+  echo [NO SE PUBLICA] Lee el mensaje de arriba.
+  pause
+  exit /b 1
+)
+
 echo.
 echo === 4 de 4: A quien? ===
 echo.
@@ -74,7 +85,7 @@ echo   [1] PRUEBA  - solo los telefonos con la APK de prueba (el tuyo).
 echo                 Empeza SIEMPRE por aca.
 echo   [2] TODOS   - todos los choferes con la APK normal
 echo   [3] PLAY    - los que la instalaron desde Google Play
-echo   [4] VOLVER ATRAS - deshacer: los telefonos de TODOS vuelven al
+echo   [4] VOLVER ATRAS - deshacer: los telefonos de un canal vuelven al
 echo                 JavaScript que vino en su APK
 echo.
 echo   (Va a la version %version% de la app. Las APK de otra version no
@@ -91,20 +102,39 @@ if "%opcion%"=="3" (
   set EXPO_PUBLIC_SERVIDOR=https://app.microstempo.com
 )
 
-if "%opcion%"=="4" (
-  echo.
-  echo Volviendo atras el canal de TODOS ^(apk^), version %version%...
-  call npx eas-cli update:roll-back-to-embedded --channel apk --runtime-version %version% --platform android --message "Vuelta atras"
-  echo.
-  echo Listo. Los telefonos vuelven al JavaScript de su APK la proxima vez
-  echo que se abra la app fuera de ruta.
+if "%opcion%"=="4" goto atras
+
+goto publicar
+
+:atras
+echo.
+echo   Que canal vuelve atras?  [1] PRUEBA   [2] TODOS   [3] PLAY
+set /p cual="Eleccion [2]: "
+set canalAtras=apk
+if "%cual%"=="1" set canalAtras=prueba
+if "%cual%"=="3" set canalAtras=produccion
+echo.
+echo Volviendo atras el canal "%canalAtras%", version %version%...
+call npx eas-cli update:roll-back-to-embedded --channel %canalAtras% --runtime-version %version% --platform android --message "Vuelta atras"
+if errorlevel 1 (
+  echo [ERROR] No se pudo volver atras. Revisa el mensaje de arriba.
   pause
-  exit /b 0
+  exit /b 1
 )
+echo.
+echo Listo. Los telefonos de ese canal vuelven al JavaScript de su APK la
+echo proxima vez que se abra la app fuera de ruta.
+pause
+exit /b 0
+
+:publicar
 
 echo.
+set "mensaje="
 set /p mensaje="Que arregla (una linea, queda en el historial): "
-if "%mensaje%"=="" set mensaje=Arreglo
+REM Sin comillas: rompian el if de abajo y el comando de publicar
+if defined mensaje set "mensaje=%mensaje:"=%"
+if not defined mensaje set "mensaje=Arreglo"
 
 echo.
 echo Publicando en el canal "%canal%" con el servidor %EXPO_PUBLIC_SERVIDOR%...

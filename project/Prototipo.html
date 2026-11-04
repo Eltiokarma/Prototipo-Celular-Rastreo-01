@@ -3267,7 +3267,15 @@ function Root() {
     setUser(u => {
       if (!u) return u;
       const nuevo = { ...u, vehicleId: r.vehicleId, routeId: r.routeId || u.routeId, routeName: r.routeName || u.routeName };
-      try { if (nuevo.token) localStorage.setItem('r14_session', JSON.stringify(nuevo)); } catch {}
+      try {
+        // El teléfono de la central que se guardó DESPUÉS del login (lo
+        // actualiza `/marca`) no se pisa con el de `user`, que es el del
+        // login: si no, sin internet el SOS mostraba el número viejo
+        // (revisión integral del 04/11)
+        const g = JSON.parse(localStorage.getItem('r14_session') || 'null');
+        const guardar = g && g.unitId === nuevo.unitId && 'central' in g ? { ...nuevo, central: g.central } : nuevo;
+        if (nuevo.token) localStorage.setItem('r14_session', JSON.stringify(guardar));
+      } catch {}
       return nuevo;
     });
     setRutaVigente(null);

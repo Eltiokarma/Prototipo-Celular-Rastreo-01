@@ -744,9 +744,13 @@ function Aplicacion() {
         if (!pendiente && tocaPreguntar(preguntadoEn.current, Date.now())) {
           preguntadoEn.current = Date.now();
           const hay = await Updates.checkForUpdateAsync();
-          if (hay.isAvailable) {
+          // La vuelta atrás (publicar-arreglo → VOLVER ATRÁS) llega como
+          // `isRollBackToEmbedded`, no como `isNew`: sin esto no se aplicaba
+          // por acá sino en el próximo arranque en frío, esté en ruta o no
+          // (revisión integral del 04/11)
+          if (hay.isAvailable || hay.isRollBackToEmbedded) {
             const r = await Updates.fetchUpdateAsync();
-            pendiente = !!r.isNew;
+            pendiente = !!(r.isNew || r.isRollBackToEmbedded);
           }
         }
         if (pendiente && sePuedeAplicar({ ...estadoParaActualizar.current, alVolver })) {
@@ -754,7 +758,11 @@ function Aplicacion() {
         }
       } catch {}                                 // sin red: la próxima vez
     };
-    mirar(true);
+    // Al arrancar se pregunta y se baja, pero NO se aplica en la puerta: la
+    // descarga termina segundos después, con el chofer ya usando la app, y
+    // recargaba bajo el dedo. Se aplica en la próxima vuelta al frente (o ya,
+    // si está en la pantalla de entrada).
+    mirar(false);
     const sub = AppState.addEventListener('change', (e) => { if (e === 'active') mirar(true); });
     return () => sub.remove();
   }, []);

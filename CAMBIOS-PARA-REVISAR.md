@@ -815,6 +815,95 @@ que **no**:
 
 **Manual:** no.
 
+## 16. Revisión integral de los bloques 1 a 15 — (04/11, este parche)
+
+**Cómo se hizo.**
+- Cuatro revisores independientes, cada uno con un grupo de bloques
+  (1–3, 4–7, 8–11, 12–15). Recibieron el código y lo que dice este
+  archivo, no las conclusiones de quien lo escribió.
+- Varios hallazgos vinieron confirmados con una prueba propia.
+- Cada uno se volvió a verificar contra el código antes de tocarlo.
+- Se arregló lo real. Lo que no, dice abajo por qué.
+
+**Lo que se arregló**, de más grave a menos:
+
+| # | Bloque | Qué pasaba | Arreglo |
+|---|---|---|---|
+| 1 | 9 | **Un .xlsx de 628 bytes tiraba el servidor de todas las cooperativas** por memoria (`r="ZZZZZ1"` = columna 12 millones, se asignaba antes del tope). Y uno de 2 kB con `<row>` sin cerrar lo congelaba 14 s | Tope de columna antes de asignar (y en .ods). Y el lector corre **en un hilo aparte** con 256 MB y 5 s: si se pasa, muere ese hilo y el servidor sigue (medido: 1 de 50 tics perdidos) |
+| 2 | 1 | **Después de cada reinicio, un comodín podía manejar al cobrador de una combi ajena** (cambiarle la clave y entrar como él): la «migración» de habilitaciones corría en cada arranque y volvía permanente la combi elegida en la puerta | Corre **una sola vez** (tabla `migraciones`, `unaVez()`) |
+| 3 | 15 | **El ZIP de una persona traía datos de OTRA si el usuario se reusaba**, incluso de otra cooperativa | Todo acotado a desde que se creó la cuenta y a las rutas (o combis) de su cooperativa. Prueba nueva con el caso |
+| 4 | 5 | **La copia afuera congelaba el servidor**: leía, comprimía y cifraba la base entera en el hilo principal (4,7 s con 100 MB y 500 MB de memoria, cada 6 h; peor desde que las fotos duran 30 días) | Cifrado y subida **por partes y asíncronos**, mismo formato (medido: peor atraso del reloj 1 ms) |
+| 5 | 1 y 10 | **La baja borraba lo guardado como evidencia** en el privado personal | Se desvincula de la persona (no lo hereda un usuario nuevo) y se conserva |
+| 6 | 14 | **Un cuelgue retomaba lo que ya se había cerrado** después de la última foto: vueltas duplicadas, desvíos recerrados | Al retomar se descarta lo que la base ya cerró, los cierres sólo pisan filas abiertas, y la foto se usa una vez. Prueba nueva con el caso |
+| 7 | 10 | **El motivo de la evidencia les llegaba a todos los choferes de la ruta** («posible despido de…») | Los campos de evidencia sólo van a los paneles |
+| 8 | 10 | Cada conexión leía de la base **todas** las fotos del historial para descartar casi todas (~2 s de servidor congelado) | Primero el tamaño, después sólo el contenido de lo que entra |
+| 9 | 4 | **Cualquier error de base** (hasta un `CONSTRAINT`) ponía `/salud` en 503 diez minutos: Railway podía rechazar un deploy | Sólo los graves: lleno, sólo lectura, E/S, dañada, no abre |
+| 10 | 4 | `GET /salud` es público y **escribía en la base en cada pedido** | No escribe; contesta lo último si es de hace menos de 10 s |
+| 11 | 8 | Se podía **mover un turno de hace 40 días** (ya liquidado) al período actual | Se rechaza corregir un turno de más de 31 días |
+| 12 | 8 | Un Despacho de ruta **le agregaba horas a gente de otra ruta**, y el error de superposición le mostraba turnos de esa otra ruta | La persona tiene que ser de su ruta; el error no da datos de lo que no ve |
+| 13 | 9 | «Revisar» y «Crear» con 500 filas **congelaban el servidor ~22 s** (500 huellas de clave en el hilo principal) | Revisar no calcula huellas; Crear las calcula en paralelo y fuera del hilo principal |
+| 14 | 13 | **Se podía publicar un arreglo sobre una APK incompatible**: el .bat no corría la guardia | `publicar-arreglo.bat` corre `--guardia` y no publica si falla; la guardia mira también `newArchEnabled`, `scheme`, todo `android` e `ios` |
+| 15 | 13 | **«Volver atrás» no se aplicaba como decía** (llega como `isRollBackToEmbedded`, no `isNew`); sólo servía para un canal y decía «Listo» aunque fallara | Cuenta como pendiente; el .bat pregunta el canal y revisa el error |
+| 16 | 13 | El primer chequeo al abrir la app podía **recargarla bajo el dedo** en la puerta | Al arrancar sólo baja; aplica en la próxima vuelta al frente |
+| 17 | 1 | En la nativa, la salida automática del vigía **sin red se volvía un relevo de verdad** al reconectar (se mandaba sin su motivo) | El motivo pendiente se guarda y va al reconectar, como en la web |
+| 18 | 2 | Despacho **no sacaba los SOS que atendió otro panel** mientras estaba cortado: seguía sonando | `sos_abiertos` es la lista entera: lo que no está, se va |
+| 19 | 2 | **ATENDIDO se daba por hecho sin confirmación**; con la conexión medio muerta no salía y nadie se enteraba | Se saca recién con el eco del servidor («ENVIANDO…»), aviso a los 8 s, y **latido** de ping/pong en el panel |
+| 20 | 3 | «Despacho vio tu SOS» le salía al **chofer del turno siguiente** por un SOS de la misma combi que no pidió; y recorría toda la tabla en cada conexión | Sólo el suyo o el de su combi si iba arriba; índice |
+| 21 | 5 | Una subida fallida **no se reintentaba hasta 6 h después**; el listado del bucket ignoraba la paginación; restaurar sin espacio dejaba el pedazo; se podía restaurar un `.db` plano del bucket | Reintentos a 5/15/60 min; paginación; limpieza; del bucket sólo `.enc`. Y una sola subida por respaldo a la vez: al arrancar podían subir el mismo juntas y se pisaban (lo encontró la prueba) |
+| 22 | 7 | En la web, **el teléfono de la central actualizado se pisaba con el viejo** al cambiar de combi | Se conserva el guardado después del login |
+| 23 | 1 | En la web, un segundo SALIR A RUTA podía dejar la combi sin GPS (carrera) | «Entregada» recién cuando el servidor contesta |
+| 24 | 15 | Las notas de voz de la web (`audio/webm;codecs=opus`) **no entraban en el ZIP** | La expresión salta los parámetros del tipo; más extensiones |
+| 25 | 12 | El consentimiento aceptaba **la fecha de mañana** y cualquier versión | Contra el día de hoy; versión ≤ la vigente; responde lo guardado |
+| 26 | 15 | El ZIP sin tope (sin ZIP64) | 20 000 archivos o 500 MB, con error claro |
+| 27 | 9 | El CSV de claves **no se protegía contra fórmulas** de Excel | Apóstrofo adelante, igual que `server/csv.js` |
+
+**Lo que NO se arregló, y por qué.**
+- **Copia afuera, autenticar el nombre (AAD):** alguien con la llave del
+  bucket podría renombrar una copia vieja como nueva. Se arregló la mitad
+  grave (no se restaura un `.db` plano del bucket). La otra mitad cambia el
+  formato de las copias y obliga a no renombrarlas nunca; con la llave del
+  bucket fuera de nuestras manos, ese riesgo ya es otro problema.
+- **Menores del bloque 1–3:**
+  - A los choferes les llega el usuario de login de la cuenta de Despacho
+    que atendió (`porId`).
+  - La notificación del navegador no se cierra cuando otro panel atiende.
+  - El cartel verde de «Despacho vio tu SOS» tapa un momento la tarjeta
+    AUSENTE (se cierra con un toque).
+
+  Ninguno rompe nada.
+- **Bloque 6:** al cambiar de ruta, la ruta anterior se entera en su
+  próximo `state`, no en el acto.
+- **Los `*.antes-de-restaurar-*` no se podan:** son la vuelta atrás de una
+  restauración, y borrarlos solos sería peor. Está dicho en el log.
+- **Las dos consultas `NOT IN`** que quedan (PENDIENTES 4.10): sin un número
+  que lo pida.
+
+**Archivos.**
+- Servidor: `server/index.js`, `server/planilla.js`,
+  `server/copia-afuera.js`, `server/restaurar.js`, `server/salud.js`,
+  `server/memoria.js`, `server/base.js`.
+- Pantallas: `project/despacho.html`, `project/Prototipo.html`,
+  `project/realtime.js`, `project/service-worker.js` (v91).
+- App: `app/App.js`, `app/protocolo/cliente.js`, `app/nativo.json`.
+- Herramientas: `publicar-arreglo.bat`.
+- Pruebas: `pruebas/reinicio.js`, `pruebas/datos-persona.js`,
+  `pruebas/actualizacion.js`.
+
+**Mirar.**
+- `subirCopia` cambió de forma: ahora recibe la ruta, no el contenido, y
+  hay una sola subida por respaldo a la vez.
+- La importación de planillas es `async`.
+- El historial ya no trae `data` en la consulta grande.
+
+**Pruebas.** Nuevas comprobaciones:
+- en `reinicio`, lo cerrado después de la foto;
+- en `datos-persona`, el usuario reusado en otra cooperativa;
+- en `actualizacion`, la guardia en el .bat, la vuelta atrás y el primer
+  chequeo.
+
+La planilla maliciosa y el cifrado por partes se midieron aparte (los
+números están en la tabla). **Manual:** no.
+
 ---
 
 ## Para el manual (cuando toque)

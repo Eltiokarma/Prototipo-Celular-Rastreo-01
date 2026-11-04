@@ -1666,7 +1666,11 @@ function CargaMasiva({ api, onListo }) {
   const bajarClaves = () => {
     const filas = [['Usuario', 'Nombre', 'Rol', 'Combi', 'Clave']]
       .concat(hecho.filas.filter(f => f.ok).map(f => [f.usuario, f.nombre, f.rol === 'collector' ? 'cobrador' : 'chofer', f.combi || '', f.clave]));
-    const csv = '\uFEFF' + filas.map(f => f.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    // Un nombre de la planilla que empieza con = + - @ sería una FÓRMULA al
+    // abrir este archivo en Excel, al lado de la clave: se le antepone un
+    // apóstrofo, igual que en server/csv.js (revisión integral del 04/11)
+    const celda = (c) => { let t = String(c ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
+    const csv = '\uFEFF' + filas.map(f => f.map(celda).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     a.download = 'claves-personas-nuevas.csv'; a.click();
@@ -4785,9 +4789,21 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       setSosError('Sin conexión: ATENDIDO no salió. Probá de nuevo.');
       return;
     }
+    // Se saca de la lista recién cuando el servidor lo confirma (el
+    // `sos_atendido` que les manda a todos los paneles, éste incluido). Con
+    // la conexión medio muerta el envío no da error y no sale nada: antes se
+    // daba por atendido igual, y no lo estaba (revisión integral del 04/11).
     ws.send(JSON.stringify({ type: 'sos_atender', sosId: s.sosId }));
     setSosError(null);
-    setSosLista(l => l.filter(x => x !== s));
+    setSosLista(l => l.map(x => x.sosId === s.sosId ? { ...x, atendiendo: Date.now() } : x));
+    setTimeout(() => {
+      setSosLista(l => {
+        const sigue = l.find(x => x.sosId === s.sosId && x.atendiendo);
+        if (!sigue) return l;
+        setSosError('ATENDIDO no se confirmó: la conexión está fallando. Probá de nuevo.');
+        return l.map(x => x.sosId === s.sosId ? { ...x, atendiendo: null } : x);
+      });
+    }, 8000);
   };
   // La combi en emergencia se reconoce por el VEHÍCULO: `unitId` del SOS es
   // la persona, y en el estado `unitId` es la combi. Con un cobrador o un
@@ -4970,19 +4986,23 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     let closedByUs = false;
     let reconnect = null;
     let ws = null;
+    let oidoEn = Date.now();   // la última vez que llegó algo (ver el latido)
 
     const open = () => {
       ws = new WebSocket(SERVER_URL);
       wsRef.current = ws;
       ws.onopen = () => {
         setConnected(true);
+        oidoEn = Date.now();
         ws.send(JSON.stringify({ type: 'identify', token: session.token }));
         // Y la ruta que se estaba mirando, si se eligió una
         if (rutaMiradaRef.current) ws.send(JSON.stringify({ type: 'watch', routeId: rutaMiradaRef.current }));
       };
       ws.onmessage = (ev) => {
+        oidoEn = Date.now();
         let msg;
         try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'pong') return;
         if (msg.type === 'state') {
           // Al reconectar, el servidor manda primero el estado de la ruta
           // inicial y recién después atiende el `watch`: ese estado no es de
@@ -5061,10 +5081,15 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         } else if (msg.type === 'sos_abiertos') {
           // Los que siguen sin atender, al conectar: el que llegó mientras
           // el panel recargaba (o estaba cerrado) vuelve a estar acá
+          // Es la lista ENTERA de los abiertos: el que otro panel atendió
+          // mientras éste estaba cortado se va (antes se quedaba sonando
+          // hasta que alguien tocara ATENDIDO acá; revisión integral 04/11)
           setSosLista(l => {
-            const ya = new Set(l.map(x => x.sosId));
+            const abiertos = new Set((msg.items || []).map(x => x.sosId));
+            const siguen = l.filter(x => x.sosId == null || abiertos.has(x.sosId));
+            const ya = new Set(siguen.map(x => x.sosId));
             const nuevos = (msg.items || []).filter(x => !ya.has(x.sosId)).map(x => ({ ...x, receivedAt: Date.now() }));
-            return nuevos.length ? [...l, ...nuevos].sort((a, b) => a.timestamp - b.timestamp) : l;
+            return [...siguen, ...nuevos].sort((a, b) => a.timestamp - b.timestamp);
           });
         } else if (msg.type === 'sos_atendido') {
           // Lo atendió alguien (este panel u otro): se cierra en todos, y el
@@ -5108,9 +5133,19 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       };
     };
     open();
+    // El latido, igual que la app web: un ping cada 15 s y, si en 40 s no
+    // llegó NADA, el socket está muerto aunque no lo sepa (wifi que cambió,
+    // notebook que se durmió): se lo cierra y se reconecta. Sin esto, un SOS
+    // podía no llegar y ATENDIDO podía no salir (revisión integral del 04/11).
+    const latido = setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - oidoEn > 40_000) { try { ws.close(); } catch {} return; }
+      try { ws.send(JSON.stringify({ type: 'ping' })); } catch {}
+    }, 15_000);
 
     return () => {
       closedByUs = true;
+      clearInterval(latido);
       clearTimeout(reconnect);
       if (ws) ws.close();
     };
@@ -5493,10 +5528,10 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
               color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
             }}>Activar sonido</button>
           )}
-          <button data-sos-atendido onClick={() => atenderSos(sos)} style={{
+          <button data-sos-atendido onClick={() => atenderSos(sos)} disabled={!!sos.atendiendo} style={{
             height: 34, padding: '0 12px', background: '#fff', border: 'none', borderRadius: 8,
-            color: HUD.red, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
-          }}>ATENDIDO</button>
+            color: HUD.red, fontSize: 13, fontWeight: 800, cursor: sos.atendiendo ? 'wait' : 'pointer', fontFamily: 'inherit',
+          }}>{sos.atendiendo ? 'ENVIANDO…' : 'ATENDIDO'}</button>
         </div>
       )}
 

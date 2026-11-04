@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 // Compartido con las herramientas de consola (ver `base.js` y `empresa.js`)
-const { openDatabase, hashPassword, verifyPassword, idLimpio, idReservado } = require('./base');
+const { openDatabase, hashPassword, hashPasswordAsync, verifyPassword, idLimpio, idReservado } = require('./base');
 const { montarPanelDelCreador } = require('./creador');
 const marca = require('./marca');
 const respaldo = require('./respaldo');
@@ -6016,7 +6016,7 @@ app.get('/admin/users', requireDispatch, (req, res) => {
 // formulario y para la carga desde una planilla (PENDIENTES 0.7): las dos
 // tienen que dar de alta exactamente igual. Devuelve { ok, … } o
 // { status, error }; no responde nada.
-function altaDePersona(req, body, { silencioso = false } = {}) {
+function altaDePersona(req, body, { silencioso = false, passHash = null } = {}) {
   const unitId = idLimpio(body?.unitId);
   if (body?.unitId && !unitId) {
     return { status: 400, error: 'El usuario solo admite letras, números, punto, guion y guion bajo' };
@@ -6099,7 +6099,7 @@ function altaDePersona(req, body, { silencioso = false } = {}) {
   db.prepare(`
     INSERT INTO users (unitId, driverName, name, alias, role, routeId, vehicleId, companyId, passHash, createdAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(unitId, alias || name, name, alias, role, rutaFinal, vehiculoFinal, req.empresa, hashPassword(password), Date.now());
+  `).run(unitId, alias || name, name, alias, role, rutaFinal, vehiculoFinal, req.empresa, passHash || hashPassword(password), Date.now());
   // La combi del alta es la primera que tiene habilitada
   db.prepare('INSERT OR IGNORE INTO habilitaciones (personId, vehicleId, createdAt) VALUES (?, ?, ?)')
     .run(unitId, vehiculoFinal, Date.now());
@@ -6235,15 +6235,28 @@ app.post('/admin/users/importar', requireDispatch, async (req, res) => {
         resultado.push({ ...fila, ok: false, motivo: `El usuario ${usuario} ya está más arriba en la planilla` }); return;
       }
       const r = altaDePersona(req, { unitId: usuario, name: nombre, alias: fila.alias, personRole: role,
-        vehicleId: fila.combi || undefined, routeId: valor(f, 'ruta') || undefined, password: clave }, { silencioso: !confirmar });
+        vehicleId: fila.combi || undefined, routeId: valor(f, 'ruta') || undefined, password: clave },
+        // La huella de relleno (no abre nada): al revisar se descarta, y al
+        // crear se reemplaza por la de verdad apenas termina la tanda
+        { silencioso: !confirmar, passHash: HASH_DE_RELLENO });
       if (r.error) { resultado.push({ ...fila, ok: false, motivo: r.error }); return; }
       tomados.add(r.unitId.toUpperCase());
+      if (confirmar) claves.push([r.unitId, clave]);
       resultado.push({ ...fila, usuario: r.unitId, ok: true, combi: r.vehicleId, ruta: r.routeId,
         ...(confirmar ? { clave } : {}) });
     });
     if (!confirmar) throw new Deshacer();
   };
+  const claves = [];
   try { db.transaction(correr)(); } catch (e) { if (!(e instanceof Deshacer)) throw e; }
+  // Las huellas de verdad, en paralelo y fuera del hilo principal. Hasta que
+  // terminan, esas cuentas tienen la de relleno: no entra nadie (y no se
+  // contesta antes de que estén).
+  if (claves.length) {
+    const huellas = await Promise.all(claves.map(([, c]) => hashPasswordAsync(c)));
+    const poner = db.prepare('UPDATE users SET passHash = ? WHERE unitId = ? AND passHash = ?');
+    db.transaction(() => claves.forEach(([u], i) => poner.run(huellas[i], u, HASH_DE_RELLENO)))();
+  }
 
   const buenas = resultado.filter(r => r.ok).length;
   if (confirmar && buenas) {
@@ -6299,10 +6312,17 @@ app.post('/admin/users/:unitId/consentimiento', requireDispatch, (req, res) => {
     const fecha = String(req.body?.fecha || '');
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha);
     const d = m && new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12);
-    if (!d || d.getMonth() !== Number(m[2]) - 1 || d.getFullYear() < 2024 || d.getTime() > Date.now() + 86400_000) {
+    // Contra el día de HOY (hora local del servidor), no contra «ahora + 24 h»:
+    // eso dejaba pasar la fecha de mañana (revisión integral del 04/11)
+    const h = new Date();
+    const hoy = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}-${String(h.getDate()).padStart(2, '0')}`;
+    if (!d || d.getMonth() !== Number(m[2]) - 1 || d.getFullYear() < 2024 || fecha > hoy) {
       return res.status(400).json({ error: 'Poné la fecha en que firmó el papel: una fecha real y que no sea futura' });
     }
-    const version = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.version || '')) ? String(req.body.version) : CONSENTIMIENTO_VERSION;
+    // Una versión anterior a la vigente vale (un papel viejo que recién se
+    // anota); una posterior no existe
+    const pedida = String(req.body?.version || '');
+    const version = /^\d{4}-\d{2}-\d{2}$/.test(pedida) && pedida <= CONSENTIMIENTO_VERSION ? pedida : CONSENTIMIENTO_VERSION;
     db.prepare('UPDATE users SET consentimientoFecha = ?, consentimientoVersion = ?, consentimientoPor = ? WHERE unitId = ?')
       .run(fecha, version, req.dispatchUser.unitId, unitId);
     audit(req.dispatchUser.unitId, 'consentimiento_firmado', unitId, `firmado el ${fecha} · versión ${version}`, routeId);
@@ -6312,9 +6332,8 @@ app.post('/admin/users/:unitId/consentimiento', requireDispatch, (req, res) => {
     db.prepare('UPDATE users SET consentimientoFecha = NULL, consentimientoVersion = NULL, consentimientoPor = NULL WHERE unitId = ?').run(unitId);
     audit(req.dispatchUser.unitId, 'consentimiento_retirado', unitId, motivo, routeId);
   }
-  res.json({ ok: true, unitId, consentimientoFecha: firmado ? req.body.fecha : null,
-             consentimientoVersion: firmado ? (req.body.version || CONSENTIMIENTO_VERSION) : null,
-             versionVigente: CONSENTIMIENTO_VERSION });
+  const guardado = db.prepare('SELECT consentimientoFecha, consentimientoVersion FROM users WHERE unitId = ?').get(unitId);
+  res.json({ ok: true, unitId, ...guardado, versionVigente: CONSENTIMIENTO_VERSION });
 });
 
 // ─── TODO LO DE UNA PERSONA (PENDIENTES 0.14) ────────────────
@@ -6493,6 +6512,13 @@ app.get('/admin/users/:unitId/datos.zip', requireDispatch, (req, res) => {
   const chequeo = cuentaEnAlcance(req, req.params.unitId);
   if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
   const { archivos, fotos, audios } = datosDePersona(chequeo.user.unitId, req.empresa, req.dispatchUser.unitId);
+  // Topes con un error claro: el ZIP es sin ZIP64 (hasta 65 535 archivos) y
+  // se arma en memoria (revisión integral del 04/11). Con 30 días de chat,
+  // una persona real está muy lejos de los dos.
+  const pesa = archivos.reduce((t, a) => t + (Buffer.isBuffer(a.datos) ? a.datos.length : Buffer.byteLength(String(a.datos))), 0);
+  if (archivos.length > 20_000 || pesa > 500 * 1024 * 1024) {
+    return res.status(413).json({ error: `Son demasiados datos para un solo archivo (${archivos.length} archivos, ${Math.round(pesa / 1048576)} MB). Pedilo al soporte del sistema` });
+  }
   const zip = crearZip(archivos);
   audit(req.dispatchUser.unitId, 'datos_exportados', chequeo.user.unitId,
     `${archivos.length} archivos (${fotos} fotos, ${audios} audios), ${Math.round(zip.length / 1024)} kB`, chequeo.user.routeId);
@@ -7320,10 +7346,25 @@ function turnoVisible(req, id) {
   return t;
 }
 
+// El otro turno con el que se pisa: con su combi y horario sólo si este
+// Despacho lo puede ver (un Despacho de ruta no ve los turnos de otra)
+function textoSePisa(req, otro) {
+  const visible = otro.id ? turnoVisible(req, otro.id) : null;
+  return visible
+    ? `Se pisa con otro turno suyo (${otro.vehicleId}, ${horaCorta(otro.startedAt)}–${horaCorta(otro.fin)}): las horas se contarían dos veces`
+    : 'Se pisa con otro turno suyo, de otra ruta: las horas se contarían dos veces';
+}
+
 // Corregir (o anular) un turno existente
 app.post('/admin/shifts/:id/correccion', requireDispatch, (req, res) => {
   const t = turnoVisible(req, req.params.id);
   if (!t) return res.status(404).json({ error: 'Ese turno no existe' });
+  // El turno QUE SE CORRIGE también tiene que ser de los últimos 31 días: si
+  // no, uno ya liquidado se «movía» al período actual (revisión integral
+  // del 04/11)
+  if (t.startedAt < Date.now() - CORRECCION_DIAS * 86400_000) {
+    return res.status(400).json({ error: `Ese turno es de hace más de ${CORRECCION_DIAS} días: ya se liquidó y no se corrige` });
+  }
   const m = motivoValido(req.body?.motivo);
   if (m.error) return res.status(400).json({ error: m.error });
   const anular = req.body?.anular === true;
@@ -7333,7 +7374,7 @@ app.post('/admin/shifts/:id/correccion', requireDispatch, (req, res) => {
   if (h.error) return res.status(400).json({ error: h.error });
   if (!anular) {
     const otro = seSuperpone(t.personId, h.ini, h.fin, t.id);
-    if (otro) return res.status(409).json({ error: `Se pisa con otro turno suyo (${otro.vehicleId}, ${horaCorta(otro.startedAt)}–${horaCorta(otro.fin)}): las horas se contarían dos veces` });
+    if (otro) return res.status(409).json({ error: textoSePisa(req, otro) });
   }
   const antesFin = t.endedAt ?? t.lastSeenAt;
   const ahora = Date.now();
@@ -7364,12 +7405,16 @@ app.post('/admin/shifts', requireDispatch, (req, res) => {
   if (!routeId || !rutaDeEmpresa(routeId, req.empresa) || (req.scope && routeId !== req.scope)) {
     return res.status(403).json({ error: 'Esa combi es de otra ruta' });
   }
+  // Y la PERSONA, de la ruta de este Despacho: igual que en el resto de
+  // Personas (`cuentaEnAlcance`). Un Despacho de ruta le agregaba horas a
+  // gente de otra ruta (revisión integral del 04/11)
+  if (req.scope && persona.routeId !== req.scope) return res.status(403).json({ error: 'Esa persona es de otra ruta' });
   const m = motivoValido(req.body?.motivo);
   if (m.error) return res.status(400).json({ error: m.error });
   const h = horarioValido(req.body?.startedAt, req.body?.endedAt);
   if (h.error) return res.status(400).json({ error: h.error });
   const otro = seSuperpone(personId, h.ini, h.fin);
-  if (otro) return res.status(409).json({ error: `Se pisa con otro turno suyo (${otro.vehicleId}, ${horaCorta(otro.startedAt)}–${horaCorta(otro.fin)}): las horas se contarían dos veces` });
+  if (otro) return res.status(409).json({ error: textoSePisa(req, otro) });
   let id;
   db.transaction(() => {
     id = db.prepare(`INSERT INTO shifts (personId, vehicleId, routeId, role, startedAt, lastSeenAt, endedAt, corregido)

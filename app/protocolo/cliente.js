@@ -145,11 +145,18 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       // va como re-declaración: con otro manejando esa combi, el servidor
       // no la toma como un relevo — un relevo es deslizar SALIR A RUTA, no
       // que vuelva la señal (revisión previa a la APK).
+      // Y si nunca llegó y la había declarado el VIGÍA (`motivo: 'auto'`),
+      // va con su motivo: sin él, el servidor la tomaba como un SALIR A RUTA
+      // del chofer —un relevo de verdad— y no anotaba «salió solo» (revisión
+      // integral del 04/11; la web ya lo hacía).
       if (presenciaDeclarada && presenciaDeclarada !== 'fuera') {
-        ws.send(JSON.stringify(presenciaEntregada
-          ? { type: 'presencia', estado: presenciaDeclarada, redeclara: true }
-          : { type: 'presencia', estado: presenciaDeclarada }));
+        ws.send(JSON.stringify(motivoPendiente && !presenciaEntregada
+          ? { type: 'presencia', estado: presenciaDeclarada, motivo: motivoPendiente }
+          : presenciaEntregada
+            ? { type: 'presencia', estado: presenciaDeclarada, redeclara: true }
+            : { type: 'presencia', estado: presenciaDeclarada }));
         presenciaEntregada = true;
+        motivoPendiente = null;
       }
     };
     const alMensaje = (crudo) => {
@@ -204,7 +211,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
         cerradoAdrede = true;
         // Lo declarado era de esta sesión: el próximo login en este mismo
         // teléfono no puede entrar declarando la presencia del anterior.
-        presenciaDeclarada = null; presenciaEntregada = false;
+        presenciaDeclarada = null; presenciaEntregada = false; motivoPendiente = null;
         emitir('authError', m.error);
         break;
 
@@ -647,18 +654,20 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // puerta, Despacho no se enteraba hasta la próxima conexión.
   let presenciaDeclarada = null;
   let presenciaEntregada = false;   // ¿ya llegó al servidor? (ver `alAbrir`)
+  let motivoPendiente = null;       // el motivo de la que todavía no llegó
   async function marcarPresencia(estado, motivo, { retomada = false } = {}) {
     presenciaDeclarada = estado;
     presenciaEntregada = retomada;
+    motivoPendiente = motivo || null;
     const cuerpo = motivo ? { estado, motivo } : retomada ? { estado, redeclara: true } : { estado };
     if (ws && conectado) {
       let salio = false;
       try { ws.send(JSON.stringify({ type: 'presencia', ...cuerpo })); salio = true; } catch {}
-      if (salio) presenciaEntregada = true;
+      if (salio) { presenciaEntregada = true; motivoPendiente = null; }
       if (salio && estado !== 'fuera') return true;
     }
     const ok = await declararPorHttp('/presencia', cuerpo, 3, () => presenciaDeclarada === estado);
-    if (ok && presenciaDeclarada === estado) presenciaEntregada = true;
+    if (ok && presenciaDeclarada === estado) { presenciaEntregada = true; motivoPendiente = null; }
     return ok;
   }
 
@@ -671,6 +680,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   function recordarPresencia(estado) {
     presenciaDeclarada = estado;
     presenciaEntregada = true;
+    motivoPendiente = null;
   }
 
   // "Estoy en tráfico" / "ya no". Mismo camino que la presencia: WebSocket

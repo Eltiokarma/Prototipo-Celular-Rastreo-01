@@ -640,12 +640,14 @@
     // Sin socket ni token (la puerta de la web): sale con la conexión
     if (!porSocket && !authToken && motivo) motivoPendiente = motivo;
     if (authToken) {
-      presenciaEntregada = true;
+      // «Entregada» recién cuando el servidor contesta bien: marcada antes,
+      // un socket que abría mientras tanto re-declaraba (`redeclara`), y con
+      // otro manejando quedaba sin GPS ni mando (revisión integral 04/11)
       fetch(HTTP_URL + '/presencia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
         body: JSON.stringify(cuerpo),
-      }).catch(() => {});
+      }).then(r => { if (r.ok && presenciaDeclarada === estado) presenciaEntregada = true; }).catch(() => {});
     }
   }
 
