@@ -1,0 +1,349 @@
+% Informe de avance para el dueño del producto: dónde estamos.
+% Se compila con:   cd informes && pdflatex estado-2026-11-04.tex   (dos veces)
+% La letra es Times (mathptmx: la Times de URW). Times New Roman como tal no
+% está instalada donde se compila; esta es la misma familia de letra.
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+% Times (la versión libre de URW, con las mismas formas y medidas)
+\usepackage{mathptmx}
+\usepackage[spanish,es-noshorthands]{babel}
+\usepackage[a4paper,top=2.5cm,bottom=2.5cm,left=2.8cm,right=2.8cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+\setlength{\emergencystretch}{3em}   % los nombres de archivo largos no se cortan
+\usepackage{microtype}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{enumitem}
+\setlist{itemsep=0.35em, topsep=0.5em}
+\usepackage{titlesec}
+\titleformat{\section}{\Large\bfseries\color{MidnightBlue}}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries}{}{0em}{}
+\titlespacing*{\section}{0pt}{1.6em}{0.6em}
+\titlespacing*{\subsection}{0pt}{1.1em}{0.3em}
+\usepackage[most]{tcolorbox}
+\newtcolorbox{recuadro}[1]{colback=MidnightBlue!4, colframe=MidnightBlue!60, fonttitle=\bfseries,
+  title={#1}, arc=2mm, boxrule=0.6pt, left=3mm, right=3mm, top=2mm, bottom=2mm, before skip=1em, after skip=1em}
+\newtcolorbox{atencion}[1]{colback=Orange!6, colframe=Orange!75!black, fonttitle=\bfseries,
+  title={#1}, arc=2mm, boxrule=0.6pt, left=3mm, right=3mm, top=2mm, bottom=2mm, before skip=1em, after skip=1em}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{gray}Micros Tempo · Dónde estamos}
+\fancyhead[R]{\small\color{gray}4 de noviembre de 2026}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\usepackage[hidelinks]{hyperref}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{4cm}
+  {\Huge\bfseries Dónde estamos\par}
+  \vspace{0.8cm}
+  {\Large Lo que cambió en el sistema de control de flota\\
+  entre el 31 de octubre y el 4 de noviembre de 2026\par}
+  \vspace{2.5cm}
+  {\large Micros Tempo\par}
+  \vfill
+  {\normalsize Escrito para leer de corrido, sin términos técnicos.\\
+  El detalle de cada cambio, para quien lo programe, está en\\
+  el archivo \emph{CAMBIOS-PARA-REVISAR.md} del proyecto.\par}
+  \vspace{1cm}
+\end{titlepage}
+
+\section{En pocas palabras}
+
+En estos cinco días el sistema dio un salto. Se terminó la lista de cosas
+que hacían falta antes de salir con una cooperativa de verdad, y después se
+revisó todo lo nuevo con ojos frescos para encontrar lo que pudiera fallar
+en la calle. Lo que se encontró se corrigió.
+
+Hoy el sistema está \textbf{listo para el piloto en Juliaca}. Lo que falta
+ya no es programar: son pasos tuyos (compilar la aplicación, probarla en un
+teléfono, configurar un par de cosas en los paneles de los servicios) y
+algunas decisiones que te tocan como dueño del producto.
+
+\begin{recuadro}{Lo más importante de estos días}
+\begin{itemize}[leftmargin=1.2em]
+  \item Una \textbf{emergencia (SOS)} ya no puede pasar desapercibida: suena
+  en Despacho hasta que alguien la atiende, y el chofer ve que lo vieron.
+  Si no hay internet, el chofer puede llamar o mandar un mensaje de texto
+  a la central.
+  \item Los arreglos de la aplicación del chofer \textbf{llegan solos} a los
+  teléfonos, sin reinstalar.
+  \item Un reinicio del servidor ya \textbf{no le borra la vuelta} a las
+  combis que estaban en ruta.
+  \item Hay una \textbf{copia de seguridad fuera del servidor}, cifrada, y una
+  forma probada de volver a ella.
+  \item Quedó preparada la parte de \textbf{datos personales} que pide la ley
+  peruana.
+  \item Una \textbf{revisión a fondo} encontró y corrigió 27 problemas, cinco
+  de ellos graves.
+\end{itemize}
+\end{recuadro}
+
+\section{Lo nuevo, según quién lo usa}
+
+\subsection{Para el chofer y el cobrador}
+
+\textbf{Saber que Despacho vio su emergencia.} Cuando el chofer pide ayuda y
+Despacho la marca como atendida, en el teléfono aparece «Despacho vio tu SOS»,
+con quién lo atendió y a qué hora. Antes el chofer no tenía forma de saber si
+alguien lo había visto.
+
+\textbf{Pedir ayuda sin internet.} Si el SOS no sale porque el teléfono no
+tiene datos, la aplicación lo dice claramente y ofrece dos botones: llamar a
+la central o mandarle un mensaje de texto ya escrito, con la combi y un enlace
+al mapa de dónde está. También muestra los números de emergencia (policía,
+ambulancia, bomberos). El teléfono de la central lo carga la gerencia de cada
+cooperativa.
+
+\textbf{Arreglos sin reinstalar.} Hasta ahora, cada mejora de la aplicación
+obligaba a repartir un archivo nuevo y que cada chofer lo instalara. Desde la
+versión 0.3.0 los arreglos llegan solos. La aplicación los baja en silencio y
+los aplica \textbf{sólo cuando el chofer no está trabajando}: nunca en medio de
+una vuelta. Hay excepciones (por ejemplo, si se necesita un permiso nuevo del
+teléfono); para eso sigue haciendo falta instalar.
+
+\textbf{Pedir una copia de sus datos.} La ley le da derecho a pedir todo lo
+que el sistema tiene de él. Despacho ahora lo baja con un botón (ver más
+abajo).
+
+\subsection{Para Despacho}
+
+\textbf{El SOS suena.} Una emergencia hace sonar una alarma en el panel, hace
+parpadear la pestaña del navegador y muestra un aviso en la computadora,
+aunque Despacho esté en otra ventana. Sigue sonando hasta que alguien toca
+ATENDIDO. Si hay varios paneles abiertos, todos se enteran de quién lo
+atendió. Al empezar el turno, el operador tiene que tocar una vez «Activar
+alarma de SOS» y aceptar las notificaciones: los navegadores no dejan sonar
+nada sin ese primer toque.
+
+\textbf{La batería del teléfono de cada combi.} En la tarjeta de cada combi
+se ve la batería del teléfono del chofer, si está cargando, y si el teléfono
+le está aplicando «ahorro de batería» a la aplicación. Esa última es la causa
+número uno de «la combi no aparece en el mapa». Antes había que llamar al
+chofer para averiguarlo.
+
+\textbf{Corregir horas a mano.} Si un chofer se olvidó de cerrar el turno, o
+el teléfono se apagó, Despacho puede corregir la hora de entrada o de salida,
+anular un turno equivocado o agregar uno que faltó. Siempre con un motivo
+escrito, que queda registrado junto con quién lo hizo. Sólo se pueden tocar
+los turnos del último mes: lo anterior ya se liquidó.
+
+\textbf{Cargar a todos de una vez.} En lugar de dar de alta a cada chofer y
+cobrador por separado, Despacho puede subir la planilla que ya tenga (de
+Excel, de Google Sheets, de LibreOffice, o simplemente copiar y pegar las
+celdas). El sistema primero muestra qué va a hacer con cada fila, sin guardar
+nada; si todo está bien, se confirma y se crean las cuentas, con sus claves
+para entregar. Hay una planilla de ejemplo para bajar.
+
+\textbf{Guardar algo como evidencia.} Las fotos y las notas de voz del chat
+se conservan 30 días. Si una foto o un audio sirve de prueba de algo (un
+choque, un pasajero agresivo), Despacho lo marca como evidencia, escribe por
+qué, y se conserva un año. Los demás paneles ven la marca. Los choferes no
+ven el motivo.
+
+\textbf{La Actividad, ordenada.} El registro de «quién hizo qué» ahora se
+puede filtrar en tres partes: la \emph{gestión} (altas, bajas, cambios de
+clave, correcciones), la \emph{operación} (desvíos, emergencias, cambios de
+combi) y los \emph{accesos} (quién entró al sistema). Antes los ingresos
+llenaban el registro en días y se llevaban puestas las altas y las bajas, que
+son justo lo que hay que poder consultar meses después. Ahora cada cosa se
+guarda lo que corresponde: los accesos tres meses, la operación un año, la
+gestión dos años.
+
+\textbf{El consentimiento de cada chofer.} En Personas, Despacho ve cuántos
+choferes y cobradores firmaron el formulario de consentimiento de datos
+personales y cuántos faltan. Anota la fecha del papel firmado, y si alguno lo
+retira, también queda anotado. El formulario se imprime desde el mismo
+sistema.
+
+\textbf{Bajar todos los datos de una persona.} En Personas, al editar a
+alguien, hay un botón que baja un archivo con todo lo que el sistema tiene de
+esa persona: su cuenta, sus turnos, sus mensajes con sus fotos y audios, sus
+vueltas y desvíos (sólo de cuando manejaba él, no de la combi con otro
+chofer) y lo que hizo en el sistema. Trae una hoja que explica cada parte. Es
+lo que se le entrega si pide sus datos.
+
+\subsection{Para la cooperativa y la gerencia}
+
+\textbf{Los papeles de la ley de datos personales.} En la carpeta
+\emph{legal} del proyecto quedaron preparados:
+\begin{itemize}[leftmargin=1.2em]
+  \item una guía que explica quién es responsable de qué ante la ley (la
+  cooperativa es la responsable de los datos de su gente; vos, como operador
+  del sistema, sos su «encargado»), los pasos en orden, y qué preguntarle al
+  abogado;
+  \item un borrador del contrato que firma cada cooperativa con vos;
+  \item el formulario de consentimiento para que firme cada chofer.
+\end{itemize}
+Son borradores: los tiene que revisar un abogado antes de usarlos.
+
+\subsection{Para vos, que operás el sistema}
+
+\textbf{Saber que el servidor anda mal antes que los choferes.} El servidor
+se revisa a sí mismo cada minuto (si puede leer y escribir sus datos, si le
+queda espacio, si los respaldos están al día, si la hora está bien
+configurada) y, si algo cambia, te puede mandar un aviso al teléfono.
+
+\textbf{Una copia de seguridad fuera del servidor.} Cada seis horas el sistema
+guarda una copia de todos sus datos. Antes esa copia quedaba en el mismo
+lugar que los datos originales: si se perdía ese lugar, se perdía todo. Ahora
+además sale una copia \textbf{cifrada} a un almacenamiento aparte. El
+proveedor de ese almacenamiento no puede leerla. Y hay un procedimiento
+probado para volver a una copia, si alguna vez hiciera falta.
+
+\textbf{Un reinicio ya no tira las vueltas.} Cada vez que se publica una
+mejora del servidor, éste se reinicia. Antes, ese reinicio le borraba a cada
+combi la vuelta que venía haciendo; en hora pico eran todas. Ahora el
+servidor guarda lo que tenía en curso justo antes de apagarse, y lo retoma al
+volver. Las vueltas se completan como si nada hubiera pasado.
+
+\section{La revisión a fondo}
+
+Con tantos cambios en tan pocos días, antes de salir a la calle se hizo una
+revisión completa de todo lo nuevo, hecha por cuatro revisores que no habían
+escrito ese código, cada uno con una parte. Encontraron unos treinta
+problemas. Cada uno se volvió a comprobar antes de tocarlo, y se corrigieron
+27. Los cinco más graves:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Una planilla dañada podía apagar el sistema de todas las
+  cooperativas.} Un archivo de Excel armado de cierta manera (incluso por
+  error) hacía que el servidor se quedara sin memoria y se cayera. Ahora la
+  planilla se lee aparte, con un límite: si es rara, falla esa lectura y el
+  resto del sistema sigue andando.
+  \item \textbf{Después de cada reinicio, un chofer podía manejar la cuenta de
+  un cobrador de otra combi.} Un paso que debía hacerse una sola vez se
+  repetía en cada reinicio, y le daba al chofer permisos que no tenía que
+  tener. Ahora se hace una sola vez.
+  \item \textbf{El archivo de datos de una persona podía traer datos de otra.}
+  Si se daba de baja a alguien y después se creaba otra cuenta con el mismo
+  nombre de usuario (incluso en otra cooperativa), el archivo del nuevo traía
+  lo del anterior. Ahora sólo trae lo de esa cuenta.
+  \item \textbf{La copia de seguridad congelaba el sistema.} Mientras se
+  preparaba la copia, el sistema dejaba de atender durante varios segundos:
+  ni GPS, ni emergencias, ni mapa. Ahora se prepara de a poco, sin frenar
+  nada.
+  \item \textbf{Dar de baja a alguien borraba lo guardado como evidencia.}
+  Justo lo que no podía pasar, porque la baja suele venir después del
+  incidente. Ahora la evidencia se conserva.
+\end{enumerate}
+
+Hubo otros de menor peso. Por ejemplo:
+\begin{itemize}[leftmargin=1.2em]
+  \item si el panel de Despacho perdía la conexión, ATENDIDO podía no llegar y
+  nadie se enteraba;
+  \item el motivo de una evidencia les llegaba a los teléfonos de todos los
+  choferes;
+  \item se podía mover un turno ya liquidado al mes actual;
+  \item se podía publicar un arreglo de la aplicación sobre teléfonos que no
+  estaban preparados para recibirlo.
+\end{itemize}
+Todos están corregidos. La lista completa está en el bloque 16 de
+\emph{CAMBIOS-PARA-REVISAR.md}.
+
+Cada arreglo quedó con su prueba automática. Antes de unir todo, se corrió la
+batería completa de pruebas del sistema (más de 90) y pasó.
+
+\section{Dónde estamos}
+
+\begin{recuadro}{Ya está}
+\begin{itemize}[leftmargin=1.2em]
+  \item Todo lo de estos días está unido a la versión principal del proyecto.
+  \item La lista de «lo que falta antes de salir» (los catorce puntos de la
+  sección 0 de PENDIENTES) está terminada, salvo dos: el de la ley de datos
+  personales, que está \emph{preparado} pero necesita trámites tuyos, y el
+  de Bolivia, que quedó para después de Juliaca.
+  \item Los bloqueantes para cobrarle a un cliente, de la sección 1, están
+  resueltos del lado del código.
+  \item El GPS con la pantalla apagada se probó 13 horas seguidas en un
+  teléfono real, sin un solo corte.
+\end{itemize}
+\end{recuadro}
+
+\begin{atencion}{Todavía no se probó en la calle}
+Todo esto funciona en las pruebas, pero la versión 0.3.0 de la aplicación
+todavía no se compiló ni se instaló en un teléfono. Lo nuevo del servidor
+tampoco está todavía en Railway: llega en el próximo despliegue, ahora que
+está todo unido. La primera prueba de verdad es la tuya, en tu teléfono.
+\end{atencion}
+
+\section{Lo que te toca, en orden}
+
+Está todo en el archivo \emph{TAREAS-FUERA-DEL-CODIGO.md}, con los detalles.
+Lo esencial:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Ver que Railway tomó la versión nueva} (o desplegarla).
+  En el registro tiene que aparecer que guardó y retomó lo que tenía en
+  curso.
+  \item \textbf{Configurar en Railway} la zona horaria (\emph{TZ =
+  America/Lima}). Sin eso, «hoy» empieza a las 7 de la tarde. Configurar
+  también el correo de contacto para los datos personales y, si querés el
+  aviso al teléfono, la dirección de alertas.
+  \item \textbf{Configurar la copia de seguridad afuera:} crear el
+  almacenamiento, poner sus datos y la frase de cifrado en Railway, y
+  guardar esa frase en un lugar seguro. Sin ella las copias no se pueden
+  abrir. Después, hacer un simulacro de volver a una copia.
+  \item \textbf{Compilar la aplicación 0.3.0} dos veces con
+  \emph{compilar-app.bat}: la de los choferes y la de tu teléfono.
+  \item \textbf{Probar un arreglo sin reinstalar}: cambiar algo chico,
+  publicarlo con \emph{publicar-arreglo.bat} sólo a tu teléfono, y ver que
+  llega. Si llega, publicarlo a todos.
+  \item \textbf{Probar en tu teléfono} lo básico: entrar, elegir la combi,
+  salir a ruta, y un SOS de prueba avisándole antes a Despacho.
+  \item \textbf{Ponerle un tope de gasto} a la cuenta del mapa (Geoapify).
+  \item \textbf{La reunión con el abogado} por los datos personales, con la
+  carpeta \emph{legal}. Después, que cada cooperativa inscriba su banco de
+  datos (es gratis y en línea) y que cada chofer firme el consentimiento.
+  \item \textbf{Contarle a Despacho} lo nuevo: activar la alarma al empezar el
+  turno, corregir horas, cargar la planilla, guardar evidencia y bajar los
+  datos de una persona.
+\end{enumerate}
+
+\section{Decisiones que te tocan}
+
+Son cosas que el sistema deja abiertas a propósito, porque no son técnicas:
+
+\begin{itemize}[leftmargin=1.2em]
+  \item \textbf{El espacio en disco.} Ahora que las fotos se guardan un mes,
+  los datos pesan más, y se guardan 28 copias locales (una semana). En el
+  piloto son unos pocos gigas, alrededor de un dólar al mes. Con muchas
+  cooperativas crece. La salida simple es guardar menos copias locales,
+  porque la semana entera ya queda en la copia de afuera.
+  \item \textbf{Cuánto se guardan las emergencias en el registro.} Hoy, un
+  año. Si la cooperativa o el abogado quieren más, se cambia.
+  \item \textbf{Quién puede corregir horas}: cualquier Despacho o sólo la
+  gerencia. Y si al chofer se le avisa cuando le corrigen un turno.
+  \item \textbf{Qué hace la cooperativa si un chofer retira su consentimiento.}
+  El sistema lo anota, pero no le apaga la aplicación: esa decisión es de la
+  cooperativa.
+\end{itemize}
+
+\section{Lo que viene}
+
+\textbf{El piloto en Juliaca.} Es lo próximo, y es lo que va a decir lo que
+ninguna prueba puede decir: cuánto aguanta la batería en cada marca de
+teléfono, cuánto usan la pantalla los choferes, y qué les resulta difícil.
+
+\textbf{Bolivia, en enero o febrero.} Antes de entrar a La Paz hay un día de
+trabajo pendiente. Allá la hora es una más que en Perú, los números de
+emergencia son otros, el formulario de consentimiento tiene que ser el de su
+ley y con su carnet de identidad, y hay que generar el mapa de la ciudad. Está
+anotado y se hace cuando Juliaca esté firme. Arequipa, en cambio, no necesita
+nada de esto: sólo su mapa.
+
+\vspace{2em}
+\begin{center}
+\small\color{gray}
+Para el detalle técnico de cada cambio: \emph{CAMBIOS-PARA-REVISAR.md}.\\
+Para la lista de pendientes: \emph{PENDIENTES.md}.\\
+Para lo que te toca hacer: \emph{TAREAS-FUERA-DEL-CODIGO.md}.
+\end{center}
+
+\end{document}
