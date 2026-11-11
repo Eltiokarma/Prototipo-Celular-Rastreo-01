@@ -70,6 +70,7 @@ Las que van a mirar con lupa en ésta:
 | --- | --- |
 | **Política de privacidad** | `https://app.microstempo.com/privacidad` |
 | **Ubicación en segundo plano** | Formulario de declaración: caso de uso «seguimiento de flota para empleados/operadores», y un **video** (subido a YouTube, puede ser oculto) que muestre: la pantalla «¿Salís a ruta?» con su texto → el deslizar → el diálogo de permiso del sistema → la combi en el mapa. Grabalo del teléfono real |
+| **Servicio en primer plano** | Declaración APARTE de la de ubicación en segundo plano (Android 14): tipo `location` (`FOREGROUND_SERVICE_LOCATION`), caso de uso «seguimiento de la unidad durante el turno», con el **mismo video**. Sin ésta, el AAB se rechaza aunque la de segundo plano esté aprobada |
 | **Seguridad de los datos** | Ver la tabla de abajo — tiene que decir lo mismo que `/privacidad` |
 | **Público objetivo** | 18+, no dirigida a niños |
 | **Acceso de la app** | La app entera requiere cuenta: cargá un **usuario y clave de demo** para el revisor (creá una cuenta de chofer en una empresa `MODO=demo`) — sin esto rechazan sin mirar |
@@ -84,7 +85,21 @@ copiar):
 - Información personal (nombre): recopilada, vinculada, no opcional.
 - Mensajes (chat), fotos, audio (notas de voz): recopilados, vinculados,
   **opcionales** (el usuario decide mandarlos).
+- **Información y rendimiento de la app / Información del dispositivo**:
+  con cada envío de ubicación viajan el nivel de batería, si está
+  cargando, si hay ahorro de batería y la versión de la app (`POST /gps`,
+  `telefono`). Recopilados, vinculados, no opcionales, finalidad
+  «funcionalidad de la app» (explicar por qué una combi dejó de verse).
+  Se ven sólo como último valor, pero **se recopilan**: hay que declararlos.
 - Nada para publicidad ni analytics.
+
+**Antes de subir el AAB, mirar el manifiesto final** (auditoría 11/11): no
+puede tener `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO` ni
+`READ_EXTERNAL_STORAGE` (la galería usa el selector del sistema, que no los
+necesita; están en `blockedPermissions`). `RECORD_AUDIO` sí, por las notas de
+voz (declararlo en «audio»). Para verlo: `npx expo prebuild -p android` y
+abrir `android/app/src/main/AndroidManifest.xml`, o `aapt dump permissions`
+sobre el AAB.
 
 ### 4 · Prueba cerrada → producción
 

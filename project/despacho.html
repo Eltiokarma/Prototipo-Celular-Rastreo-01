@@ -29,8 +29,11 @@
      así que `L` ya está definido o no lo estará nunca. -->
 <script>
 if (typeof L === 'undefined') {
-  document.write('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />');
-  document.write('<scr' + 'ipt src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/scr' + 'ipt>');
+  // Con integrity, como React y Babel: la caída al CDN iba sin, y un unpkg
+  // comprometido podía meter código en el panel (auditoría 11/11). Los
+  // hashes son los de la copia local, que es el mismo archivo.
+  document.write('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous" />');
+  document.write('<scr' + 'ipt src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"><\/scr' + 'ipt>');
 }
 </script>
 
@@ -1901,7 +1904,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
       },
     });
     const data = await res.json().catch(() => ({}));
-    if (res.status === 401) { onAuthError(); throw new Error('Sesión expirada'); }
+    if (res.status === 401) {
+      const cuerpo = await res.clone().json().catch(() => ({}));
+      onAuthError(cuerpo.error || null);
+      throw new Error('Sesión expirada');
+    }
     if (!res.ok) throw new Error(data.error || 'Error del servidor');
     return data;
   };
@@ -2107,10 +2114,21 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   }, 'Vehículo creado');
 
   // Clave fácil de dictar por teléfono: sin caracteres ambiguos
+  // Dos palabras y cuatro números, con el azar del navegador para claves
+  // (no Math.random). La misma lista que el servidor (`claveGenerada`): era
+  // una de ocho palabras y 72 000 claves posibles (auditoría 11/11).
   const suggestPassword = () => {
-    const words = ['combi', 'ruta', 'puno', 'juliaca', 'terminal', 'micro', 'andes', 'titicaca'];
-    const w = words[Math.floor(Math.random() * words.length)];
-    return `${w}${Math.floor(1000 + Math.random() * 9000)}`;
+    const words = [
+      'lago', 'cerro', 'puno', 'andes', 'combi', 'ruta', 'sol', 'luna', 'rio', 'pampa', 'nube', 'viento',
+      'piedra', 'llama', 'alpaca', 'vicuna', 'condor', 'puma', 'quinua', 'papa', 'maiz', 'trigo', 'ichu', 'totora',
+      'balsa', 'isla', 'playa', 'puerto', 'puente', 'camino', 'plaza', 'mercado', 'feria', 'fiesta', 'danza', 'banda',
+      'zampona', 'charango', 'tambor', 'poncho', 'chullo', 'manta', 'lana', 'hilo', 'nevado', 'helada', 'lluvia', 'granizo',
+      'rayo', 'trueno', 'estrella', 'cielo', 'campo', 'chacra', 'surco', 'semilla', 'cosecha', 'molino', 'horno', 'pan',
+      'queso', 'leche', 'miel', 'sal',
+    ];
+    const azar = new Uint32Array(3);
+    crypto.getRandomValues(azar);
+    return `${words[azar[0] % words.length]}-${words[azar[1] % words.length]}-${1000 + (azar[2] % 9000)}`;
   };
 
   const create = () => run(async () => {
@@ -2538,7 +2556,11 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             {u.appVersionCode && u.appActualizacion ? ` · act. ${fechaActualizacion(u.appActualizacion)}` : ''}
                           </span>
                           <span style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                            {u.role !== 'manager' && (
+                            {/* La clave de una cuenta de Despacho la cambia la gerencia
+                                (o su dueño, desde su perfil): entre colegas de Despacho no,
+                                que una cuenta por persona es para saber quién hizo qué
+                                (auditoría 11/11; el servidor también lo rechaza) */}
+                            {u.role !== 'manager' && (u.role !== 'dispatch' || esGerente) && (
                             <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setCombisFor(null); setResetPass(''); }}
                               style={btnChico(HUD.fg2)}>Clave</button>
                             )}
@@ -5049,11 +5071,13 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     let reconnect = null;
     let ws = null;
     let oidoEn = Date.now();   // la última vez que llegó algo (ver el latido)
+    let intentos = 0;          // reconexiones seguidas sin éxito
 
     const open = () => {
       ws = new WebSocket(SERVER_URL);
       wsRef.current = ws;
       ws.onopen = () => {
+        intentos = 0;
         setConnected(true);
         oidoEn = Date.now();
         ws.send(JSON.stringify({ type: 'identify', token: session.token }));
@@ -5186,12 +5210,16 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         } else if (msg.type === 'auth_error') {
           closedByUs = true;
           try { localStorage.removeItem('r14_dispatch_session'); } catch {}
-          onAuthError();
+          onAuthError(msg.error || null);
         }
       };
       ws.onclose = () => {
         setConnected(false);
-        if (!closedByUs) reconnect = setTimeout(open, 3000);
+        // Espera creciente con azar (±50 %): fija en 3 s, tras un deploy todos
+        // los paneles y teléfonos volvían en el mismo segundo (auditoría 11/11)
+        const espera = Math.round(Math.min(3000 * 2 ** intentos, 30000) * (0.5 + Math.random()));
+        intentos++;
+        if (!closedByUs) reconnect = setTimeout(open, espera);
       };
     };
     open();
@@ -5376,6 +5404,35 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     rutaMiradaRef.current = routeId;
     ws.send(JSON.stringify({ type: 'watch', routeId }));
   };
+
+  // Un pin PROPIO para cada SOS sin atender con posición. «Ver en mapa»
+  // centraba el mapa donde estaba la combi y ahí no había nada si el
+  // teléfono murió tras el SOS (la combi se olvida a los 3 min) o si se
+  // estaba mirando otra ruta (auditoría 11/11). Este pin no depende de la
+  // combi: vive mientras el SOS esté sin atender.
+  const pinesSosRef = React.useRef({});
+  React.useEffect(() => {
+    const map = mapRef.current;
+    if (!map || typeof L === 'undefined') return;
+    const vivos = new Set();
+    for (const s of sosLista) {
+      if (s.lat == null || s.lng == null) continue;
+      const clave = String(s.sosId ?? `${s.unitId}:${s.timestamp}`);
+      vivos.add(clave);
+      if (pinesSosRef.current[clave]) continue;
+      const pin = L.marker([s.lat, s.lng], {
+        zIndexOffset: 2000,
+        icon: L.divIcon({
+          className: '', iconSize: [0, 0],
+          html: `<div data-pin-sos style="transform:translate(-50%,-100%);font-family:${black};font-size:12px;color:#fff;background:${HUD.red};padding:3px 7px;border-radius:6px;white-space:nowrap;box-shadow:0 0 0 3px rgba(255,255,255,.9)">SOS · ${escaparHtml((s.vehicleId || s.unitId || '').toUpperCase())}</div>`,
+        }),
+      }).addTo(map);
+      pinesSosRef.current[clave] = pin;
+    }
+    for (const [clave, pin] of Object.entries(pinesSosRef.current)) {
+      if (!vivos.has(clave)) { try { pin.remove(); } catch {} delete pinesSosRef.current[clave]; }
+    }
+  }, [sosLista]);
 
   // El cartel del SOS, armado una vez y puesto en dos lugares: arriba del
   // mapa y arriba de Gestión. Gestión tapa la pantalla entera y el cartel
@@ -6067,7 +6124,22 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           position: 'relative', minHeight: 0,
           ...(isMobile ? { flex: 1, display: view === 'map' ? 'block' : 'none' } : {}),
         }}>
-          <div ref={initMap} style={{ position: 'absolute', inset: 0 }} />
+          {/* Sin conexión el mapa también se apaga, no sólo la lista: los
+              pines con colores de «en vivo» sobre un mapa congelado parecían
+              la situación de ahora (auditoría 11/11). En el celular no hay
+              lista al lado: esto es lo único que avisa. */}
+          <div ref={initMap} data-mapa-en-vivo={connected ? '1' : '0'} style={{
+            position: 'absolute', inset: 0,
+            filter: connected ? 'none' : 'grayscale(1)', opacity: connected ? 1 : 0.55,
+            transition: 'opacity .3s, filter .3s',
+          }} />
+          {!connected && (
+            <div role="status" data-mapa-sin-conexion style={{
+              position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 900,
+              background: HUD.ambarFondo, color: HUD.ambarTinta, border: `1px solid ${HUD.ambarBorde}`,
+              borderRadius: 10, padding: '8px 14px', fontSize: 13, fontWeight: 800, pointerEvents: 'none',
+            }}>Sin conexión: el mapa no está en vivo</div>
+          )}
           {/* Los tres colores de la fila y del pin no se explican solos.
               Con el objetivo en el header, esto termina de contar contra qué
               se está leyendo cada número. */}
@@ -6181,7 +6253,15 @@ function Root() {
     onLogout={logout}
     modo={modo}
     onAlternarModo={alternarModo}
-    onAuthError={() => { setSession(null); setNotice('Tu sesión expiró. Ingresá de nuevo.'); }}
+    // La sesión guardada se borra SIEMPRE (un 401 de Gestión la dejaba, y al
+    // recargar volvía a fallar), y se dice el motivo que mandó el servidor:
+    // una baja, una cooperativa suspendida o una ruta sin cargar no son «tu
+    // sesión expiró» (auditoría 11/11).
+    onAuthError={(motivo) => {
+      try { localStorage.removeItem('r14_dispatch_session'); } catch {}
+      setSession(null);
+      setNotice(motivo && !/expirad|inválid/i.test(motivo) ? `${motivo} Ingresá de nuevo.` : 'Tu sesión expiró. Ingresá de nuevo.');
+    }}
   />;
 }
 

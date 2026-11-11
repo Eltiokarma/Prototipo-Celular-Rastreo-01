@@ -24,6 +24,7 @@ const path = require('path');
 // Sin números: los números van aparte, sólo para el creador.
 const TEXTOS = {
   base_en_memoria: 'La base está en memoria: un reinicio borra todo.',
+  base_en_disco_de_app: 'La base está en el mismo disco que la aplicación: el próximo despliegue la borra. Falta montar el volumen.',
   base_no_lee: 'La base no contesta.',
   base_no_escribe: 'La base no puede escribir: no se guardan logins, turnos, mensajes ni SOS.',
   errores_de_base: 'Hubo errores al escribir en la base en los últimos minutos.',
@@ -45,6 +46,14 @@ function crearSalud({
   respaldo = null,            // el módulo `respaldo.js`, para la edad del último
   copiaAfuera = null,         // () => estado de la copia afuera (ver index.js)
   demo = false,               // en la demo, la base en memoria es un aviso y no un problema
+  // La carpeta de la aplicación, para ver si la base vive en OTRO disco (el
+  // volumen). Sin volumen montado, el servidor arrancaba con una base nueva
+  // y vacía en el disco del contenedor, y /salud daba 200: Railway aceptaba
+  // el deploy y el siguiente borraba todo (auditoría 11/11). En producción
+  // es un problema (503, el deploy no se acepta); `permitirDiscoDeApp` es
+  // para un servidor propio de un solo disco, que no se rehace al desplegar.
+  dirApp = null,
+  permitirDiscoDeApp = false,
   discoCriticoMb = 100,
   discoAvisoMb = 500,
   ventanaErroresMs = 10 * 60_000,
@@ -102,6 +111,13 @@ function crearSalud({
     const archivo = db && db.name && db.name !== ':memory:' && !db.memory ? db.name : null;
 
     if (!archivo) (demo ? avisos : problemas).push('base_en_memoria');
+    if (archivo && dirApp && !permitirDiscoDeApp) {
+      try {
+        if (fs.statSync(path.dirname(archivo)).dev === fs.statSync(dirApp).dev) {
+          (demo ? avisos : problemas).push('base_en_disco_de_app');
+        }
+      } catch {}
+    }
 
     try { db.prepare('SELECT 1').get(); } catch { problemas.push('base_no_lee'); }
     if (latido) {

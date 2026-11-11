@@ -101,9 +101,14 @@ function leerXlsx(buf) {
   const sst = zip.leer('xl/sharedStrings.xml');
   if (sst) for (const m of sst.matchAll(/<si>([\s\S]*?)<\/si>/g)) compartidos.push(textoDe(m[1], 't'));
   const filas = [];
-  for (const fm of hoja.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+  for (const fm of hoja.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)) {
     const fila = [];
-    for (const cm of fm[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    // Una fila OCULTA (o filtrada) no se importa: suele ser justo la gente
+    // que la cooperativa escondió porque ya no está, y se daba de alta igual
+    // (auditoría 11/11). Va vacía y no salteada, para que los números de
+    // fila que ve Despacho sigan siendo los de su Excel.
+    if (/\bhidden="(1|true)"/.test(fm[1])) { filas.push(fila); continue; }
+    for (const cm of fm[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       const attrs = cm[1], cuerpo = cm[2] || '';
       const col = columna((/\br="([A-Z]+\d+)"/.exec(attrs) || [])[1]) ?? fila.length;
       // El tope ANTES de asignar: `r="ZZZZZ1"` es la columna 12 millones, y
@@ -139,6 +144,12 @@ function leerOds(buf) {
   const filas = [];
   for (const fm of tabla[1].matchAll(/<table:table-row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/table:table-row>)/g)) {
     const fila = [];
+    // Oculta o filtrada: vacía, como en el .xlsx (ver arriba)
+    if (/table:visibility="(collapse|filter)"/.test(fm[1])) {
+      const repetidaOculta = Math.min(Number((/number-rows-repeated="(\d+)"/.exec(fm[1]) || [])[1] || 1), 50);
+      for (let i = 0; i < repetidaOculta; i++) filas.push([]);
+      continue;
+    }
     for (const cm of (fm[2] || '').matchAll(/<table:(?:covered-)?table-cell\b([^>]*?)(?:\/>|>([\s\S]*?)<\/table:(?:covered-)?table-cell>)/g)) {
       const veces = Math.min(Number((/number-columns-repeated="(\d+)"/.exec(cm[1]) || [])[1] || 1), 50);
       const valor = cm[2] ? textoDe(cm[2], 'text:p') : '';

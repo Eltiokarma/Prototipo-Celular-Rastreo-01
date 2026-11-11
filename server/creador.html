@@ -1197,6 +1197,14 @@ function Rutas({ api, empresas, aviso, fallo, recargar, sucioPanelRef }) {
   };
 
   const guardar = async () => {
+    // Guardar sobre el trazado que ESTÁ MIDIENDO cambia con qué se mide la
+    // ruta, y el servidor descarta las vueltas en curso de todas sus combis.
+    // Despacho lo confirmaba nombrando qué pasa y acá se guardaba directo
+    // (auditoría 11/11). Un confirm pelado, como el resto de esta herramienta.
+    const vacio = tramos && !tramos.ida.length && !tramos.vuelta.length;
+    if ((variante?.activa || vacio) && !window.confirm(vacio
+      ? `Guardar vacío BORRA el recorrido de la ruta ${routeId}${variante?.activa ? ', que es con el que se está midiendo: las vueltas en curso de todas sus combis se descartan' : ''}. ¿Seguir?`
+      : `«${variante?.name || 'Este trazado'}» es con el que se está midiendo la ruta ${routeId}. Guardarlo descarta las vueltas en curso de todas sus combis. ¿Guardar?`)) return;
     setGuardando(true);
     try {
       const aPuntos = (ps) => ps.map(p => ({ lat: p[0], lng: p[1] }));

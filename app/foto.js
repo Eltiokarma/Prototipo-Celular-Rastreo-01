@@ -60,8 +60,13 @@ export async function tomarFoto() {
   return preparar(r.assets?.[0]);
 }
 
+// Sin pedir permiso de galería: `launchImageLibraryAsync` abre el selector de
+// fotos del SISTEMA, que no lo necesita (el usuario elige una y sólo esa le
+// llega a la app). Pedirlo metía READ_MEDIA_IMAGES en el manifiesto, y la
+// política de fotos de Google Play no lo deja para una app que manda una
+// foto de vez en cuando: rechazo seguro (auditoría 11/11). Por eso además
+// está en `blockedPermissions` de app.json.
 export async function elegirFoto() {
-  if (!(await pedirPermisoGaleria())) return { error: 'Sin permiso de galería' };
   const r = await ImagePicker.launchImageLibraryAsync(OPCIONES);
   if (r.canceled) return null;
   return preparar(r.assets?.[0]);

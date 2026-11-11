@@ -54,7 +54,18 @@ servidor). Preguntas concretas:
       pedirle a cada proveedor (flujo transfronterizo)?
 - [ ] ¿Tenés que inscribir un banco de datos propio? (Ver el paso 3.)
 - [ ] ¿Te toca designar un oficial de datos personales? (Ver el paso 6.)
-- [ ] Revisar y ajustar `contrato-encargo.md` y el texto de `/consentimiento`.
+- [ ] Las **marcas automáticas** («GPS sospechoso», «entrada tardía»,
+      «salió solo»): ¿entran en el derecho a un tratamiento objetivo y en lo
+      que el reglamento dice de las decisiones basadas sólo en tratamiento
+      automatizado? Hoy el sistema no decide nada solo y el contrato obliga a
+      la cooperativa a no sancionar sólo por una marca (auditoría 11/11);
+      falta que el abogado diga si alcanza.
+- [ ] Los **lugares puntuales del turno** (dónde terminó, que suele ser la
+      casa del chofer) se guardan 120 días: ¿es proporcional, o conviene
+      acortarlo o guardar sólo la hora?
+- [ ] Revisar y ajustar `contrato-encargo.md` y el texto de `/consentimiento`
+      (la versión vigente es la del **11/11/2026**: quien firmó la del 04/11
+      tiene que firmar la nueva).
 
 ### 2. Cada cooperativa inscribe su banco de datos
 

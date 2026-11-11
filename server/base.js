@@ -16,7 +16,7 @@ const crypto = require('crypto');
 // `silencioso` es para las herramientas de consola: ahí la memoria NO es un
 // destino aceptable (escribirían en una base que se evapora), así que se
 // devuelve null y el que llama decide.
-function openDatabase(Database, { silencioso = false, sinMemoria = false } = {}) {
+function openDatabase(Database, { silencioso = false, sinMemoria = false, crearCarpeta = true } = {}) {
   const candidates = [];
   if (process.env.DB_FILE) candidates.push(process.env.DB_FILE);
   candidates.push(path.join(__dirname, 'r14.db'));
@@ -28,7 +28,12 @@ function openDatabase(Database, { silencioso = false, sinMemoria = false } = {})
         // Solo se crea el directorio si falta: con el volumen ya montado
         // no hace falta tocar nada.
         const dir = path.dirname(file);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        // En producción NO (`crearCarpeta: false`): una carpeta que falta es
+        // un volumen sin montar, y crearla es arrancar con una base vacía.
+        if (!fs.existsSync(dir)) {
+          if (!crearCarpeta) throw new Error(`no existe la carpeta ${dir}`);
+          fs.mkdirSync(dir, { recursive: true });
+        }
       }
       const database = new Database(file);
       // WAL es más rápido, pero algunos volúmenes montados no lo soportan:
@@ -75,6 +80,20 @@ function verifyPassword(password, stored) {
   return calc.length === expected.length && crypto.timingSafeEqual(calc, expected);
 }
 
+// La misma verificación sin frenar el hilo principal (scrypt en el pool de
+// libuv). El login la hacía síncrona: ~39 ms de hilo único por intento,
+// también para usuarios inexistentes, y una ola de logins (la mañana, o
+// muchas IP probando) congelaba el GPS y el SOS de todos (auditoría 11/11).
+function verifyPasswordAsync(password, stored) {
+  const [salt, hash] = String(stored).split(':');
+  if (!salt || !hash) return Promise.resolve(false);
+  return new Promise((ok) => crypto.scrypt(password, salt, 32, (e, calc) => {
+    if (e) return ok(false);
+    const expected = Buffer.from(hash, 'hex');
+    ok(calc.length === expected.length && crypto.timingSafeEqual(calc, expected));
+  }));
+}
+
 // Los identificadores (empresa, unidad, vehículo, ruta, usuario) terminan
 // pintados dentro del HTML de los pines del mapa y en nombres de archivo de
 // los informes, así que se limitan a un juego de caracteres seguro. Los
@@ -94,4 +113,4 @@ const ID_RESERVADOS = new Set(['CREADOR', 'SISTEMA']);
 const idReservado = (id) => ID_RESERVADOS.has(String(id || '').toUpperCase());
 
 module.exports = {
-  hashPasswordAsync, openDatabase, hashPassword, verifyPassword, idLimpio, idReservado, ID_VALIDO };
+  hashPasswordAsync, openDatabase, hashPassword, verifyPassword, verifyPasswordAsync, idLimpio, idReservado, ID_VALIDO };

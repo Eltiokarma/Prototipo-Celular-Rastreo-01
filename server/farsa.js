@@ -86,15 +86,26 @@ function crearDetectorDeFarsa({
     // Sólo se juzga en marcha: parada, todo GPS parece constante y quieto
     if (implicitas.some(v => v < enMarchaKmh)) return null;
 
-    // 3) La velocidad reportada no tiene nada que ver con la implícita
-    const diffs = conImplicita.map(m => Math.abs(m.speed - m.implicita));
-    if (mediana(diffs) > incoherenciaKmh) return 'velocidad_incoherente';
+    // 3) La velocidad reportada no tiene nada que ver con la implícita.
+    //
+    // Sólo con las muestras que TRAEN velocidad. En marcha (y acá todas lo
+    // están), un 0 es un aparato que no la reporta: la app manda 0 cuando
+    // Android da null. Contarlas acusaba de «inventar» al chofer honesto con
+    // un teléfono barato (auditoría 11/11). Con menos de la mitad de la
+    // ventana con velocidad, esta firma no se juzga; las otras dos, sí.
+    const conVelocidad = conImplicita.filter(m => m.speed > 0);
+    if (conVelocidad.length >= Math.ceil(ventana / 2)) {
+      const diffs = conVelocidad.map(m => Math.abs(m.speed - m.implicita));
+      if (mediana(diffs) > incoherenciaKmh) return 'velocidad_incoherente';
+    }
+    const sinVelocidad = conVelocidad.length === 0;
     // 1) Velocidad constante: la implícita Y la reportada. Un GPS de verdad,
     // aunque la combi vaya pareja por una avenida, mueve la implícita con su
     // propio error de posición (±15 m en 10 s son ±5 km/h) y la reportada con
     // el Doppler. Las dos clavadas a la vez es la firma del que dibuja.
+    // Sin velocidad reportada, sólo la implícita: un 0 fijo no es «clavada».
     if (desvioEstandar(implicitas) < variacionMinKmh &&
-        desvioEstandar(conImplicita.map(m => m.speed)) < variacionMinKmh) return 'velocidad_constante';
+        (sinVelocidad || desvioEstandar(conImplicita.map(m => m.speed)) < variacionMinKmh)) return 'velocidad_constante';
     // 2) Clavado sobre el trazado (sólo con trazado)
     const desvios = muestras.map(m => m.desvioM).filter(d => typeof d === 'number');
     if (desvios.length >= ventana && desvios.every(d => d <= ruidoMinM)) return 'sin_ruido';

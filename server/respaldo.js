@@ -77,14 +77,65 @@ function verificar(Database, archivo) {
   }
 }
 
+// La misma verificación, en un HILO aparte. `quick_check` es síncrono y
+// recorre la base entera: 626 MB tardaban ~1 s con el hilo único parado —el
+// GPS y el SOS de todas las cooperativas esperando— cada 6 h, al arrancar y
+// en cada respaldo manual; con 2 a 5 GB serían 3 a 9 s (auditoría 11/11,
+// medido). Si el hilo no se puede crear, se verifica como antes.
+function verificarEnHilo(Database, archivo) {
+  let modulo;
+  try { modulo = require.resolve('better-sqlite3', { paths: [__dirname] }); }
+  catch { return Promise.resolve(verificar(Database, archivo)); }
+  return new Promise((resolve) => {
+    let w;
+    try {
+      const { Worker } = require('worker_threads');
+      w = new Worker(
+        "const { parentPort, workerData } = require('worker_threads');" +
+        "const Database = require(workerData.modulo);" +
+        "const { verificar } = require(workerData.respaldo);" +
+        "parentPort.postMessage(verificar(Database, workerData.archivo));",
+        { eval: true, workerData: { modulo, respaldo: __filename, archivo } });
+    } catch { resolve(verificar(Database, archivo)); return; }
+    let listo = false;
+    const fin = (r) => { if (!listo) { listo = true; resolve(r); } };
+    w.once('message', fin);
+    w.once('error', (e) => fin({ ok: false, motivo: e.message }));
+    w.once('exit', (c) => fin(c === 0 ? { ok: false, motivo: 'el hilo terminó sin contestar' } : { ok: false, motivo: `el hilo salió con ${c}` }));
+  });
+}
+
 // Hace un respaldo, lo verifica y rota los viejos. Devuelve qué pasó en vez
 // de tirar: quien llama decide si es un log o un 500.
-async function respaldar(db, Database, { dir, cuando = new Date(), conservar = CONSERVAR } = {}) {
+//
+// ANTES de escribir mira si hay lugar: el temporal ocupa lo mismo que la base
+// y la rotación borra recién después. Sin mirar, el propio respaldo llenaba
+// el disco cada 6 h, y con el disco lleno la flota dejaba de entrar al mapa
+// (auditoría 11/11). Si no entra con `reservaMb` de margen, primero borra
+// respaldos viejos (siempre deja el último); si aun así no entra, no lo
+// intenta y lo dice.
+async function respaldar(db, Database, { dir, cuando = new Date(), conservar = CONSERVAR, reservaMb = RESERVA_MB, libreBytes = libreEn } = {}) {
   if (!db || !db.name || db.name === ':memory:') {
     return { ok: false, motivo: 'la base está en memoria: no hay qué respaldar' };
   }
   const carpeta = dir || dirDe(db.name);
   fs.mkdirSync(carpeta, { recursive: true });
+  {
+    let tamano = 0;
+    for (const f of [db.name, db.name + '-wal']) { try { tamano += fs.statSync(f).size; } catch {} }
+    const hace = () => tamano + reservaMb * 1048576;
+    let libre = libreBytes(carpeta);
+    let quedan = listar(carpeta).length;
+    while (libre != null && libre < hace() && quedan > 1) {
+      rotar(carpeta, quedan - 1);
+      quedan = listar(carpeta).length;
+      libre = libreBytes(carpeta);
+    }
+    if (libre != null && libre < hace()) {
+      return { ok: false, sinLugar: true,
+        motivo: `no hay disco para el respaldo: hacen falta ${Math.round(hace() / 1048576)} MB y quedan ${Math.round(libre / 1048576)} MB` };
+    }
+  }
   const destino = path.join(carpeta, nombreDe(cuando));
   // Se escribe con un nombre TEMPORAL —que `listar` no reconoce— y recién
   // verificado se renombra al definitivo, que en el mismo disco es atómico.
@@ -103,7 +154,7 @@ async function respaldar(db, Database, { dir, cuando = new Date(), conservar = C
     return { ok: false, motivo: 'backup: ' + e.message };
   }
 
-  const v = verificar(Database, temporal);
+  const v = await verificarEnHilo(Database, temporal);
   if (!v.ok) {
     try { fs.unlinkSync(temporal); } catch {}
     return { ok: false, motivo: 'verificación: ' + v.motivo };
@@ -135,6 +186,14 @@ function limpiarTemporales(carpeta) {
 }
 
 // Se van los MÁS VIEJOS. El nombre ordena cronológicamente como texto.
+// Lo que tiene que quedar libre en el disco DESPUÉS de escribir el respaldo:
+// es el margen con el que la base sigue guardando turnos, mensajes y SOS.
+const RESERVA_MB = Number(process.env.RESPALDO_RESERVA_MB || 200);
+function libreEn(carpeta) {
+  if (typeof fs.statfsSync !== 'function') return null;
+  try { const st = fs.statfsSync(carpeta); return st.bavail * st.bsize; } catch { return null; }
+}
+
 function rotar(carpeta, conservar = CONSERVAR) {
   const todos = listar(carpeta).map(r => r.archivo).sort();
   const sobran = todos.slice(0, Math.max(0, todos.length - conservar));
@@ -197,6 +256,6 @@ function programar(db, Database, { log = console.log, alTerminar = null } = {}) 
 }
 
 module.exports = {
-  respaldar, verificar, rotar, listar, programar, dirDe, nombreDe,
-  ES_RESPALDO, CONSERVAR, CADA_HORAS,
+  respaldar, verificar, verificarEnHilo, rotar, listar, programar, dirDe, nombreDe,
+  ES_RESPALDO, CONSERVAR, CADA_HORAS, RESERVA_MB,
 };

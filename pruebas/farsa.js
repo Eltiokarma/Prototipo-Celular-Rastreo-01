@@ -93,9 +93,25 @@ console.log('\nEL SIMULADOR: VELOCIDAD CONSTANTE Y CLAVADO EN LA LÍNEA');
 console.log('\nLA VELOCIDAD QUE NO TIENE NADA QUE VER');
 {
   const d = crearDetectorDeFarsa();
-  // La posición avanza a 35 km/h (con ruido) y el aparato dice 0 todo el tiempo
-  const { r } = correr(d, 'M-04', { n: 20, metrosPorSeg: () => 9 + azar() * 2, ruidoM: 15, speedReportada: () => 0 });
-  ok('posición a 35 km/h y velocidad reportada 0: incoherente', r.motivo === 'velocidad_incoherente', r);
+  // La posición avanza a 35 km/h (con ruido) y el aparato dice 5 todo el tiempo
+  const { r } = correr(d, 'M-04', { n: 20, metrosPorSeg: () => 9 + azar() * 2, ruidoM: 15, speedReportada: () => 5 });
+  ok('posición a 35 km/h y velocidad reportada 5: incoherente', r.motivo === 'velocidad_incoherente', r);
+}
+{
+  // El aparato que NO reporta velocidad: la app manda 0 cuando Android da
+  // null. Andando de verdad (con ruido de GPS), no es sospechoso de nada —
+  // antes caía en «incoherente» y acusaba al chofer de un teléfono barato
+  // (auditoría 11/11).
+  const d = crearDetectorDeFarsa();
+  const { r } = correr(d, 'M-04b', { n: 20, metrosPorSeg: () => 9 + azar() * 2, ruidoM: 15, speedReportada: () => 0 });
+  ok('sin velocidad reportada (siempre 0) y andando de verdad: no es sospechoso', r.sospechoso === false, r);
+}
+{
+  // Y sin velocidad, el que dibuja la ruta pareja sigue cayendo por la
+  // velocidad implícita constante
+  const d = crearDetectorDeFarsa();
+  const { r } = correr(d, 'M-04c', { n: 20, metrosPorSeg: () => 9, ruidoM: 0, speedReportada: () => 0 });
+  ok('sin velocidad reportada pero dibujado parejo: sigue sospechoso', r.sospechoso === true, r);
 }
 {
   const d = crearDetectorDeFarsa();

@@ -24,6 +24,39 @@ se reconectan solas). Conviene hacerlo fuera de hora pico.
       a una versión nueva hasta que su `/salud` conteste bien. Si algún día
       molesta, borrar ese archivo deja todo como antes.
 
+## 1bis. Lo que dejó la auditoría del 11/11 (`CAMBIOS-PARA-REVISAR.md` §17)
+
+- [ ] **`DB_FILE` es obligatoria en producción.** Desde la auditoría, el
+      servidor no arranca sin ella ni con la carpeta del volumen
+      inexistente, y `/salud` falla si la base queda en el disco de la
+      aplicación. Si es un servidor propio de un solo disco (no Railway),
+      poner `BASE_EN_DISCO_DE_APP=1`.
+- [ ] **Firmar las actualizaciones de EAS Update.** Hoy cualquiera con la
+      cuenta de Expo publica JavaScript a todos los teléfonos. Una vez:
+      1. En la PC que publica: `cd app` y
+         `npx expo-updates codesigning:generate --key-output-directory ../../claves-expo --certificate-output-directory certs --certificate-validity-duration-years 10 --certificate-common-name "Micros Tempo"`.
+         La **clave privada queda FUERA del repositorio** (`../../claves-expo`):
+         guardala con los respaldos, si se pierde no se puede publicar más.
+      2. `npx expo-updates codesigning:configure --certificate-input-directory certs --key-input-directory ../../claves-expo`
+         (agrega `codeSigningCertificate` y `codeSigningMetadata` a `app.json`).
+      3. Commit de `app/certs/certificate.pem` y de `app.json`, y una **APK
+         nueva**: los teléfonos con la APK vieja no verifican nada.
+- [ ] **Play Console**: la declaración de **servicio en primer plano** (aparte
+      de la de ubicación en segundo plano) y, en Seguridad de los datos, la
+      **información del dispositivo** (batería, ahorro, versión). Y antes de
+      subir el AAB, mirar el manifiesto final: sin `READ_MEDIA_*` ni
+      `READ_EXTERNAL_STORAGE`. Todo está en `PLAYSTORE.md` §3.
+- [ ] **El consentimiento cambió** (versión del 11/11/2026): declara los
+      lugares puntuales del turno y las marcas automáticas. Quien firmó la
+      del 04/11 tiene que firmar la nueva; Despacho → Personas lo marca.
+- [ ] **El abogado**: las dos preguntas nuevas de `legal/LEEME.md` (marcas
+      automáticas y los lugares del fin de turno).
+- [ ] **Una APK nueva** (o un EAS Update, lo que no sea nativo) para que
+      lleguen a los teléfonos: el SOS en la puerta, la central sin sesión, el
+      latido, el SOS que no se duplica, el aviso de «tu GPS dejó de mandar»,
+      la vuelta sola a casa y la galería sin permiso. `blockedPermissions` y
+      el aviso programado son nativos: **APK**.
+
 ## 2. Unir la rama y sacar la APK 0.3.0
 
 - [ ] **Unir la rama `claude/eager-einstein-shid7d` a `main`** (un pull request

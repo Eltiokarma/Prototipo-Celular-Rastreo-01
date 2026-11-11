@@ -35,6 +35,8 @@ COOPERATIVA.
 | Ubicación durante el turno, incluida la que se emite con la pantalla apagada o la aplicación en segundo plano | Mapa en vivo, separación entre unidades, vueltas, desvíos, horas en ruta, atención de emergencias |
 | Ubicación leída sin enviarse en la pantalla de inicio de turno | Detectar que se está manejando sin haber iniciado el turno |
 | Mensajes del chat: texto, notas de voz, fotos, emergencias (SOS) | Coordinación de la operación y atención de emergencias |
+| Lugares puntuales del turno, con su hora: dónde se declaró en ruta, ausente o fuera (incluido dónde terminó el turno), cortes de señal, paradas, salidas del trazado | Horas en ruta, señal y presencia, «dónde se traba» la ruta |
+| Marcas automáticas («GPS sospechoso», «entrada tardía», «salió solo», «fuera de ruta», «reloj adelantado») | Avisos para que una persona de LA COOPERATIVA los revise. **No producen ninguna decisión por sí solas**: LA COOPERATIVA se compromete a no sancionar a nadie sólo por una marca automática y a explicarla si el titular lo pide |
 | Estado del teléfono durante el turno (batería, ahorro de energía, versión de la app), sin almacenarse | Explicar por qué una unidad dejó de verse |
 | Registro de actividad: accesos, altas, bajas, cambios de clave, correcciones | Seguridad y trazabilidad de las acciones administrativas |
 
@@ -120,6 +122,7 @@ solo:
 | Chat (texto, fotos, notas de voz) | 30 días |
 | Mensajes marcados como evidencia por LA COOPERATIVA | 365 días |
 | Vueltas, tramos y desvíos | 120 días |
+| Lugares puntuales del turno y marcas automáticas | 120 días |
 | Turnos y emergencias (SOS) | 365 días |
 | Registro de actividad | accesos 90 días; operación 365 días; gestión 730 días |
 | Posición en vivo y estado del teléfono | sólo el último valor |

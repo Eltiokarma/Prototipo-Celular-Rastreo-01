@@ -31,7 +31,7 @@ module.exports = function zonaMuerta(hallazgos, fuente) {
 // ser de esta lista: lo que el entorno trae de fábrica.
 const COMUNES = ['Array', 'Boolean', 'Date', 'Error', 'Infinity', 'Intl', 'JSON', 'Map', 'Math', 'NaN', 'Number',
   'Object', 'Promise', 'Proxy', 'RangeError', 'Reflect', 'RegExp', 'Set', 'String', 'Symbol', 'TypeError', 'WeakMap',
-  'WeakSet', 'AbortController', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'Uint8Array', 'ArrayBuffer',
+  'WeakSet', 'AbortController', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'Uint8Array', 'Uint32Array', 'ArrayBuffer',
   'arguments', 'undefined', 'console', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask',
   'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI', 'isNaN', 'isFinite', 'parseInt', 'parseFloat',
   'fetch', 'globalThis', 'WebSocket', 'XMLHttpRequest', 'FormData', 'Blob', 'atob', 'btoa', 'structuredClone'];
@@ -41,7 +41,7 @@ const GLOBALES = {
   navegador: new Set([...COMUNES, 'window', 'document', 'navigator', 'location', 'localStorage', 'sessionStorage',
     'performance', 'matchMedia', 'requestAnimationFrame', 'cancelAnimationFrame', 'ResizeObserver', 'MutationObserver',
     'IntersectionObserver', 'FileReader', 'Image', 'Audio', 'MediaRecorder', 'Notification', 'AudioContext',
-    'webkitAudioContext', 'history', 'alert', 'confirm', 'getComputedStyle', 'CustomEvent', 'Event',
+    'webkitAudioContext', 'history', 'alert', 'confirm', 'getComputedStyle', 'CustomEvent', 'Event', 'crypto',
     // Las librerías que cargan los <script> de la página
     'React', 'ReactDOM', 'L', 'Babel']),
 };

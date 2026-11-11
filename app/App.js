@@ -608,7 +608,14 @@ function Aplicacion() {
   // anterior (barrido del 22/9).
   const ultimaPos = React.useRef({ lat: null, lng: null, t: 0 });
   React.useEffect(() => {
-    gps.cuandoLlegueUnaPosicion((p) => { ultimaPos.current = { lat: p.lat, lng: p.lng, t: Date.now() }; });
+    // `t` es la hora de la LECTURA del GPS, no la de llegada: Android a veces
+    // entrega tarde una lectura vieja, y medida por la llegada salía como
+    // fresca y el SOS mandaba la ayuda adonde la combi ya no estaba
+    // (auditoría 11/11).
+    gps.cuandoLlegueUnaPosicion((p) => {
+      const leida = Number(p.timestamp);
+      ultimaPos.current = { lat: p.lat, lng: p.lng, t: Number.isFinite(leida) ? Math.min(leida, Date.now()) : Date.now() };
+    });
   }, []);
   const posicionParaSos = () => (Date.now() - ultimaPos.current.t <= 2 * 60_000
     ? { lat: ultimaPos.current.lat, lng: ultimaPos.current.lng } : { lat: null, lng: null });

@@ -250,9 +250,11 @@ const turnos = () => { const d = new Database(DB, { readonly: true });
 
   console.log('\nLA SESIÓN SE RENUEVA CON EL USO');
   const b2 = new Database(DB);
-  b2.prepare('UPDATE sessions SET expiresAt = ? WHERE token = ?').run(Date.now() + 86_400_000, tPedro);
+  // En la base está la huella del token, no el token (auditoría 11/11)
+  const huellaPedro = require('crypto').createHash('sha256').update(tPedro).digest('hex');
+  b2.prepare('UPDATE sessions SET expiresAt = ? WHERE token = ?').run(Date.now() + 86_400_000, huellaPedro);
   await pedir('/mis-combis', tPedro);
-  const exp = b2.prepare('SELECT expiresAt FROM sessions WHERE token = ?').get(tPedro).expiresAt;
+  const exp = b2.prepare('SELECT expiresAt FROM sessions WHERE token = ?').get(huellaPedro).expiresAt;
   ok('a una que se usa y le queda un día, vuelve a valer 30', exp - Date.now() > 29 * 86_400_000, Math.round((exp - Date.now()) / 86_400_000));
   b2.close();
 
