@@ -85,6 +85,12 @@ export const LLAVE_SERVIDOR = 'servidor';
 // posiciones: con la pantalla apagada no hay WebSocket, y así el estado
 // sobrevive hasta a un reinicio del servidor.
 export const LLAVE_PRESENCIA = 'presencia';
+// El teléfono de la central, aparte de la sesión y SIN borrarse con ella.
+// No es un dato de la persona sino de su cooperativa, y es lo único que le
+// queda al chofer para pedir ayuda cuando la sesión se cayó (un 401, una
+// baja de clave, una restauración de la base): sin él la pantalla de
+// ingreso no tenía ninguna salida de emergencia (auditoría del 11/11).
+export const LLAVE_CENTRAL = 'central';
 
 export const CADENCIA_PANTALLA_ENCENDIDA = 3000;
 export const CADENCIA_PANTALLA_APAGADA = 10000;

@@ -910,6 +910,54 @@ números están en la tabla). **Manual:** no.
 
 ---
 
+## 17. Auditoría del 11/11 — arreglos
+
+La auditoría de bugs, caídas, amenazas y riesgos del 11/11 (cinco revisiones
+en paralelo: seguridad del servidor, robustez, lógica de negocio y riesgo
+legal, paneles web, app del chofer). Cada hallazgo se verificó en el código
+o se reprodujo antes de arreglarlo. Va un apartado por arreglo, en el orden
+de prioridad de la auditoría.
+
+### 17.1 El SOS del chofer en la puerta
+
+**Qué.**
+- En la puerta («¿SALÍS A RUTA?») el chofer **no tenía SOS**: sólo el
+  cobrador. Es justo donde pasa los momentos de más riesgo: las 5 de la
+  mañana en el terminal, la vuelta a la cochera, el «fuera» que le puso el
+  vigía o el cambio de combi de Despacho. Ahora el deslizador está para los
+  dos, abajo de todo, en el mismo lugar que en ruta y en ausente.
+- En la **web** (`Prototipo.html`) la puerta tampoco lo tenía, y además el
+  socket recién se abre al salir a ruta: el SOS no tenía por dónde salir.
+  `RealtimeClient.sendSos({ token })` ahora sale por `POST /sos` con el
+  token de la sesión cuando el socket todavía no se abrió.
+- **Sin sesión no quedaba nada.** Un 401 (o la clave reseteada, o una base
+  restaurada) borra la sesión guardada, y con ella el teléfono de la
+  central. Ahora la central se recuerda **aparte** (`LLAVE_CENTRAL` en
+  SecureStore; `r14_central` en la web), no se borra con la sesión, y la
+  pantalla de ingreso ofrece **«¿EMERGENCIA? LLAMAR A LA CENTRAL»**. Es una
+  llamada (`tel:`), no un SOS: no dispara alarma y no necesita deslizar.
+
+**Archivos.** `app/App.js`, `app/gps/servicio.js`, `project/Prototipo.html`,
+`project/realtime.js`, `project/service-worker.js` (v92),
+`pruebas/sos-puerta.js` (nueva), `pruebas/regresion.js`.
+
+**Mirar.**
+- En la puerta el SOS del chofer sale **sin coordenadas** (el GPS no se
+  prende antes de salir a ruta, como promete la política). El servidor le
+  pone las de su combi si son de hace menos de un minuto.
+- Dos deslizadores en la misma pantalla de la nativa: el verde de SALIR A
+  RUTA arriba, el rojo del SOS abajo. Conviene mirarlo en un teléfono chico.
+- En la web, el SOS de la puerta reusa el cartel de «enviada» y el panel de
+  «no salió» del HUD (`SosAvisos`, `usarSos`): son el mismo código.
+
+**Pruebas.** `sos-puerta` (nueva): el chofer en la puerta tiene el SOS, el
+SOS llega al servidor y dice ALERTA ENVIADA sin salir a ruta, la central
+queda recordada y el ingreso la ofrece tras perder la sesión; y lee la
+nativa. Siguen verdes `sos`, `sos-sin-red`, `puerta-web`, `vigia-puerta`,
+`chofer-shot`, `telefono`, `cliente`, `nativas`, `revision-apk`.
+
+---
+
 ## Para el manual (cuando toque)
 
 Lo que todavía no está en `manual/manual.tex`:
@@ -933,3 +981,5 @@ Lo que todavía no está en `manual/manual.tex`:
 - Para el que opera, no para el chofer: `/salud` y las alertas (bloque 4),
   y la copia afuera y cómo volver a un respaldo (bloque 5). Quizás va en un
   anexo de operación más que en el manual de uso.
+- El SOS en la puerta para el chofer, y «¿Emergencia? Llamar a la central»
+  en la pantalla de ingreso (bloque 17.1).

@@ -509,12 +509,16 @@
   const POSICION_SOS_MAX_MS = 60_000;
   let ecoSos = null;
   let sosEnVuelo = null;
-  function sendSos() {
+  // `opciones.token`: el de la sesión, para disparar desde la puerta. Ahí el
+  // socket todavía no se abrió (se abre al salir a ruta) y sin token propio
+  // el SOS no tenía por dónde salir (auditoría del 11/11).
+  function sendSos(opciones = {}) {
     if (sosEnVuelo) return sosEnVuelo;
-    sosEnVuelo = dispararSos().finally(() => { sosEnVuelo = null; });
+    sosEnVuelo = dispararSos(opciones).finally(() => { sosEnVuelo = null; });
     return sosEnVuelo;
   }
-  async function dispararSos() {
+  async function dispararSos({ token } = {}) {
+    const tk = authToken || token || null;
     const fresca = lastPosition && Date.now() - (lastPosition.timestamp || 0) <= POSICION_SOS_MAX_MS;
     const coords = fresca ? lastPosition.coords : null;
     const cuerpo = {
@@ -522,13 +526,13 @@
       lng: coords ? coords.longitude : null,
       timestamp: Date.now(),
     };
-    if (authToken) {
+    if (tk) {
       try {
         const ctl = new AbortController();
         const t = setTimeout(() => ctl.abort(), 6000);
         const res = await fetch(HTTP_URL + '/sos', {
           method: 'POST', signal: ctl.signal,
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk },
           body: JSON.stringify(cuerpo),
         });
         clearTimeout(t);
