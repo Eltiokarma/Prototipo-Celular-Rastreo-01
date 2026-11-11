@@ -1373,32 +1373,9 @@ fusionó con la auditoría (y dónde se apartó del paquete), en su apartado
 
 ---
 
-## Para el manual (cuando toque)
+## Para el manual
 
-Lo que todavía no está en `manual/manual.tex`:
-
-- «Despacho vio tu SOS» en la app del chofer (bloque 3).
-- El SOS sin internet: el panel, el SMS y los números de emergencia
-  (bloque 7). Y en Despacho → Gestión → Empresa, el campo *Teléfono de la
-  central para emergencias*.
-- Despacho → Gestión → Turnos: Corregir, Anular y Agregar un turno que faltó
-  (bloque 8).
-- Despacho → Gestión → Personas → Cargar una planilla (bloque 9).
-- En el chat de Despacho: «Guardar como evidencia», el motivo y «quitar»;
-  y «cargar foto» / «cargar nota de voz» (bloque 10).
-- Despacho → Gestión → Actividad: los botones de tipo y «Ver más viejos», y
-  cuánto se guarda cada cosa (bloque 11).
-- Despacho → Gestión → Personas: el consentimiento de datos personales,
-  anotar la firma y el retiro; y cómo imprimir el formulario (bloque 12).
-- En el perfil del chofer, «actualizada dd/mm hh:mm»; y para el que opera,
-  `publicar-arreglo.bat` (bloque 13).
-- Despacho → Personas → Editar → «Bajar todos sus datos (ZIP)» (bloque 15).
-- Para el que opera, no para el chofer: `/salud` y las alertas (bloque 4),
-  y la copia afuera y cómo volver a un respaldo (bloque 5). Quizás va en un
-  anexo de operación más que en el manual de uso.
-- El SOS en la puerta para el chofer, y «¿Emergencia? Llamar a la central»
-  en la pantalla de ingreso (bloque 17.1).
-- Despacho → Gestión → Personas: la versión nueva del consentimiento
-  (11/11) y por qué hay que volver a firmarlo (bloque 17.11).
-- Todo el retoque de la UI (bloque 18): las capturas del manual de
-  Despacho y Gestión quedaron viejas.
+Al día el 11/11: `manual/manual.tex` y `manual.pdf` cubren los bloques 3, 4,
+5, 7 a 13, 15, 17 y 18, con las capturas sacadas de nuevo (con el mapa
+propio). Lo de operación (`/salud`, alertas, copia afuera, restaurar,
+`publicar-arreglo.bat`) va en el anexo A del manual.

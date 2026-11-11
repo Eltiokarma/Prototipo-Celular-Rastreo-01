@@ -121,7 +121,7 @@
     {\fontsize{24}{28}\selectfont Manual de usuario}\par\vspace{28pt}
     {\large Para el chofer, el cobrador, Despacho, la gerencia\\y la central que administra el sistema.}\par
     \vspace{5.5cm}
-    {\color{marca!45!white}Versión de octubre de 2026 · app Android versión 5}\par\vspace{4pt}
+    {\color{marca!45!white}Versión de noviembre de 2026 · app Android 0.3.0}\par\vspace{4pt}
     {\color{marca!45!white}soporte@microstempo.com}
   \end{minipage}
   \restoregeometry
@@ -144,14 +144,14 @@ Chofer & Mirar de reojo, manejando, cuánto le lleva la combi de adelante y la d
 Cobrador & Lo mismo que el chofer, desde su propio celular, sin que su GPS cuente. & Capítulo \ref{cap:cobrador} \\
 Despacho & Operar el día: ver la flota en el mapa, atender emergencias, escribirle a una combi, dar de alta a la gente, sacar informes. & Capítulos \ref{cap:ideas} y \ref{cap:despacho} \\
 Gerencia & Todo lo de Despacho más los números del período, las combis y los datos de la empresa. & Capítulo \ref{cap:gerencia} \\
-Central & Dar de alta cooperativas, dibujar sus recorridos, respaldar la base y mirar la salud del sistema. & Capítulo \ref{cap:central} \\
+Central & Dar de alta cooperativas, dibujar sus recorridos, respaldar la base y mirar la salud del sistema. & Capítulo \ref{cap:central} y el anexo \ref{cap:operacion} \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
 Las capturas son del sistema funcionando, con una cooperativa inventada para el
 manual: \emph{Transportes Altiplano}, con dos rutas por calles de Juliaca
-(la 18A, \emph{Norte \idavuelta{} Taparachi}, y la 18B), doce combis y catorce
+(la 18A, \emph{Norte \idavuelta{} Taparachi}, y la 18B), trece combis y quince
 personas. Los nombres, placas y números son de mentira.
 
 Los nombres de los botones van \boton{ASÍ}, tal como se leen en pantalla.
@@ -329,6 +329,11 @@ Si se olvidó la clave, \boton{Olvidé mi contraseña} explica qué hacer: la cl
 nueva la pone Despacho (o, para un cobrador, el chofer de su combi desde la
 app Android). No hay recuperación por correo.
 
+Un teléfono que ya entró alguna vez \textbf{recuerda el número de la
+central}, aunque se cierre la sesión o la clave ya no sirva. Entonces la
+pantalla de ingreso muestra, en rojo, \boton{¿EMERGENCIA? LLAMAR A LA
+CENTRAL}: es una llamada común, no un SOS. No hace falta usuario ni clave.
+
 \section{La puerta: ¿salir a ruta ahora?}
 
 Después de entrar aparece la \textbf{puerta}. Muestra quién entró, la unidad
@@ -342,7 +347,11 @@ y la ruta, y dos opciones:
     estar parado.
 \end{itemize}
 
-Arriba a la derecha, \boton{Salir} cierra la sesión.
+Arriba a la derecha, \boton{Salir} cierra la sesión. Abajo de todo está el
+\textbf{SOS}, en el mismo lugar que en ruta: las 5 de la mañana en el
+terminal o la vuelta a la cochera también son momentos de riesgo. En la
+puerta el teléfono no manda su ubicación, así que la alerta sale sin ella; si
+la combi está en el mapa (la maneja otro), va con la posición de la combi.
 
 \subsection{¿En qué combi salís?}
 
@@ -534,10 +543,38 @@ nada deja la alerta como SOS a secas.
 \cel[0.36]{c10-mapa}{El mapa.}
 \end{center}
 
+Cuando alguien de Despacho marca la alerta como atendida, al que la pidió (y a
+los que van en su combi) le aparece un cartel verde,
+\enverde{DESPACHO VIO TU SOS}, que queda hasta que se lo toca. Si el teléfono
+estaba sin conexión en ese momento, el cartel aparece al volver.
+
+Deslizar dos veces no hace dos alarmas: mientras el SOS anterior siga sin
+atender (hasta 10 minutos), el segundo es el mismo. Atendido el primero, uno
+nuevo es otra emergencia.
+
+\subsection{Si el SOS no sale}
+
+Si el celular no tiene internet, a los pocos segundos la pantalla dice
+\enrojo{SOS NO SALIÓ} y queda un panel, hasta que se lo cierra, con:
+
+\begin{itemize}
+  \item \boton{LLAMAR A LA CENTRAL}: una llamada común al teléfono de la
+    central de la cooperativa.
+  \item \boton{MANDAR SMS A LA CENTRAL CON TU POSICIÓN}: un mensaje de texto ya
+    escrito, con la combi, el nombre, la posición y un enlace al mapa. Sólo
+    hay que tocar enviar.
+  \item Los números de emergencia: \textbf{105} Policía, \textbf{106} SAMU
+    (ambulancia) y \textbf{116} Bomberos.
+\end{itemize}
+
+El número de la central lo carga la gerencia (Gestión \flecha Empresa) y el
+teléfono lo guarda al entrar, así sirve sin datos. Si la cooperativa no lo
+cargó, el panel lo dice y quedan los números de emergencia.
+
 \begin{importante}
 El SOS sale aunque el GPS no tenga posición. Si el celular no tiene señal en
 ese momento, la pantalla lo dice: \textbf{no supongas que llegó} si no viste
-\enrojo{ALERTA ENVIADA}.
+\enrojo{ALERTA ENVIADA}. Llamá o mandá el SMS.
 \end{importante}
 
 \section{El mapa}
@@ -586,9 +623,18 @@ La app Android tiene las mismas pantallas, y además:
   \item \textbf{La brecha en la notificación}: se puede mirar sin abrir la app.
   \item \textbf{Ausente inteligente}: si el chofer se olvidó de volver a ruta
     después de almorzar, vuelve solo al alejarse 300 m; y una ausencia de más
-    de 2 horas pasa a \emph{fuera} sola.
+    de 2 horas pasa a \emph{fuera} sola. Si volvió solo pero en 20 minutos
+    \textbf{no pisó el recorrido} (terminó el día en ausente y se fue a su
+    casa manejando), la app sale de ruta sola y apaga el GPS.
+  \item \textbf{Aviso si el GPS se calla}: si en ruta el GPS deja de leer la
+    ubicación por 10 minutos (el teléfono se reinició, Android cerró la app,
+    se apagó la ubicación), suena \enambar{Tu GPS dejó de funcionar}: hay
+    que abrir la app. Una zona sin señal no lo dispara: ahí el GPS sigue
+    leyendo y manda todo al volver la señal.
   \item \textbf{Perfil}: sus vueltas, horas y cumplimiento de 7 o 30 días, sus
-    turnos, su alias y su clave.
+    turnos, su alias y su clave. Abajo dice la versión de la app y, si le
+    llegó un arreglo sin reinstalar, \rotulo{actualizada 11/11 14:30}: es lo
+    primero que pregunta quien da soporte.
   \item \textbf{Sus cobradores}: el chofer ve a los cobradores de su combi, les
     cambia la clave y los saca (darlos de alta sigue siendo de Despacho).
   \item \textbf{Grabar recorrido}: Perfil \flecha \boton{GRABAR RECORRIDO}
@@ -646,12 +692,14 @@ cuatro partes:
   \item[La cabecera.] El nombre y el logo de la cooperativa; el selector de
     \textbf{ruta} (el supervisor ve todas las de la cooperativa); el estado,
     \rotulo{en vivo · 7 en ruta · 1 sin señal · 1 ausente}; el
-    \textbf{objetivo de brecha} vigente; \boton{Gestión}, el botón de la luna (el tema
-    noche) y \boton{Salir}.
-  \item[La lista de unidades.] A la izquierda, cada combi con su velocidad,
-    chofer, placa, tramo (\rotulo{ida} / \rotulo{vuelta}) y sus dos brechas,
-    con color y palabra. Arriba, \rotulo{8 de 8}: cuántas se ven de cuántas
-    tiene la ruta. Encima de la lista, dos avisos cuando hace falta: las
+    \textbf{objetivo de brecha} vigente; \boton{Gestión} (que en Gestión se
+    vuelve \boton{Mapa en vivo}), el botón de la luna (el tema noche) y
+    \boton{Salir}. Si la alarma del SOS está muda, al lado aparece una
+    \textbf{campana tachada} (ver \emph{Cuando llega un SOS}).
+  \item[La lista de unidades.] A la izquierda, cada combi con las iniciales
+    del que la maneja, su velocidad, chofer, placa, tramo (\rotulo{ida} /
+    \rotulo{vuelta}) y sus dos brechas, con color y palabra. Arriba,
+    \rotulo{8 de 9}: cuántas se ven de cuántas tiene la ruta. Encima de la lista, dos avisos cuando hace falta: las
     combis \textbf{fuera del recorrido} y los choferes que \textbf{entraron y
     no salieron a ruta}, con hace cuánto; a los diez minutos se pone en
     ámbar: es para llamarlo.
@@ -659,8 +707,11 @@ cuatro partes:
     el color de su brecha y la leyenda. Una combi \textbf{fuera del recorrido}
     lleva un rombo y un círculo ámbar.
   \item[El canal de la ruta.] A la derecha, el chat del grupo, con los SOS
-    marcados en rojo. Abajo se escribe al canal.
+    marcados en rojo y, debajo, quién los atendió. Abajo se escribe al canal.
 \end{description}
+
+\textbf{Sin conexión}, el mapa se pone gris y dice \enambar{Sin conexión: el
+mapa no está en vivo}: lo que se ve es de antes. El panel se reconecta solo.
 
 \section{Lo que dice cada tarjeta}
 
@@ -668,7 +719,8 @@ cuatro partes:
 \fcolorbox{linea}{white}{\includegraphics[width=\dimexpr\linewidth-2\fboxrule\relax]{img/d03-lista}}
 \end{minipage}\hfill
 \begin{minipage}[t]{0.66\textwidth}\vspace{0pt}
-Debajo de las brechas, cada tarjeta puede llevar un aviso:
+Debajo de las brechas, cada tarjeta lleva \textbf{un solo aviso}, el más
+importante:
 
 \begin{itemize}
   \item \enambar{AUSENTE — FUERA DE LA CADENA}: el chofer se declaró ausente.
@@ -698,7 +750,9 @@ recorrido}, con cuántos metros. \boton{Silenciar 1 h}, \boton{3 h} y
 \boton{el turno} lo callan cuando ya se sabe el motivo: silenciar es «ya lo
 sé», no «no pasó», y queda registrado.
 
-Cada tarjeta tiene \boton{Mensaje directo}.
+Arriba a la derecha de cada tarjeta hay dos íconos: el \textbf{globo} es el
+mensaje directo a la combi y la \textbf{persona}, el privado sólo al que la
+maneja (sección siguiente). Al pasar el mouse dicen qué son.
 \end{minipage}
 
 \section{Escribirle a una combi o a una persona}
@@ -706,12 +760,12 @@ Cada tarjeta tiene \boton{Mensaje directo}.
 Hay dos privados, y no son lo mismo:
 
 \begin{itemize}
-  \item \boton{Mensaje directo} en la tarjeta de una combi abre la
-    conversación \textbf{con esa combi}: la ven su chofer y su cobrador (en su
+  \item El \textbf{globo} en la tarjeta de una combi (\emph{Mensaje directo})
+    abre la conversación \textbf{con esa combi}: la ven su chofer y su cobrador (en su
     canal \boton{COMBI}) y quien la maneje después. Arriba dice
     \rotulo{toda esa combi}. Es para lo de la calle.
-  \item \boton{Solo a Rufo} (el que la maneja ahora) abre la conversación
-    \textbf{con esa persona}: la sigue a cualquier combi, y no la ve nadie más
+  \item La \textbf{persona} (\emph{Escribirle solo a Rufino}, el que la
+    maneja ahora) abre la conversación \textbf{con esa persona}: la sigue a cualquier combi, y no la ve nadie más
     —ni su cobrador—. Arriba dice \rotulo{solo esa persona}. Es para lo suyo:
     las horas, una citación. A un cobrador, o a alguien que hoy no está en el
     mapa, se le escribe desde \textbf{Gestión} \flecha \textbf{Personas} \flecha \boton{Escribir}.
@@ -720,6 +774,20 @@ Hay dos privados, y no son lo mismo:
 \boton{$\leftarrow$ Grupo} vuelve al canal de la ruta. Lo que llega por un
 privado que no está abierto aparece arriba del canal, en \rotulo{privados sin
 leer}, con el nombre de la combi o de la persona: un toque y se abre.
+
+\subsection*{Fotos, notas de voz y evidencia}
+
+Las fotos y las notas de voz del chat se guardan \textbf{30 días}; después
+queda la burbuja, \emph{ya no disponible}. Si una sirve de prueba (la foto de
+un choque, un audio de una amenaza), al pasar el mouse por el mensaje aparece
+\boton{Guardar como evidencia}: se escribe el motivo (es obligatorio) y el
+mensaje queda marcado en ámbar, \enambar{EVIDENCIA · quién: motivo}. Lo marcado
+\textbf{no se borra ni pierde la foto} con el chat: se guarda un año, como un
+SOS. La marca se puede quitar, y las dos cosas quedan en la Actividad.
+
+Al abrir el panel, el chat llega con lo más nuevo. Una foto o un audio viejo
+que no entró aparece como \boton{Cargar foto} o \boton{Cargar nota de voz}: se
+baja al tocarlo.
 
 \pc{d04-mensaje-directo}{Un mensaje directo a la combi M-01.}
 
@@ -734,7 +802,9 @@ combi, la hora y la posición, y pinta la combi de rojo en el mapa. Además
 ventana, y el \textbf{título de la pestaña parpadea} con la combi. Todo eso
 sigue hasta que alguien marque \boton{ATENDIDO}.
 
-\boton{Ver en mapa} lleva a la combi. \boton{ATENDIDO} cierra el SOS
+\boton{Ver en mapa} lleva a la combi: en el mapa queda un pin rojo,
+\enrojo{SOS · M-01}, mientras el SOS esté sin atender (aunque la combi ya se
+haya ido del mapa). \boton{ATENDIDO} cierra el SOS
 \textbf{en todos los paneles}: el otro Despacho ve en el canal quién lo
 atendió y a qué hora, y queda en la Actividad y en el informe de emergencias
 (con los minutos que tardó). Si llegan dos SOS seguidos, no se pisan; y si el
@@ -742,11 +812,22 @@ panel estaba cerrado o recargando, al entrar el SOS sin atender está ahí. Si
 el chofer eligió qué pasó, la barra y el mensaje lo dicen: \emph{FALLA
 MECÁNICA}, \emph{ACCIDENTE} o \emph{POLICÍA}.
 
+Dos detalles, a propósito:
+
+\begin{itemize}
+  \item \boton{ATENDIDO} \textbf{se habilita un segundo después} de que aparece
+    cada SOS (mientras tanto se ve atenuado). Con dos SOS esperando, el
+    segundo ocupa el lugar del primero: así un doble clic no cierra uno que
+    nadie leyó.
+  \item La barra roja \textbf{también se ve dentro de Gestión}. \boton{Ver en
+    mapa} cierra Gestión y lleva a la combi.
+\end{itemize}
+
 \textbf{Para que suene}, el navegador pide un clic en la página: entrar con
 \boton{INGRESAR} ya cuenta. Si el panel se abrió solo (la sesión quedó
-guardada), arriba aparece \enambar{Activar alarma de SOS}: un clic ahí, y
-aceptar las notificaciones cuando el navegador pregunte. Mientras se vea ese
-botón, un SOS puede pasar sin ruido.
+guardada), en la cabecera aparece la \textbf{campana tachada}, en ámbar: un
+clic ahí, y aceptar las notificaciones cuando el navegador pregunte. Mientras
+se vea esa campana, un SOS puede pasar sin ruido.
 
 \pc{d05-sos}{Un SOS recién llegado.}
 
@@ -760,6 +841,15 @@ toca \boton{Marcar visto}. Queda registrado quién lo vio y cuándo.
 \fcolorbox{linea}{white}{\includegraphics[width=\dimexpr\textwidth-2\fboxrule\relax]{img/d18-aviso-central}}
 \end{center}
 
+\section{Si el panel se rompe}
+
+Si una pantalla de Gestión falla, Gestión muestra qué se rompió y
+\boton{Volver al mapa}: el mapa y los SOS siguen andando. Si falla el panel
+entero, lo dice y \textbf{se recarga solo a los 20 segundos} (al volver, los
+SOS sin atender están ahí). Si no llegan las piezas del panel desde internet,
+a los 8 segundos dice que no se ve el mapa ni los SOS, con un botón para
+recargar. En cualquiera de los casos, avisar a la central.
+
 \section{El tema noche}
 
 El botón de la luna pasa el panel a colores oscuros, para el turno de la noche;
@@ -771,33 +861,47 @@ el del sol lo devuelve. El panel recuerda la elección.
 
 \boton{Gestión} abre el espacio de administración, con un menú a la izquierda
 en tres grupos: \emph{Operación del día}, \emph{Ruta y medición} y \emph{La
-cooperativa}. \boton{\texttimes\ Volver al mapa} regresa al panel.
+cooperativa}. Al lado de cada pestaña, cuántos hay (personas, vehículos,
+rutas). \boton{$\langle$ Volver al mapa}, arriba del menú, o \boton{Mapa en
+vivo}, en la cabecera, regresan al panel. Mientras se está en Gestión el mapa
+sigue andando por detrás, y un SOS se ve igual.
 
 \subsection{Personas}
 
 Choferes, cobradores y las cuentas de Despacho y de gerencia. Se busca por
-nombre, alias o unidad, y se filtra por rol.
+nombre, alias o unidad, y se filtra por rol. Cada fila tiene, a la derecha,
+\boton{Escribir} y el menú \boton{$\cdots$} con lo demás.
 
 \begin{itemize}
   \item \boton{+ Persona} abre el alta. Se elige \boton{CHOFER} o
     \boton{COBRADOR}, se escribe el nombre y apellido (con ese se liquidan las
     horas) y, si se quiere, el alias (así lo ven en el chat); la ruta, el
     usuario con el que va a entrar, la combi y la clave. \boton{$\circlearrowright$}
-    genera una clave fácil de dictar. \boton{+ Alta} la crea.
-  \item \boton{Clave} le pone una clave nueva. Su sesión abierta se cierra en
-    el acto.
+    genera una clave fácil de dictar y difícil de adivinar, como
+    \emph{lago-cerro-4821}. \boton{+ Alta} la crea. Un usuario que fue de
+    alguien dado de baja no se le da a otra persona (heredaría sus horas): el
+    alta lo dice y sugiere otro.
   \item \boton{Escribir} le abre un privado \textbf{sólo a esa persona} (ver
     \emph{Escribirle a una combi o a una persona}).
-  \item \boton{Combis} marca las combis que puede manejar: entre ésas elige
+  \item $\cdots$ \flecha \boton{Clave nueva} le pone una clave nueva. Su sesión
+    abierta se cierra en el acto. La clave de una cuenta de Despacho sólo la
+    cambia la gerencia.
+  \item $\cdots$ \flecha \boton{Combis} marca las combis que puede manejar: entre ésas elige
     en la puerta, cada día. \rotulo{La de hoy} es en la que está ahora (no se
     le cambia a alguien en ruta). \boton{Cualquiera de su ruta} es para el
     suplente: puede salir en cualquier combi de su ruta sin habilitarlas una
     por una. En la lista, \rotulo{M-05 +1} quiere decir que hoy va en M-05 y
     tiene una más habilitada.
-  \item \boton{Editar} corrige el nombre o el alias.
-  \item \boton{Baja} la saca del sistema. Sus horas y vueltas quedan en los
-    informes.
+  \item $\cdots$ \flecha \boton{Editar} corrige el nombre o el alias. Ahí mismo
+    está \boton{Bajar todos sus datos (ZIP)}: para cuando la persona pide una
+    copia de lo que el sistema tiene de ella (sección
+    \ref{sec:consentimiento}).
+  \item $\cdots$ \flecha \boton{Baja} la saca del sistema. Pide confirmar en un
+    cuadro que la nombra y dice qué se pierde. Sus horas y vueltas quedan en
+    los informes.
 \end{itemize}
+
+\pc{d07b-acciones}{El menú $\cdots$ de una persona: Clave nueva, Combis, Editar y Baja.}
 
 \pc{d08b-combis}{Las combis que puede manejar Rufino: la suya (la de hoy) y M-07.}
 
@@ -813,7 +917,56 @@ la persona a una combi que ya exista. La columna \rotulo{Última conexión} dice
 \emph{nunca entró} a quien todavía no usó su cuenta.
 \end{nota}
 
-\pc{d07-personas}{La lista de personas.}
+\pc{d07-personas}{La lista de personas, con el consentimiento arriba.}
+
+\subsubsection*{Cargar una planilla}
+
+Para dar de alta a mucha gente de una vez: \boton{Cargar una planilla}. Sirve
+un Excel (\texttt{.xlsx}), una planilla de LibreOffice o Google Sheets
+(\texttt{.ods}), un CSV o las celdas copiadas y pegadas. Las columnas se
+reconocen por el título: hacen falta \textbf{Nombre} y \textbf{Combi} (una que
+ya exista); Usuario, Rol, Clave, Alias y Ruta son opcionales. Hay una
+planilla de ejemplo para bajar.
+
+Va en dos pasos. \boton{Revisar} no guarda nada: muestra fila por fila qué se
+crearía y qué no, y por qué. \boton{Crear} da de alta las filas buenas y
+muestra \textbf{las claves una sola vez}, con un archivo para repartirlas.
+Subir dos veces la misma planilla no duplica a nadie. Se lee sólo la primera
+hoja, y no las filas ocultas.
+
+\subsubsection*{El consentimiento de datos personales}
+\label{sec:consentimiento}
+
+Cada chofer y cobrador firma en papel un formulario donde acepta, entre otras
+cosas, que se use su ubicación durante el turno. Arriba de la lista,
+\rotulo{Consentimiento de datos personales: 0 de 15 firmaron · faltan 15}. Al
+abrirlo:
+
+\begin{itemize}
+  \item cada persona con su estado: \emph{firmó el 11/11/2026}, \emph{falta
+    firmar} o \emph{firmó la versión 2026-11-04: falta firmar la nueva};
+  \item \boton{Anotar firma}, con la fecha del papel;
+  \item \boton{Lo retiró}, con cómo lo pidió (retirarlo no apaga nada: lo
+    anota, y qué hacer es decisión de la cooperativa);
+  \item el enlace \emph{(abrir para imprimir)} al formulario.
+\end{itemize}
+
+\begin{importante}
+El formulario vigente es la \textbf{versión 2026-11-11}. Agrega dos cosas que
+el sistema guardaba y la versión anterior no decía: los \textbf{lugares
+puntuales del turno} (dónde salió a ruta, se ausentó o terminó, que suele ser
+su casa; dónde se cortó la señal o paró) y las \textbf{marcas automáticas}
+(«GPS sospechoso», «entrada tardía»…), que son avisos para que una persona los
+mire y no deciden nada solas. Quien firmó la del 04/11 tiene que firmar la
+nueva. La cooperativa guarda el original firmado y le da una copia; la hoja de
+registro y los demás formularios están en la carpeta \texttt{legal/}.
+\end{importante}
+
+Cuando alguien pide \textbf{qué datos suyos tiene el sistema} (o una
+copia), en $\cdots$ \flecha \boton{Editar}, el botón \boton{Bajar todos sus
+datos (ZIP)} arma un archivo con su cuenta, sus turnos, sus mensajes con fotos y audios,
+sus vueltas mientras manejaba y la Actividad que lo nombra, con un LÉEME que
+explica cada archivo. Queda en la Actividad quién lo bajó.
 
 \subsection{Vehículos}
 
@@ -837,7 +990,24 @@ ruta: \boton{Hoy}, \boton{Ayer} o \boton{Esta semana}. Un turno se abre cuando
 la persona sube a su combi y se cierra cuando se va; un corte de señal corto no
 lo parte en dos.
 
-\pc{d10-turnos}{Los turnos del día.}
+Con las horas se paga, así que se pueden corregir a mano, siempre con un
+\textbf{motivo} (obligatorio, queda registrado):
+
+\begin{itemize}
+  \item \boton{Corregir}, en la fila: cambia la entrada o la salida (el que se
+    olvidó de salir de ruta). Ahí mismo, \boton{Anular este turno…} lo deja en
+    cero (el que dejó la app abierta en su casa): no se borra, queda marcado.
+  \item \boton{Agregar un turno que faltó}: el que no se registró (se apagó el
+    teléfono, se cayó el servidor).
+\end{itemize}
+
+Se puede ir hasta 31 días atrás; un turno no puede durar más de 24 horas ni
+pisarse con otro de la misma persona. La fila queda marcada en ámbar,
+\enambar{CORREGIDO A MANO} (o \enambar{AGREGADO A MANO}, \enambar{ANULADO A
+MANO}); al pasar el mouse dice quién y por qué. Está en la Actividad y en el
+informe de horas.
+
+\pc{d10-turnos}{Los turnos del día, con Corregir y Agregar un turno que faltó.}
 
 \subsection{Rutas}
 
@@ -909,12 +1079,23 @@ horas.
 
 \subsection{Empresa y Actividad}
 
-\textbf{Empresa} muestra los datos de la cooperativa (los corrige la
-gerencia). \textbf{Actividad} es el registro de todo lo que se hizo en el panel
-de esta cooperativa: altas, cambios de clave, cambios de objetivo, SOS,
-avisos del sistema; y del mando de las combis: \emph{tomó la combi que
-manejaba} (un relevo) y \emph{salió a ruta solo en} (la app vio al chofer
-manejando sin haber salido y nadie contestó el aviso). Sólo la de ustedes.
+\textbf{Empresa} muestra los datos de la cooperativa, entre ellos la
+\textbf{central para emergencias} (el número al que llama o manda el SMS un
+chofer cuyo SOS no salió). Los corrige la gerencia.
+
+\textbf{Actividad} es el registro de todo lo que se hizo en el panel de esta
+cooperativa: altas, cambios de clave, cambios de objetivo, correcciones de
+horas, evidencia, SOS, avisos del sistema; y del mando de las combis:
+\emph{tomó la combi que manejaba} (un relevo) y \emph{salió a ruta solo en}
+(la app vio al chofer manejando sin haber salido y nadie contestó el aviso).
+Sólo la de ustedes.
+
+Los botones \boton{Todo}, \boton{Gestión}, \boton{Operación} y
+\boton{Accesos} filtran por tipo, y \boton{Ver más viejos} trae los cien
+anteriores. Cada tipo se guarda un tiempo distinto: \textbf{accesos} (inicios
+de sesión, bloqueos) 90 días; \textbf{operación} (desvíos, SOS, relevos,
+GPS sospechoso) un año; \textbf{gestión} (altas, bajas, claves, correcciones
+de horas, evidencia) dos años.
 
 \pc{d17-actividad}{La actividad de la cooperativa.}
 
@@ -928,7 +1109,10 @@ cuenta (la da de alta la central), y ve todo lo que ve Despacho. Además:
 \begin{itemize}
   \item administra los \textbf{activos}: da de alta las combis con su placa, y
     corrige los datos y el logo de la empresa;
-  \item tiene la pestaña \textbf{Números}, con el cumplimiento del período.
+  \item tiene la pestaña \textbf{Números}, con el cumplimiento del período;
+  \item carga el \textbf{teléfono de la central para emergencias};
+  \item cambia la clave de las cuentas de Despacho (un Despacho no puede
+    tocar la de otro).
 \end{itemize}
 
 La cuenta de gerencia puede abarcar toda la cooperativa o una sola ruta.
@@ -946,7 +1130,11 @@ descripción. \boton{+ Vehículo} la crea en la ruta elegida.
 \section{La empresa y su logo}
 
 En \textbf{Empresa}, la gerencia corrige el nombre, el RUC y el contacto, y sube
-el \textbf{logo} (PNG, JPG o WEBP; se achica solo). El logo es lo que ven los
+el \textbf{logo} (PNG, JPG o WEBP; se achica solo). También carga el
+\textbf{Teléfono de la central para emergencias}: el número que el chofer
+llama, o al que manda el SMS con su posición, cuando su SOS no sale por
+internet (sección \ref{sec:sos}). \textbf{Conviene cargarlo el primer día}: sin
+él, al chofer sólo le quedan el 105, el 106 y el 116. El logo es lo que ven los
 choferes y el panel: es la señal de que el sistema es de su cooperativa. Sin
 logo se muestran las iniciales.
 
@@ -959,7 +1147,9 @@ de toda la cooperativa o de una ruta. Un «día» es un día de calendario: «7
 días» son los últimos siete contando hoy.
 
 \begin{itemize}
-  \item \textbf{Arriba}, las cifras del período: vueltas, idas, retornos,
+  \item \textbf{Arriba}, el \textbf{cumplimiento} en grande y, al lado, el
+    cumplimiento de cada día (un día sin vueltas no aparece: no es un cero).
+  \item \textbf{Después}, las cifras del período: vueltas, idas, retornos,
     \textbf{cumplimiento} (el porcentaje de vueltas cuya brecha promedio estuvo
     en objetivo), brecha promedio, horas trabajadas, unidades activas, salidas
     del recorrido, cortes de señal, horas sin señal, horas ausente, paradas y
@@ -973,8 +1163,13 @@ días» son los últimos siete contando hoy.
 \end{itemize}
 
 Cada vuelta se juzga contra el objetivo que regía cuando se cerró, no contra
-el de hoy. Los botones \boton{CSV vueltas}, \boton{CSV turnos} y los demás
-bajan lo mismo para una planilla.
+el de hoy. \boton{Descargar CSV $\blacktriangledown$} baja lo mismo para una
+planilla: vueltas, turnos y los demás.
+
+Una vuelta cuenta si la combi \textbf{avanzó} por el circuito: una combi
+estacionada en el terminal, con el GPS bailando, ya no suma vueltas
+fantasma. Y la brecha se pasa a minutos con la vuelta \textbf{medida} de la
+ruta, la misma con la que se calcula el objetivo automático.
 
 \pc{g01-numeros}{Números: las cifras del período y la tabla por unidad.}
 \pc{g02-numeros-tablas}{Números: la tabla por persona, con las horas que se liquidan.}
@@ -1060,14 +1255,24 @@ corrige).
   \item \boton{Renombrar ruta} corrige el nombre que ven todos.
 \end{itemize}
 
+Guardar sobre el trazado \textbf{con el que se mide hoy} pide confirmar,
+porque descarta las vueltas en curso (se venían midiendo con el dibujo
+anterior). Lo mismo guardar un trazado vacío.
+
 \pc{k05-trazador}{El trazador de la central, con la ida de la 18A.}
 
 \section{Respaldos}
 
-El sistema respalda la base cada 6 horas y conserva los últimos 28.
-\boton{Respaldar ahora} hace uno en el momento y \boton{Descargar} lo baja:
-\textbf{el archivo guardado en otra máquina es el respaldo que sobrevive a
-perder el servidor}. Conviene bajar uno cada tanto.
+El sistema respalda la base cada 6 horas y conserva los últimos 28; cada
+respaldo se verifica antes de darlo por bueno. \boton{Respaldar ahora} hace
+uno en el momento y \boton{Descargar} lo baja: \textbf{el archivo guardado en
+otra máquina es el respaldo que sobrevive a perder el servidor}. Conviene
+bajar uno cada tanto.
+
+Si está configurada la \textbf{copia afuera}, cada respaldo sube además,
+cifrado, a un almacenamiento de otro proveedor, y la pestaña lo lista. Si no,
+lo dice en ámbar: \enambar{Sin copia afuera}. Cómo configurarla y cómo volver
+a un respaldo está en el anexo \ref{cap:operacion}.
 
 \pc{k06-respaldos}{Los respaldos de la base.}
 
@@ -1079,10 +1284,17 @@ tamaño de la base y la memoria. Arriba, los avisos de riesgo:
 
 \begin{itemize}
   \item \enrojo{RIESGO DE PÉRDIDA}: la base está en el mismo disco que la
-    aplicación. En un servidor que se redespliega, ese disco se borra.
+    aplicación. En un servidor que se redespliega, ese disco se borra. En
+    producción el servidor directamente no arranca así (anexo
+    \ref{cap:operacion}).
   \item \enambar{UN SOLO FACTOR}: el panel entra sólo con clave. Es el nivel
     que puede crear y suspender cooperativas.
+  \item \enambar{ATENCIÓN}: lo mismo que contesta \texttt{/salud} (poco disco,
+    un respaldo viejo, la copia afuera que falla).
 \end{itemize}
+
+En las capturas los tres avisos están encendidos porque el manual se sacó en
+una computadora, no en el servidor de verdad.
 
 \pc{k07-sistema}{La salud del sistema.}
 
@@ -1122,6 +1334,29 @@ donde se ven así. Las acciones de la central figuran como \textbf{CREADOR}.
     \boton{SALIR A RUTA}. La vuelta que se llevaba se perdió.
   \item[«Mandé un SOS por error».] Avisar enseguida por el chat a Despacho. En
     Despacho, \boton{ATENDIDO} saca la alerta.
+  \item[«Mi SOS dice NO SALIÓ».] No hay internet. Usar el panel que queda en
+    pantalla: \boton{LLAMAR A LA CENTRAL}, el SMS con la posición, o el 105,
+    106 o 116 (sección \ref{sec:sos}).
+  \item[«Me sonó \emph{Tu GPS dejó de funcionar}».] La app dejó de leer la
+    ubicación estando en ruta: el teléfono se reinició, Android la cerró o se
+    apagó la ubicación. Abrir la app; si vuelve a pasar, revisar la batería
+    (sección \ref{sec:android}).
+  \item[«La app me sacó de ruta sola».] Había vuelto a ruta sola desde ausente
+    y en 20 minutos no pisó el recorrido: se entiende que el día terminó.
+    Para seguir trabajando, \boton{SALIR A RUTA}.
+  \item[«Dice \emph{Demasiados intentos}».] Cinco claves mal bloquean esa
+    cuenta \textbf{desde ese teléfono o esa computadora} por cinco minutos;
+    desde otro lado se puede entrar, y las demás cuentas siguen entrando. Si de verdad no se recuerda la clave, que la
+    cambie Despacho.
+  \item[«El panel de Despacho dice que se rompió».] Se recarga solo a los 20
+    segundos. Si sigue, recargar a mano y avisar a la central. Los SOS sin
+    atender vuelven a aparecer al recargar.
+  \item[«El mapa de Despacho está gris».] Si además dice \emph{Sin conexión},
+    se cortó internet en la central: el panel se reconecta solo. Si no lo
+    dice, falta la clave del mapa en el servidor (es tarea de la central).
+  \item[«Me corrigieron las horas».] Despacho las puede corregir con un
+    motivo, que queda registrado (Gestión \flecha Turnos). Si no estás de
+    acuerdo, pedir en la cooperativa que te muestren el motivo.
 \end{description}
 
 % ════════════════════════════════════════════════════════════════════════
@@ -1136,6 +1371,14 @@ donde se ven así. Las acciones de la central figuran como \textbf{CREADOR}.
     objetivo.
   \item[Entrada tardía.] Meterse a la ruta más allá del 15\,\% del circuito.
     La primera vuelta queda parcial.
+  \item[Evidencia.] Un mensaje del chat que Despacho marcó, con un motivo,
+    para que no se borre: se guarda un año.
+  \item[Lugares puntuales.] Dónde y a qué hora pasó algo del turno: dónde
+    salió a ruta, se ausentó o terminó, dónde se cortó la señal, paró o salió
+    del recorrido. Se guardan 120 días.
+  \item[Marca automática.] Un aviso que anota el sistema solo («GPS
+    sospechoso», «entrada tardía», «salió solo», «fuera de ruta»). Es para
+    que una persona lo mire; no decide nada por sí mismo.
   \item[Objetivo de brecha.] La separación ideal entre combis de una ruta, a
     mano o automática.
   \item[Pelotón.] Combis pegadas una a la otra (brecha crítica por poca
@@ -1149,5 +1392,91 @@ donde se ven así. Las acciones de la central figuran como \textbf{CREADOR}.
   \item[Unidades-día.] Cuántas combis trabajaron cuántos días en el mes.
   \item[Vuelta.] El circuito completo, ida y retorno.
 \end{description}
+
+% ════════════════════════════════════════════════════════════════════════
+\appendix
+\chapter{Para quien opera el servidor}
+\label{cap:operacion}
+
+Esto no es para el chofer ni para Despacho: es para quien mantiene el
+servidor. El detalle técnico, con cada variable, está en el \texttt{README.md}
+del repositorio y en \texttt{TAREAS-FUERA-DEL-CODIGO.md}.
+
+\section{Dónde vive la base}
+
+La base vive en un archivo, en un \textbf{volumen} aparte del disco de la
+aplicación (en Railway, un volumen montado en \texttt{/data}, y la variable
+\texttt{DB\_FILE=/data/r14.db}). En producción, si \texttt{DB\_FILE} no está o
+su carpeta no existe, \textbf{el servidor no arranca}: es a propósito, porque
+antes arrancaba con una base vacía en un disco que se borra en el próximo
+despliegue. Antes de cada despliegue que toque la configuración, confirmar que
+\texttt{DB\_FILE} sigue apuntando al volumen.
+
+\section{La salud y las alertas}
+
+\begin{itemize}
+  \item \texttt{/ping} dice que el proceso vive; \texttt{/salud} dice si está
+    haciendo su trabajo: que la base lea y escriba, que quede disco, que el
+    último respaldo no sea viejo, que la base esté en el volumen, la hora de
+    Perú. Contesta \textbf{503 si hay un problema} y 200 si sólo hay avisos,
+    en castellano y sin números. Railway no pasa el tráfico a una versión
+    nueva hasta que su \texttt{/salud} conteste 200.
+  \item El servidor se revisa cada minuto y, cuando el estado cambia (cae,
+    empeora, vuelve), avisa a \texttt{ALERTA\_URL}: un tópico de ntfy.sh con la
+    app en el teléfono, o un webhook de Slack o Discord.
+  \item Lo único que el servidor no puede avisar es que está caído. Para eso,
+    un monitor externo gratuito (UptimeRobot, Better Stack) que mire
+    \texttt{/salud} cada 5 minutos.
+\end{itemize}
+
+\section{La copia afuera}
+
+Los respaldos del volumen se pierden si se pierde el volumen. Con las
+variables \texttt{RESPALDO\_S3\_*} (un almacenamiento compatible con S3:
+Cloudflare R2, Backblaze B2, AWS) y \texttt{RESPALDO\_CIFRADO} (una frase de
+16 caracteres o más), cada respaldo verificado sube \textbf{comprimido y
+cifrado}. El proveedor guarda algo que no puede leer.
+
+\begin{importante}
+\textbf{Sin la frase de \texttt{RESPALDO\_CIFRADO}, las copias no se pueden
+abrir}: ni la central, ni nadie. Guardarla en un gestor de contraseñas, fuera
+del servidor.
+\end{importante}
+
+Los respaldos viejos los borra el propio almacenamiento, con una regla de
+vencimiento (por ejemplo, a los 30 días).
+
+\section{Volver a un respaldo}
+
+\begin{enumerate}
+  \item En el panel de la central \flecha \boton{RESPALDOS}, copiar el nombre
+    del respaldo (uno de la copia afuera, o uno del volumen con
+    \texttt{local:} adelante).
+  \item En Railway \flecha Variables, poner \texttt{RESTAURAR\_DESDE} con ese
+    nombre y redesplegar.
+  \item Al arrancar, el servidor baja el respaldo, lo verifica,
+    \textbf{guarda la base actual al lado} y la reemplaza. Si algo falla (el
+    nombre no existe, la frase no es), no arranca y no toca la base.
+  \item Sacar \texttt{RESTAURAR\_DESDE}. Si queda puesta no pasa nada: no repite
+    la restauración.
+\end{enumerate}
+
+Conviene hacer un simulacro una vez, con un servidor de prueba, antes de
+necesitarlo de verdad.
+
+\section{Mandar un arreglo a los teléfonos}
+
+Un arreglo de pantallas, chat, SOS o puerta (JavaScript) llega a los
+teléfonos \textbf{sin reinstalar}. Se hace con doble clic en
+\texttt{publicar-arreglo.bat}, siguiendo los pasos. Primero se publica al canal de \emph{prueba} (un
+teléfono propio), y recién después a todos. Los teléfonos lo bajan solos y lo
+aplican cuando el chofer no está en ruta; en el perfil se ve la fecha
+(\emph{actualizada dd/mm hh:mm}). Si algo sale mal, el mismo programa vuelve
+atrás.
+
+No sirve para cambios \textbf{nativos} (un permiso, un módulo nuevo, la
+versión de Expo): para eso se sube la versión y se compila una APK nueva con
+\texttt{compilar-app.bat}. El programa no publica si hay cambios locales sin
+subir al repositorio.
 
 \end{document}
