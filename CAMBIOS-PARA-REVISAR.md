@@ -996,6 +996,35 @@ nativa. Siguen verdes `sos`, `sos-sin-red`, `puerta-web`, `vigia-puerta`,
 
 ---
 
+### 17.3 Despacho no queda en blanco
+
+**Qué.**
+- **Muro de errores.** Con React 18, un error al dibujar desmonta el árbol
+  entero: se iban el mapa, el chat y el cartel del SOS, y quedaba una página
+  en blanco (ya pasó el 22/9 con la pestaña Empresa). Ahora hay dos muros:
+  - uno alrededor de **Gestión**: si se rompe una pestaña, Gestión muestra
+    qué se rompió y «Volver al mapa», y el mapa y los SOS siguen andando;
+  - otro alrededor de **todo**, que muestra el error y **recarga solo a los
+    20 s** (una pantalla que nadie mira no puede quedar rota toda la noche;
+    al volver, el servidor reenvía los SOS sin atender). Con tope: tres
+    recargas en cinco minutos y deja de intentarlo.
+- **Sin librerías.** Si React o Babel no llegan de unpkg, a los 8 s la página
+  lo dice («no ves el mapa ni los SOS») con un botón de recargar, en vez de
+  quedar en blanco sin un solo error. El creador ya lo tenía.
+
+**Archivos.** `project/despacho.html`, `project/service-worker.js` (v94),
+`pruebas/muro.js` (nueva), `pruebas/regresion.js`.
+
+**Mirar.**
+- La recarga sola pierde lo que se estaba escribiendo. Es el caso de una
+  página ya rota, así que no hay mucho que perder.
+
+**Pruebas.** `muro` (nueva): rompe Gestión con datos imposibles, rompe el
+panel entero con una línea agregada al HTML que sirve la prueba, y corta
+las librerías del CDN.
+
+---
+
 ## Para el manual (cuando toque)
 
 Lo que todavía no está en `manual/manual.tex`:
