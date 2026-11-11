@@ -1,0 +1,76 @@
+% Preámbulo común de los documentos legales (legal/*.tex).
+% Se compila cada uno con:   cd legal && latexmk -pdf <archivo>.tex
+% La paleta es la del producto y la del manual: si cambia una, cambian las dos.
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish,es-noshorthands,es-tabla]{babel}
+\usepackage[scaled=0.92]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{amssymb}
+% Los que usan los textos y pdflatex no trae
+\DeclareUnicodeCharacter{2713}{\checkmark}
+\DeclareUnicodeCharacter{22EF}{\ensuremath{\cdots}}
+\DeclareUnicodeCharacter{2192}{\ensuremath{\rightarrow}}
+\usepackage[a4paper,top=2cm,bottom=2.2cm,left=2.2cm,right=2.2cm,headheight=14pt]{geometry}
+\usepackage[table]{xcolor}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{lastpage}
+\usepackage[most]{tcolorbox}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{tinta}{HTML}{0B2239}
+\definecolor{tinta2}{HTML}{2A4864}
+\definecolor{tenue}{HTML}{496A86}
+\definecolor{marca}{HTML}{1668C4}
+\definecolor{ambar}{HTML}{A67300}
+\definecolor{rojo}{HTML}{C2001D}
+\definecolor{fondo}{HTML}{F4F7FB}
+\definecolor{linea}{HTML}{C3D4E4}
+\definecolor{ambarfondo}{HTML}{FDF6E4}
+\definecolor{ambarborde}{HTML}{E4C88A}
+\definecolor{azulfondo}{HTML}{E7F0FB}
+\definecolor{azulborde}{HTML}{C9DDF4}
+
+\color{tinta}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt plus 2pt}
+\linespread{1.08}
+\setlist{itemsep=2pt,topsep=3pt}
+
+\titleformat{\section}{\color{tinta}\large\bfseries}{}{0em}{}
+\titleformat{\subsection}{\color{tinta2}\normalsize\bfseries}{}{0em}{}
+\titlespacing*{\section}{0pt}{12pt}{4pt}
+\titlespacing*{\subsection}{0pt}{8pt}{2pt}
+
+\renewcommand{\arraystretch}{1.25}
+\arrayrulecolor{linea}
+
+% Lo que hay que completar a mano: una línea para escribir
+\newcommand{\llenar}[1][6cm]{\rule[-2pt]{#1}{0.5pt}}
+% Lo que tiene que decidir o completar el abogado o las partes
+\newcommand{\completar}[1]{{\color{ambar}[#1]}}
+% Una casilla para marcar
+\newcommand{\casilla}{\fbox{\rule{0pt}{7pt}\rule{7pt}{0pt}}}
+
+\newtcolorbox{nota}[1][]{colback=azulfondo,colframe=azulborde,boxrule=0.6pt,arc=3pt,
+  left=8pt,right=8pt,top=5pt,bottom=5pt,fontupper=\small\color{tinta2},#1}
+\newtcolorbox{borrador}{colback=ambarfondo,colframe=ambarborde,boxrule=0.6pt,arc=3pt,
+  left=8pt,right=8pt,top=5pt,bottom=5pt,fontupper=\small}
+
+% Pie: qué documento es, su versión y la página
+\newcommand{\documento}[2]{%
+  \pagestyle{fancy}\fancyhf{}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \fancyfoot[L]{\scriptsize\color{tenue}#1 · #2}%
+  \fancyfoot[R]{\scriptsize\color{tenue}Página \thepage\ de \pageref*{LastPage}}%
+}
+
+% Firma: una línea y lo que va debajo
+\newcommand{\firma}[1]{\begin{minipage}[t]{0.44\textwidth}\vspace{1.6cm}\rule{\linewidth}{0.5pt}\\{\small\color{tinta2}#1}\end{minipage}}

@@ -1,0 +1,182 @@
+% Contrato de encargo de tratamiento de datos personales, para firmar con
+% cada cooperativa. Es la versión para imprimir de legal/contrato-encargo.md:
+% si una cambia, cambia la otra. Lo ámbar entre corchetes lo completan o
+% deciden las partes con su abogado.
+\documentclass[10.5pt,a4paper]{article}
+\input{preambulo}
+\begin{document}
+\documento{Contrato de encargo de tratamiento de datos personales}{borrador del 11/11/2026}
+
+{\LARGE\bfseries Contrato de encargo de tratamiento de datos personales}\par
+{\small\color{tenue}Servicio de control de flota «Control de ruta» · Ley N.º 29733 y su Reglamento (D.S. N.º 016-2024-JUS)}
+
+\begin{borrador}
+\textbf{Borrador para revisión de un abogado} (ver \texttt{legal/LEEME.md}).
+Lo \completar{ámbar entre corchetes} es lo que hay que completar o decidir.
+Las cláusulas técnicas describen lo que el sistema hace de verdad al 11/11/2026:
+si el sistema cambia, cambian ellas.
+\end{borrador}
+
+Conste por el presente documento el contrato de encargo de tratamiento de
+datos personales que celebran:
+
+\begin{itemize}[leftmargin=14pt]
+\item \textbf{LA COOPERATIVA}: \llenar[6cm], RUC \llenar[3cm], con domicilio en
+  \llenar[7cm], representada por \llenar[5cm], identificado con DNI \llenar[2.6cm],
+  según poder inscrito en \llenar[4cm]; en calidad de \textbf{titular del banco
+  de datos y responsable del tratamiento}.
+\item \textbf{EL ENCARGADO}: \llenar[6cm], RUC \llenar[3cm], con domicilio en
+  \llenar[7cm], representado por \llenar[5cm]; que presta el servicio de
+  control de flota «Control de ruta».
+\end{itemize}
+En los términos siguientes:
+
+\section{Primera — Objeto}
+LA COOPERATIVA encarga a EL ENCARGADO el tratamiento de los datos personales
+de sus conductores, cobradores y personal de despacho y gerencia, con la única
+finalidad de prestarle el servicio de control de flota contratado
+\completar{referencia al contrato de servicio}, conforme a la Ley N.º 29733,
+su Reglamento (D.S. N.º 016-2024-JUS) y las instrucciones de LA COOPERATIVA.
+
+\section{Segunda — Datos y finalidades}
+\begin{longtable}{>{\raggedright}p{0.44\linewidth}>{\raggedright\arraybackslash}p{0.5\linewidth}}
+\toprule
+\textbf{Datos} & \textbf{Para qué}\\\midrule\endhead
+Identidad en el sistema: nombre, alias, usuario, rol, vehículo & Dar acceso y saber quién maneja qué unidad\\
+Ubicación durante el turno, incluida la que se emite con la pantalla apagada o la aplicación en segundo plano & Mapa en vivo, separación entre unidades, vueltas, desvíos, horas en ruta, atención de emergencias\\
+Ubicación leída sin enviarse en la pantalla de inicio de turno & Detectar que se está manejando sin haber iniciado el turno\\
+Mensajes del chat: texto, notas de voz, fotos, emergencias (SOS) & Coordinación de la operación y atención de emergencias\\
+Lugares puntuales del turno, con su hora: dónde se declaró en ruta, ausente o fuera (incluido dónde terminó el turno), cortes de señal, paradas, salidas del trazado & Horas en ruta, señal y presencia, «dónde se traba» la ruta\\
+Marcas automáticas («GPS sospechoso», «entrada tardía», «salió solo», «fuera de ruta», «reloj adelantado») & Avisos para que una persona de LA COOPERATIVA los revise. \textbf{No producen ninguna decisión por sí solas}: LA COOPERATIVA se compromete a no sancionar a nadie sólo por una marca automática y a explicarla si el titular lo pide\\
+Estado del teléfono durante el turno (batería, ahorro de energía, versión de la app), sin almacenarse & Explicar por qué una unidad dejó de verse\\
+Registro de actividad: accesos, altas, bajas, cambios de clave, correcciones & Seguridad y trazabilidad de las acciones administrativas\\
+\bottomrule
+\end{longtable}
+EL ENCARGADO \textbf{no} usará los datos para fines propios ni de terceros: ni
+publicidad, ni venta, ni estadísticas para otros clientes, ni el
+entrenamiento de sistemas. \completar{Si en el futuro se quisieran estadísticas
+agregadas y anónimas del servicio, se acordará por escrito aparte.}
+
+\section{Tercera — Instrucciones}
+EL ENCARGADO tratará los datos sólo según las instrucciones de LA COOPERATIVA,
+que se expresan en este contrato y en la configuración que ella misma hace del
+sistema (sus rutas, sus usuarios, sus permisos). Si alguna instrucción le
+parece contraria a la ley, lo dirá por escrito antes de cumplirla.
+
+\section{Cuarta — Confidencialidad}
+EL ENCARGADO y su personal guardarán secreto sobre los datos, aun después de
+terminado el contrato. Sólo accede a ellos el personal que lo necesite para
+dar el servicio y soporte, y queda registrado en el sistema.
+
+\section{Quinta — Medidas de seguridad}
+EL ENCARGADO mantiene, como mínimo:
+\begin{enumerate}[leftmargin=18pt]
+\item Cifrado en tránsito de toda comunicación (HTTPS y WebSocket seguro).
+\item Contraseñas almacenadas con función de hash irreversible; nadie puede
+  verlas, tampoco EL ENCARGADO. Las sesiones se guardan como huella: una copia
+  de la base no permite entrar al sistema.
+\item Separación lógica de los datos por cooperativa y control de acceso por
+  rol: ninguna cooperativa accede a los datos de otra.
+\item Registro de actividad de los accesos y las acciones administrativas,
+  consultable por LA COOPERATIVA (sección «Actividad» de su panel).
+\item Respaldos automáticos verificados y una copia fuera del servidor
+  \textbf{cifrada (AES-256) antes de salir}, que el proveedor de almacenamiento
+  no puede leer.
+\item Plazos de conservación aplicados automáticamente por el sistema
+  (cláusula novena).
+\item \completar{Segundo factor de autenticación para el panel de administración del operador.}
+\end{enumerate}
+
+\section{Sexta — Sub-encargados}
+LA COOPERATIVA autoriza a EL ENCARGADO a servirse de los siguientes
+proveedores, sólo para prestar el servicio:
+
+\begin{tabularx}{\linewidth}{>{\raggedright}p{4.2cm}X>{\raggedright\arraybackslash}p{3cm}}
+\toprule
+\textbf{Proveedor} & \textbf{Servicio} & \textbf{Ubicación}\\\midrule
+Railway Corporation & Alojamiento del servidor y la base de datos & \completar{región}\\
+\completar{Proveedor del almacenamiento} & Copias de respaldo cifradas & \completar{región}\\
+Geoapify & Imágenes del mapa (recibe la dirección IP, no la identidad) & \completar{ }\\
+\bottomrule
+\end{tabularx}
+
+EL ENCARGADO avisará con \completar{30} días de anticipación cualquier cambio
+de proveedor. LA COOPERATIVA podrá oponerse por causa justificada. EL
+ENCARGADO responde por sus sub-encargados como por sí mismo.
+
+\section{Séptima — Flujo transfronterizo}
+Los datos se alojan en servidores ubicados fuera del Perú. EL ENCARGADO
+garantiza que los proveedores de la cláusula sexta ofrecen
+\completar{garantías adecuadas: describir, p.\,ej. cláusulas contractuales del
+proveedor, nivel de protección del país}. LA COOPERATIVA declara haberlo
+informado a los titulares (formulario de consentimiento) \completar{y ante la
+ANPD, según corresponda}.
+
+\section{Octava — Incidentes de seguridad}
+Si EL ENCARGADO toma conocimiento de un incidente que afecte o pueda afectar
+los datos de LA COOPERATIVA, se lo comunicará \textbf{dentro de las 24 horas},
+por \completar{teléfono y correo a: }, con lo que se sepa en ese momento: qué
+pasó, qué datos y cuántas personas, qué se hizo y qué se recomienda. Así LA
+COOPERATIVA puede cumplir su plazo de \textbf{48 horas} ante la Autoridad y,
+cuando corresponda, ante los titulares. EL ENCARGADO colaborará con la
+investigación y con las medidas que se tomen.
+
+\section{Novena — Conservación}
+Los datos se conservan por los plazos siguientes, que el sistema aplica solo:
+
+\begin{tabularx}{\linewidth}{>{\raggedright}p{7.6cm}X}
+\toprule
+\textbf{Dato} & \textbf{Plazo}\\\midrule
+Chat (texto, fotos, notas de voz) & 30 días\\
+Mensajes marcados como evidencia por LA COOPERATIVA & 365 días\\
+Vueltas, tramos y desvíos & 120 días\\
+Lugares puntuales del turno y marcas automáticas & 120 días\\
+Turnos y emergencias (SOS) & 365 días\\
+Registro de actividad & accesos 90 días; operación 365 días; gestión 730 días\\
+Posición en vivo y estado del teléfono & sólo el último valor\\
+Copias de respaldo & 30 días\\
+\bottomrule
+\end{tabularx}
+
+\completar{LA COOPERATIVA podrá pedir plazos distintos por escrito; algunos se
+configuran por cooperativa y otros para todo el servidor.}
+
+\section{Décima — Derechos de los titulares}
+Si un titular le pide a EL ENCARGADO acceso, rectificación, cancelación,
+oposición o portabilidad, éste lo derivará a LA COOPERATIVA en \completar{2}
+días hábiles y la asistirá para responder en plazo, entregándole lo que el
+sistema tenga de esa persona.
+
+\section{Undécima — Fin del contrato}
+Al terminar el contrato, EL ENCARGADO:
+\begin{enumerate}[leftmargin=18pt]
+\item Entregará a LA COOPERATIVA, si lo pide dentro de los \completar{30} días,
+  una copia de sus datos en formato abierto (CSV).
+\item Borrará los datos de LA COOPERATIVA del sistema dentro de los
+  \completar{30} días siguientes. Las copias de respaldo que los contengan se
+  borran solas a los 30 días de hechas.
+\item Le confirmará el borrado por escrito.
+\end{enumerate}
+Salvo que una ley le obligue a conservar algo, en cuyo caso lo dirá.
+
+\section{Duodécima — Verificación}
+LA COOPERATIVA podrá pedir información sobre el cumplimiento de este contrato,
+y EL ENCARGADO la dará por escrito en \completar{15} días hábiles.
+\completar{Auditoría presencial: decidir si se acepta y con qué aviso.}
+
+\section{Decimotercera — Responsabilidad}
+Cada parte responde por los incumplimientos que le sean imputables. EL
+ENCARGADO que use los datos para un fin distinto del encargado será
+considerado responsable del tratamiento por ese uso.
+
+\section{Decimocuarta — Vigencia}
+Este contrato rige mientras dure la prestación del servicio y sus
+obligaciones de confidencialidad, devolución y borrado subsisten después.
+
+\vspace{6pt}
+Firmado en \llenar[4cm], el \llenar[4cm], en dos ejemplares.
+
+\begin{samepage}
+\noindent\firma{\textbf{LA COOPERATIVA}\\Nombre, cargo y firma}\hfill\firma{\textbf{EL ENCARGADO}\\Nombre, cargo y firma}
+\end{samepage}
+\end{document}

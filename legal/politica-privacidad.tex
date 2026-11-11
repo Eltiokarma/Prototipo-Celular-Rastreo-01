@@ -1,0 +1,116 @@
+% La política de privacidad, para imprimir y para el expediente del abogado.
+% Dice LO MISMO que /privacidad (server/privacidad.html), vigente desde el
+% 11/11/2026: si una cambia, cambia la otra (y el consentimiento con ellas).
+\documentclass[10.5pt,a4paper]{article}
+\input{preambulo}
+\begin{document}
+\documento{Política de privacidad — Control de ruta}{vigente desde el 11/11/2026}
+
+{\LARGE\bfseries Política de privacidad — Control de ruta}\par
+{\small\color{tenue}Vigente desde el 11 de noviembre de 2026 · publicada en \texttt{/privacidad} del servidor}
+
+\textbf{Control de ruta} es la aplicación del conductor y el cobrador de una
+cooperativa de transporte que contrató este sistema de control de flota. La
+usan personas con una cuenta que su propia cooperativa creó: no tiene
+registro abierto ni usuarios anónimos.
+
+\section{Qué datos se recopilan}
+\begin{itemize}[leftmargin=14pt]
+\item \textbf{Ubicación (también en segundo plano).} Mientras el conductor
+  declara que está \emph{en ruta}, el teléfono emite su ubicación de forma
+  continua ---también con la pantalla apagada o la aplicación en segundo
+  plano---. Es la función central de la app: con esa ubicación se dibuja la
+  combi en el mapa de su cooperativa y se calcula la separación con las demás.
+  \textbf{Fuera del turno no se emite ubicación}: al declarar «fuera de ruta»
+  (o al cerrar sesión) el GPS se apaga, y una ausencia prolongada lo apaga
+  sola. En la pantalla de inicio de turno, con la aplicación abierta y el
+  permiso ya dado, el teléfono \textbf{mira} la ubicación sin enviarla, sólo
+  para darse cuenta de si el conductor ya está manejando sin haber salido a
+  ruta: si es así le avisa, y si no contesta en un minuto sale a ruta por él
+  ---desde ahí emite como en cualquier turno, y la cooperativa ve que la
+  salida fue automática---.
+\item \textbf{Identidad de la cuenta.} Nombre, alias opcional, vehículo y rol,
+  cargados por la cooperativa. Las contraseñas se guardan cifradas de forma
+  irreversible.
+\item \textbf{Mensajes del chat de la ruta}: texto, notas de voz y fotos que el
+  usuario decide mandar, incluida la emergencia (SOS).
+\item \textbf{Actividad del turno}: horas en ruta, vueltas al circuito y desvíos
+  del trazado, calculados de la ubicación.
+\item \textbf{Lugares puntuales del turno}, con su hora: dónde se declaró en
+  ruta, ausente o fuera de ruta ---incluido \textbf{dónde terminó el
+  turno}---, dónde se cortó y volvió la señal, dónde la combi estuvo parada y
+  dónde salió del trazado. No es el recorrido continuo: son esos puntos.
+\item \textbf{Marcas automáticas}: el sistema anota por su cuenta señales como
+  «GPS sospechoso», «entrada tardía», «salió solo», «fuera de ruta» o «reloj
+  adelantado». Son avisos para que una persona de la cooperativa los mire:
+  \textbf{el sistema no sanciona ni decide nada por sí solo}, y el conductor
+  puede pedir que se revisen y que se le explique cualquiera.
+\item \textbf{Estado del teléfono}, mientras está en ruta y junto con la
+  ubicación: el nivel de batería, si está cargando, si el sistema le aplica
+  ahorro de batería a la aplicación y la versión de la app. Sirve para que la
+  central sepa por qué una combi dejó de verse sin tener que llamar al
+  conductor. No se guarda: se ve sólo el último valor.
+\item \textbf{Grabación de recorrido}: solo si el conductor la inicia (o acepta
+  el pedido de su central), se guarda el trazado recorrido para cargarlo como
+  recorrido oficial de la ruta.
+\end{itemize}
+
+\section{Para qué se usan}
+Para operar la flota de la cooperativa: el mapa en vivo de su central
+(Despacho), la separación entre combis, el registro de vueltas y horas con el
+que la cooperativa liquida el trabajo, el chat de coordinación y la atención
+de emergencias. \textbf{No se usan para publicidad, no se venden ni se
+comparten con terceros para sus propios fines.}
+
+\section{Quién los ve}
+\begin{itemize}[leftmargin=14pt]
+\item \textbf{Su cooperativa}: el personal de Despacho y gerencia de la propia
+  cooperativa, dentro de su alcance. Una cooperativa nunca ve datos de otra.
+\item \textbf{El operador del sistema}, para administrar el servicio y dar soporte.
+\item \textbf{Proveedores de infraestructura}, solo lo mínimo para funcionar: el
+  servidor se aloja en Railway, y el fondo del mapa puede pedir imágenes de
+  mapa a Geoapify (ese pedido lleva la dirección IP del teléfono, como
+  cualquier descarga; no lleva la identidad de la cuenta). Las copias de
+  respaldo de la base se guardan además en un almacenamiento aparte,
+  \textbf{cifradas}: ese proveedor guarda archivos que no puede leer.
+\end{itemize}
+
+\section{Cuánto tiempo se guardan}
+\begin{longtable}{>{\raggedright}p{0.5\linewidth}>{\raggedright\arraybackslash}p{0.44\linewidth}}
+\toprule
+\textbf{Dato} & \textbf{Retención}\\\midrule\endhead
+Mensajes del chat (texto) & 30 días\\
+Fotos y notas de voz & 30 días. Si una cooperativa junta más de 1500 de cada una, las más viejas se borran antes; queda el aviso de que existieron\\
+Mensajes que Despacho guardó como evidencia (con el motivo y quién lo hizo) & 365 días, como un SOS; Despacho puede quitarles la marca antes\\
+Vueltas y desvíos de ruta & 120 días\\
+Turnos (horas trabajadas) & 365 días\\
+Emergencias (SOS) & 365 días\\
+Registro de actividad: inicios de sesión & 90 días\\
+Registro de actividad: lo del recorrido (desvíos, SOS, cambios de combi) & 365 días\\
+Registro de actividad: altas, bajas, cambios de clave y correcciones & 2 años\\
+Lugares puntuales del turno (inicio y fin, ausencias, cortes de señal, paradas) y marcas automáticas & 120 días\\
+Posición en vivo & Solo la última conocida; no se guarda el recorrido continuo (sólo los lugares puntuales de arriba)\\
+Estado del teléfono (batería, ahorro de batería) & Solo el último valor, en memoria; no se guarda\\
+Copias de respaldo cifradas & Las borra el almacenamiento a los 30 días\\
+Grabaciones de recorrido & Hasta 25 por cooperativa; las más viejas se borran solas\\
+\bottomrule
+\end{longtable}
+
+\section{Seguridad}
+Todos los datos viajan cifrados (HTTPS y WebSocket seguro). Las contraseñas se
+guardan con hash irreversible. El acceso está separado por cooperativa y por
+rol, y las acciones administrativas quedan auditadas.
+
+\section{Sus derechos}
+La cuenta la administra su cooperativa: para corregir sus datos, o para darse
+de baja y pedir el borrado de lo que no sea registro laboral de la
+cooperativa, el primer canal es su central (Despacho). También puede pedirle
+una copia de todo lo que el sistema tiene de usted: Despacho la baja en un
+archivo, con sus mensajes, fotos, turnos y vueltas. El formulario de
+consentimiento que firma con su cooperativa está en \texttt{/consentimiento}.
+También puede escribir al contacto del operador: \llenar[7cm].
+
+\section{Cambios}
+Si esta política cambia, la fecha de vigencia de arriba cambia con ella, en
+esta misma dirección.
+\end{document}

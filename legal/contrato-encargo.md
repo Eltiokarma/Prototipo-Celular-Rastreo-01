@@ -2,8 +2,9 @@
 
 > **BORRADOR para revisión de un abogado** (ver `LEEME.md`). Los corchetes
 > son lo que hay que completar o decidir. Las cláusulas técnicas describen
-> lo que el sistema hace de verdad al 04/11/2026: si el sistema cambia,
-> cambian ellas.
+> lo que el sistema hace de verdad al 11/11/2026: si el sistema cambia,
+> cambian ellas. La versión para imprimir y firmar es `contrato-encargo.pdf`
+> (fuente: `contrato-encargo.tex`): si una cambia, cambia la otra.
 
 Conste por el presente documento el contrato de encargo de tratamiento de
 datos personales que celebran:
@@ -65,7 +66,8 @@ EL ENCARGADO mantiene, como mínimo:
 
 1. Cifrado en tránsito de toda comunicación (HTTPS y WebSocket seguro).
 2. Contraseñas almacenadas con función de hash irreversible; nadie puede
-   verlas, tampoco EL ENCARGADO.
+   verlas, tampoco EL ENCARGADO. Las sesiones se guardan como huella: una
+   copia de la base no permite entrar al sistema.
 3. Separación lógica de los datos por cooperativa y control de acceso por
    rol: ninguna cooperativa accede a los datos de otra.
 4. Registro de actividad de los accesos y las acciones administrativas,

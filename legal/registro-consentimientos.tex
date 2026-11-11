@@ -1,0 +1,45 @@
+% Hoja para que la cooperativa lleve, en papel, quién firmó el consentimiento
+% y quién recibió su copia. El sistema lleva lo mismo (Despacho → Gestión →
+% Personas → Consentimiento); esta hoja es el respaldo del archivo físico,
+% junto a los originales firmados.
+\documentclass[10pt,a4paper,landscape]{article}
+\input{preambulo}
+\geometry{landscape,top=1.6cm,bottom=1.8cm,left=1.6cm,right=1.6cm}
+\begin{document}
+\documento{Registro de consentimientos firmados}{para la versión 2026-11-11}
+
+{\Large\bfseries Registro de consentimientos firmados}\par
+{\small\color{tenue}Cooperativa: \llenar[7cm] \quad RUC: \llenar[3cm] \quad Versión del formulario: \textbf{2026-11-11} \quad Hoja N.º \llenar[1.2cm]}
+
+\begin{nota}
+Una fila por persona. El original firmado se guarda en el archivo de la
+cooperativa; la persona se lleva una copia. Después se anota la fecha en
+Despacho → Gestión → Personas → \emph{Consentimiento}. Si alguien \textbf{retira}
+el consentimiento, se anota abajo con la fecha y cómo lo pidió, y también en
+el sistema («Lo retiró»).
+\end{nota}
+
+\renewcommand{\arraystretch}{1.75}
+\begin{tabularx}{\linewidth}{|p{0.6cm}|X|p{2.2cm}|p{2.8cm}|p{1.6cm}|p{2.1cm}|p{1.3cm}|p{1.3cm}|p{1.3cm}|p{1.3cm}|p{1.9cm}|}
+\hline
+\rowcolor{fondo}\footnotesize N.º & \footnotesize Nombre completo & \footnotesize DNI & \footnotesize Usuario en la app & \footnotesize Rol & \footnotesize Fecha de firma & \footnotesize Ubic. & \footnotesize Salida auto. & \footnotesize Fuera del Perú & \footnotesize Copia recibida & \footnotesize Anotado en el sistema\\\hline
+1 &&&&&&&&&&\\\hline 2 &&&&&&&&&&\\\hline 3 &&&&&&&&&&\\\hline 4 &&&&&&&&&&\\\hline
+5 &&&&&&&&&&\\\hline 6 &&&&&&&&&&\\\hline 7 &&&&&&&&&&\\\hline 8 &&&&&&&&&&\\\hline
+9 &&&&&&&&&&\\\hline 10 &&&&&&&&&&\\\hline
+\end{tabularx}
+
+\vspace{4pt}
+{\footnotesize\color{tenue}«Ubic.», «Salida auto.» y «Fuera del Perú» son las tres casillas del formulario: marcar con ✓ las que aceptó (cada una es independiente). Rol: chofer o cobrador.}
+
+\vspace{10pt}
+\textbf{Retiros del consentimiento}
+
+\begin{tabularx}{\linewidth}{|p{0.6cm}|X|p{2.2cm}|p{2.6cm}|X|p{3.6cm}|}
+\hline
+\rowcolor{fondo}\footnotesize N.º & \footnotesize Nombre completo & \footnotesize DNI & \footnotesize Fecha del pedido & \footnotesize Cómo lo pidió (por escrito, en la central, por correo…) & \footnotesize Anotado en el sistema (fecha)\\\hline
+&&&&&\\\hline &&&&&\\\hline
+\end{tabularx}
+
+\vspace{6pt}
+Responsable del registro (nombre y cargo): \llenar[8cm] \qquad Firma: \llenar[5cm]
+\end{document}

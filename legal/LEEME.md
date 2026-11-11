@@ -185,8 +185,22 @@ correo (Hostinger).
 
 ## Los archivos de esta carpeta
 
-- `LEEME.md`: esto.
-- `contrato-encargo.md`: borrador del contrato con cada cooperativa.
-- El formulario de consentimiento no está acá: lo sirve el servidor en
-  `/consentimiento` (`server/consentimiento.html`), para que siempre esté
-  la versión vigente.
+Para la reunión con el abogado, llevá impresos (o mandale) los PDF:
+
+| Archivo | Qué es | Quién lo firma |
+|---|---|---|
+| `para-el-abogado.pdf` | **Empezar por acá.** El sistema explicado sin tecnicismos y las 12 preguntas a contestar | — |
+| `contrato-encargo.pdf` | El contrato de encargo con cada cooperativa (borrador) | La cooperativa y vos |
+| `consentimiento.pdf` | El formulario de consentimiento, versión 2026-11-11 | Cada chofer y cobrador, y la cooperativa |
+| `politica-privacidad.pdf` | La política de privacidad que publica la app (`/privacidad`) | — |
+| `registro-consentimientos.pdf` | La hoja donde la cooperativa anota quién firmó y quién lo retiró | El responsable de la cooperativa |
+| `solicitud-derechos.pdf` | El formulario para pedir acceso, rectificación, cancelación, oposición, portabilidad o retirar el consentimiento | Quien lo pide, y la cooperativa al recibirlo |
+
+- Cada PDF sale de su `.tex` (`cd legal && latexmk -pdf <archivo>.tex`; el
+  estilo común está en `preambulo.tex`).
+- `contrato-encargo.md` es el mismo contrato en texto, para leer en el
+  repositorio: si uno cambia, cambia el otro.
+- El consentimiento y la política **también los sirve el servidor**
+  (`/consentimiento` y `/privacidad`): el PDF y la web dicen lo mismo, y si
+  cambia uno cambia el otro (y se sube `CONSENTIMIENTO_VERSION` en
+  `server/index.js`).
