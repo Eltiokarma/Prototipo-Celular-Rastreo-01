@@ -2,7 +2,9 @@
 %
 % Se compila con:   cd manual && latexmk -pdf manual.tex
 % Las capturas salen de la app de verdad:   node manual/capturas.js
-% (ver manual/README.md). Si una pantalla cambia, se vuelven a sacar las
+% (ver manual/README.md).
+% Diseño «línea de ruta»: membrete con el logotipo (img/logo-micros-tempo.png),
+% línea con un paradero por capítulo y sección, e íconos en TikZ (svg.path). Si una pantalla cambia, se vuelven a sacar las
 % capturas y se recompila: el texto nombra los botones como dicen en
 % pantalla, así que un botón que cambia de nombre se tiene que cambiar acá.
 \documentclass[11pt,a4paper,oneside]{book}
@@ -13,7 +15,10 @@
 \usepackage[scaled=0.92]{helvet}
 \renewcommand{\familydefault}{\sfdefault}
 \usepackage{amssymb}
-\usepackage[a4paper,top=2.2cm,bottom=2.4cm,left=2.2cm,right=2.2cm,headheight=14pt]{geometry}
+% Márgenes de la «línea de ruta»: el izquierdo es más ancho porque ahí corre
+% la línea, con un paradero por capítulo y por sección.
+\usepackage[a4paper,top=3.4cm,bottom=2.6cm,left=3.4cm,right=2.2cm,
+            headheight=16pt,headsep=1.4cm,footskip=1.1cm]{geometry}
 \usepackage{graphicx}
 \usepackage[table]{xcolor}
 \usepackage{microtype}
@@ -25,6 +30,9 @@
 \usepackage{titlesec}
 \usepackage[most]{tcolorbox}
 \usepackage{caption}
+\usepackage{tikz}
+\usetikzlibrary{svg.path,babel}
+\usepackage{eso-pic}
 \usepackage[hidelinks]{hyperref}
 
 % ─── La paleta del producto (la misma de los paneles) ───────────────────
@@ -32,6 +40,7 @@
 \definecolor{tinta2}{HTML}{2A4864}
 \definecolor{tenue}{HTML}{496A86}
 \definecolor{marca}{HTML}{1668C4}
+\definecolor{azul}{HTML}{2580CF}
 \definecolor{verde}{HTML}{1F8A4F}
 \definecolor{ambar}{HTML}{A67300}
 \definecolor{rojo}{HTML}{C2001D}
@@ -46,26 +55,153 @@
 \setlength{\parskip}{6pt plus 2pt}
 \linespread{1.08}
 
+% ─── Íconos ─────────────────────────────────────────────────────────────
+% Trazos en una grilla de 24×24, los mismos de las pantallas. Se dibujan con
+% la librería svg.path de TikZ: \iconoT{color}{tamaño en pt}{nombre} en el
+% texto, o \pic{icono=color/tamaño/nombre} dentro de un dibujo.
+\newcommand{\defico}[2]{\expandafter\def\csname ico-#1\endcsname{svg "#2"}}
+\defico{chofer}{M 12 3 a 9 9 0 1 0 0 18 a 9 9 0 0 0 0 -18 z M 12 9.5 a 2.5 2.5 0 1 0 0 5 a 2.5 2.5 0 0 0 0 -5 z M 3.3 11 h 6.2 M 14.5 11 h 6.2 M 12 14.5 v 6.4}
+\defico{cobrador}{M 3.5 7 h 17 v 3 a 2 2 0 0 0 0 4 v 3 h -17 v -3 a 2 2 0 0 0 0 -4 z M 14.5 7 v 2 M 14.5 11 v 2 M 14.5 15 v 2}
+\defico{despacho}{M 9 4.5 L 3.5 6.5 v 13 l 5.5 -2 l 6 2 l 5.5 -2 v -13 l -5.5 2 z M 9 4.5 v 13 M 15 6.5 v 13}
+\defico{gerencia}{M 5 20 v -8 M 11 20 V 5 M 17 20 v -5 M 2.5 20.5 h 19}
+\defico{central}{M 4 4 h 16 v 6 H 4 z M 4 14 h 16 v 6 H 4 z M 8 7 h 0.01 M 8 17 h 0.01 M 12 7 h 4 M 12 17 h 4}
+\defico{brecha}{M 2 9 h 6 v 6 H 2 z M 16 9 h 6 v 6 h -6 z M 10 12 h 4 M 12.5 10.5 L 14 12 l -1.5 1.5}
+\defico{cadena}{M 10 14 a 4 4 0 0 0 5.7 0 l 3 -3 a 4 4 0 0 0 -5.7 -5.7 l -1 1 M 14 10 a 4 4 0 0 0 -5.7 0 l -3 3 a 4 4 0 0 0 5.7 5.7 l 1 -1}
+\defico{idavuelta}{M 4 8 h 15 M 16 5 l 3 3 l -3 3 M 20 16 H 5 M 8 13 l -3 3 l 3 3}
+\defico{alerta}{M 12 3.5 L 2.5 20 h 19 z M 12 10 v 4.5 M 12 17.2 v 0.01}
+\defico{importante}{M 12 3.5 L 2.5 20 h 19 z M 12 10 v 4.5 M 12 17.2 v 0.01}
+\defico{sos}{M 7 19 v -6 a 5 5 0 0 1 10 0 v 6 M 5 19 h 14 M 12 3 v 2 M 4.5 6.5 l 1.4 1.4 M 19.5 6.5 l -1.4 1.4}
+\defico{sinsenal}{M 4 20 v -3 M 9 20 v -6 M 14 20 v -3 M 19 20 V 8 M 3 4 l 18 16}
+\defico{desvio}{M 12 21 c -3 -3 -6 -6.5 -6 -10 a 6 6 0 0 1 9.5 -4.9 M 12 8.5 a 2.5 2.5 0 1 0 0 5 M 16 9 l 5 5 M 21 9 l -5 5}
+\defico{trafico}{M 10 4 h 4 l 4.5 15 h -13 z M 8.3 10 h 7.4 M 7.1 14 h 9.8 M 4 20 h 16}
+\defico{consejo}{M 9 18 h 6 M 10 21 h 4 M 12 3 a 6 6 0 0 0 -3.5 10.9 c 0.6 0.5 1 1.2 1 2.1 h 5 c 0 -0.9 0.4 -1.6 1 -2.1 A 6 6 0 0 0 12 3 z}
+\defico{nota}{M 12 3 a 9 9 0 1 0 0 18 a 9 9 0 0 0 0 -18 z M 12 11 v 6 M 12 7.5 v 0.01}
+\defico{reloj}{M 12 3.5 a 8.5 8.5 0 1 0 0 17 a 8.5 8.5 0 0 0 0 -17 z M 12 7.5 V 12 l 3 2}
+\defico{celular}{M 7 2.5 h 10 v 19 H 7 z M 11 18.5 h 2}
+\defico{entrar}{M 10 17 l 5 -5 l -5 -5 M 15 12 H 3 M 14 4 h 5 v 16 h -5}
+\defico{puerta}{M 6 21 V 4 h 11 v 17 M 3 21 h 17 M 14 12 v 0.01}
+\defico{pin}{M 12 21 c -3 -3 -6 -6.5 -6 -10 a 6 6 0 0 1 12 0 c 0 3.5 -3 7 -6 10 z M 12 8.5 a 2.5 2.5 0 1 0 0 5 a 2.5 2.5 0 0 0 0 -5 z}
+\defico{luna}{M 20 14.5 A 8 8 0 1 1 9.5 4 a 6.5 6.5 0 0 0 10.5 10.5 z}
+\defico{ausente}{M 5 9 h 11 v 5 a 5 5 0 0 1 -5 5 h -1 a 5 5 0 0 1 -5 -5 z M 16 10 h 1.5 a 2.5 2.5 0 0 1 0 5 H 16 M 8 3 v 3 M 12 3 v 3}
+\defico{salir}{M 14 4 h 5 v 16 h -5 M 10 8 l -4 4 l 4 4 M 6 12 h 10}
+\defico{chat}{M 4 5 h 16 v 11 H 9 l -5 4 z}
+\defico{monitor}{M 3 4 h 18 v 12 H 3 z M 8 20 h 8 M 12 16 v 4}
+\defico{tarjeta}{M 4 5 h 16 v 14 H 4 z M 8 9 h 8 M 8 13 h 5}
+\defico{campana}{M 6 16 v -5 a 6 6 0 0 1 12 0 v 5 l 2 2 H 4 z M 10 21 h 4}
+\defico{ajustes}{M 4 6 h 9 M 17 6 h 3 M 4 12 h 3 M 11 12 h 9 M 4 18 h 11 M 19 18 h 1 M 15 4 v 4 M 9 10 v 4 M 17 16 v 4}
+\defico{combi}{M 3 6 h 14 l 4 5 v 6 H 3 z M 3 11 h 18 M 7.5 19.5 a 2 2 0 1 0 0 -4 a 2 2 0 0 0 0 4 z M 16.5 19.5 a 2 2 0 1 0 0 -4 a 2 2 0 0 0 0 4 z}
+\defico{empresa}{M 4 21 V 6 l 8 -3 l 8 3 v 15 M 9 21 v -5 h 6 v 5 M 8 9 h 0.01 M 12 9 h 0.01 M 16 9 h 0.01 M 8 12.5 h 0.01 M 12 12.5 h 0.01 M 16 12.5 h 0.01}
+\defico{respaldo}{M 4 6 c 0 -1.7 3.6 -3 8 -3 s 8 1.3 8 3 s -3.6 3 -8 3 s -8 -1.3 -8 -3 z M 4 6 v 12 c 0 1.7 3.6 3 8 3 s 8 -1.3 8 -3 V 6 M 4 12 c 0 1.7 3.6 3 8 3 s 8 -1.3 8 -3}
+\defico{lista}{M 8 6 h 12 M 8 12 h 12 M 8 18 h 12 M 4 6 h 0.01 M 4 12 h 0.01 M 4 18 h 0.01}
+\defico{libro}{M 4 4.5 h 6 a 2 2 0 0 1 2 2 V 20 a 1.5 1.5 0 0 0 -1.5 -1.5 H 4 z M 20 4.5 h -6 a 2 2 0 0 0 -2 2 V 20 a 1.5 1.5 0 0 1 1.5 -1.5 H 20 z}
+\tikzset{pics/icono/.style args={#1/#2/#3}{code={%
+  \expandafter\let\expandafter\icotrazo\csname ico-#3\endcsname
+  \draw[#1,line width=0.08pt*#2,line cap=round,line join=round,
+        shift={(-#2pt/2,#2pt/2)},scale=#2/24,yscale=-1] \icotrazo;}}}
+\newcommand{\iconoT}[3]{\tikz[baseline=-0.32em]\pic{icono=#1/#2/#3};}
+% El isotipo (el cuadrado azul con el reloj), dibujado: no pierde nitidez
+\newcommand{\isotipo}[1]{\tikz[x=#1cm/100,y=-#1cm/100]{%
+  \fill[azul,rounded corners=#1cm*0.2] (0,0) rectangle (100,100);
+  \draw[white,line width=#1cm*0.055,line cap=round] (50,50) circle (25)
+    (50,20)--(50,29) (50,71)--(50,80) (20,50)--(29,50) (71,50)--(80,50)
+    (50,50)--(44,39) (50,50)--(58,35);}}
+
+% ─── La línea de ruta ───────────────────────────────────────────────────
+% A 1,3 cm del texto corre la línea; cada capítulo es un paradero grande con
+% su ícono y cada sección uno chico (con ícono si se le pone \iconsec antes).
+\newlength{\espina}\setlength{\espina}{1.3cm}
+\newif\ifespina
+\newif\ifanexo
+\let\proximoicono\empty
+\let\proximocap\empty
+\newcommand{\iconsec}[1]{\gdef\proximoicono{#1}}
+\newcommand{\iconcap}[1]{\gdef\proximocap{#1}}
+\newcommand{\marcaseccion}{\tikz[overlay,baseline]{%
+  \ifx\proximoicono\empty
+    \fill[white] (-\espina,0.38em) circle (6.5pt);
+    \draw[marca,fill=white,line width=2pt] (-\espina,0.38em) circle (4.5pt);
+  \else
+    \fill[white] (-\espina,0.38em) circle (0.56cm);
+    \fill[marca] (-\espina,0.38em) circle (0.46cm);
+    \pic at (-\espina,0.38em) {icono=white/15/\proximoicono};
+  \fi}\global\let\proximoicono\empty}
+\newcommand{\marcasub}{\tikz[overlay,baseline]{%
+  \fill[white] (-\espina,0.35em) circle (4.5pt);
+  \draw[marca!55!white,fill=white,line width=1.4pt] (-\espina,0.35em) circle (2.8pt);}}
+\newcommand{\marcacapitulo}{\tikz[overlay,baseline]{%
+  \fill[white] (-\espina,-0.45cm) circle (0.82cm);
+  \fill[marca] (-\espina,-0.45cm) circle (0.7cm);
+  \ifx\proximocap\empty
+    \node[text=white,font=\Large\bfseries] at (-\espina,-0.45cm) {\thechapter};
+  \else
+    \pic at (-\espina,-0.45cm) {icono=white/22/\proximocap};
+  \fi}\global\let\proximocap\empty}
+
+% La franja de capítulos, debajo del membrete: dónde está uno en el manual
+\newcommand{\franjacapitulos}{%
+  \edef\cur{\ifanexo 10\else\arabic{chapter}\fi}%
+  \begin{scope}[shift={([xshift=3.4cm,yshift=-2.55cm]current page.north west)}]
+    \draw[linea,line width=1.6pt] (0,0) -- (15.4cm,0);
+    \ifnum\cur>1 \draw[marca,line width=1.6pt] (0,0) -- ({(\cur-1)*15.4/9*1cm},0);\fi
+    \foreach \i/\t in {1/{1 · Antes},2/{2 · Las ideas},3/{3 · Chofer},4/{4 · Cobrador},
+        5/{5 · Despacho},6/{6 · Gerencia},7/{7 · Central},8/{8 · Problemas},
+        9/{9 · Glosario},10/{A · Servidor}}{%
+      \pgfmathsetmacro\x{(\i-1)*15.4/9}%
+      \ifnum\i=\cur
+        \fill[marca!20] (\x cm,0) circle (4.6pt);
+        \fill[marca] (\x cm,0) circle (3pt);
+        \node[below=4pt,font=\fontsize{6}{7}\selectfont\bfseries,text=marca] at (\x cm,0) {\t};
+      \else\ifnum\i<\cur
+        \fill[marca] (\x cm,0) circle (2.3pt);
+        \node[below=4pt,font=\fontsize{6}{7}\selectfont,text=tenue] at (\x cm,0) {\t};
+      \else
+        \draw[linea,fill=white,line width=1.2pt] (\x cm,0) circle (2.4pt);
+        \node[below=4pt,font=\fontsize{6}{7}\selectfont,text=tenue] at (\x cm,0) {\t};
+      \fi\fi}
+  \end{scope}}
+
+\AddToShipoutPictureBG{\ifespina\begin{tikzpicture}[remember picture,overlay]
+  \draw[marca,line width=2.6pt,line cap=round]
+    ([xshift=2.1cm,yshift=-3.4cm]current page.north west) --
+    ([xshift=2.1cm,yshift=2.5cm]current page.south west);
+  \franjacapitulos
+\end{tikzpicture}\fi}
+
+% ─── Títulos ────────────────────────────────────────────────────────────
 \titleformat{\chapter}[display]
   {\color{tinta}\bfseries}
-  {\color{marca}\large\MakeUppercase{Capítulo \thechapter}}
-  {4pt}
-  {\Huge}
-  [\vspace{2pt}{\color{linea}\titlerule[1pt]}]
-\titlespacing*{\chapter}{0pt}{0pt}{18pt}
-\titleformat{\section}{\color{tinta}\Large\bfseries}{\color{marca}\thesection}{0.6em}{}
-\titleformat{\subsection}{\color{tinta2}\large\bfseries}{\color{marca}\thesubsection}{0.6em}{}
-\titlespacing*{\section}{0pt}{16pt}{6pt}
+  {\marcacapitulo{\color{marca}\normalsize\MakeUppercase{\chaptertitlename\ \thechapter}}}
+  {6pt}
+  {\fontsize{28}{32}\selectfont}
+\titlespacing*{\chapter}{0pt}{0pt}{20pt}
+\titleformat{\section}{\color{tinta}\Large\bfseries}{\marcaseccion\color{marca}\thesection}{0.6em}{}
+\titleformat{\subsection}{\color{tinta2}\large\bfseries}{\marcasub\color{marca}\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{18pt}{6pt}
 \titlespacing*{\subsection}{0pt}{12pt}{4pt}
 
+% El índice: lugar para «3.10» y «5.10.12» sin que el número pise al título
+\makeatletter
+\renewcommand*\l@section{\@dottedtocline{1}{1.5em}{2.8em}}
+\renewcommand*\l@subsection{\@dottedtocline{2}{4.3em}{3.6em}}
+\makeatother
+
+% ─── El membrete ────────────────────────────────────────────────────────
+% El logotipo (manual/img/logo-micros-tempo.png) va en todas las páginas,
+% también en las que abren capítulo.
+\newcommand{\membrete}{\raisebox{-1pt}{\includegraphics[height=0.42cm]{img/logo-micros-tempo}}}
+\newcommand{\numpagina}{\tikz[baseline=(p.base)]\node[fill=marca,text=white,rounded corners=5pt,
+  inner xsep=6pt,inner ysep=2.5pt,font=\footnotesize\bfseries](p){\thepage};}
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\color{tenue}Micros Tempo · Manual de usuario}
-\fancyhead[R]{\small\color{tenue}\nouppercase{\leftmark}}
-\fancyfoot[C]{\small\color{tenue}\thepage}
-\renewcommand{\headrulewidth}{0.4pt}
-\renewcommand{\headrule}{{\color{linea}\hrule width\headwidth height\headrulewidth}}
-\fancypagestyle{plain}{\fancyhf{}\fancyfoot[C]{\small\color{tenue}\thepage}\renewcommand{\headrulewidth}{0pt}}
+\fancyhead[L]{\membrete}
+\fancyhead[R]{\small\color{tenue}Manual de usuario\ifespina\ \ ·\ \ \nouppercase{\leftmark}\fi}
+\fancyfoot[L]{\footnotesize\color{tenue}Micros Tempo · soporte@microstempo.com}
+\fancyfoot[R]{\numpagina}
+\renewcommand{\headrulewidth}{0pt}
+\fancypagestyle{plain}{\fancyhf{}%
+  \fancyhead[L]{\membrete}\fancyhead[R]{\small\color{tenue}Manual de usuario}%
+  \fancyfoot[L]{\footnotesize\color{tenue}Micros Tempo · soporte@microstempo.com}%
+  \fancyfoot[R]{\numpagina}\renewcommand{\headrulewidth}{0pt}}
 
 \captionsetup{font={small,color=tenue},labelfont={bf,color=tinta2},labelsep=period}
 \setlist{itemsep=2pt,topsep=4pt,leftmargin=1.4em}
@@ -81,15 +217,27 @@
 \newcommand{\flecha}{$\rightarrow$\ }
 \newcommand{\idavuelta}{$\rightleftarrows$}
 
-\newtcolorbox{importante}[1][Importante]{enhanced,breakable,colback=rojofondo,colframe=rojo,
-  boxrule=0pt,leftrule=3pt,arc=2pt,left=8pt,right=8pt,top=5pt,bottom=5pt,
-  title={\bfseries #1},coltitle=rojo,colbacktitle=rojofondo,attach title to upper={\ \ }}
-\newtcolorbox{consejo}[1][Consejo]{enhanced,breakable,colback=verdefondo,colframe=verde,
-  boxrule=0pt,leftrule=3pt,arc=2pt,left=8pt,right=8pt,top=5pt,bottom=5pt,
-  title={\bfseries #1},coltitle=verde,colbacktitle=verdefondo,attach title to upper={\ \ }}
-\newtcolorbox{nota}[1][Para saber]{enhanced,breakable,colback=ambarfondo,colframe=ambar,
-  boxrule=0pt,leftrule=3pt,arc=2pt,left=8pt,right=8pt,top=5pt,bottom=5pt,
-  title={\bfseries #1},coltitle=ambar,colbacktitle=ambarfondo,attach title to upper={\ \ }}
+% Los avisos: fondo suave, ícono a la izquierda, sin filete
+\newtcolorbox{importante}[1][Importante]{enhanced,breakable,colback=rojofondo,frame hidden,arc=6pt,
+  left=30pt,right=10pt,top=7pt,bottom=7pt,before skip=10pt,after skip=10pt,
+  overlay unbroken and first={\pic at ([xshift=16pt,yshift=-15pt]frame.north west) {icono=rojo/15/importante};},
+  title={\bfseries #1.},coltitle=rojo,attach title to upper={\ }}
+\newtcolorbox{consejo}[1][Consejo]{enhanced,breakable,colback=verdefondo,frame hidden,arc=6pt,
+  left=30pt,right=10pt,top=7pt,bottom=7pt,before skip=10pt,after skip=10pt,
+  overlay unbroken and first={\pic at ([xshift=16pt,yshift=-15pt]frame.north west) {icono=verde/15/consejo};},
+  title={\bfseries #1.},coltitle=verde,attach title to upper={\ }}
+\newtcolorbox{nota}[1][Para saber]{enhanced,breakable,colback=ambarfondo,frame hidden,arc=6pt,
+  left=30pt,right=10pt,top=7pt,bottom=7pt,before skip=10pt,after skip=10pt,
+  overlay unbroken and first={\pic at ([xshift=16pt,yshift=-15pt]frame.north west) {icono=ambar/15/nota};},
+  title={\bfseries #1.},coltitle=ambar,attach title to upper={\ }}
+
+% Una fila del semáforo de la brecha: color, fondo, palabra, rótulo, texto
+\newcommand{\filasemaforo}[5]{%
+  \begin{tcolorbox}[enhanced,colback=#2,frame hidden,arc=5pt,left=8pt,right=8pt,
+    top=4pt,bottom=4pt,before skip=3pt,after skip=3pt]
+  \begin{tabularx}{\linewidth}{@{}p{4.3cm}X@{}}
+  \tikz[baseline=-0.6ex]\fill[#1] (0,0) circle (4.5pt);\ {\color{#1}\bfseries #3}\ \ \rotulo{#4} & #5
+  \end{tabularx}\end{tcolorbox}}
 
 % ─── Capturas ───────────────────────────────────────────────────────────
 \setlength{\fboxsep}{0pt}
@@ -112,19 +260,41 @@
 
 % ─── Portada ────────────────────────────────────────────────────────────
 \begin{titlepage}
-  \newgeometry{margin=0pt}
-  \pagecolor{tinta}\color{white}
-  \vspace*{5.5cm}
-  \hspace*{2.4cm}\begin{minipage}{0.75\paperwidth}
-    {\large\color{marca!45!white}\bfseries CONTROL DE FLOTA PARA COOPERATIVAS DE TRANSPORTE}\par\vspace{14pt}
-    {\fontsize{46}{50}\selectfont\bfseries Micros Tempo}\par\vspace{10pt}
-    {\fontsize{24}{28}\selectfont Manual de usuario}\par\vspace{28pt}
-    {\large Para el chofer, el cobrador, Despacho, la gerencia\\y la central que administra el sistema.}\par
-    \vspace{5.5cm}
-    {\color{marca!45!white}Versión de noviembre de 2026 · app Android 0.3.0}\par\vspace{4pt}
-    {\color{marca!45!white}soporte@microstempo.com}
-  \end{minipage}
-  \restoregeometry
+\begin{tikzpicture}[remember picture,overlay]
+  \coordinate (O) at (current page.north west);
+  \fill[fondo] (current page.south west) rectangle (current page.north east);
+  \node[anchor=north west,inner sep=0] at ([xshift=2.2cm,yshift=-2.2cm]O)
+    {\includegraphics[height=0.95cm]{img/logo-micros-tempo}};
+  \node[anchor=north east,inner sep=0] at ([xshift=-2.2cm,yshift=-2.1cm]current page.north east)
+    {\isotipo{1.15}};
+  \node[anchor=north west,text width=16cm,inner sep=0,align=left] at ([xshift=2.2cm,yshift=-5.4cm]O) {%
+    {\small\bfseries\color{marca}CONTROL DE FLOTA PARA COOPERATIVAS DE TRANSPORTE}\par\vspace{12pt}
+    {\bfseries\color{tinta}\fontsize{44}{46}\selectfont Manual\hspace{0.26em}de\hspace{0.26em}usuario}\par\vspace{14pt}
+    {\large\color{tinta2}Para el chofer, el cobrador, Despacho, la gerencia\\y la central que administra el sistema.}};
+  % La línea: la ida llena y el retorno punteado, como en el mapa
+  \draw[marca,line width=5pt,line cap=round] ([xshift=3cm,yshift=-12.4cm]O) -- ([xshift=3cm,yshift=-25.2cm]O);
+  \draw[marca!45!white,line width=1.8pt,dash pattern=on 5pt off 4pt]
+    ([xshift=3.5cm,yshift=-12.4cm]O) -- ([xshift=3.5cm,yshift=-25.2cm]O);
+  \foreach \n/\nombre/\ic/\texto [count=\k from 0] in {%
+    3/Chofer/chofer/{Mirar de reojo, manejando, cuánto le lleva la combi de adelante y la de atrás; avisar tráfico; pedir ayuda; hablar con la ruta y con Despacho.},
+    4/Cobrador/cobrador/{Lo mismo que el chofer, desde su propio celular, sin que su GPS cuente.},
+    5/Despacho/despacho/{Operar el día: ver la flota en el mapa, atender emergencias, escribirle a una combi, dar de alta a la gente, sacar informes.},
+    6/Gerencia/gerencia/{Todo lo de Despacho más los números del período, las combis y los datos de la empresa.},
+    7/Central/central/{Dar de alta cooperativas, dibujar sus recorridos, respaldar la base y mirar la salud del sistema.}}{%
+    \coordinate (E) at ([xshift=3cm,yshift={-13.4cm-\k*2.75cm}]O);
+    \fill[fondo] (E) circle (0.78cm);
+    \draw[marca,fill=white,line width=3pt] (E) circle (0.6cm);
+    \pic at (E) {icono=marca/18/\ic};
+    \node[anchor=west,text width=13.2cm,inner sep=0,align=left] at ([xshift=1.25cm]E) {%
+      {\scriptsize\bfseries\color{marca}CAPÍTULO \n}\enspace{\Large\bfseries\color{tinta}\nombre}\par\vspace{3pt}
+      {\small\color{tinta2}\texto}};
+  }
+  \draw[linea] ([xshift=2.2cm,yshift=2.6cm]current page.south west) -- ([xshift=-2.2cm,yshift=2.6cm]current page.south east);
+  \node[anchor=north west,inner sep=0,text=tinta2] at ([xshift=2.2cm,yshift=2.2cm]current page.south west)
+    {Versión de noviembre de 2026 · app Android 0.3.0};
+  \node[anchor=north east,inner sep=0,text=marca,font=\bfseries] at ([xshift=-2.2cm,yshift=2.2cm]current page.south east)
+    {soporte@microstempo.com};
+\end{tikzpicture}
 \end{titlepage}
 \nopagecolor\color{tinta}
 
@@ -140,11 +310,11 @@ falta leer el manual entero: cada uno va a su capítulo.
 \toprule
 \rowcolor{fondo} Quién & Para qué lo usa & Dónde leer \\
 \midrule
-Chofer & Mirar de reojo, manejando, cuánto le lleva la combi de adelante y la de atrás; avisar tráfico; pedir ayuda; hablar con la ruta y con Despacho. & Capítulos \ref{cap:ideas} y \ref{cap:chofer} \\
-Cobrador & Lo mismo que el chofer, desde su propio celular, sin que su GPS cuente. & Capítulo \ref{cap:cobrador} \\
-Despacho & Operar el día: ver la flota en el mapa, atender emergencias, escribirle a una combi, dar de alta a la gente, sacar informes. & Capítulos \ref{cap:ideas} y \ref{cap:despacho} \\
-Gerencia & Todo lo de Despacho más los números del período, las combis y los datos de la empresa. & Capítulo \ref{cap:gerencia} \\
-Central & Dar de alta cooperativas, dibujar sus recorridos, respaldar la base y mirar la salud del sistema. & Capítulo \ref{cap:central} y el anexo \ref{cap:operacion} \\
+\iconoT{marca}{12}{chofer}\ Chofer & Mirar de reojo, manejando, cuánto le lleva la combi de adelante y la de atrás; avisar tráfico; pedir ayuda; hablar con la ruta y con Despacho. & Capítulos \ref{cap:ideas} y \ref{cap:chofer} \\
+\iconoT{marca}{12}{cobrador}\ Cobrador & Lo mismo que el chofer, desde su propio celular, sin que su GPS cuente. & Capítulo \ref{cap:cobrador} \\
+\iconoT{marca}{12}{despacho}\ Despacho & Operar el día: ver la flota en el mapa, atender emergencias, escribirle a una combi, dar de alta a la gente, sacar informes. & Capítulos \ref{cap:ideas} y \ref{cap:despacho} \\
+\iconoT{marca}{12}{gerencia}\ Gerencia & Todo lo de Despacho más los números del período, las combis y los datos de la empresa. & Capítulo \ref{cap:gerencia} \\
+\iconoT{marca}{12}{central}\ Central & Dar de alta cooperativas, dibujar sus recorridos, respaldar la base y mirar la salud del sistema. & Capítulo \ref{cap:central} y el anexo \ref{cap:operacion} \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -156,14 +326,17 @@ personas. Los nombres, placas y números son de mentira.
 
 Los nombres de los botones van \boton{ASÍ}, tal como se leen en pantalla.
 
-\tableofcontents
+{\microtypesetup{expansion=false}\tableofcontents}
 
 \mainmatter
+\espinatrue
 
 % ════════════════════════════════════════════════════════════════════════
+\iconcap{reloj}
 \chapter{Antes de empezar}
 \label{cap:antes}
 
+\iconsec{reloj}
 \section{Qué es Micros Tempo}
 
 Micros Tempo mide, en vivo, la \textbf{separación en minutos} entre las combis
@@ -176,6 +349,7 @@ Además, la cooperativa ve la flota entera en un mapa, recibe las emergencias
 al instante, habla con cada combi y cuenta las vueltas, las horas y el
 cumplimiento de cada unidad, sin planillas.
 
+\iconsec{celular}
 \section{Qué hace falta}
 
 \begin{itemize}
@@ -190,6 +364,7 @@ cumplimiento de cada unidad, sin planillas.
     se los da Despacho; a Despacho y a la gerencia, la central.
 \end{itemize}
 
+\iconsec{entrar}
 \section{Dónde se entra}
 
 Todo vive en una misma dirección de internet, la que entrega la central al dar
@@ -216,12 +391,14 @@ completa y, si una vez se cargó, abre aunque no haya señal.
 \end{consejo}
 
 % ════════════════════════════════════════════════════════════════════════
+\iconcap{consejo}
 \chapter{Las ideas que hay que conocer}
 \label{cap:ideas}
 
 Cinco ideas explican casi todo lo que muestran las pantallas. Vale la pena
 leerlas una vez, aunque se use sólo el panel de Despacho.
 
+\iconsec{brecha}
 \section{La brecha}
 
 La \textbf{brecha} es cuántos minutos de recorrido separan a una combi de la
@@ -235,22 +412,14 @@ Despacho a mano, o lo calcula el sistema solo (la vuelta promedio dividida por
 las combis que hay en ruta). Cada brecha se pinta según cuánto se aparta del
 objetivo:
 
-\begin{center}
-\renewcommand{\arraystretch}{1.35}
-\begin{tabularx}{\textwidth}{l l X}
-\toprule
-\rowcolor{fondo} Color & Palabra & Qué quiere decir \\
-\midrule
-\enverde{Verde} & \rotulo{en objetivo} & A no más de un 15\,\% del objetivo. Con un objetivo de 6:00, entre 5:06 y 6:54. \\
-\enambar{Ámbar} & \rotulo{al límite} & Entre un 15 y un 30\,\% de diferencia. Hay que corregir de a poco. \\
-\enrojo{Rojo} & \rotulo{crítica} & Más de un 30\,\% de diferencia. Si es por pegarse a la de adelante, es el \emph{pelotón}. \\
-\bottomrule
-\end{tabularx}
-\end{center}
+\filasemaforo{verde}{verdefondo}{Verde}{en objetivo}{A no más de un 15\,\% del objetivo. Con un objetivo de 6:00, entre 5:06 y 6:54.}
+\filasemaforo{ambar}{ambarfondo}{Ámbar}{al límite}{Entre un 15 y un 30\,\% de diferencia. Hay que corregir de a poco.}
+\filasemaforo{rojo}{rojofondo}{Rojo}{crítica}{Más de un 30\,\% de diferencia. Si es por pegarse a la de adelante, es el \emph{pelotón}.}
 
 El color nunca va solo: al lado siempre está la palabra, para que se entienda
 también con el sol de frente o sin distinguir colores.
 
+\iconsec{cadena}
 \section{La cadena: en ruta, yendo, ausente, fuera}
 
 Sólo se miden entre sí las combis que están \textbf{en la cadena}: las que el
@@ -258,16 +427,17 @@ chofer declaró en ruta \emph{y} que el GPS ya vio sobre el recorrido. Lo que
 declara el chofer es su \textbf{presencia}:
 
 \begin{description}[leftmargin=0pt,labelsep=0.6em,itemsep=4pt]
-  \item[En ruta.] Salió a trabajar. Mientras el GPS todavía no lo ve sobre el
+  \item[{\iconoT{marca}{12}{pin}\ En ruta.}] Salió a trabajar. Mientras el GPS todavía no lo ve sobre el
     recorrido (viene de su casa, del grifo), la pantalla dice
     \enambar{YENDO A LA RUTA}: su brecha y su vuelta arrancan recién al pisar
     el trazado.
-  \item[Ausente.] Para comer, buscar un repuesto, un descanso. La combi sigue
+  \item[{\iconoT{marca}{12}{ausente}\ Ausente.}] Para comer, buscar un repuesto, un descanso. La combi sigue
     en el mapa de Despacho, pero sale de la cadena: nadie se mide contra ella
     y la vuelta que llevaba se descarta.
-  \item[Fuera.] Terminó. La combi se va del mapa en el acto.
+  \item[{\iconoT{marca}{12}{salir}\ Fuera.}] Terminó. La combi se va del mapa en el acto.
 \end{description}
 
+\iconsec{idavuelta}
 \section{La ida, el retorno y la vuelta}
 
 Cada ruta tiene una \textbf{ida} y un \textbf{retorno} (o \emph{vuelta}),
@@ -282,21 +452,23 @@ circuito), su primera vuelta queda marcada como \textbf{parcial}: se guarda,
 pero no entra en los promedios, y Despacho la ve marcada como \enambar{ENTRÓ
 \textit{n}\,\%}. Las idas y los retornos sueltos también se cuentan.
 
+\iconsec{alerta}
 \section{Lo que puede pasarle a una combi}
 
 \begin{description}[leftmargin=0pt,labelsep=0.6em,itemsep=4pt]
-  \item[Sin señal.] Hace más de 30 segundos que no llega su posición: se ve en
+  \item[{\iconoT{marca}{12}{sinsenal}\ Sin señal.}] Hace más de 30 segundos que no llega su posición: se ve en
     gris, con la hora de su última posición. A las que vienen detrás se les
     avisa que adelante hay alguien sin señal, en lugar de dejarlas apurarse
     hacia una combi que no ven.
-  \item[Fuera del recorrido.] Se alejó del trazado más de lo permitido (300 m
+  \item[{\iconoT{marca}{12}{desvio}\ Fuera del recorrido.}] Se alejó del trazado más de lo permitido (300 m
     por defecto) y se sostuvo. Despacho lo ve y puede silenciarlo si ya sabe el
     motivo (una obra, un desfile).
-  \item[En tráfico.] El chofer avisó que está trabado, o el sistema vio que en
+  \item[{\iconoT{marca}{12}{trafico}\ En tráfico.}] El chofer avisó que está trabado, o el sistema vio que en
     tres minutos casi no avanzó. A la que viene atrás se le dice que no se
     apure hacia el embotellamiento.
 \end{description}
 
+\iconsec{sos}
 \section{El SOS}
 
 El botón de emergencia se \textbf{desliza}, no se toca: así no sale por
@@ -305,6 +477,7 @@ ruta, con la posición. Después, si puede, el chofer elige qué pasó (falla
 mecánica, accidente, policía); si no elige, queda como SOS a secas.
 
 % ════════════════════════════════════════════════════════════════════════
+\iconcap{chofer}
 \chapter{El chofer}
 \label{cap:chofer}
 
@@ -313,6 +486,7 @@ celular en el soporte y el sol de frente. Las capturas son de la web del
 chofer; la app Android tiene las mismas pantallas y algunas cosas más
 (sección \ref{sec:android}).
 
+\iconsec{entrar}
 \section{Entrar}
 
 Se entra con el usuario y la clave que da Despacho. La pantalla dice si hay
@@ -329,11 +503,14 @@ Si se olvidó la clave, \boton{Olvidé mi contraseña} explica qué hacer: la cl
 nueva la pone Despacho (o, para un cobrador, el chofer de su combi desde la
 app Android). No hay recuperación por correo.
 
+\begin{sloppypar}
 Un teléfono que ya entró alguna vez \textbf{recuerda el número de la
 central}, aunque se cierre la sesión o la clave ya no sirva. Entonces la
 pantalla de ingreso muestra, en rojo, \boton{¿EMERGENCIA? LLAMAR A LA
 CENTRAL}: es una llamada común, no un SOS. No hace falta usuario ni clave.
+\end{sloppypar}
 
+\iconsec{puerta}
 \section{La puerta: ¿salir a ruta ahora?}
 
 Después de entrar aparece la \textbf{puerta}. Muestra quién entró, la unidad
@@ -404,6 +581,7 @@ vos tocando \boton{SALIR A RUTA}.
 \cel[1]{c02b-vigia}{¿Ya estás manejando?}
 \end{minipage}
 
+\iconsec{pin}
 \section{Yendo a la ruta}
 
 Al salir a ruta, mientras el GPS todavía no ve la combi sobre el recorrido, la
@@ -417,6 +595,7 @@ confunde a nadie.
 \cel{c05-trafico}{Avisando tráfico.}
 \end{center}
 
+\iconsec{brecha}
 \section{La pantalla de brechas}
 \label{sec:brechas}
 
@@ -458,6 +637,7 @@ Sos la única unidad en ruta. & No hay con quién medirse. \\
 Deslizando a los costados (o tocando los puntos de arriba) se pasa al
 \textbf{chat} (izquierda) y al \textbf{mapa} (derecha).
 
+\iconsec{luna}
 \section{Día, noche o automático}
 
 \begin{minipage}[t]{0.64\textwidth}\vspace{0pt}
@@ -480,6 +660,7 @@ menos azul.
 \cel[1]{c15-noche}{La pantalla de brechas en NOCHE.}
 \end{minipage}
 
+\iconsec{trafico}
 \section{Estoy en tráfico}
 
 Un toque en \boton{ESTOY EN TRÁFICO} avisa a la ruta que la combi está
@@ -488,6 +669,7 @@ queda en ámbar, \boton{EN TRÁFICO · TOCÁ PARA QUITAR}, y se apaga solo cuand
 la combi vuelve a andar. Si el sistema nota que la combi lleva un rato casi
 quieta, el botón pregunta \boton{¿ESTÁS EN TRÁFICO? · TOCÁ PARA AVISAR}.
 
+\iconsec{ausente}
 \section{Ausente}
 
 \boton{AUSENTE} saca a la combi de la cadena sin sacarla del mapa: para comer,
@@ -501,6 +683,7 @@ y la vuelta que llevaba quedó descartada.
 \cel{c08-sos-enviado}{SOS: alerta enviada.}
 \end{center}
 
+\iconsec{salir}
 \section{Salir de ruta}
 
 \boton{SALIR DE RUTA} termina el turno: la combi se va del mapa de todos en el
@@ -525,6 +708,7 @@ Si Despacho te cambia la combi de hoy mientras estás en ruta en otra (ibas de
 acompañante, o te relevaron), la app vuelve a la puerta: para salir en la
 nueva, tocá \boton{SALIR A RUTA}.
 
+\iconsec{sos}
 \section{SOS}
 \label{sec:sos}
 
@@ -533,10 +717,12 @@ derecha hasta el final. La pantalla se pone roja y dice
 \enrojo{ALERTA ENVIADA} \emph{recién cuando el servidor la recibió}; si no
 salió, dice que no salió y hay que repetir.
 
+\begin{sloppypar}
 Enseguida aparece \textbf{¿Qué pasó?} con tres botones: \boton{FALLA MECÁNICA},
 \boton{ACCIDENTE} y \boton{POLICÍA}. Elegir uno le dice a Despacho si mandar una
 grúa o una ambulancia. Es opcional: \boton{Cerrar — queda como SOS} o no tocar
 nada deja la alerta como SOS a secas.
+\end{sloppypar}
 
 \begin{center}
 \cel[0.36]{c09-sos-que-paso}{¿Qué pasó? — después de la alerta.}\hfill
@@ -577,6 +763,7 @@ ese momento, la pantalla lo dice: \textbf{no supongas que llegó} si no viste
 \enrojo{ALERTA ENVIADA}. Llamá o mandá el SMS.
 \end{importante}
 
+\iconsec{despacho}
 \section{El mapa}
 
 El mapa muestra la combi propia (\textbf{TÚ}), el recorrido de la ruta (la ida
@@ -584,6 +771,7 @@ con línea llena, el retorno punteado) y las otras combis. Abajo queda siempre
 la tarjeta con las dos brechas, para no perder el dato. Arriba, la ruta y
 cuántas combis hay en la cadena.
 
+\iconsec{chat}
 \section{El chat}
 
 A la izquierda de la pantalla de brechas está el chat, con tres canales:
@@ -612,6 +800,7 @@ enviar. Los mensajes de otro día llevan la fecha (\emph{21/10 09:18}).
 \cel{c12b-chat-personal}{Despacho, sólo a Rufino.}
 \end{center}
 
+\iconsec{celular}
 \section{La app Android}
 \label{sec:android}
 
@@ -650,6 +839,7 @@ la app lo dice en rojo y tiene un atajo a los ajustes. En algunos teléfonos
 \end{nota}
 
 % ════════════════════════════════════════════════════════════════════════
+\iconcap{cobrador}
 \chapter{El cobrador}
 \label{cap:cobrador}
 
@@ -667,12 +857,14 @@ posición de su combi. Si se olvidó la clave, se la cambia Despacho o el chofer
 de su combi (desde la app Android).
 
 % ════════════════════════════════════════════════════════════════════════
+\iconcap{despacho}
 \chapter{Despacho}
 \label{cap:despacho}
 
 El panel de Despacho es la pantalla de la operación del día. Está pensado para
 estar abierto todo el turno en una computadora.
 
+\iconsec{entrar}
 \section{Entrar}
 
 Se entra en \texttt{/despacho.html} con el usuario y la clave de Despacho. Si
@@ -681,6 +873,7 @@ gerencia (capítulo \ref{cap:gerencia}).
 
 \pc[0.7]{d01-entrar}{La entrada al panel de Despacho y de gerencia.}
 
+\iconsec{monitor}
 \section{El panel}
 
 \pc{d02-panel}{El panel de Despacho con la flota andando.}
@@ -713,6 +906,7 @@ cuatro partes:
 \textbf{Sin conexión}, el mapa se pone gris y dice \enambar{Sin conexión: el
 mapa no está en vivo}: lo que se ve es de antes. El panel se reconecta solo.
 
+\iconsec{tarjeta}
 \section{Lo que dice cada tarjeta}
 
 \begin{minipage}[t]{0.3\textwidth}\vspace{0pt}
@@ -755,6 +949,7 @@ mensaje directo a la combi y la \textbf{persona}, el privado sólo al que la
 maneja (sección siguiente). Al pasar el mouse dicen qué son.
 \end{minipage}
 
+\iconsec{chat}
 \section{Escribirle a una combi o a una persona}
 
 Hay dos privados, y no son lo mismo:
@@ -793,6 +988,7 @@ baja al tocarlo.
 
 \pc{d04b-mensaje-personal}{Un mensaje sólo a Rufino.}
 
+\iconsec{sos}
 \section{Cuando llega un SOS}
 
 Un SOS pone una \textbf{barra roja} arriba de todo, con quién lo pidió, la
@@ -831,6 +1027,7 @@ se vea esa campana, un SOS puede pasar sin ruido.
 
 \pc{d05-sos}{Un SOS recién llegado.}
 
+\iconsec{campana}
 \section{Avisos de la central}
 
 Cuando la central necesita avisarle algo a la cooperativa (un pago, un
@@ -841,6 +1038,7 @@ toca \boton{Marcar visto}. Queda registrado quién lo vio y cuándo.
 \fcolorbox{linea}{white}{\includegraphics[width=\dimexpr\textwidth-2\fboxrule\relax]{img/d18-aviso-central}}
 \end{center}
 
+\iconsec{alerta}
 \section{Si el panel se rompe}
 
 Si una pantalla de Gestión falla, Gestión muestra qué se rompió y
@@ -850,6 +1048,7 @@ SOS sin atender están ahí). Si no llegan las piezas del panel desde internet,
 a los 8 segundos dice que no se ve el mapa ni los SOS, con un botón para
 recargar. En cualquiera de los casos, avisar a la central.
 
+\iconsec{luna}
 \section{El tema noche}
 
 El botón de la luna pasa el panel a colores oscuros, para el turno de la noche;
@@ -857,6 +1056,7 @@ el del sol lo devuelve. El panel recuerda la elección.
 
 \pc{d06-noche}{El panel en el tema noche.}
 
+\iconsec{ajustes}
 \section{Gestión}
 
 \boton{Gestión} abre el espacio de administración, con un menú a la izquierda
@@ -1100,6 +1300,7 @@ de horas, evidencia) dos años.
 \pc{d17-actividad}{La actividad de la cooperativa.}
 
 % ════════════════════════════════════════════════════════════════════════
+\iconcap{gerencia}
 \chapter{Gerencia}
 \label{cap:gerencia}
 
@@ -1119,6 +1320,7 @@ La cuenta de gerencia puede abarcar toda la cooperativa o una sola ruta.
 Despacho no puede tocarla: buena parte de lo que mira la gerencia es el
 trabajo de Despacho.
 
+\iconsec{combi}
 \section{Dar de alta una combi}
 
 En \textbf{Vehículos}, la gerencia tiene el formulario de alta: el código de la
@@ -1127,6 +1329,7 @@ descripción. \boton{+ Vehículo} la crea en la ruta elegida.
 
 \pc{g04-vehiculo-alta}{La gerencia da de alta una combi.}
 
+\iconsec{empresa}
 \section{La empresa y su logo}
 
 En \textbf{Empresa}, la gerencia corrige el nombre, el RUC y el contacto, y sube
@@ -1140,6 +1343,7 @@ logo se muestran las iniciales.
 
 \pc{g03-empresa}{Los datos y el logo de la cooperativa.}
 
+\iconsec{gerencia}
 \section{Números}
 
 Los números del período —\boton{7 días}, \boton{14 días} o \boton{30 días}—,
@@ -1162,9 +1366,11 @@ días» son los últimos siete contando hoy.
   \item Más abajo, la tendencia por día y la señal y presencia de cada combi.
 \end{itemize}
 
+\begin{sloppypar}
 Cada vuelta se juzga contra el objetivo que regía cuando se cerró, no contra
 el de hoy. \boton{Descargar CSV $\blacktriangledown$} baja lo mismo para una
 planilla: vueltas, turnos y los demás.
+\end{sloppypar}
 
 Una vuelta cuenta si la combi \textbf{avanzó} por el circuito: una combi
 estacionada en el terminal, con el GPS bailando, ya no suma vueltas
@@ -1175,6 +1381,7 @@ ruta, la misma con la que se calcula el objetivo automático.
 \pc{g02-numeros-tablas}{Números: la tabla por persona, con las horas que se liquidan.}
 
 % ════════════════════════════════════════════════════════════════════════
+\iconcap{central}
 \chapter{La central}
 \label{cap:central}
 
@@ -1182,6 +1389,7 @@ La central es el nivel de arriba de todas las cooperativas: quien vende,
 instala y mantiene el sistema. Su panel es una herramienta interna: sobria, sin
 marca y sin «recordarme».
 
+\iconsec{entrar}
 \section{Entrar}
 
 El panel de la central sólo existe si el servidor tiene configurada su clave;
@@ -1191,6 +1399,7 @@ muere al cerrar la pestaña.
 
 \pc[0.6]{k01-creador-entrar}{La entrada al panel de la central.}
 
+\iconsec{empresa}
 \section{Cooperativas}
 
 La lista de cooperativas, cada una con sus rutas, sus combis, su gente, las
@@ -1238,6 +1447,7 @@ acto}: se cierran todas sus sesiones y nadie de ella puede entrar. La
 confirmación dice el nombre de la cooperativa que se va a suspender. Se puede
 reactivar.
 
+\iconsec{idavuelta}
 \section{Rutas: los trazados}
 
 En \boton{RUTAS} se eligen la cooperativa, la ruta y el \textbf{trazado}. Acá
@@ -1261,6 +1471,7 @@ anterior). Lo mismo guardar un trazado vacío.
 
 \pc{k05-trazador}{El trazador de la central, con la ida de la 18A.}
 
+\iconsec{respaldo}
 \section{Respaldos}
 
 El sistema respalda la base cada 6 horas y conserva los últimos 28; cada
@@ -1276,6 +1487,7 @@ a un respaldo está en el anexo \ref{cap:operacion}.
 
 \pc{k06-respaldos}{Los respaldos de la base.}
 
+\iconsec{central}
 \section{Sistema}
 
 La salud del servidor: hace cuánto está encendido, el último respaldo, las
@@ -1298,6 +1510,7 @@ una computadora, no en el servidor de verdad.
 
 \pc{k07-sistema}{La salud del sistema.}
 
+\iconsec{lista}
 \section{Actividad}
 
 Lo que pasó en todas las cooperativas juntas: es el único lugar del sistema
@@ -1306,6 +1519,7 @@ donde se ven así. Las acciones de la central figuran como \textbf{CREADOR}.
 \pc{k08-actividad}{La actividad de todas las cooperativas.}
 
 % ════════════════════════════════════════════════════════════════════════
+\iconcap{alerta}
 \chapter{Problemas frecuentes}
 \label{cap:problemas}
 
@@ -1335,7 +1549,7 @@ donde se ven así. Las acciones de la central figuran como \textbf{CREADOR}.
   \item[«Mandé un SOS por error».] Avisar enseguida por el chat a Despacho. En
     Despacho, \boton{ATENDIDO} saca la alerta.
   \item[«Mi SOS dice NO SALIÓ».] No hay internet. Usar el panel que queda en
-    pantalla: \boton{LLAMAR A LA CENTRAL}, el SMS con la posición, o el 105,
+    pantalla: llamar a la central, mandarle el SMS con la posición, o el 105,
     106 o 116 (sección \ref{sec:sos}).
   \item[«Me sonó \emph{Tu GPS dejó de funcionar}».] La app dejó de leer la
     ubicación estando en ruta: el teléfono se reinició, Android la cerró o se
@@ -1360,6 +1574,7 @@ donde se ven así. Las acciones de la central figuran como \textbf{CREADOR}.
 \end{description}
 
 % ════════════════════════════════════════════════════════════════════════
+\iconcap{libro}
 \chapter{Glosario}
 
 \begin{description}[leftmargin=0pt,labelsep=0.6em,itemsep=3pt]
@@ -1394,7 +1609,8 @@ donde se ven así. Las acciones de la central figuran como \textbf{CREADOR}.
 \end{description}
 
 % ════════════════════════════════════════════════════════════════════════
-\appendix
+\appendix\anexotrue
+\iconcap{respaldo}
 \chapter{Para quien opera el servidor}
 \label{cap:operacion}
 

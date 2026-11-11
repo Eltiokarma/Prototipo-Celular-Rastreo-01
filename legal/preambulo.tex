@@ -1,6 +1,8 @@
 % Preámbulo común de los documentos legales (legal/*.tex).
 % Se compila cada uno con:   cd legal && latexmk -pdf <archivo>.tex
-% La paleta es la del producto y la del manual: si cambia una, cambian las dos.
+% La paleta y el estilo son los del manual (diseño «línea de ruta»): membrete
+% con el logotipo, avisos con ícono y sin filete, secciones con un paradero y
+% el número de página en una pastilla. Si cambia uno, cambian los dos.
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[spanish,es-noshorthands,es-tabla]{babel}
@@ -11,7 +13,11 @@
 \DeclareUnicodeCharacter{2713}{\checkmark}
 \DeclareUnicodeCharacter{22EF}{\ensuremath{\cdots}}
 \DeclareUnicodeCharacter{2192}{\ensuremath{\rightarrow}}
-\usepackage[a4paper,top=2cm,bottom=2.2cm,left=2.2cm,right=2.2cm,headheight=14pt]{geometry}
+\usepackage[a4paper,top=2.9cm,bottom=2.4cm,left=2.2cm,right=2.2cm,
+            headheight=16pt,headsep=0.9cm,footskip=1cm]{geometry}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{svg.path,babel}
 \usepackage[table]{xcolor}
 \usepackage{microtype}
 \usepackage{enumitem}
@@ -37,6 +43,7 @@
 \definecolor{ambarborde}{HTML}{E4C88A}
 \definecolor{azulfondo}{HTML}{E7F0FB}
 \definecolor{azulborde}{HTML}{C9DDF4}
+\definecolor{rojofondo}{HTML}{FBEAEC}
 
 \color{tinta}
 \setlength{\parindent}{0pt}
@@ -44,9 +51,11 @@
 \linespread{1.08}
 \setlist{itemsep=2pt,topsep=3pt}
 
-\titleformat{\section}{\color{tinta}\large\bfseries}{}{0em}{}
+% Cada sección, un paradero de la línea (como en el manual, pero sin la línea)
+\newcommand{\paradero}{\tikz[baseline=-0.55ex]\draw[marca,fill=white,line width=1.7pt] (0,0) circle (3.3pt);\hspace{7pt}}
+\titleformat{\section}{\color{tinta}\large\bfseries}{}{0em}{\paradero}
 \titleformat{\subsection}{\color{tinta2}\normalsize\bfseries}{}{0em}{}
-\titlespacing*{\section}{0pt}{12pt}{4pt}
+\titlespacing*{\section}{0pt}{14pt}{5pt}
 \titlespacing*{\subsection}{0pt}{8pt}{2pt}
 
 \renewcommand{\arraystretch}{1.25}
@@ -59,17 +68,39 @@
 % Una casilla para marcar
 \newcommand{\casilla}{\fbox{\rule{0pt}{7pt}\rule{7pt}{0pt}}}
 
-\newtcolorbox{nota}[1][]{colback=azulfondo,colframe=azulborde,boxrule=0.6pt,arc=3pt,
-  left=8pt,right=8pt,top=5pt,bottom=5pt,fontupper=\small\color{tinta2},#1}
-\newtcolorbox{borrador}{colback=ambarfondo,colframe=ambarborde,boxrule=0.6pt,arc=3pt,
-  left=8pt,right=8pt,top=5pt,bottom=5pt,fontupper=\small}
+% ─── Íconos ─────────────────────────────────────────────────────────────
+% Los mismos trazos del manual (grilla de 24×24, svg.path de TikZ)
+\newcommand{\defico}[2]{\expandafter\def\csname ico-#1\endcsname{svg "#2"}}
+\defico{nota}{M 12 3 a 9 9 0 1 0 0 18 a 9 9 0 0 0 0 -18 z M 12 11 v 6 M 12 7.5 v 0.01}
+\defico{alerta}{M 12 3.5 L 2.5 20 h 19 z M 12 10 v 4.5 M 12 17.2 v 0.01}
+\tikzset{pics/icono/.style args={#1/#2/#3}{code={%
+  \expandafter\let\expandafter\icotrazo\csname ico-#3\endcsname
+  \draw[#1,line width=0.08pt*#2,line cap=round,line join=round,
+        shift={(-#2pt/2,#2pt/2)},scale=#2/24,yscale=-1] \icotrazo;}}}
 
-% Pie: qué documento es, su versión y la página
+% Los avisos: fondo suave, ícono a la izquierda, sin filete
+\newtcolorbox{nota}[1][]{enhanced,breakable,colback=azulfondo,frame hidden,arc=6pt,
+  left=28pt,right=10pt,top=7pt,bottom=7pt,before skip=8pt,after skip=8pt,
+  fontupper=\small\color{tinta2},
+  overlay unbroken and first={\pic at ([xshift=15pt,yshift=-14pt]frame.north west) {icono=marca/14/nota};},#1}
+\newtcolorbox{borrador}{enhanced,breakable,colback=ambarfondo,frame hidden,arc=6pt,
+  left=28pt,right=10pt,top=7pt,bottom=7pt,before skip=8pt,after skip=8pt,
+  fontupper=\small,
+  overlay unbroken and first={\pic at ([xshift=15pt,yshift=-14pt]frame.north west) {icono=ambar/14/alerta};}}
+
+% Membrete y pie: el logotipo arriba, qué documento es y su versión abajo,
+% y la página en una pastilla («2 de 4»)
+\newcommand{\membrete}{\raisebox{-1pt}{\includegraphics[height=0.4cm]{img/logo-micros-tempo}}}
+\newcommand{\numpagina}{\tikz[baseline=(p.base)]\node[fill=marca,text=white,rounded corners=5pt,
+  inner xsep=6pt,inner ysep=2.5pt,font=\scriptsize\bfseries](p){\thepage\ de \pageref*{LastPage}};}
 \newcommand{\documento}[2]{%
   \pagestyle{fancy}\fancyhf{}%
   \renewcommand{\headrulewidth}{0pt}%
+  \fancyhead[L]{\membrete}%
+  \fancyhead[R]{\small\color{tenue}Aplicación «Control de ruta»}%
   \fancyfoot[L]{\scriptsize\color{tenue}#1 · #2}%
-  \fancyfoot[R]{\scriptsize\color{tenue}Página \thepage\ de \pageref*{LastPage}}%
+  \fancyfoot[R]{\numpagina}%
+  \fancypagestyle{plain}{}%
 }
 
 % Firma: una línea y lo que va debajo

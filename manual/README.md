@@ -9,6 +9,7 @@ no maquetas.
 | `manual.pdf` | El manual compilado, el que se reparte |
 | `manual.tex` | Su fuente, en LaTeX |
 | `img/` | Las capturas que usa (JPEG: con PNG el PDF pesaba diez veces más) |
+| `img/logo-micros-tempo.png` | El logotipo del membrete y de la tapa (también lo usan los PDF de `legal/`) |
 | `capturas.js` | Saca las capturas de la app de verdad |
 | `demo.js` | La cooperativa inventada de las capturas: gente, combis y dónde arranca cada una |
 | `rutas-demo.json` | Los recorridos de la 18A y la 18B, por calles de Juliaca (sacados de OSM con un ruteador) |
@@ -39,13 +40,26 @@ TILES_DIR=/carpeta/con/el/mapa node manual/capturas.js
 SOLO=c,d01 node manual/capturas.js     # sólo las capturas que empiezan así
 ```
 
+## El diseño
+
+«Línea de ruta»: el membrete con el logotipo en cada página, una línea azul en
+el margen izquierdo con un paradero por capítulo (con su ícono) y uno por
+sección, y arriba la franja con los capítulos que dice dónde está uno. Los
+íconos son los trazos de las pantallas, dibujados con la librería `svg.path`
+de TikZ (`\defico` en el preámbulo). Para que una sección lleve ícono en su
+paradero se escribe `\iconsec{nombre}` antes; un capítulo, `\iconcap{nombre}`.
+
+Los documentos de `legal/` usan el mismo estilo (`legal/preambulo.tex`), sin la
+línea ni la franja: membrete, avisos con ícono, secciones con paradero y la
+página en una pastilla.
+
 ## Compilar
 
 ```bash
 cd manual && latexmk -pdf manual.tex
 ```
 
-Hace falta TeX Live con `latex-extra` (tcolorbox, titlesec, enumitem) y el
+Hace falta TeX Live con `latex-extra` (tcolorbox, titlesec, enumitem, eso-pic), TikZ y el
 paquete de español de babel.
 
 ## Cuando cambia una pantalla
