@@ -51,11 +51,13 @@ se reconectan solas). Conviene hacerlo fuera de hora pico.
       del 04/11 tiene que firmar la nueva; Despacho → Personas lo marca.
 - [ ] **El abogado**: las dos preguntas nuevas de `legal/LEEME.md` (marcas
       automáticas y los lugares del fin de turno).
-- [ ] **Una APK nueva** (o un EAS Update, lo que no sea nativo) para que
-      lleguen a los teléfonos: el SOS en la puerta, la central sin sesión, el
-      latido, el SOS que no se duplica, el aviso de «tu GPS dejó de mandar»,
-      la vuelta sola a casa y la galería sin permiso. `blockedPermissions` y
-      el aviso programado son nativos: **APK**.
+- [ ] **Publicar un arreglo con `publicar-arreglo.bat`** (EAS Update, a la
+      APK 0.3.0, primero al canal PRUEBA): lleva todo lo de la app del
+      11/11, que es JavaScript — el SOS en la puerta, la central sin sesión,
+      el latido, el SOS que no se duplica, el aviso de «tu GPS dejó de
+      mandar», la vuelta sola a casa y la galería sin permiso.
+- [ ] **La próxima APK** (la de Play): sumar `blockedPermissions` como dice
+      `PLAYSTORE.md` §3, subir `"version"` y anotar lo nativo.
 
 ## 2. Unir la rama y sacar la APK 0.3.0
 

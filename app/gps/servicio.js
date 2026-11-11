@@ -627,6 +627,12 @@ async function subirAhora(nuevas) {
       vigia = null;
     }
 
+    // El GPS leyó: se corre el aviso de «tu GPS dejó de mandar» (ver
+    // notificacion.js). Con CADA lectura y no con cada envío que salió: lo
+    // que vigila es que el servicio siga vivo, y en una zona sin señal el
+    // GPS lee igual — avisar ahí sería una falsa alarma.
+    if (presenciaEfectiva === 'ruta' || presenciaEfectiva === 'ausente') vigilarSilencio().catch(() => {});
+
     const r = await pedirConCorte(servidor + '/gps', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...CABECERA_APP },
@@ -701,8 +707,7 @@ async function subirAhora(nuevas) {
         try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
         return;
       }
-      // Salió: se corre el aviso de «tu GPS dejó de mandar» (ver notificacion.js)
-      if (presenciaEfectiva === 'ruta' || presenciaEfectiva === 'ausente') vigilarSilencio().catch(() => {});
+
       // Enviadas son las que el servidor ACEPTÓ; lo que ya tenía o descartó
       // se cuenta aparte (C13). Un servidor viejo no manda `aceptadas`.
       diagnostico.enviadas += Number.isFinite(cuerpo.aceptadas) ? cuerpo.aceptadas : posiciones.length;

@@ -162,8 +162,9 @@ export async function limpiarNotificacion() {
 // manejando, la combi desaparece del mapa y, si pasan dos horas, la vuelta
 // cuenta como entrada tardía. Nadie le avisó.
 //
-// Es un aviso a futuro que cada envío exitoso CORRE: se programa para
-// dentro de 10 minutos y, mientras el GPS mande, nunca llega. Si el servicio
+// Es un aviso a futuro que cada lectura del GPS CORRE: se programa para
+// dentro de 10 minutos y, mientras el GPS lea, nunca llega (en una zona sin
+// señal el GPS lee igual: no es falsa alarma). Si el servicio
 // murió, nadie lo corre y suena. Es el sistema el que lo dispara, no esta
 // app: funciona aunque el proceso no exista. Se reprograma a lo sumo una vez
 // por minuto (cada envío sería un costo de batería) y se apaga al salir de
@@ -190,8 +191,8 @@ export async function vigilarSilencio(ahora = Date.now()) {
     await Notifications.scheduleNotificationAsync({
       identifier: ID_SILENCIO,
       content: {
-        title: 'Tu GPS dejó de mandar',
-        body: 'Estás en ruta y hace 10 minutos que no sale tu ubicación: tu combi no está en el mapa. Abrí la app.',
+        title: 'Tu GPS dejó de funcionar',
+        body: 'Estás en ruta y hace 10 minutos que el GPS no lee tu ubicación: tu combi no está en el mapa. Abrí la app.',
       },
       trigger: { type: tipo, seconds: Math.round(SILENCIO_AVISO_MS / 1000), channelId: CANAL_SILENCIO },
     });

@@ -3578,18 +3578,25 @@ function trackLap(unitId, routeId, progress, speed, cuando = Date.now()) {
   // chicos. Los saltos grandes (el rebote entre el principio de la ida y el
   // final de la vuelta en un terminal donde se tocan, un corte de señal) no
   // suman. Es lo que separa una vuelta de una combi estacionada.
+  //
+  // Un salto hacia ADELANTE sí suma si pasó más de un minuto entre las dos
+  // lecturas: es la combi que reaparece tras un tramo sin posiciones (la web
+  // con la pantalla apagada, una cola perdida), no un rebote del GPS, que
+  // pasa entre lecturas seguidas.
   const paso = progress - st.lastProgress;
-  if (Math.abs(paso) < VUELTA_PASO_MAX) st.avance = (st.avance || 0) + paso;
+  const tras = typeof st.ultimaHora === 'number' ? cuando - st.ultimaHora : 0;
+  if (Math.abs(paso) < VUELTA_PASO_MAX || (paso > 0 && tras > 60_000)) st.avance = (st.avance || 0) + paso;
   st.lastProgress = progress;
+  st.ultimaHora = cuando;
 }
-// Una vuelta tiene que haber AVANZADO al menos esto del circuito que le
-// quedaba por recorrer (con un piso). Estacionada en el terminal de una ruta
+// Una vuelta tiene que haber AVANZADO al menos el 40 % del circuito que le
+// quedaba por recorrer (con un piso). La estacionada avanza casi cero. Estacionada en el terminal de una ruta
 // de ida y vuelta por la misma calle, el ruido del GPS hacía saltar el
 // progreso entre ~0 y ~1 y cada salto cerraba una «vuelta»: 7 a 9 en 20
 // minutos, que además apretaban el objetivo automático de toda la ruta (de
 // 30 a 13 min con 4 vueltas reales). Auditoría 11/11, medido.
 const VUELTA_PASO_MAX = 0.35;
-const VUELTA_AVANCE_MIN = 0.5;
+const VUELTA_AVANCE_MIN = 0.4;
 const VUELTA_AVANCE_PISO = 0.2;
 // Cuántas posiciones seguidas tiene que sostenerse la caída del progreso
 // para cerrar la vuelta. Menos que el cambio de tramo (4): lo que se filtra

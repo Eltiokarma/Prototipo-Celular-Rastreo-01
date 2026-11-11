@@ -84,18 +84,18 @@ let servidor = null;
     /identifier: ID_SILENCIO[\s\S]{0,400}seconds: Math\.round\(SILENCIO_AVISO_MS \/ 1000\)/.test(notif));
   ok('cada vez, el anterior se cancela (se corre, no se suma)', /cancelScheduledNotificationAsync\(ID_SILENCIO\)[\s\S]{0,300}scheduleNotificationAsync/.test(notif));
   ok('a lo sumo una vez por minuto', /if \(ahora - silencioCorridoEn < 60_000\) return;/.test(notif));
-  ok('cada envío exitoso en ruta o ausente lo corre',
-    /if \(presenciaEfectiva === 'ruta' \|\| presenciaEfectiva === 'ausente'\) vigilarSilencio\(\)/.test(servicio));
+  ok('cada lectura del GPS en ruta o ausente lo corre (antes del envío: una zona sin señal no es falsa alarma)',
+    /if \(presenciaEfectiva === 'ruta' \|\| presenciaEfectiva === 'ausente'\) vigilarSilencio\(\)[\s\S]{0,40}const r = await pedirConCorte\(servidor \+ '\/gps'/.test(servicio));
   ok('salir de ruta, cerrar sesión o el relevo lo apagan',
     /export async function limpiarNotificacion\(\) \{[\s\S]{0,200}apagarVigiaDeSilencio\(\)/.test(notif) &&
     /export async function notificarSinRol\(motivo\) \{\s*\/\/[^\n]*\n\s*apagarVigiaDeSilencio\(\)/.test(notif));
 
   console.log('\nC. PLAY STORE: LA GALERÍA SIN PERMISO');
-  const appJson = JSON.parse(fs.readFileSync(RAIZ + '/app/app.json', 'utf8'));
-  const bloqueados = appJson.expo.android.blockedPermissions || [];
-  ok('el manifiesto no lleva READ_MEDIA_IMAGES ni READ_EXTERNAL_STORAGE',
-    ['android.permission.READ_MEDIA_IMAGES', 'android.permission.READ_MEDIA_VIDEO', 'android.permission.READ_EXTERNAL_STORAGE']
-      .every(x => bloqueados.includes(x)), bloqueados);
+  // `blockedPermissions` es nativo: va con la próxima APK (PLAYSTORE.md §3),
+  // para que los arreglos de JavaScript lleguen ya por EAS Update a la 0.3.0
+  const playstore = fs.readFileSync(RAIZ + '/PLAYSTORE.md', 'utf8');
+  ok('la próxima APK bloquea READ_MEDIA_* y READ_EXTERNAL_STORAGE (anotado en PLAYSTORE.md)',
+    /"blockedPermissions": \[[\s\S]*READ_MEDIA_IMAGES[\s\S]*READ_EXTERNAL_STORAGE[\s\S]*\]/.test(playstore));
   const foto = fs.readFileSync(RAIZ + '/app/foto.js', 'utf8');
   const elegir = foto.slice(foto.indexOf('export async function elegirFoto'));
   ok('elegir una foto no pide permiso de galería (el selector del sistema no lo necesita)',

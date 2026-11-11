@@ -93,10 +93,25 @@ copiar):
   Se ven sólo como último valor, pero **se recopilan**: hay que declararlos.
 - Nada para publicidad ni analytics.
 
-**Antes de subir el AAB, mirar el manifiesto final** (auditoría 11/11): no
-puede tener `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO` ni
-`READ_EXTERNAL_STORAGE` (la galería usa el selector del sistema, que no los
-necesita; están en `blockedPermissions`). `RECORD_AUDIO` sí, por las notas de
+**Antes de compilar el AAB para Play** (auditoría 11/11), en la misma tanda
+en que se sube `"version"` en `app/app.json`, agregar dentro de `"android"`:
+
+```json
+"blockedPermissions": [
+  "android.permission.READ_MEDIA_IMAGES",
+  "android.permission.READ_MEDIA_VIDEO",
+  "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+  "android.permission.READ_EXTERNAL_STORAGE",
+  "android.permission.WRITE_EXTERNAL_STORAGE"
+]
+```
+
+y después `node pruebas/actualizacion.js --anotar`. No va antes a propósito:
+es nativo, y meterlo sin subir la versión dejaba los arreglos de JavaScript
+del 11/11 (el SOS en la puerta, el latido…) sin poder llegar por EAS Update
+a las APK 0.3.0. La galería ya no pide el permiso (eso es JavaScript), así
+que la app no los necesita. **Y mirar el manifiesto final**: no puede tener
+`READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO` ni `READ_EXTERNAL_STORAGE`. `RECORD_AUDIO` sí, por las notas de
 voz (declararlo en «audio»). Para verlo: `npx expo prebuild -p android` y
 abrir `android/app/src/main/AndroidManifest.xml`, o `aapt dump permissions`
 sobre el AAB.

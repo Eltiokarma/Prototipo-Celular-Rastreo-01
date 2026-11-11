@@ -1140,7 +1140,8 @@ PENDIENTES.
 misma combi siguen siendo dos SOS. Es a propósito: pueden estar en dos
 lugares distintos.
 
-**Pruebas.** `sos-repetido` (nueva).
+**Pruebas.** `sos-repetido` (nueva). `sos` atiende lo anterior antes de
+cada disparo nuevo (cada caso es una emergencia nueva).
 
 ---
 
@@ -1151,8 +1152,10 @@ lugares distintos.
   ida y vuelta por la misma calle sumaba 7 a 9 vueltas en 20 min: el ruido
   del GPS hacía rebotar el progreso entre ~0 y ~1. Además apretaban el
   objetivo automático de todos. Ahora una vuelta tiene que haber **avanzado**
-  por el circuito (la suma neta de los pasos chicos, al menos la mitad de lo
+  por el circuito (la suma neta de los pasos chicos, al menos el 40 % de lo
   que le quedaba, con piso de 20 %); si no, se descarta y se dice en el log.
+  Un salto hacia adelante tras más de un minuto sin lecturas sí suma (es la
+  combi que reaparece, no un rebote).
 - **Brecha y objetivo en la misma escala.** La brecha se pasaba a minutos
   con `durationMin` (50 de fábrica, nadie lo edita) y el objetivo salía de
   la vuelta **medida**: con vueltas de 72 min y 12 combis, doce bien
@@ -1201,15 +1204,16 @@ lugares distintos.
   a ruta sola y en 20 min nunca lo pisó, la app sale de ruta y apaga el GPS.
 - **El GPS que se apaga sin avisar** (reinicio, forzar detención, una
   actualización, la ubicación apagada): un aviso **a futuro** que cada
-  envío corre 10 min. Si el servicio murió nadie lo corre, y suena «Tu GPS
-  dejó de mandar… abrí la app». Lo dispara el sistema, no la app. Se apaga
-  al salir de ruta, al cerrar sesión y en el relevo.
+  **lectura** del GPS corre 10 min (no cada envío: en una zona sin señal el
+  GPS lee igual y no sería una falla). Si el servicio murió nadie lo corre,
+  y suena «Tu GPS dejó de funcionar… abrí la app». Lo dispara el sistema, no
+  la app. Se apaga al salir de ruta, al cerrar sesión y en el relevo.
 
 **Archivos.** `app/gps/servicio.js`, `app/notificacion.js`,
 `server/index.js`, `pruebas/app-auditoria.js` (nueva).
 
 **Mirar.**
-- **Hace falta un APK** (o un EAS Update) para que llegue a los teléfonos.
+- Es todo JavaScript: llega a las APK 0.3.0 con `publicar-arreglo.bat`.
 - Que el aviso programado sobreviva a un **reinicio** depende de
   `expo-notifications`; hay que verlo en un teléfono real.
 - El aviso usa `SchedulableTriggerInputTypes.TIME_INTERVAL` (SDK 52 en
@@ -1271,9 +1275,12 @@ lugares distintos.
   firmar la nueva (Despacho lo ve en Personas).
 - `legal/LEEME.md`: dos preguntas nuevas para el abogado.
 - **Play Store**: la galería ya no pide permiso (el selector de fotos del
-  sistema no lo necesita) y `READ_MEDIA_*` y `READ_EXTERNAL_STORAGE` van en
-  `blockedPermissions`: la política de fotos de Google rechaza una app que
-  los declara para mandar una foto de vez en cuando. `PLAYSTORE.md` suma la
+  sistema no lo necesita). `READ_MEDIA_*` y `READ_EXTERNAL_STORAGE` van a
+  `blockedPermissions` **en la próxima APK** (está escrito en
+  `PLAYSTORE.md` §3): es nativo, y meterlo ahora obligaba a subir la versión
+  y dejaba sin EAS Update a las 0.3.0 justo los arreglos del SOS. La
+  política de fotos de Google rechaza una app que los declara para mandar
+  una foto de vez en cuando. `PLAYSTORE.md` suma la
   declaración del servicio en primer plano y los datos del teléfono en
   Seguridad de los datos, y cómo mirar el manifiesto final.
 - **`publicar-arreglo.bat`** no publica con cambios locales sin subir.
@@ -1282,12 +1289,12 @@ lugares distintos.
 
 **Archivos.** `server/privacidad.html`, `server/consentimiento.html`,
 `server/index.js` (versión), `legal/contrato-encargo.md`, `legal/LEEME.md`,
-`app/app.json`, `app/foto.js`, `PLAYSTORE.md`, `publicar-arreglo.bat`,
+`app/foto.js`, `PLAYSTORE.md`, `publicar-arreglo.bat`,
 `TAREAS-FUERA-DEL-CODIGO.md`, `pruebas/app-auditoria.js`,
 `pruebas/zona-muerta.js` (`crypto` y `Uint32Array` son del navegador).
 
-**Mirar.** Nada de esto reemplaza al abogado. `blockedPermissions` y el
-selector sin permiso hay que verlos en el manifiesto de la APK nueva.
+**Mirar.** Nada de esto reemplaza al abogado. El selector sin permiso hay
+que verlo en un teléfono con Android 12 o anterior.
 
 ---
 

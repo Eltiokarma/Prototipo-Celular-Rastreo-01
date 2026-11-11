@@ -64,8 +64,8 @@ export async function tomarFoto() {
 // fotos del SISTEMA, que no lo necesita (el usuario elige una y sólo esa le
 // llega a la app). Pedirlo metía READ_MEDIA_IMAGES en el manifiesto, y la
 // política de fotos de Google Play no lo deja para una app que manda una
-// foto de vez en cuando: rechazo seguro (auditoría 11/11). Por eso además
-// está en `blockedPermissions` de app.json.
+// foto de vez en cuando: rechazo seguro (auditoría 11/11). En la próxima APK
+// además van en `blockedPermissions` de app.json (ver PLAYSTORE.md §3).
 export async function elegirFoto() {
   const r = await ImagePicker.launchImageLibraryAsync(OPCIONES);
   if (r.canceled) return null;
