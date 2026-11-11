@@ -22,7 +22,9 @@
      costo justo de que el logo sea texto escalable y no una imagen. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600&display=swap" rel="stylesheet">
+<!-- Y Archivo Black para los títulos: la misma letra de títulos que el login
+     de Despacho, la app del chofer y la página de gerencia. -->
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@600&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #F7FAFD; --surface: #FFFFFF; --line: #C3D4E4; --divider: #E1E9F2;
@@ -37,7 +39,17 @@
     line-height: 1.65; font-size: 17px;
   }
   .caja { max-width: 880px; margin: 0 auto; padding: 0 22px; }
-  header { padding: 26px 0 10px; }
+  header { padding: 26px 0 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  /* La puerta para el que ya es cliente: la landing también es la entrada */
+  .entrar {
+    display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+    color: var(--fg2); font-weight: 700; font-size: 15px; text-decoration: none;
+  }
+  .entrar:hover { border-color: var(--azulOscuro); color: var(--azulOscuro); }
+  a { transition: background-color .16s ease, border-color .16s ease, color .16s ease; }
+  a:focus-visible { outline: 2px solid var(--azulOscuro); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { a { transition: none; } }
   /* El logotipo: "micros tempo" con las "o" hechas reloj, como en la
      marca. Es TEXTO más dos SVG, no una imagen: escala nítido en
      cualquier pantalla y hereda el color de la tinta (currentColor). */
@@ -49,7 +61,7 @@
   }
   .oreloj { width: .68em; height: .68em; margin: 0 .02em; align-self: center; transform: translateY(.09em); }
   .hero { padding: 44px 0 30px; }
-  h1 { font-size: clamp(30px, 5.5vw, 46px); line-height: 1.15; letter-spacing: -.02em; margin: 0 0 18px; font-weight: 900; }
+  h1 { font-family: "Archivo Black", system-ui, sans-serif; font-size: clamp(30px, 5.5vw, 46px); line-height: 1.12; letter-spacing: -.01em; margin: 0 0 18px; font-weight: 400; }
   h1 em { font-style: normal; color: var(--azul); }
   .bajada { font-size: 19px; color: var(--fg2); max-width: 640px; margin: 0 0 26px; }
   .cta {
@@ -59,10 +71,11 @@
   }
   .cta:hover { background: var(--azulOscuro); }
   .nota-cta { font-size: 14px; color: var(--dim3); margin-top: 10px; }
-  h2 { font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim3); font-weight: 800; margin: 52px 0 6px; }
+  h2 { font-family: "Archivo Black", system-ui, sans-serif; font-size: 22px; letter-spacing: -.01em; color: var(--fg); font-weight: 400; margin: 56px 0 6px; }
   .roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 14px; }
   .rol { background: var(--surface); border: 1px solid var(--divider); border-radius: 16px; padding: 20px; }
   .rol h3 { margin: 0 0 8px; font-size: 18px; }
+  .rol svg { display: block; color: var(--azulOscuro); margin-bottom: 12px; }
   .rol p { margin: 0; color: var(--fg2); font-size: 15px; }
   ul.lista { columns: 2; column-gap: 40px; padding-left: 20px; margin: 14px 0 0; }
   ul.lista li { margin-bottom: 9px; color: var(--fg2); break-inside: avoid; }
@@ -80,6 +93,8 @@
 <div class="caja">
   <header>
     <div class="logotipo" role="img" aria-label="micros tempo">micr<svg class="oreloj" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" stroke-width="8"/><path d="M50 4v12M50 84v12M4 50h12M84 50h12M50 50L38 34M50 50l15-17" stroke="currentColor" stroke-width="8" stroke-linecap="round" fill="none"/></svg>s&nbsp;temp<svg class="oreloj" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" stroke-width="8"/><path d="M50 4v12M50 84v12M4 50h12M84 50h12M50 50L38 34M50 50l15-17" stroke="currentColor" stroke-width="8" stroke-linecap="round" fill="none"/></svg></div>
+    <a class="entrar" href="/despacho.html">Ya soy cliente: entrar
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
   </header>
 
   <section class="hero">
@@ -98,6 +113,7 @@
   <h2>Una pantalla para cada uno</h2>
   <div class="roles">
     <div class="rol">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M12 7.5V12l3 2"/></svg>
       <h3>El conductor</h3>
       <p>Su app Android muestra en grande lo único que importa manejando:
       la separación con la combi de adelante, medida sobre el recorrido
@@ -106,6 +122,7 @@
       deslizable y sus propias horas y vueltas.</p>
     </div>
     <div class="rol">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4.5 3.5 6.5v13l5.5-2 6 2 5.5-2v-13l-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/></svg>
       <h3>La central (Despacho)</h3>
       <p>El mapa en vivo de la ruta, la cadena de combis con cada brecha,
       quién salió y quién falta, las emergencias sonando al instante, el
@@ -113,6 +130,7 @@
       conductores, cobradores, recorridos y desvíos.</p>
     </div>
     <div class="rol">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-8M11 20V5M17 20v-5M2.5 20.5h19"/></svg>
       <h3>La gerencia</h3>
       <p>Los números para administrar: cumplimiento del objetivo, vueltas
       y horas por unidad y por persona, tendencia por día e informes

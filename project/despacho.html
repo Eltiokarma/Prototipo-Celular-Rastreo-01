@@ -64,9 +64,66 @@ if (typeof L === 'undefined') {
   @media (prefers-reduced-motion: reduce) {
     [style*="sosPulse"] { animation: none !important; }
   }
-  ::-webkit-scrollbar { width: 8px; }
-  ::-webkit-scrollbar-thumb { background: #1c2836; border-radius: 4px; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--line, #C3D4E4); border-radius: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ─── Movimiento: 150–200 ms, nunca más. Todo lo de acá se apaga con
+     prefers-reduced-motion (abajo). Los colores salen de las variables que
+     Root copia de HUD: acá no hay ni un color propio. */
+  button, a, input, select, textarea, [data-tarjeta], [data-fila] {
+    transition: background-color .16s ease, border-color .16s ease, color .16s ease,
+                box-shadow .18s ease, opacity .16s ease, transform .16s ease, filter .16s ease;
+  }
+  button:not(:disabled):hover { filter: brightness(.95); }
+  html[data-tema="night"] button:not(:disabled):hover { filter: brightness(1.18); }
+  button:not(:disabled):active { transform: translateY(1px); }
+  :focus { outline: none; }
+  :focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: none; border-color: var(--acento) !important; box-shadow: 0 0 0 3px var(--anillo);
+  }
+  [data-fila]:hover { background-color: var(--realce); }
+  [data-tarjeta]:hover { background-color: var(--realce) !important; }
+  [role="menuitem"]:hover { background-color: var(--realce) !important; filter: none !important; }
+  summary { cursor: pointer; }
+  summary::-webkit-details-marker { color: var(--acento); }
+
+  @keyframes aparecer { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes entrarMsg { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+  @keyframes velo { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes cambio { from { transform: scale(1.12); } to { transform: none; } }
+  @keyframes latido { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  @keyframes cargando { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+
+  /* «Guardar como evidencia» aparece al pasar por el mensaje; en pantallas
+     táctiles (sin hover) queda siempre a la vista. */
+  .r14-msg .r14-evid { opacity: 0; }
+  .r14-msg:hover .r14-evid, .r14-msg:focus-within .r14-evid { opacity: 1; }
+  @media (hover: none) { .r14-msg .r14-evid { opacity: 1; } }
+
+  /* Leaflet con el mismo vocabulario que el panel */
+  .leaflet-container { font-family: inherit; background: var(--hueco); }
+  .leaflet-bar { border: none !important; border-radius: 12px !important; overflow: hidden;
+                 box-shadow: var(--sombra) !important; }
+  .leaflet-bar a, .leaflet-bar a:hover {
+    width: 38px !important; height: 38px !important; line-height: 38px !important;
+    font: 600 19px/38px system-ui, sans-serif !important;
+    background: var(--surface) !important; color: var(--fg) !important;
+    border-bottom: 1px solid var(--divider) !important;
+  }
+  .leaflet-bar a:hover { background: var(--realce) !important; }
+  .leaflet-control-attribution { background: var(--flotante) !important; color: var(--dim) !important;
+                                 border-radius: 8px 0 0 0; padding: 2px 8px !important; }
+  .leaflet-control-attribution a { color: var(--dim) !important; }
+  @media (max-width: 899px) { .leaflet-control-attribution { font-size: 9px; line-height: 1.35; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
 </style>
 </head>
 <body>
@@ -158,6 +215,15 @@ const TEMAS = {
     tinta: '#0B2239',       // botón principal del creador, segmentado activo
     flotante: 'rgba(255,255,255,.94)', // tarjetas sobre el mapa
     velo: 'rgba(11,34,57,.42)',        // overlay de modal
+    // Login: el halo detrás de la tarjeta (era un #0a1626 fijo en los dos temas)
+    fondoLogin: '#E3EEF9',
+    realce: '#F1F6FB',      // hover de filas y tarjetas
+    anillo: 'rgba(22,104,196,.22)', // foco de los campos
+    sombra: '0 1px 2px rgba(11,34,57,.06), 0 6px 18px -10px rgba(11,34,57,.22)',
+    sombraAlta: '0 2px 6px rgba(11,34,57,.06), 0 24px 48px -20px rgba(11,34,57,.35)',
+    // Avatares: [fondo, iniciales]. Derivados de la paleta; ninguno es rojo.
+    avatares: [['#DCEBFB', '#0A2E52'], ['#DDF2E5', '#0B5A2C'], ['#F8EBCB', '#4A3200'],
+               ['#E8E3F8', '#3A2A78'], ['#D7EFEF', '#0B4F52'], ['#E3E9F0', '#22384F']],
     tiles: tilesUrl('positron'),
     oscuro: false,
   },
@@ -187,6 +253,13 @@ const TEMAS = {
     tinta: '#EAF4FF',
     flotante: 'rgba(13,17,22,.94)',
     velo: 'rgba(0,0,0,.6)',
+    fondoLogin: '#0a1626',
+    realce: '#111a24',
+    anillo: 'rgba(46,157,255,.32)',
+    sombra: '0 1px 2px rgba(0,0,0,.4), 0 6px 18px -10px rgba(0,0,0,.7)',
+    sombraAlta: '0 2px 6px rgba(0,0,0,.4), 0 24px 48px -20px rgba(0,0,0,.8)',
+    avatares: [['#0e2a45', '#D8ECFF'], ['#08251a', '#9BF08A'], ['#2a2000', '#FFE07A'],
+               ['#211a3d', '#D9CCFF'], ['#06282a', '#9EEFEF'], ['#1a222c', '#C6D6E6']],
     tiles: tilesUrl('dark-matter'),
     oscuro: true,
   },
@@ -430,29 +503,51 @@ const black = '"Archivo Black", system-ui, sans-serif';
 // y una constante congelaría los colores del tema con el que arrancó.
 const btnPrimario = (alto = 36) => ({
   height: alto, padding: '0 14px', background: HUD.bright, color: '#fff',
-  border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700,
+  border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700,
   fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
 });
 const btnSecundario = (alto = 36) => ({
-  height: alto, padding: '0 12px', background: HUD.surface, color: HUD.dim2,
-  border: `1px solid ${HUD.line}`, borderRadius: 9, fontSize: 13, fontWeight: 700,
+  height: alto, padding: '0 12px', background: HUD.surface, color: HUD.fg2,
+  border: `1px solid ${HUD.line}`, borderRadius: 10, fontSize: 13, fontWeight: 700,
   fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+});
+// Sin caja: para lo que acompaña (cabecera, acciones de fila, menús). La caja
+// con borde queda para lo que de verdad es un botón al lado de otros.
+const btnFantasma = (alto = 36) => ({
+  height: alto, padding: '0 10px', background: 'transparent', color: HUD.fg2,
+  border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700,
+  fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
 });
 // Botón de fila: el de las acciones dentro de una tabla o una tarjeta
 const btnChico = (tinta, borde) => ({
   padding: '5px 9px', background: HUD.surface, color: tinta || HUD.fg2,
-  border: `1px solid ${borde || HUD.line}`, borderRadius: 7,
+  border: `1px solid ${borde || HUD.line}`, borderRadius: 8,
   fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
-  whiteSpace: 'nowrap',
+  whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5,
 });
-// Etiqueta en mayúscula: encabezado de columna, label de campo, kicker
+// Botón de un solo ícono (mensajes de la tarjeta, tema). 36 px: se toca con el
+// dedo en el celular sin errarle al de al lado.
+const btnIcono = (activo, tam = 36) => ({
+  width: tam, height: tam, padding: 0, position: 'relative', flexShrink: 0,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  background: activo ? HUD.bright : 'transparent', color: activo ? '#fff' : HUD.fg2,
+  border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit',
+});
+// Etiqueta: encabezado de columna, label de campo, kicker. Era mono en
+// mayúscula con tracking; ahora es la sans del cuerpo en caja normal. La
+// mono queda para los DATOS (horas, brechas, placas, códigos): `dato()`.
 const rotulo = (tam = 9, tinta) => ({
-  fontFamily: mono, fontSize: tam, fontWeight: 700,
-  letterSpacing: tam <= 9 ? 1.3 : 1.5, color: tinta || HUD.dim3,
-  textTransform: 'uppercase',
+  fontSize: tam + 3, fontWeight: 600, color: tinta || HUD.dim2, letterSpacing: 0,
+});
+const dato = (tam = 12, tinta) => ({
+  fontFamily: mono, fontSize: tam, fontWeight: 700, color: tinta || HUD.fg2,
+  fontVariantNumeric: 'tabular-nums',
 });
 const tarjeta = (relleno = 14) => ({
-  border: `1px solid ${HUD.divider}`, borderRadius: 12, padding: relleno,
+  border: `1px solid ${HUD.divider}`, borderRadius: 14, padding: relleno,
   background: HUD.surface,
 });
 const campo = (alto = 40) => ({
@@ -460,6 +555,209 @@ const campo = (alto = 40) => ({
   border: `1px solid ${HUD.campoLinea}`, borderRadius: 10,
   fontSize: 14, fontFamily: 'inherit', outline: 'none', minWidth: 0,
 });
+// Texto que sigue en el DOM (lo leen los lectores de pantalla y las pruebas
+// con `has-text`) pero no ocupa lugar: el ícono dice lo mismo a la vista.
+const ocultoVisual = {
+  position: 'absolute', width: 1, height: 1, padding: 0, margin: -1,
+  overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0,
+};
+
+// ─── Íconos de trazo, SVG en línea (cero archivos, cero bytes de red). 24×24,
+// trazo de 1,8, `currentColor`: toman el color del texto que acompañan.
+const ICONOS = {
+  personas: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.6 14.8c1.5.8 2.5 2.5 2.9 5.2"/>',
+  persona: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20.5c.9-3.7 3.6-5.7 7-5.7s6.1 2 7 5.7"/>',
+  vehiculo: '<rect x="4" y="3.5" width="16" height="14" rx="3"/><path d="M4 11h16M8 20.5v-3M16 20.5v-3"/><path d="M7.5 14.3h.01M16.5 14.3h.01" stroke-width="2.6"/>',
+  reloj: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  ruta: '<circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5"/>',
+  vueltas: '<path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5M20 4v4.5h-4.5M20 12a8 8 0 0 1-13.7 5.6L4 15.5M4 20v-4.5h4.5"/>',
+  traba: '<path d="M12 21s-6.5-5.8-6.5-11a6.5 6.5 0 0 1 13 0c0 5.2-6.5 11-6.5 11z"/><path d="M10.5 7.5v4.5M13.5 7.5v4.5"/>',
+  informe: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+  empresa: '<path d="M4 20.5V8.5l8-5 8 5v12"/><path d="M9.5 20.5v-6h5v6M2.5 20.5h19"/>',
+  numeros: '<path d="M5 20v-8M11 20V5M17 20v-5M2.5 20.5h19"/>',
+  actividad: '<path d="M3 12h4l3-7.5 4 15 3-7.5h4"/>',
+  mapa: '<path d="M9 4.5 3.5 6.5v13l5.5-2 6 2 5.5-2v-13l-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/>',
+  chat: '<path d="M20 11.5a8 8 0 0 1-11.7 7.1L4 19.8l1.2-4A8 8 0 1 1 20 11.5z"/>',
+  lista: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" stroke-width="2.6"/>',
+  sol: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+  luna: '<path d="M19.5 14.5A8 8 0 1 1 9.5 4.5a6.5 6.5 0 0 0 10 10z"/>',
+  mas: '<path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"/>',
+  llave: '<circle cx="8" cy="15" r="4"/><path d="m11 12 8.5-8.5M16.5 6.5l2.5 2.5M14 9l2 2"/>',
+  editar: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  baja: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  vivo: '<circle cx="12" cy="12" r="2.5"/><path d="M8 8a5.7 5.7 0 0 0 0 8M16 8a5.7 5.7 0 0 1 0 8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
+  sinSenal: '<path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 6-.8M5.2 13a10 10 0 0 1 4.3-2.5M18.8 13a10 10 0 0 0-2-1.4M2 9.5a15 15 0 0 1 4.2-2.6M22 9.5A15 15 0 0 0 11.5 5"/><path d="M12 20h.01" stroke-width="2.6"/>',
+  alerta: '<path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.2h.01"/>',
+  campana: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  campanaNo: '<path d="M6 16v-5a6 6 0 0 1 9.4-4.9M18 11v5l1.5 2H8"/><path d="M10 20.5a2 2 0 0 0 4 0M3 3l18 18"/>',
+  salir: '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M9.5 16l-4-4 4-4M5.5 12H15"/>',
+  atras: '<path d="M15 5l-7 7 7 7"/>',
+  enviar: '<path d="M4 12 20 4l-6.5 16-2.5-6.5z"/><path d="m11 13.5 9-9.5"/>',
+  descargar: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  abajo: '<path d="m6 9 6 6 6-6"/>',
+  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01"/>',
+  gestion: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>',
+  marcador: '<path d="M6.5 3.5h11v17L12 16.5l-5.5 4z"/>',
+  gps: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+  candado: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+  ojo: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  ojoNo: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/>',
+  flecha: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+  camara: '<path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  buscar: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+  vacio: '<path d="M3.5 13.5 6 5h12l2.5 8.5V19H3.5z"/><path d="M3.5 13.5H9a3 3 0 0 0 6 0h5.5"/>',
+  sumar: '<path d="M12 5v14M5 12h14"/>',
+};
+function Icono({ n, tam = 18, grosor = 1.8, style }) {
+  return <svg width={tam} height={tam} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth={grosor} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"
+    style={{ flexShrink: 0, display: 'block', ...style }}
+    dangerouslySetInnerHTML={{ __html: ICONOS[n] || '' }} />;
+}
+
+// ─── Personas antes que placas. Las iniciales del nombre sobre un color que
+// sale del nombre: siempre el mismo para la misma persona, en la tarjeta, en
+// el chat y en las tablas. Los colores son tokens (`avatares`) y ninguno es
+// rojo: el rojo es del SOS.
+function iniciales(nombre) {
+  const p = String(nombre || '').trim().split(/\s+/)
+    .map(w => w.replace(/[^\p{L}\p{N}]/gu, '')).filter(Boolean);
+  if (!p.length) return '·';
+  const dos = p.length > 1 ? p[0][0] + p[p.length - 1][0] : p[0].slice(0, 2);
+  return dos.toUpperCase();
+}
+function colorDe(nombre) {
+  let h = 0;
+  for (const c of String(nombre || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return HUD.avatares[h % HUD.avatares.length];
+}
+function Avatar({ nombre, tam = 32 }) {
+  const [fondo, tinta] = colorDe(nombre);
+  return (
+    <span aria-hidden="true" style={{
+      width: tam, height: tam, borderRadius: '50%', flexShrink: 0,
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      background: fondo, color: tinta, fontSize: Math.round(tam * 0.38), fontWeight: 800,
+      letterSpacing: 0.2, userSelect: 'none', lineHeight: 1,
+    }}>{iniciales(nombre)}</span>
+  );
+}
+
+// "SIN SEÑAL DESDE 10:32" → "Sin señal desde 10:32". Los estados se escriben
+// en mayúscula en el código (las suites los buscan así); se MUESTRAN en caja
+// normal. Quedan en mayúscula las siglas y los códigos (M-05, R-14).
+function oracion(s) {
+  let primera = true;
+  return String(s).replace(/[A-Za-zÁÉÍÓÚÑÜáéíóúñü]+/g, (w, i, todo) => {
+    let r = w;
+    if (w === 'GPS' || w === 'SOS') r = w;
+    else if (w === 'ANDROID') r = 'Android';
+    else if (todo[i + w.length] === '-' && /\d/.test(todo[i + w.length + 1] || '')) r = w;
+    else if (w === w.toUpperCase()) r = w.toLowerCase();
+    if (primera) { primera = false; r = r.charAt(0).toUpperCase() + r.slice(1); }
+    return r;
+  });
+}
+// Una línea de estado de la tarjeta: ícono + texto. `mayus` la deja en
+// mayúscula y más pesada: es para los avisos que no se suavizan.
+function Estado({ icono, tinta, fondo, borde, mayus, title, mt = 8, children }) {
+  const partes = React.Children.toArray(children);
+  const plano = partes.every(c => typeof c === 'string' || typeof c === 'number');
+  const texto = plano ? (mayus ? partes.join('') : oracion(partes.join(''))) : children;
+  return (
+    <div title={title} style={{
+      display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: mt,
+      fontSize: 12, fontWeight: mayus ? 800 : 600, letterSpacing: mayus ? 0.4 : 0,
+      lineHeight: 1.35, color: tinta || HUD.dim2,
+      ...(fondo ? { background: fondo, border: `1px solid ${borde || fondo}`, borderRadius: 8, padding: '5px 8px' } : {}),
+    }}>
+      {icono && <Icono n={icono} tam={14} grosor={2} style={{ marginTop: 1 }} />}
+      <span style={{ minWidth: 0 }}>{texto}</span>
+    </div>
+  );
+}
+// Contador de no leídos sobre un ícono
+function Insignia({ n }) {
+  return (
+    <span style={{
+      position: 'absolute', top: 1, right: 1, minWidth: 17, height: 17, padding: '0 4px',
+      borderRadius: 9, background: HUD.amber, color: HUD.oscuro ? '#000' : '#fff',
+      fontFamily: mono, fontSize: 10, fontWeight: 800, lineHeight: '17px', textAlign: 'center',
+      boxShadow: `0 0 0 2px ${HUD.surface}`,
+    }}>{n}</span>
+  );
+}
+// Un menú desplegable (el «⋯» de las filas, el «Descargar ▾» de Números). Se
+// dibuja con position: fixed para que una tabla con overflow no lo corte.
+function Menu({ etiqueta, icono = 'mas', items, titulo, data, estilo }) {
+  const [pos, setPos] = React.useState(null);
+  const boton = React.useRef(null);
+  const caja = React.useRef(null);
+  React.useEffect(() => {
+    if (!pos) return;
+    const fuera = (e) => {
+      if (caja.current?.contains(e.target) || boton.current?.contains(e.target)) return;
+      setPos(null);
+    };
+    const tecla = (e) => { if (e.key === 'Escape') { setPos(null); boton.current?.focus(); } };
+    const cerrar = () => setPos(null);
+    document.addEventListener('pointerdown', fuera);
+    document.addEventListener('keydown', tecla);
+    window.addEventListener('resize', cerrar);
+    window.addEventListener('scroll', cerrar, true);
+    return () => {
+      document.removeEventListener('pointerdown', fuera);
+      document.removeEventListener('keydown', tecla);
+      window.removeEventListener('resize', cerrar);
+      window.removeEventListener('scroll', cerrar, true);
+    };
+  }, [pos]);
+  const visibles = (items || []).filter(Boolean);
+  if (!visibles.length) return null;
+  const abrir = () => {
+    if (pos) { setPos(null); return; }
+    const r = boton.current.getBoundingClientRect();
+    const arriba = r.bottom + 44 * visibles.length + 24 > window.innerHeight;
+    setPos({
+      right: Math.max(8, window.innerWidth - r.right),
+      ...(arriba ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }),
+    });
+  };
+  return (
+    <>
+      <button ref={boton} type="button" {...(data || {})} aria-haspopup="menu" aria-expanded={!!pos}
+        title={titulo} onClick={(e) => { e.stopPropagation(); abrir(); }}
+        style={estilo || (etiqueta ? btnSecundario(36) : { ...btnIcono(false, 32), color: HUD.dim })}>
+        {icono && <Icono n={icono} tam={16} />}
+        {etiqueta}
+        {etiqueta && <Icono n="abajo" tam={14} />}
+        {!etiqueta && <span style={ocultoVisual}>Más acciones</span>}
+      </button>
+      {pos && (
+        <div ref={caja} role="menu" onClick={e => e.stopPropagation()} style={{
+          position: 'fixed', ...pos, zIndex: 5000, minWidth: 210, padding: 6,
+          background: HUD.surface, border: `1px solid ${HUD.divider}`, borderRadius: 12,
+          boxShadow: HUD.sombraAlta, display: 'grid', gap: 2, animation: 'aparecer .16s ease-out',
+        }}>
+          {visibles.map((it, i) => (
+            <button key={i} type="button" role="menuitem" {...(it.data || {})} disabled={it.disabled}
+              onClick={() => { setPos(null); it.onClick(); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 10px',
+                border: 'none', borderRadius: 8, background: 'transparent', cursor: 'pointer',
+                textAlign: 'left', fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
+                color: it.tono === 'rojo' ? HUD.red : HUD.fg2, whiteSpace: 'nowrap',
+              }}>
+              {it.icono && <Icono n={it.icono} tam={16} />}{it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════
 // LOGIN
@@ -514,61 +812,88 @@ function Login({ onSuccess, notice }) {
   };
 
   const inputStyle = {
-    width: '100%', padding: '14px 16px', fontSize: 18, fontWeight: 600,
+    width: '100%', height: 50, padding: '0 16px', fontSize: 17, fontWeight: 600,
     background: HUD.campo, border: `1px solid ${HUD.campoLinea}`, borderRadius: 12,
     color: HUD.fg, outline: 'none', fontFamily: 'inherit',
   };
+  const etiqueta = { display: 'block', fontSize: 13, fontWeight: 700, color: HUD.fg2, marginBottom: 6 };
+  const hora = new Date().getHours();
+  const saludo = hora < 12 ? 'Buen día' : hora < 19 ? 'Buenas tardes' : 'Buenas noches';
 
+  // El fondo es un token por tema (`fondoLogin`): antes era un #0a1626 fijo,
+  // y en el tema día dejaba una mancha oscura enorme detrás de la tarjeta.
   return (
     <div style={{
-      height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: `radial-gradient(80% 60% at 50% 30%, #0a1626 0%, ${HUD.bg} 70%)`,
+      height: '100%', overflowY: 'auto', padding: 16,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: `radial-gradient(90% 70% at 50% 0%, ${HUD.fondoLogin} 0%, ${HUD.bg} 72%)`,
     }}>
-      <div style={{
-        width: 380, background: HUD.surface, border: `1px solid ${HUD.line}`,
-        borderRadius: 20, padding: 32,
-      }} onKeyDown={e => { if (e.key === 'Enter') submit(); }}>
-        <div style={{ fontFamily: black, fontSize: 26, letterSpacing: -0.5 }}>
-          {coop || 'Panel de Despacho'}
-        </div>
-        <div style={{
-          fontFamily: mono, fontSize: 13, fontWeight: 700, letterSpacing: 1,
-          color: HUD.bright, textTransform: 'uppercase', marginBottom: 24,
-        }}>{coop ? 'Panel de Despacho' : 'Control de flota'}</div>
-
-        <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1, color: HUD.dim2, marginBottom: 6 }}>USUARIO</div>
-        <input value={user} onChange={e => setUser(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
-        <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1, color: HUD.dim2, marginBottom: 6 }}>CONTRASEÑA</div>
-        <div style={{ position: 'relative', marginBottom: 18 }}>
-          <input type={verPass ? 'text' : 'password'} value={pass} autoFocus
-            onChange={e => setPass(e.target.value)} style={{ ...inputStyle, paddingRight: 78 }} />
-          <button type="button" onClick={() => setVerPass(v => !v)} style={{
-            position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1, color: HUD.dim2,
-          }}>{verPass ? 'OCULTAR' : 'VER'}</button>
+      <div style={{ width: 400, maxWidth: '100%', animation: 'aparecer .22s ease-out' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 4px 18px' }}>
+          <img src="icon-despacho-192.png" alt="" width="44" height="44"
+            style={{ borderRadius: 12, display: 'block', flexShrink: 0, boxShadow: HUD.sombra }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              fontFamily: black, fontSize: 19, lineHeight: 1.2,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{coop || 'Control de flota'}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: HUD.dim2 }}>Panel de Despacho</div>
+          </div>
         </div>
 
-        {(error || notice) && (
-          <div style={{
-            background: 'rgba(255,45,85,.1)', border: `1px solid ${HUD.red}`,
-            borderRadius: 10, padding: '10px 12px', marginBottom: 16,
-            fontSize: 14, fontWeight: 600, color: HUD.red,
-          }}>{error || notice}</div>
-        )}
+        <form onSubmit={e => { e.preventDefault(); submit(); }} style={{
+          background: HUD.surface, border: `1px solid ${HUD.divider}`, borderRadius: 20,
+          padding: 28, boxShadow: HUD.sombraAlta,
+        }}>
+          <div style={{ fontFamily: black, fontSize: 26, letterSpacing: -0.3, lineHeight: 1.15 }}>{saludo}</div>
+          <div style={{ fontSize: 14, color: HUD.dim2, lineHeight: 1.5, margin: '6px 0 22px' }}>
+            Entrá con tu usuario para ver la flota en vivo.
+          </div>
 
-        <button onClick={submit} disabled={loading} style={{
-          width: '100%', padding: 16, fontSize: 17, letterSpacing: 2,
-          fontFamily: black, background: loading ? HUD.cargando : HUD.bright,
-          color: '#fff', border: 'none', borderRadius: 12,
-          cursor: loading ? 'wait' : 'pointer',
-        }}>{loading ? 'VERIFICANDO...' : 'INGRESAR'}</button>
+          <label htmlFor="r14-usuario" style={etiqueta}>Usuario</label>
+          <input id="r14-usuario" value={user} autoComplete="username" autoCapitalize="characters"
+            spellCheck={false} onChange={e => setUser(e.target.value)}
+            style={{ ...inputStyle, marginBottom: 16 }} />
+          <label htmlFor="r14-clave" style={etiqueta}>Contraseña</label>
+          <div style={{ position: 'relative', marginBottom: 18 }}>
+            <input id="r14-clave" type={verPass ? 'text' : 'password'} value={pass} autoFocus
+              autoComplete="current-password"
+              onChange={e => setPass(e.target.value)} style={{ ...inputStyle, paddingRight: 104 }} />
+            <button type="button" onClick={() => setVerPass(v => !v)}
+              aria-label={verPass ? 'Ocultar la contraseña' : 'Ver la contraseña'}
+              style={{
+                ...btnFantasma(38), position: 'absolute', right: 6, top: '50%',
+                transform: 'translateY(-50%)', color: HUD.dim2,
+              }}>
+              <Icono n={verPass ? 'ojoNo' : 'ojo'} tam={18} />{verPass ? 'Ocultar' : 'Ver'}
+            </button>
+          </div>
 
-        <div style={{ marginTop: 18, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>
-          ¿Olvidaste la clave? La de un chofer o un cobrador la cambia Despacho,
-          en Gestión → Personas. La de Despacho y la de gerencia, quien les
-          entregó el sistema.
-        </div>
+          {(error || notice) && (
+            <div role="alert" style={{
+              display: 'flex', gap: 8, alignItems: 'flex-start',
+              background: HUD.rojoFondo, border: `1px solid ${HUD.rojoBorde}`,
+              borderRadius: 12, padding: '10px 12px', marginBottom: 16,
+              fontSize: 14, fontWeight: 600, color: HUD.rojoTinta, lineHeight: 1.4,
+            }}><Icono n="alerta" tam={17} style={{ marginTop: 1 }} />{error || notice}</div>
+          )}
+
+          <button type="submit" disabled={loading} style={{
+            ...btnPrimario(50), width: '100%', fontSize: 16, fontWeight: 800, borderRadius: 12,
+            background: loading ? HUD.cargando : HUD.bright, cursor: loading ? 'wait' : 'pointer',
+          }}>
+            {loading ? 'Verificando…' : 'Ingresar'}
+            {!loading && <Icono n="flecha" tam={18} grosor={2.2} />}
+          </button>
+
+          <details style={{ marginTop: 16 }}>
+            <summary style={{ fontSize: 13, fontWeight: 700, color: HUD.bright }}>¿Olvidaste la clave?</summary>
+            <div style={{ marginTop: 8, fontSize: 13, color: HUD.fg2, lineHeight: 1.55 }}>
+              La de un chofer o un cobrador la cambia Despacho, en Gestión → Personas.
+              La de Despacho y la de gerencia, quien les entregó el sistema.
+            </div>
+          </details>
+        </form>
       </div>
     </div>
   );
@@ -603,34 +928,39 @@ function Evidencia({ m, onEvidencia }) {
   };
   if (m.evidencia) {
     return (
-      <div data-evidencia={m.msgId} style={{ marginTop: 6, fontSize: 11, color: HUD.ambarTinta, background: HUD.ambarFondo,
-        border: `1px solid ${HUD.ambarBorde}`, borderRadius: 6, padding: '4px 6px', lineHeight: 1.4 }}>
-        <b>EVIDENCIA</b> · {m.evidencia.por || 'Despacho'}: {m.evidencia.motivo}
+      <div data-evidencia={m.msgId} style={{ marginTop: 6, fontSize: 12, color: HUD.ambarTinta, background: HUD.ambarFondo,
+        border: `1px solid ${HUD.ambarBorde}`, borderRadius: 10, padding: '6px 9px', lineHeight: 1.4,
+        display: 'flex', gap: 6, alignItems: 'flex-start', maxWidth: 320 }}>
+        <Icono n="marcador" tam={14} grosor={2} style={{ marginTop: 1 }} />
+        <span><b>EVIDENCIA</b> · {m.evidencia.por || 'Despacho'}: {m.evidencia.motivo}
         {' '}<button onClick={() => mandar(false)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-          color: HUD.ambarTinta, textDecoration: 'underline', fontSize: 11, fontFamily: 'inherit' }}>quitar</button>
-        {error && <div>{error}</div>}
+          color: HUD.ambarTinta, textDecoration: 'underline', fontSize: 12, fontFamily: 'inherit' }}>quitar</button>
+        {error && <span style={{ display: 'block' }}>{error}</span>}</span>
       </div>
     );
   }
   if (!abierto) {
+    // Aparece al pasar por el mensaje (en el táctil, siempre): estaba fijo
+    // debajo de cada burbuja y el chat se leía como un formulario.
     return (
-      <button data-marcar-evidencia={m.msgId} onClick={() => setAbierto(true)} style={{ marginTop: 4, background: 'none', border: 'none',
-        padding: 0, cursor: 'pointer', color: HUD.dim2, fontSize: 11, textDecoration: 'underline', fontFamily: 'inherit' }}>
-        Guardar como evidencia
+      <button className="r14-evid" data-marcar-evidencia={m.msgId} onClick={() => setAbierto(true)}
+        title="Queda guardado aunque el resto del chat se borre"
+        style={{ ...btnFantasma(26), padding: '0 6px', marginTop: 2, fontSize: 12, fontWeight: 600, color: HUD.dim2 }}>
+        <Icono n="marcador" tam={13} />Guardar como evidencia
       </button>
     );
   }
   return (
-    <div style={{ marginTop: 6, display: 'grid', gap: 4 }}>
+    <div style={{ marginTop: 6, display: 'grid', gap: 6, width: 280, maxWidth: '100%' }}>
       <input data-motivo-evidencia={m.msgId} value={motivo} maxLength={200} autoFocus
         placeholder="Por qué (queda registrado): choque en la Av. Circunvalación"
         onChange={e => setMotivo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') mandar(true); }}
-        style={{ ...campo(30), fontSize: 12 }} />
+        style={{ ...campo(34), fontSize: 13 }} />
       <div style={{ display: 'flex', gap: 6 }}>
         <button data-guardar-evidencia={m.msgId} onClick={() => mandar(true)} style={btnChico(HUD.fg2)}>Guardar</button>
-        <button onClick={() => { setAbierto(false); setError(null); }} style={btnChico(HUD.dim2)}>Cancelar</button>
+        <button onClick={() => { setAbierto(false); setError(null); }} style={{ ...btnFantasma(28), fontSize: 12 }}>Cancelar</button>
       </div>
-      {error && <div role="alert" style={{ fontSize: 11, color: HUD.ambarTinta }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 12, color: HUD.ambarTinta }}>{error}</div>}
     </div>
   );
 }
@@ -658,107 +988,144 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
     setDraft('');
   };
 
+  const nombreVisible = (f) => f === 'DESPACHO' ? 'Despacho' : f === 'GERENCIA' ? 'Gerencia' : f;
+  const hilo = messages.filter(m => (m.para || null) === (privadoCon || null));
+
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
       background: HUD.surface,
     }}>
       <div style={{
-        padding: '14px 16px', borderBottom: `1px solid ${HUD.divider}`,
+        padding: '10px 14px', minHeight: 62, borderBottom: `1px solid ${HUD.divider}`,
         display: 'flex', alignItems: 'center', gap: 10,
       }}>
         {privadoCon ? (
           <>
             <button onClick={onCerrarPrivado} title="Volver al grupo de la ruta"
-              style={btnChico(HUD.fg2)}>← Grupo</button>
-            <span style={{ fontFamily: black, fontSize: 14, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {nombreDe(privadoCon)}
-            </span>
-            <div style={{ flex: 1 }} />
-            <span title={esPrivadoPersona(privadoCon)
-                ? 'Sólo esa persona, en la combi que esté. Su cobrador no lo ve.'
-                : 'Los que van arriba de esa combi hoy (chofer y cobrador), y los que la manejen después.'}
-              style={{ ...rotulo(10, HUD.ambarTinta2), letterSpacing: 1.5, whiteSpace: 'nowrap' }}>
-              {esPrivadoPersona(privadoCon) ? 'Solo esa persona' : 'Toda esa combi'}
-            </span>
+              style={{ ...btnFantasma(34), padding: '0 8px', flexShrink: 0 }}>← Grupo</button>
+            {esPrivadoPersona(privadoCon)
+              ? <Avatar nombre={nombreDe(privadoCon)} tam={34} />
+              : <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, background: HUD.hueco, color: HUD.fg2,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icono n="vehiculo" tam={18} /></span>}
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{
+                fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                ...(esPrivadoPersona(privadoCon) ? {} : { fontFamily: black, fontWeight: 400 }),
+              }}>{nombreDe(privadoCon)}</div>
+              <div title={esPrivadoPersona(privadoCon)
+                  ? 'Sólo esa persona, en la combi que esté. Su cobrador no lo ve.'
+                  : 'Los que van arriba de esa combi hoy (chofer y cobrador), y los que la manejen después.'}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: HUD.ambarTinta2 }}>
+                <Icono n="candado" tam={12} grosor={2.2} />
+                {esPrivadoPersona(privadoCon) ? 'Solo esa persona' : 'Toda esa combi'}
+              </div>
+            </div>
           </>
         ) : (
           <>
-            <span style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.5 }}>
-              Canal de ruta{routeId ? ` · ${routeId}` : ''}
-            </span>
-            <div style={{ flex: 1 }} />
+            <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, background: HUD.azulFondo, color: HUD.azulTinta,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icono n="chat" tam={18} /></span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 14 }}>
+                Canal de ruta{routeId ? <span style={{ ...dato(12, HUD.dim2) }}> · {routeId}</span> : null}
+              </div>
+              <div style={{ fontSize: 12, color: HUD.dim2 }}>Lo leen todos los que van en la ruta</div>
+            </div>
           </>
         )}
       </div>
 
       {!privadoCon && pendientes.length > 0 && (
         <div data-bandeja style={{
-          padding: '8px 14px', borderBottom: `1px solid ${HUD.divider}`,
+          padding: '8px 14px', borderBottom: `1px solid ${HUD.divider}`, background: HUD.ambarFondo,
           display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
         }}>
-          <span style={{ ...rotulo(9, HUD.dim2) }}>Privados sin leer</span>
+          <span style={{ ...rotulo(9, HUD.ambarTinta) }}>Privados sin leer</span>
           {pendientes.map(([clave, n]) => (
             <button key={clave} onClick={() => onAbrir && onAbrir(clave)}
               title={esPrivadoPersona(clave) ? 'Privado con esa persona' : 'Privado con esa combi'}
-              style={{ ...btnChico(HUD.ambarTinta, HUD.ambarBorde), background: HUD.ambarFondo, fontSize: 12 }}>
-              {esPrivadoPersona(clave) ? '👤 ' : ''}{nombreDe(clave)} · {n}
+              style={{ ...btnChico(HUD.ambarTinta, HUD.ambarBorde), borderRadius: 16, fontSize: 12 }}>
+              <Icono n={esPrivadoPersona(clave) ? 'persona' : 'vehiculo'} tam={13} grosor={2} />{nombreDe(clave)} · {n}
             </button>
           ))}
         </div>
       )}
 
       <div ref={scrollRef} style={{
-        flex: 1, overflowY: 'auto', padding: '14px 16px',
-        display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0,
+        flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '14px 12px', background: HUD.bg,
+        display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0,
       }}>
-        {messages.filter(m => (m.para || null) === (privadoCon || null)).map((m, i) => {
+        {hilo.length === 0 && (
+          <Vacio icono="chat" titulo={privadoCon ? 'Todavía no se escribieron' : 'El canal está tranquilo'}>
+            {privadoCon
+              ? `Lo que escribas acá le llega solo a ${nombreDe(privadoCon)}.`
+              : 'Lo que escriban los choferes y cobradores de la ruta aparece acá.'}
+          </Vacio>
+        )}
+        {hilo.map((m, i) => {
           const own = m.role === 'dispatch-self';
           const sos = m.tone === 'sos';
+          const quien = nombreVisible(m.from);
           return (
-            <div key={m.k ?? i} style={{ display: 'flex', justifyContent: own ? 'flex-end' : 'flex-start' }}>
-              <div style={{
-                maxWidth: '82%', padding: '9px 11px', borderRadius: 12,
-                background: sos ? HUD.rojoFondo : own ? HUD.azulFondo : HUD.surface,
-                border: `1px solid ${sos ? HUD.rojoBorde : own ? HUD.azulBorde : HUD.divider}`,
-                color: sos ? HUD.burbujaSosInk : own ? HUD.azulTinta : HUD.fg,
-              }}>
-                {/* Quién habla y desde qué combi: con cobradores a bordo el
-                    nombre ya no alcanza para saber de qué unidad viene */}
+            <div key={m.k ?? i} className="r14-msg" style={{
+              display: 'flex', gap: 8, alignItems: 'flex-end',
+              justifyContent: own ? 'flex-end' : 'flex-start', animation: 'entrarMsg .2s ease-out',
+            }}>
+              {!own && (sos
+                ? <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, background: HUD.red, color: '#fff',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}><Icono n="alerta" tam={15} grosor={2.2} /></span>
+                : <span style={{ marginBottom: 2 }}><Avatar nombre={quien} tam={28} /></span>)}
+              <div style={{ maxWidth: '80%', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: own ? 'flex-end' : 'flex-start' }}>
                 <div style={{
-                  ...rotulo(9, sos ? HUD.red : own ? HUD.bright : HUD.dim3),
-                  marginBottom: 4,
+                  maxWidth: '100%', padding: '7px 12px 5px', borderRadius: 16,
+                  [own ? 'borderBottomRightRadius' : 'borderBottomLeftRadius']: 6,
+                  background: sos ? HUD.burbujaSos : own ? HUD.burbujaPropia : HUD.burbuja,
+                  color: sos ? HUD.burbujaSosInk : own ? HUD.burbujaPropiaInk : HUD.burbujaInk,
+                  border: `1px solid ${sos ? HUD.rojoBorde : own ? HUD.burbujaPropia : HUD.divider}`,
                 }}>
-                  {own ? 'Despacho' : m.from}
-                  {!own && m.unit && m.unit !== m.from ? ` · ${m.unit}` : ''} · {m.time}
-                </div>
-                <div style={{ fontSize: 14, lineHeight: 1.45 }}>
-                  {m.voice
-                    ? (m.audio
-                        ? <audio controls src={m.audio} style={{ width: 220, height: 36 }} />
-                        : m.aparte && onCargar
-                        // Vino sin contenido para no hacer pesado el
-                        // historial: se pide al tocarla
-                        ? <button data-cargar={m.msgId} onClick={() => onCargar(m.msgId)} style={btnChico(HUD.fg2)}>🎙 cargar nota de voz ({m.voice}s)</button>
-                        : <span style={{ color: HUD.dim3 }}>🎙 nota de voz ({m.voice}s{m.expired ? ' · expirada' : ''})</span>)
-                    : m.photo
-                    ? (m.image
-                        // Se abre en pestaña nueva: lo que mandan —una chapa,
-                        // un desperfecto— hay que poder mirarlo en grande.
-                        ? <div>
-                            <a href={m.image} target="_blank" rel="noreferrer">
-                              <img src={m.image} alt={m.text}
-                                style={{ maxWidth: 240, borderRadius: 8, display: 'block', cursor: 'zoom-in' }} />
-                            </a>
-                            {m.text && m.text !== 'Foto' && <div style={{ marginTop: 4 }}>{m.text}</div>}
-                          </div>
-                        : m.aparte && onCargar
-                        ? <button data-cargar={m.msgId} onClick={() => onCargar(m.msgId)} style={btnChico(HUD.fg2)}>📷 cargar foto{m.text && m.text !== 'Foto' ? ` · ${m.text}` : ''}</button>
-                        : <span style={{ color: HUD.dim3 }}>📷 {m.text} · ya no disponible</span>)
-                    : m.text}
+                  {/* Quién habla y desde qué combi: con cobradores a bordo el
+                      nombre ya no alcanza para saber de qué unidad viene */}
+                  {!own && (
+                    <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 2, color: sos ? HUD.burbujaSosInk : HUD.fg2 }}>
+                      {quien}
+                      {m.unit && m.unit !== m.from && <span style={{ ...dato(11, sos ? HUD.burbujaSosInk : HUD.dim2) }}> · {m.unit}</span>}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 14, lineHeight: 1.45, overflowWrap: 'anywhere' }}>
+                    {m.voice
+                      ? (m.audio
+                          ? <audio controls src={m.audio} style={{ width: 220, height: 36, display: 'block' }} />
+                          : m.aparte && onCargar
+                          // Vino sin contenido para no hacer pesado el
+                          // historial: se pide al tocarla
+                          ? <button data-cargar={m.msgId} onClick={() => onCargar(m.msgId)} style={btnChico(HUD.fg2)}><Icono n="mic" tam={14} />Cargar nota de voz ({m.voice}s)</button>
+                          : <span style={{ color: HUD.dim2, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icono n="mic" tam={14} />Nota de voz ({m.voice}s{m.expired ? ' · expirada' : ''})</span>)
+                      : m.photo
+                      ? (m.image
+                          // Se abre en pestaña nueva: lo que mandan —una chapa,
+                          // un desperfecto— hay que poder mirarlo en grande.
+                          ? <div>
+                              <a href={m.image} target="_blank" rel="noreferrer">
+                                <img src={m.image} alt={m.text}
+                                  style={{ maxWidth: 240, borderRadius: 10, display: 'block', cursor: 'zoom-in' }} />
+                              </a>
+                              {m.text && m.text !== 'Foto' && <div style={{ marginTop: 4 }}>{m.text}</div>}
+                            </div>
+                          : m.aparte && onCargar
+                          ? <button data-cargar={m.msgId} onClick={() => onCargar(m.msgId)} style={btnChico(HUD.fg2)}><Icono n="camara" tam={14} />Cargar foto{m.text && m.text !== 'Foto' ? ` · ${m.text}` : ''}</button>
+                          : <span style={{ color: HUD.dim2, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icono n="camara" tam={14} />{m.text} · ya no disponible</span>)
+                      : m.text}
+                  </div>
+                  <div style={{
+                    fontSize: 11, marginTop: 2, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                    color: sos ? HUD.burbujaSosInk : own ? HUD.burbujaPropiaInk : HUD.dim3,
+                  }}>{m.time}</div>
                 </div>
                 {sos && m.atendido && (
-                  <div style={{ ...rotulo(9, HUD.dim2), marginTop: 6 }}>{m.atendido}</div>
+                  <div style={{ ...rotulo(9, HUD.dim2), marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Icono n="check" tam={13} grosor={2.2} />{m.atendido}
+                  </div>
                 )}
                 <Evidencia m={m} onEvidencia={onEvidencia} />
               </div>
@@ -768,22 +1135,24 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
       </div>
 
       {noSalio && (
-        <div style={{ padding: '8px 14px 0', fontSize: 12, fontWeight: 700, color: HUD.amber }}>
+        <div role="alert" style={{ padding: '8px 14px 0', fontSize: 13, fontWeight: 700, color: HUD.ambarTinta2, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <Icono n="sinSenal" tam={15} style={{ marginTop: 1 }} />
           Sin conexión: el mensaje no salió. Queda escrito para mandarlo cuando vuelva.
         </div>
       )}
-      <div style={{ padding: '12px 14px', borderTop: `1px solid ${HUD.divider}`, display: 'flex', gap: 8 }}>
+      <div style={{ padding: '10px 12px', borderTop: `1px solid ${HUD.divider}`, display: 'flex', gap: 8, alignItems: 'center' }}>
         <input
           value={draft}
           onChange={e => { setDraft(e.target.value); setNoSalio(false); }}
           onKeyDown={e => { if (e.key === 'Enter') send(); }}
           placeholder={privadoCon ? `Mensaje solo para ${nombreDe(privadoCon)}…` : 'Escribí al canal de la ruta…'}
-          style={{ ...campo(40), flex: 1 }}
+          style={{ ...campo(44), flex: 1, borderRadius: 22, padding: '0 16px' }}
         />
-        <button onClick={send} style={{
-          width: 44, height: 40, borderRadius: 10, border: 'none',
-          background: HUD.bright, color: '#fff', fontSize: 16, cursor: 'pointer',
-        }}>➤</button>
+        <button onClick={send} aria-label="Enviar" title="Enviar" style={{
+          width: 44, height: 44, borderRadius: '50%', border: 'none', flexShrink: 0,
+          background: HUD.bright, color: '#fff', cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}><Icono n="enviar" tam={19} /></button>
       </div>
     </div>
   );
@@ -1146,7 +1515,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
       }}>
         <span style={{ fontFamily: black, fontSize: 17 }}>Trazador</span>
         <span style={{
-          ...rotulo(10, HUD.dim2), letterSpacing: 1.5, minWidth: 0,
+          ...rotulo(10, HUD.dim2), minWidth: 0,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>{routeId}{routeName ? ` · ${routeName}` : ''}</span>
         <div style={{ flex: 1 }} />
@@ -1263,7 +1632,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
               }}>{variante ? variante.name : (routeName || routeId)}</div>
             )}
             {desalineado && (
-              <div style={{ ...rotulo(10, HUD.amber), letterSpacing: 1, marginTop: 8 }}>
+              <div style={{ ...rotulo(10, HUD.amber), marginTop: 8 }}>
                 ◇ No es el que mide hoy
               </div>
             )}
@@ -1292,13 +1661,13 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+            <div style={{ padding: '12px 14px', borderRadius: 12, background: HUD.bg }}>
               <div style={rotulo(9)}>Puntos</div>
               <div style={{ fontFamily: black, fontSize: 22, marginTop: 4 }}>
                 {puntos ? puntos.length : '—'}
               </div>
             </div>
-            <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+            <div style={{ padding: '12px 14px', borderRadius: 12, background: HUD.bg }}>
               <div style={rotulo(9)}>Largo</div>
               <div style={{ fontFamily: black, fontSize: 22, marginTop: 4 }}>
                 {puntos ? kmDe(puntos) : '—'}
@@ -1469,11 +1838,11 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
 // que lo toque a ver qué pasa.
 function Seccion({ titulo, bajada, children }) {
   return (
-    <div>
-      <div style={{ fontFamily: black, fontSize: 24, letterSpacing: -0.3 }}>{titulo}</div>
+    <div style={{ animation: 'aparecer .2s ease-out' }}>
+      <div style={{ fontFamily: black, fontSize: 26, letterSpacing: -0.3, lineHeight: 1.15 }}>{titulo}</div>
       <div style={{
-        fontSize: 13, color: HUD.dim2, lineHeight: 1.5,
-        maxWidth: 640, margin: '8px 0 20px',
+        fontSize: 14, color: HUD.fg2, lineHeight: 1.55, textWrap: 'pretty',
+        maxWidth: 680, margin: '8px 0 22px',
       }}>{bajada}</div>
       {children}
     </div>
@@ -1489,8 +1858,8 @@ function Tabla({ cols, cabeceras, ancho, children }) {
   return (
     <div style={{ overflowX: 'auto' }}>
       <div style={{
-        border: `1px solid ${HUD.divider}`, borderRadius: 12, overflow: 'hidden',
-        minWidth: ancho || 0,
+        border: `1px solid ${HUD.divider}`, borderRadius: 14, overflow: 'hidden',
+        minWidth: ancho || 0, background: HUD.surface,
       }}>
         <div style={{
           ...rejilla, padding: '10px 14px', background: HUD.bg,
@@ -1511,17 +1880,25 @@ function Tabla({ cols, cabeceras, ancho, children }) {
 
 function FilaTabla({ cols, children }) {
   return (
-    <div style={{
+    <div data-fila style={{
       display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center',
       padding: '11px 14px', borderBottom: `1px solid ${HUD.hueco}`,
     }}>{children}</div>
   );
 }
 
-// Nota al pie de una sección: lo que hay que saber y no entra en la bajada
+// Lo que hay que saber y no entra en la bajada. Era letra chica gris al pie;
+// ahora es una nota con su ícono, en el tamaño del cuerpo.
 function Pie({ children }) {
   return (
-    <div style={{ marginTop: 14, fontSize: 12, color: HUD.dim3, lineHeight: 1.5 }}>{children}</div>
+    <div style={{
+      marginTop: 18, maxWidth: 780, display: 'flex', gap: 10, alignItems: 'flex-start',
+      padding: '12px 14px', borderRadius: 12, background: HUD.hueco,
+      fontSize: 13, color: HUD.fg2, lineHeight: 1.55,
+    }}>
+      <Icono n="info" tam={18} style={{ color: HUD.bright, marginTop: 1 }} />
+      <div style={{ minWidth: 0, textWrap: 'pretty' }}>{children}</div>
+    </div>
   );
 }
 
@@ -1609,14 +1986,38 @@ function PanelConsentimiento({ users, vigente, api, run, busy }) {
   );
 }
 
-function Vacio({ children }) {
-  return <div style={{ padding: '18px 14px', fontSize: 14, color: HUD.dim3 }}>{children}</div>;
+// Un estado vacío no es una línea gris en una pantalla vacía: dice qué pasa
+// y, si hay, qué hacer. «Cargando…» es el único que va en una línea.
+function Vacio({ children, icono, titulo, accion }) {
+  if (children === 'Cargando…') {
+    return (
+      <div style={{
+        padding: '18px 14px', display: 'flex', alignItems: 'center', gap: 10,
+        fontSize: 14, color: HUD.dim2, animation: 'cargando 1.4s ease-in-out infinite',
+      }}><Icono n="reloj" tam={16} />Cargando…</div>
+    );
+  }
+  return (
+    <div style={{
+      padding: '26px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center',
+      textAlign: 'center', gap: 8, animation: 'aparecer .2s ease-out',
+    }}>
+      <span style={{
+        width: 48, height: 48, borderRadius: '50%', marginBottom: 4,
+        background: HUD.hueco, color: HUD.dim,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      }}><Icono n={icono || 'vacio'} tam={22} /></span>
+      {titulo && <div style={{ fontSize: 15, fontWeight: 800, color: HUD.fg }}>{titulo}</div>}
+      <div style={{ fontSize: 14, color: HUD.dim2, lineHeight: 1.5, maxWidth: 420, textWrap: 'pretty' }}>{children}</div>
+      {accion && <div style={{ marginTop: 6 }}>{accion}</div>}
+    </div>
+  );
 }
 
 // Punto de conexión
 function Punto({ on, title }) {
   return <span title={title} style={{
-    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
     background: on ? HUD.green : HUD.apagado,
   }} />;
 }
@@ -1643,18 +2044,22 @@ function Confirmacion({ kicker, tono, titulo, cuerpo, aceptar, onAceptar, onCanc
     <div style={{
       position: 'fixed', inset: 0, zIndex: 4000, background: HUD.velo,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+      animation: 'velo .18s ease-out',
     }} onClick={onCancelar}>
-      <div onClick={e => e.stopPropagation()} style={{
+      <div role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} style={{
         width: 520, maxWidth: '100%', background: HUD.surface,
-        border: `1px solid ${HUD.line}`, borderRadius: 16, padding: 24,
-        boxShadow: '0 30px 60px -30px rgba(11,34,57,.55)',
+        border: `1px solid ${HUD.line}`, borderRadius: 18, padding: 24,
+        boxShadow: HUD.sombraAlta, animation: 'aparecer .2s ease-out',
       }}>
-        <div style={{ ...rotulo(10, fuerte), letterSpacing: 1.6, marginBottom: 10 }}>{kicker}</div>
+        <div style={{ ...rotulo(10, tono === 'red' ? HUD.rojoTinta : HUD.ambarTinta), fontWeight: 800,
+          marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icono n="alerta" tam={16} grosor={2} style={{ color: fuerte }} />{kicker}
+        </div>
         <div style={{ fontFamily: black, fontSize: 21, lineHeight: 1.25 }}>{titulo}</div>
         <div style={{
-          background: fondo, border: `1px solid ${borde}`, borderLeft: `3px solid ${fuerte}`,
-          borderRadius: 11, padding: 13, margin: '16px 0 20px',
-          fontSize: 13, lineHeight: 1.6, color: tinta,
+          background: fondo, border: `1px solid ${borde}`,
+          borderRadius: 12, padding: 14, margin: '16px 0 20px',
+          fontSize: 14, lineHeight: 1.6, color: tinta,
         }}>{cuerpo}</div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button data-confirmar-aceptar onClick={() => { if (armado) onAceptar(); }} disabled={!armado} style={{
@@ -1799,7 +2204,7 @@ function CargaMasiva({ api, onListo }) {
   );
 }
 
-function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca, refrescarMarca, onEscribir, avisoSos }) {
+function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca, refrescarMarca, onEscribir }) {
   const [tab, setTab] = React.useState('users'); // users | vehicles | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
   const [events, setEvents] = React.useState(null);
@@ -2203,7 +2608,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
     ['Operación del día', [
       ['users', 'Personas', users ? users.length : null],
       ['vehicles', 'Vehículos', vehicles ? vehicles.length : null],
-      ['shifts', 'Turnos', { hoy: 'hoy', ayer: 'ayer', semana: '7 días' }[rangoTurnos]],
+      ['shifts', 'Turnos', null],
     ]],
     ['Ruta y medición', [
       ['routes', 'Rutas', routeList.length || null],
@@ -2217,7 +2622,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
       // adentro del panel. Solo la ve la cuenta de gerencia: nadie audita su
       // propio trabajo.
       ...(esGerente ? [['gerencia', 'Números', null]] : []),
-      ['audit', 'Actividad', '↺'],
+      ['audit', 'Actividad', null],
     ]],
   ];
   const TITULOS = {
@@ -2240,73 +2645,67 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
+  const ICONO_TAB = {
+    users: 'personas', vehicles: 'vehiculo', shifts: 'reloj', routes: 'ruta', metrics: 'vueltas',
+    trabas: 'traba', informes: 'informe', empresa: 'empresa', gerencia: 'numeros', audit: 'actividad',
+  };
   const rielItem = (key, etiqueta, cuenta) => (
-    <button key={key} onClick={() => setTab(key)} style={{
-      display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-      padding: '9px 10px', borderRadius: 9, border: 'none', cursor: 'pointer',
-      textAlign: 'left', fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
-      background: tab === key ? HUD.surface : 'transparent',
-      color: tab === key ? HUD.fg : HUD.dim,
+    <button key={key} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined} style={{
+      display: 'flex', alignItems: 'center', gap: 10, width: '100%', height: 38,
+      padding: '0 10px', borderRadius: 10, border: 'none', cursor: 'pointer',
+      textAlign: 'left', fontSize: 14, fontWeight: tab === key ? 700 : 600, fontFamily: 'inherit',
+      background: tab === key ? HUD.azulFondo : 'transparent',
+      color: tab === key ? HUD.azulTinta : HUD.fg2,
     }}>
-      <span style={{
-        width: 3, height: 16, borderRadius: 2, flexShrink: 0,
-        background: tab === key ? HUD.bright : 'transparent',
-      }} />
+      <Icono n={ICONO_TAB[key]} tam={18} style={{ color: tab === key ? HUD.bright : HUD.dim }} />
       <span style={{ flex: 1, minWidth: 0 }}>{etiqueta}</span>
       {cuenta !== null && cuenta !== undefined && (
-        <span style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.dim3 }}>{cuenta}</span>
+        <span style={{
+          ...dato(11, tab === key ? HUD.azulTinta : HUD.dim2),
+          background: tab === key ? HUD.surface : HUD.hueco, borderRadius: 10, padding: '1px 7px',
+        }}>{cuenta}</span>
       )}
     </button>
   );
 
   const [tituloSec, bajadaSec] = TITULOS[tab] || ['', ''];
 
+  // Gestión es una vista del mismo panel: la cabecera de arriba sigue (con
+  // su botón para volver al mapa), y esto ocupa el resto. Antes era un
+  // overlay a pantalla completa con su propia cabecera y una «✕ Volver al
+  // mapa» que la hacía parecer otra aplicación.
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 3000, background: HUD.bg,
+      flex: 1, minHeight: 0, background: HUD.bg,
       display: 'flex', flexDirection: 'column',
     }}>
-      {/* header */}
-      <div style={{
-        height: 60, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12,
-        padding: '0 18px', background: HUD.surface,
-        borderBottom: `1px solid ${HUD.divider}`,
-      }}>
-        <span style={{ fontFamily: black, fontSize: 17 }}>Gestión</span>
-        <span style={{
-          ...rotulo(10, HUD.dim2), letterSpacing: 1.5, minWidth: 0,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {session.companyName || session.companyId || ''}{currentRoute ? ` · ${currentRoute}` : ''}
-        </span>
-        <div style={{ flex: 1 }} />
-        <button onClick={onClose} style={btnSecundario(36)}>✕ Volver al mapa</button>
-      </div>
-
-      {/* El SOS sin atender también acá: Gestión tapa el mapa entero */}
-      {avisoSos && <div data-sos-en-gestion style={{ flexShrink: 0 }}>{avisoSos}</div>}
-
       <div style={{
         flex: 1, minHeight: 0,
-        display: 'grid', gridTemplateColumns: angosto ? '1fr' : '232px 1fr',
+        display: 'grid', gridTemplateColumns: angosto ? '1fr' : '250px 1fr',
       }}>
         {!angosto && (
-          <div style={{
-            background: HUD.bg, borderRight: `1px solid ${HUD.divider}`,
-            padding: '16px 12px', overflowY: 'auto',
+          <nav aria-label="Secciones de Gestión" style={{
+            background: HUD.surface, borderRight: `1px solid ${HUD.divider}`,
+            padding: '14px 12px', overflowY: 'auto', overflowX: 'hidden',
           }}>
+            <button onClick={onClose} style={{
+              ...btnFantasma(36), width: '100%', justifyContent: 'flex-start', marginBottom: 14, color: HUD.bright,
+            }}><Icono n="atras" tam={16} grosor={2.2} />Volver al mapa</button>
             {GRUPOS.map(([titulo, items]) => (
-              <div key={titulo} style={{ marginBottom: 14 }}>
-                <div style={{ ...rotulo(9), letterSpacing: 1.6, padding: '0 8px 8px' }}>{titulo}</div>
-                {items.map(([k, e, c]) => rielItem(k, e, c))}
+              <div key={titulo} style={{ marginBottom: 16 }}>
+                <div style={{ ...rotulo(9), padding: '0 10px 6px' }}>{titulo}</div>
+                <div style={{ display: 'grid', gap: 2 }}>{items.map(([k, e, c]) => rielItem(k, e, c))}</div>
               </div>
             ))}
-          </div>
+            <div style={{ padding: '4px 10px', fontSize: 12, color: HUD.dim2, lineHeight: 1.45 }}>
+              {session.companyName || session.companyId || ''}{currentRoute ? <span style={dato(11, HUD.dim2)}> · {currentRoute}</span> : null}
+            </div>
+          </nav>
         )}
 
-        {/* contenido */}
-        <div style={{ overflowY: 'auto', padding: angosto ? '16px 14px 40px' : '24px 28px 40px' }}>
-          <div style={{ maxWidth: tab === 'gerencia' ? 1200 : 940 }}>
+        {/* contenido: aprovecha el ancho (antes 940 px fijos y vacío a la derecha) */}
+        <div style={{ overflowY: 'auto', overflowX: 'hidden', minWidth: 0, padding: angosto ? '16px 14px 40px' : '28px 36px 48px' }}>
+          <div style={{ maxWidth: tab === 'gerencia' ? 1440 : 1200 }}>
             {angosto && (
               <select value={tab} onChange={e => setTab(e.target.value)}
                 style={{ ...campo(44), width: '100%', marginBottom: 18, fontWeight: 700, cursor: 'pointer' }}>
@@ -2320,22 +2719,23 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
               </select>
             )}
             {error && (
-              <div style={{
+              <div role="alert" style={{
+                display: 'flex', gap: 8, alignItems: 'flex-start',
                 background: HUD.rojoFondo, border: `1px solid ${HUD.rojoBorde}`,
-                borderLeft: `3px solid ${HUD.red}`, borderRadius: 11,
-                padding: '11px 13px', marginBottom: 16,
-                fontSize: 13, fontWeight: 700, color: HUD.rojoTinta,
-              }}>{error}</div>
+                borderRadius: 12, padding: '11px 13px', marginBottom: 16,
+                fontSize: 13, fontWeight: 700, color: HUD.rojoTinta, animation: 'aparecer .18s ease-out',
+              }}><Icono n="alerta" tam={16} style={{ marginTop: 1 }} />{error}</div>
             )}
             {okMsg && (
               <div style={{
+                display: 'flex', gap: 8, alignItems: 'flex-start',
                 background: HUD.verdeFondo, border: `1px solid ${HUD.verdeBorde}`,
-                borderRadius: 11, padding: '11px 13px', marginBottom: 16,
-                fontSize: 13, fontWeight: 700, color: HUD.verdeTinta,
-              }}>{okMsg}</div>
+                borderRadius: 12, padding: '11px 13px', marginBottom: 16,
+                fontSize: 13, fontWeight: 700, color: HUD.verdeTinta, animation: 'aparecer .18s ease-out',
+              }}><Icono n="check" tam={16} grosor={2.2} style={{ marginTop: 1 }} />{okMsg}</div>
             )}
 
-            <Seccion titulo={tituloSec} bajada={bajadaSec}>
+            <Seccion key={tab} titulo={tituloSec} bajada={bajadaSec}>
 
             {/* ─── PERSONAS ─────────────────────────────────────── */}
             {tab === 'users' && (<div>
@@ -2510,7 +2910,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   : u.role === 'collector' ? 'collector' : 'driver';
                 const lista = users.filter(u =>
                   (!q || coincide(u, q)) && (!filtroRol || rolDe(u) === filtroRol));
-                const cols = '128px 1fr 80px 96px 110px 312px';
+                const cols = '170px minmax(0, 1fr) 90px 100px 150px 230px';
                 return (
                   <Tabla cols={cols} ancho={900}
                     cabeceras={['Persona', 'Identidad', 'Rol', 'Unidad', 'Última conexión', 'Acciones']}>
@@ -2519,6 +2919,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       <React.Fragment key={u.unitId}>
                         <FilaTabla cols={cols}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                            <Avatar nombre={u.name || u.driverName || u.unitId} tam={30} />
                             <Punto on={u.online} title={u.online ? 'Conectado' : 'Desconectado'} />
                             <span style={{
                               fontFamily: black, fontSize: 14, minWidth: 0,
@@ -2546,7 +2947,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             )}
                             {u.todaLaRuta && <span style={{ color: HUD.dim3, fontWeight: 400 }}> · ruta</span>}
                           </span>
-                          <span style={{ fontFamily: mono, fontSize: 11, color: u.lastLogin || u.online ? HUD.dim3 : HUD.amber }}>
+                          <span style={{ fontSize: 12, fontWeight: u.online ? 700 : 500, color: u.online ? HUD.verdeTinta : HUD.dim2 }}>
                             {u.online ? 'conectado' : u.lastLogin ? fmtWhen(u.lastLogin) : 'nunca entró'}
                             {/* Qué APK tiene (lo declara la app al entrar y en cada envío):
                                 sin esto no se sabe quién tiene cuál cuando un APK cambia
@@ -2555,65 +2956,65 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             {/* Y la actualización sin reinstalar que tomó (PENDIENTES 0.11) */}
                             {u.appVersionCode && u.appActualizacion ? ` · act. ${fechaActualizacion(u.appActualizacion)}` : ''}
                           </span>
-                          <span style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                            {/* La clave de una cuenta de Despacho la cambia la gerencia
-                                (o su dueño, desde su perfil): entre colegas de Despacho no,
-                                que una cuenta por persona es para saber quién hizo qué
-                                (auditoría 11/11; el servidor también lo rechaza) */}
-                            {u.role !== 'manager' && (u.role !== 'dispatch' || esGerente) && (
-                            <button onClick={() => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setCombisFor(null); setResetPass(''); }}
-                              style={btnChico(HUD.fg2)}>Clave</button>
-                            )}
-                            {u.role !== 'dispatch' && u.role !== 'manager' && onEscribir && (
-                              <button title="Escribirle en privado, solo a esta persona (en la combi que esté)"
-                                onClick={() => onEscribir(u.unitId, u.alias || u.name || u.unitId, u.routeId)}
-                                style={btnChico(HUD.fg2)}>Escribir</button>
-                            )}
-                            {u.role !== 'dispatch' && u.role !== 'manager' && (
-                              <button title="Las combis que puede elegir en la puerta, y la de hoy"
-                                onClick={() => {
-                                  setCombisFor(u.unitId);
-                                  // Las habilitadas más la de hoy (que puede no estar entre
-                                  // ellas), y «la de hoy» nunca vacía si hay alguna: con
-                                  // `vehicleId` null el select mostraba la primera y se
-                                  // guardaba nada (revisión previa a la APK)
-                                  const combis = [...new Set([...(u.combis || []), u.vehicleId].filter(Boolean))];
-                                  setCombisForm({
-                                    combis, actual: u.vehicleId || combis[0] || null, todaLaRuta: !!u.todaLaRuta,
-                                  });
-                                  setEditFor(null); setResetFor(null); setConfirmDel(null);
-                                }}
-                                style={btnChico(HUD.fg2)}>Combis</button>
-                            )}
-                            {u.role !== 'dispatch' && u.role !== 'manager' && (
-                              <button title="Corregir nombre o alias"
-                                onClick={() => {
-                                  setEditFor(u.unitId);
-                                  setEditForm({ name: u.name || u.driverName || '', alias: u.alias || '' });
-                                  setResetFor(null); setConfirmDel(null); setCombisFor(null);
-                                }}
-                                style={btnChico(HUD.fg2)}>Editar</button>
-                            )}
-                            {u.role !== 'dispatch' && u.role !== 'manager' && (
-                              <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); setCombisFor(null); }}
-                                style={btnChico(HUD.red, HUD.rojoBorde)}>Baja</button>
-                            )}
-                            {/* La baja no tiene vuelta atrás. El «¿Confirmar?»
-                                aparecía en el MISMO lugar que «Baja», y un
-                                doble clic daba de baja a la persona (auditoría
-                                11/11). Ahora es un diálogo que nombra a quién y
-                                qué se pierde, con el botón en otro lugar. */}
-                            {confirmDel === u.unitId && (
-                              <Confirmacion kicker="Dar de baja" tono="red"
-                                titulo={`¿Dar de baja a ${u.name || u.driverName || u.unitId} (${u.unitId})?`}
-                                cuerpo={<>No se puede deshacer. Se cierra su sesión en el acto
-                                  {u.vehicleId ? ` y, si está manejando ${u.vehicleId}, sale de ruta` : ''}.
-                                  Se borran sus mensajes privados que no se guardaron como evidencia.
-                                  Sus horas y sus vueltas quedan en los informes.</>}
-                                aceptar={busy ? 'Dando de baja…' : 'Sí, dar de baja'}
-                                onAceptar={() => { if (!busy) remove(u.unitId); }}
-                                onCancelar={() => setConfirmDel(null)} />
-                            )}
+                          <span style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', alignItems: 'center' }}>
+                            {(() => {
+                              const deRuta = u.role !== 'dispatch' && u.role !== 'manager';
+                              const abrirClave = () => { setResetFor(u.unitId); setConfirmDel(null); setEditFor(null); setCombisFor(null); setResetPass(''); };
+                              // Una acción a la vista —la que más se usa— y el
+                              // resto en «⋯». Antes eran cinco botones con borde
+                              // por fila: un muro gris.
+                              return (<>
+                                {deRuta && onEscribir ? (
+                                  <button title="Escribirle en privado, solo a esta persona (en la combi que esté)"
+                                    onClick={() => onEscribir(u.unitId, u.alias || u.name || u.unitId, u.routeId)}
+                                    style={btnChico(HUD.fg2)}><Icono n="chat" tam={14} />Escribir</button>
+                                ) : u.role !== 'manager' && (u.role !== 'dispatch' || esGerente) ? (
+                                  // La clave de una cuenta de Despacho la cambia la
+                                  // gerencia (o su dueño, desde su perfil): entre
+                                  // colegas no (auditoría 11/11; el servidor también
+                                  // lo rechaza)
+                                  <button onClick={abrirClave} style={btnChico(HUD.fg2)}><Icono n="llave" tam={14} />Clave</button>
+                                ) : null}
+                                <Menu titulo={`Más acciones para ${u.unitId}`} data={{ 'data-acciones': u.unitId }} items={[
+                                  deRuta && onEscribir && { label: 'Clave nueva', icono: 'llave', onClick: abrirClave },
+                                  deRuta && { label: 'Combis', icono: 'vehiculo', onClick: () => {
+                                    setCombisFor(u.unitId);
+                                    // Las habilitadas más la de hoy (que puede no estar entre
+                                    // ellas), y «la de hoy» nunca vacía si hay alguna: con
+                                    // `vehicleId` null el select mostraba la primera y se
+                                    // guardaba nada (revisión previa a la APK)
+                                    const combis = [...new Set([...(u.combis || []), u.vehicleId].filter(Boolean))];
+                                    setCombisForm({
+                                      combis, actual: u.vehicleId || combis[0] || null, todaLaRuta: !!u.todaLaRuta,
+                                    });
+                                    setEditFor(null); setResetFor(null); setConfirmDel(null);
+                                  } },
+                                  deRuta && { label: 'Editar', icono: 'editar', onClick: () => {
+                                    setEditFor(u.unitId);
+                                    setEditForm({ name: u.name || u.driverName || '', alias: u.alias || '' });
+                                    setResetFor(null); setConfirmDel(null); setCombisFor(null);
+                                  } },
+                                  deRuta && { label: 'Baja', icono: 'baja', tono: 'rojo', onClick: () => {
+                                    setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); setCombisFor(null);
+                                  } },
+                                ]} />
+                                {/* La baja no tiene vuelta atrás: se confirma en un
+                                    diálogo que nombra a quién y qué se pierde, con el
+                                    botón en otro lugar y armado un momento después
+                                    (auditoría 11/11: un doble clic daba de baja) */}
+                                {confirmDel === u.unitId && (
+                                  <Confirmacion kicker="Dar de baja" tono="red"
+                                    titulo={`¿Dar de baja a ${u.name || u.driverName || u.unitId} (${u.unitId})?`}
+                                    cuerpo={<>No se puede deshacer. Se cierra su sesión en el acto
+                                      {u.vehicleId ? ` y, si está manejando ${u.vehicleId}, sale de ruta` : ''}.
+                                      Se borran sus mensajes privados que no se guardaron como evidencia.
+                                      Sus horas y sus vueltas quedan en los informes.</>}
+                                    aceptar={busy ? 'Dando de baja…' : 'Sí, dar de baja'}
+                                    onAceptar={() => { if (!busy) remove(u.unitId); }}
+                                    onCancelar={() => setConfirmDel(null)} />
+                                )}
+                              </>);
+                            })()}
                           </span>
                         </FilaTabla>
                         {/* Las combis que puede manejar. Se marcan las que
@@ -2872,7 +3273,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       : ['A MANO', HUD.hueco, HUD.dim2];
                 return (
                   <div key={r.routeId} style={{
-                    border: `1px solid ${HUD.divider}`, borderRadius: 12, padding: 16, marginBottom: 14,
+                    border: `1px solid ${r.routeId === currentRoute ? HUD.azulBorde : HUD.divider}`, borderRadius: 16, padding: 18, marginBottom: 14,
                     background: r.routeId === currentRoute ? HUD.filaActiva : HUD.surface,
                   }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -2880,12 +3281,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       <span style={{ fontSize: 14, color: HUD.dim }}>{r.name}</span>
                       <div style={{ flex: 1 }} />
                       <span style={{
-                        fontFamily: mono, fontSize: 11, fontWeight: 700,
-                        color: r.enLinea > 0 ? HUD.green : HUD.dim3,
-                      }}>{r.unidades} UNID · {r.enLinea} EN LÍNEA</span>
+                        display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700,
+                        color: r.enLinea > 0 ? HUD.verdeTinta : HUD.dim2,
+                      }}><Punto on={r.enLinea > 0} />{r.unidades} {r.unidades === 1 ? 'unidad' : 'unidades'} · {r.enLinea} en línea</span>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                      <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+                      <div style={{ padding: '12px 14px', borderRadius: 12, background: HUD.bg }}>
                         <div style={rotulo(9)}>Objetivo de brecha</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '6px 0 10px' }}>
                           <span style={{ fontFamily: black, fontSize: 20 }}>
@@ -2899,7 +3300,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                   ? `Por ahora vale el manual de ${r.targetGapMin} min`
                                   : 'Fijado a mano'
                             } style={{
-                              ...rotulo(10, chip[2]), letterSpacing: .8,
+                              ...rotulo(10, chip[2]),
                               background: chip[1], borderRadius: 5, padding: '3px 7px',
                             }}>{chip[0]}</span>
                           )}
@@ -2914,23 +3315,26 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                         </button>
                       </div>
 
-                      <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+                      <div style={{ padding: '12px 14px', borderRadius: 12, background: HUD.bg }}>
                         <div style={rotulo(9)}>Recorrido cargado</div>
+                        {/* Sin recorrido no es una alarma: es lo que falta hacer, y
+                            el botón para hacerlo es lo que tiene que verse. */}
                         <div style={{
-                          fontFamily: black, fontSize: 20, margin: '6px 0 10px',
-                          color: r.puntos ? HUD.fg : HUD.amber,
+                          fontFamily: r.puntos ? black : 'inherit', fontSize: r.puntos ? 20 : 15,
+                          fontWeight: r.puntos ? 400 : 700, margin: '6px 0 10px',
+                          color: r.puntos ? HUD.fg : HUD.fg2,
                         }}>
-                          {r.puntos ? `${r.puntos} pts · ${(r.largoM / 1000).toFixed(1)} km` : 'sin recorrido'}
+                          {r.puntos ? `${r.puntos} pts · ${(r.largoM / 1000).toFixed(1)} km` : 'Todavía sin recorrido dibujado'}
                         </div>
                         <button onClick={() => setTrazando(r)}
                           title="Cargar o corregir el recorrido de esta ruta en el mapa"
-                          style={btnChico(HUD.fg2)}>Abrir trazador</button>
+                          style={r.puntos ? btnSecundario(34) : btnPrimario(36)}><Icono n="editar" tam={15} />Abrir trazador</button>
                       </div>
 
                       {/* Despacho ELIGE entre los trazados cargados; crearlos y
                           borrarlos es cartografía y se hace desde el nivel de
                           arriba. Con uno solo, elegir no es una decisión. */}
-                      <div style={{ ...tarjeta('11px 12px'), borderRadius: 10 }}>
+                      <div style={{ padding: '12px 14px', borderRadius: 12, background: HUD.bg }}>
                         <div style={rotulo(9)}>Se mide con</div>
                         <div style={{
                           fontFamily: black, fontSize: 20, margin: '6px 0 10px',
@@ -3176,7 +3580,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     diaImpreso = k;
                     filas.push(
                       <div key={'dia-' + k} style={{
-                        ...rotulo(9, HUD.dim2), letterSpacing: 1.6,
+                        ...rotulo(9, HUD.dim2),
                         padding: '8px 14px', background: HUD.hueco,
                         borderBottom: `1px solid ${HUD.divider}`,
                       }}>{rotuloDia(t.startedAt)}</div>
@@ -3608,14 +4012,14 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 return (
                   <div>
                     {recortado && (
-                      <div style={{ ...rotulo(10, HUD.amber), letterSpacing: 1.2, margin: '0 0 12px 14px' }}>
+                      <div style={{ ...rotulo(10, HUD.amber), margin: '0 0 12px 14px' }}>
                         El servidor manda como mucho las 500 más recientes de cada cosa: en este período hay más, y lo de abajo es una muestra.
                       </div>
                     )}
                     {/* ── DÓNDE SE PARA ── */}
                     {porPunto.length > 0 && (
                       <div>
-                        <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                        <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>
                           Dónde se para · {medidas.length} parada(s) medidas
                         </div>
                         <Tabla cols={(variasRutas ? '80px ' : '') + '90px 140px 1fr 1fr 1fr 1.4fr'} ancho={variasRutas ? 840 : 760}
@@ -3659,7 +4063,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     {/* ── A QUÉ HORA ── */}
                     {porHora.length > 0 && (
                       <div style={{ marginTop: 22 }}>
-                        <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>A qué hora</div>
+                        <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>A qué hora</div>
                         <div style={{
                           border: `1px solid ${HUD.divider}`, borderRadius: 12,
                           padding: '14px 16px', background: HUD.surface,
@@ -3698,7 +4102,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     {/* ── DÓNDE SE CORTA LA SEÑAL ── */}
                     {porCorte.length > 0 && (
                       <div style={{ marginTop: 22 }}>
-                        <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                        <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>
                           Dónde se corta la señal · {trabas.huecos.length} corte(s)
                         </div>
                         <Tabla cols={(variasRutas ? '80px ' : '') + '140px 1fr 1fr 1fr 1.4fr'} ancho={variasRutas ? 780 : 700}
@@ -3734,7 +4138,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     {/* ── LAS PARADAS MÁS LARGAS, UNA POR UNA ── */}
                     {medidas.length > 0 && (
                       <div style={{ marginTop: 22 }}>
-                        <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                        <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>
                           Las más largas
                         </div>
                         <Tabla cols="150px 110px 80px 130px 90px 1.2fr" ancho={800}
@@ -3762,7 +4166,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     {/* ── ANOMALÍAS ── */}
                     {trabas.anomalias.length > 0 && (
                       <div style={{ marginTop: 22 }}>
-                        <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                        <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>
                           Anomalías · {trabas.anomalias.length}
                         </div>
                         <Tabla cols="150px 110px 170px 1.6fr" ancho={760}
@@ -3914,21 +4318,18 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
             {tab === 'empresa' && (<div>
               {!empresa && <Vacio>Cargando…</Vacio>}
               {empresa && (<div>
-                <div style={{
-                  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                  gap: 12, marginBottom: 22,
-                }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 22 }}>
                   {[
-                    ['Rutas', empresa.resumen.rutas],
-                    ['Vehículos', empresa.resumen.vehiculos],
-                    ['Personas', empresa.resumen.personas],
-                    [empresa.resumen.despacho === 1 ? 'Cuenta de despacho' : 'Cuentas de despacho', empresa.resumen.despacho],
-                    ['En línea ahora', empresa.resumen.enLinea],
-                  ].map(([etiqueta, valor]) => (
-                    <div key={etiqueta} style={{ ...tarjeta(14), background: HUD.bg }}>
-                      <div style={{ fontFamily: black, fontSize: 22 }}>{valor}</div>
-                      <div style={{ ...rotulo(9), marginTop: 4 }}>{etiqueta}</div>
-                    </div>
+                    [empresa.resumen.rutas, empresa.resumen.rutas === 1 ? 'ruta' : 'rutas', 'ruta'],
+                    [empresa.resumen.vehiculos, empresa.resumen.vehiculos === 1 ? 'vehículo' : 'vehículos', 'vehiculo'],
+                    [empresa.resumen.personas, empresa.resumen.personas === 1 ? 'persona' : 'personas', 'personas'],
+                    [empresa.resumen.despacho, empresa.resumen.despacho === 1 ? 'cuenta de despacho' : 'cuentas de despacho', 'gestion'],
+                    [empresa.resumen.enLinea, 'en línea ahora', 'vivo'],
+                  ].map(([valor, etiqueta, ic]) => (
+                    <span key={etiqueta} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px',
+                      borderRadius: 16, background: HUD.hueco, fontSize: 13, color: HUD.fg2,
+                    }}><Icono n={ic} tam={15} style={{ color: HUD.dim }} /><b style={{ color: HUD.fg }}>{valor}</b> {etiqueta}</span>
                   ))}
                 </div>
 
@@ -3945,15 +4346,15 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                       <div>
                         <div style={{ ...rotulo(9), marginBottom: 6 }}>RUC (opcional)</div>
-                        <input value={empForm.ruc} placeholder="20123456789"
+                        <input value={empForm.ruc} placeholder="Ej.: 20123456789"
                           onChange={e => setEmpForm({ ...empForm, ruc: e.target.value })}
-                          style={{ ...campo(44), width: '100%', fontFamily: mono }} />
+                          style={{ ...campo(44), width: '100%' }} />
                       </div>
                       <div>
                         <div style={{ ...rotulo(9), marginBottom: 6 }}>Contacto (opcional)</div>
-                        <input value={empForm.contacto} placeholder="Nombre y teléfono"
+                        <input value={empForm.contacto} placeholder="Ej.: Rosa Ticona, 951 234 567"
                           onChange={e => setEmpForm({ ...empForm, contacto: e.target.value })}
-                          style={{ ...campo(44), width: '100%', fontFamily: mono }} />
+                          style={{ ...campo(44), width: '100%' }} />
                       </div>
                     </div>
                     {/* A dónde llama o manda un SMS el chofer cuando el SOS no
@@ -3962,15 +4363,20 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                         de la oficina que de noche no contesta nadie. */}
                     <div>
                       <div style={{ ...rotulo(9), marginBottom: 6 }}>Teléfono de la central para emergencias</div>
-                      <input value={empForm.telefonoCentral || ''} placeholder="+51 951 234 567" inputMode="tel"
+                      <input value={empForm.telefonoCentral || ''} placeholder="Ej.: +51 951 234 567" inputMode="tel"
                         data-telefono-central
                         onChange={e => setEmpForm({ ...empForm, telefonoCentral: e.target.value })}
-                        style={{ ...campo(44), width: '100%', fontFamily: mono }} />
-                      <div style={{ fontSize: 12, color: HUD.dim2, marginTop: 6, lineHeight: 1.5 }}>
+                        style={{ ...campo(44), width: '100%' }} />
+                      {/* Es lo que salva un SOS sin internet: va como nota a la
+                          vista, en el tamaño del cuerpo, no en letra chica. */}
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 8, padding: '11px 13px',
+                        borderRadius: 12, background: HUD.azulFondo, color: HUD.azulTinta, fontSize: 14, lineHeight: 1.55 }}>
+                        <Icono n="info" tam={18} style={{ marginTop: 1 }} />
+                        <span>
                         Si un SOS no puede salir por falta de internet, la app le ofrece al chofer llamar a este
                         número o mandarle un SMS con la combi y la posición. Que sea uno que <b>siempre</b> atienda
                         alguien (un celular de guardia). Los choferes lo reciben al volver a entrar a la app.
-                      </div>
+                      </span></div>
                     </div>
                     <div style={{ display: 'flex', gap: 10 }}>
                       <button disabled={busy} onClick={() => run(async () => {
@@ -4011,16 +4417,22 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 la ve el gerente (la pestaña ni figura para Despacho, y el
                 servidor igual responde 403). */}
             {tab === 'gerencia' && (<div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-                {[7, 14, 30].map(d => (
-                  <button key={d} disabled={busy}
-                    onClick={() => { setDiasGer(d); setResumenGer(null); loadGerencia(d); }}
-                    style={{
-                      ...btnSecundario(36),
-                      background: diasGer === d ? HUD.bright : 'transparent',
-                      color: diasGer === d ? '#fff' : HUD.dim,
-                    }}>{d} días</button>
-                ))}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 18 }}>
+                <span role="group" aria-label="Período" style={{
+                  display: 'inline-flex', background: HUD.hueco, borderRadius: 10, padding: 3, gap: 2,
+                }}>
+                  {[7, 14, 30].map(d => (
+                    <button key={d} disabled={busy} aria-pressed={diasGer === d}
+                      onClick={() => { setDiasGer(d); setResumenGer(null); loadGerencia(d); }}
+                      style={{
+                        height: 32, padding: '0 12px', border: 'none', borderRadius: 8, cursor: 'pointer',
+                        fontFamily: 'inherit', fontSize: 13, fontWeight: 700,
+                        background: diasGer === d ? HUD.surface : 'transparent',
+                        color: diasGer === d ? HUD.fg : HUD.dim2,
+                        boxShadow: diasGer === d ? HUD.sombra : 'none',
+                      }}>{d} días</button>
+                  ))}
+                </span>
                 {/* Por ruta o toda la cooperativa (E8). El servidor ya lo
                     aceptaba y devolvía `alcance`; la pantalla no lo pedía ni
                     lo decía: el gerente de tres rutas las veía siempre
@@ -4032,13 +4444,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 {resumenGer && !resumenGer.alcance?.fijo && routeList.length > 1 && (
                   <select value={rutaGer} disabled={busy}
                     onChange={e => { setRutaGer(e.target.value); setResumenGer(null); loadGerencia(diasGer, e.target.value); }}
-                    style={{ ...btnSecundario(36), padding: '0 10px', fontFamily: 'inherit' }}>
+                    style={{ ...btnSecundario(38), padding: '0 10px', fontFamily: 'inherit' }}>
                     <option value="">Toda la cooperativa</option>
                     {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}{r.name && r.name !== r.routeId ? ` · ${r.name}` : ''}</option>)}
                   </select>
                 )}
-                {resumenGer && (
-                  <span style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.2 }}>
+                {resumenGer && !(!resumenGer.alcance?.fijo && routeList.length > 1) && (
+                  <span style={{ ...rotulo(10, HUD.dim2) }}>
                     {resumenGer.alcance?.routeId ? `Ruta ${resumenGer.alcance.routeId}${resumenGer.alcance.fijo ? ' (la tuya)' : ''}` : 'Toda la cooperativa'}
                   </span>
                 )}
@@ -4049,9 +4461,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     llama `horas`. Los de SOS y mensajes existían en el
                     servidor y no tenían botón acá: el gerente tenía las
                     emergencias en pantalla y ninguna forma de llevárselas
-                    (REVISION-2026-09-10.md, E20). */}
-                {[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas'], ['paradas', 'paradas'], ['senal', 'señal'], ['anomalias', 'anomalías'], ['sos', 'SOS'], ['mensajes', 'mensajes']].map(([tipo, rotulo]) => (
-                  <button key={tipo} style={btnSecundario(36)} onClick={async () => {
+                    (REVISION-2026-09-10.md, E20). Los nueve van en un solo
+                    «Descargar ▾»: antes eran nueve botones mezclados con los
+                    filtros del período. */}
+                <Menu etiqueta="Descargar CSV" icono="descargar" data={{ 'data-descargas': '' }}
+                  items={[['vueltas', 'vueltas'], ['tramos', 'medias'], ['horas', 'turnos'], ['desvios', 'salidas'], ['paradas', 'paradas'], ['senal', 'señal'], ['anomalias', 'anomalías'], ['sos', 'SOS'], ['mensajes', 'mensajes']].map(([tipo, rotulo]) => ({
+                    label: `CSV ${rotulo}`, icono: 'informe', onClick: async () => {
                     try {
                       // El MISMO período que el cuadro de arriba: días de
                       // calendario, no las últimas N × 24 h (E19).
@@ -4071,15 +4486,72 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       // cancelar la descarga en algunos navegadores.
                       setTimeout(() => URL.revokeObjectURL(url), 5000);
                     } catch (e) { setError(e.message); }
-                  }}>CSV {rotulo}</button>
-                ))}
+                  } }))} />
               </div>
 
               {!resumenGer && <Vacio>Cargando…</Vacio>}
               {resumenGer && (<div>
+                {/* Jerarquía: el cumplimiento es EL número del período y va
+                    solo, grande, con la tendencia por día al lado. El resto
+                    va compacto, y los ceros atenuados: «0 retornos» no pesa
+                    lo mismo que «74 %». Cada tarjeta sigue siendo
+                    { número, rótulo }, en ese orden. */}
+                {(() => {
+                  const t = resumenGer.totales;
+                  const cumple = t.cumplimiento;
+                  // Neutro a propósito: el rojo es del SOS y de la brecha crítica; el
+                  // juicio por unidad sigue en la tabla de abajo.
+                  const tonoCumple = cumple === null ? HUD.dim2 : HUD.fg;
+                  const dias = (resumenGer.porDia || []).slice(-31);
+                  const ALTO = 120;
+                  return (
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: angosto ? '1fr' : 'minmax(240px, 300px) minmax(0, 1fr)',
+                      gap: 14, marginBottom: 14,
+                    }}>
+                      <div style={{ ...tarjeta(20), display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        <div style={{ fontFamily: black, fontSize: 60, lineHeight: 1, color: tonoCumple, letterSpacing: -1 }}>
+                          {cumple === null ? '—' : `${cumple}%`}
+                        </div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: HUD.fg, marginTop: 8 }}>Cumplimiento</div>
+                      </div>
+                      <div style={{ ...tarjeta('16px 18px 12px'), minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
+                          <span style={{ fontSize: 14, fontWeight: 800 }}>Cumplimiento por día</span>
+                          <span style={{ fontSize: 12, color: HUD.dim2 }}>Un día sin vueltas no aparece: no es un cero, es un día sin datos.</span>
+                        </div>
+                        {dias.length === 0 ? (
+                          <div style={{ fontSize: 13, color: HUD.dim2, padding: '24px 0' }}>Todavía no hay días con vueltas en el período.</div>
+                        ) : (
+                          <div role="img" aria-label="Cumplimiento por día del período"
+                            style={{ display: 'grid', gridTemplateColumns: `repeat(${dias.length}, minmax(0, 1fr))`, gap: 6, alignItems: 'end' }}>
+                            {dias.map((d, i) => {
+                              const v = d.cumplimiento;
+                              // Con muchos días, la fecha va cada tantos: encimadas no se leían
+                              const cada = Math.ceil(dias.length / 8);
+                              const conFecha = i % cada === 0 || i === dias.length - 1;
+                              return (
+                                <div key={'barra-' + d.dia} title={`${d.dia}: ${v == null ? 'sin brecha medida' : v + ' %'} · ${d.vueltas} vueltas`}
+                                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                                  <span style={{ ...dato(10, HUD.dim2), visibility: dias.length <= 16 ? 'visible' : 'hidden' }}>{v == null ? '—' : v}</span>
+                                  <span style={{ width: '100%', maxWidth: 34, height: ALTO, display: 'flex', alignItems: 'flex-end',
+                                    background: HUD.hueco, borderRadius: 6, overflow: 'hidden' }}>
+                                    <span style={{ width: '100%', height: v == null ? 0 : Math.max(3, Math.round(ALTO * v / 100)),
+                                      background: HUD.bright, borderRadius: 6, transition: 'height .2s ease' }} />
+                                  </span>
+                                  <span style={{ ...dato(10, HUD.dim2), whiteSpace: 'nowrap', visibility: conFecha ? 'visible' : 'hidden' }}>{String(d.dia).slice(-5).split('-').reverse().join('/')}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div style={{
-                  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                  gap: 12, marginBottom: 18,
+                  display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                  gap: 8, marginBottom: 20,
                 }}>
                   {[
                     ['Vueltas', resumenGer.totales.vueltas],
@@ -4088,7 +4560,6 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     // tuvieron su regreso.
                     ['Idas', resumenGer.totales.idas ?? 0],
                     ['Retornos', resumenGer.totales.retornos ?? 0],
-                    ['Cumplimiento', resumenGer.totales.cumplimiento === null ? '—' : `${resumenGer.totales.cumplimiento}%`],
                     ['Brecha promedio', resumenGer.totales.brechaProm === null ? '—' : `${Math.floor(resumenGer.totales.brechaProm / 60)}:${String(resumenGer.totales.brechaProm % 60).padStart(2, '0')}`],
                     ['Horas trabajadas', `${(resumenGer.totales.horasSec / 3600).toFixed(1)} h`],
                     // Las que trabajaron en el período, sobre la flota entera (E5)
@@ -4100,12 +4571,19 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     ['Paradas medidas', resumenGer.totales.paradas != null
                       ? `${resumenGer.totales.paradas} · ${Math.round((resumenGer.totales.paradasSec || 0) / 60)} min` : '—'],
                     ['SOS', resumenGer.totales.sos],
-                  ].map(([etiqueta, valor]) => (
-                    <div key={etiqueta} style={{ ...tarjeta(14), background: HUD.bg }}>
-                      <div style={{ fontFamily: black, fontSize: 22 }}>{valor}</div>
-                      <div style={{ ...rotulo(9), marginTop: 4 }}>{etiqueta}</div>
-                    </div>
-                  ))}
+                  ].map(([etiqueta, valor]) => {
+                    const cero = valor === 0 || valor === '—' || /^0(\.0)? h$/.test(String(valor)) || /^0 · 0 min$/.test(String(valor));
+                    return (
+                      <div key={etiqueta} style={{
+                        padding: '10px 12px', borderRadius: 12,
+                        background: cero ? 'transparent' : HUD.surface,
+                        border: `1px solid ${cero ? HUD.divider : HUD.divider}`,
+                      }}>
+                        <div style={{ fontFamily: black, fontSize: cero ? 16 : 20, lineHeight: 1.2, color: cero ? HUD.dim2 : HUD.fg }}>{valor}</div>
+                        <div style={{ ...rotulo(9, cero ? HUD.dim2 : HUD.fg2), marginTop: 2 }}>{etiqueta}</div>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {resumenGer.porUnidad.length === 0 && (
@@ -4202,7 +4680,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     cruza el borde del período se recorta. */}
                 {(resumenGer.porPersona || []).length > 0 && (
                   <div style={{ marginTop: 18 }}>
-                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Por persona</div>
+                    <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>Por persona</div>
                     <Tabla cols="1.6fr 90px 80px 100px 80px 80px 80px 1.4fr" ancho={900}
                       cabeceras={['Persona', 'Rol', 'Turnos', 'Horas', 'Vueltas', 'Cumple', 'Salidas', 'Unidades']}>
                       {resumenGer.porPersona.map(p => (
@@ -4256,7 +4734,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     no es un día de cero cumplimiento, es un día sin datos. */}
                 {(resumenGer.porDia || []).length > 0 && (
                   <div style={{ marginTop: 18 }}>
-                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Por día</div>
+                    <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>Por día</div>
                     <Tabla cols="120px 1fr 1fr 1fr 1fr 1fr" ancho={620}
                       cabeceras={['Día', 'Vueltas', 'Unidades', 'Duración prom.', 'Brecha prom.', 'Cumple']}>
                       {resumenGer.porDia.map(d => (
@@ -4285,7 +4763,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     contra una vara distinta (REVISION-2026-09-10.md, E16). */}
                 {(resumenGer.rutas || []).length > 0 && (
                   <div style={{ marginTop: 18 }}>
-                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Contra qué se midió</div>
+                    <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>Contra qué se midió</div>
                     <Tabla cols="110px 1.6fr 110px 1.2fr 120px" ancho={660}
                       cabeceras={['Ruta', 'Nombre', 'Objetivo', 'De dónde sale', 'Duración decl.']}>
                       {resumenGer.rutas.map(r => (
@@ -4311,7 +4789,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     sin que ninguna pantalla la mostrara (E16). */}
                 {(resumenGer.sos || []).length > 0 && (
                   <div style={{ marginTop: 18 }}>
-                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                    <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>
                       Emergencias · {resumenGer.sos.length}{resumenGer.sos.length >= 50 ? ' (las últimas 50)' : ''}
                     </div>
                     <Tabla cols="150px 110px 1.6fr 1.2fr" ancho={660}
@@ -4343,7 +4821,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     salidas, igual que en los totales (E7). */}
                 {(resumenGer.desvios || []).length > 0 && (
                   <div style={{ marginTop: 18 }}>
-                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>
+                    <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>
                       Salidas del recorrido · {resumenGer.desvios.length}{resumenGer.desvios.length >= 50 ? ' (las últimas 50)' : ''}
                     </div>
                     <Tabla cols="150px 110px 90px 100px 1.4fr" ancho={720}
@@ -4388,7 +4866,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     u.senal.ausenteEnMarcha || u.senal.reloj || u.senal.gpsSimulado || u.senal.descartadas ||
                     u.senal.gpsSospechoso || u.senal.gpsImpreciso || u.senal.avisosTrafico)) && (
                   <div style={{ marginTop: 18 }}>
-                    <div style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6, margin: '0 0 8px 14px' }}>Señal y presencia</div>
+                    <div style={{ ...rotulo(10, HUD.dim2), margin: '0 0 8px 14px' }}>Señal y presencia</div>
                     <Tabla cols="110px 1fr 1fr 1fr 1fr 1fr 1fr 1.6fr 1.3fr 1.2fr 1fr" ancho={1160}
                       cabeceras={['Unidad', 'Cortes', 'Sin señal', 'Sin datos', 'Ausente', 'Saltos', 'Reloj', 'GPS', 'Paradas', 'Tráfico', 'Tardías']}>
                       {resumenGer.porUnidad.filter(u => u.senal).map(u => {
@@ -4691,7 +5169,7 @@ function Marca({ marca, tam = 30 }) {
       style={{ ...caja, objectFit: 'contain', background: '#fff' }} />;
   }
   return (
-    <div style={{ ...caja, background: marca?.color || HUD.brand }} title={marca?.nombre || ''}>
+    <div style={{ ...caja, background: marca?.color || HUD.bright }} title={marca?.nombre || ''}>
       <span style={{ fontFamily: black, fontSize: Math.round(tam * 0.42), color: '#fff', letterSpacing: 0.5 }}>
         {marca?.iniciales || '·'}
       </span>
@@ -4959,9 +5437,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   // El mismo panel sirve en PC y en celular: bajo 900px pasa a vista
   // única (Unidades / Mapa / Chat) con navegación inferior.
   const [isMobile, setIsMobile] = React.useState(window.innerWidth < 900);
+  // Entre 900 y 1280 px la cabecera no entra entera: cede el nombre de la
+  // ruta (el código queda) y no el de la cooperativa.
+  const [compacto, setCompacto] = React.useState(window.innerWidth < 1280);
   const [view, setView] = React.useState('map');
   React.useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 900);
+    const onResize = () => { setIsMobile(window.innerWidth < 900); setCompacto(window.innerWidth < 1280); };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -4993,10 +5474,10 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
 
   // Leaflet necesita re-medirse cuando su contenedor aparece o cambia
   React.useEffect(() => {
-    if (mapRef.current && (!isMobile || view === 'map')) {
+    if (mapRef.current && !adminOpen && (!isMobile || view === 'map')) {
       setTimeout(() => mapRef.current.invalidateSize(), 60);
     }
-  }, [isMobile, view]);
+  }, [isMobile, view, adminOpen]);
   const wsRef = React.useRef(null);
   const mapRef = React.useRef(null);
   const tilesRef = React.useRef(null);
@@ -5296,10 +5777,13 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       const relleno = (callada || fueraDeCadena) ? HUD.bg : '#fff';
       const sufijo = u.presencia === 'ausente' ? ' · AUSENTE'
         : (u.presencia === 'ruta' && u.enRuta === false) ? ' · YENDO' : '';
+      // La familia va con comillas simples: con las dobles de `black` el
+      // atributo style se cortaba en «font-family:» y la etiqueta salía como
+      // texto suelto, sin fondo, pisándose con el trazado.
       // width:max-content porque el icono de Leaflet mide 0×0: sin eso la
       // etiqueta se parte en dos líneas dentro de un contenedor sin ancho.
       const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:${fuera ? 6 : 3}px;${(callada || fueraDeCadena) ? 'opacity:.65;' : ''}">
-        <div style="font-family:${black};font-size:11px;color:#fff;background:${colorPin};padding:2px 6px;border-radius:5px;white-space:nowrap;">${escaparHtml(u.unitId)}${fuera ? ' ◇' : ''}${callada ? ' ⌁' : ''}${sufijo}</div>
+        <div style="font-family:${black.replace(/"/g, "'")};font-size:11px;color:#fff;background:${colorPin};padding:2px 7px;border-radius:7px;white-space:nowrap;border:1.5px solid ${HUD.surface};box-shadow:${HUD.sombra};">${escaparHtml(u.unitId)}${fuera ? ' ◇' : ''}${callada ? ' ⌁' : ''}${sufijo}</div>
         <div style="width:10px;height:10px;border-radius:50%;background:${relleno};border:3px solid ${colorPin};box-sizing:content-box;${halo}"></div>
       </div>`;
       const icon = L.divIcon({ html, className: '', iconSize: [0, 0], iconAnchor: [0, 0] });
@@ -5424,7 +5908,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         zIndexOffset: 2000,
         icon: L.divIcon({
           className: '', iconSize: [0, 0],
-          html: `<div data-pin-sos style="transform:translate(-50%,-100%);font-family:${black};font-size:12px;color:#fff;background:${HUD.red};padding:3px 7px;border-radius:6px;white-space:nowrap;box-shadow:0 0 0 3px rgba(255,255,255,.9)">SOS · ${escaparHtml((s.vehicleId || s.unitId || '').toUpperCase())}</div>`,
+          html: `<div data-pin-sos style="width:max-content;transform:translate(-50%,-130%);font-family:${black.replace(/"/g, "'")};font-size:12px;color:#fff;background:${HUD.red};padding:3px 8px;border-radius:7px;white-space:nowrap;border:1.5px solid ${HUD.surface};box-shadow:${HUD.sombra}">SOS · ${escaparHtml((s.vehicleId || s.unitId || '').toUpperCase())}</div>`,
         }),
       }).addTo(map);
       pinesSosRef.current[clave] = pin;
@@ -5480,11 +5964,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* header */}
+      {/* cabecera */}
       <div style={{
         height: 60, flexShrink: 0, display: 'flex', alignItems: 'center',
-        gap: isMobile ? 6 : 14,
-        padding: isMobile ? '0 8px' : '0 18px',
+        gap: isMobile ? 6 : 12,
+        padding: isMobile ? '0 8px' : '0 16px',
         borderBottom: `1px solid ${HUD.divider}`, background: HUD.surface,
         overflow: 'hidden',
       }}>
@@ -5492,26 +5976,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             usan empresas distintas y cada una tiene que ver la suya. En el
             celular queda SOLO el escudo: ocupa 30 px y sigue diciendo de
             quién es esta pantalla, que es lo que importa. */}
-        <Marca marca={marca} />
+        <Marca marca={marca} tam={isMobile ? 30 : 34} />
+        {/* El nombre va primero y con aire: el chip «Despacho» y el separador
+            se fueron a una segunda línea chica, y ya no se corta en «Señor de
+            Hua…» con cualquier ancho de escritorio. */}
         {!isMobile && (
-          <span style={{
-            fontFamily: black, fontSize: 17, maxWidth: 210,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }} title={marca?.nombre || session.companyName || ''}>
-            {marca?.nombre || session.companyName || session.companyId || 'Despacho'}
-          </span>
-        )}
-        {/* En un celular el chip sobra: la pantalla ES el panel de Despacho,
-            y el ancho hace falta para lo que sí cambia. */}
-        {!isMobile && (
-          <>
-            <span style={{
-              ...rotulo(10, HUD.bright), letterSpacing: 1.5,
-              background: HUD.azulFondo, border: `1px solid ${HUD.azulBorde}`,
-              borderRadius: 6, padding: '4px 8px', flexShrink: 0,
-            }}>Despacho</span>
-            <span style={{ width: 1, height: 26, background: HUD.divider, flexShrink: 0 }} />
-          </>
+          <div style={{ minWidth: 120, flex: '0 1 auto', maxWidth: 340, lineHeight: 1.2 }}
+            title={marca?.nombre || session.companyName || ''}>
+            <div style={{ fontFamily: black, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {marca?.nombre || session.companyName || session.companyId || 'Despacho'}
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: HUD.dim2 }}>Panel de Despacho</div>
+          </div>
         )}
 
         {/* Selector de ruta: el supervisor cambia; el de ruta la ve fija.
@@ -5521,18 +5997,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         {esSupervisor && routes.length > 0 ? (
           <span style={{
             position: 'relative', display: 'flex', alignItems: 'center', gap: 8,
-            height: 36, padding: '0 12px', background: HUD.surface,
-            border: `1px solid ${HUD.line}`, borderRadius: 9,
-            maxWidth: isMobile ? 'none' : 320, minWidth: 0, flexShrink: 0,
+            height: 38, padding: '0 12px', background: HUD.hueco, borderRadius: 10,
+            maxWidth: isMobile ? 'none' : 320, minWidth: 0, flexShrink: isMobile ? 0 : 1,
           }}>
+            {!isMobile && <Icono n="ruta" tam={16} style={{ color: HUD.dim }} />}
             <span style={{ fontFamily: black, fontSize: 14, flexShrink: 0 }}>{routeInfo.routeId || '—'}</span>
-            {!isMobile && (
+            {!isMobile && !compacto && (
               <span style={{
                 fontSize: 13, color: HUD.dim, minWidth: 0,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>{routeInfo.routeName || ''}</span>
             )}
-            <span style={{ fontSize: 11, color: HUD.dim3, flexShrink: 0 }}>▾</span>
+            <Icono n="abajo" tam={14} style={{ color: HUD.dim2 }} />
             <select
               value={routeInfo.routeId || ''}
               onChange={e => cambiarRuta(e.target.value)}
@@ -5548,12 +6024,13 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           </span>
         ) : (
           <span style={{
-            display: 'flex', alignItems: 'center', gap: 8, height: 36, padding: '0 12px',
-            background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 9,
-            maxWidth: isMobile ? 'none' : 320, minWidth: 0, flexShrink: 0,
+            display: 'flex', alignItems: 'center', gap: 8, height: 38, padding: '0 12px',
+            background: HUD.hueco, borderRadius: 10,
+            maxWidth: isMobile ? 'none' : 320, minWidth: 0, flexShrink: isMobile ? 0 : 1,
           }}>
+            {!isMobile && <Icono n="ruta" tam={16} style={{ color: HUD.dim }} />}
             <span style={{ fontFamily: black, fontSize: 14, flexShrink: 0 }}>{routeInfo.routeId || '—'}</span>
-            {!isMobile && (
+            {!isMobile && !compacto && (
               <span style={{
                 fontSize: 13, color: HUD.dim, minWidth: 0,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -5565,91 +6042,89 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         {/* En el celular es lo único de la cabecera que cede: con todo
             fijo, «Salir» quedaba afuera de la pantalla (terminaba en x=406
             en una de 390). El punto de conexión queda siempre a la vista. */}
-        <span style={{
-          display: 'flex', alignItems: 'center', gap: 7, height: 36, padding: isMobile ? '0 8px' : '0 11px',
-          borderRadius: 9, flexShrink: isMobile ? 1 : 0, minWidth: 0,
-          background: connected ? HUD.verdeFondo : HUD.ambarFondo,
-          border: `1px solid ${connected ? HUD.verdeBorde : HUD.ambarBorde}`,
-        }}>
-          <span style={{
-            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-            background: connected ? HUD.green : HUD.amber,
-          }} />
-          <span style={{
-            fontFamily: mono, fontSize: 11, fontWeight: 700,
-            color: connected ? HUD.verdeTinta : HUD.ambarTinta2,
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>
-            {connected ? (() => {
-              // «N EN RUTA» es la cadena, no todo lo que se ve: las que van
-              // yendo y las ausentes no están trabajando la ruta, y las sin
-              // señal sí pero calladas. Cada cosa con su nombre.
-              const enRuta = routeInfo.enRuta ?? units.length;
-              const extras = [
-                routeInfo.sinSenal ? `${routeInfo.sinSenal} SIN SEÑAL` : null,
-                routeInfo.yendo ? `${routeInfo.yendo} YENDO` : null,
-                routeInfo.ausentes ? `${routeInfo.ausentes} AUSENTE${routeInfo.ausentes > 1 ? 'S' : ''}` : null,
-              ].filter(Boolean);
-              const base = `${enRuta} EN RUTA`;
-              if (isMobile) return base;
-              return ['EN VIVO', base, ...extras].join(' · ');
-            })() : 'RECONECTANDO…'}
-          </span>
-        </span>
+        {(() => {
+          // «N EN RUTA» es la cadena, no todo lo que se ve: las que van
+          // yendo y las ausentes no están trabajando la ruta, y las sin
+          // señal sí pero calladas. Cada cosa con su nombre. Se arma en
+          // mayúscula y se muestra en caja normal (`oracion`).
+          const enRuta = routeInfo.enRuta ?? units.length;
+          const extras = [
+            routeInfo.sinSenal ? `${routeInfo.sinSenal} SIN SEÑAL` : null,
+            routeInfo.yendo ? `${routeInfo.yendo} YENDO` : null,
+            routeInfo.ausentes ? `${routeInfo.ausentes} AUSENTE${routeInfo.ausentes > 1 ? 'S' : ''}` : null,
+          ].filter(Boolean);
+          const base = `${enRuta} EN RUTA`;
+          const completo = connected ? oracion(['EN VIVO', base, ...extras].join(' · ')) : 'Reconectando…';
+          return (
+            <span title={completo} style={{
+              display: 'flex', alignItems: 'center', gap: 7, height: 32, padding: isMobile ? '0 9px' : '0 12px',
+              borderRadius: 16, flexShrink: isMobile ? 1 : 0, minWidth: 0,
+              background: connected ? HUD.verdeFondo : HUD.ambarFondo,
+            }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                background: connected ? HUD.green : HUD.amber,
+              }} />
+              <span style={{
+                fontSize: 13, fontWeight: 700,
+                color: connected ? HUD.verdeTinta : HUD.ambarTinta2,
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}>{connected ? (isMobile ? oracion(base) : completo) : 'Reconectando…'}</span>
+            </span>
+          );
+        })()}
 
         <div style={{ flex: 1 }} />
 
         {/* El objetivo de brecha es el número contra el que se lee toda la
             pantalla. Antes solo estaba adentro de Gestión. */}
         {!isMobile && (
-          <div style={{ textAlign: 'right', lineHeight: 1.1, flexShrink: 0 }}>
-            <div style={rotulo(9)}>Objetivo de brecha</div>
+          <div title="Objetivo de brecha: la separación ideal entre unidades" style={{ textAlign: 'right', lineHeight: 1.1, flexShrink: 0 }}>
+            <div style={rotulo(9)}>{compacto ? 'Objetivo' : 'Objetivo de brecha'}</div>
             <div style={{ fontFamily: black, fontSize: 16, marginTop: 2 }}>
               {fmtMin(routeInfo.targetGapMin)}
-              <span style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.dim2, marginLeft: 4 }}>MIN</span>
+              <span style={{ ...dato(11, HUD.dim2), marginLeft: 4 }}>min</span>
             </div>
           </div>
         )}
+        {!isMobile && <span style={{ width: 1, height: 28, background: HUD.divider, flexShrink: 0 }} />}
+        {/* Gestión es una vista más del panel, no la acción principal: va
+            como botón secundario, y con Gestión abierta el mismo botón vuelve
+            al mapa. En el celular vive en la barra de abajo. */}
+        {!isMobile && (
+          <button onClick={() => setAdminOpen(a => !a)} aria-pressed={adminOpen} style={{
+            ...btnSecundario(36), flexShrink: 0,
+            ...(adminOpen ? { background: HUD.azulFondo, borderColor: HUD.azulBorde, color: HUD.azulTinta } : {}),
+          }}>
+            <Icono n={adminOpen ? 'mapa' : 'gestion'} tam={16} />{adminOpen ? 'Mapa en vivo' : 'Gestión'}
+          </button>
+        )}
         {/* Si la alarma está muda o falta el permiso de notificaciones, se
             ofrece acá, siempre a la vista: no puede descubrirse recién con
-            un SOS. Ámbar, no rojo: el rojo es del SOS. */}
+            un SOS. Ámbar, no rojo: el rojo es del SOS. Es un ESTADO (la
+            campana tachada con su punto), no un cartel: antes ocupaba el
+            lugar más visible y se leía como una alerta permanente. */}
         {faltaAlarma && !isMobile && (
           <button data-activar-alarma onClick={activarAlarma}
-            title="Para que un SOS suene y avise aunque el panel esté tapado por otra ventana"
-            style={{
-              height: 36, padding: '0 12px', borderRadius: 8, cursor: 'pointer', flexShrink: 0,
-              background: HUD.ambarFondo, color: HUD.ambarTinta, border: `1px solid ${HUD.ambarBorde}`,
-              fontSize: 13, fontWeight: 800, fontFamily: 'inherit',
-            }}>Activar alarma de SOS</button>
+            title="La alarma de SOS está muda en esta pestaña. Tocá para que suene y avise aunque el panel esté tapado por otra ventana."
+            style={{ ...btnIcono(false), background: HUD.ambarFondo, color: HUD.ambarTinta }}>
+            <Icono n="campanaNo" tam={18} />
+            <span style={ocultoVisual}>Activar alarma de SOS</span>
+            <span style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: '50%',
+              background: HUD.amber, boxShadow: `0 0 0 2px ${HUD.ambarFondo}` }} />
+          </button>
         )}
-        <button onClick={() => setAdminOpen(true)} style={{ ...btnPrimario(36), flexShrink: 0 }}>Gestión</button>
         <button onClick={onAlternarModo}
           title={modo === 'day' ? 'Pasar a modo noche' : 'Pasar a modo día'}
-          style={{
-            ...btnSecundario(36), width: 36, padding: 0, color: HUD.dim,
-            fontSize: 15, lineHeight: 1, flexShrink: 0,
-          }}>{modo === 'day' ? '☾' : '☀'}</button>
-        <button onClick={onLogout} style={{ ...btnSecundario(36), flexShrink: 0 }}>Salir</button>
+          style={btnIcono(false)}>
+          <Icono n={modo === 'day' ? 'luna' : 'sol'} tam={18} />
+          <span style={ocultoVisual}>{modo === 'day' ? 'Modo noche' : 'Modo día'}</span>
+        </button>
+        <button onClick={onLogout} title="Cerrar la sesión en esta pantalla" style={{ ...btnFantasma(36), flexShrink: 0, padding: isMobile ? 0 : '0 10px', width: isMobile ? 36 : 'auto' }}>
+          <Icono n="salir" tam={17} />
+          {isMobile ? <span style={ocultoVisual}>Salir</span> : 'Salir'}
+        </button>
       </div>
-
-      {adminOpen && (
-        <Muro lugar="Gestión" capa onVolver={() => setAdminOpen(false)}>
-        <AdminModal
-          session={session}
-          onClose={() => setAdminOpen(false)}
-          onAuthError={onAuthError}
-          routes={routes}
-          currentRoute={routeInfo.routeId}
-          // La pestaña Empresa sube el logo: sin estas dos, el gerente que la
-          // abría tumbaba el panel entero con un ReferenceError (barrido 22/9).
-          marca={marca}
-          refrescarMarca={refrescarMarca}
-          // «Escribir» en Personas: abre su privado personal en el mapa
-          onEscribir={(personId, nombre, routeId) => { setAdminOpen(false); abrirPrivado('p:' + personId, nombre, routeId); }}
-          avisoSos={bannerSos}
-        />
-        </Muro>
-      )}
 
       {/* En el celular no entra en la cabecera (empujaba «Salir» afuera):
           va en su propia franja, a todo el ancho */}
@@ -5657,11 +6132,13 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         <button data-activar-alarma onClick={activarAlarma} style={{
           flexShrink: 0, width: '100%', padding: '10px 14px', cursor: 'pointer', textAlign: 'left',
           background: HUD.ambarFondo, color: HUD.ambarTinta, border: 'none',
-          borderBottom: `1px solid ${HUD.ambarBorde}`, fontSize: 13, fontWeight: 800, fontFamily: 'inherit',
-        }}>Activar alarma de SOS: que suene y avise aunque el panel esté tapado</button>
+          borderBottom: `1px solid ${HUD.ambarBorde}`, fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}><Icono n="campanaNo" tam={17} />Activar alarma de SOS: que suene y avise aunque el panel esté tapado</button>
       )}
 
-      {/* banner SOS activo (el mismo va dentro de Gestión) */}
+      {/* banner SOS activo: queda arriba también con Gestión abierta, que
+          desde el retoque es una vista debajo de la cabecera y no una capa */}
       {bannerSos}
 
       {/* Avisos del nivel de arriba. Persistentes a propósito: un aviso de
@@ -5676,7 +6153,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 12,
           flexWrap: isMobile ? 'wrap' : 'nowrap',
         }}>
-          <span style={{ ...rotulo(9, HUD.ambarTinta), letterSpacing: 1.4, flexShrink: 0 }}>
+          <span style={{ ...rotulo(9, HUD.ambarTinta), flexShrink: 0 }}>
             Aviso de la administración del sistema{a.routeId ? ` · ruta ${a.routeId}` : ''}
           </span>
           <span style={{ fontSize: 13, fontWeight: 600, color: HUD.ambarTinta, minWidth: 0 }}>
@@ -5701,12 +6178,15 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       ))}
 
       {/* cuerpo: en PC tres columnas; en celular una vista a la vez */}
-      <div style={isMobile
-        ? { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }
-        : { flex: 1, display: 'grid', gridTemplateColumns: '312px 1fr 372px', minHeight: 0 }}>
+      <div style={{
+        ...(isMobile
+          ? { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }
+          : { flex: 1, display: 'grid', gridTemplateColumns: 'minmax(280px, min(24vw, 340px)) minmax(0, 1fr) minmax(300px, min(27vw, 400px))', minHeight: 0 }),
+        ...(adminOpen ? { display: 'none' } : {}),
+      }}>
         {/* unidades */}
         <div style={{
-          overflowY: 'auto', minHeight: 0, background: HUD.surface,
+          overflowY: 'auto', overflowX: 'hidden', minHeight: 0, background: HUD.bg,
           // Sin conexión, lo que se ve es la última foto: se atenúa para
           // que no se lea como el presente (P7). La cabecera ya dice
           // «RECONECTANDO…»; esto es para el que mira la lista y no arriba.
@@ -5717,7 +6197,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             : { borderRight: `1px solid ${HUD.divider}` }),
         }}>
           <div style={{ padding: '14px 16px 10px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ ...rotulo(10, HUD.dim2), letterSpacing: 1.6 }}>Unidades en ruta</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: HUD.fg }}>Unidades en ruta</span>
             <div style={{ flex: 1 }} />
             {/* «7 de 9»: lo que se ve sobre lo que la ruta TIENE dado de alta.
                 El número solo nunca decía cuántas faltaban, y a las 6 de la
@@ -5732,7 +6212,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                 pantalla rota, se muestra el número solo. */}
             {routeInfo.flota >= units.length && routeInfo.flota > 0 && (
               <span
-                style={{ ...rotulo(10, HUD.dim3), letterSpacing: 1.2 }}
+                style={{ ...rotulo(10, HUD.dim3), whiteSpace: 'nowrap' }}
                 title={`${units.length} de las ${routeInfo.flota} unidades de la ruta están reportando`}
               >de {routeInfo.flota}</span>
             )}
@@ -5820,92 +6300,128 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             );
           })()}
           {units.length === 0 && (
-            <div style={{ padding: '8px 16px', fontSize: 14, color: HUD.dim3 }}>
-              Sin unidades conectadas.
-            </div>
+            <Vacio icono="vehiculo" titulo="Todavía no hay combis en ruta"
+              accion={<button onClick={() => setAdminOpen(true)} style={btnSecundario(36)}><Icono n="personas" tam={16} />Ver quién tiene cuenta</button>}>
+              Aparecen acá apenas un chofer toca «Salir a ruta» en su celular. El chat de la ruta ya funciona.
+            </Vacio>
           )}
           {units.map(u => {
             const g = gaps[u.unitId] || {};
             const isSos = enSos(u.unitId);
             const cAdelante = gapColor(g.toAhead, routeInfo.targetGapMin);
             const cAtras = gapColor(g.toBehind, routeInfo.targetGapMin);
-            // El borde y el fondo de la fila los manda el peor de los dos
-            // lados: si de un lado va pegada, la fila tiene que gritar aunque
-            // del otro esté bien.
-            const orden = [HUD.red, HUD.amber, HUD.green, HUD.dim3];
-            const peor = isSos ? HUD.red
-              : orden.find(c => c === cAdelante || c === cAtras) || HUD.dim3;
+            // Una sola señal fuerte por tarjeta: el número de la brecha en su
+            // color, con la palabra debajo. Antes lo crítico se marcaba cuatro
+            // veces (fondo rosado, borde rojo, número rojo y CRÍTICA) y con
+            // tres de cinco en crítico la columna entera quedaba rosada. El
+            // borde rojo de la tarjeta queda para el SOS y nada más.
+            const nombre = u.driverName && u.driverName !== u.unitId ? u.driverName : null;
             return (
-              <div key={u.unitId} onClick={() => focusUnit(u)} style={{
-                padding: '12px 16px 13px', cursor: 'pointer',
-                borderBottom: `1px solid ${HUD.divider}`,
-                background: peor === HUD.red ? HUD.filaCritica : HUD.surface,
-                borderLeft: `3px solid ${peor}`,
+              <div key={u.unitId} data-tarjeta onClick={() => focusUnit(u)} style={{
+                margin: '0 10px 8px', padding: '11px 12px 12px', cursor: 'pointer',
+                borderRadius: 14, background: HUD.surface,
+                border: `1px solid ${isSos ? HUD.red : privadoCon === u.unitId ? HUD.azulBorde : HUD.divider}`,
+                boxShadow: isSos ? `0 0 0 3px ${HUD.rojoBorde}` : 'none',
               }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <span style={{ fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg }}>{u.unitId}</span>
-                  {/* Sin señal la última velocidad es vieja: mostrarla haría
-                      creer que la combi sigue andando a ese ritmo. */}
-                  <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim2 }}>
-                    {u.sinSenal ? '—' : Math.round(u.speed || 0)} KM/H
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Avatar nombre={nombre || u.unitId} tam={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg }}>{u.unitId}</span>
+                      {/* Sin señal la última velocidad es vieja: mostrarla haría
+                          creer que la combi sigue andando a ese ritmo. */}
+                      <span style={dato(11, HUD.dim2)}>
+                        {u.sinSenal ? '—' : Math.round(u.speed || 0)} km/h
+                      </span>
+                      {u.tramo && (
+                        <span title="Tramo del circuito en el que va" style={{
+                          fontSize: 12, fontWeight: 700,
+                          color: u.tramo === 'vuelta' ? HUD.dim2 : HUD.bright,
+                        }}>{u.tramo === 'vuelta' ? '↩ vuelta' : '↪ ida'}</span>
+                      )}
+                    </div>
+                    {nombre && (
+                      <div style={{
+                        fontSize: 13, color: HUD.fg2, marginTop: 1,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>{nombre}{u.label ? <span style={{ color: HUD.dim2 }}> · {u.label}</span> : null}</div>
+                    )}
+                  </div>
+                  {/* Los dos privados, como íconos: antes eran dos botones con
+                      borde que ocupaban un tercio de la tarjeta. El click no
+                      debe disparar también el foco del mapa de la fila. */}
+                  <span style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); abrirPrivado(u.unitId); }}
+                      title={`Mensaje directo a ${u.unitId}: lo leen los que van arriba de la combi`}
+                      style={btnIcono(privadoCon === u.unitId)}>
+                      <Icono n="chat" tam={18} />
+                      <span style={ocultoVisual}>Mensaje directo</span>
+                      {noLeidos[u.unitId] > 0 && <Insignia n={noLeidos[u.unitId]} />}
+                    </button>
+                    {/* Y el privado PERSONAL con el que la maneja: lo que es de él
+                        y no de la combi (sus horas, «pasá por la oficina»). No lo
+                        ve su cobrador ni el que maneje la combi después. */}
+                    {u.choferId && (() => {
+                      const clave = 'p:' + u.choferId;
+                      const abierto = privadoCon === clave;
+                      return (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); abrirPrivado(clave, u.driverName || u.choferId); }}
+                          title={`Escribirle solo a ${u.driverName || u.choferId}, en la combi que esté`}
+                          style={btnIcono(abierto)}>
+                          <Icono n="persona" tam={18} />
+                          <span style={ocultoVisual}>Solo a {String(u.driverName || u.choferId).split(' ')[0]}</span>
+                          {noLeidos[clave] > 0 && <Insignia n={noLeidos[clave]} />}
+                        </button>
+                      );
+                    })()}
                   </span>
-                  <div style={{ flex: 1 }} />
-                  {/* Entró a la ruta empezada: no salió del paradero inicial,
-                      se metió en el medio. No es una alarma —puede tener un
-                      motivo— pero tiene que verse EN EL MOMENTO: si aparece al
-                      día siguiente en un informe ya no sirve para preguntar. */}
-                  {u.entradaTardia && (
-                    <span title={`Entró a la ruta al ${Math.round((u.entroEn || 0) * 100)} % del circuito, no desde el inicio`}
-                      style={{
-                        fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.amber,
-                      }}>↳ ENTRÓ {Math.round((u.entroEn || 0) * 100)}%</span>
-                  )}
-                  {u.tramo && (
-                    <span title="Tramo del circuito en el que va" style={{
-                      fontFamily: mono, fontSize: 10, fontWeight: 700,
-                      color: u.tramo === 'vuelta' ? HUD.dim2 : HUD.bright,
-                    }}>{u.tramo === 'vuelta' ? '↩ VUELTA' : '↪ IDA'}</span>
-                  )}
                 </div>
-                {u.driverName && u.driverName !== u.unitId && (
-                  <div style={{
-                    fontSize: 12, color: HUD.dim2, marginTop: 2,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>{u.driverName}{u.label ? ` · ${u.label}` : ''}</div>
-                )}
                 {/* Las dos brechas son lo que más se mira de la fila: van en
                     celda propia y en el tamaño de un dato, no como dos
-                    números pegados al pie. */}
+                    números pegados al pie. El número late una vez cuando
+                    cambia de estado (key = su color). */}
                 <div style={{
-                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 9,
+                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10,
                 }}>
-                  {[['+1 ADELANTE', g.toAhead, cAdelante], ['−1 ATRÁS', g.toBehind, cAtras]].map(([et, val, color]) => {
+                  {[['+1 adelante', g.toAhead, cAdelante], ['−1 atrás', g.toBehind, cAtras]].map(([et, val, color]) => {
                     const palabra = gapWord(val, routeInfo.targetGapMin);
                     return (
-                      <div key={et} style={{ padding: '6px 8px', borderRadius: 8, background: HUD.celda }}>
-                        <div style={{ ...rotulo(9), letterSpacing: 1 }}>{et}</div>
-                        <div style={{ fontFamily: black, fontSize: 17, lineHeight: 1.2, color }}>{val || '—'}</div>
+                      <div key={et} style={{ padding: '6px 9px 7px', borderRadius: 10, background: HUD.celda }}>
+                        <div style={rotulo(8)}>{et}</div>
+                        <div key={color} style={{
+                          fontFamily: black, fontSize: 18, lineHeight: 1.2, color,
+                          animation: 'cambio .22s ease-out', transformOrigin: 'left center',
+                        }}>{val || '—'}</div>
                         {/* El juicio en palabras, porque el color solo no lo
                             dice para un daltónico rojo-verde. Ver
                             LIMITACIONES.md, sección Accesibilidad. */}
                         {palabra && (
-                          <div style={{
-                            fontFamily: mono, fontSize: 9, fontWeight: 700,
-                            letterSpacing: .8, color, marginTop: 1,
-                          }}>{palabra}</div>
+                          <div style={{ fontSize: 11, fontWeight: 800, color, marginTop: 1 }}>{oracion(palabra)}</div>
                         )}
                       </div>
                     );
                   })}
                 </div>
+                {/* Entró a la ruta empezada: no salió del paradero inicial,
+                    se metió en el medio. No es una alarma —puede tener un
+                    motivo— pero tiene que verse EN EL MOMENTO: si aparece al
+                    día siguiente en un informe ya no sirve para preguntar. */}
+                {u.entradaTardia && (
+                  <Estado tinta={HUD.ambarTinta2}
+                    title={`Entró a la ruta al ${Math.round((u.entroEn || 0) * 100)} % del circuito, no desde el inicio`}>
+                    ↳ ENTRÓ AL {Math.round((u.entroEn || 0) * 100)} % DEL CIRCUITO
+                  </Estado>
+                )}
                 {/* No se puede esconder ni resumir: es el aviso por el que
-                    Despacho levanta el teléfono. */}
+                    Despacho levanta el teléfono. Va en mayúscula, con ícono y
+                    sobre su fondo: más fuerte que antes, no más suave. */}
                 {u.fueraDeRuta && (
-                  <div title={`A ${u.desvioM} m del recorrido${u.fueraDesde ? ' desde ' + nowTime(u.fueraDesde) : ''}`}
-                    style={{
-                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
-                      color: HUD.amber, marginTop: 8,
-                    }}>FUERA DE RUTA · {u.desvioM} M</div>
+                  <Estado mayus icono="alerta" tinta={HUD.ambarTinta} fondo={HUD.ambarFondo} borde={HUD.ambarBorde}
+                    title={`A ${u.desvioM} m del recorrido${u.fueraDesde ? ' desde ' + nowTime(u.fueraDesde) : ''}`}>
+                    FUERA DE RUTA · {u.desvioM} M
+                  </Estado>
                 )}
                 {/* Trabada: N minutos sin avanzar por la ruta (lo midió el
                     servidor) o el chofer avisó tráfico (lo dijo él). Se
@@ -5913,52 +6429,43 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     Es lo que decide si Despacho manda a los de atrás por otro
                     lado, y por eso va antes que la señal. */}
                 {(u.trafico || u.parado) && (
-                  <div title={u.trafico ? 'El chofer avisó que está en tráfico' : 'Lleva minutos sin avanzar por la ruta'}
-                    style={{
-                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
-                      color: HUD.amber, marginTop: 8,
-                    }}>{u.trafico ? 'EN TRÁFICO' : 'PARADA'} · {
+                  <Estado icono="reloj" tinta={HUD.ambarTinta2}
+                    title={u.trafico ? 'El chofer avisó que está en tráfico' : 'Lleva minutos sin avanzar por la ruta'}>
+                    {u.trafico ? 'EN TRÁFICO' : 'PARADA'} · {
                       Math.max(0, Math.round((ahora - (u.trafico ? u.traficoDesde : u.paradoDesde)) / 60000))
-                    } MIN{u.trafico ? ' · AVISÓ EL CHOFER' : ''}</div>
+                    } MIN{u.trafico ? ' · AVISÓ EL CHOFER' : ''}
+                  </Estado>
                 )}
                 {/* Android marcó la posición como SIMULADA: una app de
                     «fake GPS». No se esconde la unidad —se dice—, y queda en
                     la auditoría. Ver TRUCOS-2026-09-10.md. */}
                 {u.gpsSimulado && (
-                  <div title="Android marca estas posiciones como salidas de una app de ubicación simulada (fake GPS). Quedó en la auditoría."
-                    style={{
-                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
-                      color: HUD.ambarTinta, background: HUD.ambarFondo,
-                      border: `1px solid ${HUD.ambarBorde}`, borderRadius: 6,
-                      padding: '3px 6px', marginTop: 8, display: 'inline-block',
-                    }}>GPS SIMULADO · ANDROID LO MARCA COMO FALSO</div>
+                  <Estado icono="gps" tinta={HUD.ambarTinta} fondo={HUD.ambarFondo} borde={HUD.ambarBorde}
+                    title="Android marca estas posiciones como salidas de una app de ubicación simulada (fake GPS). Quedó en la auditoría.">
+                    GPS SIMULADO · ANDROID LO MARCA COMO FALSO
+                  </Estado>
                 )}
                 {/* Las últimas doce posiciones tienen la firma de un simulador
                     sin el flag (server/farsa.js). Es una SOSPECHA con motivo:
                     se dice cuál, y queda en la auditoría. */}
                 {u.gpsSospechoso && !u.gpsSimulado && (
-                  <div title="Las últimas posiciones tienen la firma de un GPS simulado sin la marca de Android. Es una sospecha, con su motivo; quedó en la auditoría."
-                    style={{
-                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
-                      color: HUD.ambarTinta, background: HUD.ambarFondo,
-                      border: `1px solid ${HUD.ambarBorde}`, borderRadius: 6,
-                      padding: '3px 6px', marginTop: 8, display: 'inline-block',
-                    }}>GPS SOSPECHOSO · {({
+                  <Estado icono="gps" tinta={HUD.ambarTinta} fondo={HUD.ambarFondo} borde={HUD.ambarBorde}
+                    title="Las últimas posiciones tienen la firma de un GPS simulado sin la marca de Android. Es una sospecha, con su motivo; quedó en la auditoría.">
+                    GPS SOSPECHOSO · {({
                       velocidad_constante: 'VELOCIDAD QUE NO VARÍA',
                       sin_ruido: 'CLAVADO EN EL TRAZADO',
                       velocidad_incoherente: 'VELOCIDAD QUE NO CUADRA',
-                    })[u.gpsSospechoso] || String(u.gpsSospechoso).toUpperCase()}</div>
+                    })[u.gpsSospechoso] || String(u.gpsSospechoso).toUpperCase()}
+                  </Estado>
                 )}
                 {/* El aparato declara más de 100 m de error: la posición está
                     en un círculo, no en un punto. Se muestra igual (es lo mejor
                     que se sabe) pero no se juzga desvío ni parada con ella. */}
                 {u.gpsImpreciso && (
-                  <div title={`El teléfono declara ${u.precisionM} m de error en la posición (ahorro de batería, ubicación «sólo por red»). Con eso no se juzga desvío ni parada.`}
-                    style={{
-                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
-                      color: HUD.dim2, border: `1px solid ${HUD.divider}`, borderRadius: 6,
-                      padding: '3px 6px', marginTop: 8, display: 'inline-block',
-                    }}>GPS IMPRECISO · ±{u.precisionM} M</div>
+                  <Estado icono="gps" tinta={HUD.dim2}
+                    title={`El teléfono declara ${u.precisionM} m de error en la posición (ahorro de batería, ubicación «sólo por red»). Con eso no se juzga desvío ni parada.`}>
+                    GPS IMPRECISO · ±{u.precisionM} M
+                  </Estado>
                 )}
                 {/* Dejó de reportar. La posición que se ve en el mapa es la
                     última conocida, así que se dice desde cuándo: sin eso,
@@ -5966,30 +6473,28 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     hace tres minutos. Las brechas de arriba ya salen en "—"
                     porque el servidor no las calcula contra una unidad así. */}
                 {u.sinSenal && (
-                  <div title={`Última posición recibida a las ${nowTime(u.sinSenalDesde || u.timestamp)}`}
-                    style={{
-                      fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
-                      color: HUD.amber, marginTop: 8,
-                    }}>SIN SEÑAL DESDE {nowTime(u.sinSenalDesde || u.timestamp)}</div>
+                  <Estado icono="sinSenal" tinta={HUD.ambarTinta2}
+                    title={`Última posición recibida a las ${nowTime(u.sinSenalDesde || u.timestamp)}`}>
+                    SIN SEÑAL DESDE {nowTime(u.sinSenalDesde || u.timestamp)}
+                  </Estado>
                 )}
                 {/* Y si al teléfono se lo sigue oyendo. Son dos cosas distintas
                     que se veían igual: una combi en un cerro (el teléfono no
                     llega) y una app mandando posiciones viejas (llega, pero
                     lo que trae no dice dónde está ahora). La segunda es un
                     problema del celular, no de la calle, y saberlo desde acá
-                    ahorra mandar a alguien a buscar una combi que está bien. */}
+                    ahorra mandar a alguien a buscar una combi que está bien.
+                    «Sigue mandando» es que llega DESPUÉS de su última
+                    posición. Con «oído hace menos de 60 s» a secas, el
+                    teléfono que se calló del todo figuraba 30 s como que
+                    seguía mandando: sin señal se marca a los 30 (recorrido
+                    del 28/10). */}
                 {u.sinSenal && u.oidoEn && (
-                  <div style={{
-                    fontFamily: mono, fontSize: 10, letterSpacing: .6,
-                    color: HUD.amber, marginTop: 4,
-                  }}>{/* «Sigue mandando» es que llega DESPUÉS de su última
-                        posición. Con «oído hace menos de 60 s» a secas, el
-                        teléfono que se calló del todo figuraba 30 s como
-                        que seguía mandando: sin señal se marca a los 30
-                        (recorrido del 28/10). */}
-                      {ahora - u.oidoEn <= 60_000 && u.oidoEn - (u.timestamp || 0) > 15_000
-                        ? `EL TELÉFONO SIGUE MANDANDO · OÍDO HACE ${Math.max(0, Math.round((ahora - u.oidoEn) / 1000))} S`
-                        : `SIN NOTICIAS DEL TELÉFONO HACE ${Math.max(0, Math.round((ahora - u.oidoEn) / 1000))} S`}</div>
+                  <Estado tinta={HUD.ambarTinta2} mt={4}>
+                    {ahora - u.oidoEn <= 60_000 && u.oidoEn - (u.timestamp || 0) > 15_000
+                      ? `EL TELÉFONO SIGUE MANDANDO · OÍDO HACE ${Math.max(0, Math.round((ahora - u.oidoEn) / 1000))} S`
+                      : `SIN NOTICIAS DEL TELÉFONO HACE ${Math.max(0, Math.round((ahora - u.oidoEn) / 1000))} S`}
+                  </Estado>
                 )}
                 {/* El reloj del teléfono atrasado (lo estima el servidor,
                     ver server/reloj.js). Sus posiciones vienen con esa hora
@@ -5997,12 +6502,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     lea «de hace 2 min» donde es de ahora, y para que alguien
                     le arregle la hora al celular. */}
                 {u.relojAtrasadoS >= 30 && (
-                  <div title="El teléfono manda sus posiciones con la hora atrasada; el servidor lo descuenta"
-                    style={{
-                      fontFamily: mono, fontSize: 10, letterSpacing: .6,
-                      color: HUD.dim2, marginTop: 4,
-                    }}>EL RELOJ DEL TELÉFONO ATRASA {u.relojAtrasadoS >= 120
-                      ? `${Math.round(u.relojAtrasadoS / 60)} MIN` : `${u.relojAtrasadoS} S`}</div>
+                  <Estado icono="reloj" tinta={HUD.dim2} mt={4}
+                    title="El teléfono manda sus posiciones con la hora atrasada; el servidor lo descuenta">
+                    EL RELOJ DEL TELÉFONO ATRASA {u.relojAtrasadoS >= 120
+                      ? `${Math.round(u.relojAtrasadoS / 60)} MIN` : `${u.relojAtrasadoS} S`}
+                  </Estado>
                 )}
                 {/* El teléfono del que la maneja (PENDIENTES 0.4): batería,
                     ahorro de batería y versión. «No aparece en el mapa» se
@@ -6053,67 +6557,14 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     marcó "en ruta" pero el GPS todavía no lo vio sobre el
                     trazado (la brecha sale en "—" a propósito). */}
                 {u.presencia === 'ausente' && (
-                  <div style={{
-                    fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
-                    color: HUD.dim2, marginTop: 8,
-                  }}>AUSENTE — FUERA DE LA CADENA</div>
+                  <Estado icono="reloj" tinta={HUD.dim2}>AUSENTE — FUERA DE LA CADENA</Estado>
                 )}
                 {u.presencia === 'ruta' && u.enRuta === false && (
-                  <div style={{
-                    fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6,
-                    color: HUD.amber, marginTop: 8,
-                  }}>YENDO A LA RUTA — ENTRA AL PISAR EL TRAZADO</div>
+                  <Estado icono="ruta" tinta={HUD.ambarTinta2}>YENDO A LA RUTA — ENTRA AL PISAR EL TRAZADO</Estado>
                 )}
                 {!u.lat && (
-                  <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: HUD.amber, marginTop: 8 }}>SIN GPS</div>
+                  <Estado icono="sinSenal" tinta={HUD.ambarTinta2}>SIN GPS</Estado>
                 )}
-                {/* Conversación privada con esta unidad. El click no debe
-                    disparar también el foco del mapa de la fila. */}
-                <button
-                  onClick={(e) => { e.stopPropagation(); abrirPrivado(u.unitId); }}
-                  title={`Escribirle solo a ${u.unitId}`}
-                  style={{
-                    ...btnChico(privadoCon === u.unitId ? '#fff' : HUD.fg2, HUD.line),
-                    marginTop: 9, background: privadoCon === u.unitId ? HUD.bright : HUD.surface,
-                    borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
-                  }}>
-                  Mensaje directo
-                  {noLeidos[u.unitId] > 0 && (
-                    <span style={{
-                      background: HUD.amber, color: HUD.oscuro ? '#000' : '#fff',
-                      borderRadius: 9, minWidth: 18, padding: '0 5px',
-                      fontFamily: mono, fontSize: 11, fontWeight: 800, textAlign: 'center',
-                    }}>{noLeidos[u.unitId]}</span>
-                  )}
-                </button>
-                {/* Y el privado PERSONAL con el que la maneja: lo que es de él
-                    y no de la combi (sus horas, «pasá por la oficina»). No lo
-                    ve su cobrador ni el que maneje la combi después. */}
-                {u.choferId && (() => {
-                  const clave = 'p:' + u.choferId;
-                  const abierto = privadoCon === clave;
-                  return (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); abrirPrivado(clave, u.driverName || u.choferId); }}
-                      title={`Escribirle solo a ${u.driverName || u.choferId}, en la combi que esté`}
-                      style={{
-                        ...btnChico(abierto ? '#fff' : HUD.fg2, HUD.line),
-                        marginTop: 9, marginLeft: 6, background: abierto ? HUD.bright : HUD.surface,
-                        borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
-                      }}>
-                      {/* El primer nombre, para que entre al lado de «Mensaje
-                          directo»; el completo va en el título y en el chat */}
-                      Solo a {String(u.driverName || u.choferId).split(' ')[0]}
-                      {noLeidos[clave] > 0 && (
-                        <span style={{
-                          background: HUD.amber, color: HUD.oscuro ? '#000' : '#fff',
-                          borderRadius: 9, minWidth: 18, padding: '0 5px',
-                          fontFamily: mono, fontSize: 11, fontWeight: 800, textAlign: 'center',
-                        }}>{noLeidos[clave]}</span>
-                      )}
-                    </button>
-                  );
-                })()}
               </div>
             );
           })}
@@ -6144,9 +6595,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
               Con el objetivo en el header, esto termina de contar contra qué
               se está leyendo cada número. */}
           <div style={{
-            position: 'absolute', left: 14, bottom: 14, zIndex: 500,
-            padding: '11px 13px', borderRadius: 11,
-            background: HUD.flotante, border: `1px solid ${HUD.line}`,
+            position: 'absolute', left: isMobile ? 10 : 14, bottom: isMobile ? 40 : 18, zIndex: 500,
+            padding: '11px 13px', borderRadius: 12,
+            background: HUD.flotante, border: `1px solid ${HUD.divider}`, boxShadow: HUD.sombra,
           }}>
             <div style={{ ...rotulo(9), marginBottom: 7 }}>Brecha contra el objetivo</div>
             {[[HUD.green, 'Hasta 15 % de desvío'], [HUD.amber, 'Hasta 30 %'], [HUD.red, 'Crítica · pelotón']].map(([c, t]) => (
@@ -6172,23 +6623,65 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         </div>
       </div>
 
-      {/* navegación inferior — solo celular */}
+      {/* Gestión: la misma pantalla, no un overlay. La cabecera y el cartel
+          de SOS siguen arriba; el mapa queda montado (Leaflet no se rearma). */}
+      {/* Con su muro de errores: que se rompa una pestaña de Gestión no se
+          lleva el panel (auditoría 11/11). En línea y no como capa: el cartel
+          del SOS sigue arriba. */}
+      {adminOpen && (
+        <Muro lugar="Gestión" onVolver={() => setAdminOpen(false)}>
+        <AdminModal
+          session={session}
+          onClose={() => setAdminOpen(false)}
+          onAuthError={onAuthError}
+          routes={routes}
+          currentRoute={routeInfo.routeId}
+          // La pestaña Empresa sube el logo: sin estas dos, el gerente que la
+          // abría tumbaba el panel entero con un ReferenceError (barrido 22/9).
+          marca={marca}
+          refrescarMarca={refrescarMarca}
+          // «Escribir» en Personas: abre su privado personal en el mapa
+          onEscribir={(personId, nombre, routeId) => { setAdminOpen(false); abrirPrivado('p:' + personId, nombre, routeId); }}
+        />
+        </Muro>
+      )}
+
+      {/* navegación inferior — solo celular. Con ícono y nombre, y Gestión
+          como una vista más del panel. */}
       {isMobile && (
-        <div style={{
+        <nav style={{
           flexShrink: 0, display: 'flex',
           borderTop: `1px solid ${HUD.divider}`, background: HUD.surface,
+          paddingBottom: 'env(safe-area-inset-bottom)',
         }}>
-          {[['units', `UNIDADES (${units.length})`], ['map', 'MAPA'], ['chat', 'CHAT']].map(([k, l]) => (
-            <button key={k} onClick={() => setView(k)} style={{
-              flex: 1, padding: '14px 0 18px',
-              background: 'transparent', border: 'none', cursor: 'pointer',
-              fontFamily: black, fontSize: 13, letterSpacing: 0.5,
-              color: view === k ? HUD.bright : HUD.dim3,
-              borderTop: view === k ? `3px solid ${HUD.bright}` : '3px solid transparent',
-              WebkitTapHighlightColor: 'transparent',
-            }}>{l}</button>
-          ))}
-        </div>
+          {[['units', `Unidades (${units.length})`, 'lista'], ['map', 'Mapa', 'mapa'],
+            ['chat', 'Chat', 'chat'], ['gestion', 'Gestión', 'gestion']].map(([k, l, ic]) => {
+            const activo = k === 'gestion' ? adminOpen : (!adminOpen && view === k);
+            const sinLeer = k === 'chat' ? Object.values(noLeidos).reduce((a, b) => a + (b || 0), 0) : 0;
+            return (
+              <button key={k} aria-current={activo ? 'page' : undefined}
+                onClick={() => { if (k === 'gestion') setAdminOpen(true); else { setAdminOpen(false); setView(k); } }}
+                style={{
+                  flex: 1, minHeight: 60, padding: '7px 0 9px', position: 'relative',
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                  fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+                  color: activo ? HUD.bright : HUD.dim2,
+                  WebkitTapHighlightColor: 'transparent',
+                }}>
+                <span style={{
+                  position: 'relative', width: 56, height: 28, borderRadius: 14,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  background: activo ? HUD.azulFondo : 'transparent',
+                }}>
+                  <Icono n={ic} tam={20} />
+                  {sinLeer > 0 && <Insignia n={sinLeer} />}
+                </span>
+                {l}
+              </button>
+            );
+          })}
+        </nav>
       )}
     </div>
   );
@@ -6214,6 +6707,14 @@ function Root() {
     const r = document.documentElement.style;
     r.setProperty('--bg', HUD.bg);
     r.setProperty('--fg', HUD.fg);
+    // Lo que el CSS global necesita (foco, hover, Leaflet): copiado de HUD,
+    // así el <style> no tiene un solo color propio.
+    for (const [v, k] of [['--surface', 'surface'], ['--line', 'line'], ['--divider', 'divider'],
+      ['--acento', 'bright'], ['--anillo', 'anillo'], ['--realce', 'realce'], ['--hueco', 'hueco'],
+      ['--dim', 'dim'], ['--flotante', 'flotante'], ['--sombra', 'sombra']]) r.setProperty(v, HUD[k]);
+    document.documentElement.dataset.tema = modo;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', HUD.surface);
   }, [modo]);
   const alternarModo = () => setModo(m => (m === 'day' ? 'night' : 'day'));
 

@@ -1354,6 +1354,25 @@ que verlo en un teléfono con Android 12 o anterior.
 
 ---
 
+## 18. El retoque de la UI web (Claude Design), integrado — 11/11
+
+**Qué.** La UI de Despacho, Gestión, el creador, la landing, gerencia.html,
+el ingreso del chofer y los documentos legales, con íconos, avatares,
+movimiento corto, jerarquía y la tipografía de datos sólo para datos. El
+detalle completo, pantalla por pantalla, está en `CAMBIOS-UI.md`; cómo se
+fusionó con la auditoría (y dónde se apartó del paquete), en su apartado
+«La integración».
+
+**Mirar.**
+- Personas cambió de forma: Baja, Combis y Editar están en «⋯».
+- Gestión es una vista: el mapa no se desmonta y el cartel del SOS queda
+  arriba.
+
+**Pruebas.** `contraste`, `sintaxis`, `rediseno`, `gerencia-shot`,
+`creador-ui-run`, `chofer-shot` y la regresión completa, en verde.
+
+---
+
 ## Para el manual (cuando toque)
 
 Lo que todavía no está en `manual/manual.tex`:
@@ -1381,3 +1400,5 @@ Lo que todavía no está en `manual/manual.tex`:
   en la pantalla de ingreso (bloque 17.1).
 - Despacho → Gestión → Personas: la versión nueva del consentimiento
   (11/11) y por qué hay que volver a firmarlo (bloque 17.11).
+- Todo el retoque de la UI (bloque 18): las capturas del manual de
+  Despacho y Gestión quedaron viejas.

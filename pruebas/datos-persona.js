@@ -166,9 +166,10 @@ let servidor = null;
   await de.waitForTimeout(3000);
   await de.click('button:has-text("Gestión")');
   await de.waitForTimeout(1500);
-  // El «Editar» de la fila de pedro
-  const fila = await de.$(`xpath=//span[normalize-space(text())='pedro']/ancestor::div[.//button[normalize-space(.)='Editar']][1]`);
-  await (await fila.$('button:has-text("Editar")')).click();
+  // El «Editar» de la fila de pedro: desde el retoque de la UI (11/11) vive
+  // en el menú «⋯» de la fila
+  await de.click('[data-acciones="pedro"]');
+  await de.click('[role="menu"] button:has-text("Editar")');
   const boton = await de.waitForSelector('[data-bajar-datos="pedro"]', { timeout: 5000 }).catch(() => null);
   ok('al abrir Editar está «Bajar todos sus datos (ZIP)»', !!boton && /Bajar todos sus datos/.test(await boton.innerText()));
   const [descarga] = await Promise.all([de.waitForEvent('download', { timeout: 10000 }).catch(() => null), boton && boton.click()]);

@@ -144,6 +144,9 @@ if (typeof L === 'undefined') {
   html.telefono .header, html.telefono .meta { display: none; }
   html.telefono .stage { margin: 0; width: 100%; }
   .pantalla-completa { width: 100vw; height: 100vh; height: 100dvh; }
+  /* Foco con teclado: el mismo anillo que Despacho, nunca el azul por defecto */
+  :focus { outline: none; }
+  :focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
 </style>
 <script>
   // Antes que React: así el primer cuadro ya sale sin marco.
@@ -358,6 +361,8 @@ const TEMAS = {
     burbujaWarn:  '#FFF4D6', burbujaWarnInk: '#5C4100', warnEdge: '#A67300', warnEdgeInk: '#100B00',
     burbujaSos:   '#FFE1E7', burbujaSosInk:  '#68001A',
     // Mapa: tiles claros y tarjetas claras encima
+    // Ingreso: el halo del fondo y el botón principal (antes, paleta P fija)
+    fondoLogin: '#E3EEF9', acento: '#1668C4', acentoInk: '#FFFFFF', acentoTexto: '#1668C4',
     tiles: tilesUrl('positron'),
     tarjeta: 'rgba(255,255,255,.92)', tarjetaSolida: 'rgba(255,255,255,.96)',
     resplandor: false,   // el glow no funciona sobre fondo claro
@@ -384,6 +389,7 @@ const TEMAS = {
     burbujaAdmin: '#D2E6FA',
     burbujaWarn:  '#FFEFC2', burbujaWarnInk: '#3D2B00', warnEdge: '#7A5400', warnEdgeInk: '#FFFFFF',
     burbujaSos:   '#FFD6DE', burbujaSosInk:  '#3D000B',
+    fondoLogin: '#FFFFFF', acento: '#0F4F9E', acentoInk: '#FFFFFF', acentoTexto: '#0F4F9E',
     tiles: tilesUrl('positron'),
     tarjeta: 'rgba(255,255,255,.96)', tarjetaSolida: '#FFFFFF',
     resplandor: false,
@@ -410,6 +416,7 @@ const TEMAS = {
     burbujaAdmin: '#14273c',
     burbujaWarn:  '#2b2008', burbujaWarnInk: '#FFE6B8', warnEdge: '#FFB300', warnEdgeInk: '#03060a',
     burbujaSos:   '#2b0812', burbujaSosInk:  '#FFD9E0',
+    fondoLogin: '#0a1626', acento: '#2E9DFF', acentoInk: '#03060a', acentoTexto: '#71BCFF',
     tiles: tilesUrl('dark-matter'),
     tarjeta: 'rgba(3,6,10,.8)', tarjetaSolida: 'rgba(3,6,10,.9)',
     resplandor: true,
@@ -1667,11 +1674,10 @@ function CoopLogo({ size = 72, ruta }) {
 
 function Field({ label, value, onChange, type = 'text', error, autoFocus }) {
   return (
-    <div style={{ marginBottom: 14 }}>
+    <label style={{ display: 'block', marginBottom: 14 }}>
       <div style={{
-        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-        fontSize: 10, letterSpacing: 2, color: error ? P.red : P.sky,
-        textTransform: 'uppercase', marginBottom: 6,
+        fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+        fontSize: 15, fontWeight: 700, color: error ? HUD.red : HUD.fg2, marginBottom: 6,
       }}>{label}</div>
       <input type={type} value={value} autoFocus={autoFocus}
         onChange={e => onChange(e.target.value)}
@@ -1680,15 +1686,15 @@ function Field({ label, value, onChange, type = 'text', error, autoFocus }) {
           padding: '16px 14px',
           fontSize: 22, fontWeight: 600,
           fontFamily: '"Helvetica Neue", system-ui, sans-serif',
-          background: P.panel,
-          border: `2px solid ${error ? P.red : P.line}`,
+          background: HUD.input,
+          border: `2px solid ${error ? HUD.red : HUD.inputLine}`,
           borderRadius: 12,
-          color: P.white,
+          color: HUD.fg,
           outline: 'none',
-          transition: 'border-color 0.2s',
+          transition: 'border-color .16s ease',
         }}
       />
-    </div>
+    </label>
   );
 }
 
@@ -1744,39 +1750,38 @@ function LoginScreen({ onSuccess, notice }) {
 
   const handleKeyDown = (e) => { if (e.key === 'Enter') submit(); };
 
+  // Los colores salen de HUD, como el resto de la app: el ingreso era la
+  // única pantalla con una paleta oscura fija (P) y no se leía al sol. Con el
+  // tema de fábrica (día) queda igual que el ingreso de Despacho.
   return (
     <div style={{
       width: '100%', height: '100%',
-      background: `linear-gradient(180deg, ${P.bg} 0%, ${P.navy} 100%)`,
+      background: `radial-gradient(110% 60% at 50% 0%, ${HUD.fondoLogin} 0%, ${HUD.bg} 70%)`,
       display: 'flex', flexDirection: 'column',
       padding: '40px 24px 24px', boxSizing: 'border-box',
-      color: P.white, overflowY: 'auto',
+      color: HUD.fg, overflowY: 'auto',
     }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 28 }}>
-        <CoopLogo size={88} />
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 26 }}>
+        <CoopLogo size={80} />
         <div style={{
           fontFamily: '"Archivo Black", system-ui, sans-serif',
-          fontSize: 26, fontWeight: 900, letterSpacing: -0.5,
-          color: P.white, marginTop: 14,
+          fontSize: 26, letterSpacing: -0.5, lineHeight: 1.15, textAlign: 'center',
+          color: HUD.fg, marginTop: 14,
         }}>{coop || COOP.name}</div>
         <div style={{
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 10, letterSpacing: 1.5, color: P.sky,
-          textTransform: 'uppercase', marginTop: 4, textAlign: 'center',
+          fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+          fontSize: 15, fontWeight: 600, color: HUD.dim, marginTop: 6, textAlign: 'center', lineHeight: 1.4,
         }}>{coop ? 'Panel del conductor' : COOP.full}</div>
       </div>
 
       <div style={{
         display: 'flex', alignItems: 'center', gap: 6,
-        alignSelf: 'center', padding: '4px 10px',
-        background: P.panel, border: `1px solid ${P.line}`, borderRadius: 100,
+        alignSelf: 'center', padding: '5px 12px',
+        background: HUD.input, border: `1px solid ${HUD.line}`, borderRadius: 100,
         marginBottom: 22,
       }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: P.green, boxShadow: `0 0 8px ${P.green}` }} />
-        <span style={{
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 10, letterSpacing: 1.5, color: P.green, textTransform: 'uppercase',
-        }}>Conectado</span>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: HUD.green }} />
+        <span style={{ fontFamily: '"Helvetica Neue", system-ui, sans-serif', fontSize: 13, fontWeight: 700, color: HUD.greenInk }}>Conectado</span>
       </div>
 
       <div onKeyDown={handleKeyDown}>
@@ -1785,54 +1790,55 @@ function LoginScreen({ onSuccess, notice }) {
       </div>
 
       {(error || notice) && (
-        <div style={{
-          background: 'rgba(255,77,109,0.12)', border: `1px solid ${P.red}`,
-          borderRadius: 10, padding: '10px 12px', marginBottom: 14,
+        <div role="alert" style={{
+          background: HUD.burbujaSos, border: `1px solid ${HUD.red}`,
+          borderRadius: 12, padding: '10px 12px', marginBottom: 14,
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <div style={{
             width: 24, height: 24, borderRadius: '50%',
-            background: P.red, color: '#fff',
+            background: HUD.red, color: '#fff',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontFamily: '"Archivo Black", system-ui', fontSize: 14, flexShrink: 0,
           }}>!</div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: P.red, fontFamily: '"Helvetica Neue", system-ui' }}>{error || notice}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: HUD.burbujaSosInk, fontFamily: '"Helvetica Neue", system-ui' }}>{error || notice}</div>
         </div>
       )}
 
       {offerDemo && (
         <button onClick={enterDemo} style={{
-          width: '100%', padding: '12px',
-          fontSize: 14, fontWeight: 700, letterSpacing: 1,
+          width: '100%', minHeight: 48, padding: '12px',
+          fontSize: 15, fontWeight: 700,
           fontFamily: '"Helvetica Neue", system-ui, sans-serif',
-          background: 'transparent', color: P.sky,
-          border: `1px solid ${P.deep}`, borderRadius: 10,
+          background: HUD.input, color: HUD.fg2,
+          border: `1px solid ${HUD.line}`, borderRadius: 12,
           cursor: 'pointer', marginBottom: 14,
         }}>
           ENTRAR EN MODO DEMO (SIN SERVIDOR)
         </button>
       )}
 
+      {/* El botón conserva su tamaño de dedo enguantado y su peso: es lo que
+          se toca con el sol de frente. Deja de gritar con tracking de 2 px. */}
       <button onClick={submit} disabled={loading} style={{
-        width: '100%', padding: '18px',
-        fontSize: 20, fontWeight: 900, letterSpacing: 2,
+        width: '100%', minHeight: 60, padding: '16px',
+        fontSize: 20, letterSpacing: 0.5,
         fontFamily: '"Archivo Black", system-ui, sans-serif',
-        background: loading ? P.deep : P.bright,
-        color: P.white, border: 'none', borderRadius: 14,
+        background: loading ? HUD.dim3 : HUD.acento,
+        color: HUD.acentoInk, border: 'none', borderRadius: 14,
         cursor: loading ? 'wait' : 'pointer',
-        boxShadow: loading ? 'none' : `0 4px 0 ${P.deep}`,
-        transition: 'all 0.12s', opacity: loading ? 0.7 : 1,
+        transition: 'background-color .16s ease, transform .12s ease',
       }}>
         {loading ? 'VERIFICANDO...' : 'INGRESAR'}
       </button>
 
-      <div style={{ marginTop: 18, textAlign: 'center', fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, color: P.mute }}>
-        <button onClick={() => setOlvido(o => !o)} style={{
-          background: 'none', border: 'none', padding: 6, cursor: 'pointer',
-          color: P.sky, fontSize: 13, fontFamily: 'inherit',
+      <div style={{ marginTop: 16, textAlign: 'center', fontFamily: '"Helvetica Neue", system-ui', fontSize: 15, color: HUD.dim }}>
+        <button onClick={() => setOlvido(o => !o)} aria-expanded={olvido} style={{
+          background: 'none', border: 'none', padding: '10px 8px', minHeight: 44, cursor: 'pointer',
+          color: HUD.acentoTexto, fontSize: 15, fontWeight: 700, fontFamily: 'inherit',
         }}>Olvidé mi contraseña</button>
         {olvido && (
-          <div style={{ marginTop: 8, lineHeight: 1.45, color: P.mute }}>
+          <div style={{ marginTop: 4, lineHeight: 1.5, color: HUD.fg2 }}>
             Pedile a Despacho de tu cooperativa que te ponga una clave nueva.
             Si sos cobrador, también te la puede cambiar el chofer de tu combi.
           </div>
@@ -1845,7 +1851,9 @@ function LoginScreen({ onSuccess, notice }) {
       {centralRecordada && (
         <a href={`tel:${centralRecordada}`} data-central-sin-sesion style={{
           display: 'block', marginTop: 18, padding: '13px 10px', borderRadius: 12,
-          border: `2px solid ${P.red}`, color: P.red, textAlign: 'center', textDecoration: 'none',
+          // Del tema, como el resto del ingreso desde el retoque (el rosa fijo
+          // de `P` no llegaba al contraste sobre el fondo claro del día)
+          border: `2px solid ${HUD.red}`, color: HUD.red, textAlign: 'center', textDecoration: 'none',
           fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 13, letterSpacing: 0.5,
         }}>¿EMERGENCIA? LLAMAR A LA CENTRAL · {centralRecordada}</a>
       )}
@@ -1853,9 +1861,8 @@ function LoginScreen({ onSuccess, notice }) {
       <div style={{ flex: 1 }} />
 
       <div style={{
-        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-        fontSize: 9, letterSpacing: 1.5, color: P.mute,
-        textAlign: 'center', textTransform: 'uppercase',
+        fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+        fontSize: 13, color: HUD.dim2, textAlign: 'center', lineHeight: 1.4,
       }}>
         {/* Sin cooperativa recordada el subtítulo de arriba ya dice esto */}
         {coop ? COOP.full : ''}

@@ -106,12 +106,15 @@ const borrarBase = () => { for (const f of [DB, DB + '-wal', DB + '-shm']) { try
   console.log('\nGESTIÓN ABIERTA');
   await pg.click('button:has-text("Gestión")');
   await pg.waitForTimeout(1200);
-  const enGestion = await pg.$eval('[data-sos-en-gestion]', e => {
-    const r = e.getBoundingClientRect();
+  // Desde el retoque de la UI, Gestión es una vista debajo de la cabecera y
+  // del cartel: el cartel tiene que seguir a la vista, no tapado
+  const enGestion = await pg.$eval('[data-sos-atendido]', e => {
+    const cartel = e.parentElement;
+    const r = cartel.getBoundingClientRect();
     const arriba = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-    return { visible: r.height > 0 && e.contains(arriba), texto: e.innerText };
+    return { visible: r.height > 0 && cartel.contains(arriba), texto: cartel.innerText };
   }).catch(() => null);
-  ok('el cartel del SOS está arriba de Gestión, a la vista', !!enGestion && enGestion.visible && /PEDRO MAMANI/.test(enGestion.texto), enGestion);
+  ok('con Gestión abierta, el cartel del SOS sigue a la vista', !!enGestion && enGestion.visible && /PEDRO MAMANI/.test(enGestion.texto), enGestion);
   await pg.click('button:has-text("Volver al mapa")');
   await pg.waitForTimeout(800);
 
@@ -128,26 +131,31 @@ const borrarBase = () => { for (const f of [DB, DB + '-wal', DB + '-shm']) { try
 
   console.log('\nDOBLE CLIC EN BAJA');
   await pg.click('button:has-text("Gestión")');
-  await pg.waitForSelector('button:has-text("Baja")', { timeout: 8000 });
+  // Desde el retoque, «Baja» vive en el menú «⋯» de la fila
+  await pg.waitForSelector('[data-acciones="pedro"]', { timeout: 8000 });
+  const abrirBaja = async () => { await pg.click('[data-acciones="pedro"]'); await pg.waitForSelector('[role="menu"] button:has-text("Baja")'); };
   const cuantos = () => base.prepare("SELECT COUNT(*) n FROM users WHERE unitId IN ('pedro','juan')").get().n;
   const antes = cuantos();
-  await dobleClic(pg, 'button:has-text("Baja")');
+  await abrirBaja();
+  await dobleClic(pg, '[role="menu"] button:has-text("Baja")');
   await pg.waitForTimeout(1500);
   const despues = cuantos();
   ok('dos clics sobre «Baja» no dan de baja a nadie', antes === 2 && despues === 2, [antes, despues]);
   // El segundo clic cae en el velo del diálogo, que cancela: lo más seguro.
   if (await pg.$('[data-confirmar-aceptar]')) await pg.click('button:has-text("No cambiar nada")');
-  await pg.click('button:has-text("Baja")');
+  await abrirBaja();
+  await pg.click('[role="menu"] button:has-text("Baja")');
   await pg.waitForSelector('[data-confirmar-aceptar]', { timeout: 3000 });
   const dialogo = await pg.evaluate(() => document.body.innerText);
-  ok('se abre un diálogo que nombra a quién', /¿Dar de baja a (Pedro Mamani|Juan Quispe) \((pedro|juan)\)\?/.test(dialogo));
+  ok('se abre un diálogo que nombra a quién', /¿Dar de baja a Pedro Mamani \(pedro\)\?/.test(dialogo));
   ok('y dice que no se puede deshacer', /No se puede deshacer/.test(dialogo));
   await pg.click('button:has-text("No cambiar nada")');
   await pg.waitForTimeout(400);
   ok('«No cambiar nada» lo cierra sin tocar nada', cuantos() === 2 && !(await pg.$('[data-confirmar-aceptar]')));
-  await pg.click('button:has-text("Baja")');
+  await abrirBaja();
+  await pg.click('[role="menu"] button:has-text("Baja")');
   await pg.click('[data-confirmar-aceptar]');   // espera a que se arme
-  ok('aceptando en el diálogo, sí', await hasta(() => cuantos() === 1));
+  ok('aceptando en el diálogo, sí', await hasta(() => cuantos() === 1 && !base.prepare("SELECT 1 FROM users WHERE unitId = 'pedro'").get()));
 
   ok('sin errores de la página', errores.length === 0, errores);
   pedro.close(); juan.close();
