@@ -70,6 +70,7 @@ Las que van a mirar con lupa en ésta:
 | --- | --- |
 | **Política de privacidad** | `https://app.microstempo.com/privacidad` |
 | **Ubicación en segundo plano** | Formulario de declaración: caso de uso «seguimiento de flota para empleados/operadores», y un **video** (subido a YouTube, puede ser oculto) que muestre: la pantalla «¿Salís a ruta?» con su texto → el deslizar → el diálogo de permiso del sistema → la combi en el mapa. Grabalo del teléfono real |
+| **Servicio en primer plano** | Declaración APARTE de la de ubicación en segundo plano (Android 14): tipo `location` (`FOREGROUND_SERVICE_LOCATION`), caso de uso «seguimiento de la unidad durante el turno», con el **mismo video**. Sin ésta, el AAB se rechaza aunque la de segundo plano esté aprobada |
 | **Seguridad de los datos** | Ver la tabla de abajo — tiene que decir lo mismo que `/privacidad` |
 | **Público objetivo** | 18+, no dirigida a niños |
 | **Acceso de la app** | La app entera requiere cuenta: cargá un **usuario y clave de demo** para el revisor (creá una cuenta de chofer en una empresa `MODO=demo`) — sin esto rechazan sin mirar |
@@ -84,7 +85,36 @@ copiar):
 - Información personal (nombre): recopilada, vinculada, no opcional.
 - Mensajes (chat), fotos, audio (notas de voz): recopilados, vinculados,
   **opcionales** (el usuario decide mandarlos).
+- **Información y rendimiento de la app / Información del dispositivo**:
+  con cada envío de ubicación viajan el nivel de batería, si está
+  cargando, si hay ahorro de batería y la versión de la app (`POST /gps`,
+  `telefono`). Recopilados, vinculados, no opcionales, finalidad
+  «funcionalidad de la app» (explicar por qué una combi dejó de verse).
+  Se ven sólo como último valor, pero **se recopilan**: hay que declararlos.
 - Nada para publicidad ni analytics.
+
+**Antes de compilar el AAB para Play** (auditoría 11/11), en la misma tanda
+en que se sube `"version"` en `app/app.json`, agregar dentro de `"android"`:
+
+```json
+"blockedPermissions": [
+  "android.permission.READ_MEDIA_IMAGES",
+  "android.permission.READ_MEDIA_VIDEO",
+  "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+  "android.permission.READ_EXTERNAL_STORAGE",
+  "android.permission.WRITE_EXTERNAL_STORAGE"
+]
+```
+
+y después `node pruebas/actualizacion.js --anotar`. No va antes a propósito:
+es nativo, y meterlo sin subir la versión dejaba los arreglos de JavaScript
+del 11/11 (el SOS en la puerta, el latido…) sin poder llegar por EAS Update
+a las APK 0.3.0. La galería ya no pide el permiso (eso es JavaScript), así
+que la app no los necesita. **Y mirar el manifiesto final**: no puede tener
+`READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO` ni `READ_EXTERNAL_STORAGE`. `RECORD_AUDIO` sí, por las notas de
+voz (declararlo en «audio»). Para verlo: `npx expo prebuild -p android` y
+abrir `android/app/src/main/AndroidManifest.xml`, o `aapt dump permissions`
+sobre el AAB.
 
 ### 4 · Prueba cerrada → producción
 

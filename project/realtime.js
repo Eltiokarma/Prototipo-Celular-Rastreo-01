@@ -16,6 +16,12 @@
   let ws = null;
   let gpsInterval = null;
   let reconnectTimeout = null;
+  let intentosReconexion = 0;
+  function esperaReconexion() {
+    const base = Math.min(3000 * 2 ** intentosReconexion, 30000);
+    intentosReconexion++;
+    return Math.round(base * (0.5 + Math.random()));
+  }
   let authToken = null;
   let authUnitId = null;   // quién soy: para reconocer el eco de MI SOS
   // El GPS simulado sólo existe para la demo (el servidor en MODO=demo lo
@@ -89,6 +95,7 @@
     ws = new WebSocket(SERVER_URL);
 
     ws.onopen = () => {
+      intentosReconexion = 0;
       console.log('WebSocket conectado');
       emit('status', { connected: true });
       ultimoOido = Date.now();
@@ -138,7 +145,8 @@
         } else if (msg.type === 'sos_alert') {
           // El eco de MI disparo por el socket: es lo que confirma que salió
           if (msg.unitId && msg.unitId === authUnitId && ecoSos) { const r = ecoSos; ecoSos = null; r(msg); }
-          emit('sos', msg);
+          // El eco de un SOS repetido confirma, pero no es uno nuevo
+          if (!msg.repetido) emit('sos', msg);
         } else if (msg.type === 'cupo') {
           // El servidor avisa que se pasó el cupo por minuto de ese tipo de
           // mensaje: lo que se mandó de más se descartó. Antes se descartaba
@@ -186,10 +194,12 @@
       // reconectar con el mismo token solo repetiría el rechazo
       if (authFailed) return;
 
-      // Reconexión automática después de 3 segundos
-      // Así si se corta la señal, la app se reconecta sola
-      console.log('WebSocket desconectado — reconectando en 3s');
-      reconnectTimeout = setTimeout(() => connect({ token: authToken }), 3000);
+      // Reconexión automática, con espera creciente (3, 6, 12, 24, 30 s) y
+      // un azar de ±50 %. Fija en 3 s, tras un deploy del servidor todos
+      // volvían en el mismo segundo y lo congelaban (auditoría 11/11).
+      const espera = esperaReconexion();
+      console.log(`WebSocket desconectado — reconectando en ${Math.round(espera / 1000)} s`);
+      reconnectTimeout = setTimeout(() => connect({ token: authToken }), espera);
     };
 
     ws.onerror = (err) => {
@@ -249,7 +259,7 @@
         stopGps();
         if (!authFailed && authToken) {
           clearTimeout(reconnectTimeout);
-          reconnectTimeout = setTimeout(() => connect({ token: authToken }), 1000);
+          reconnectTimeout = setTimeout(() => connect({ token: authToken }), Math.round(500 + Math.random() * 1500));
         }
         return;
       }
@@ -509,12 +519,16 @@
   const POSICION_SOS_MAX_MS = 60_000;
   let ecoSos = null;
   let sosEnVuelo = null;
-  function sendSos() {
+  // `opciones.token`: el de la sesión, para disparar desde la puerta. Ahí el
+  // socket todavía no se abrió (se abre al salir a ruta) y sin token propio
+  // el SOS no tenía por dónde salir (auditoría del 11/11).
+  function sendSos(opciones = {}) {
     if (sosEnVuelo) return sosEnVuelo;
-    sosEnVuelo = dispararSos().finally(() => { sosEnVuelo = null; });
+    sosEnVuelo = dispararSos(opciones).finally(() => { sosEnVuelo = null; });
     return sosEnVuelo;
   }
-  async function dispararSos() {
+  async function dispararSos({ token } = {}) {
+    const tk = authToken || token || null;
     const fresca = lastPosition && Date.now() - (lastPosition.timestamp || 0) <= POSICION_SOS_MAX_MS;
     const coords = fresca ? lastPosition.coords : null;
     const cuerpo = {
@@ -522,13 +536,13 @@
       lng: coords ? coords.longitude : null,
       timestamp: Date.now(),
     };
-    if (authToken) {
+    if (tk) {
       try {
         const ctl = new AbortController();
         const t = setTimeout(() => ctl.abort(), 6000);
         const res = await fetch(HTTP_URL + '/sos', {
           method: 'POST', signal: ctl.signal,
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk },
           body: JSON.stringify(cuerpo),
         });
         clearTimeout(t);

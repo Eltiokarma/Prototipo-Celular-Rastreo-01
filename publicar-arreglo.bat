@@ -67,6 +67,19 @@ if errorlevel 1 (
 REM La version de la APK a la que va el arreglo (runtimeVersion)
 for /f "delims=" %%v in ('node -p "require('./app.json').expo.version"') do set version=%%v
 
+REM Lo que se publica tiene que ser EXACTAMENTE lo del repositorio: con cambios
+REM locales sin subir, se mandaba a todos los telefonos codigo que nadie reviso
+REM ni probo (auditoria 11/11).
+git status --porcelain -- . ..\pruebas | findstr /r /c:"." >nul
+if not errorlevel 1 (
+  echo.
+  echo [NO SE PUBLICA] Hay cambios en esta PC que no estan en el repositorio:
+  git status --short -- . ..\pruebas
+  echo Subilos ^(o descartalos^) y volve a correr esto.
+  pause
+  exit /b 1
+)
+
 REM La guardia: si cambio algo NATIVO sin subir la version, NO se publica
 REM (el arreglo caeria en telefonos sin esa parte y la app se romperia)
 echo.

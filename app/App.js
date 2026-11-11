@@ -343,9 +343,22 @@ function Aplicacion() {
   }, []);
   const presentacion = <Presentacion mostrando={arranque === 'cargando'} />;
 
+  // El teléfono de la central sobrevive a la sesión (ver LLAVE_CENTRAL): es
+  // la salida de emergencia de la pantalla de ingreso.
+  const [centralGuardada, setCentralGuardada] = React.useState(null);
+  React.useEffect(() => {
+    SecureStore.getItemAsync(gps.LLAVE_CENTRAL).then(c => { if (c) setCentralGuardada(c); }).catch(() => {});
+  }, []);
+  const guardarCentral = (c) => {
+    if (!c) return;
+    setCentralGuardada(c);
+    SecureStore.setItemAsync(gps.LLAVE_CENTRAL, String(c)).catch(() => {});
+  };
+
   const entrarConSesion = async (s) => {
     saliendo.current = false;
     setSesion(s);
+    if (s && s.central) guardarCentral(s.central);
     // El servidor va al disco junto con la sesión porque la tarea de fondo
     // los lee de ahí: cuando Android la revive, no queda nada en memoria.
     await SecureStore.setItemAsync(gps.LLAVE_SERVIDOR, SERVIDOR);
@@ -358,6 +371,7 @@ function Aplicacion() {
       // El teléfono de la central viene con la marca (PENDIENTES 0.5): si la
       // gerencia lo cambió, queda en la sesión guardada, que es lo que hay
       // cuando el SOS no sale por falta de internet
+      if (m.central !== undefined) guardarCentral(m.central);
       if (m.central !== undefined && m.central !== (s.central ?? null)) {
         setSesion(prev => {
           if (!prev) return prev;
@@ -594,7 +608,14 @@ function Aplicacion() {
   // anterior (barrido del 22/9).
   const ultimaPos = React.useRef({ lat: null, lng: null, t: 0 });
   React.useEffect(() => {
-    gps.cuandoLlegueUnaPosicion((p) => { ultimaPos.current = { lat: p.lat, lng: p.lng, t: Date.now() }; });
+    // `t` es la hora de la LECTURA del GPS, no la de llegada: Android a veces
+    // entrega tarde una lectura vieja, y medida por la llegada salía como
+    // fresca y el SOS mandaba la ayuda adonde la combi ya no estaba
+    // (auditoría 11/11).
+    gps.cuandoLlegueUnaPosicion((p) => {
+      const leida = Number(p.timestamp);
+      ultimaPos.current = { lat: p.lat, lng: p.lng, t: Number.isFinite(leida) ? Math.min(leida, Date.now()) : Date.now() };
+    });
   }, []);
   const posicionParaSos = () => (Date.now() - ultimaPos.current.t <= 2 * 60_000
     ? { lat: ultimaPos.current.lat, lng: ultimaPos.current.lng } : { lat: null, lng: null });
@@ -820,7 +841,7 @@ function Aplicacion() {
 
   if (!sesion) return (
     <>
-      <Entrar servidor={SERVIDOR} aviso={aviso} onEntrar={async (s) => {
+      <Entrar servidor={SERVIDOR} aviso={aviso} central={centralGuardada} onEntrar={async (s) => {
         await SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(s));
         entrarConSesion(s);
       }} clienteRef={cliente} />
@@ -1053,7 +1074,7 @@ function useVentana() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
+function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
   const { s, C } = usarTema();
   const [usuario, setUsuario] = React.useState('');
   const [clave, setClave] = React.useState('');
@@ -1103,6 +1124,15 @@ function Entrar({ servidor, aviso, onEntrar, clienteRef }) {
       <Pressable style={[s.boton, cargando && { opacity: 0.6 }]} onPress={enviar} disabled={cargando}>
         {cargando ? <ActivityIndicator color="#fff" /> : <Text style={s.botonTexto}>INGRESAR</Text>}
       </Pressable>
+      {/* Sin sesión no hay SOS (el servidor no sabe quién lo pide), pero
+          la central sí atiende el teléfono. Es sólo una llamada: no dispara
+          ninguna alarma, así que no necesita el deslizar del SOS. */}
+      {central && (
+        <Pressable onPress={() => Linking.openURL(`tel:${central}`).catch(() => {})}
+          style={s.emergenciaSinSesion} hitSlop={8}>
+          <Text style={s.emergenciaSinSesionTexto}>¿EMERGENCIA? LLAMAR A LA CENTRAL · {central}</Text>
+        </Pressable>
+      )}
       <Text style={s.pie}>{servidor}{APP.versionCode ? ` · app ${APP.version} (${APP.versionCode})` : ''}</Text>
     </View>
   );
@@ -1282,23 +1312,26 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
             le contesta 403 a cada posición. Antes podía deslizar igual y
             quedaba con el GPS alto y un 403 cada 3 s todo el turno (A4). */}
         {rol === 'collector' ? (
-          <>
-            <Text style={[s.diagnostico, { marginBottom: 12 }]}>
-              La ubicación la emite el teléfono del chofer. Vos tenés el chat, el
-              mapa y el SOS.
-            </Text>
-            {/* Y el SOS tiene que ESTAR: el cobrador siempre está «fuera», y
-                el deslizador sólo aparecía en ausente y en ruta — la pantalla
-                le prometía un SOS que no tenía (barrido del 22/9). */}
-            {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
-            {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
-            {tipificarSos && <TipoSos onElegir={onTipoSos} />}
-            <SosDeslizable onDisparar={onSos} />
-          </>
+          <Text style={[s.diagnostico, { marginBottom: 12 }]}>
+            La ubicación la emite el teléfono del chofer. Vos tenés el chat, el
+            mapa y el SOS.
+          </Text>
         ) : (
           <Deslizable texto="DESLIZÁ PARA SALIR A RUTA  →" textoBoton="IR"
             colorListo={C.verde} onDisparar={() => onPresencia('ruta')} />
         )}
+        {/* El SOS tiene que ESTAR en la puerta, para el cobrador y para el
+            chofer. El cobrador siempre está «fuera» (barrido del 22/9), y el
+            chofer pasa por acá en los momentos de más riesgo: las 5 de la
+            mañana en el terminal, la vuelta a la cochera, el «fuera» que le
+            puso el vigía o el cambio de combi (auditoría del 11/11). Va
+            abajo, en el mismo lugar que en ruta y en ausente: la mano lo
+            busca siempre ahí. Sin GPS prendido sale sin coordenadas; el
+            servidor le pone las de la combi si son frescas. */}
+        {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
+        {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
+        {tipificarSos && <TipoSos onElegir={onTipoSos} />}
+        <SosDeslizable onDisparar={onSos} />
         <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
       </View>
     );
@@ -2824,6 +2857,10 @@ function crearEstilos(C) { return StyleSheet.create({
   boton: { backgroundColor: C.brillante, borderRadius: 14, padding: 18, alignItems: 'center', marginTop: 26 },
   botonTexto: { color: '#fff', fontSize: 20, fontWeight: '900', letterSpacing: 2 },
   pie: { color: C.tenue, fontSize: 11, textAlign: 'center', marginTop: 20, fontFamily: 'monospace' },
+  // Contorno, no relleno: es una llamada, no el SOS. El rojo lleno queda para
+  // lo que dispara una alarma.
+  emergenciaSinSesion: { borderWidth: 2, borderColor: C.rojo, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 10, alignItems: 'center', marginTop: 22 },
+  emergenciaSinSesionTexto: { color: C.rojo, fontSize: 14, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
 
   barra: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chip: { fontFamily: 'monospace', fontSize: 12, letterSpacing: 1, fontWeight: '700' },

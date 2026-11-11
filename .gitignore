@@ -36,3 +36,11 @@ manual/*.out
 manual/*.fls
 manual/*.fdb_latexmk
 manual/*.synctex.gz
+# LaTeX: los auxiliares de compilar (manual/ y legal/); los PDF sí van
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.out
+*.toc
+*.synctex.gz

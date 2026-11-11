@@ -6,10 +6,13 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v91';       // app: HTML, JS propio, iconos
+const CACHE_NAME = 'coop-r14-v99';       // app: HTML, JS propio, iconos
 // tiles-v2: las tiles ahora vienen de Geoapify — las de CARTO guardadas con
 // la v1 tienen URLs que ya nadie pide y solo ocupan los ~15 MB del tope.
-const TILE_CACHE = 'coop-r14-tiles-v2';  // tiles del mapa
+// tiles-v3: la v2 guardaba respuestas OPACAS, que no dejan ver si fueron un
+// 429 o un 500 del proveedor; esas cuadras quedaban grises para siempre en
+// ese aparato (auditoría 11/11). Se tira una vez y se vuelve a bajar.
+const TILE_CACHE = 'coop-r14-tiles-v3';  // tiles del mapa
 const LIB_CACHE  = 'coop-r14-libs-v1';   // React, Babel, Leaflet, fuentes
 
 // Tope de tiles guardados: a ~25 KB cada uno son unos 15 MB, suficiente
@@ -158,6 +161,25 @@ async function redPrimero(request, cacheName) {
   return guardado || respuesta;
 }
 
+// Las tiles: se piden en modo CORS para poder ver el código y guardar sólo
+// las que llegaron bien. Leaflet las pide sin CORS (opacas) y antes se
+// guardaba cualquier opaca, también un error. Si el proveedor no deja CORS,
+// se sirve la opaca pero no se guarda.
+async function tilePrimero(request) {
+  const cache = await caches.open(TILE_CACHE);
+  const guardado = await cache.match(request);
+  if (guardado) return guardado;
+  let respuesta = null;
+  try { respuesta = await fetch(request.url, { mode: 'cors', credentials: 'omit' }); } catch {}
+  if (respuesta && respuesta.ok) {
+    if (!noGuardar(respuesta)) {
+      try { await cache.put(request, respuesta.clone()); await podarTiles(cache); } catch {}
+    }
+    return respuesta;
+  }
+  return fetch(request);
+}
+
 async function cachePrimero(request, cacheName, podar) {
   const cache = await caches.open(cacheName);
   const guardado = await cache.match(request);
@@ -204,7 +226,7 @@ self.addEventListener('fetch', (event) => {
 
   if (ES_TILE.test(url)) {
     event.respondWith(
-      cachePrimero(req, TILE_CACHE, true).catch(() => caches.match(req))
+      tilePrimero(req).catch(() => caches.match(req))
     );
     return;
   }

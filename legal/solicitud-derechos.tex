@@ -1,0 +1,65 @@
+% Formulario para que un chofer o cobrador ejerza sus derechos (acceso,
+% rectificación, cancelación, oposición, portabilidad) o retire su
+% consentimiento. Lo recibe la cooperativa, que es la responsable; el
+% sistema tiene con qué contestar cada pedido (ver la tabla del final).
+\documentclass[10.5pt,a4paper]{article}
+\input{preambulo}
+\begin{document}
+\documento{Solicitud de derechos sobre datos personales}{borrador del 11/11/2026}
+
+{\LARGE\bfseries Solicitud sobre mis datos personales}\par
+{\small\color{tenue}Ley N.º 29733 · Aplicación «Control de ruta» · se entrega a la cooperativa (a su central)}
+
+\begin{borrador}
+\textbf{Borrador.} Que lo revise el abogado junto con el consentimiento. La
+cooperativa tiene que contestar dentro de los plazos de ley
+\completar{confirmar: acceso 20 días hábiles; rectificación, cancelación y
+oposición 10 días hábiles}.
+\end{borrador}
+
+\section{Quién lo pide}
+Nombre completo: \llenar[11cm]\par\vspace{5pt}
+DNI: \llenar[4cm]\quad Usuario en la app: \llenar[4.5cm]\quad Rol: \llenar[3cm]\par\vspace{5pt}
+Teléfono o correo para la respuesta: \llenar[9cm]
+
+\section{Qué pide}
+Marque lo que pide. Puede marcar más de una.
+
+\begin{tabularx}{\linewidth}{@{}p{14pt}X@{}}
+\casilla & \textbf{Acceso}: saber qué datos míos tiene el sistema.\\
+\casilla & \textbf{Portabilidad}: una copia de todos mis datos en un archivo.\\
+\casilla & \textbf{Rectificación}: corregir un dato que está mal (diga cuál y cómo debe quedar).\\
+\casilla & \textbf{Cancelación}: que se borren mis datos que no sean registro de trabajo de la cooperativa.\\
+\casilla & \textbf{Oposición}: que no se usen mis datos para un fin concreto (diga cuál).\\
+\casilla & \textbf{Revisión de una marca automática} (por ejemplo «GPS sospechoso» o «entrada tardía»): que una persona la revise y me la explique.\\
+\casilla & \textbf{Retiro del consentimiento} que firmé (versión \llenar[2.6cm]). Entiendo que la ubicación durante el turno es la función central de la aplicación y que la cooperativa me dirá cómo se registra mi trabajo sin ella.\\
+\end{tabularx}
+
+\section{Detalle}
+\vspace{2pt}
+\llenar[\linewidth]\par\vspace{8pt}\llenar[\linewidth]\par\vspace{8pt}\llenar[\linewidth]\par\vspace{8pt}\llenar[\linewidth]
+
+\vspace{6pt}
+Lugar y fecha: \llenar[8cm]
+
+\noindent\firma{Firma de quien lo pide}\hfill\firma{Recibido por la cooperativa (nombre, cargo, fecha y firma)}
+
+\vspace{14pt}
+\begin{nota}
+\textbf{Para la cooperativa: cómo se contesta con el sistema.}
+\begin{itemize}[leftmargin=12pt,itemsep=0pt]
+\item \textbf{Acceso y portabilidad}: Despacho → Gestión → Personas → «⋯» →
+  Editar → \emph{Bajar todos sus datos (ZIP)}. Trae un LÉEME que explica cada
+  archivo. Queda en la Actividad quién lo bajó.
+\item \textbf{Rectificación}: Personas → «⋯» → Editar (nombre y alias). Las
+  horas se corrigen en Turnos, con motivo.
+\item \textbf{Cancelación}: Personas → «⋯» → Baja. Borra la cuenta, sus combis
+  habilitadas y sus mensajes privados. Los turnos, vueltas y la Actividad son
+  registro de trabajo y se quedan hasta su plazo \completar{confirmar con el abogado}.
+\item \textbf{Retiro del consentimiento}: Personas → Consentimiento → «Lo
+  retiró», con cómo lo pidió; y en la hoja de registro.
+\item \textbf{Marcas automáticas}: se miran en Gestión → Dónde se traba y en
+  Números → Señal y presencia, con su detalle y hora.
+\end{itemize}
+\end{nota}
+\end{document}

@@ -25,7 +25,15 @@ const RECONEXION_TOPE_MS = 30000;  // en un túnel largo, no cada 3 s para siemp
 
 const { MAX_DATAURL } = require('../imagen.js');
 
-function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
+// El latido, como la web (realtime.js): un socket «medio muerto» —tras Doze,
+// en una zona de una barra— sigue en OPEN y `onclose` no llega nunca. El HUD
+// decía EN VIVO con la brecha congelada, el chat y las fotos salían a la
+// nada y el SOS perdía 8 s esperando un eco (auditoría 11/11). Un ping cada
+// 15 s y, si en 40 s no llegó NADA, se da por muerto y se reconecta.
+const LATIDO_MS = 15_000;
+const SILENCIO_MAX_MS = 40_000;
+
+function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latidoMs = LATIDO_MS, silencioMaxMs = SILENCIO_MAX_MS }) {
   if (!servidor) throw new Error('falta la URL del servidor');
   if (!WebSocketImpl) throw new Error('falta la implementación de WebSocket');
 
@@ -47,6 +55,8 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   let cerradoAdrede = false;
   let intentos = 0;
   let reintento = null;
+  let latido = null;
+  let ultimoOido = 0;
   const enviosGps = [];     // marcas de tiempo, para el freno de cadencia
 
   // ─── Entrar ────────────────────────────────────────────────
@@ -134,6 +144,8 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     ws = new WebSocketImpl(url);
 
     const alAbrir = () => {
+      ultimoOido = Date.now();
+      arrancarLatido();
       // `identify` SIEMPRE primero: lo que se mande antes se ignora en
       // silencio, y es de los errores más difíciles de ver porque no da error.
       ws.send(JSON.stringify({ type: 'identify', token }));
@@ -160,12 +172,14 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       }
     };
     const alMensaje = (crudo) => {
+      ultimoOido = Date.now();
       let m;
       try { m = JSON.parse(typeof crudo === 'string' ? crudo : crudo.toString()); }
       catch { return; }
       recibir(m);
     };
     const alCerrar = () => {
+      pararLatido();
       conectado = false;
       // Al caerse la conexión ya no se reporta posición. Si no se apaga acá,
       // el servicio de fondo sigue creyendo que sí durante toda la caída.
@@ -190,11 +204,44 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
     }
   }
 
+  function arrancarLatido() {
+    pararLatido();
+    latido = setInterval(() => {
+      if (!ws || ws.readyState !== 1) return;
+      if (Date.now() - ultimoOido > silencioMaxMs) {
+        // Muerto aunque no lo sepa: se lo suelta sin esperar su `close` (que
+        // puede no llegar nunca) y se reconecta como tras cualquier corte.
+        const muerto = ws;
+        ws = null;
+        pararLatido();
+        try {
+          if (typeof muerto.removeAllListeners === 'function') muerto.removeAllListeners();
+          else muerto.onopen = muerto.onmessage = muerto.onclose = muerto.onerror = null;
+          if (typeof muerto.on === 'function') muerto.on('error', () => {});
+          muerto.close();
+        } catch {}
+        conectado = false;
+        reportaGps = false;
+        emitir('conexion', { conectado: false, motivo: 'mudo' });
+        if (!cerradoAdrede) programarReintento();
+        return;
+      }
+      try { ws.send('{"type":"ping"}'); } catch {}
+    }, latidoMs);
+    if (latido && typeof latido.unref === 'function') latido.unref();
+  }
+  function pararLatido() { if (latido) { clearInterval(latido); latido = null; } }
+
   function programarReintento() {
     clearTimeout(reintento);
     // Espera creciente: 3, 6, 12, 24, y de ahí 30 s. Un celular en un túnel
     // reintentando cada 3 segundos durante media hora es batería tirada.
-    const espera = Math.min(RECONEXION_BASE_MS * 2 ** intentos, RECONEXION_TOPE_MS);
+    //
+    // Con un azar de ±50 %: tras un deploy del servidor TODOS los teléfonos
+    // pierden el socket en el mismo segundo y, con la misma espera, volvían
+    // en el mismo segundo — 600 a la vez congelaron el servidor ~11 s
+    // (auditoría 11/11). El azar los reparte.
+    const espera = Math.round(Math.min(RECONEXION_BASE_MS * 2 ** intentos, RECONEXION_TOPE_MS) * (0.5 + Math.random()));
     intentos++;
     // Si `new WebSocket` revienta (pasa con una URL que el sistema rechaza
     // en ese momento), el reintento no puede morir ahí: se vuelve a agendar.
@@ -272,7 +319,9 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
           viaUltimoSos = 'ws';
           if (esperandoEcoSos) esperandoEcoSos();
         }
-        emitir('sos', m);
+        // El eco de un SOS repetido (el servidor devolvió el que ya estaba
+        // abierto): confirma que llegó, pero no es una burbuja nueva
+        if (!m.repetido) emitir('sos', m);
         break;
       case 'sos_atendido':
         // Despacho marcó atendido MI SOS (o el de mi combi). Sólo le llega al
@@ -447,8 +496,13 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   // «ALERTA ENVIADA» de una alerta que nunca salió — el caso real es la
   // pantalla recién desbloqueada, con el reintento del socket esperando
   // de 3 a 30 s (REVISION-2026-09-08.md, A1).
-  const SOS_ECO_MS = 8000;
-  const SOS_HTTP_MS = 10_000;
+  //
+  // 4 s y 6 s, como la web: con 8 + 10 el ofrecimiento de llamar o mandar
+  // SMS a la central llegaba recién a los 18 s con la red mala. Ahora que el
+  // servidor no duplica un SOS repetido (auditoría 11/11), probar antes la
+  // otra puerta ya no cuesta una segunda alarma.
+  const SOS_ECO_MS = 4000;
+  const SOS_HTTP_MS = 6000;
   let esperandoEcoSos = null;
   function esperarEcoSos(ms) {
     return new Promise((res) => {
@@ -469,8 +523,9 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
       miUltimoSos = alerta.sosId ?? null;
       viaUltimoSos = 'http';
       // El eco que el socket no va a dar: la pantalla lo trata igual que el
-      // de verdad (abre el «¿qué pasó?» y lo pone en el hilo).
-      emitir('sos', { type: 'sos_alert', ...alerta });
+      // de verdad (abre el «¿qué pasó?» y lo pone en el hilo). Si era el
+      // repetido de uno que ya llegó, la burbuja ya está.
+      if (!alerta.repetido) emitir('sos', { type: 'sos_alert', ...alerta });
       return { ok: true, via: 'http', sosId: miUltimoSos };
     } catch (e) {
       return { ok: false, via: 'http', error: e?.name === 'AbortError' ? 'sin respuesta' : 'sin red' };
@@ -612,6 +667,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now() }) {
   function salir() {
     cerradoAdrede = true;
     clearTimeout(reintento);
+    pararLatido();
     try { ws && ws.close(); } catch {}
     ws = null;
     conectado = false;

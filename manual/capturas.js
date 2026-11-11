@@ -400,8 +400,9 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     await clic(de, 'button:has-text("+ Alta")', 1500);
     // Rufino también puede manejar M-07 (la de Rosa): habilitada desde acá
     if (D.COMBIS_EXTRA_RUFINO) {
-      const fila = de.locator('div').filter({ hasText: p0.usuario }).filter({ has: de.locator('button:has-text("Combis")') }).last();
-      await fila.locator('button:has-text("Combis")').click({ timeout: 6000 });
+      // Desde el retoque de la UI, «Combis» vive en el menú «⋯» de la fila
+      await clic(de, `[data-acciones="${p0.usuario}"]`, 500);
+      await de.locator('[role="menu"] button:has-text("Combis")').click({ timeout: 6000 });
       await de.waitForTimeout(600);
       for (const c of D.COMBIS_EXTRA_RUFINO) await clic(de, `[data-combis-de="${p0.usuario}"] [data-habilitar="${c}"]`, 300);
       await foto(de, 'd08b-combis');
@@ -415,7 +416,7 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     for (const [r, v] of Object.entries(D.RUTAS)) {
       await pedir(`/admin/routes/${r}/target`, { metodo: 'POST', token: tok, cuerpo: { targetGapMin: v.objetivoMin, auto: false } });
     }
-    await clic(de, 'button:has-text("✕ Volver al mapa")', 1000);
+    await clic(de, 'button:has-text("Volver al mapa")', 1000);
   });
 
   sembrarHistorial();
@@ -436,6 +437,10 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
   const gpsRufino = setInterval(moverRufino, 2000);
   const ch = await pagina(mctx, '/', 'chofer');
   await paso('chofer: entrar', async () => {
+    // Un teléfono que ya entró alguna vez recuerda el número de la central:
+    // el ingreso ofrece «¿Emergencia? Llamar a la central» aunque no haya sesión
+    await ch.evaluate(() => localStorage.setItem('r14_central', '051321456'));
+    await ch.reload({ waitUntil: 'domcontentloaded' }); await ch.waitForTimeout(2500);
     await foto(ch, 'c01-entrar');
     await clic(ch, 'button:has-text("Olvidé mi contraseña")', 600);
     await foto(ch, 'c13-olvide');
@@ -482,7 +487,8 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     const sup = D.PERSONAS.find(p => p.suplente);
     const rctx = await contexto({ ancho: 412, alto: 892, escala: 1.5, movil: true });
     await rctx.grantPermissions(['geolocation']);
-    const base = posicion(sup.combi);
+    // Arranca donde está M-02 en la ruta (su combi, M-09, no está en la flota)
+    const base = posicion('M-02');
     await rctx.setGeolocation({ latitude: base.lat, longitude: base.lng, accuracy: 8 });
     const rp = await rctx.newPage();
     rp.on('pageerror', e => errores.push(`suplente: error de la página: ${e.message}`));
@@ -610,12 +616,12 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     });
     await de.waitForTimeout(2000);
     await foto(de, 'd02-panel');
-    await foto(de, 'd03-lista', { clip: { x: 0, y: 60, width: 312, height: 840 } });
+    await foto(de, 'd03-lista', { clip: { x: 0, y: 60, width: 344, height: 840 } });
   });
   await paso('despacho: noche', async () => {
-    await clic(de, 'button:has-text("☾")', 2500);
+    await clic(de, 'button[title="Pasar a modo noche"]', 2500);
     await foto(de, 'd06-noche');
-    await clic(de, 'button:has-text("☀")', 1500);
+    await clic(de, 'button[title="Pasar a modo día"]', 1500);
   });
   await paso('despacho: gestión', async () => {
     await clic(de, 'button:has-text("Gestión")', 1500);
@@ -626,6 +632,13 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     ]) {
       await clic(de, `button:has-text("${boton}")`, 2200);
       await foto(de, nombre);
+      // El menú «⋯» de una fila de Personas, abierto (desde el retoque, ahí
+      // están Clave, Combis, Editar y Baja)
+      if (boton === 'Personas') {
+        await clic(de, `[data-acciones="${D.PERSONAS[0].usuario}"]`, 700);
+        await foto(de, 'd07b-acciones');
+        await de.keyboard.press('Escape'); await de.waitForTimeout(400);
+      }
     }
     await clic(de, 'button:has-text("Rutas")', 1500);
     await clic(de, 'button:has-text("Abrir trazador")', 4000);

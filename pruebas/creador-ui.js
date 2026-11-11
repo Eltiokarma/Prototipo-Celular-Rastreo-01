@@ -41,7 +41,8 @@ const ok = (n, c, e) => {
   console.log('\nCOOPERATIVAS');
   t = await p.innerText('body');
   ok('adentro lista las cooperativas', /COOPERATIVAS/.test(t) && /Cooperativa de Transportes Juliaca/.test(t));
-  ok('con su tamaño', /vehículo\(s\)/.test(t) && /persona\(s\)/.test(t));
+  // Desde el retoque de la UI, «vehículo(s)» y «persona(s)» concuerdan en número
+  ok('con su tamaño', /\d+ vehículos?\b/.test(t) && /\d+ personas?\b/.test(t), t.match(/\d+ (vehícul|person)\S*/g));
   await p.screenshot({ path: SHOT + '/creador-empresas.png' });
 
   // Alta completa desde la pantalla

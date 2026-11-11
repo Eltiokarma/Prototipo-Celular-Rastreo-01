@@ -45,7 +45,9 @@ async function obtener(pedido, dbFile, env, fetchImpl) {
     if (!respaldo.ES_RESPALDO.test(nombre)) throw new Error(`«${nombre}» no es el nombre de un respaldo (respaldo-AAAA-MM-DD-HHMMSS.db)`);
     const ruta = path.join(respaldo.dirDe(dbFile), nombre);
     if (!fs.existsSync(ruta)) throw new Error(`No existe ${nombre} en ${respaldo.dirDe(dbFile)}`);
-    return fs.readFileSync(ruta);
+    // Se copia de archivo a archivo, no por memoria: `readFileSync` no lee
+    // más de 2 GiB y una base grande no se podía restaurar (auditoría 11/11)
+    return { archivo: ruta };
   }
   if (!/^[\w./-]+$/.test(pedido) || pedido.includes('..')) throw new Error(`«${pedido}» no parece el nombre de un respaldo de la copia afuera`);
   // Del almacenamiento, sólo lo CIFRADO: un .db plano ahí no tiene cómo
@@ -73,7 +75,10 @@ async function restaurarAlArrancar({ dbFile, pedido, env = process.env, fetchImp
   const nueva = `${dbFile}.restaurando`;
   // Sin espacio, la escritura falla a la mitad: el pedazo no puede quedar
   // ocupando el disco que ya faltaba (revisión integral del 04/11)
-  try { fs.writeFileSync(nueva, datos); }
+  try {
+    if (datos && datos.archivo) fs.copyFileSync(datos.archivo, nueva);
+    else fs.writeFileSync(nueva, datos);
+  }
   catch (e) {
     try { fs.unlinkSync(nueva); } catch {}
     throw new Error(`No se pudo escribir el respaldo al lado de la base (${e.code === 'ENOSPC' ? 'no hay espacio en el disco' : e.message}): la base actual NO se tocó`);
@@ -96,7 +101,8 @@ async function restaurarAlArrancar({ dbFile, pedido, env = process.env, fetchImp
     }
   }
   fs.renameSync(nueva, dbFile);
-  const marca = { pedido, en: Date.now(), bytes: datos.length, anterior: anterior ? path.basename(anterior) : null };
+  const bytes = datos && datos.archivo ? fs.statSync(dbFile).size : datos.length;
+  const marca = { pedido, en: Date.now(), bytes, anterior: anterior ? path.basename(anterior) : null };
   fs.writeFileSync(path.join(path.dirname(dbFile), MARCA), JSON.stringify(marca, null, 2));
   log(`✔ Base restaurada desde ${pedido}. La anterior quedó como ${marca.anterior || '(no había)'}. ` +
       'Cuando confirmes que está bien, sacá RESTAURAR_DESDE de las variables.');

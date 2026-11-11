@@ -73,6 +73,15 @@ async function hasta(cond, ms = 6000) {
   return false;
 }
 
+// Desde la auditoría del 11/11, un SOS de la misma persona con uno suyo sin
+// atender devuelve ESE (no suena dos veces; ver sos-repetido). Cada caso de
+// abajo es una emergencia nueva: antes se atiende lo anterior, como en la
+// calle. Directo en la base: lo que se prueba acá es el disparo.
+const atenderTodo = () => {
+  const b = new Database(DB);
+  b.prepare("UPDATE messages SET atendidoEn = ?, atendidoPor = 'DESPACHO' WHERE kind = 'sos' AND atendidoEn IS NULL").run(Date.now());
+  b.close();
+};
 const tipoEnBase = (id) =>
   new Database(DB, { readonly: true }).prepare(
     "SELECT sosTipo FROM messages WHERE id = ?").get(id)?.sosTipo ?? null;
@@ -177,6 +186,7 @@ const tipoEnBase = (id) =>
   // recién desbloqueada tiene el socket muerto y el reintento esperando de
   // 3 a 30 s: deslizar no mandaba nada. `POST /sos` es la puerta que queda.
   {
+    atenderTodo();
     const antes = dos.visto.alertas.length;
     const r = await fetch(`${API}/sos`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s1.token },
@@ -200,6 +210,7 @@ const tipoEnBase = (id) =>
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + d.token }, body: '{}' });
     ok('Despacho no manda SOS: 403', despacho.status === 403, despacho.status);
     // Con basura en vez de coordenadas sale igual, sin posición
+    atenderTodo();
     const basura = await fetch(`${API}/sos`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s1.token },
       body: JSON.stringify({ lat: 'acá', lng: null }) }).then(r => r.json());

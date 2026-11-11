@@ -30,6 +30,10 @@ module.exports = {
     { id: 'M-07', placa: 'Z1A-707', ruta: '18A' }, { id: 'M-08', placa: 'Z1A-708', ruta: '18A' },
     { id: 'M-21', placa: 'Z1B-221', ruta: '18B' }, { id: 'M-22', placa: 'Z1B-222', ruta: '18B' },
     { id: 'M-23', placa: 'Z1B-223', ruta: '18B' }, { id: 'M-24', placa: 'Z1B-224', ruta: '18B' },
+    // La del suplente: nadie la maneja en la flota. El vigía de la puerta no
+    // avisa si la combi la está manejando otro (ahí el que maneja es él), así
+    // que con M-02 en ruta el aviso no salía nunca.
+    { id: 'M-09', placa: 'Z1A-709', ruta: '18A' },
   ],
 
   // Además de M-01, Rufino puede manejar M-07 (la de Rosa): habilitada por
@@ -50,10 +54,10 @@ module.exports = {
     { usuario: 'ch-hernan', nombre: 'Hernán Coaquira Machaca', rol: 'driver', combi: 'M-22', ruta: '18B' },
     { usuario: 'ch-lucio', nombre: 'Lucio Vilca Sucasaca', rol: 'driver', combi: 'M-23', ruta: '18B' },
     { usuario: 'ch-delia', nombre: 'Delia Machaca Aroquipa', rol: 'driver', combi: 'M-24', ruta: '18B' },
-    // El suplente de M-02: entra por la web y se queda en la puerta, para
-    // que el panel muestre «entró y no salió a ruta» y el aviso del vigía.
-    // No maneja en la flota ni tiene historial.
-    { usuario: 'ch-ruben', nombre: 'Rubén Condori Ticona', rol: 'driver', combi: 'M-02', ruta: '18A', suplente: true },
+    // El suplente: entra por la web y se queda en la puerta, para que el
+    // panel muestre «entró y no salió a ruta» y el aviso del vigía. Va en
+    // M-09, que nadie maneja (ver arriba). No tiene historial.
+    { usuario: 'ch-ruben', nombre: 'Rubén Condori Ticona', rol: 'driver', combi: 'M-09', ruta: '18A', suplente: true },
     { usuario: 'co-yeny', nombre: 'Yeny Apaza Condori', rol: 'collector', combi: 'M-01', ruta: '18A' },
     { usuario: 'co-saturnino', nombre: 'Saturnino Pari Chambi', rol: 'collector', combi: 'M-03', ruta: '18A' },
   ],

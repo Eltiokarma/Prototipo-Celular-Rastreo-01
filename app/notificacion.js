@@ -119,6 +119,8 @@ export async function notificarGrabacionPedida() {
 // Va con el MISMO identificador que la brecha, así que la reemplaza en vez de
 // sumar una segunda. Mismo canal de importancia baja: no suena ni salta.
 export async function notificarSinRol(motivo) {
+  // Relevado, este GPS ya no tiene que mandar: el silencio no es una falla
+  apagarVigiaDeSilencio().catch(() => {});
   await preparar();
   if (!preparado) return;
   const titulo = 'MODO ACOMPAÑANTE';
@@ -150,4 +152,55 @@ export async function limpiarSiSinRol() {
 export async function limpiarNotificacion() {
   ultimo = null;
   try { await Notifications.dismissNotificationAsync(ID); } catch {}
+  await apagarVigiaDeSilencio();
+}
+
+// ─── EL VIGÍA DEL SILENCIO (auditoría 11/11) ──────────────────────
+// El GPS se apaga sin avisar: un reinicio del teléfono, «forzar detención»,
+// una actualización de la app, la ubicación apagada desde la barra rápida.
+// La notificación de la brecha desaparece y nada más: el chofer sigue
+// manejando, la combi desaparece del mapa y, si pasan dos horas, la vuelta
+// cuenta como entrada tardía. Nadie le avisó.
+//
+// Es un aviso a futuro que cada lectura del GPS CORRE: se programa para
+// dentro de 10 minutos y, mientras el GPS lea, nunca llega (en una zona sin
+// señal el GPS lee igual: no es falsa alarma). Si el servicio
+// murió, nadie lo corre y suena. Es el sistema el que lo dispara, no esta
+// app: funciona aunque el proceso no exista. Se reprograma a lo sumo una vez
+// por minuto (cada envío sería un costo de batería) y se apaga al salir de
+// ruta, al cerrar sesión y en el relevo.
+const CANAL_SILENCIO = 'gps-detenido';
+const ID_SILENCIO = 'gps-silencio';
+export const SILENCIO_AVISO_MS = 10 * 60_000;
+let silencioCorridoEn = 0;
+
+export async function vigilarSilencio(ahora = Date.now()) {
+  if (ahora - silencioCorridoEn < 60_000) return;
+  await preparar();
+  if (!preparado) return;
+  silencioCorridoEn = ahora;
+  try {
+    await Notifications.setNotificationChannelAsync(CANAL_SILENCIO, {
+      name: 'GPS detenido',
+      // Alta: es la única forma de enterarse, y pasa con la pantalla apagada
+      importance: Notifications.AndroidImportance.HIGH,
+    }).catch(() => {});
+    await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO).catch(() => {});
+    const tipo = Notifications.SchedulableTriggerInputTypes
+      ? Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL : 'timeInterval';
+    await Notifications.scheduleNotificationAsync({
+      identifier: ID_SILENCIO,
+      content: {
+        title: 'Tu GPS dejó de funcionar',
+        body: 'Estás en ruta y hace 10 minutos que el GPS no lee tu ubicación: tu combi no está en el mapa. Abrí la app.',
+      },
+      trigger: { type: tipo, seconds: Math.round(SILENCIO_AVISO_MS / 1000), channelId: CANAL_SILENCIO },
+    });
+  } catch {}
+}
+
+export async function apagarVigiaDeSilencio() {
+  silencioCorridoEn = 0;
+  try { await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO); } catch {}
+  try { await Notifications.dismissNotificationAsync(ID_SILENCIO); } catch {}
 }

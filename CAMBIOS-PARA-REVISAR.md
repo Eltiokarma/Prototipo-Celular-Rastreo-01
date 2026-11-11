@@ -910,26 +910,472 @@ números están en la tabla). **Manual:** no.
 
 ---
 
-## Para el manual (cuando toque)
+## 17. Auditoría del 11/11 — arreglos
 
-Lo que todavía no está en `manual/manual.tex`:
+La auditoría de bugs, caídas, amenazas y riesgos del 11/11 (cinco revisiones
+en paralelo: seguridad del servidor, robustez, lógica de negocio y riesgo
+legal, paneles web, app del chofer). Cada hallazgo se verificó en el código
+o se reprodujo antes de arreglarlo. Va un apartado por arreglo, en el orden
+de prioridad de la auditoría.
 
-- «Despacho vio tu SOS» en la app del chofer (bloque 3).
-- El SOS sin internet: el panel, el SMS y los números de emergencia
-  (bloque 7). Y en Despacho → Gestión → Empresa, el campo *Teléfono de la
-  central para emergencias*.
-- Despacho → Gestión → Turnos: Corregir, Anular y Agregar un turno que faltó
-  (bloque 8).
-- Despacho → Gestión → Personas → Cargar una planilla (bloque 9).
-- En el chat de Despacho: «Guardar como evidencia», el motivo y «quitar»;
-  y «cargar foto» / «cargar nota de voz» (bloque 10).
-- Despacho → Gestión → Actividad: los botones de tipo y «Ver más viejos», y
-  cuánto se guarda cada cosa (bloque 11).
-- Despacho → Gestión → Personas: el consentimiento de datos personales,
-  anotar la firma y el retiro; y cómo imprimir el formulario (bloque 12).
-- En el perfil del chofer, «actualizada dd/mm hh:mm»; y para el que opera,
-  `publicar-arreglo.bat` (bloque 13).
-- Despacho → Personas → Editar → «Bajar todos sus datos (ZIP)» (bloque 15).
-- Para el que opera, no para el chofer: `/salud` y las alertas (bloque 4),
-  y la copia afuera y cómo volver a un respaldo (bloque 5). Quizás va en un
-  anexo de operación más que en el manual de uso.
+### 17.1 El SOS del chofer en la puerta
+
+**Qué.**
+- En la puerta («¿SALÍS A RUTA?») el chofer **no tenía SOS**: sólo el
+  cobrador. Es justo donde pasa los momentos de más riesgo: las 5 de la
+  mañana en el terminal, la vuelta a la cochera, el «fuera» que le puso el
+  vigía o el cambio de combi de Despacho. Ahora el deslizador está para los
+  dos, abajo de todo, en el mismo lugar que en ruta y en ausente.
+- En la **web** (`Prototipo.html`) la puerta tampoco lo tenía, y además el
+  socket recién se abre al salir a ruta: el SOS no tenía por dónde salir.
+  `RealtimeClient.sendSos({ token })` ahora sale por `POST /sos` con el
+  token de la sesión cuando el socket todavía no se abrió.
+- **Sin sesión no quedaba nada.** Un 401 (o la clave reseteada, o una base
+  restaurada) borra la sesión guardada, y con ella el teléfono de la
+  central. Ahora la central se recuerda **aparte** (`LLAVE_CENTRAL` en
+  SecureStore; `r14_central` en la web), no se borra con la sesión, y la
+  pantalla de ingreso ofrece **«¿EMERGENCIA? LLAMAR A LA CENTRAL»**. Es una
+  llamada (`tel:`), no un SOS: no dispara alarma y no necesita deslizar.
+
+**Archivos.** `app/App.js`, `app/gps/servicio.js`, `project/Prototipo.html`,
+`project/realtime.js`, `project/service-worker.js` (v92),
+`pruebas/sos-puerta.js` (nueva), `pruebas/regresion.js`.
+
+**Mirar.**
+- En la puerta el SOS del chofer sale **sin coordenadas** (el GPS no se
+  prende antes de salir a ruta, como promete la política). El servidor le
+  pone las de su combi si son de hace menos de un minuto.
+- Dos deslizadores en la misma pantalla de la nativa: el verde de SALIR A
+  RUTA arriba, el rojo del SOS abajo. Conviene mirarlo en un teléfono chico.
+- En la web, el SOS de la puerta reusa el cartel de «enviada» y el panel de
+  «no salió» del HUD (`SosAvisos`, `usarSos`): son el mismo código.
+
+**Pruebas.** `sos-puerta` (nueva): el chofer en la puerta tiene el SOS, el
+SOS llega al servidor y dice ALERTA ENVIADA sin salir a ruta, la central
+queda recordada y el ingreso la ofrece tras perder la sesión; y lee la
+nativa. Siguen verdes `sos`, `sos-sin-red`, `puerta-web`, `vigia-puerta`,
+`chofer-shot`, `telefono`, `cliente`, `nativas`, `revision-apk`.
+
+---
+
+### 17.2 Los dobles clics de Despacho, y el SOS dentro de Gestión
+
+**Qué.**
+- **ATENDIDO.** Con dos SOS esperando, el cartel muestra el más viejo; al
+  confirmarse, el segundo aparece en el mismo lugar con su ATENDIDO. Un
+  doble clic (o dos toques) cerraba los dos: el segundo quedaba atendido en
+  la base, la alarma se callaba en todos los paneles y al chofer le llegaba
+  «Despacho vio tu SOS» sin que nadie lo hubiera leído. Ahora ATENDIDO se
+  **arma 1,2 s después** de que el cartel muestra cada SOS (se ve atenuado
+  mientras tanto).
+- **SOS tapado por Gestión.** Gestión es una capa fija que tapa todo, y el
+  cartel quedaba debajo: el gerente en Números o el despachador dando altas
+  no lo veían. Ahora el mismo cartel va también arriba de Gestión, y «Ver
+  en mapa» cierra Gestión.
+- **Baja.** El «¿Confirmar?» aparecía en el mismo lugar que «Baja» y dos
+  clics daban de baja a la persona, sin vuelta atrás. Ahora es el diálogo
+  `Confirmacion`, que la **nombra** y dice qué se pierde.
+- **`Confirmacion` en general:** el botón de aceptar se arma a los 700 ms, y
+  Escape o el clic afuera cancelan. Vale también para cambiar de variante y
+  guardar sobre el trazado que se mide.
+
+**Archivos.** `project/despacho.html`, `project/service-worker.js` (v93),
+`pruebas/doble-clic.js` (nueva), `pruebas/regresion.js`.
+
+**Mirar.**
+- 1,2 s de espera antes de poder atender el primer SOS. Es poco al lado de
+  leer quién pide ayuda, pero es una espera en una emergencia.
+- El cartel dentro de Gestión es el mismo elemento: «Activar sonido» y el
+  error de ATENDIDO también se ven ahí.
+
+**Pruebas.** `doble-clic` (nueva). Siguen verdes `sos-despacho`, `trazador`,
+`combis-web`, `mover-combi`, `privado-web`, `paneles`, `evidencia`,
+`alta-masiva`, `consentimiento`, `datos-persona`, `auditoria`,
+`correccion-horas`, `gerencia`, `numeros-ui`, `panel-periodo`, `trabas`,
+`telefono`, `contraste`, `tema-web`, `vendor`.
+
+---
+
+### 17.3 Despacho no queda en blanco
+
+**Qué.**
+- **Muro de errores.** Con React 18, un error al dibujar desmonta el árbol
+  entero: se iban el mapa, el chat y el cartel del SOS, y quedaba una página
+  en blanco (ya pasó el 22/9 con la pestaña Empresa). Ahora hay dos muros:
+  - uno alrededor de **Gestión**: si se rompe una pestaña, Gestión muestra
+    qué se rompió y «Volver al mapa», y el mapa y los SOS siguen andando;
+  - otro alrededor de **todo**, que muestra el error y **recarga solo a los
+    20 s** (una pantalla que nadie mira no puede quedar rota toda la noche;
+    al volver, el servidor reenvía los SOS sin atender). Con tope: tres
+    recargas en cinco minutos y deja de intentarlo.
+- **Sin librerías.** Si React o Babel no llegan de unpkg, a los 8 s la página
+  lo dice («no ves el mapa ni los SOS») con un botón de recargar, en vez de
+  quedar en blanco sin un solo error. El creador ya lo tenía.
+
+**Archivos.** `project/despacho.html`, `project/service-worker.js` (v94),
+`pruebas/muro.js` (nueva), `pruebas/regresion.js`.
+
+**Mirar.**
+- La recarga sola pierde lo que se estaba escribiendo. Es el caso de una
+  página ya rota, así que no hay mucho que perder.
+
+**Pruebas.** `muro` (nueva): rompe Gestión con datos imposibles, rompe el
+panel entero con una línea agregada al HTML que sirve la prueba, y corta
+las librerías del CDN.
+
+---
+
+### 17.4 Una cuenta de chofer no tumba el servidor de todos
+
+**Qué.**
+- **`POST /gps` con cupo por persona**: 60 pedidos y 1200 posiciones por
+  minuto (`CUPO_GPS_PEDIDOS`, `CUPO_GPS_POSICIONES`). Sin cupo, un token
+  hizo 337 pedidos en 6 s y le aceptaron 31.200 posiciones con el hilo único
+  ocupado. Pasado el tope: **429** con `Retry-After`, y la app guarda el
+  lote para el próximo intento (antes un 4xx se descartaba).
+- **`identify` con cupo propio**: 3 por minuto por socket (antes caía en
+  `otro`, 60). Cada uno devolvía estado e historial con hasta 3 MB: 55
+  identify devolvieron 127 MB en 8 s.
+- **Un socket que no lee** (más de 8 MB encolados, `WS_BUFFER_MAX`) no
+  recibe otra tanda: se corta.
+- **Conexiones por cuenta**: 6 para chofer y cobrador, 30 para los paneles
+  (`WS_POR_CUENTA`, `WS_POR_CUENTA_PANEL`; la cuenta DESPACHO se comparte).
+  Pasado el tope se cierra **la más vieja**, que suele ser la medio muerta.
+- **Sin identificar**, un mensaje de más de 8 KB ni se parsea.
+
+**Archivos.** `server/index.js`, `app/gps/servicio.js`, `pruebas/cupos.js`
+(nueva).
+
+**Mirar.** Los topes salieron de lo que manda la app hoy (un pedido cada
+3 s, 150 en cola tras una zona muerta). Si la cadencia cambia, revisarlos.
+
+---
+
+### 17.5 La base, el volumen y el disco lleno
+
+**Qué.**
+- **En producción, sin volumen no se arranca.** `DB_FILE` es obligatoria y
+  su carpeta tiene que existir; `openDatabase` ya no la crea fuera de la
+  demo. Antes, con el volumen sin montar, arrancaba con una base vacía en el
+  disco del contenedor y `/salud` daba 200.
+- **`/salud` mira en qué disco está la base**: en el mismo que la
+  aplicación es un **problema** (503, el deploy no se acepta). En la demo es
+  aviso; `BASE_EN_DISCO_DE_APP=1` lo permite para un servidor propio de un
+  solo disco.
+- **Disco lleno**:
+  - el chofer que empieza turno **entra al mapa** (antes, 500 en cada
+    `POST /gps`): si no se puede abrir el turno se pierden esas horas, no la
+    combi;
+  - el **SOS que no se pudo guardar** sale con un id negativo de memoria: se
+    puede marcar ATENDIDO, vuelve al panel que reconecta y avisa al que lo
+    pidió (antes salía con `sosId: null` y sonaba para siempre);
+  - el **barrido** atrapa el error por unidad: una que falla no saltea a las
+    demás, ni la poda, ni la difusión del estado.
+- **El respaldo mira el disco antes de escribir**: el temporal ocupa lo
+  mismo que la base. Si no entra con 200 MB de margen
+  (`RESPALDO_RESERVA_MB`), borra respaldos viejos (siempre deja el último);
+  si aun así no entra, no lo intenta y lo dice.
+
+**Archivos.** `server/index.js`, `server/base.js`, `server/salud.js`,
+`server/respaldo.js`, `pruebas/disco.js` (nueva).
+
+**Mirar.**
+- **Antes del próximo deploy**: confirmar en Railway que `DB_FILE` está
+  puesta y apunta al volumen. Sin eso, el servidor nuevo **no arranca** (es
+  lo que se quiere, pero hay que saberlo).
+- Los SOS en memoria no se guardan después, cuando vuelve el disco: quedan
+  en la Actividad si la Actividad pudo escribir, y en el log.
+
+**Pruebas.** `disco` (nueva): arranque en producción sin volumen, `/salud`
+con la base en el disco de la app, el respaldo sin lugar, y el disco lleno
+de verdad sobre un tmpfs de 4 MB (se saltea si no se puede montar).
+
+---
+
+### 17.6 La tormenta de reconexión tras un deploy
+
+**Qué.**
+- **Clientes**: los tres (app nativa, web del chofer, Despacho) reconectan
+  con espera creciente (3, 6, 12, 24, 30 s) y **un azar de ±50 %**. La web y
+  Despacho reintentaban cada 3 s fijos; la nativa crecía pero sin azar. Tras
+  un deploy todos volvían en el mismo segundo.
+- **Servidor**: el historial de cada `identify` (lo pesado: hasta 3 MB) se
+  arma **en cola**, de a uno y cediendo el hilo cada ~25 ms. Con 300
+  identify a la vez y 2,4 MB de fotos, `/ping` tardó a lo sumo 90 ms (antes,
+  4,2 s con el mismo banco; 11 s con 600 en la auditoría).
+
+**Archivos.** `server/index.js`, `app/protocolo/cliente.js`,
+`project/realtime.js`, `project/despacho.html`, `project/service-worker.js`
+(v95), `pruebas/tormenta.js` (nueva).
+
+**Mirar.** Queda el costo en datos: cada reconexión de un chofer vuelve a
+bajar el historial con sus fotos y audios. Lo de fondo es un historial
+incremental (sólo lo nuevo desde el último que tiene); anotado en
+PENDIENTES.
+
+---
+
+### 17.7 El SOS no suena dos veces, y la app nativa con latido
+
+**Qué.**
+- **SOS repetido.** Mientras la persona tenga un SOS **sin atender** de los
+  últimos 10 minutos (`SOS_REPETIDO_MS`), volver a mandarlo —por la otra
+  puerta, o porque la app dijo «NO SALIÓ» con un HTTP cortado que sí
+  llegó— devuelve **ese**: no suena de nuevo ni suma una fila; el que lo
+  mandó recibe su eco (`repetido: true`). Atendido el anterior, uno nuevo es
+  otra emergencia.
+- **Más rápido el plan B en la nativa**: espera el eco 4 s (antes 8) y el
+  HTTP 6 s (antes 10), como la web. El panel de llamar o mandar SMS aparece
+  a los ~10 s y no a los 18.
+- **Latido en la nativa**: un ping cada 15 s y, si en 40 s no llegó nada,
+  el socket se da por muerto y se reconecta. Antes, un socket medio muerto
+  la dejaba en «EN VIVO» con la brecha congelada y el chat saliendo a la
+  nada.
+
+**Archivos.** `server/index.js`, `app/protocolo/cliente.js`,
+`project/realtime.js`, `project/service-worker.js` (v96),
+`pruebas/sos-repetido.js` (nueva).
+
+**Mirar.** El repetido es **por persona**: el chofer y el cobrador de la
+misma combi siguen siendo dos SOS. Es a propósito: pueden estar en dos
+lugares distintos.
+
+**Pruebas.** `sos-repetido` (nueva). `sos` atiende lo anterior antes de
+cada disparo nuevo (cada caso es una emergencia nueva).
+
+---
+
+### 17.8 Números que perjudicaban a choferes y cooperativas
+
+**Qué.**
+- **Vueltas fantasma.** Una combi estacionada en el terminal de una ruta de
+  ida y vuelta por la misma calle sumaba 7 a 9 vueltas en 20 min: el ruido
+  del GPS hacía rebotar el progreso entre ~0 y ~1. Además apretaban el
+  objetivo automático de todos. Ahora una vuelta tiene que haber **avanzado**
+  por el circuito (la suma neta de los pasos chicos, al menos el 40 % de lo
+  que le quedaba, con piso de 20 %); si no, se descarta y se dice en el log.
+  Un salto hacia adelante tras más de un minuto sin lecturas sí suma (es la
+  combi que reaparece, no un rebote).
+- **Brecha y objetivo en la misma escala.** La brecha se pasaba a minutos
+  con `durationMin` (50 de fábrica, nadie lo edita) y el objetivo salía de
+  la vuelta **medida**: con vueltas de 72 min y 12 combis, doce bien
+  repartidas daban 0 % de cumplimiento. Ahora la brecha usa la misma vuelta
+  medida que el objetivo (las mismas vueltas, del día de la semana si hay) y
+  `durationMin` sólo sin historial.
+- **Usuario reutilizado.** Un usuario con turnos de alguien que se dio de
+  baja ya no se le da a otra persona: el nuevo heredaba sus horas en el CSV,
+  en Turnos y en su perfil. El alta lo dice y sugiere otro; el alta masiva
+  lo saltea al inventar `nombre.apellido`.
+- **Zona sin señal.** Tras un corte de más de 15 min, el turno nuevo
+  arrancaba «ahora» aunque las posiciones de la cola probaran que trabajó.
+  Ahora arranca (o se retoma) con la posición más vieja del lote, con tope
+  de 30 min.
+- **«GPS sospechoso» con teléfonos que no reportan velocidad.** La app manda
+  0 cuando Android no la da, y eso caía en «velocidad incoherente». Ahora
+  esa firma sólo se juzga con las muestras que traen velocidad; las otras
+  dos siguen.
+- **Zona horaria.** En producción, sin `TZ`, el servidor usa
+  `America/Lima`. En la demo no se toca (las pruebas calculan con la hora de
+  la máquina).
+
+**Archivos.** `server/index.js`, `server/farsa.js`, `pruebas/farsa.js`,
+`pruebas/vueltas-horas.js` (nueva).
+
+**Mirar.**
+- La brecha **cambia de número** en las rutas con vueltas medidas: era la
+  fracción × 50 y ahora es la fracción × la vuelta real. Es el arreglo,
+  pero Despacho lo va a notar.
+- Quien se dio de baja por error y vuelve no puede recuperar su mismo
+  usuario: sus horas viejas quedan a ese nombre y el nuevo usa otro.
+- Quedan sin tocar, como decisión de producto: que la vuelta se juzgue
+  contra la vara del cierre (no contra la que rigió durante la vuelta) y
+  que el chofer pueda elegir qué parte de su brecha se mide con modo avión
+  o medio minuto de «ausente». Anotados en PENDIENTES.
+
+---
+
+### 17.9 La app: volver solo a casa, y el GPS que se calla
+
+**Qué.**
+- **«Ausente» y a casa.** El vigía de la ausencia devolvía a «ruta» al que
+  terminó el día marcando AUSENTE y se fue manejando, y en ruta no hay
+  tope: la ubicación de la casa toda la noche, con el turno abierto. Ahora
+  el `POST /gps` dice si la combi ya pisó el trazado (`enRuta`) y, si volvió
+  a ruta sola y en 20 min nunca lo pisó, la app sale de ruta y apaga el GPS.
+- **El GPS que se apaga sin avisar** (reinicio, forzar detención, una
+  actualización, la ubicación apagada): un aviso **a futuro** que cada
+  **lectura** del GPS corre 10 min (no cada envío: en una zona sin señal el
+  GPS lee igual y no sería una falla). Si el servicio murió nadie lo corre,
+  y suena «Tu GPS dejó de funcionar… abrí la app». Lo dispara el sistema, no
+  la app. Se apaga al salir de ruta, al cerrar sesión y en el relevo.
+
+**Archivos.** `app/gps/servicio.js`, `app/notificacion.js`,
+`server/index.js`, `pruebas/app-auditoria.js` (nueva).
+
+**Mirar.**
+- Es todo JavaScript: llega a las APK 0.3.0 con `publicar-arreglo.bat`.
+- Que el aviso programado sobreviva a un **reinicio** depende de
+  `expo-notifications`; hay que verlo en un teléfono real.
+- El aviso usa `SchedulableTriggerInputTypes.TIME_INTERVAL` (SDK 52 en
+  adelante), con el formato viejo de respaldo.
+
+---
+
+### 17.10 Las cuentas
+
+**Qué.**
+- **El token no se guarda**: en `sessions` va su huella SHA-256. Un
+  respaldo, una copia del volumen o un `.db` bajado del panel ya no traen
+  llaves vivas (con un token sacado de un respaldo, `GET /admin/users`
+  contestaba 200). Las sesiones de antes se pasan a huella al arrancar y
+  los teléfonos siguen entrando sin hacer nada.
+- **Despacho no toca otra cuenta de Despacho** (clave, baja, nombre), ni la
+  suya por esa puerta (para eso está su perfil, que pide la actual). La
+  gerencia sí. En Personas, el botón «Clave» de una cuenta de Despacho sólo
+  lo ve la gerencia.
+- **El chofer y el privado de su cobrador.** El chofer puede seguir
+  cambiándole la clave, pero desde ese momento la cuenta del cobrador ya no
+  ve el privado personal anterior con Despacho (`users.privadoDesde`).
+  Antes el chofer entraba como él y lo leía.
+- **«Cambiar mi contraseña» con freno**: 5 intentos con la actual mal en
+  15 min y después 429 (y cuenta para el bloqueo por origen). Antes, sin
+  límite: 60 claves en 2,5 s.
+- **El bloqueo del login es por cuenta y origen**: cinco claves malas
+  bloquean esa cuenta desde ese origen, no para todos. Antes cualquiera
+  dejaba a Despacho sin poder entrar desde ningún lado, renovable sin fin.
+  Contra el ataque repartido queda un tope por cuenta de 60 en 30 min.
+- **Claves generadas**: dos palabras de 64 y cuatro números
+  (`lago-cerro-4821`, 36,9 millones) en vez de una de 8 (72 000). Despacho
+  sugiere con `crypto.getRandomValues`, no con `Math.random`.
+
+**Archivos.** `server/index.js`, `project/despacho.html`,
+`project/service-worker.js` (v97), `pruebas/cuentas.js` (nueva),
+`pruebas/puertas.js` y `pruebas/revision-apk.js` (leen la huella),
+`pruebas/alta-masiva.js` (el formato de la clave).
+
+**Mirar.**
+- Nada obliga a cambiar la clave inicial. Anotado en PENDIENTES.
+- La cuenta DESPACHO compartida queda a cargo de la gerencia: si se olvida
+  su clave y no hay gerente cargado, la cambia el creador.
+
+---
+
+### 17.11 Legal, Play Store y EAS
+
+**Qué.**
+- **Privacidad, consentimiento y contrato** declaran lo que el sistema
+  guardaba sin decirlo: los **lugares puntuales del turno** (dónde se
+  declaró en ruta, ausente o fuera —incluido dónde terminó—, cortes de
+  señal, paradas, salidas del trazado: 120 días) y las **marcas
+  automáticas** («GPS sospechoso», «entrada tardía», «salió solo»…), que
+  son avisos para una persona y no deciden nada solas. El consentimiento
+  decía «de la posición, sólo la última conocida». El contrato obliga a la
+  cooperativa a no sancionar sólo por una marca y a explicarla si se pide.
+- **Consentimiento versión 2026-11-11**: quien firmó la del 04/11 tiene que
+  firmar la nueva (Despacho lo ve en Personas).
+- `legal/LEEME.md`: dos preguntas nuevas para el abogado.
+- **Play Store**: la galería ya no pide permiso (el selector de fotos del
+  sistema no lo necesita). `READ_MEDIA_*` y `READ_EXTERNAL_STORAGE` van a
+  `blockedPermissions` **en la próxima APK** (está escrito en
+  `PLAYSTORE.md` §3): es nativo, y meterlo ahora obligaba a subir la versión
+  y dejaba sin EAS Update a las 0.3.0 justo los arreglos del SOS. La
+  política de fotos de Google rechaza una app que los declara para mandar
+  una foto de vez en cuando. `PLAYSTORE.md` suma la
+  declaración del servicio en primer plano y los datos del teléfono en
+  Seguridad de los datos, y cómo mirar el manifiesto final.
+- **`publicar-arreglo.bat`** no publica con cambios locales sin subir.
+- **La firma de EAS Update** necesita una clave que no puede vivir en el
+  repositorio: los pasos están en `TAREAS-FUERA-DEL-CODIGO.md` §1bis.
+
+**Archivos.** `server/privacidad.html`, `server/consentimiento.html`,
+`server/index.js` (versión), `legal/contrato-encargo.md`, `legal/LEEME.md`,
+`app/foto.js`, `PLAYSTORE.md`, `publicar-arreglo.bat`,
+`TAREAS-FUERA-DEL-CODIGO.md`, `pruebas/app-auditoria.js`,
+`pruebas/zona-muerta.js` (`crypto` y `Uint32Array` son del navegador).
+
+**Mirar.** Nada de esto reemplaza al abogado. El selector sin permiso hay
+que verlo en un teléfono con Android 12 o anterior.
+
+---
+
+### 17.12 Lo más leve
+
+**Qué.**
+- **El creador confirma** antes de guardar sobre el trazado con el que se
+  mide (y antes de guardar uno vacío), nombrando qué pasa: descarta las
+  vueltas en curso. Despacho ya lo hacía.
+- **«Ver en mapa» del SOS** tiene un pin propio, rojo, que vive mientras el
+  SOS esté sin atender: antes centraba un mapa vacío si la combi ya se había
+  olvidado o si se miraba otra ruta.
+- **Sin conexión, el mapa de Despacho se apaga** (gris y atenuado) y dice
+  «Sin conexión: el mapa no está en vivo». Antes sólo se atenuaba la lista.
+- **Leaflet desde unpkg con `integrity`**, como React y Babel (los hashes
+  son los de la copia local).
+- **Sesión vencida en Despacho**: un 401 de Gestión ahora borra la sesión
+  guardada, y el cartel dice el motivo del servidor (una baja, una
+  cooperativa suspendida) en vez de «tu sesión expiró» para todo.
+- **`railway.json` arranca con `node server/index.js`**: con `npm start` el
+  SIGTERM de un deploy no llegaba a Node y no se guardaba la memoria
+  caliente.
+- **La verificación del respaldo corre en otro hilo**: el `quick_check` era
+  síncrono (~1 s por cada 600 MB con todo el servidor parado).
+- **Restaurar un respaldo local de más de 2 GB**: se copia de archivo a
+  archivo en vez de leerlo entero en memoria.
+- **`RESTAURAR_DESDE` olvidada** ya no tira las vueltas en curso en cada
+  deploy: sólo el arranque que de verdad restauró descarta la memoria.
+- **El alta masiva** con su red: un error después del primer paso dejaba
+  el pedido colgado sin respuesta.
+- **La migración de `route_points`** va en una transacción.
+- **El login verifica la clave sin frenar el hilo** (`scrypt` asíncrono):
+  ~39 ms de hilo único por intento.
+- **El SOS de la nativa** mide la frescura de la posición con la hora de la
+  lectura del GPS, no con la de llegada.
+- **«Salto imposible»** descuenta la precisión declarada de las dos
+  lecturas y no juzga con menos de 5 s entre ellas: un rebote de 67 m en
+  2 s se anotaba contra un chofer honesto.
+- **Planilla**: las filas ocultas o filtradas del Excel o del .ods no se
+  importan (van vacías, para que los números de fila no se corran).
+- **Service worker**: las tiles se piden con CORS y sólo se guardan las que
+  llegaron bien (antes se guardaba cualquier opaca, también un error, para
+  siempre). `tiles-v3` tira las de antes una vez.
+
+**Archivos.** `server/creador.html`, `project/despacho.html`,
+`project/Prototipo.html`, `project/service-worker.js` (v98, tiles-v3),
+`railway.json`, `server/respaldo.js`, `server/restaurar.js`,
+`server/index.js`, `server/base.js`, `server/planilla.js`, `app/App.js`,
+`pruebas/planillas/fila-oculta.xlsx`, `pruebas/cuentas.js`.
+
+**Mirar.**
+- `tiles-v3` hace que cada aparato vuelva a bajar sus tiles una vez (hasta
+  ~15 MB).
+- Si Geoapify no mandara cabeceras CORS, las tiles se verían igual pero ya
+  no se guardarían: habría que mirarlo con el panel abierto un día.
+- Lo que queda anotado y no se tocó está en PENDIENTES 4.24.
+
+---
+
+## 18. El retoque de la UI web (Claude Design), integrado — 11/11
+
+**Qué.** La UI de Despacho, Gestión, el creador, la landing, gerencia.html,
+el ingreso del chofer y los documentos legales, con íconos, avatares,
+movimiento corto, jerarquía y la tipografía de datos sólo para datos. El
+detalle completo, pantalla por pantalla, está en `CAMBIOS-UI.md`; cómo se
+fusionó con la auditoría (y dónde se apartó del paquete), en su apartado
+«La integración».
+
+**Mirar.**
+- Personas cambió de forma: Baja, Combis y Editar están en «⋯».
+- Gestión es una vista: el mapa no se desmonta y el cartel del SOS queda
+  arriba.
+
+**Pruebas.** `contraste`, `sintaxis`, `rediseno`, `gerencia-shot`,
+`creador-ui-run`, `chofer-shot` y la regresión completa, en verde.
+
+---
+
+## Para el manual
+
+Al día el 11/11: `manual/manual.tex` y `manual.pdf` cubren los bloques 3, 4,
+5, 7 a 13, 15, 17 y 18, con las capturas sacadas de nuevo (con el mapa
+propio). Lo de operación (`/salud`, alertas, copia afuera, restaurar,
+`publicar-arreglo.bat`) va en el anexo A del manual.

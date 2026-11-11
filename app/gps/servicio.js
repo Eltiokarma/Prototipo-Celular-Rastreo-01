@@ -29,7 +29,7 @@ import * as Battery from 'expo-battery';
 import { crearVigia } from '../ausencia.js';
 import { crearVigiaDeEnvio, mezclarCola, filtrarEntregadas } from '../envio.js';
 import { crearPedidor } from '../pedido.js';
-import { notificarBrecha, notificarGrabacionPedida, notificarSinRol, limpiarNotificacion } from '../notificacion.js';
+import { notificarBrecha, notificarGrabacionPedida, notificarSinRol, limpiarNotificacion, vigilarSilencio } from '../notificacion.js';
 import { crearGrabador } from '../grabador.js';
 import { cabeceraDeApp, actualizacionDe } from '../version.js';
 import * as Updates from 'expo-updates';
@@ -85,6 +85,27 @@ export const LLAVE_SERVIDOR = 'servidor';
 // posiciones: con la pantalla apagada no hay WebSocket, y así el estado
 // sobrevive hasta a un reinicio del servidor.
 export const LLAVE_PRESENCIA = 'presencia';
+// El teléfono de la central, aparte de la sesión y SIN borrarse con ella.
+// No es un dato de la persona sino de su cooperativa, y es lo único que le
+// queda al chofer para pedir ayuda cuando la sesión se cayó (un 401, una
+// baja de clave, una restauración de la base): sin él la pantalla de
+// ingreso no tenía ninguna salida de emergencia (auditoría del 11/11).
+export const LLAVE_CENTRAL = 'central';
+// Cuándo el vigía de la ausencia lo devolvió a ruta SOLO (ver abajo).
+export const LLAVE_VOLVIO_SOLO = 'volvioSolo';
+// Lo que hay que hacer con una vuelta a ruta automática, dado cuándo fue,
+// si el servidor ya la ve sobre el trazado y la hora. Pura, para la suite.
+export function decidirVueltaSola(volvioEn, enRuta, ahora) {
+  if (!volvioEn) return null;
+  if (enRuta) return 'confirmada';
+  return ahora - volvioEn > VOLVIO_SOLO_MAX_MS ? 'fuera' : null;
+}
+// Vuelto a ruta solo, si en este rato nunca pisó el trazado, no volvió a
+// trabajar: terminó el día marcando AUSENTE y se fue manejando a su casa. El
+// vigía lo devolvía a «ruta» y, como en ruta no hay tope, el teléfono
+// mandaba la ubicación de la casa toda la noche con el turno abierto
+// (auditoría 11/11, medido). Pasado esto, sale de ruta solo.
+const VOLVIO_SOLO_MAX_MS = 20 * 60_000;
 
 export const CADENCIA_PANTALLA_ENCENDIDA = 3000;
 export const CADENCIA_PANTALLA_APAGADA = 10000;
@@ -567,6 +588,7 @@ async function subirAhora(nuevas) {
     // arrancó de nuevo → vuelve a ruta solo. Si la ausencia pasa el tope,
     // ya no es un almuerzo → fuera, y este servicio se apaga.
     let presenciaEfectiva = presencia;
+    if (presencia === 'ausente') SecureStore.deleteItemAsync(LLAVE_VOLVIO_SOLO).catch(() => {});
     if (presencia === 'ausente' && posiciones.length) {
       if (!vigia) vigia = crearVigia();
       const ultima = posiciones[posiciones.length - 1];
@@ -575,6 +597,7 @@ async function subirAhora(nuevas) {
         vigia = null;
         presenciaEfectiva = 'ruta';
         await SecureStore.setItemAsync(LLAVE_PRESENCIA, 'ruta');
+        await SecureStore.setItemAsync(LLAVE_VOLVIO_SOLO, String(Date.now())).catch(() => {});
         diagnostico.presenciaAuto = 'ruta';
       } else if (accion === 'fuera') {
         vigia = null;
@@ -603,6 +626,12 @@ async function subirAhora(nuevas) {
     } else if (presencia !== 'ausente') {
       vigia = null;
     }
+
+    // El GPS leyó: se corre el aviso de «tu GPS dejó de mandar» (ver
+    // notificacion.js). Con CADA lectura y no con cada envío que salió: lo
+    // que vigila es que el servicio siga vivo, y en una zona sin señal el
+    // GPS lee igual — avisar ahí sería una falsa alarma.
+    if (presenciaEfectiva === 'ruta' || presenciaEfectiva === 'ausente') vigilarSilencio().catch(() => {});
 
     const r = await pedirConCorte(servidor + '/gps', {
       method: 'POST',
@@ -637,6 +666,30 @@ async function subirAhora(nuevas) {
       // bandeja tras el logout, arrancaba una grabación «pedida por
       // Despacho» para el siguiente, o lo apagaba (barrido del 22/9).
       if (gen !== generacion) return;
+      // ¿Volvió a ruta solo y nunca pisó el trazado? (ver VOLVIO_SOLO_MAX_MS)
+      if (presenciaEfectiva === 'ruta' && typeof cuerpo.enRuta === 'boolean') {
+        const volvio = Number(await SecureStore.getItemAsync(LLAVE_VOLVIO_SOLO).catch(() => null)) || 0;
+        if (volvio && cuerpo.enRuta) {
+          SecureStore.deleteItemAsync(LLAVE_VOLVIO_SOLO).catch(() => {});
+        } else if (volvio && decidirVueltaSola(volvio, cuerpo.enRuta, Date.now()) === 'fuera') {
+          SecureStore.deleteItemAsync(LLAVE_VOLVIO_SOLO).catch(() => {});
+          await SecureStore.setItemAsync(LLAVE_PRESENCIA, 'fuera').catch(() => {});
+          diagnostico.presenciaAuto = 'fuera';
+          try {
+            await pedirConCorte(servidor + '/presencia', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+              body: JSON.stringify({ estado: 'fuera' }),
+            }, control);
+          } catch {}
+          diagnostico.servicio = 'detenido: volvió a ruta solo y nunca pisó el trazado';
+          pendientes = [];
+          diagnostico.enEspera = 0;
+          limpiarNotificacion().catch(() => {});
+          try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+          return;
+        }
+      }
       // «Otro chofer tiene la unidad»: el servidor lo dice con 200 para que
       // este teléfono lo lea y se apague (REVISION-2026-09-10.md, C2). Antes
       // el relevado seguía mandando con la pantalla apagada y la combi
@@ -654,6 +707,7 @@ async function subirAhora(nuevas) {
         try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
         return;
       }
+
       // Enviadas son las que el servidor ACEPTÓ; lo que ya tenía o descartó
       // se cuenta aparte (C13). Un servidor viejo no manda `aceptadas`.
       diagnostico.enviadas += Number.isFinite(cuerpo.aceptadas) ? cuerpo.aceptadas : posiciones.length;
@@ -686,7 +740,9 @@ async function subirAhora(nuevas) {
       // Un 4xx que no sea de red es culpa del contenido o del permiso: no se
       // reintenta, porque reintentarlo daría el mismo error para siempre y
       // taparía las posiciones nuevas detrás de un atraso que nunca se vacía.
-      if (r.status >= 500) guardarSiSigue(posiciones);
+      // 429 es «ahora no, más tarde» (el cupo por minuto del servidor): el
+      // lote se guarda como en un 5xx, no se pierde (auditoría 11/11).
+      if (r.status >= 500 || r.status === 429) guardarSiSigue(posiciones);
       anotarFallo(`HTTP ${r.status}${cuerpo.error ? ' ' + cuerpo.error : ''}`, posiciones);
       // El reloj adelantado: el servidor descarta todo y dice cuánto. Se
       // guarda para que la pantalla lo diga; el lote no se reintenta (daría

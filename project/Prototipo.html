@@ -26,8 +26,11 @@
      así que `L` ya está definido o no lo estará nunca. -->
 <script>
 if (typeof L === 'undefined') {
-  document.write('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />');
-  document.write('<scr' + 'ipt src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/scr' + 'ipt>');
+  // Con integrity, como React y Babel: la caída al CDN iba sin, y un unpkg
+  // comprometido podía meter código en el panel (auditoría 11/11). Los
+  // hashes son los de la copia local, que es el mismo archivo.
+  document.write('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous" />');
+  document.write('<scr' + 'ipt src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"><\/scr' + 'ipt>');
 }
 </script>
 
@@ -141,6 +144,9 @@ if (typeof L === 'undefined') {
   html.telefono .header, html.telefono .meta { display: none; }
   html.telefono .stage { margin: 0; width: 100%; }
   .pantalla-completa { width: 100vw; height: 100vh; height: 100dvh; }
+  /* Foco con teclado: el mismo anillo que Despacho, nunca el azul por defecto */
+  :focus { outline: none; }
+  :focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
 </style>
 <script>
   // Antes que React: así el primer cuadro ya sale sin marco.
@@ -355,6 +361,8 @@ const TEMAS = {
     burbujaWarn:  '#FFF4D6', burbujaWarnInk: '#5C4100', warnEdge: '#A67300', warnEdgeInk: '#100B00',
     burbujaSos:   '#FFE1E7', burbujaSosInk:  '#68001A',
     // Mapa: tiles claros y tarjetas claras encima
+    // Ingreso: el halo del fondo y el botón principal (antes, paleta P fija)
+    fondoLogin: '#E3EEF9', acento: '#1668C4', acentoInk: '#FFFFFF', acentoTexto: '#1668C4',
     tiles: tilesUrl('positron'),
     tarjeta: 'rgba(255,255,255,.92)', tarjetaSolida: 'rgba(255,255,255,.96)',
     resplandor: false,   // el glow no funciona sobre fondo claro
@@ -381,6 +389,7 @@ const TEMAS = {
     burbujaAdmin: '#D2E6FA',
     burbujaWarn:  '#FFEFC2', burbujaWarnInk: '#3D2B00', warnEdge: '#7A5400', warnEdgeInk: '#FFFFFF',
     burbujaSos:   '#FFD6DE', burbujaSosInk:  '#3D000B',
+    fondoLogin: '#FFFFFF', acento: '#0F4F9E', acentoInk: '#FFFFFF', acentoTexto: '#0F4F9E',
     tiles: tilesUrl('positron'),
     tarjeta: 'rgba(255,255,255,.96)', tarjetaSolida: '#FFFFFF',
     resplandor: false,
@@ -407,6 +416,7 @@ const TEMAS = {
     burbujaAdmin: '#14273c',
     burbujaWarn:  '#2b2008', burbujaWarnInk: '#FFE6B8', warnEdge: '#FFB300', warnEdgeInk: '#03060a',
     burbujaSos:   '#2b0812', burbujaSosInk:  '#FFD9E0',
+    fondoLogin: '#0a1626', acento: '#2E9DFF', acentoInk: '#03060a', acentoTexto: '#71BCFF',
     tiles: tilesUrl('dark-matter'),
     tarjeta: 'rgba(3,6,10,.8)', tarjetaSolida: 'rgba(3,6,10,.9)',
     resplandor: true,
@@ -1664,11 +1674,10 @@ function CoopLogo({ size = 72, ruta }) {
 
 function Field({ label, value, onChange, type = 'text', error, autoFocus }) {
   return (
-    <div style={{ marginBottom: 14 }}>
+    <label style={{ display: 'block', marginBottom: 14 }}>
       <div style={{
-        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-        fontSize: 10, letterSpacing: 2, color: error ? P.red : P.sky,
-        textTransform: 'uppercase', marginBottom: 6,
+        fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+        fontSize: 15, fontWeight: 700, color: error ? HUD.red : HUD.fg2, marginBottom: 6,
       }}>{label}</div>
       <input type={type} value={value} autoFocus={autoFocus}
         onChange={e => onChange(e.target.value)}
@@ -1677,19 +1686,20 @@ function Field({ label, value, onChange, type = 'text', error, autoFocus }) {
           padding: '16px 14px',
           fontSize: 22, fontWeight: 600,
           fontFamily: '"Helvetica Neue", system-ui, sans-serif',
-          background: P.panel,
-          border: `2px solid ${error ? P.red : P.line}`,
+          background: HUD.input,
+          border: `2px solid ${error ? HUD.red : HUD.inputLine}`,
           borderRadius: 12,
-          color: P.white,
+          color: HUD.fg,
           outline: 'none',
-          transition: 'border-color 0.2s',
+          transition: 'border-color .16s ease',
         }}
       />
-    </div>
+    </label>
   );
 }
 
 function LoginScreen({ onSuccess, notice }) {
+  const centralRecordada = (() => { try { return localStorage.getItem('r14_central') || null; } catch { return null; } })();
   const [user, setUser] = React.useState(() => {
     try { return localStorage.getItem('r14_lastUser') || ''; } catch { return ''; }
   });
@@ -1740,39 +1750,38 @@ function LoginScreen({ onSuccess, notice }) {
 
   const handleKeyDown = (e) => { if (e.key === 'Enter') submit(); };
 
+  // Los colores salen de HUD, como el resto de la app: el ingreso era la
+  // única pantalla con una paleta oscura fija (P) y no se leía al sol. Con el
+  // tema de fábrica (día) queda igual que el ingreso de Despacho.
   return (
     <div style={{
       width: '100%', height: '100%',
-      background: `linear-gradient(180deg, ${P.bg} 0%, ${P.navy} 100%)`,
+      background: `radial-gradient(110% 60% at 50% 0%, ${HUD.fondoLogin} 0%, ${HUD.bg} 70%)`,
       display: 'flex', flexDirection: 'column',
       padding: '40px 24px 24px', boxSizing: 'border-box',
-      color: P.white, overflowY: 'auto',
+      color: HUD.fg, overflowY: 'auto',
     }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 28 }}>
-        <CoopLogo size={88} />
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 26 }}>
+        <CoopLogo size={80} />
         <div style={{
           fontFamily: '"Archivo Black", system-ui, sans-serif',
-          fontSize: 26, fontWeight: 900, letterSpacing: -0.5,
-          color: P.white, marginTop: 14,
+          fontSize: 26, letterSpacing: -0.5, lineHeight: 1.15, textAlign: 'center',
+          color: HUD.fg, marginTop: 14,
         }}>{coop || COOP.name}</div>
         <div style={{
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 10, letterSpacing: 1.5, color: P.sky,
-          textTransform: 'uppercase', marginTop: 4, textAlign: 'center',
+          fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+          fontSize: 15, fontWeight: 600, color: HUD.dim, marginTop: 6, textAlign: 'center', lineHeight: 1.4,
         }}>{coop ? 'Panel del conductor' : COOP.full}</div>
       </div>
 
       <div style={{
         display: 'flex', alignItems: 'center', gap: 6,
-        alignSelf: 'center', padding: '4px 10px',
-        background: P.panel, border: `1px solid ${P.line}`, borderRadius: 100,
+        alignSelf: 'center', padding: '5px 12px',
+        background: HUD.input, border: `1px solid ${HUD.line}`, borderRadius: 100,
         marginBottom: 22,
       }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: P.green, boxShadow: `0 0 8px ${P.green}` }} />
-        <span style={{
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 10, letterSpacing: 1.5, color: P.green, textTransform: 'uppercase',
-        }}>Conectado</span>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: HUD.green }} />
+        <span style={{ fontFamily: '"Helvetica Neue", system-ui, sans-serif', fontSize: 13, fontWeight: 700, color: HUD.greenInk }}>Conectado</span>
       </div>
 
       <div onKeyDown={handleKeyDown}>
@@ -1781,66 +1790,79 @@ function LoginScreen({ onSuccess, notice }) {
       </div>
 
       {(error || notice) && (
-        <div style={{
-          background: 'rgba(255,77,109,0.12)', border: `1px solid ${P.red}`,
-          borderRadius: 10, padding: '10px 12px', marginBottom: 14,
+        <div role="alert" style={{
+          background: HUD.burbujaSos, border: `1px solid ${HUD.red}`,
+          borderRadius: 12, padding: '10px 12px', marginBottom: 14,
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <div style={{
             width: 24, height: 24, borderRadius: '50%',
-            background: P.red, color: '#fff',
+            background: HUD.red, color: '#fff',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontFamily: '"Archivo Black", system-ui', fontSize: 14, flexShrink: 0,
           }}>!</div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: P.red, fontFamily: '"Helvetica Neue", system-ui' }}>{error || notice}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: HUD.burbujaSosInk, fontFamily: '"Helvetica Neue", system-ui' }}>{error || notice}</div>
         </div>
       )}
 
       {offerDemo && (
         <button onClick={enterDemo} style={{
-          width: '100%', padding: '12px',
-          fontSize: 14, fontWeight: 700, letterSpacing: 1,
+          width: '100%', minHeight: 48, padding: '12px',
+          fontSize: 15, fontWeight: 700,
           fontFamily: '"Helvetica Neue", system-ui, sans-serif',
-          background: 'transparent', color: P.sky,
-          border: `1px solid ${P.deep}`, borderRadius: 10,
+          background: HUD.input, color: HUD.fg2,
+          border: `1px solid ${HUD.line}`, borderRadius: 12,
           cursor: 'pointer', marginBottom: 14,
         }}>
           ENTRAR EN MODO DEMO (SIN SERVIDOR)
         </button>
       )}
 
+      {/* El botón conserva su tamaño de dedo enguantado y su peso: es lo que
+          se toca con el sol de frente. Deja de gritar con tracking de 2 px. */}
       <button onClick={submit} disabled={loading} style={{
-        width: '100%', padding: '18px',
-        fontSize: 20, fontWeight: 900, letterSpacing: 2,
+        width: '100%', minHeight: 60, padding: '16px',
+        fontSize: 20, letterSpacing: 0.5,
         fontFamily: '"Archivo Black", system-ui, sans-serif',
-        background: loading ? P.deep : P.bright,
-        color: P.white, border: 'none', borderRadius: 14,
+        background: loading ? HUD.dim3 : HUD.acento,
+        color: HUD.acentoInk, border: 'none', borderRadius: 14,
         cursor: loading ? 'wait' : 'pointer',
-        boxShadow: loading ? 'none' : `0 4px 0 ${P.deep}`,
-        transition: 'all 0.12s', opacity: loading ? 0.7 : 1,
+        transition: 'background-color .16s ease, transform .12s ease',
       }}>
         {loading ? 'VERIFICANDO...' : 'INGRESAR'}
       </button>
 
-      <div style={{ marginTop: 18, textAlign: 'center', fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, color: P.mute }}>
-        <button onClick={() => setOlvido(o => !o)} style={{
-          background: 'none', border: 'none', padding: 6, cursor: 'pointer',
-          color: P.sky, fontSize: 13, fontFamily: 'inherit',
+      <div style={{ marginTop: 16, textAlign: 'center', fontFamily: '"Helvetica Neue", system-ui', fontSize: 15, color: HUD.dim }}>
+        <button onClick={() => setOlvido(o => !o)} aria-expanded={olvido} style={{
+          background: 'none', border: 'none', padding: '10px 8px', minHeight: 44, cursor: 'pointer',
+          color: HUD.acentoTexto, fontSize: 15, fontWeight: 700, fontFamily: 'inherit',
         }}>Olvidé mi contraseña</button>
         {olvido && (
-          <div style={{ marginTop: 8, lineHeight: 1.45, color: P.mute }}>
+          <div style={{ marginTop: 4, lineHeight: 1.5, color: HUD.fg2 }}>
             Pedile a Despacho de tu cooperativa que te ponga una clave nueva.
             Si sos cobrador, también te la puede cambiar el chofer de tu combi.
           </div>
         )}
       </div>
 
+      {/* Sin sesión no hay SOS, pero la central atiende el teléfono. Se
+          recuerda aparte de la sesión, que un 401 borra (auditoría 11/11).
+          Es sólo una llamada: no dispara alarma, no necesita deslizar. */}
+      {centralRecordada && (
+        <a href={`tel:${centralRecordada}`} data-central-sin-sesion style={{
+          display: 'block', marginTop: 18, padding: '13px 10px', borderRadius: 12,
+          // Del tema, como el resto del ingreso desde el retoque (el rosa fijo
+          // de `P` no llegaba al contraste sobre el fondo claro del día)
+          border: `2px solid ${HUD.red}`, color: HUD.red, textAlign: 'center', textDecoration: 'none',
+          fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 13, letterSpacing: 0.5,
+        }}>¿EMERGENCIA? LLAMAR A LA CENTRAL · {centralRecordada}</a>
+      )}
+
       <div style={{ flex: 1 }} />
 
       <div style={{
-        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-        fontSize: 9, letterSpacing: 1.5, color: P.mute,
-        textAlign: 'center', textTransform: 'uppercase',
+        fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+        fontSize: 13, color: HUD.dim2, textAlign: 'center', lineHeight: 1.4,
       }}>
         {/* Sin cooperativa recordada el subtítulo de arriba ya dice esto */}
         {coop ? COOP.full : ''}
@@ -1985,7 +2007,106 @@ function usarCombis(token, actual) {
   return [datos, cargar];
 }
 
-function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRest, onLogout, onAutoStart, token, onCombi }) {
+// Lo que el SOS le contesta al chofer: el cartel rojo «ALERTA ENVIADA»
+// cuando LLEGÓ, y el panel para pedir ayuda por teléfono cuando NO salió.
+// Uno solo para el HUD y para la puerta (auditoría del 11/11: en la puerta
+// el chofer no tenía SOS). Va sobre un contenedor con position: relative.
+function SosAvisos({ fired, fallo, central, combi, nombre, onCerrarFallo }) {
+  return (
+    <>
+    {fired && (
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 99,
+        background: HUD.red,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        animation: 'combiFlash 0.5s ease-out',
+      }}>
+        <div style={{
+          color: '#fff', fontFamily: '"Archivo Black", system-ui, sans-serif',
+          fontSize: 44, fontWeight: 900, letterSpacing: 4, textAlign: 'center',
+        }}>
+          SOS<br/><span style={{ fontSize: 18, letterSpacing: 2 }}>ALERTA ENVIADA</span>
+        </div>
+      </div>
+    )}
+    {fallo && (() => {
+      const sms = central ? urlSms(central, textoSmsSos({ combi, nombre, pos: fallo.pos })) : null;
+      const boton = (fuerte) => ({
+        display: 'block', width: '100%', boxSizing: 'border-box', textAlign: 'center', textDecoration: 'none',
+        padding: fuerte ? '16px 12px' : '12px 10px', borderRadius: 12, marginBottom: 10,
+        fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: fuerte ? 17 : 14, letterSpacing: 0.5,
+        background: fuerte ? HUD.red : HUD.surface, color: fuerte ? P.white : HUD.fg,
+        border: `2px solid ${fuerte ? HUD.red : HUD.divider}`,
+      });
+      return (
+        <div role="alert" data-sos-sin-red style={{
+          position: 'absolute', inset: 0, zIndex: 99, overflowY: 'auto',
+          background: HUD.bg, border: `6px solid ${HUD.red}`, boxSizing: 'border-box',
+          display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 20,
+        }}>
+          <div style={{
+            color: HUD.red, fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 28, fontWeight: 900, letterSpacing: 2, textAlign: 'center', lineHeight: 1.15, marginBottom: 6,
+          }}>SOS NO SALIÓ</div>
+          <div style={{ color: HUD.fg, fontSize: 15, textAlign: 'center', lineHeight: 1.4, marginBottom: 16 }}>
+            Sin internet. Pedí ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+          </div>
+          {central ? (
+            <>
+              <a href={`tel:${central}`} data-llamar-central style={boton(true)}>LLAMAR A LA CENTRAL · {central}</a>
+              <a href={sms} data-sms-central style={boton(true)}>
+                MANDAR SMS A LA CENTRAL{fallo.pos ? ' CON TU POSICIÓN' : ''}
+              </a>
+            </>
+          ) : (
+            <div style={{ color: HUD.dim2, fontSize: 13, textAlign: 'center', marginBottom: 12, lineHeight: 1.4 }}>
+              Tu cooperativa no cargó el teléfono de la central.
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {EMERGENCIAS.map(([n, quien]) => (
+              <a key={n} href={`tel:${n}`} style={{ ...boton(false), flex: 1, padding: '10px 4px', fontSize: 13 }}>
+                {n}<br/><span style={{ fontFamily: 'system-ui, sans-serif', fontSize: 11, fontWeight: 700 }}>{quien}</span>
+              </a>
+            ))}
+          </div>
+          <button onClick={onCerrarFallo} style={{
+            marginTop: 6, padding: 10, background: 'none', border: 'none', cursor: 'pointer',
+            color: HUD.dim2, fontSize: 13, fontFamily: 'inherit', textDecoration: 'underline',
+          }}>Cerrar y volver a deslizar el SOS</button>
+        </div>
+      );
+    })()}
+    </>
+  );
+}
+
+// El estado de un SOS disparado desde una pantalla: el cartel de «enviada»
+// dura 2 s; el de «no salió» queda hasta que el chofer lo use o lo cierre,
+// y se va si un intento siguiente sale.
+function usarSos(onSos) {
+  const [fired, setFired] = React.useState(false);
+  const [fallo, setFallo] = React.useState(false);
+  React.useEffect(() => {
+    if (!fired) return;
+    const t = setTimeout(() => setFired(false), 2000);
+    return () => clearTimeout(t);
+  }, [fired]);
+  const disparar = async () => {
+    // El cartel rojo sólo cuando LLEGÓ: el servidor contestó (C3)
+    const r = onSos ? await onSos() : null;
+    if (r && r.ok) { setFired(true); setFallo(false); }
+    else setFallo({ en: Date.now(), pos: window.RealtimeClient && window.RealtimeClient.posicionReciente
+      ? window.RealtimeClient.posicionReciente() : null });
+  };
+  return { fired, fallo, disparar, cerrarFallo: () => setFallo(false) };
+}
+
+function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRest, onLogout, onAutoStart, token, onCombi, onSos, central, nombre, tweaks }) {
+  // El SOS también en la puerta: el chofer pasa por acá a las 5 de la mañana
+  // en el terminal, volviendo a la cochera, o cuando el vigía o Despacho lo
+  // dejaron «fuera». No tenía (auditoría del 11/11).
+  const sos = usarSos(onSos);
   // Las combis que puede elegir. Elegir NO toma nada: la combi se toma al
   // salir a ruta, y si otro la está manejando, eso es un relevo — por eso
   // elegir una ocupada pide confirmar, nombrando a quién la tiene.
@@ -2045,6 +2166,9 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
   const tarjetas = [combis.length > 1 ? null : ['Unidad', unidad], ['Ruta', ruta]].filter(t => t && t[1]);
 
   return (
+    // Los avisos del SOS cubren la pantalla entera, no el pedazo scrolleado:
+    // van en este marco, fuera de la caja que scrollea.
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
     <div style={{
       width: '100%', height: '100%', background: P.bg,
       display: 'flex', flexDirection: 'column',
@@ -2250,6 +2374,16 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
       }}>
         {countdown > 0 ? `Entrar AUSENTE (comer, un repuesto) · en ${countdown}s` : 'Entrar AUSENTE (comer, un repuesto)'}
       </button>
+
+      {/* SOS: abajo de todo, como en el HUD. El mismo deslizador. */}
+      {onSos && (
+        <div data-sos-puerta style={{ marginTop: 18 }}>
+          <SosSlider status="none" enableAnim={tweaks ? tweaks.microAnims : true} onFire={sos.disparar} />
+        </div>
+      )}
+    </div>
+      <SosAvisos fired={sos.fired} fallo={sos.fallo} central={central} combi={unidad} nombre={nombre}
+        onCerrarFallo={sos.cerrarFallo} />
     </div>
   );
 }
@@ -2757,69 +2891,8 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
         onDown(e.touches[0].clientX, e.touches[0].clientY);
       }}
     >
-      {emergencyFired && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 99,
-          background: HUD.red,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          animation: 'combiFlash 0.5s ease-out',
-        }}>
-          <div style={{
-            color: '#fff', fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 44, fontWeight: 900, letterSpacing: 4, textAlign: 'center',
-          }}>
-            SOS<br/><span style={{ fontSize: 18, letterSpacing: 2 }}>ALERTA ENVIADA</span>
-          </div>
-        </div>
-      )}
-      {sosFallo && (() => {
-        const sms = central ? urlSms(central, textoSmsSos({ combi, nombre, pos: sosFallo.pos })) : null;
-        const boton = (fuerte) => ({
-          display: 'block', width: '100%', boxSizing: 'border-box', textAlign: 'center', textDecoration: 'none',
-          padding: fuerte ? '16px 12px' : '12px 10px', borderRadius: 12, marginBottom: 10,
-          fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: fuerte ? 17 : 14, letterSpacing: 0.5,
-          background: fuerte ? HUD.red : HUD.surface, color: fuerte ? P.white : HUD.fg,
-          border: `2px solid ${fuerte ? HUD.red : HUD.divider}`,
-        });
-        return (
-          <div role="alert" data-sos-sin-red style={{
-            position: 'absolute', inset: 0, zIndex: 99, overflowY: 'auto',
-            background: HUD.bg, border: `6px solid ${HUD.red}`, boxSizing: 'border-box',
-            display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 20,
-          }}>
-            <div style={{
-              color: HUD.red, fontFamily: '"Archivo Black", system-ui, sans-serif',
-              fontSize: 28, fontWeight: 900, letterSpacing: 2, textAlign: 'center', lineHeight: 1.15, marginBottom: 6,
-            }}>SOS NO SALIÓ</div>
-            <div style={{ color: HUD.fg, fontSize: 15, textAlign: 'center', lineHeight: 1.4, marginBottom: 16 }}>
-              Sin internet. Pedí ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
-            </div>
-            {central ? (
-              <>
-                <a href={`tel:${central}`} data-llamar-central style={boton(true)}>LLAMAR A LA CENTRAL · {central}</a>
-                <a href={sms} data-sms-central style={boton(true)}>
-                  MANDAR SMS A LA CENTRAL{sosFallo.pos ? ' CON TU POSICIÓN' : ''}
-                </a>
-              </>
-            ) : (
-              <div style={{ color: HUD.dim2, fontSize: 13, textAlign: 'center', marginBottom: 12, lineHeight: 1.4 }}>
-                Tu cooperativa no cargó el teléfono de la central.
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 8 }}>
-              {EMERGENCIAS.map(([n, quien]) => (
-                <a key={n} href={`tel:${n}`} style={{ ...boton(false), flex: 1, padding: '10px 4px', fontSize: 13 }}>
-                  {n}<br/><span style={{ fontFamily: 'system-ui, sans-serif', fontSize: 11, fontWeight: 700 }}>{quien}</span>
-                </a>
-              ))}
-            </div>
-            <button onClick={() => setSosFallo(false)} style={{
-              marginTop: 6, padding: 10, background: 'none', border: 'none', cursor: 'pointer',
-              color: HUD.dim2, fontSize: 13, fontFamily: 'inherit', textDecoration: 'underline',
-            }}>Cerrar y volver a deslizar el SOS</button>
-          </div>
-        );
-      })()}
+      <SosAvisos fired={emergencyFired} fallo={sosFallo} central={central} combi={combi} nombre={nombre}
+        onCerrarFallo={() => setSosFallo(false)} />
 
       <div style={{
         display: 'flex',
@@ -3172,6 +3245,10 @@ function Root() {
   // estado y no en `user`: el socket depende de `user` y se reconectaría.
   const [central, setCentral] = React.useState(null);
   React.useEffect(() => { setCentral(user?.central || null); }, [user?.central, user?.unitId]);
+  // Recordada aparte de la sesión: es la salida de emergencia del ingreso
+  React.useEffect(() => {
+    if (central) { try { localStorage.setItem('r14_central', central); } catch {} }
+  }, [central]);
   React.useEffect(() => {
     if (screen !== 'app' || !user?.token || !window.RealtimeClient?.pedirMarca) return;
     window.RealtimeClient.pedirMarca(user.token).then(m => {
@@ -3613,7 +3690,7 @@ function Root() {
   // sólo si llegó. Con el id, la barra «¿qué pasó?» arranca de inmediato
   // aunque el eco del socket no venga (salió por HTTP).
   const fireSos = async () => {
-    const r = await window.RealtimeClient.sendSos();
+    const r = await window.RealtimeClient.sendSos({ token: user?.token || null });
     if (r && r.ok && r.sosId != null) setSosPropio(r.sosId);
     return r;
   };
@@ -3658,6 +3735,10 @@ function Root() {
       onLogout={logout}
       token={user?.token || null}
       onCombi={cambiarCombi}
+      onSos={fireSos}
+      central={central}
+      nombre={user?.driverName || null}
+      tweaks={tweaks}
     />;
   } else {
     content = <CombiScreen

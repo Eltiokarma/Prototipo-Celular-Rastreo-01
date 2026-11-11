@@ -111,7 +111,7 @@ const importar = (token, archivo, confirmar = false, extra = {}) => post('/admin
   r = await importar(HG, 'choferes.xlsx', true);
   ok('crea las buenas y salta las otras', r.body.buenas === 3 && JSON.stringify(personas()) === '["juan","nusta.ccama","pedro.m"]', personas());
   const pedro = r.body.filas.find(f => f.usuario === 'pedro.m');
-  ok('con las claves, una vez: la generada y la de la planilla', /^[a-z]+\d{4}$/.test(pedro.clave) &&
+  ok('con las claves, una vez: la generada y la de la planilla', /^[a-z]+-[a-z]+-\d{4}$/.test(pedro.clave) &&
      r.body.filas.find(f => f.usuario === 'nusta.ccama').clave === 'clave-nusta-1', r.body.filas.map(f => f.clave));
   ok('y sirven para entrar', !!(await entrar('pedro.m', pedro.clave)) && !!(await entrar('nusta.ccama', 'clave-nusta-1')));
   ok('quedan en su combi, habilitadas', base.prepare("SELECT vehicleId FROM habilitaciones WHERE personId = 'nusta.ccama'").get()?.vehicleId === 'M-01');

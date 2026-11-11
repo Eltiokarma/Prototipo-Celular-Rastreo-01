@@ -355,7 +355,8 @@ const entrar = (api, user, password, cab = {}) =>
     // Se revoca por afuera, como lo hace suspender una cooperativa: borrando
     // la fila y nada más. Antes, el socket seguía recibiendo todo.
     const b1 = new Database(DB);
-    b1.prepare('DELETE FROM sessions WHERE token = ?').run(s.token);
+    // En la base está la huella del token, no el token (auditoría 11/11)
+    b1.prepare('DELETE FROM sessions WHERE token = ?').run(require('crypto').createHash('sha256').update(s.token).digest('hex'));
     b1.close();
 
     // El barrido corre cada REVISAR_SESIONES_MS (2 s en esta prueba)

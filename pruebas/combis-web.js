@@ -82,8 +82,9 @@ const pedir = (ruta, o = {}) => fetch(`http://localhost:${P}${ruta}`,
   await de.waitForTimeout(2500);
   await de.click('button:has-text("Gestión")');
   await de.waitForTimeout(1500);
-  const filaPedro = de.locator('div').filter({ hasText: 'pedro' }).filter({ has: de.locator('button:has-text("Combis")') }).last();
-  await filaPedro.locator('button:has-text("Combis")').click();
+  // Desde el retoque de la UI (11/11) «Combis» vive en el menú «⋯» de la fila
+  await de.click('[data-acciones="pedro"]');
+  await de.click('[role="menu"] button:has-text("Combis")');
   await de.waitForSelector('[data-combis-de="pedro"]', { timeout: 5000 });
   ok('se abre el editor de sus combis', true);
   const hoy = await de.$eval('[data-combis-de="pedro"] [data-habilitar="M-05"]', b => ({ texto: b.innerText, deshabilitado: b.disabled }));

@@ -1,0 +1,107 @@
+% Formulario de consentimiento del conductor y del cobrador, para imprimir
+% y firmar. Dice LO MISMO que /consentimiento (server/consentimiento.html) en
+% su versión 2026-11-11: si una cambia, cambia la otra, y se sube
+% CONSENTIMIENTO_VERSION en server/index.js.
+\documentclass[10.5pt,a4paper]{article}
+\input{preambulo}
+\begin{document}
+\documento{Consentimiento para el tratamiento de datos personales}{versión 2026-11-11}
+
+{\LARGE\bfseries Consentimiento para el tratamiento de datos personales}\par
+{\small\color{tenue}Aplicación «Control de ruta» · versión 2026-11-11 · Ley N.º 29733 y su Reglamento}
+
+\begin{borrador}
+\textbf{Borrador.} Lo tiene que revisar el abogado antes de usarlo
+(ver \texttt{legal/LEEME.md}). Se firma uno por persona: la cooperativa guarda
+el original y le entrega una copia. Después, en Despacho → Gestión →
+Personas → \emph{Consentimiento}, se anota la fecha de la firma.
+\end{borrador}
+
+\section{Quién trata sus datos}
+\textbf{Responsable:} la cooperativa \llenar[7.5cm], RUC \llenar[3.2cm],
+con domicilio en \llenar[9.5cm]. Ella decide para qué se usan sus datos y
+es a quien usted les reclama.
+
+\textbf{Encargado:} el operador del sistema de control de flota que la
+cooperativa contrató, que guarda y procesa los datos solo por cuenta de ella
+y según sus instrucciones. Contacto: \llenar[8cm].
+
+\section{Qué datos y para qué}
+\begin{itemize}[leftmargin=14pt]
+  \item \textbf{Su identidad en el sistema:} nombre, alias, la combi que maneja y su rol.
+  \item \textbf{Su ubicación durante el turno}, de forma continua,
+    \textbf{también con la pantalla apagada o la aplicación en segundo plano}.
+    Sirve para mostrar la combi en el mapa de la cooperativa, medir la
+    separación con las demás, registrar las vueltas, los desvíos y las horas
+    en ruta con las que la cooperativa liquida el trabajo, y ubicarlo si pide
+    ayuda (SOS). Fuera del turno no se envía.
+  \item \textbf{En la pantalla de inicio de turno}, con la aplicación abierta,
+    el teléfono mira la ubicación \textbf{sin enviarla} para darse cuenta de
+    si usted ya está manejando sin haber salido a ruta: le avisa y, si no
+    contesta en un minuto, sale a ruta por usted.
+  \item \textbf{Lugares puntuales del turno}, con su hora: dónde se declaró
+    en ruta, ausente o fuera ---incluido \textbf{dónde terminó el turno}---,
+    dónde se cortó la señal, dónde estuvo parado y dónde salió del trazado.
+    No es el recorrido completo: son esos puntos.
+  \item \textbf{Marcas automáticas:} el sistema anota por su cuenta señales
+    como «GPS sospechoso», «entrada tardía», «salió solo» o «fuera de ruta».
+    Son avisos para que una persona de la cooperativa los mire:
+    \textbf{el sistema no sanciona ni decide nada por sí solo}, y usted puede
+    pedir que se revisen y que se le explique cualquiera.
+  \item \textbf{El chat de la ruta:} los textos, notas de voz y fotos que
+    usted decide mandar, y las emergencias (SOS).
+  \item \textbf{El estado del teléfono} mientras está en ruta (batería,
+    ahorro de batería, versión de la app): solo el último valor, no se guarda.
+\end{itemize}
+No se usan para publicidad, no se venden y no se entregan a terceros para fines propios.
+
+\section{Quién los ve y dónde se guardan}
+El personal de Despacho y la gerencia de \textbf{su} cooperativa, y el
+operador del sistema para darle soporte. Para funcionar, el sistema usa
+proveedores de alojamiento y de mapas cuyos \textbf{servidores están fuera
+del Perú}; las copias de respaldo se guardan cifradas. La lista completa
+está en la política de privacidad del sistema (\texttt{/privacidad}).
+
+\section{Cuánto tiempo}
+\begin{tabularx}{\linewidth}{>{\raggedright}p{6.4cm}X}
+\toprule
+Chat (texto, fotos y notas de voz) & 30 días; lo que Despacho guarda como evidencia de un hecho, hasta 365 días\\
+Vueltas y desvíos & 120 días\\
+Lugares puntuales del turno y marcas automáticas & 120 días\\
+Turnos (horas trabajadas) y emergencias (SOS) & 365 días\\
+Registro de actividad & inicios de sesión 90 días; lo del recorrido 365 días; altas, bajas y cambios de clave 2 años\\
+Posición en vivo & solo la última conocida (de lo demás, sólo los lugares puntuales de arriba)\\
+\bottomrule
+\end{tabularx}
+
+\section{Sus derechos}
+Puede pedir \textbf{acceso} a sus datos, su \textbf{rectificación}, su
+\textbf{cancelación}, \textbf{oponerse} a su uso y pedir su
+\textbf{portabilidad}, y puede \textbf{revocar este consentimiento} cuando
+quiera, sin efecto hacia atrás. Se pide a la cooperativa (a su central) o al
+contacto del encargado. Si no le responden, puede reclamar ante la Autoridad
+Nacional de Protección de Datos Personales.
+
+La ubicación durante el turno es la función central de la aplicación: sin
+ella no puede usarse para trabajar. La cooperativa le dirá cómo se registra
+su trabajo si no da o revoca este consentimiento.
+
+\begin{samepage}
+\section{Lo que usted autoriza}
+Marque cada casilla que acepta. Cada una es independiente.
+
+\begin{tabularx}{\linewidth}{@{}p{14pt}X@{}}
+\casilla & Acepto que se use mi \textbf{ubicación durante el turno, también con la pantalla apagada o la aplicación en segundo plano}, para los fines de arriba.\\
+\casilla & Acepto que, en la pantalla de inicio de turno, la aplicación mire mi ubicación sin enviarla y \textbf{salga a ruta por mí} si ve que estoy manejando y no contesto.\\
+\casilla & Acepto que mis datos se guarden en \textbf{servidores fuera del Perú}, con las protecciones descritas.\\
+\casilla & Declaro que recibí una copia de este documento y que puedo leer la política de privacidad completa en \texttt{/privacidad}.\\
+\end{tabularx}
+
+\vspace{10pt}
+Nombre completo: \llenar[11cm]\par\vspace{6pt}
+DNI: \llenar[4cm]\quad Usuario en la app: \llenar[5cm]\par\vspace{6pt}
+Lugar y fecha: \llenar[10cm]
+
+\noindent\firma{Firma del conductor o cobrador}\hfill\firma{Por la cooperativa (nombre, cargo y firma)}
+\end{samepage}
+\end{document}

@@ -1,0 +1,179 @@
+% Expediente para la reunión con el abogado: qué hace el sistema con los
+% datos, en palabras de no técnicos, y las preguntas que hay que contestar.
+% Sale de legal/LEEME.md, /privacidad y el contrato de encargo: si cambian,
+% cambia esto.
+\documentclass[10.5pt,a4paper]{article}
+\input{preambulo}
+\begin{document}
+\documento{Protección de datos personales — expediente para el abogado}{11/11/2026}
+
+{\LARGE\bfseries Protección de datos personales}\par
+{\large\color{tinta2}Expediente para la revisión legal del sistema de control de flota «Control de ruta»}\par
+{\small\color{tenue}Preparado el 11/11/2026 · Ley N.º 29733 y su Reglamento (D.S. N.º 016-2024-JUS)}
+
+\begin{nota}
+\textbf{Para qué es este documento.} Resume, sin tecnicismos, qué datos
+personales trata el sistema, de quién, para qué, cuánto tiempo y dónde, y
+termina con las \textbf{preguntas concretas} que necesitamos que usted
+conteste (sección 9). Se adjuntan los borradores a revisar: el contrato de
+encargo, el formulario de consentimiento, la política de privacidad, el
+registro de consentimientos y la solicitud de derechos.
+\end{nota}
+
+\section{1. Qué es el sistema}
+Un servicio que contratan cooperativas de transporte urbano (combis) de
+Juliaca y Puno para controlar su flota. Tiene tres partes:
+\begin{itemize}[leftmargin=14pt]
+\item \textbf{La app del conductor y del cobrador} («Control de ruta», Android):
+  mientras el conductor declara que está en ruta, manda su ubicación para
+  medir la separación con la combi de adelante y la de atrás; tiene chat con
+  la central y un botón de emergencia (SOS).
+\item \textbf{El panel de la central} (Despacho y gerencia de cada cooperativa):
+  ve las combis en el mapa, atiende los SOS, chatea, da de alta a su gente y
+  saca informes de vueltas y horas trabajadas.
+\item \textbf{El panel del operador} (nosotros): da de alta las cooperativas,
+  carga los recorridos y mantiene el servicio.
+\end{itemize}
+Las cuentas las crea cada cooperativa para su propia gente: no hay registro
+abierto ni usuarios anónimos. Cada cooperativa ve sólo sus datos.
+
+\section{2. Quién es quién}
+\begin{tabularx}{\linewidth}{>{\raggedright}p{4.2cm}>{\raggedright}p{3.6cm}X}
+\toprule
+\textbf{Rol en la ley} & \textbf{Quién} & \textbf{Por qué}\\\midrule
+Titular de los datos & Cada conductor y cobrador (y el personal de la central) & Son sus datos: su ubicación, su nombre, sus horas\\
+Responsable del tratamiento (titular del banco de datos) & Cada cooperativa & Ella decide controlar su flota y para qué; inscribe el banco, junta los consentimientos y responde los reclamos\\
+Encargado del tratamiento & El operador del sistema & Guarda y procesa los datos por cuenta de la cooperativa y según sus instrucciones; lo obliga el contrato de encargo\\
+Sub-encargados & Railway (servidor), el almacenamiento de las copias de respaldo, Geoapify (mapas) & Proveedores sin los cuales el servicio no funciona\\
+\bottomrule
+\end{tabularx}
+
+\textbf{Un dato que cambia las respuestas:} muchos conductores no son
+empleados de la cooperativa, sino socios o dueños de su combi.
+
+\section{3. Qué datos, y cuándo}
+\begin{itemize}[leftmargin=14pt]
+\item \textbf{Ubicación durante el turno}, continua, \textbf{también con la
+  pantalla apagada o la app en segundo plano} (Android lo exige declarado y
+  Google Play lo revisa). Fuera del turno no se manda.
+\item \textbf{Antes de empezar el turno}, con la app abierta, el teléfono
+  \emph{mira} la ubicación sin mandarla: si ve que el conductor ya está
+  manejando y no lo declaró, le avisa y, si no contesta en un minuto, lo pone
+  en ruta solo (la cooperativa ve que fue automático).
+\item \textbf{Lugares puntuales del turno}, con su hora: dónde se declaró en
+  ruta, ausente o fuera ---\textbf{incluido dónde terminó el turno, que suele
+  ser el domicilio del conductor}---, dónde se cortó la señal, dónde estuvo
+  parado y dónde salió del recorrido.
+\item \textbf{Marcas automáticas}: el sistema anota por su cuenta señales
+  como «GPS sospechoso» (un GPS que parece simulado), «entrada tardía» (se
+  sumó a la ruta por la mitad), «salió solo» o «fuera de ruta». \textbf{No
+  producen ninguna consecuencia automática}: son avisos para que una persona
+  de la cooperativa los mire. El contrato obliga a la cooperativa a no
+  sancionar sólo por una marca y a explicarla si se la piden.
+\item \textbf{Identidad}: nombre, alias, usuario, rol, combi.
+\item \textbf{Chat}: textos, notas de voz y fotos que la persona decide
+  mandar; las emergencias (SOS) con su ubicación.
+\item \textbf{Horas trabajadas} (turnos) y \textbf{vueltas} cumplidas: con
+  esto la cooperativa liquida el trabajo.
+\item \textbf{Estado del teléfono} en ruta (batería, ahorro de batería,
+  versión de la app): sólo el último valor, no se guarda.
+\end{itemize}
+No hay datos sensibles en el sentido de la ley (salud, origen, creencias…),
+salvo lo que alguien escriba en el chat.
+
+\section{4. Cuánto tiempo se guardan}
+El propio sistema los borra solo al cumplirse el plazo:
+
+\begin{tabularx}{\linewidth}{>{\raggedright}p{8.4cm}X}
+\toprule
+Chat (texto, fotos, notas de voz) & 30 días\\
+Mensajes que la central guardó como evidencia de un hecho & 365 días\\
+Vueltas, tramos y desvíos & 120 días\\
+Lugares puntuales del turno y marcas automáticas & 120 días\\
+Turnos (horas) y emergencias (SOS) & 365 días\\
+Registro de actividad & accesos 90 días; operación 365 días; altas, bajas y claves 2 años\\
+Posición en vivo y estado del teléfono & sólo el último valor\\
+Copias de respaldo cifradas & 30 días\\
+\bottomrule
+\end{tabularx}
+
+\section{5. Dónde están}
+En servidores \textbf{fuera del Perú}: Railway (servidor y base de datos,
+\completar{región a confirmar}), el almacenamiento de las copias de respaldo
+(\completar{proveedor y región}) ---que recibe las copias \textbf{ya cifradas},
+sin poder leerlas--- y Geoapify (imágenes del mapa: recibe la dirección IP del
+teléfono, no la identidad). Google Play distribuye la app.
+
+\section{6. Seguridad}
+Todo viaja cifrado (HTTPS). Las contraseñas y las sesiones se guardan como
+huellas irreversibles: ni el operador ni quien robe una copia de la base
+puede verlas ni usarlas. Cada cooperativa está separada de las demás, y
+dentro de ella cada rol ve lo que le toca. Las acciones administrativas
+(altas, bajas, claves, correcciones de horas) quedan registradas con quién y
+cuándo. Hay respaldos automáticos verificados y una copia fuera del servidor,
+cifrada con AES-256.
+
+\section{7. Los derechos, en la práctica}
+\begin{itemize}[leftmargin=14pt]
+\item \textbf{Acceso y portabilidad}: la central baja un archivo con todo lo de
+  una persona (mensajes, fotos, turnos, vueltas, actividad), con una guía de
+  qué es cada cosa.
+\item \textbf{Rectificación}: nombre y alias desde el panel; las horas se
+  corrigen con motivo, y queda registrado.
+\item \textbf{Cancelación}: la baja borra la cuenta y los mensajes privados;
+  \textbf{lo que es registro de trabajo} (turnos, vueltas, actividad) queda
+  hasta su plazo.
+\item \textbf{Revocación del consentimiento}: se anota en el sistema y en papel.
+  El sistema no apaga la app solo: sin la ubicación no cumple su función, y
+  qué hacer es decisión de la cooperativa.
+\item \textbf{Revisión de una marca automática}: la central la ve con su
+  detalle y hora, y puede explicarla.
+\end{itemize}
+
+\section{8. Si hay un incidente}
+El contrato obliga al operador a avisar a la cooperativa \textbf{dentro de las
+24 horas}, para que ella cumpla las \textbf{48 horas} ante la Autoridad y,
+cuando corresponda, ante los titulares.
+
+\section{9. Lo que necesitamos que conteste}
+\begin{enumerate}[leftmargin=18pt,itemsep=4pt]
+\item ¿Está bien el reparto de roles de la sección 2 (cooperativa
+  responsable, operador encargado)?
+\item La ubicación de un trabajador para controlar su trabajo, ¿necesita
+  consentimiento o entra en la excepción de la relación laboral o
+  contractual (art. 14)? ¿Cambia si el conductor es \textbf{socio o dueño de
+  la combi} y no empleado? (Aunque no haga falta, preferimos tenerlo
+  firmado.)
+\item ¿Alcanza el formulario en papel, o conviene además que la app lo pida
+  al entrar?
+\item Los servidores fuera del Perú: ¿qué hay que declarar y qué garantías
+  pedirle a cada proveedor (flujo transfronterizo)? ¿Se declara al inscribir
+  el banco de datos o aparte?
+\item ¿El operador tiene que inscribir un banco de datos propio (los
+  contactos de cada cooperativa y de quien escribe a soporte)?
+\item ¿Hay que designar un oficial de datos personales? ¿Cuenta como «gran
+  volumen» la ubicación continua de cientos de conductores?
+\item Las \textbf{marcas automáticas}: ¿entran en el derecho a un tratamiento
+  objetivo y en lo que el Reglamento dice de las decisiones basadas sólo en
+  tratamiento automatizado? ¿Alcanza con que no produzcan consecuencias solas
+  y que el contrato prohíba sancionar sólo por ellas?
+\item Los \textbf{lugares puntuales del fin de turno} (suele ser el domicilio),
+  guardados 120 días: ¿es proporcional, o conviene acortarlo o guardar sólo
+  la hora?
+\item Al dar de baja a una persona, ¿está bien conservar el registro de trabajo
+  (turnos, vueltas, actividad) hasta su plazo como excepción a la cancelación?
+\item Si alguien retira el consentimiento, ¿qué tiene que hacer la cooperativa?
+\item Los plazos para contestar cada derecho, para ponerlos en la solicitud.
+\item Revisar y ajustar el contrato de encargo, el consentimiento (versión
+  2026-11-11), la política de privacidad y la solicitud de derechos.
+\end{enumerate}
+
+\section{Documentos adjuntos}
+\begin{itemize}[leftmargin=14pt,itemsep=0pt]
+\item \texttt{contrato-encargo.pdf} — el contrato de encargo con cada cooperativa (borrador).
+\item \texttt{consentimiento.pdf} — el formulario de consentimiento del conductor y del cobrador, versión 2026-11-11.
+\item \texttt{politica-privacidad.pdf} — la política de privacidad publicada en la app, vigente desde el 11/11/2026.
+\item \texttt{registro-consentimientos.pdf} — la hoja con que la cooperativa lleva las firmas y los retiros.
+\item \texttt{solicitud-derechos.pdf} — el formulario para pedir acceso, rectificación, cancelación, oposición o portabilidad, o retirar el consentimiento.
+\end{itemize}
+\end{document}
