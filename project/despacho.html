@@ -1596,7 +1596,18 @@ function Punto({ on, title }) {
 
 // Confirmación que nombra sobre qué. Se usa en los dos únicos lugares donde
 // una acción de Despacho le cambia el día a gente que está manejando.
+//
+// El botón de aceptar se arma recién a los 700 ms de abrir: un doble clic
+// sobre el botón que la abrió no puede pasar de largo y aceptar (auditoría
+// 11/11). Ni Escape ni el clic afuera aceptan nunca; cancelan.
 function Confirmacion({ kicker, tono, titulo, cuerpo, aceptar, onAceptar, onCancelar }) {
+  const [armado, setArmado] = React.useState(false);
+  React.useEffect(() => {
+    const t = setTimeout(() => setArmado(true), 700);
+    const esc = (e) => { if (e.key === 'Escape') onCancelar && onCancelar(); };
+    window.addEventListener('keydown', esc);
+    return () => { clearTimeout(t); window.removeEventListener('keydown', esc); };
+  }, []);
   const fondo = tono === 'red' ? HUD.rojoFondo : HUD.ambarFondo;
   const borde = tono === 'red' ? HUD.rojoBorde : HUD.ambarBorde;
   const tinta = tono === 'red' ? HUD.rojoTinta : HUD.ambarTinta;
@@ -1619,8 +1630,9 @@ function Confirmacion({ kicker, tono, titulo, cuerpo, aceptar, onAceptar, onCanc
           fontSize: 13, lineHeight: 1.6, color: tinta,
         }}>{cuerpo}</div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button onClick={onAceptar} style={{
+          <button data-confirmar-aceptar onClick={() => { if (armado) onAceptar(); }} disabled={!armado} style={{
             ...btnPrimario(42), background: fuerte, borderRadius: 10,
+            opacity: armado ? 1 : 0.55, cursor: armado ? 'pointer' : 'default',
           }}>{aceptar}</button>
           <button onClick={onCancelar} style={{ ...btnSecundario(42), borderRadius: 10 }}>
             No cambiar nada
@@ -1760,7 +1772,7 @@ function CargaMasiva({ api, onListo }) {
   );
 }
 
-function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca, refrescarMarca, onEscribir }) {
+function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca, refrescarMarca, onEscribir, avisoSos }) {
   const [tab, setTab] = React.useState('users'); // users | vehicles | routes | metrics | audit
   const [users, setUsers] = React.useState(null);
   const [events, setEvents] = React.useState(null);
@@ -2229,6 +2241,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
         <button onClick={onClose} style={btnSecundario(36)}>✕ Volver al mapa</button>
       </div>
 
+      {/* El SOS sin atender también acá: Gestión tapa el mapa entero */}
+      {avisoSos && <div data-sos-en-gestion style={{ flexShrink: 0 }}>{avisoSos}</div>}
+
       <div style={{
         flex: 1, minHeight: 0,
         display: 'grid', gridTemplateColumns: angosto ? '1fr' : '232px 1fr',
@@ -2534,13 +2549,24 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 style={btnChico(HUD.fg2)}>Editar</button>
                             )}
                             {u.role !== 'dispatch' && u.role !== 'manager' && (
-                              confirmDel === u.unitId ? (
-                                <button onClick={() => remove(u.unitId)} disabled={busy}
-                                  style={{ ...btnChico('#fff', HUD.red), background: HUD.red }}>¿Confirmar?</button>
-                              ) : (
-                                <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); setCombisFor(null); }}
-                                  style={btnChico(HUD.red, HUD.rojoBorde)}>Baja</button>
-                              )
+                              <button onClick={() => { setConfirmDel(u.unitId); setResetFor(null); setEditFor(null); setCombisFor(null); }}
+                                style={btnChico(HUD.red, HUD.rojoBorde)}>Baja</button>
+                            )}
+                            {/* La baja no tiene vuelta atrás. El «¿Confirmar?»
+                                aparecía en el MISMO lugar que «Baja», y un
+                                doble clic daba de baja a la persona (auditoría
+                                11/11). Ahora es un diálogo que nombra a quién y
+                                qué se pierde, con el botón en otro lugar. */}
+                            {confirmDel === u.unitId && (
+                              <Confirmacion kicker="Dar de baja" tono="red"
+                                titulo={`¿Dar de baja a ${u.name || u.driverName || u.unitId} (${u.unitId})?`}
+                                cuerpo={<>No se puede deshacer. Se cierra su sesión en el acto
+                                  {u.vehicleId ? ` y, si está manejando ${u.vehicleId}, sale de ruta` : ''}.
+                                  Se borran sus mensajes privados que no se guardaron como evidencia.
+                                  Sus horas y sus vueltas quedan en los informes.</>}
+                                aceptar={busy ? 'Dando de baja…' : 'Sí, dar de baja'}
+                                onAceptar={() => { if (!busy) remove(u.unitId); }}
+                                onCancelar={() => setConfirmDel(null)} />
                             )}
                           </span>
                         </FilaTabla>
@@ -4751,6 +4777,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
   const [sosLista, setSosLista] = React.useState([]);
   const sos = sosLista[0] || null;
   const [sosError, setSosError] = React.useState(null);
+  // ATENDIDO se arma recién un momento después de que el cartel muestra ESTE
+  // SOS. Con dos en la lista, el segundo aparece en el mismo lugar apenas se
+  // confirma el primero, y un doble clic lo cerraba sin que nadie lo leyera
+  // —y al chofer le llegaba «Despacho vio tu SOS»— (auditoría 11/11).
+  const claveSos = sos ? `${sos.sosId}:${sos.timestamp}` : null;
+  const [sosArmado, setSosArmado] = React.useState(null);
+  React.useEffect(() => {
+    if (!claveSos) return;
+    const t = setTimeout(() => setSosArmado(claveSos), 1200);
+    return () => clearTimeout(t);
+  }, [claveSos]);
+  const sosListo = !!claveSos && sosArmado === claveSos;
   // Suena mientras haya alguno sin atender; calla al vaciarse la lista o al salir
   React.useEffect(() => {
     if (sosLista.length) alarmaSos.sonar(); else alarmaSos.callar();
@@ -5315,6 +5353,50 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     ws.send(JSON.stringify({ type: 'watch', routeId }));
   };
 
+  // El cartel del SOS, armado una vez y puesto en dos lugares: arriba del
+  // mapa y arriba de Gestión. Gestión tapa la pantalla entera y el cartel
+  // quedaba debajo: el gerente en Números no se enteraba (auditoría 11/11).
+  const bannerSos = sos && (
+    <div style={{
+      flexShrink: 0, background: HUD.red, color: '#fff',
+      padding: '13px 18px', display: 'flex', alignItems: 'center', gap: 16,
+      flexWrap: isMobile ? 'wrap' : 'nowrap',
+      animation: 'sosPulse 1.2s ease-in-out infinite',
+    }}>
+      <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 3 }}>SOS</span>
+      <span style={{ fontSize: 15, fontWeight: 700 }}>
+        {(sos.driverName || sos.unitId || 'Unidad').toUpperCase()}
+        {sos.vehicleId ? ` · ${sos.vehicleId.toUpperCase()}` : ''} pide ayuda
+        {TIPOS_SOS[sos.sosTipo] ? ` — ${TIPOS_SOS[sos.sosTipo].toUpperCase()}` : ''} · {nowTime(sos.timestamp)}
+        {sos.routeId && sos.routeId !== routeInfo.routeId ? ` · RUTA ${sos.routeId}` : ''}
+        {sos.lat ? ` · ${sos.lat.toFixed(4)}, ${sos.lng.toFixed(4)}` : ''}
+        {sosLista.length > 1 ? ` · Y ${sosLista.length - 1} MÁS ESPERANDO` : ''}
+      </span>
+      <div style={{ flex: 1 }} />
+      {sos.lat && (
+        <button onClick={() => { setAdminOpen(false); if (isMobile) setView('map'); mapRef.current?.panTo([sos.lat, sos.lng]); }} style={{
+          height: 34, padding: '0 12px', background: 'rgba(255,255,255,.16)',
+          border: '1px solid rgba(255,255,255,.55)', borderRadius: 8,
+          color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+        }}>Ver en mapa</button>
+      )}
+      {sosError && <span role="alert" style={{ fontSize: 13, fontWeight: 800 }}>{sosError}</span>}
+      {alarmaSos.soportada() && !alarmaSos.lista() && (
+        <button onClick={activarAlarma} style={{
+          height: 34, padding: '0 12px', background: 'rgba(255,255,255,.16)',
+          border: '1px solid rgba(255,255,255,.55)', borderRadius: 8,
+          color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+        }}>Activar sonido</button>
+      )}
+      <button data-sos-atendido onClick={() => { if (sosListo) atenderSos(sos); }}
+        disabled={!!sos.atendiendo || !sosListo} style={{
+        height: 34, padding: '0 12px', background: '#fff', border: 'none', borderRadius: 8,
+        color: HUD.red, fontSize: 13, fontWeight: 800, fontFamily: 'inherit',
+        cursor: sos.atendiendo ? 'wait' : sosListo ? 'pointer' : 'default', opacity: sosListo ? 1 : 0.6,
+      }}>{sos.atendiendo ? 'ENVIANDO…' : 'ATENDIDO'}</button>
+    </div>
+  );
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* header */}
@@ -5482,6 +5564,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           refrescarMarca={refrescarMarca}
           // «Escribir» en Personas: abre su privado personal en el mapa
           onEscribir={(personId, nombre, routeId) => { setAdminOpen(false); abrirPrivado('p:' + personId, nombre, routeId); }}
+          avisoSos={bannerSos}
         />
       )}
 
@@ -5495,45 +5578,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         }}>Activar alarma de SOS: que suene y avise aunque el panel esté tapado</button>
       )}
 
-      {/* banner SOS activo */}
-      {sos && (
-        <div style={{
-          flexShrink: 0, background: HUD.red, color: '#fff',
-          padding: '13px 18px', display: 'flex', alignItems: 'center', gap: 16,
-          flexWrap: isMobile ? 'wrap' : 'nowrap',
-          animation: 'sosPulse 1.2s ease-in-out infinite',
-        }}>
-          <span style={{ fontFamily: black, fontSize: 20, letterSpacing: 3 }}>SOS</span>
-          <span style={{ fontSize: 15, fontWeight: 700 }}>
-            {(sos.driverName || sos.unitId || 'Unidad').toUpperCase()}
-            {sos.vehicleId ? ` · ${sos.vehicleId.toUpperCase()}` : ''} pide ayuda
-            {TIPOS_SOS[sos.sosTipo] ? ` — ${TIPOS_SOS[sos.sosTipo].toUpperCase()}` : ''} · {nowTime(sos.timestamp)}
-            {sos.routeId && sos.routeId !== routeInfo.routeId ? ` · RUTA ${sos.routeId}` : ''}
-            {sos.lat ? ` · ${sos.lat.toFixed(4)}, ${sos.lng.toFixed(4)}` : ''}
-            {sosLista.length > 1 ? ` · Y ${sosLista.length - 1} MÁS ESPERANDO` : ''}
-          </span>
-          <div style={{ flex: 1 }} />
-          {sos.lat && (
-            <button onClick={() => { if (isMobile) setView('map'); mapRef.current?.panTo([sos.lat, sos.lng]); }} style={{
-              height: 34, padding: '0 12px', background: 'rgba(255,255,255,.16)',
-              border: '1px solid rgba(255,255,255,.55)', borderRadius: 8,
-              color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-            }}>Ver en mapa</button>
-          )}
-          {sosError && <span role="alert" style={{ fontSize: 13, fontWeight: 800 }}>{sosError}</span>}
-          {alarmaSos.soportada() && !alarmaSos.lista() && (
-            <button onClick={activarAlarma} style={{
-              height: 34, padding: '0 12px', background: 'rgba(255,255,255,.16)',
-              border: '1px solid rgba(255,255,255,.55)', borderRadius: 8,
-              color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-            }}>Activar sonido</button>
-          )}
-          <button data-sos-atendido onClick={() => atenderSos(sos)} disabled={!!sos.atendiendo} style={{
-            height: 34, padding: '0 12px', background: '#fff', border: 'none', borderRadius: 8,
-            color: HUD.red, fontSize: 13, fontWeight: 800, cursor: sos.atendiendo ? 'wait' : 'pointer', fontFamily: 'inherit',
-          }}>{sos.atendiendo ? 'ENVIANDO…' : 'ATENDIDO'}</button>
-        </div>
-      )}
+      {/* banner SOS activo (el mismo va dentro de Gestión) */}
+      {bannerSos}
 
       {/* Avisos del nivel de arriba. Persistentes a propósito: un aviso de
           deuda o de mantenimiento no puede desaparecer solo ni esconderse

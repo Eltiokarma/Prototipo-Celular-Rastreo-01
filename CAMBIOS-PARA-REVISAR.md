@@ -958,6 +958,44 @@ nativa. Siguen verdes `sos`, `sos-sin-red`, `puerta-web`, `vigia-puerta`,
 
 ---
 
+### 17.2 Los dobles clics de Despacho, y el SOS dentro de Gestión
+
+**Qué.**
+- **ATENDIDO.** Con dos SOS esperando, el cartel muestra el más viejo; al
+  confirmarse, el segundo aparece en el mismo lugar con su ATENDIDO. Un
+  doble clic (o dos toques) cerraba los dos: el segundo quedaba atendido en
+  la base, la alarma se callaba en todos los paneles y al chofer le llegaba
+  «Despacho vio tu SOS» sin que nadie lo hubiera leído. Ahora ATENDIDO se
+  **arma 1,2 s después** de que el cartel muestra cada SOS (se ve atenuado
+  mientras tanto).
+- **SOS tapado por Gestión.** Gestión es una capa fija que tapa todo, y el
+  cartel quedaba debajo: el gerente en Números o el despachador dando altas
+  no lo veían. Ahora el mismo cartel va también arriba de Gestión, y «Ver
+  en mapa» cierra Gestión.
+- **Baja.** El «¿Confirmar?» aparecía en el mismo lugar que «Baja» y dos
+  clics daban de baja a la persona, sin vuelta atrás. Ahora es el diálogo
+  `Confirmacion`, que la **nombra** y dice qué se pierde.
+- **`Confirmacion` en general:** el botón de aceptar se arma a los 700 ms, y
+  Escape o el clic afuera cancelan. Vale también para cambiar de variante y
+  guardar sobre el trazado que se mide.
+
+**Archivos.** `project/despacho.html`, `project/service-worker.js` (v93),
+`pruebas/doble-clic.js` (nueva), `pruebas/regresion.js`.
+
+**Mirar.**
+- 1,2 s de espera antes de poder atender el primer SOS. Es poco al lado de
+  leer quién pide ayuda, pero es una espera en una emergencia.
+- El cartel dentro de Gestión es el mismo elemento: «Activar sonido» y el
+  error de ATENDIDO también se ven ahí.
+
+**Pruebas.** `doble-clic` (nueva). Siguen verdes `sos-despacho`, `trazador`,
+`combis-web`, `mover-combi`, `privado-web`, `paneles`, `evidencia`,
+`alta-masiva`, `consentimiento`, `datos-persona`, `auditoria`,
+`correccion-horas`, `gerencia`, `numeros-ui`, `panel-periodo`, `trabas`,
+`telefono`, `contraste`, `tema-web`, `vendor`.
+
+---
+
 ## Para el manual (cuando toque)
 
 Lo que todavía no está en `manual/manual.tex`:
