@@ -43,7 +43,9 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
 ### A. Cuando piden criticar o diagnosticar una pieza
 
 1. **Mira (o pide) la pieza concreta.** Sin verla, todo diagnóstico es hipótesis;
-   dilo explícitamente.
+   dilo explícitamente. Si es un video, sigue `references/revision-video.md`
+   (cronología + **una pasada por cada componente**, incluido el movimiento). Lee
+   siempre `diagnostico.md`; abre `componentes.md` para el componente que falle.
 2. **Traduce la queja a síntoma observable** con la matriz de
    `references/diagnostico.md` ("plana" puede ser falta de profundidad *o* de
    variación dramática: son problemas distintos).
@@ -55,9 +57,22 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
    (tono), sin sonido (dependencia de canales), pedir a otra persona "¿qué pasó?,
    ¿cuándo lo entendiste?, ¿qué intentó hacer después?" sin anticiparle la respuesta.
 6. Si el problema es de **anatomía, peso, timing, spacing, anticipación, rig** —
-   dilo: excede la estructura visual; la silueta y el contraste no lo resuelven.
+   **señálalo igual** en una hoja marcada "(actuación/timing)": excede la estructura
+   visual para *resolverlo*, no para *detectarlo*. Un saco que rebota como goma o un
+   personaje que se traslada rígido son hallazgos, no temas ajenos.
 
-Formato de respuesta recomendado para cada problema (hoja de revisión):
+**Plantilla de entrega:**
+1. **Diagnóstico en una frase** (el problema dominante y su capa).
+2. **Pruebas aplicadas** y **pruebas pendientes** (p. ej., la de otra persona).
+3. **Cronología** breve (tramo · qué ocurre · qué debería entenderse).
+4. **5–7 hojas de revisión**, de mayor a menor capa (intención antes que acabado),
+   indicando dependencias ("la hoja 3 solo funciona después de la 1").
+5. **Lo que funciona** — para no romperlo al corregir.
+6. **Orden de versiones** (A → B → C…, una variable por versión).
+7. Si no hay otra persona disponible, el **guion de prueba** de
+   `revision-video.md §4`.
+
+Formato de cada hoja de revisión:
 
 | Campo | Contenido |
 |---|---|
@@ -148,7 +163,8 @@ Antes de retirar algo, identifica la información que se perderá.
 
 | Archivo | Cuándo leerlo |
 |---|---|
-| `references/diagnostico.md` | Criticar una pieza: matrices síntoma → causa → primera prueba, pruebas de control, hoja de revisión, criterio de cierre |
+| `references/diagnostico.md` | Criticar una pieza (siempre): matrices síntoma → causa → primera prueba, quejas de comprensión/emoción, pruebas de control, hoja de revisión, criterio de cierre |
+| `references/revision-video.md` | Revisar un video o render: cronología, una pasada por componente con recetas de ffmpeg/Python, seguimiento de movimiento, guion de prueba con otra persona |
 | `references/componentes.md` | Detalle de los 7 componentes de Block: espacio, línea, forma, tono, color, movimiento, ritmo |
 | `references/estructura-y-secuencia.md` | Historia y estructura visual: progresión, gráfico de intensidad, constantes/progresiones/excepciones, beats, punto de vista, color script, storyboard y animatic |
 | `references/proceso-motion.md` | Oficio de motion (Shaw): encargo, concepto, referencias, evidencia por incertidumbre, tipografía cinética, personajes, materialidad, 3D, datos, formatos/interactividad, presentación, iteración, método de 7 fases, preguntas de revisión profesional |

@@ -32,6 +32,20 @@ problema. No hace falta convertir todo en imitación de 3D.
 | Movimiento mecánico | Tiempos y respuestas uniformes | Diferenciar intención y material |
 | Transición arbitraria | No conserva ni revela una relación | Compararla con un corte sencillo |
 
+## 2b. Quejas de comprensión y emoción
+
+La queja más común del usuario no es formal sino de efecto: "no se entiende X" o "no
+se siente Y". Tradúcela así:
+
+| Queja | Posible causa | Primera prueba |
+|---|---|---|
+| "No se entiende que fue de menos / de más / distinto" | Falta un término de comparación (acuerdo, estado anterior, referencia) o no comparte unidad y encuadre con el resultado | Mostrar la referencia antes, en la misma unidad, y dejarla visible al comparar |
+| "No se siente la emoción X" | No hay beat intento → obstáculo → consecuencia, o no hay tiempo de asentamiento | Añadir la acción que la emoción provoca (contar, releer, reclamar) y una pausa con el resto quieto |
+| "Se siente lo contrario de lo que quiero" | Un recurso de tratamiento contradice el tono (brillo de premio sobre una pérdida, música alegre, color festivo) | Retirar solo ese recurso y comparar |
+| "El momento clave pasa desapercibido" | El pico de actividad o el único efecto cae en otro sitio (título, transición) | Medir actividad por fotograma; mover el pico o reducir lo secundario |
+| "El personaje no parece afectado" | Actuación solo en un detalle (boca, cejas) y cuerpo estático; sale de cuadro enseguida | Cambio de eje y postura, gesto con las manos, permanencia en cuadro |
+| "No se ve el esfuerzo / el peso" | Traslación rígida, objeto pesado con rebote, mismo easing en todo | Seguir la trayectoria y revisar la respuesta del cuerpo a la carga |
+
 ## 3. Cuatro problemas que suelen llamarse «plano» (taller)
 
 | Síntoma concreto | Hipótesis | Primera intervención |
