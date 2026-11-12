@@ -50,6 +50,10 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
    ninguno falla, no hace falta). Si la
    queja es de **emoción, beats o secuencia** ("no se siente", "no impacta", "el final
    no funciona"), lee también `estructura-y-secuencia.md` (§6 beats, §5 estrategias).
+   Si la pieza **codifica cantidades** (infografía, gráfico, comparación de cifras), lee
+   `proceso-motion.md §13` y haz la **pasada de integridad del dato** de
+   `revision-video.md §2d`: un dato mal codificado es siempre de fondo, aunque se vea
+   bonito.
 2. **Traduce la queja a síntoma observable** con la matriz de
    `references/diagnostico.md` ("plana" puede ser falta de profundidad *o* de
    variación dramática: son problemas distintos).

@@ -198,6 +198,32 @@ respuesta) no es un congelado si: es el estado expresivo del sujeto, llega tras 
 acción que la motiva y algo mínimo sigue vivo (respiración). Si dudas, márcalo como
 hoja dudosa y pregunta en la prueba "¿qué estaba haciendo/sintiendo ahí?".
 
+## 2d. Pasada de integridad del dato (piezas con cifras)
+
+Las 7 pasadas de componentes no detectan un dato mal dibujado. Si la pieza representa
+cantidades, comprueba **cada punto** midiendo, no a ojo:
+
+| Comprobación | Cómo medir | Falla típica |
+|---|---|---|
+| Codificación | Para cada marca: alto, ancho y área (receta 2) ÷ su valor | Escalar alto y ancho con el valor → el área crece al cuadrado (60 vs 15 se ve 16×, no 4×) |
+| Escala estable entre estados | La razón tamaño/valor debe ser la misma antes y después; los elementos que no cambian de valor no deben cambiar de tamaño | Reescalar al nuevo máximo: la caída desaparece y lo estable parece crecer |
+| Base común | Las marcas comparables comparten línea base y orientación | Marcas flotando a distintas alturas |
+| Perspectiva / oblicuidad | ¿Los bordes que deberían ser verticales u horizontales están inclinados? ¿Hay cizalla, 3D, cámara oblicua? | Perspectiva decorativa que deforma longitudes en un gráfico de comparación |
+| Referencia conservada | ¿El estado anterior sigue visible (fantasma, contorno, valor) mientras aparece el nuevo? | Borrar todo y redibujar: no se puede comparar y "todo desaparece" sugiere colapso |
+| Semántica del color | Un color que identifica una **categoría** no debe pasar a significar un **estado** (alarma, error, caída) | Rojo = azúcar y luego rojo = crisis: el público mezcla ambos significados |
+| Afirmaciones | Rótulos, flechas y causas: ¿dicen más de lo que el dato o el encargo sostienen? | Convertir un escenario hipotético en una causa histórica ("CRACK DE 1929") |
+| Jerarquía del dato clave | ¿El número central del encargo (el total, la diferencia) es lo más legible al final? | El dato clave pequeño, gris o en una esquina |
+| Tiempo de lectura | Cada texto con cifras debe quedar quieto lo suficiente (abajo) | Frase clave 0,8 s mientras otra cosa se mueve |
+
+**Tiempo de lectura (heurístico):** ≈ 1 s + 0,3 s por palabra o cifra, quieto y sin
+competencia. Una frase de 6 palabras ≈ 3 s. Los textos que el público debe recordar,
+más.
+
+**Movimiento en gráficos:** en motion gráfico plano la actividad mediana suele ser ≈ 0
+(todo quieto mientras se lee) y el umbral de congelado de §2c no discrimina: úsalo
+contra el percentil 75 de la actividad o ignóralo. La quietud mientras se lee es
+legítima.
+
 ## 3. Movimiento: lo que sí debes señalar aunque no sea "estructura"
 
 Peso, timing, spacing, anticipación y actuación exceden el método de Block **para
@@ -222,4 +248,10 @@ intención). Entrega al usuario un **guion de prueba** listo para usar:
 6. "¿Cómo quedó [el personaje] al final?" / "¿Qué sentiste?" → comprueba el eje
    **sentir**: éxito si nombra un estado (impotencia, frustración…), no solo una acción.
 Además, añade una pregunta por cada hoja dudosa.
+
+**Variante para infografías y piezas con cifras** (sustituye las preguntas 4 y 6):
+- "¿Cuánto era X antes y cuánto después?" → éxito si da las cifras o la proporción.
+- "¿Qué cambió y qué se quedó igual?" → detecta escalas inestables (si dice que lo
+  estable "creció", la escala falla).
+- "¿Esto ocurrió así en la historia?" → detecta si un escenario se leyó como hecho.
 No anticipar la respuesta ni corregir a la persona.
