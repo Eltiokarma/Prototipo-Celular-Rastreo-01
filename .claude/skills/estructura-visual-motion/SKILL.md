@@ -45,7 +45,9 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
 1. **Mira (o pide) la pieza concreta.** Sin verla, todo diagnóstico es hipótesis;
    dilo explícitamente. Si es un video, sigue `references/revision-video.md`
    (cronología + **una pasada por cada componente**, incluido el movimiento). Lee
-   siempre `diagnostico.md`; abre `componentes.md` para el componente que falle.
+   siempre `diagnostico.md`; abre `componentes.md` para el componente que falle. Si la
+   queja es de **emoción, beats o secuencia** ("no se siente", "no impacta", "el final
+   no funciona"), lee también `estructura-y-secuencia.md` (§6 beats, §5 estrategias).
 2. **Traduce la queja a síntoma observable** con la matriz de
    `references/diagnostico.md` ("plana" puede ser falta de profundidad *o* de
    variación dramática: son problemas distintos).
@@ -62,6 +64,9 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
    personaje que se traslada rígido son hallazgos, no temas ajenos.
 
 **Plantilla de entrega:**
+0. **Veredicto en dos ejes**: ¿se **entiende** lo que debe entenderse? ¿se **siente** lo
+   que se busca? (sí / a medias / no, cada uno). Es lo primero que el usuario quiere
+   saber; separa los problemas **de fondo** (impiden entender o sentir) del **pulido**.
 1. **Diagnóstico en una frase** (el problema dominante y su capa).
 2. **Pruebas aplicadas** y **pruebas pendientes** (p. ej., la de otra persona).
 3. **Cronología** breve (tramo · qué ocurre · qué debería entenderse).

@@ -67,6 +67,16 @@ def track(p, rgb, tol=30):
     return (xs.mean(), ys.mean(), m.sum()) if m.sum() else (None, None, 0)
 # área que cae a 0 de un fotograma al siguiente = objeto que desaparece sin trayecto;
 # x/y vs. t muestra overshoot, easing uniforme o traslación rígida.
+# OJO: si otras masas comparten el color, limita la búsqueda a una región (recorta `a`)
+# y vigila saltos bruscos del centroide: suelen ser contaminación, no movimiento.
+
+# 4) Actividad por región: separa al sujeto del entorno (pausa viva vs. congelado,
+#    competencia de figurantes). Regiones = cajas (x0, y0, x1, y1) en píxeles.
+def act_region(fa, fb, box):
+    x0, y0, x1, y1 = box
+    return float(np.abs(arr(fb)[y0:y1, x0:x1] - arr(fa)[y0:y1, x0:x1]).mean())
+# Si un figurante tiene mucha más actividad que el protagonista en el tramo final,
+# le está robando la atención.
 
 # 3) Luminancia puntual (Rec. 709) de objeto vs. su entorno inmediato
 def lum(p, x, y, r=3):
@@ -76,7 +86,13 @@ def lum(p, x, y, r=3):
 
 **Umbrales orientativos (heurísticos, a escala 0–255; verifica siempre mirando):**
 - Diferencia de luminancia objeto/entorno: < 15 se funde; 15–40 se separa solo con
-  borde o tamaño; > 40 separación clara en grises.
+  borde o tamaño; > 40 separación clara en grises. Un **contorno oscuro** o una
+  saturación reservada pueden separar aunque el relleno se funda: mide también el
+  contorno antes de declarar el problema, y confirma mirando la miniatura.
+- Duración de una pose que debe leerse (heurística, verificar con la prueba de otra
+  persona): un gesto simple y conocido ≈ 0,5–1 s sostenido; una comparación, un
+  descubrimiento o una decisión ≈ 1–2 s; una consecuencia final ≥ 2 s con el protagonista
+  solo en el foco.
 - Elemento que debe contarse o leerse: ≥ 1 % del alto del cuadro por unidad, y
   comprobarlo en la miniatura de 128 px.
 - Actividad: compárala **dentro de la misma pieza**, no con cifras absolutas. Lo que
@@ -87,7 +103,10 @@ def lum(p, x, y, r=3):
 Haz una tabla por tramo: % de la duración, actividad media y pico, e importancia
 narrativa (alta/media/baja). Si el tramo de mayor actividad o duración es de baja
 importancia (una caminata de entrada, una transición), hay jerarquía accidental aunque
-sea un solo plano.
+sea un solo plano. **Excepción:** una preparación breve (≲ 15 % de la duración) que
+introduce al protagonista o la situación puede ser el pico sin problema; lo que no
+debe pasar es que el pico caiga *durante* o *justo antes* del momento decisivo en algo
+secundario (título, efecto, figurante).
 
 ## 2c. Pausa viva vs. congelado
 
