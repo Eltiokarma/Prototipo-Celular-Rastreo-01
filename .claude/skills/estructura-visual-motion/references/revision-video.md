@@ -108,7 +108,26 @@ def mask_box(a, box):
 #    probablemente no se lee: acompáñala con giro de cabeza, cambio de eje o gesto.
 #    Si dos objetivos posibles (p. ej., las monedas en la mano y el cartel) quedan a
 #    menos de ~15° de separación vistos desde la cabeza, la mirada sola no distingue a
-#    cuál mira: gira la cabeza hacia uno o separa los objetos.
+#    cuál mira: gira la cabeza hacia uno o separa los objetos. Esto incluye el caso
+#    "referencia alineada con el interlocutor" (el cartel justo detrás de la cabeza
+#    del otro personaje): la mirada no puede decir si mira el precio o a la persona;
+#    separa la referencia en la composición o usa un gesto que la señale.
+#    Una pupila en el borde de la cabeza (desplazamiento > ~0,5 del radio) se lee como
+#    "mira arriba / afuera", no como "mira el objetivo": compárala con el ángulo real.
+#    El umbral de oscuridad (< 60) puede captar contornos de otros objetos (monedas):
+#    recorta solo la cabeza o bájalo (< 45).
+
+# 7) Ángulo de mirada vs. objetivos: desde el centro de la cabeza, compara el ángulo
+#    de la pupila con el ángulo hacia cada objetivo candidato.
+def angle(frm, to):
+    import math
+    return math.degrees(math.atan2(-(to[1]-frm[1]), to[0]-frm[0]))
+# objetivo leído = el de ángulo más próximo al de la pupila, solo si la diferencia
+# con el segundo candidato es > ~15°.
+
+# 8) Alto de una figura (para "≲ 40 % del alto"): máscara por los colores de su ropa y
+#    piel dentro de su caja; alto = (max_y - min_y) / alto del cuadro. En el borde del
+#    umbral (38-45 %) no decidas por el número: mira la miniatura.
 def pupil_offset(p, head_box, dark=60):
     x0, y0, x1, y1 = head_box; a = arr(p)[y0:y1, x0:x1]
     m = a.max(axis=2) < dark; ys, xs = np.nonzero(m)
@@ -143,7 +162,9 @@ importancia (una caminata de entrada, una transición), hay jerarquía accidenta
 sea un solo plano. **Excepción:** una preparación breve (≲ 15 % de la duración) que
 introduce al protagonista o la situación puede ser el pico sin problema; lo que no
 debe pasar es que el pico caiga *durante* o *justo antes* del momento decisivo en algo
-secundario (título, efecto, figurante).
+secundario (título, efecto, figurante). Si el pico es la **respuesta del antagonista**
+que constituye la consecuencia (le quitan el saco, le cierran la puerta), es legítimo:
+es parte del momento decisivo, no algo secundario.
 
 ## 2c. Pausa viva vs. congelado
 

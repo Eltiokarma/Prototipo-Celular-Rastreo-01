@@ -45,7 +45,8 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
 1. **Mira (o pide) la pieza concreta.** Sin verla, todo diagnóstico es hipótesis;
    dilo explícitamente. Si es un video, sigue `references/revision-video.md`
    (cronología + **una pasada por cada componente**, incluido el movimiento). Lee
-   siempre `diagnostico.md`; abre `componentes.md` para el componente que falle. Si la
+   siempre `diagnostico.md`; abre `componentes.md` para el componente que falle (si
+   ninguno falla, no hace falta). Si la
    queja es de **emoción, beats o secuencia** ("no se siente", "no impacta", "el final
    no funciona"), lee también `estructura-y-secuencia.md` (§6 beats, §5 estrategias).
 2. **Traduce la queja a síntoma observable** con la matriz de
@@ -70,16 +71,20 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
    Cuando el efecto depende de cómo lo lea el público y no puedes decidirlo midiendo,
    márcalo **"dudoso: lo decide la prueba"** y liga una pregunta del guion a esa hoja.
 1. **Diagnóstico en una frase** (el problema dominante y su capa).
-2. **Pruebas aplicadas** y **pruebas pendientes** (p. ej., la de otra persona).
+2. **Pruebas aplicadas** y **pruebas pendientes** (p. ej., la de otra persona), con una
+   línea de **resultado por cada pasada de componente** para que la evidencia sea
+   trazable.
 3. **Cronología** breve (tramo · qué ocurre · qué debería entenderse).
-4. **2–7 hojas de revisión** (pocas si la pieza ya casi funciona), de mayor a menor
-   capa (intención antes que acabado),
+4. **Hojas de revisión**: 0–7 de fondo (cero es una respuesta válida) más las de pulido
+   que hagan falta, de mayor a menor capa (intención antes que acabado),
    indicando dependencias ("la hoja 3 solo funciona después de la 1"). Los detalles
    menores de actuación/timing pueden ir juntos en una última hoja en forma de lista.
    No inventes problemas para llenar hojas: si algo funciona, dilo con la misma
    evidencia.
 5. **Lo que funciona** — para no romperlo al corregir.
-6. **Orden de versiones** (A → B → C…, **una decisión por versión**; si esa decisión
+6. **Orden de versiones** (si ambos ejes salen "sí" o "probable", el siguiente paso es
+   **probar la versión actual con público**, y las demás versiones quedan condicionadas
+   a lo que falle en la prueba; en otro caso, A → B → C…, **una decisión por versión**; si esa decisión
    arrastra otra inseparable —alargar un plano obliga a decidir qué se mueve en él—,
    decláralas juntas).
 7. Si no hay otra persona disponible, el **guion de prueba** de
