@@ -29,8 +29,12 @@ con el último**: si la pieza busca cerrar "volviendo al inicio con algo cambiad
 encuadre de cierre debe rimar con el de apertura (mide la escala de un objeto fijo,
 p. ej. un cartel).
 ```bash
-ffmpeg -v error -i VIDEO -vf "select='gt(scene,0.3)',showinfo" -f null - 2>&1 | grep -o "pts_time:[0-9.]*"
+# showinfo escribe a nivel info: NO uses -v error aquí.
+ffmpeg -hide_banner -i VIDEO -vf "select='gt(scene,0.1)',showinfo" -f null - 2>&1 | grep -o "pts_time:[0-9.]*"
 ```
+Con paletas planas o cortes por reencuadre (mismo decorado, otra escala) el valor
+`scene` es bajo: 0.3 puede no detectar nada; empieza en 0.1 y confirma cada corte
+mirando los fotogramas vecinos.
 
 ## 2. Pasadas obligatorias (una por componente)
 
