@@ -77,6 +77,24 @@ def act_region(fa, fb, box):
     return float(np.abs(arr(fb)[y0:y1, x0:x1] - arr(fa)[y0:y1, x0:x1]).mean())
 # Si un figurante tiene mucha más actividad que el protagonista en el tramo final,
 # le está robando la atención.
+# OJO: la actividad por píxeles mide ÁREA cambiada, no desplazamiento. Un objeto
+# compacto que cruza el cuadro rápido puede dar poca actividad y dominar la atención.
+# Cruza siempre la actividad con el desplazamiento por centroide (receta 2).
+
+# 5) Excluir una referencia del mismo color (p. ej., monedas del cartel vs. de la mano):
+#    pon a cero la caja de la referencia antes de seguir el objeto.
+def mask_box(a, box):
+    x0, y0, x1, y1 = box; a = a.copy(); a[y0:y1, x0:x1] = 0; return a
+
+# 6) Mirada / orientación de cabeza: recorta la cabeza en los instantes clave y
+#    compara la posición de la pupila (píxeles oscuros) respecto al centro de la cabeza
+#    en una hoja ampliada. Una mirada que se mueve < 10 % del diámetro de la cabeza
+#    probablemente no se lee: acompáñala con giro de cabeza, cambio de eje o gesto.
+def pupil_offset(p, head_box, dark=60):
+    x0, y0, x1, y1 = head_box; a = arr(p)[y0:y1, x0:x1]
+    m = a.max(axis=2) < dark; ys, xs = np.nonzero(m)
+    if not m.sum(): return None
+    return ((xs.mean() - (x1-x0)/2) / (x1-x0), (ys.mean() - (y1-y0)/2) / (y1-y0))
 
 # 3) Luminancia puntual (Rec. 709) de objeto vs. su entorno inmediato
 def lum(p, x, y, r=3):

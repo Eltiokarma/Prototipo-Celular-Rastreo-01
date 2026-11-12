@@ -67,18 +67,23 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
 0. **Veredicto en dos ejes**: ¿se **entiende** lo que debe entenderse? ¿se **siente** lo
    que se busca? (sí / a medias / no, cada uno). Es lo primero que el usuario quiere
    saber; separa los problemas **de fondo** (impiden entender o sentir) del **pulido**.
+   Cuando el efecto depende de cómo lo lea el público y no puedes decidirlo midiendo,
+   márcalo **"dudoso: lo decide la prueba"** y liga una pregunta del guion a esa hoja.
 1. **Diagnóstico en una frase** (el problema dominante y su capa).
 2. **Pruebas aplicadas** y **pruebas pendientes** (p. ej., la de otra persona).
 3. **Cronología** breve (tramo · qué ocurre · qué debería entenderse).
-4. **5–7 hojas de revisión**, de mayor a menor capa (intención antes que acabado),
+4. **2–7 hojas de revisión** (pocas si la pieza ya casi funciona), de mayor a menor
+   capa (intención antes que acabado),
    indicando dependencias ("la hoja 3 solo funciona después de la 1"). Los detalles
    menores de actuación/timing pueden ir juntos en una última hoja en forma de lista.
    No inventes problemas para llenar hojas: si algo funciona, dilo con la misma
    evidencia.
 5. **Lo que funciona** — para no romperlo al corregir.
-6. **Orden de versiones** (A → B → C…, una variable por versión).
+6. **Orden de versiones** (A → B → C…, **una decisión por versión**; si esa decisión
+   arrastra otra inseparable —alargar un plano obliga a decidir qué se mueve en él—,
+   decláralas juntas).
 7. Si no hay otra persona disponible, el **guion de prueba** de
-   `revision-video.md §4`.
+   `revision-video.md §4`, con una pregunta añadida por cada hoja dudosa.
 
 Formato de cada hoja de revisión:
 

@@ -47,6 +47,7 @@ se siente Y". Tradúcela así:
 | "El personaje no parece afectado" | Actuación solo en un detalle (boca, cejas) y cuerpo estático; sale de cuadro enseguida | Cambio de eje y postura, gesto con las manos, permanencia en cuadro |
 | "El gesto se lee como otra cosa" (reclamo que parece devolución, rechazo que parece saludo) | Se reutiliza la silueta de una acción anterior con otro significado; el interlocutor no responde | Compara siluetas de ambas poses: el nuevo beat necesita una pose distinta (dirección, eje, relación con la referencia) y una respuesta del otro |
 | "La reacción no pega" aunque la actuación exista | La reacción ocurre en un plano donde el personaje es pequeño (≲ 40 % del alto) o el corte llega antes de que se asiente | Comparar A/B: cortar al plano general después de la reacción, no antes |
+| "La reacción no se asienta" aunque esté en un buen plano | Coincide con la acción secundaria de mayor desplazamiento (un objeto que cruza, otro personaje que se mueve) o el plano final es demasiado corto | Desplazar en el tiempo la acción secundaria (antes o después de la reacción) y/o alargar el plano final con el resto quieto |
 | "No se ve el esfuerzo / el peso" | Traslación rígida, objeto pesado con rebote, mismo easing en todo | Seguir la trayectoria y revisar la respuesta del cuerpo a la carga |
 
 ## 3. Cuatro problemas que suelen llamarse «plano» (taller)
