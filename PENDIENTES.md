@@ -558,6 +558,56 @@ que es la razón de no hacerlo hoy: quién los ve, cuánto se conservan y qué
 pasa cuando alguien se va. Detalle en `REVISION-2026-09-10.md`, «lo que la
 base no sabe de la gente ni de las combis».
 
+### SOPORTE POR WHATSAPP: una persona para lo urgente, una IA para lo simple (conversado 12/11)
+
+**Cuándo:** con ~150 combis ya tiene sentido. Antes, no. La arquitectura
+acordada: una persona atiende lo urgente y una IA filtra lo simple. Tres
+condiciones, porque el diseño cambia mucho según cómo se arme:
+
+1. **La IA tiene que poder consultar el backend; una que sólo conversa no
+   sirve.** El mensaje típico no es de FAQ: es «oe, no me sale el carro de
+   adelante» o «no funciona». Lo que lo resuelve es mirar el estado de ESA
+   unidad: último ping, permisos de ubicación, versión de la app, si la de
+   adelante está transmitiendo. Con eso contesta «tu celular dejó de mandar
+   ubicación a las 3:10, abre la app y dale permiso de ubicación así». Sin
+   eso es un contestador. Flujo: mensaje → webhook de WhatsApp → el LLM lo
+   clasifica → consulta la unidad **por el número que escribe** → responde, o
+   lo escala a la persona con prioridad y **con el diagnóstico ya hecho**.
+2. **Audios: no es opcional.** En Juliaca la mitad de los choferes va a
+   mandar nota de voz y no van a escribir manejando. Si la IA no transcribe,
+   la mitad del volumen le cae directo a la persona.
+3. **Las «preguntas simples» no se inventan: salen de la ruta 1.** Mientras
+   haya una sola ruta, la gente atiende todo a mano y **anota cada mensaje con
+   su categoría**. Ese registro es la especificación: qué resuelve la IA, qué
+   escala y, sobre todo, qué no debería existir como mensaje. Si el 40 % es
+   «perdí el permiso de GPS», eso se arregla en la app con una alerta en
+   pantalla, no con IA respondiendo. El mejor mensaje de soporte es el que no
+   llega.
+
+**Costos a ojo.** Meta da 1.000 mensajes de servicio gratis al mes. 150
+unidades ≈ 30 conversaciones/día × 3–4 respuestas de la IA ≈ 3.000
+mensajes/mes: lo que pasa del gratuito sale ~US$ 50 en Meta, más unos dólares
+de LLM. Menos que media persona extra. Los avisos que inicia el sistema
+(«tu unidad no transmite desde ayer») van por **plantilla** y se cobran
+aparte: mandarlos al **dueño de ruta**, no a cada chofer.
+
+**Política, a revisar al registrar la cuenta:** hasta donde se sabe, Meta
+restringió los chatbots de IA de propósito general en la API de WhatsApp,
+pero un bot de soporte del propio servicio está permitido. Confirmarlo.
+
+**Secuencia:**
+
+1. **Ruta 1:** el panel con enlaces `wa.me` y la **bitácora de mensajes
+   categorizada a mano**.
+2. **Rutas 2 y 3:** la API oficial de WhatsApp, la IA con acceso al backend
+   (con transcripción de audio) y una **bandeja de escalamiento** para la
+   persona.
+
+Lo de la etapa 1 (la tabla de unidades y el estado del último ping) es justo
+lo que la IA va a consultar en la etapa 2: no se bota nada. Ya existe buena
+parte: el último ping, la salud del teléfono y la versión de la app (0.4,
+suite `telefono`) y el teléfono de la central (0.5).
+
 ---
 
 ## Lo que quedó afuera del rediseño, y por qué
