@@ -31,6 +31,7 @@ Lo que se salta aquí es lo que después se escapa.
 | Tono | Escala de grises (`-vf format=gray`) de los momentos clave | ¿Figura/fondo, mano/objeto, cara/entorno se separan por valor o solo por matiz? |
 | Color | Mapa de saturación (canal S de HSV) y lista de masas saturadas | ¿La saturación alta está reservada a lo relevante o repartida? ¿Hay acentos que compiten (carteles, rótulos)? ¿El color dice algo contrario al tono de la escena? |
 | Espacio / encuadre | Comparar **primer y último fotograma** del plano lado a lado; medir la escala de un objeto fijo a lo largo del tiempo | Zoom o deriva de encuadre constante sin función; recortes de personajes; zoom vs. dolly |
+| Línea | Reducir a ejes, bordes y trayectorias (miniatura muy pequeña o dibujar encima de la hoja de contacto) | Motivo lineal dominante por tramo; ¿cambia cuando cambia la situación? ¿Una trayectoria opuesta marca el conflicto o pasa inadvertida? |
 | Forma / silueta | Umbral a blanco/negro de figura vs. fondo, o mirar en miniatura | Fusiones (saco+cabeza, brazo+columna), siluetas esqueléticas |
 | Movimiento | **Seguir la posición** de 1–3 objetos clave fotograma a fotograma (centroide por color o a ojo en hojas densas) y graficar x/y vs. tiempo | Overshoot/rebote en objetos pesados, mismo easing en todo, traslación rígida sin respuesta de peso, objetos que aparecen sin trayecto |
 | Actividad / ritmo | Diferencia media entre fotogramas consecutivos a lo largo del tiempo | ¿Hay quietud antes del momento decisivo? ¿El pico de actividad coincide con lo importante o con un efecto? |
@@ -44,12 +45,57 @@ ffmpeg -v error -ss 9.0 -i VIDEO -frames:v 1 -vf scale=128:-1 mini_9s.png
 # primer vs último fotograma del plano (deriva de encuadre); N = índice del último fotograma
 ffmpeg -v error -i VIDEO -vf "select='eq(n\,0)+eq(n\,N)',scale=480:-1,tile=2x1" -frames:v 1 inicio_fin.png
 ```
+Ojo: con `-ss` antes de `-i`, `drawtext` imprime el tiempo desde 0. Para fragmentos usa
+`-vf "setpts=PTS+INICIO/TB,drawtext=…"` o anota el desfase.
+
 ```python
-# actividad por fotograma y saturación media
-import numpy as np, subprocess, PIL.Image as I
-# extrae a PNG con ffmpeg -vf fps=24 f%04d.png y luego:
-# act[t] = mean(|f[t]-f[t-1]|); sat[t] = mean(HSV[...,1])
+# Extrae antes: ffmpeg -i VIDEO -vf fps=24 f/%04d.png
+import glob, numpy as np
+from PIL import Image
+fs = sorted(glob.glob("f/*.png"))
+def arr(p): return np.asarray(Image.open(p).convert("RGB")).astype(np.float32)
+
+# 1) Actividad por fotograma (0 = congelado total)
+prev = None; act = []
+for p in fs:
+    a = arr(p); act.append(0 if prev is None else np.abs(a - prev).mean()); prev = a
+
+# 2) Seguimiento por color: centroide y área de un objeto de color conocido
+def track(p, rgb, tol=30):
+    a = arr(p); m = (np.abs(a - np.array(rgb)).max(axis=2) < tol)
+    ys, xs = np.nonzero(m)
+    return (xs.mean(), ys.mean(), m.sum()) if m.sum() else (None, None, 0)
+# área que cae a 0 de un fotograma al siguiente = objeto que desaparece sin trayecto;
+# x/y vs. t muestra overshoot, easing uniforme o traslación rígida.
+
+# 3) Luminancia puntual (Rec. 709) de objeto vs. su entorno inmediato
+def lum(p, x, y, r=3):
+    a = arr(p)[y-r:y+r+1, x-r:x+r+1]
+    return float((a @ np.array([0.2126, 0.7152, 0.0722])).mean())
 ```
+
+**Umbrales orientativos (heurísticos, a escala 0–255; verifica siempre mirando):**
+- Diferencia de luminancia objeto/entorno: < 15 se funde; 15–40 se separa solo con
+  borde o tamaño; > 40 separación clara en grises.
+- Elemento que debe contarse o leerse: ≥ 1 % del alto del cuadro por unidad, y
+  comprobarlo en la miniatura de 128 px.
+- Actividad: compárala **dentro de la misma pieza**, no con cifras absolutas. Lo que
+  importa es dónde está el pico respecto a la importancia narrativa.
+
+## 2b. Reparto de tiempo y actividad vs. importancia
+
+Haz una tabla por tramo: % de la duración, actividad media y pico, e importancia
+narrativa (alta/media/baja). Si el tramo de mayor actividad o duración es de baja
+importancia (una caminata de entrada, una transición), hay jerarquía accidental aunque
+sea un solo plano.
+
+## 2c. Pausa viva vs. congelado
+
+Una pausa sirve para interpretar; un congelado total (actividad ≈ 0 en todo el cuadro
+durante > 1 s) suele leerse como imagen detenida o error de render. Una pausa viva
+conserva un movimiento mínimo **en el sujeto** (respiración, parpadeo, un ajuste de la
+mano o la mirada) mientras el entorno queda quieto. La quietud del entorno es la que
+concede peso; la del sujeto, no.
 
 ## 3. Movimiento: lo que sí debes señalar aunque no sea "estructura"
 

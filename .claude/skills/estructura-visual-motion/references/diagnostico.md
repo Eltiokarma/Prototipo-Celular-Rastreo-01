@@ -40,6 +40,7 @@ se siente Y". Tradúcela así:
 | Queja | Posible causa | Primera prueba |
 |---|---|---|
 | "No se entiende que fue de menos / de más / distinto" | Falta un término de comparación (acuerdo, estado anterior, referencia) o no comparte unidad y encuadre con el resultado | Mostrar la referencia antes, en la misma unidad, y dejarla visible al comparar |
+| "No se entiende la comparación" aunque la referencia **sí está** | La referencia quedó como fondo (afinidad): lleva mucho tiempo quieta, está lejos del resultado en el encuadre, tiene otro tamaño o unidad, y el personaje no la relaciona en el momento clave | Escenificar la comparación: mirada o gesto explícito resultado → referencia → resultado, mismo dibujo y tamaño, proximidad o corte que los junte |
 | "No se siente la emoción X" | No hay beat intento → obstáculo → consecuencia, o no hay tiempo de asentamiento | Añadir la acción que la emoción provoca (contar, releer, reclamar) y una pausa con el resto quieto |
 | "Se siente lo contrario de lo que quiero" | Un recurso de tratamiento contradice el tono (brillo de premio sobre una pérdida, música alegre, color festivo) | Retirar solo ese recurso y comparar |
 | "El momento clave pasa desapercibido" | El pico de actividad o el único efecto cae en otro sitio (título, transición) | Medir actividad por fotograma; mover el pico o reducir lo secundario |
