@@ -50,6 +50,10 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
    ninguno falla, no hace falta). Si la
    queja es de **emoción, beats o secuencia** ("no se siente", "no impacta", "el final
    no funciona"), lee también `estructura-y-secuencia.md` (§6 beats, §5 estrategias).
+   Haz siempre la **pasada de restricciones del encargo** y la de **causa → efecto**
+   (`revision-video.md §2g`). Si la pieza es un **ejercicio del manual**, usa los
+   estados y criterios de evaluación de `ejercicios.md`. Si es **tipografía cinética**,
+   aplica `revision-video.md §2h`; si es una **adaptación de formato**, `§2f`.
    Si la pieza **codifica cantidades** (infografía, gráfico, comparación de cifras), lee
    `proceso-motion.md §13` y haz la **pasada de integridad del dato** de
    `revision-video.md §2d`: un dato mal codificado es siempre de fondo, aunque se vea
@@ -75,9 +79,17 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
    saber; separa los problemas **de fondo** (impiden entender o sentir) del **pulido**.
    Cuando el efecto depende de cómo lo lea el público y no puedes decidirlo midiendo,
    márcalo **"dudoso: lo decide la prueba"** y liga una pregunta del guion a esa hoja.
-   Criterio: **de fondo** = impide entender o sentir y lo puedes demostrar con evidencia;
+   Criterio: **de fondo** = impide entender o sentir y lo puedes demostrar con evidencia,
+   **o incumple una restricción explícita del encargo** (p. ej., "dos colores");
    **dudoso** = podría impedirlo, pero depende de la lectura; **pulido** = no lo impide.
-   Un pulido puede ser **condicional**: "sube a fondo si falla la pregunta N".
+   Un pulido puede ser **condicional**: "sube a fondo si falla la pregunta N" o "si se
+   exhibe en proyector / impreso en gris / en pantalla pequeña".
+   Escala del veredicto: **sí**; **probable** = todo lo necesario está presente y
+   legible, falta confirmarlo con público; **a medias** = una parte necesaria se ve y
+   otra se pierde (un beat, un dato, un personaje fuera de cuadro); **no**. Si el encargo
+   es solo informativo, el eje "sentir" puede marcarse **no aplica**.
+   Con 0 problemas de fondo, el informe puede ser corto: veredicto, lo que funciona,
+   dudosos con su pregunta y pulido en lista.
 1. **Diagnóstico en una frase** (el problema dominante y su capa).
 2. **Pruebas aplicadas** y **pruebas pendientes** (p. ej., la de otra persona), con una
    línea de **resultado por cada pasada de componente** para que la evidencia sea

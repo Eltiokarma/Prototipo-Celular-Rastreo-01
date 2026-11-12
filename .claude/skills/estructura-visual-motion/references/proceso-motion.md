@@ -183,6 +183,9 @@ acercamiento.
 
 ## 13. Información y datos
 
+> Para revisar una pieza con cifras, la lista operativa completa está en
+> `revision-video.md §2d` (pasada de integridad del dato). Esta sección da el criterio.
+
 Explicar un mecanismo, representar cantidades y evocar una idea son funciones distintas.
 Empieza por una pregunta (A=60, B=25, C=15 permite mostrar mayor fuente, distribución o
 dependencia de A).

@@ -216,6 +216,11 @@ cantidades, comprueba **cada punto** midiendo, no a ojo:
 | Afirmaciones | Rótulos, flechas y causas: ¿dicen más de lo que el dato o el encargo sostienen? | Convertir un escenario hipotético en una causa histórica ("CRACK DE 1929") |
 | Jerarquía del dato clave | ¿El número central del encargo (el total, la diferencia) es lo más legible al final? | El dato clave pequeño, gris o en una esquina |
 | Tiempo de lectura | Cada texto con cifras debe quedar quieto lo suficiente (abajo) | Frase clave 0,8 s mientras otra cosa se mueve |
+| Unidad y tipo de magnitud | ¿Cada cifra dice qué mide? ¿Conviven valores absolutos y porcentajes con el mismo número? | "60 → 30" (ingresos) junto a "del 60 % al 43 %" (participación) |
+| Simetría de la referencia | Si varias marcas cambian, ¿todas muestran su valor anterior de la misma forma? | "60 → 30" en una barra pero solo "Total 70" en la otra |
+| Estados intermedios de rótulos | Revisa los contadores y etiquetas durante la transición | "60 → 60" visible antes de que algo cambie |
+| Supuestos implícitos | ¿El paso de una magnitud a otra supone algo no dicho? | "El precio cae a la mitad" → "los ingresos caen a la mitad" (supone mismo volumen) |
+| Valor entre categorías | Escala de grises: ¿las categorías se distinguen sin color? | Ocre y gris con la misma luminancia se funden en gris o para daltónicos |
 
 **Tiempo de lectura (heurístico):** ≈ 1 s + 0,3 s por palabra o cifra, quieto y sin
 competencia. Una frase de 6 palabras ≈ 3 s. Los textos que el público debe recordar,
@@ -247,6 +252,49 @@ pequeño fotograma a fotograma; evita zonas con partículas o elementos del mism
 **Destellos:** cuenta los cambios bruscos de luminancia o de rojo saturado por segundo
 en zonas grandes. Más de ~3 por segundo es un riesgo de fotosensibilidad: hoja propia
 y recomendación de analizador antes de publicar.
+
+## 2f. Adaptación de formato (vertical, cuadrado, recortes)
+
+1. **Identifica la transformación** respecto al original: recorte, escala, recomposición.
+   Correlaciona el fotograma adaptado con el original escalado para localizar el
+   recorte exacto.
+2. **Inventario relacional por plano:** lista los términos de la relación (actor,
+   antagonista, referencia, objeto clave) y mide qué % de cada uno queda dentro del
+   cuadro. Un término clave fuera (o < ~50 %) en el plano donde actúa = de fondo.
+3. **Hereda** las pasadas que no cambian por construcción (tono, color, ritmo) con una
+   línea de confirmación; concentra el trabajo en espacio, lectura y atención.
+4. **Resolución:** si se reescaló el raster (> ~1,3×), revisa nitidez de bordes y texto.
+5. **Zonas seguras** de la plataforma (textos, botones): compruébalas como restricción
+   de composición, no como ley.
+6. **A/B** original vs. adaptación en la prueba con público, con personas distintas.
+La corrección típica es **recomponer** (apilar, suceder, otro punto de vista), no recortar.
+
+## 2g. Restricciones del encargo y causa → efecto (siempre)
+
+- **Restricciones:** lista las restricciones explícitas del encargo (número de colores,
+  familias, duración, formato, elementos obligatorios) y verifícalas una a una. Incumplir
+  una es de fondo. Si el encargo es ambiguo (¿el fondo cuenta como color?), dilo.
+- **Causa → efecto:** para cada transformación importante anota el fotograma en que
+  empieza la **causa** (contacto, golpe, llegada, decisión) y en el que empieza el
+  **efecto**. Si el efecto empieza antes que la causa, o la causa no alcanza a lo que
+  se transforma (una placa que no cubre las letras que se aplastan), es de fondo.
+
+## 2h. Tipografía cinética
+
+- **Legibilidad en el estado más deformado:** alto del texto en % de su alto original
+  y del cuadro, y miniatura de 128 px. Heurístico: por debajo de ~30–40 % de su alto o
+  ~5 % del cuadro la palabra suele dejar de leerse.
+- **Recorte por bordes:** al deformar (ensanchar, rotar) ¿alguna letra sale del cuadro?
+- **Interletrado:** mide los huecos entre letras por proyección de columnas (columnas
+  sin tinta). Huecos > ~2× la mediana parten la palabra ("PR ESIÓ N").
+- **Material:** compara compresión y recuperación. Conservación de área (líquido,
+  goma) vs. pérdida (espuma, aplastamiento); un rebote elástico tras un aplastamiento
+  duro contradice el material.
+- **Estados parciales:** ¿la palabra se lee antes de transformarse (tiempo de lectura)?
+- **Quietud expositiva:** un texto o cartel quieto para leerse no es un "congelado"
+  aunque la actividad sea 0 (§2c no aplica).
+- Seguimiento: si texto, superficies y suelo comparten color, el centroide por color se
+  fusiona; mide por columnas o filas dentro de una región.
 
 ## 3. Movimiento: lo que sí debes señalar aunque no sea "estructura"
 
