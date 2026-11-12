@@ -44,7 +44,8 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
 
 1. **Mira (o pide) la pieza concreta.** Sin verla, todo diagnóstico es hipótesis;
    dilo explícitamente. Si es un video, sigue `references/revision-video.md`
-   (cronología + **una pasada por cada componente**, incluido el movimiento). Lee
+   (cronología + **una pasada por cada uno de los 7 componentes** y las 3 pruebas
+   transversales: lectura, actividad y atención). Lee
    siempre `diagnostico.md`; abre `componentes.md` para el componente que falle (si
    ninguno falla, no hace falta). Si la
    queja es de **emoción, beats o secuencia** ("no se siente", "no impacta", "el final
@@ -70,6 +71,9 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
    saber; separa los problemas **de fondo** (impiden entender o sentir) del **pulido**.
    Cuando el efecto depende de cómo lo lea el público y no puedes decidirlo midiendo,
    márcalo **"dudoso: lo decide la prueba"** y liga una pregunta del guion a esa hoja.
+   Criterio: **de fondo** = impide entender o sentir y lo puedes demostrar con evidencia;
+   **dudoso** = podría impedirlo, pero depende de la lectura; **pulido** = no lo impide.
+   Un pulido puede ser **condicional**: "sube a fondo si falla la pregunta N".
 1. **Diagnóstico en una frase** (el problema dominante y su capa).
 2. **Pruebas aplicadas** y **pruebas pendientes** (p. ej., la de otra persona), con una
    línea de **resultado por cada pasada de componente** para que la evidencia sea

@@ -38,20 +38,23 @@ mirando los fotogramas vecinos.
 
 ## 2. Pasadas obligatorias (una por componente)
 
-No te quedes en la pasada narrativa. Recorre las siete, aunque sea en una línea cada una.
-Lo que se salta aquí es lo que después se escapa.
+No te quedes en la pasada narrativa. Recorre los **7 componentes** (espacio, línea,
+forma, tono, color, movimiento, ritmo) y las **3 pruebas transversales** (lectura,
+actividad, atención), aunque sea en una línea cada una. Lo que se salta aquí es lo que
+después se escapa.
 
 | Pasada | Prueba concreta | Qué buscar |
 |---|---|---|
-| Lectura / jerarquía | Miniatura (≈96–160 px de ancho) de los momentos clave | ¿Sobrevive la acción principal? ¿Qué domina? |
+| *Transversal:* Lectura / jerarquía | Miniatura (≈96–160 px de ancho) de los momentos clave | ¿Sobrevive la acción principal? ¿Qué domina? |
+| Ritmo | Tabla de eventos con sus tiempos (entradas, contactos, cortes, pausas); intervalos entre ellos | ¿Hay un patrón que se establece y luego se interrumpe en el momento decisivo? ¿Todo dura lo mismo? |
 | Tono | Escala de grises (`-vf format=gray`) de los momentos clave | ¿Figura/fondo, mano/objeto, cara/entorno se separan por valor o solo por matiz? |
 | Color | Mapa de saturación (canal S de HSV) y lista de masas saturadas | ¿La saturación alta está reservada a lo relevante o repartida? ¿Hay acentos que compiten (carteles, rótulos)? ¿El color dice algo contrario al tono de la escena? |
 | Espacio / encuadre | Comparar **primer y último fotograma** del plano lado a lado; medir la escala de un objeto fijo a lo largo del tiempo | Zoom o deriva de encuadre constante sin función; recortes de personajes; zoom vs. dolly |
 | Línea | Reducir a ejes, bordes y trayectorias (miniatura muy pequeña o dibujar encima de la hoja de contacto) | Motivo lineal dominante por tramo; ¿cambia cuando cambia la situación? ¿Una trayectoria opuesta marca el conflicto o pasa inadvertida? |
 | Forma / silueta | Umbral a blanco/negro de figura vs. fondo, o mirar en miniatura | Fusiones (saco+cabeza, brazo+columna), siluetas esqueléticas |
 | Movimiento | **Seguir la posición** de 1–3 objetos clave fotograma a fotograma (centroide por color o a ojo en hojas densas) y graficar x/y vs. tiempo | Overshoot/rebote en objetos pesados, mismo easing en todo, traslación rígida sin respuesta de peso, objetos que aparecen sin trayecto |
-| Actividad / ritmo | Diferencia media entre fotogramas consecutivos a lo largo del tiempo | ¿Hay quietud antes del momento decisivo? ¿El pico de actividad coincide con lo importante o con un efecto? |
-| Atención | Para cada tramo: dónde está el mayor contraste de tono, de movimiento y de tamaño | Si señalan sitios distintos, hay competencia; si el pico cae en lo secundario, jerarquía accidental |
+| *Transversal:* Actividad | Diferencia media entre fotogramas consecutivos a lo largo del tiempo | ¿Hay quietud antes del momento decisivo? ¿El pico de actividad coincide con lo importante o con un efecto? |
+| *Transversal:* Atención | Para cada tramo: dónde está el mayor contraste de tono, de movimiento y de tamaño | Si señalan sitios distintos, hay competencia; si el pico cae en lo secundario, jerarquía accidental |
 
 Recetas útiles:
 ```bash
@@ -123,11 +126,24 @@ def angle(frm, to):
     import math
     return math.degrees(math.atan2(-(to[1]-frm[1]), to[0]-frm[0]))
 # objetivo leído = el de ángulo más próximo al de la pupila, solo si la diferencia
-# con el segundo candidato es > ~15°.
+# con el segundo candidato es > ~15°. Si hay UN solo candidato en esa dirección, la
+# regla de los 15° no aplica: basta con que la pupila apunte aproximadamente hacia él
+# (≲ 20-25°) y no haya otro objeto relevante en esa dirección; una pupila en el borde
+# superior se lee como "mira el cartel" si el cartel es lo único que hay arriba.
 
-# 8) Alto de una figura (para "≲ 40 % del alto"): máscara por los colores de su ropa y
-#    piel dentro de su caja; alto = (max_y - min_y) / alto del cuadro. En el borde del
+# 8) Alto de una figura (para "≲ 40 % del alto"). Con paletas planas las máscaras por
+#    color fallan (suelo, mostrador y personaje comparten tonos). Más robusto: resta un
+#    fotograma del MISMO plano sin la figura (o donde está en otra posición) y toma el
+#    bbox de la diferencia; o mide a ojo sobre una hoja con regla. En el borde del
 #    umbral (38-45 %) no decidas por el número: mira la miniatura.
+def bbox_diff(fa, fb, thr=25):
+    m = np.abs(arr(fa) - arr(fb)).max(axis=2) > thr
+    ys, xs = np.nonzero(m)
+    return (xs.min(), ys.min(), xs.max(), ys.max()) if m.sum() else None
+
+# 9) Duración de una pose o gesto: con el seguimiento (receta 2) o la actividad por
+#    región (receta 4), cuenta los fotogramas consecutivos en que el desplazamiento del
+#    elemento clave es < 1-2 px. Esa es la duración que comparas con los umbrales.
 def pupil_offset(p, head_box, dark=60):
     x0, y0, x1, y1 = head_box; a = arr(p)[y0:y1, x0:x1]
     m = a.max(axis=2) < dark; ys, xs = np.nonzero(m)
@@ -140,7 +156,9 @@ def lum(p, x, y, r=3):
     return float((a @ np.array([0.2126, 0.7152, 0.0722])).mean())
 ```
 
-**Umbrales orientativos (heurísticos, a escala 0–255; verifica siempre mirando):**
+**Umbrales orientativos (heurísticos, a escala 0–255; verifica siempre mirando).** Su
+función es **generar hipótesis y preguntas de prueba**, no dictar veredictos: un número
+en el borde del umbral nunca decide por sí solo.
 - Diferencia de luminancia objeto/entorno: < 15 se funde; 15–40 se separa solo con
   borde o tamaño; > 40 separación clara en grises. Un **contorno oscuro** o una
   saturación reservada pueden separar aunque el relleno se funda: mide también el
@@ -201,4 +219,7 @@ intención). Entrega al usuario un **guion de prueba** listo para usar:
    movimiento ("reclamó", no "se fue").
 5. "¿Qué te llamó más la atención?" → si responde un efecto o un rótulo, hay jerarquía
    accidental.
+6. "¿Cómo quedó [el personaje] al final?" / "¿Qué sentiste?" → comprueba el eje
+   **sentir**: éxito si nombra un estado (impotencia, frustración…), no solo una acción.
+Además, añade una pregunta por cada hoja dudosa.
 No anticipar la respuesta ni corregir a la persona.
