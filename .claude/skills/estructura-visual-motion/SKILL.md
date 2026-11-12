@@ -179,6 +179,13 @@ Antes de retirar algo, identifica la información que se perderá.
   causalidades, psicologías de personas reales ni colapsos que los datos no
   muestran. Si el tamaño codifica cantidad, conserva la equivalencia (duplicar
   ancho y alto cuadruplica el área). Si un diagrama es cualitativo, indícalo.
+- **Respeta la intención declarada.** Si el encargo pide caos, saturación o
+  incomodidad, esos recursos no son errores: no recomiendes "calmar" la escena. Juzga si
+  lo que *debe* leerse se lee dentro de ese sistema, y exime solo eso.
+- **Accesibilidad:** destellos o parpadeos de alto contraste (sobre todo rojos
+  saturados) a más de ~3 por segundo son un riesgo de fotosensibilidad. Señálalo
+  siempre, aunque el encargo pida caos, y recomienda pasar la pieza por un analizador
+  de destellos antes de publicar.
 - **No recomiendes subir todo a la vez** (saturación + cámara + partículas +
   temblor). Pregunta qué diferencia debe percibirse ahora y respecto a qué estado
   anterior.

@@ -34,7 +34,9 @@ ffmpeg -hide_banner -i VIDEO -vf "select='gt(scene,0.1)',showinfo" -f null - 2>&
 ```
 Con paletas planas o cortes por reencuadre (mismo decorado, otra escala) el valor
 `scene` es bajo: 0.3 puede no detectar nada; empieza en 0.1 y confirma cada corte
-mirando los fotogramas vecinos.
+mirando los fotogramas vecinos. Un "corte" en el primer fotograma (≈ 0,04 s) es un
+falso positivo. En piezas con mucho ruido (destellos, partículas) el detector puede
+disparar en falso: confirma siempre a ojo.
 
 ## 2. Pasadas obligatorias (una por componente)
 
@@ -223,6 +225,28 @@ más.
 (todo quieto mientras se lee) y el umbral de congelado de §2c no discrimina: úsalo
 contra el percentil 75 de la actividad o ignóralo. La quietud mientras se lee es
 legítima.
+
+## 2e. Legibilidad de un texto o dato concreto
+
+Cuando el encargo dice "lo único que debe leerse es X":
+- **Tamaño relativo:** alto de X en % del cuadro y frente a los **señuelos** (otros
+  textos o cifras con formato o rango parecido). Si X no es claramente mayor o distinto,
+  no destaca.
+- **Oclusión:** por fotograma, ¿algo tapa X (partículas, papeles, otros elementos)?
+  Cuenta los fotogramas tapados en el tramo en que X cambia.
+- **Miniatura:** ¿se lee X a 128 px de ancho?
+- **Estabilidad:** ¿X tiembla o se mueve con el resto? Un dato quieto en un mundo que
+  tiembla destaca por contraste.
+- **Momento:** ¿coincide el cambio de X con algún cambio del resto (pico, pausa,
+  interrupción del ritmo)? Si el mundo no reacciona, el cambio pasa desapercibido.
+
+**Medir el temblor de cámara:** elige una zona que debería estar fija (un borde del
+decorado, una esquina) y sigue su desplazamiento con correlación de un recorte
+pequeño fotograma a fotograma; evita zonas con partículas o elementos del mismo color.
+
+**Destellos:** cuenta los cambios bruscos de luminancia o de rojo saturado por segundo
+en zonas grandes. Más de ~3 por segundo es un riesgo de fotosensibilidad: hoja propia
+y recomendación de analizador antes de publicar.
 
 ## 3. Movimiento: lo que sí debes señalar aunque no sea "estructura"
 
