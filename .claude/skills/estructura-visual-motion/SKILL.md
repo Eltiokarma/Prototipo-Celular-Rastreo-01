@@ -65,7 +65,7 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
 
 **Plantilla de entrega:**
 0. **Veredicto en dos ejes**: ¿se **entiende** lo que debe entenderse? ¿se **siente** lo
-   que se busca? (sí / a medias / no, cada uno). Es lo primero que el usuario quiere
+   que se busca? (sí / probable, pendiente de prueba / a medias / no, cada uno). Es lo primero que el usuario quiere
    saber; separa los problemas **de fondo** (impiden entender o sentir) del **pulido**.
    Cuando el efecto depende de cómo lo lea el público y no puedes decidirlo midiendo,
    márcalo **"dudoso: lo decide la prueba"** y liga una pregunta del guion a esa hoja.
@@ -85,7 +85,8 @@ didácticas propias**, no evidencia histórica ni citas literales de los autores
 7. Si no hay otra persona disponible, el **guion de prueba** de
    `revision-video.md §4`, con una pregunta añadida por cada hoja dudosa.
 
-Formato de cada hoja de revisión:
+Formato de cada hoja de revisión (las hojas de **pulido** pueden ir en formato corto:
+momento · observación · cambio):
 
 | Campo | Contenido |
 |---|---|

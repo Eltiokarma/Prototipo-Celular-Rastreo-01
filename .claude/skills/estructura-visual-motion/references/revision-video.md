@@ -20,6 +20,18 @@ Con ella escribe una **tabla de cronología** (tramo · qué ocurre · qué debe
 Luego densifica (6–24 fps) **los tramos de cambio**: entregas, contactos, revelaciones,
 cortes y transiciones. Los problemas viven en los estados intermedios, no en las poses.
 
+## 1b. Cortes y análisis plano por plano
+
+Detecta los cortes como picos aislados de diferencia entre fotogramas (mucho mayores
+que la mediana de la pieza) y analiza **cada plano por separado**: las comparaciones
+de encuadre, actividad y escala son dentro del plano. Compara además el **primer plano
+con el último**: si la pieza busca cerrar "volviendo al inicio con algo cambiado", el
+encuadre de cierre debe rimar con el de apertura (mide la escala de un objeto fijo,
+p. ej. un cartel).
+```bash
+ffmpeg -v error -i VIDEO -vf "select='gt(scene,0.3)',showinfo" -f null - 2>&1 | grep -o "pts_time:[0-9.]*"
+```
+
 ## 2. Pasadas obligatorias (una por componente)
 
 No te quedes en la pasada narrativa. Recorre las siete, aunque sea en una línea cada una.
@@ -90,6 +102,9 @@ def mask_box(a, box):
 #    compara la posición de la pupila (píxeles oscuros) respecto al centro de la cabeza
 #    en una hoja ampliada. Una mirada que se mueve < 10 % del diámetro de la cabeza
 #    probablemente no se lee: acompáñala con giro de cabeza, cambio de eje o gesto.
+#    Si dos objetivos posibles (p. ej., las monedas en la mano y el cartel) quedan a
+#    menos de ~15° de separación vistos desde la cabeza, la mirada sola no distingue a
+#    cuál mira: gira la cabeza hacia uno o separa los objetos.
 def pupil_offset(p, head_box, dark=60):
     x0, y0, x1, y1 = head_box; a = arr(p)[y0:y1, x0:x1]
     m = a.max(axis=2) < dark; ys, xs = np.nonzero(m)
@@ -133,6 +148,12 @@ durante > 1 s) suele leerse como imagen detenida o error de render. Una pausa vi
 conserva un movimiento mínimo **en el sujeto** (respiración, parpadeo, un ajuste de la
 mano o la mirada) mientras el entorno queda quieto. La quietud del entorno es la que
 concede peso; la del sujeto, no.
+
+Umbral relativo de congelado: actividad < 2 % de la mediana de actividad de la pieza
+durante > 1 s. Una **pose sostenida intencional** (un brazo que queda colgando sin
+respuesta) no es un congelado si: es el estado expresivo del sujeto, llega tras una
+acción que la motiva y algo mínimo sigue vivo (respiración). Si dudas, márcalo como
+hoja dudosa y pregunta en la prueba "¿qué estaba haciendo/sintiendo ahí?".
 
 ## 3. Movimiento: lo que sí debes señalar aunque no sea "estructura"
 
