@@ -32,7 +32,9 @@ function limpiar() {
 
 async function arrancar(clave) {
   const p = spawn('node', [path.join(RAIZ, 'server', 'index.js')], {
-    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: clave },
+    // CREAR_BASE: en producción, una base nueva al lado de las de las otras
+    // suites no arranca (OPS-01, revisión 15/11); acá se prueba la rotación.
+    env: { ...process.env, PORT: String(P), DB_FILE: DB, DISPATCH_PASSWORD: clave, CREAR_BASE: '1' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   let err = '';

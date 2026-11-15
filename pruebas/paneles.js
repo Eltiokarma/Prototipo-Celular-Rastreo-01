@@ -41,7 +41,9 @@ console.log('\nP2. BABEL CON INTEGRITY EN LOS TRES');
   const hash = (prototipo.match(/babel\.min\.js" integrity="(sha384-[^"]+)"/) || [])[1];
   ok('Prototipo.html lo tiene', !!hash, hash);
   for (const [n, h] of [['despacho.html', despacho], ['creador.html', creador]]) {
-    const tag = (h.match(/<script src="https:\/\/unpkg\.com\/@babel\/standalone@[^"]+"[^>]*>/) || [])[0] || '';
+    // Desde el 15/11 la etiqueta del CDN vive adentro de la caída
+    // (`document.write`), detrás de la copia local: se busca el src ahí.
+    const tag = (h.match(/src="https:\/\/unpkg\.com\/@babel\/standalone@[^"]+"[^>]*>/) || [])[0] || '';
     ok(`${n} lleva el mismo hash`, !!hash && tag.includes(`integrity="${hash}"`), tag.slice(0, 90));
     ok(`${n} con crossorigin`, /crossorigin="anonymous"/.test(tag));
   }

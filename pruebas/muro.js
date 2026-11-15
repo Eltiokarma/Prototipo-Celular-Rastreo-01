@@ -56,7 +56,9 @@ const borrarBase = () => { for (const f of [DB, DB + '-wal', DB + '-shm']) { try
 async function abrir(browser, { romperPanel = false, sinLibrerias = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await interceptarHttps(ctx);
-  if (sinLibrerias) await ctx.route(/unpkg\.com\/(react|react-dom|@babel)/, r => r.abort());
+  // Las librerías no llegan de NINGÚN lado: desde el 15/11 la copia principal
+  // es la del servidor (/vendor/react/) y unpkg es la caída.
+  if (sinLibrerias) await ctx.route(/unpkg\.com\/(react|react-dom|@babel)|\/vendor\/react\//, r => r.abort());
   if (romperPanel) {
     await ctx.route(/\/despacho\.html$/, async (r) => {
       const res = await r.fetch();
