@@ -5651,9 +5651,16 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           // Es la lista ENTERA de los abiertos: el que otro panel atendió
           // mientras éste estaba cortado se va (antes se quedaba sonando
           // hasta que alguien tocara ATENDIDO acá; revisión integral 04/11)
+          //
+          // Y los que ya estaban se ACTUALIZAN con lo que dice el servidor:
+          // el tipo («accidente», «falla mecánica») que el chofer eligió
+          // mientras este panel estaba cortado no llegaba nunca al cartel, y
+          // Despacho seguía viendo un SOS genérico (revisión 15/11, SOS-02).
+          // Lo local que el servidor no manda (receivedAt) se conserva.
           setSosLista(l => {
-            const abiertos = new Set((msg.items || []).map(x => x.sosId));
-            const siguen = l.filter(x => x.sosId == null || abiertos.has(x.sosId));
+            const porId = new Map((msg.items || []).map(x => [x.sosId, x]));
+            const siguen = l.filter(x => x.sosId == null || porId.has(x.sosId))
+              .map(x => (x.sosId != null && porId.has(x.sosId)) ? { ...x, ...porId.get(x.sosId) } : x);
             const ya = new Set(siguen.map(x => x.sosId));
             const nuevos = (msg.items || []).filter(x => !ya.has(x.sosId)).map(x => ({ ...x, receivedAt: Date.now() }));
             return [...siguen, ...nuevos].sort((a, b) => a.timestamp - b.timestamp);
@@ -5908,7 +5915,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         zIndexOffset: 2000,
         icon: L.divIcon({
           className: '', iconSize: [0, 0],
-          html: `<div data-pin-sos style="width:max-content;transform:translate(-50%,-130%);font-family:${black.replace(/"/g, "'")};font-size:12px;color:#fff;background:${HUD.red};padding:3px 8px;border-radius:7px;white-space:nowrap;border:1.5px solid ${HUD.surface};box-shadow:${HUD.sombra}">SOS · ${escaparHtml((s.vehicleId || s.unitId || '').toUpperCase())}</div>`,
+          html: `<div data-pin-sos style="width:max-content;transform:translate(-50%,-130%);font-family:${black.replace(/"/g, "'")};font-size:12px;color:#fff;background:${HUD.red};padding:3px 8px;border-radius:7px;white-space:nowrap;border:1.5px solid ${HUD.surface};box-shadow:${HUD.sombra}">SOS · ${escaparHtml((s.vehicleId || s.unitId || '').toUpperCase())}${s.posicionDe === 'combi' ? ' · POS. DE LA COMBI' : ''}</div>`,
         }),
       }).addTo(map);
       pinesSosRef.current[clave] = pin;
@@ -5935,6 +5942,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         {TIPOS_SOS[sos.sosTipo] ? ` — ${TIPOS_SOS[sos.sosTipo].toUpperCase()}` : ''} · {nowTime(sos.timestamp)}
         {sos.routeId && sos.routeId !== routeInfo.routeId ? ` · RUTA ${sos.routeId}` : ''}
         {sos.lat ? ` · ${sos.lat.toFixed(4)}, ${sos.lng.toFixed(4)}` : ''}
+        {/* De dónde salió la posición (revisión 15/11, SOS-01): la de su
+            combi no es la de la persona, y Despacho tiene que saberlo antes
+            de mandar la ayuda. Sin posición, se dice. */}
+        {sos.lat && sos.posicionDe === 'combi' ? ' (POSICIÓN DE LA COMBI, NO DEL TELÉFONO)' : ''}
+        {!sos.lat ? ' · SIN POSICIÓN: PREGUNTÁ DÓNDE ESTÁ' : ''}
         {sosLista.length > 1 ? ` · Y ${sosLista.length - 1} MÁS ESPERANDO` : ''}
       </span>
       <div style={{ flex: 1 }} />

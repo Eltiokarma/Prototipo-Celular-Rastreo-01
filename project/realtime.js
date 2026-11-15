@@ -240,6 +240,7 @@
     motivoPendiente = null;
     reportaGps = true;
     lastPosition = null;
+    tokenDelSos = null;
   }
 
   // El latido. Un socket medio muerto —la red cambió, una zona sin señal—
@@ -301,6 +302,15 @@
 
   let lastPosition = null;
   let simTimer = null;
+  // El GPS del navegador puede dejar de dar posiciones sin avisar (permiso
+  // revocado a medias, ahorro de batería, el aparato quieto). Se le pide una
+  // nueva si la última tiene más de GPS_REFRESCAR_MS; con más de
+  // GPS_VIEJO_MS se le dice al chofer, y con más de 5 min no se manda
+  // (revisión 15/11, GPS-01).
+  const GPS_REFRESCAR_MS = 10_000;
+  const GPS_VIEJO_MS = 30_000;
+  let refrescando = false;
+  let avisadoViejo = false;
   let watchId = null;        // el watchPosition vivo, para poder pararlo
   let fallbackTimer = null;  // el plazo del primer fix
 
@@ -337,7 +347,7 @@
         gotFix = true;
         clearTimeout(fallbackTimer);
         stopSimulatedGps(); // si la demo ya había arrancado, gana el GPS real
-        if (!lastPosition) emit('gps', { ok: true });
+        if (!lastPosition || avisadoViejo) { avisadoViejo = false; emit('gps', { ok: true }); }
         lastPosition = pos;
       },
       (err) => {
@@ -353,6 +363,31 @@
     // Mandar posición al servidor cada 3 segundos
     gpsInterval = setInterval(() => {
       if (!lastPosition) return;
+      // Cuánto hace que el APARATO tomó la posición, medido con su propio
+      // reloj: viaja como `edadMs` y el servidor la registra con esa hora.
+      // Antes se reenviaba la última cada 3 s con la hora de llegada, y una
+      // posición congelada se veía en vivo en el mapa y en las brechas.
+      const edadMs = Math.max(0, Date.now() - (lastPosition.timestamp || 0));
+      if (edadMs > GPS_REFRESCAR_MS && !refrescando && navigator.geolocation) {
+        // Quieto en una parada, el navegador puede no disparar
+        // `watchPosition` aunque el GPS ande: una lectura explícita lo
+        // distingue de un GPS que de verdad se colgó.
+        refrescando = true;
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            refrescando = false;
+            if (!lastPosition || pos.timestamp > lastPosition.timestamp) lastPosition = pos;
+            if (avisadoViejo) { avisadoViejo = false; emit('gps', { ok: true }); }
+          },
+          () => { refrescando = false; },
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+        );
+      }
+      if (edadMs > GPS_VIEJO_MS && !avisadoViejo) {
+        avisadoViejo = true;
+        emit('gps', { ok: false, motivo: 'el GPS no da posiciones nuevas' });
+      }
+      if (edadMs > 5 * 60_000) return;
       // En modo acompañante se sigue leyendo el GPS (el SOS necesita saber
       // dónde está esta persona) pero no se manda posición de la unidad.
       if (!reportaGps) return;
@@ -364,7 +399,11 @@
       // Si entre dos envíos el GPS no trajo una posición nueva, se repite la
       // última velocidad calculada (con la misma posición daría cero).
       let kmh = speed != null && Number.isFinite(speed) ? speed * 3.6 : null;
-      if (kmh == null && previaEnviada) {
+      // Una posición vieja no dice que se esté moviendo: con la misma
+      // velocidad repetida, una combi congelada parecía andar y no la
+      // tomaban por parada ni por sin señal.
+      if (edadMs > GPS_REFRESCAR_MS) kmh = 0;
+      else if (kmh == null && previaEnviada) {
         if (lastPosition.timestamp === previaEnviada.t) {
           kmh = previaEnviada.kmh;
         } else {
@@ -391,6 +430,7 @@
         lng: longitude,
         speed: kmh ? Math.round(kmh) : 0, // km/h
         routeProgress,
+        edadMs,
         // Los metros de error del GPS, como manda la app nativa: con más de
         // 100 m el servidor no juzga desvío ni parada (TRUCOS, T11).
         ...(Number.isFinite(accuracy) && accuracy >= 0 ? { precision: Math.round(accuracy) } : {}),
@@ -532,8 +572,14 @@
     sosEnVuelo = dispararSos(opciones).finally(() => { sosEnVuelo = null; });
     return sosEnVuelo;
   }
+  // El token con que salió el último SOS: el tipo sale con el MISMO. Desde la
+  // puerta el socket no está abierto y `authToken` es null; el disparo salía
+  // con el de la sesión, pero el tipo no tenía con qué y se perdía en
+  // silencio (revisión 15/11, SOS-02).
+  let tokenDelSos = null;
   async function dispararSos({ token } = {}) {
     const tk = authToken || token || null;
+    if (tk) tokenDelSos = tk;
     const fresca = lastPosition && Date.now() - (lastPosition.timestamp || 0) <= POSICION_SOS_MAX_MS;
     const coords = fresca ? lastPosition.coords : null;
     const cuerpo = {
@@ -607,13 +653,14 @@
       if (mandado && await eco) return null;
       ecoTipo = null;
     }
-    if (!authToken) return 'sin-conexion';
+    const tk = authToken || tokenDelSos;
+    if (!tk) return 'sin-conexion';
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 6000);
       const res = await fetch(`${HTTP_URL}/sos/${encodeURIComponent(sosId)}/tipo`, {
         method: 'POST', signal: ctl.signal,
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk },
         body: JSON.stringify({ tipo }),
       });
       clearTimeout(t);

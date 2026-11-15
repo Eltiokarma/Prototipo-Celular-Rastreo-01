@@ -95,6 +95,14 @@ async function deslizarSos(pg) {
   ok('el SOS llega al servidor', !!sos && sos.unitId === 'pedro', sos);
   ok('y la pantalla dice ALERTA ENVIADA', /ALERTA ENVIADA/.test(await ch.evaluate(() => document.body.innerText)));
   ok('sigue en la puerta (no salió a ruta)', !!(await ch.$('button:has-text("SALIR A RUTA")')));
+  // Revisión 15/11, SOS-02: en la puerta el socket no está abierto y el tipo
+  // no tenía token con qué salir; se perdía en silencio.
+  ok('ofrece ponerle el tipo', /¿QUÉ PASÓ\?/.test(await ch.evaluate(() => document.body.innerText)));
+  await ch.click('button:has-text("ACCIDENTE")');
+  await ch.waitForTimeout(1500);
+  const conTipo = base.prepare("SELECT sosTipo FROM messages WHERE kind = 'sos' ORDER BY id DESC").get();
+  ok('el tipo elegido en la puerta llega al servidor', conTipo && conTipo.sosTipo === 'accidente', conTipo);
+  ok('y la barra se cierra sin aviso de fallo', !/EL TIPO NO SALIÓ/.test(await ch.evaluate(() => document.body.innerText)));
 
   console.log('\nSIN SESIÓN, LA CENTRAL SIGUE A MANO');
   ok('la central quedó recordada aparte de la sesión',

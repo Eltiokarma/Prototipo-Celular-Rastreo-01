@@ -316,6 +316,8 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
         // prueba de que LLEGÓ: `mandarSos` espera este eco.
         if (sesion && m.unitId === sesion.unitId) {
           miUltimoSos = m.sosId ?? null;
+          tipoUltimoSos = m.sosTipo ?? null;
+          ultimoSosRepetido = !!m.repetido;
           viaUltimoSos = 'ws';
           if (esperandoEcoSos) esperandoEcoSos();
         }
@@ -513,7 +515,9 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   async function mandarSos({ lat = null, lng = null } = {}) {
     const cuerpo = { lat, lng, timestamp: ahora() };
     if (enviar({ type: 'sos', ...cuerpo })) {
-      if (await esperarEcoSos(SOS_ECO_MS)) return { ok: true, via: 'ws', sosId: miUltimoSos };
+      if (await esperarEcoSos(SOS_ECO_MS)) {
+        return { ok: true, via: 'ws', sosId: miUltimoSos, sosTipo: tipoUltimoSos, repetido: ultimoSosRepetido };
+      }
     }
     if (!token) return { ok: false, via: 'http', error: 'sin sesión' };
     try {
@@ -521,12 +525,16 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
       const alerta = await r.json().catch(() => ({}));
       if (!r.ok) return { ok: false, via: 'http', error: alerta.error || ('HTTP ' + r.status) };
       miUltimoSos = alerta.sosId ?? null;
+      tipoUltimoSos = alerta.sosTipo ?? null;
       viaUltimoSos = 'http';
       // El eco que el socket no va a dar: la pantalla lo trata igual que el
       // de verdad (abre el «¿qué pasó?» y lo pone en el hilo). Si era el
       // repetido de uno que ya llegó, la burbuja ya está.
       if (!alerta.repetido) emitir('sos', { type: 'sos_alert', ...alerta });
-      return { ok: true, via: 'http', sosId: miUltimoSos };
+      // `repetido` y `sosTipo` le dicen a la pantalla si todavía falta el
+      // «¿qué pasó?»: si el eco del primer intento se perdió, el repetido no
+      // emite 'sos' y el selector no se abría nunca (revisión 15/11, SOS-02).
+      return { ok: true, via: 'http', sosId: miUltimoSos, sosTipo: tipoUltimoSos, repetido: !!alerta.repetido };
     } catch (e) {
       return { ok: false, via: 'http', error: e?.name === 'AbortError' ? 'sin respuesta' : 'sin red' };
     }
@@ -641,6 +649,8 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   const SOS_TIPO_ECO_MS = 5000;
   let miUltimoSos = null;
   let viaUltimoSos = null;   // 'ws' | 'http': por dónde se confirmó el disparo
+  let tipoUltimoSos = null;      // el tipo que ya tiene (null: genérico)
+  let ultimoSosRepetido = false; // el último eco fue el de uno ya abierto
   let esperandoEcoTipo = null;
   function esperarEcoTipo(ms) {
     return new Promise((res) => {
@@ -651,12 +661,12 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   async function marcarTipoSos(tipo) {
     if (miUltimoSos == null) return 'sin-sos';
     if (viaUltimoSos !== 'http' && enviar({ type: 'sos_tipo', sosId: miUltimoSos, tipo })) {
-      if (await esperarEcoTipo(SOS_TIPO_ECO_MS)) return null;
+      if (await esperarEcoTipo(SOS_TIPO_ECO_MS)) { tipoUltimoSos = tipo; return null; }
     }
     if (!token) return 'sin-conexion';
     try {
       const r = await pedirHttp(`/sos/${miUltimoSos}/tipo`, { tipo }, SOS_HTTP_MS);
-      if (r.ok) return null;
+      if (r.ok) { tipoUltimoSos = tipo; return null; }
       const cuerpo = await r.json().catch(() => ({}));
       return cuerpo.error || 'sin-conexion';
     } catch {
@@ -679,6 +689,8 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
     geometria = null;
     motivoGps = null;
     miUltimoSos = null;   // el SOS calificable no sobrevive a la sesión
+    tipoUltimoSos = null;
+    ultimoSosRepetido = false;
     viaUltimoSos = null;
     presenciaDeclarada = null;   // ni lo declarado (barrido del 22/9)
     presenciaEntregada = false;

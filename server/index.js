@@ -909,6 +909,11 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_messages_persona ON messages (toPersonId
 // "Falla mecánica", "accidente" y "policía" no movilizan lo mismo: uno pide
 // una grúa, otro una ambulancia, el tercero es otra llamada.
 addColumnIfMissing('messages', 'sosTipo', 'TEXT');
+// De dónde salió la posición del SOS: 'telefono' (el de quien lo disparó),
+// 'combi' (la de su combi, con señal de que va en ella) o NULL (sin posición).
+// Despacho tiene que saber si manda la ayuda a la persona o a la combi
+// (revisión 15/11, SOS-01).
+addColumnIfMissing('messages', 'posicionDe', 'TEXT');
 const SOS_TIPOS = { mecanica: 'Falla mecánica', accidente: 'Accidente', policia: 'Policía' };
 // Cuánto tiempo después de disparar se puede elegir (o corregir) el tipo. La
 // emergencia se atiende en minutos: pasado esto, cambiar el tipo ya no ayuda
@@ -1004,8 +1009,8 @@ const EVIDENCIA_MAX = Number(process.env.EVIDENCIA_MAX || 500);
 db.exec("CREATE INDEX IF NOT EXISTS idx_messages_media_viva ON messages (kind, id) WHERE data IS NOT NULL");
 
 const insertStmt = db.prepare(`
-  INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, toVehicleId, toPersonId, text, duration, data, lat, lng, timestamp)
-  VALUES (@kind, @unitId, @driverName, @routeId, @vehicleId, @toVehicleId, @toPersonId, @text, @duration, @data, @lat, @lng, @timestamp)
+  INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, toVehicleId, toPersonId, text, duration, data, lat, lng, posicionDe, timestamp)
+  VALUES (@kind, @unitId, @driverName, @routeId, @vehicleId, @toVehicleId, @toPersonId, @text, @duration, @data, @lat, @lng, @posicionDe, @timestamp)
 `);
 // La conversación vieja se va; el SOS viejo se queda mucho más. Se poda cada
 // 6 h junto con el resto del historial y NO en cada mensaje: a esta escala
@@ -1057,7 +1062,7 @@ const pruneMediaStmt = db.prepare(`
 function remember(item) {
   try {
     const info = insertStmt.run({ text: null, duration: null, data: null, lat: null, lng: null,
-      vehicleId: null, toVehicleId: null, toPersonId: null, ...item });
+      vehicleId: null, toVehicleId: null, toPersonId: null, posicionDe: null, ...item });
     // Lo pesado sí se poda en el acto: una foto ocupa lugar de verdad y no
     // puede esperar seis horas. Las filas de texto se podan en la barrida.
     // Sólo al guardar algo pesado (antes corría con cada texto), y sólo en la
@@ -1126,7 +1131,7 @@ function recentHistory(routeId, verPrivadosDe = null, persona = null) {
   const filas = conPresupuesto(db.prepare(`
     SELECT m.kind, m.unitId, m.driverName, m.vehicleId, m.toVehicleId, m.toPersonId, m.text,
            m.duration, length(m.data) AS largo, m.lat, m.lng, m.timestamp,
-           m.id AS sosId, m.id AS msgId, m.sosTipo, m.atendidoEn,
+           m.id AS sosId, m.id AS msgId, m.sosTipo, m.posicionDe, m.atendidoEn,
            m.evidencia, m.evidenciaMotivo, m.evidenciaEn,
            (SELECT COALESCE(e.alias, e.name, e.unitId) FROM users e WHERE e.unitId = m.evidenciaPor) AS evidenciaPorNombre,
            (SELECT COALESCE(a.alias, a.name, a.driverName, a.unitId) FROM users a WHERE a.unitId = m.atendidoPor) AS atendidoPorNombre,
@@ -1134,7 +1139,7 @@ function recentHistory(routeId, verPrivadosDe = null, persona = null) {
            COALESCE(u.role, 'driver') AS role
     FROM (
       SELECT id, kind, unitId, driverName, vehicleId, toVehicleId, toPersonId, text, duration, data, lat, lng,
-             timestamp, sosTipo, atendidoEn, atendidoPor, evidencia, evidenciaMotivo, evidenciaEn, evidenciaPor
+             timestamp, sosTipo, posicionDe, atendidoEn, atendidoPor, evidencia, evidenciaMotivo, evidenciaEn, evidenciaPor
       FROM messages
       WHERE (routeId = @routeId
              AND ((toVehicleId IS NULL AND toPersonId IS NULL)
@@ -9625,6 +9630,21 @@ wss.on('connection', (ws) => {
       // una coordenada basura no toma el mando de nadie.
       if (!coordenadaValida(msg.lat, msg.lng)) return;
 
+      // La hora de la POSICIÓN, no la de llegada (revisión 15/11, GPS-01).
+      // La web reenvía la última posición cada 3 s; si el GPS del navegador
+      // dejó de dar posiciones, se registraba la misma de hace minutos con la
+      // hora de ahora: la combi congelada parecía en vivo, entraba a las
+      // brechas y alimentaba la posición de respaldo del SOS. La web manda
+      // `edadMs` —cuánto hace que el aparato tomó la posición, medido con su
+      // propio reloj, así que no depende de que esté en hora— y con eso el
+      // barrido la pone en «sin señal» como a cualquier posición vieja. Sin
+      // `edadMs` (una web vieja en caché), la hora de llegada, como antes.
+      // Por el socket no viaja atraso de una cola (eso va por POST /gps): una
+      // posición de más de 5 min no dice nada del ahora y se descarta.
+      const edadMs = Number(msg.edadMs);
+      if (Number.isFinite(edadMs) && edadMs > 5 * 60_000) return;
+      const cuandoWs = Number.isFinite(edadMs) && edadMs >= 0 ? Date.now() - Math.round(edadMs) : Date.now();
+
       // Se acepta la posición SOLO del reportero designado del vehículo.
       // El celular del cobrador (o del chofer relevado) sigue conectado y
       // recibiendo todo, pero su GPS se ignora: así la unidad no salta.
@@ -9668,7 +9688,7 @@ wss.on('connection', (ws) => {
         routeProgress: progresoValido(msg.routeProgress),
         simulado: msg.simulado === true,
         precision: precisionValida(msg.precision),
-      });
+      }, cuandoWs);
     }
 
     // TIPO: presencia — el chofer declara su estado desde la app.
@@ -10054,13 +10074,21 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
   // su SOS salía sin coordenadas — sin «Ver en mapa» en Despacho y sin
   // posición en el informe (repaso de la tanda 9). Es una posición real, no
   // inventada: la de la combi en la que va.
-  if (!coordenadaValida(lat, lng) && prof.vehicleId) {
+  //
+  // Pero sólo si hay señal de que la persona VA EN ESA COMBI (revisión 15/11,
+  // SOS-01): el chofer que la maneja ahora (tiene el mando), o el cobrador
+  // con la combi en servicio. Desde la puerta, un chofer al que otro le
+  // maneja la combi está en otro lado, y Despacho mandaba la ayuda adonde
+  // estaba la combi. Y la alerta dice de dónde salió la posición
+  // (`posicionDe`): 'telefono', 'combi' o null (sin posición).
+  let posicionDe = coordenadaValida(lat, lng) ? 'telefono' : null;
+  if (!posicionDe && prof.vehicleId && vaEnLaCombi(unitId, prof)) {
     const u = units.get(prof.vehicleId);
-    if (u && coordenadaValida(u.lat, u.lng) && Date.now() - (u.timestamp || 0) < 60_000) {
-      lat = u.lat; lng = u.lng;
+    if (u && coordenadaValida(u.lat, u.lng) && !u.sinSenal && Date.now() - (u.timestamp || 0) < 60_000) {
+      lat = u.lat; lng = u.lng; posicionDe = 'combi';
     }
   }
-  const conPosicion = coordenadaValida(lat, lng);
+  const conPosicion = posicionDe != null;
   const alert = {
     unitId,
     driverName: prof.driverName || 'Conductor',
@@ -10068,6 +10096,7 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
     routeId,
     lat: conPosicion ? lat : null,
     lng: conPosicion ? lng : null,
+    posicionDe,
     // La hora del SERVIDOR. Un SOS se manda en vivo, siempre: no hay atraso
     // que respetar. Con la del teléfono, uno con el reloj 20 minutos atrás
     // nacía «viejo», y la ventana de 15 minutos para ponerle el tipo ya
@@ -10083,7 +10112,7 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
   // para siempre (auditoría 11/11: medido con el disco lleno).
   if (sosId == null) {
     sosId = -(++sosEnMemoriaSeq);
-    sosEnMemoria.set(sosId, { id: sosId, ...alert, atendidoPor: null, atendidoEn: null });
+    sosEnMemoria.set(sosId, { id: sosId, ...alert, sosTipo: null, atendidoPor: null, atendidoEn: null });
     console.error(`🚨 SOS de ${unitId} NO se pudo guardar en la base: queda en memoria (${sosId})`);
   }
   audit(unitId, 'sos', null, alert.lat ? `${alert.lat.toFixed(4)}, ${alert.lng.toFixed(4)}` : null, routeId);
@@ -10092,14 +10121,37 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
   return { sosId, ...alert };
 }
 
+// ¿Hay señal de que esta persona va arriba de su combi? El chofer, si es él
+// quien la maneja ahora (el mando, que se toma ESTANDO EN RUTA). El cobrador
+// no maneja: si la combi está en servicio, va en ella.
+function vaEnLaCombi(unitId, prof) {
+  const vehicleId = prof.vehicleId;
+  if (!vehicleId) return false;
+  const dueno = duenoDe.get(vehicleId);
+  if (dueno && dueno.personId === unitId) return true;
+  return prof.role === 'collector' && mandoVivo(vehicleId);
+}
+
 // Ponerle nombre a una emergencia ya enviada, por cualquiera de las dos
 // puertas. Devuelve `{ ok: true, tipo }` o `{ error, status }` — el WebSocket
 // tira el error a la basura, como siempre hizo; el HTTP lo contesta.
 function marcarTipoDeSos(unitId, sosIdCrudo, tipo) {
   if (!Object.hasOwn(SOS_TIPOS, tipo)) return { status: 400, error: 'Ese tipo de emergencia no existe' };
-  const fila = db.prepare(
-    "SELECT id, unitId, routeId, vehicleId, timestamp, sosTipo FROM messages WHERE id = ? AND kind = 'sos'")
-    .get(Number(sosIdCrudo) || -1);
+  const id = Number(sosIdCrudo);
+  // El SOS que la base no pudo guardar vive en memoria con id negativo (ver
+  // `dispararSos`). Antes sólo se buscaba en la base y ese SOS no se podía
+  // calificar: justo con el disco lleno, Despacho no sabía si mandar
+  // ambulancia o grúa (revisión 15/11, SOS-02).
+  const enMemoria = Number.isInteger(id) && id < 0 ? sosEnMemoria.get(id) : null;
+  let fila = null;
+  if (enMemoria) {
+    fila = enMemoria;
+  } else if (Number.isInteger(id) && id > 0) {
+    try {
+      fila = db.prepare(
+        "SELECT id, unitId, routeId, vehicleId, timestamp, sosTipo FROM messages WHERE id = ? AND kind = 'sos'").get(id);
+    } catch (e) { salud.anotarFallaDeBase(e); return { status: 503, error: 'No se pudo leer la emergencia' }; }
+  }
   if (!fila) return { status: 404, error: 'Esa emergencia no existe' };
   // Solo quien disparó puede calificar SU emergencia. Sin este borde,
   // cualquiera de la ruta podía reescribir la emergencia de otro. El 404 y
@@ -10113,7 +10165,14 @@ function marcarTipoDeSos(unitId, sosIdCrudo, tipo) {
   // si el eco no vuelve, repite por HTTP (repaso del 21/9). Se contesta que
   // sí y no se vuelve a avisar a la ruta.
   if (fila.sosTipo === tipo) return { ok: true, sosId: fila.id, tipo };
-  db.prepare('UPDATE messages SET sosTipo = ? WHERE id = ?').run(tipo, fila.id);
+  if (enMemoria) {
+    enMemoria.sosTipo = tipo;
+  } else {
+    // Si la base no deja escribir el tipo, el aviso sale igual: lo que
+    // importa en el momento es que Despacho lo sepa.
+    try { db.prepare('UPDATE messages SET sosTipo = ? WHERE id = ?').run(tipo, fila.id); }
+    catch (e) { salud.anotarFallaDeBase(e); console.error(`No se pudo guardar el tipo del SOS ${fila.id}: ${e && e.message}`); }
+  }
   console.log(`🚨 SOS de ${unitId}: ${SOS_TIPOS[tipo]}`);
   const aviso = { type: 'sos_tipo', sosId: fila.id, unitId,
                   vehicleId: fila.vehicleId, routeId: fila.routeId, tipo };
@@ -10136,11 +10195,11 @@ function sosAbiertoReciente(unitId) {
   for (const f of sosEnMemoria.values()) {
     if (f.unitId === unitId && !f.atendidoEn && f.timestamp > desde) {
       return { sosId: f.id, unitId, driverName: f.driverName, vehicleId: f.vehicleId, routeId: f.routeId,
-               lat: f.lat, lng: f.lng, timestamp: f.timestamp };
+               lat: f.lat, lng: f.lng, posicionDe: f.posicionDe ?? null, sosTipo: f.sosTipo ?? null, timestamp: f.timestamp };
     }
   }
   try {
-    return db.prepare(`SELECT id AS sosId, unitId, driverName, vehicleId, routeId, lat, lng, timestamp
+    return db.prepare(`SELECT id AS sosId, unitId, driverName, vehicleId, routeId, lat, lng, posicionDe, sosTipo, timestamp
       FROM messages WHERE kind = 'sos' AND unitId = ? AND atendidoEn IS NULL AND timestamp > ?
       ORDER BY id DESC LIMIT 1`).get(unitId, desde) || null;
   } catch (e) { salud.anotarFallaDeBase(e); return null; }
@@ -10157,14 +10216,15 @@ function sosAbiertosDe(prof) {
   let deLaBase = [];
   try {
     deLaBase = db.prepare(`
-      SELECT id AS sosId, unitId, driverName, vehicleId, routeId, lat, lng, sosTipo, timestamp
+      SELECT id AS sosId, unitId, driverName, vehicleId, routeId, lat, lng, posicionDe, sosTipo, timestamp
       FROM messages WHERE kind = 'sos' AND atendidoEn IS NULL AND timestamp > ?
       ORDER BY timestamp
     `).all(Date.now() - SOS_ABIERTO_MS);
   } catch (e) { salud.anotarFallaDeBase(e); }
   const enMemoria = [...sosEnMemoria.values()].filter(f => !f.atendidoEn)
     .map(f => ({ sosId: f.id, unitId: f.unitId, driverName: f.driverName, vehicleId: f.vehicleId,
-                 routeId: f.routeId, lat: f.lat, lng: f.lng, sosTipo: null, timestamp: f.timestamp }));
+                 routeId: f.routeId, lat: f.lat, lng: f.lng, posicionDe: f.posicionDe ?? null,
+                 sosTipo: f.sosTipo ?? null, timestamp: f.timestamp }));
   return [...deLaBase, ...enMemoria].sort((a, b) => a.timestamp - b.timestamp)
     .filter(f => panelVeRuta(prof, f.routeId));
 }
@@ -10337,6 +10397,7 @@ app.post('/sos', (req, res) => {
   sosPorHttp.set(user.unitId, marcas);
   const prof = profiles.get(user.unitId) || {
     driverName: user.driverName || user.name || 'Conductor', vehicleId: user.vehicleId || null,
+    role: user.role,
   };
   const alert = dispararSos(user.unitId, prof, user.routeId || DEFAULT_ROUTE, req.body || {});
   res.json({ ok: true, ...alert });

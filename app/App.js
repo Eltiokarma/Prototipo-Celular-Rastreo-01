@@ -223,6 +223,7 @@ function Aplicacion() {
   // El SOS recién disparado, esperando (si el chofer puede) que le ponga
   // nombre. La alerta YA salió: esto es opcional y se va solo a los 5 min.
   const [tipificarSos, setTipificarSos] = React.useState(false);
+  const [tipoSosFallo, setTipoSosFallo] = React.useState(false);
   React.useEffect(() => {
     if (!tipificarSos) return;
     const t = setTimeout(() => setTipificarSos(false), 5 * 60_000);
@@ -304,7 +305,7 @@ function Aplicacion() {
       // ENVIADA" de una alerta que nunca salió, y un tipo tocado antes del
       // eco se perdía en silencio (marcarTipoSos sin id no manda nada).
       c.on('sos', (m) => {
-        if (c.sesion && m.unitId === c.sesion.unitId) setTipificarSos(true);
+        if (c.sesion && m.unitId === c.sesion.unitId) { setTipoSosFallo(false); setTipificarSos(true); }
       }),
       // «Despacho vio tu SOS» (31/10): queda hasta que lo toca, y el que ya
       // cerró no vuelve con cada reconexión
@@ -625,7 +626,7 @@ function Aplicacion() {
   const olvidarDeLaSesion = () => {
     ultimaPos.current = { lat: null, lng: null, t: 0 };
     setMensajes([]);
-    setTipificarSos(false);
+    setTipificarSos(false); setTipoSosFallo(false);
     // Y lo que el primer estado del siguiente no siempre pisa: la marca (si
     // /marca no contesta quedaba la de la cooperativa anterior) y lo leído
     // (los privados viejos del siguiente contaban como vistos). El resto
@@ -929,12 +930,18 @@ function Aplicacion() {
           // (un reintento), se va
           if (r && r.ok) setSosSinRed(null);
           else setSosSinRed({ en: Date.now(), pos: pos && Number.isFinite(pos.lat) ? pos : null });
+          // Un reintento cuyo primer eco se perdió vuelve como REPETIDO, y el
+          // repetido no emite 'sos': el «¿qué pasó?» no se abría nunca y la
+          // emergencia quedaba sin tipo (revisión 15/11, SOS-02). Si todavía
+          // no tiene tipo, se abre acá.
+          if (r && r.ok && r.repetido && r.sosId != null && !r.sosTipo) { setTipoSosFallo(false); setTipificarSos(true); }
           return r;
         }}
         sosSinRed={sosSinRed}
         central={sesion?.central || null}
         onSosSinRedCerrar={() => setSosSinRed(null)}
         tipificarSos={tipificarSos}
+        tipoSosFallo={tipoSosFallo}
         onTipoSos={async (tipo) => {
           // El diálogo se cierra en el acto: el chofer está en una
           // emergencia y no espera a nadie. Pero si el tipo NO salió, se le
@@ -942,10 +949,17 @@ function Aplicacion() {
           // Antes se descartaba el retorno y el diálogo se cerraba igual
           // (REVISION-2026-09-10.md, C8).
           setTipificarSos(false);
+          setTipoSosFallo(false);
           if (!tipo) return;
           const r = await cliente.current.marcarTipoSos(tipo);
           if (r === 'sin-sos') setAviso('No hay ninguna emergencia tuya abierta para calificar');
-          else if (r) setAviso('SOS ENVIADO. El tipo no salió: decí por chat si es ambulancia o grúa');
+          else if (r) {
+            // El selector vuelve, con el fallo dicho ahí mismo: se puede
+            // tocar de nuevo con la misma emergencia (revisión 15/11, SOS-02)
+            setTipoSosFallo(true);
+            setTipificarSos(true);
+            setAviso('SOS ENVIADO. El tipo no salió: decí por chat si es ambulancia o grúa');
+          }
         }}
         onPerfil={() => setVerPerfil(true)} />
       <Chat {...comun}
@@ -1209,7 +1223,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
 function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, sosVisto, onSosVistoCerrar,
                 sosSinRed, central, onSosSinRedCerrar, miNombre, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
-                tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol,
+                tipificarSos, tipoSosFallo, onTipoSos, onPerfil, yo, onTrafico, rol,
                 faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi }) {
   const { s, C } = usarTema();
   // ── Tráfico: lo que el servidor midió de MÍ, y lo que yo dije ───────
@@ -1330,7 +1344,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
             servidor le pone las de la combi si son frescas. */}
         {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
         {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
-        {tipificarSos && <TipoSos onElegir={onTipoSos} />}
+        {tipificarSos && <TipoSos onElegir={onTipoSos} fallo={tipoSosFallo} />}
         <SosDeslizable onDisparar={onSos} />
         <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
       </View>
@@ -1362,7 +1376,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
         </View>
         {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
         {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
-        {tipificarSos && <TipoSos onElegir={onTipoSos} />}
+        {tipificarSos && <TipoSos onElegir={onTipoSos} fallo={tipoSosFallo} />}
         <SosDeslizable onDisparar={onSos} />
         <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
       </View>
@@ -1508,7 +1522,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
 
       {sosVisto && <SosVisto visto={sosVisto} onCerrar={onSosVistoCerrar} />}
 
-      {tipificarSos && <TipoSos onElegir={onTipoSos} />}
+      {tipificarSos && <TipoSos onElegir={onTipoSos} fallo={tipoSosFallo} />}
       <SosDeslizable onDisparar={onSos} />
       <Barra pantalla={pantalla} noLeidos={noLeidos} onIr={onIr} />
     </View>
@@ -1521,11 +1535,11 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
 // "Falla mecánica", "accidente" y "policía" movilizan cosas distintas
 // (una grúa, una ambulancia, otra llamada); sin tocar nada queda como SOS
 // genérico y se va solo a los 5 minutos.
-function TipoSos({ onElegir }) {
+function TipoSos({ onElegir, fallo = false }) {
   const { s, C } = usarTema();
   return (
     <View style={s.tipoSosCaja}>
-      <Text style={s.tipoSosTitulo}>ALERTA ENVIADA — ¿QUÉ PASÓ?</Text>
+      <Text style={s.tipoSosTitulo}>{fallo ? 'EL TIPO NO SALIÓ — TOCÁ DE NUEVO' : 'ALERTA ENVIADA — ¿QUÉ PASÓ?'}</Text>
       <View style={s.filaTipoSos}>
         {Object.entries(TIPOS_SOS).map(([clave, etiqueta]) => (
           <Pressable key={clave} onPress={() => onElegir(clave)} style={s.botonTipoSos}>

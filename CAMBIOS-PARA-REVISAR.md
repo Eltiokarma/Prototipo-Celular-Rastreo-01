@@ -1415,6 +1415,65 @@ fallan.
 
 ---
 
+## 20. Revisión del 15/11 — grupo 2: emergencias
+
+**Qué.**
+- **De dónde sale la posición del SOS (SOS-01).** Sin posición del
+  teléfono, el SOS tomaba la de la combi asignada aunque la manejara otro:
+  desde la puerta, la ayuda iba adonde estaba la combi. Ahora la de la combi
+  sólo se usa si la persona la maneja (tiene el mando) o es su cobrador con
+  la combi en servicio, y nunca si la combi está «sin señal». La alerta lleva
+  `posicionDe` ('telefono' | 'combi' | null), que se guarda en la base
+  (columna nueva) y vuelve con `sos_abiertos` y el historial. El cartel y el
+  pin de Despacho dicen «POSICIÓN DE LA COMBI, NO DEL TELÉFONO» o «SIN
+  POSICIÓN: PREGUNTÁ DÓNDE ESTÁ».
+- **El tipo del SOS se perdía por cuatro caminos (SOS-02).**
+  - Web, en la puerta: el disparo salía con el token de la sesión pero el
+    tipo sólo con el del socket (que en la puerta no existe). Ahora usa el
+    mismo token del disparo. Si el tipo no sale, la barra vuelve con «EL
+    TIPO NO SALIÓ — TOCÁ DE NUEVO» en el lugar del SOS (antes el aviso iba
+    al chat, que en la puerta no se ve).
+  - App nativa: si el eco del primer SOS se perdía, el reintento volvía
+    como repetido y el «¿qué pasó?» no se abría. `mandarSos` ahora dice
+    `repetido` y `sosTipo`, y la app lo abre si todavía no tiene tipo. Si
+    el tipo no sale, el selector vuelve con el aviso.
+  - Servidor: el SOS guardado en memoria (base sin lugar, id negativo) no
+    se podía calificar (404). Ahora sí, y vuelve con su tipo al panel.
+  - Despacho, al reconectar: los SOS que ya tenía no se actualizaban con lo
+    que traía `sos_abiertos` (el tipo elegido mientras estaba cortado).
+- **La posición congelada de la web (GPS-01).** La web reenvía la última
+  posición cada 3 s y el servidor la registraba con la hora de llegada: una
+  combi con el GPS del navegador colgado se veía en vivo, entraba a las
+  brechas y alimentaba el respaldo del SOS. Ahora la web manda `edadMs`
+  (medida con el reloj del propio aparato, así que no depende de que esté
+  en hora) y el servidor la registra con esa hora; el barrido la pone en
+  «sin señal» como a cualquier posición vieja. Más de 5 min, se descarta.
+  La web pide una lectura nueva si la última tiene más de 10 s (quieta en
+  una parada, `watchPosition` puede no disparar), no repite la velocidad de
+  una posición vieja y avisa «el GPS no da posiciones nuevas» a los 30 s.
+
+**Archivos.** `server/index.js`, `project/realtime.js`,
+`project/Prototipo.html`, `project/despacho.html`,
+`project/service-worker.js` (v100), `app/App.js`,
+`app/protocolo/cliente.js`, `pruebas/emergencias.js` (nueva),
+`pruebas/sos-puerta.js`, `pruebas/regresion.js`.
+
+**Mirar.**
+- Lo de Android (el selector con el repetido) necesita un APK nuevo.
+- El chofer que pide ayuda desde la puerta sin GPS en el teléfono ahora
+  sale SIN posición (antes, con la de la combi). Es lo correcto si otro la
+  maneja, pero Despacho tiene que preguntar dónde está: el cartel lo dice.
+- Una web vieja en caché (sin `edadMs`) sigue como antes hasta que se
+  actualice.
+- No se tocó SOS-03 (que el reintento actualice la posición del SOS
+  abierto): queda pendiente.
+
+**Pruebas.** `emergencias` (nueva: 15 fallas sin los arreglos),
+`sos-puerta` (el tipo desde la puerta: falla sin el arreglo), `contraste`,
+`sintaxis` y la regresión completa.
+
+---
+
 ## Para el manual
 
 Al día el 11/11: `manual/manual.tex` y `manual.pdf` cubren los bloques 3, 4,

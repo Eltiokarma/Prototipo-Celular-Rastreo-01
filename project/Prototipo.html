@@ -3237,6 +3237,10 @@ function Root() {
   // El id de MI último SOS, esperando (si puedo) que le ponga nombre. La
   // alerta ya salió: elegir es opcional y la barra se va sola a los 5 min.
   const [sosPropio, setSosPropio] = React.useState(null);
+  // El tipo NO salió: la barra vuelve con el aviso ahí mismo, junto al SOS,
+  // y se puede tocar de nuevo con el mismo id. Antes el aviso iba al chat,
+  // que en la puerta ni se ve (revisión 15/11, SOS-02).
+  const [sosTipoFallo, setSosTipoFallo] = React.useState(false);
   // «Despacho vio tu SOS» (31/10): lo primero que quiere saber el que pidió
   // ayuda. Queda hasta que lo toca; los ya cerrados no vuelven al reconectar.
   const [sosVisto, setSosVisto] = React.useState(null);
@@ -3618,7 +3622,7 @@ function Root() {
       if (a.unitId === myUnitId) {
         // El eco de MI disparo trae el id: es el ancla para ponerle nombre
         // ("¿qué pasó?") con la alerta ya enviada. El flash ya es local.
-        if (a.sosId != null) setSosPropio(a.sosId);
+        if (a.sosId != null) { setSosPropio(a.sosId); setSosTipoFallo(false); }
         return;
       }
       pushMsg({
@@ -3691,7 +3695,7 @@ function Root() {
   // aunque el eco del socket no venga (salió por HTTP).
   const fireSos = async () => {
     const r = await window.RealtimeClient.sendSos({ token: user?.token || null });
-    if (r && r.ok && r.sosId != null) setSosPropio(r.sosId);
+    if (r && r.ok && r.sosId != null) { setSosPropio(r.sosId); setSosTipoFallo(false); }
     return r;
   };
 
@@ -3858,7 +3862,12 @@ function Root() {
             <div style={{
               color: HUD.red, fontSize: 12, fontWeight: 900, letterSpacing: 1,
               textAlign: 'center', marginBottom: 10,
-            }}>ALERTA ENVIADA — ¿QUÉ PASÓ?</div>
+            }}>{sosTipoFallo ? 'EL TIPO NO SALIÓ — TOCÁ DE NUEVO' : 'ALERTA ENVIADA — ¿QUÉ PASÓ?'}</div>
+            {sosTipoFallo && (
+              <div role="alert" style={{
+                color: HUD.fg, fontSize: 12, lineHeight: 1.35, textAlign: 'center', marginTop: -4, marginBottom: 10,
+              }}>El SOS sí llegó. Si no sale, decile a Despacho si es ambulancia o grúa.</div>
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
               {Object.entries(TIPOS_SOS).map(([clave, etiqueta]) => (
                 <button key={clave} onClick={async () => {
@@ -3868,12 +3877,17 @@ function Root() {
                   // (REVISION-2026-09-10.md, C8).
                   const id = sosPropio;
                   setSosPropio(null);
+                  setSosTipoFallo(false);
                   const r = await window.RealtimeClient.sendSosTipo(id, clave);
-                  if (r) pushMsg({
-                    from: 'SISTEMA', role: 'admin', tone: 'warn',
-                    text: 'SOS ENVIADO. El tipo no salió: decí por acá si es ambulancia o grúa.',
-                    time: nowTime(),
-                  });
+                  if (r) {
+                    setSosPropio(id);
+                    setSosTipoFallo(true);
+                    pushMsg({
+                      from: 'SISTEMA', role: 'admin', tone: 'warn',
+                      text: 'SOS ENVIADO. El tipo no salió: decí por acá si es ambulancia o grúa.',
+                      time: nowTime(),
+                    });
+                  }
                 }} style={{
                   flex: 1, minHeight: 48, borderRadius: 10, cursor: 'pointer',
                   border: `1px solid ${HUD.divider}`, background: HUD.bg,
@@ -3881,7 +3895,7 @@ function Root() {
                 }}>{etiqueta.toUpperCase()}</button>
               ))}
             </div>
-            <button onClick={() => setSosPropio(null)} style={{
+            <button onClick={() => { setSosPropio(null); setSosTipoFallo(false); }} style={{
               display: 'block', margin: '10px auto 0', padding: 4,
               background: 'none', border: 'none', cursor: 'pointer',
               color: HUD.dim2, fontSize: 12, fontFamily: 'inherit',
