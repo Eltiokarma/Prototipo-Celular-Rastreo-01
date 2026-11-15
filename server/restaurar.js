@@ -84,12 +84,27 @@ async function restaurarAlArrancar({ dbFile, pedido, env = process.env, fetchImp
     throw new Error(`No se pudo escribir el respaldo al lado de la base (${e.code === 'ENOSPC' ? 'no hay espacio en el disco' : e.message}): la base actual NO se tocó`);
   }
   const v = respaldo.verificar(Database, nueva);
-  // Abrirla para verificar deja sus -wal y -shm (vacíos): no viajan con ella
-  for (const x of ['-wal', '-shm']) { try { fs.unlinkSync(nueva + x); } catch {} }
   if (!v.ok) {
-    try { fs.unlinkSync(nueva); } catch {}
+    for (const x of ['', '-wal', '-shm']) { try { fs.unlinkSync(nueva + x); } catch {} }
     throw new Error(`El respaldo no pasó la verificación (${v.motivo}): la base actual NO se tocó`);
   }
+  // Las sesiones del respaldo NO vuelven. Son las de la fecha de la copia:
+  // un teléfono robado, una baja o un reseteo de clave posteriores ya las
+  // habían borrado, y restaurarlas revivía esos accesos hasta 30 días
+  // (revisión 15/11, SEG-05). Todo el mundo vuelve a ingresar, con la clave
+  // que diga el respaldo; las claves cambiadas después hay que repetirlas, y
+  // el log lo dice.
+  let sesiones = 0;
+  try {
+    const d = new Database(nueva);
+    try { sesiones = d.prepare('DELETE FROM sessions').run().changes; }
+    finally { d.close(); }
+  } catch (e) {
+    for (const x of ['', '-wal', '-shm']) { try { fs.unlinkSync(nueva + x); } catch {} }
+    throw new Error(`No se pudieron cerrar las sesiones del respaldo (${e.message}): la base actual NO se tocó`);
+  }
+  // Abrirla deja sus -wal y -shm (vacíos tras cerrar): no viajan con ella
+  for (const x of ['-wal', '-shm']) { try { fs.unlinkSync(nueva + x); } catch {} }
   // La actual se guarda, no se borra: si el respaldo elegido era el
   // equivocado, se puede volver
   let anterior = null;
@@ -102,10 +117,12 @@ async function restaurarAlArrancar({ dbFile, pedido, env = process.env, fetchImp
   }
   fs.renameSync(nueva, dbFile);
   const bytes = datos && datos.archivo ? fs.statSync(dbFile).size : datos.length;
-  const marca = { pedido, en: Date.now(), bytes, anterior: anterior ? path.basename(anterior) : null };
+  const marca = { pedido, en: Date.now(), bytes, anterior: anterior ? path.basename(anterior) : null, sesionesCerradas: sesiones };
   fs.writeFileSync(path.join(path.dirname(dbFile), MARCA), JSON.stringify(marca, null, 2));
   log(`✔ Base restaurada desde ${pedido}. La anterior quedó como ${marca.anterior || '(no había)'}. ` +
       'Cuando confirmes que está bien, sacá RESTAURAR_DESDE de las variables.');
+  log(`  Se cerraron las ${sesiones} sesiones que traía el respaldo: todos vuelven a ingresar. ` +
+      'Las claves cambiadas y las cuentas dadas de baja DESPUÉS de la fecha del respaldo volvieron a como estaban: repetí esos cambios.');
   return { repetido: false, marca };
 }
 

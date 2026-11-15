@@ -120,6 +120,7 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   // Tanda 4 de la revisión del 10/9: la web del chofer a la par de la app nativa
   ok('el SOS de la web va por POST /sos y sólo dice «enviada» si llegó', /HTTP_URL \+ '\/sos'/.test(realtime) && /async function sendSos/.test(realtime) && /if \(r && r\.ok\) \{ setEmergencyFired\(true\); setSosFallo\(false\); \}\s*else setSosFallo\(/.test(prototipo) && /NO SALIÓ/.test(prototipo));
   ok('el GPS simulado sólo existe en demo, y va marcado como simulado', /const DEMO = !!window\.MODO_DEMO/.test(realtime) && /if \(DEMO\) \{ startSimulatedGps\(\); return; \}/.test(realtime) && /simulado: true,/.test(realtime));
+  ok('y lo decide sólo el servidor: `?demo=1` en la URL ya no lo activa (revisión 15/11)', /const DEMO = !!window\.MODO_DEMO;/.test(realtime) && !/demo=1/.test(realtime.replace(/\/\/.*$/gm, '')));
   ok('y el servidor le dice a la web si está en demo', /window\.MODO_DEMO = \$\{ES_DEMO\}/.test(leer('server/index.js')));
   ok('sin GPS la web lo dice en vez de inventar', /emit\('gps', \{ ok: false, motivo \}\)/.test(realtime) && /SIN GPS/.test(prototipo));
   ok('las unidades sin señal van huecas y apagadas en el mapa del chofer', /if \(unit\.sinSenal\) \{/.test(prototipo) && /function sinSenalPinHtml/.test(prototipo));

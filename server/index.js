@@ -3970,6 +3970,22 @@ async function login(req, res) {
     return fallaLogin(res, unitId, user, ip);
   }
 
+  // La fila se leyó ANTES del `await`, y el scrypt corre afuera del hilo:
+  // mientras tanto Despacho pudo cambiar la clave (con `kickUnit`, que borra
+  // las sesiones) o dar de baja la cuenta. Sin releer, este login terminaba
+  // creando una sesión NUEVA con la clave vieja, después de la revocación, y
+  // quien tenía una clave robada podía reintentar hasta caer en esa ventana
+  // (revisión 15/11, SEG-04). Desde acá hasta `createSession` no hay ningún
+  // `await`: lo que se relee es lo que vale cuando la sesión nace.
+  if (!created) {
+    const vigente = db.prepare('SELECT * FROM users WHERE unitId = ?').get(unitId);
+    if (!vigente || vigente.passHash !== user.passHash) {
+      anotarFalloIp(ip);
+      return fallaLogin(res, unitId, vigente || null, ip);
+    }
+    user = vigente;
+  }
+
   // La empresa desactivada corta el acceso de toda su gente de una vez. Se
   // chequea DESPUÉS de la contraseña a propósito: si no, probar usuarios
   // contra una empresa suspendida diría cuáles existen.

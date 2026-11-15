@@ -1373,6 +1373,48 @@ fusionó con la auditoría (y dónde se apartó del paquete), en su apartado
 
 ---
 
+## 19. Revisión del 15/11 — grupo 1
+
+**Qué.** Lo rápido y de más impacto de la revisión externa del 15/11
+(`main` en `8e0a650`), cada hallazgo reproducido antes de arreglarlo:
+- **Dependencias (SEG-01).** `express` 4.22.3, que trae `body-parser`
+  1.20.9 (un cuerpo comprimido con bytes de más al final podía tumbar el
+  servidor), `qs` 6.16.2 y `proxy-addr` 2.0.8. `npm audit`: 0.
+- **La limpieza de respaldos se colgaba (OPS-02).** Con poco disco, si un
+  respaldo viejo no se podía borrar (`rotar` se traga el error), el `while`
+  repetía el mismo intento para siempre: un bucle síncrono que congelaba el
+  servidor entero. Ahora, si una vuelta no borra nada, para y lo dice.
+- **El login en curso durante un cambio de clave (SEG-04).** La fila se
+  leía antes del scrypt y no se releía: un login que estaba verificando
+  cuando Despacho cambiaba la clave (o daba de baja la cuenta) creaba una
+  sesión válida DESPUÉS de la revocación. Medido: 16 de 16. Ahora se relee
+  la fila justo antes de `createSession` y, si la clave cambió, es una clave
+  mala.
+- **Restaurar revivía sesiones (SEG-05).** `restaurar.js` vacía `sessions`
+  en la copia antes de ponerla en su lugar; el log y `restaurado.json`
+  (`sesionesCerradas`) lo dicen.
+- **`?demo=1` en producción.** La web del chofer activaba el GPS simulado
+  con ese agregado en la URL, también contra el servidor real. Ahora lo
+  decide sólo el servidor (`window.MODO_DEMO`).
+
+**Archivos.** `server/package.json`, `server/package-lock.json`,
+`server/respaldo.js`, `server/index.js`, `server/restaurar.js`,
+`project/realtime.js`, `pruebas/disco.js`, `pruebas/paneles.js`,
+`pruebas/revocacion.js` (nueva), `pruebas/regresion.js`.
+
+**Mirar.**
+- Tras restaurar, todos vuelven a ingresar, y las claves cambiadas y las
+  bajas posteriores a la fecha del respaldo vuelven a como estaban: hay que
+  repetirlas (lo dice el log).
+- El login que pierde la carrera cuenta como un intento fallido (la clave
+  que mandó ya no es la de la cuenta).
+
+**Pruebas.** `revocacion` (nueva), `disco` (rotación trabada, en un hijo
+con tope de tiempo) y `paneles`. Sin los arreglos, `revocacion` y `disco`
+fallan.
+
+---
+
 ## Para el manual
 
 Al día el 11/11: `manual/manual.tex` y `manual.pdf` cubren los bloques 3, 4,

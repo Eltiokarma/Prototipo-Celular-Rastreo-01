@@ -80,6 +80,27 @@ function arrancarProduccion(env) {
   ok('antes borró los viejos para hacer lugar, pero dejó el último', respaldo.listar(carpeta).length === 1);
   x = await respaldo.respaldar(dbr, Database, { dir: carpeta, libreBytes: () => 10 * 1024 ** 3 });
   ok('con lugar, respalda', x.ok, x.motivo);
+  // OPS-02 (revisión 15/11): un respaldo viejo que NO se puede borrar. Un
+  // directorio con nombre de respaldo hace fallar el `unlink` (EISDIR) igual
+  // que un permiso o un volumen de solo lectura. Antes el bucle de rotación
+  // repetía el mismo borrado para siempre y congelaba el servidor; se corre
+  // en un hijo con tope de tiempo para que un regreso del bug no cuelgue la
+  // regresión entera.
+  const trabada = path.join(TMP, 'respaldos-trabados');
+  fs.mkdirSync(path.join(trabada, respaldo.nombreDe(new Date(Date.UTC(2020, 0, 1)))), { recursive: true });
+  fs.copyFileSync(path.join(carpeta, respaldo.listar(carpeta).pop().archivo), path.join(trabada, respaldo.nombreDe(new Date(Date.UTC(2026, 10, 2)))));
+  const hijo = spawnSync('node', ['-e', `
+    const Database = require(${JSON.stringify(RAIZ + '/server/node_modules/better-sqlite3')});
+    const r = require(${JSON.stringify(RAIZ + '/server/respaldo.js')});
+    const db = new Database(${JSON.stringify(archivoR)});
+    r.respaldar(db, Database, { dir: ${JSON.stringify(trabada)}, libreBytes: () => 1000 })
+      .then(x => { console.log(JSON.stringify(x)); db.close(); });
+  `], { encoding: 'utf8', timeout: 10000 });
+  let trabado = null;
+  try { trabado = JSON.parse(hijo.stdout.trim().split('\n').pop()); } catch {}
+  ok('si un respaldo viejo no se puede borrar, la rotación para en vez de colgarse',
+    hijo.error == null && trabado && !trabado.ok && trabado.sinLugar && /no se pudo borrar/.test(trabado.motivo),
+    hijo.error ? hijo.error.code : (trabado || hijo.stderr));
   dbr.close();
 
   console.log('\nD. EL DISCO LLENO DE VERDAD');

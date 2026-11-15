@@ -24,11 +24,16 @@
   }
   let authToken = null;
   let authUnitId = null;   // quién soy: para reconocer el eco de MI SOS
-  // El GPS simulado sólo existe para la demo (el servidor en MODO=demo lo
-  // dice en config.js, o `?demo=1` en la URL). En producción, sin fix no se
-  // manda nada: antes un chofer con el permiso colgado metía una combi
-  // fantasma en el mapa real (REVISION-2026-09-10.md, C4).
-  const DEMO = !!window.MODO_DEMO || /[?&]demo=1/.test(location.search);
+  // El GPS simulado sólo existe para la demo, y lo decide el SERVIDOR (en
+  // MODO=demo lo dice en config.js). En producción, sin fix no se manda
+  // nada: antes un chofer con el permiso colgado metía una combi fantasma en
+  // el mapa real (REVISION-2026-09-10.md, C4).
+  //
+  // Antes también valía `?demo=1` en la URL, y eso funcionaba en producción:
+  // cualquiera que negara el permiso de ubicación con ese agregado mandaba un
+  // recorrido inventado a la flota real, que contaba vueltas y brechas
+  // (revisión 15/11). La decisión es del servidor, no de quien escribe la URL.
+  const DEMO = !!window.MODO_DEMO;
   let authFailed = false;
 
   // Callbacks — la app los registra para recibir actualizaciones

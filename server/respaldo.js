@@ -126,9 +126,20 @@ async function respaldar(db, Database, { dir, cuando = new Date(), conservar = C
     const hace = () => tamano + reservaMb * 1048576;
     let libre = libreBytes(carpeta);
     let quedan = listar(carpeta).length;
+    // Cada vuelta tiene que BORRAR algo. `rotar` se traga el error del
+    // borrado (EACCES, EPERM, un directorio con nombre de respaldo...), y
+    // sin este control el `while` repetía el mismo intento para siempre:
+    // un bucle síncrono que congelaba el servidor de todas las
+    // cooperativas justo cuando el disco estaba casi lleno (revisión
+    // 15/11, OPS-02). Si una vuelta no baja la cuenta, se para y se dice.
     while (libre != null && libre < hace() && quedan > 1) {
       rotar(carpeta, quedan - 1);
-      quedan = listar(carpeta).length;
+      const ahora = listar(carpeta).length;
+      if (ahora >= quedan) {
+        return { ok: false, sinLugar: true,
+          motivo: `no hay disco para el respaldo y no se pudo borrar un respaldo viejo en ${carpeta}: quedan ${Math.round(libre / 1048576)} MB` };
+      }
+      quedan = ahora;
       libre = libreBytes(carpeta);
     }
     if (libre != null && libre < hace()) {
