@@ -159,6 +159,8 @@ let servidor = null;
   ok('y pasa a «sin señal» aunque se la siga reenviando', await hasta(() => estadoDe('M-01')?.sinSenal === true, 15000),
     estadoDe('M-01'));
   clearInterval(repetir);
+  // Que llegue lo que estaba en vuelo y el estado siguiente, antes de medir
+  await sleep(1500);
   const antes = estadoDe('M-01').timestamp;
   luis.send(JSON.stringify({ type: 'gps', ...C1, speed: 0, edadMs: 10 * 60_000 }));
   await sleep(1200);
