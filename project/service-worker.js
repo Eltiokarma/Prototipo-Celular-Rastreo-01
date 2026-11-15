@@ -6,7 +6,7 @@
 // Tres cachés separadas a propósito: al publicar una versión nueva se
 // renueva la de la app, pero los tiles y las librerías se conservan
 // (no cambian y volver a bajarlos costaría datos del chofer).
-const CACHE_NAME = 'coop-r14-v100';       // app: HTML, JS propio, iconos
+const CACHE_NAME = 'coop-r14-v101';       // app: HTML, JS propio, iconos
 // tiles-v2: las tiles ahora vienen de Geoapify — las de CARTO guardadas con
 // la v1 tienen URLs que ya nadie pide y solo ocupan los ~15 MB del tope.
 // tiles-v3: la v2 guardaba respuestas OPACAS, que no dejan ver si fueron un
@@ -71,8 +71,9 @@ const ES_TILE = /maps\.geoapify\.com\/v1\/tile\/|\/tiles\/xyz\//;
 // caché de la app: Leaflet no cambia cuando publicamos una versión nueva, y
 // mandarlo a CACHE_NAME lo haría rebajar 160 kB en cada despliegue. Es
 // exactamente la misma librería que antes venía de unpkg, solo que ahora la
-// sirve el servidor propio.
-const ES_LIB  = /unpkg\.com|fonts\.googleapis\.com|fonts\.gstatic\.com|\/vendor\/leaflet\//;
+// sirve el servidor propio. Lo mismo `/vendor/react/` (React, ReactDOM y
+// Babel, 3 MB): desde el 15/11 también los sirve el servidor.
+const ES_LIB  = /unpkg\.com|fonts\.googleapis\.com|fonts\.gstatic\.com|\/vendor\/(leaflet|react)\//;
 
 // Los archivos NUESTROS (el HTML de las apps y realtime.js) van a la red
 // primero. Antes eran caché-primero y una versión nueva no aparecía hasta

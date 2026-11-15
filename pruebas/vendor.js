@@ -126,7 +126,32 @@ console.log('\nLA CACHÉ DEL CELULAR LO TRATA COMO LIBRERÍA');
   // al chofer por una librería que es idéntica.
   const sw = leer('project/service-worker.js');
   ok('el service worker manda /vendor/leaflet/ a la caché de librerías',
-     /ES_LIB\s*=[^;]*vendor\\\/leaflet/.test(sw));
+     /ES_LIB\s*=[^;]*vendor\\\/\(leaflet\|react\)/.test(sw));
+  ok('y /vendor/react/ también (revisión 15/11)', /ES_LIB\s*=[^;]*\|react\)/.test(sw));
+}
+
+// React, ReactDOM y Babel (revisión 15/11, DIS-05): sin ellos no se dibuja
+// nada —ni el SOS—, y venían sólo de unpkg. Los HTML piden la copia de acá;
+// unpkg queda sólo adentro de la caída, y los archivos de la copia son
+// EXACTAMENTE los del CDN: su sha384 es el `integrity` que declaran los HTML.
+console.log('\nREACT Y BABEL TAMBIÉN DE ACÁ');
+{
+  const crypto = require('crypto');
+  const ARCH = { 'react.production.min.js': 'react@18.3.1/umd/react.production.min.js',
+                 'react-dom.production.min.js': 'react-dom@18.3.1/umd/react-dom.production.min.js',
+                 'babel.min.js': '@babel/standalone@7.29.0/babel.min.js' };
+  for (const [archivo, cdn] of Object.entries(ARCH)) {
+    const bytes = fs.readFileSync(path.join(RAIZ, 'server/vendor/react', archivo));
+    const sri = 'sha384-' + crypto.createHash('sha384').update(bytes).digest('base64');
+    for (const [rel, base] of [['project/despacho.html', 'vendor/react/'], ['project/Prototipo.html', 'vendor/react/'], ['server/creador.html', '/vendor/react/']]) {
+      const t = leer(rel);
+      const nombre = rel.split('/').pop();
+      ok(`${nombre} pide ${archivo} de acá`, t.includes(`<script src="${base}${archivo}"></script>`));
+      const fuera = t.replace(/<script>\s*if \(typeof React === 'undefined'\)[\s\S]*?<\/script>/, '');
+      ok(`${nombre}: unpkg sólo en la caída, con el integrity de la copia`,
+         !fuera.includes('unpkg.com/' + cdn) && t.includes(`unpkg.com/${cdn}" integrity="${sri}"`));
+    }
+  }
 }
 
 // ─── Con servidor: que de verdad lo entregue ───────────────────────────────
@@ -172,6 +197,16 @@ async function arrancar() {
        js.headers.get('cache-control'));
   }
 
+  console.log('\nEL SERVIDOR ENTREGA REACT Y BABEL');
+  for (const [archivo, firma] of [['react.production.min.js', 'react.production.min.js'],
+                                  ['react-dom.production.min.js', 'react-dom.production.min.js'],
+                                  ['babel.min.js', 'Babel']]) {
+    const r = await fetch(API + '/vendor/react/' + archivo);
+    const t = await r.text();
+    ok(`${archivo} responde 200, es el de verdad y es un script`,
+       r.status === 200 && t.includes(firma) && /javascript/.test(r.headers.get('content-type') || ''), r.status);
+  }
+
   console.log('\nY NADA MÁS SE ESCAPA POR ESA PUERTA');
   {
     // La ruta sirve DOS archivos nombrados, no una carpeta: un `sendFile` con
@@ -179,6 +214,8 @@ async function arrancar() {
     // servidor desde afuera.
     for (const intento of ['/vendor/leaflet/../../index.js',
                            '/vendor/leaflet/leaflet.js.map',
+                           '/vendor/react/../../index.js',
+                           '/vendor/react/LICENSE-react',
                            '/vendor/']) {
       const r = await fetch(API + intento);
       const t = await r.text();

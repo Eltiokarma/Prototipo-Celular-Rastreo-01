@@ -180,9 +180,48 @@ if (typeof L === 'undefined') {
 <!-- Las builds de PRODUCCIÓN, no las de desarrollo: la de desarrollo de
      react-dom pesa 1054 kB contra 128, corre más lento, y esto se abre con
      datos móviles prepago. Medido: 1 MB menos por primera carga. -->
-<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<!-- React, ReactDOM y Babel: los sirve ESTE servidor, como Leaflet
+     (revisión 15/11). Sin ellos no se dibuja nada, ni el SOS; venían sólo de
+     unpkg, y en una primera visita con el CDN caído la pantalla quedaba vacía. -->
+<script src="vendor/react/react.production.min.js"></script>
+<script src="vendor/react/react-dom.production.min.js"></script>
+<script src="vendor/react/babel.min.js"></script>
+<!-- La caída al CDN, con integrity (los mismos archivos), para un hosting
+     estático sin el servidor al lado. Cada una por separado y en orden. -->
+<script>
+if (typeof React === 'undefined') document.write('<scr' + 'ipt src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"><\/scr' + 'ipt>');
+if (typeof ReactDOM === 'undefined') document.write('<scr' + 'ipt src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"><\/scr' + 'ipt>');
+if (typeof Babel === 'undefined') document.write('<scr' + 'ipt src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"><\/scr' + 'ipt>');
+</script>
+
+<!-- Si la app no llega a dibujarse (librerías que no cargan, un teléfono muy
+     lento), la pantalla quedaba en blanco: ni SOS ni a quién llamar. Pasado
+     un rato, lo dice en HTML pelado y ofrece llamar a la central que este
+     teléfono recuerda; si la app carga después, React lo pisa (revisión
+     15/11, DIS-05). -->
+<script>
+setTimeout(function () {
+  var stage = document.getElementById('stage');
+  if (!stage || stage.children.length) return;
+  var central = null;
+  try { central = localStorage.getItem('r14_central'); } catch (e) {}
+  var tel = central && /^[0-9+ ]{6,20}$/.test(central) ? central.replace(/ /g, '') : null;
+  stage.innerHTML =
+    '<div data-sin-librerias style="max-width:420px;margin:40px auto;padding:22px;' +
+    'font-family:system-ui,sans-serif;font-size:17px;line-height:1.5;' +
+    'background:#FCEBEE;border:2px solid #C2001D;border-radius:14px;color:#5C0010;">' +
+    '<strong>La app no pudo cargar.</strong><br>' +
+    'Suele ser la señal: probá recargar.' +
+    (tel ? '<br><strong>Si es una emergencia, llamá a la central:</strong>' +
+      '<a href="tel:' + tel + '" style="display:block;margin-top:12px;padding:16px;text-align:center;' +
+      'font-size:20px;font-weight:800;background:#C2001D;color:#fff;border-radius:10px;text-decoration:none">' +
+      'LLAMAR A LA CENTRAL · ' + tel + '</a>'
+      : '<br><strong>Si es una emergencia, llamá a la central por teléfono.</strong>') +
+    '<button onclick="location.reload()" style="display:block;width:100%;margin-top:12px;padding:14px;' +
+    'font-size:16px;background:#fff;color:#5C0010;border:1px solid #C2001D;border-radius:10px;cursor:pointer">' +
+    'Recargar</button></div>';
+}, 10000);
+</script>
 
 <script type="text/babel" data-presets="react">
 

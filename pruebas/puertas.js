@@ -390,7 +390,9 @@ const entrar = (api, user, password, cab = {}) =>
         // con `despacho99` el servidor moriría por la clave quemada. Dos
         // motivos de muerte distintos dando el mismo código de salida es una
         // prueba que pasa por la razón equivocada.
-        env: { ...process.env, PORT: '3190', DB_FILE: DBX, DISPATCH_PASSWORD: CLAVE_LIMPIA, ...env },
+        // CREAR_BASE: la base de cada intento es nueva a propósito, al lado de
+        // las de las otras suites; acá se prueba otro guardia (OPS-01 en disco).
+        env: { ...process.env, PORT: '3190', DB_FILE: DBX, DISPATCH_PASSWORD: CLAVE_LIMPIA, CREAR_BASE: '1', ...env },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let salida = '';
@@ -436,7 +438,7 @@ const entrar = (api, user, password, cab = {}) =>
     const intentar = (env) => new Promise((resolve) => {
       limpiar(DBK);
       const p = spawn('node', [RAIZ + '/server/index.js'], {
-        env: { ...process.env, PORT: '3191', DB_FILE: DBK, ...env },
+        env: { ...process.env, PORT: '3191', DB_FILE: DBK, CREAR_BASE: '1', ...env },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let salida = '';

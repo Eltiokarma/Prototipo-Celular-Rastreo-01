@@ -1474,6 +1474,61 @@ fallan.
 
 ---
 
+## 21. Revisión del 15/11 — grupo 3: estabilidad
+
+**Qué.**
+- **La base vacía al lado de la buena (OPS-01).** En producción, si
+  `DB_FILE` no existe y en su carpeta ya hay otra base o respaldos, el
+  servidor no arranca y dice que el nombre casi seguro está mal escrito.
+  Antes SQLite creaba una vacía, `/salud` daba 200 y en una semana la
+  rotación se llevaba los respaldos buenos. En un volumen vacío (primera
+  instalación) arranca como siempre; `CREAR_BASE=1` para crearla a
+  propósito al lado de otra.
+- **Ingresos a la vez (DIS-01).** Hasta 8 verificando clave por origen y 64
+  en todo el servidor (`LOGIN_EN_CURSO_ORIGEN`, `LOGIN_EN_CURSO_MAX`); el
+  resto recibe 429 en el acto, sin costar un scrypt.
+- **El teléfono que no lee (DIS-02).** Todo el reparto en vivo (chat,
+  fotos, audios, SOS, estado) pasa por `mandarEnVivo`: con más de
+  `WS_BUFFER_MAX` (8 MB) sin leer sostenido `WS_LLENO_MS` (5 s), o cuatro
+  veces el tope, la conexión se corta y al reconectar recibe historial y SOS
+  abiertos. No al primer pico: medido, una ráfaga de fotos sube un instante
+  lo pendiente de un teléfono sano.
+- **Planillas (DIS-04).** Dos importaciones a la vez en todo el servidor
+  (`IMPORTACIONES_A_LA_VEZ`); las claves se calculan antes, de a dos, y cada
+  cuenta nace con la suya en una sola transacción. Ya no queda la huella de
+  relleno si el proceso se corta.
+- **React y Babel desde el servidor (DIS-05).** `server/vendor/react/` (los
+  mismos archivos que unpkg: el sha384 es el `integrity` de los HTML),
+  servidos en `/vendor/react/`; unpkg queda sólo como caída. Las tres
+  pantallas se dibujan con unpkg bloqueado. Si ni así carga, la app del
+  chofer ya no queda en blanco: a los 10 s dice que no cargó y ofrece llamar
+  a la central que recuerda.
+
+**Archivos.** `server/index.js`, `server/vendor/react/` (nuevo, ~3,2 MB),
+`project/Prototipo.html`, `project/despacho.html`, `server/creador.html`,
+`project/service-worker.js` (v101, `/vendor/react/` en la caché de
+librerías), `README.md`, `pruebas/limites.js` y `pruebas/sin-cdn.js`
+(nuevas), `pruebas/disco.js`, `pruebas/vendor.js`, `pruebas/puertas.js`
+(sus arranques de producción con base nueva llevan `CREAR_BASE=1`: prueban
+otro guardia), `pruebas/regresion.js`.
+
+**Mirar.**
+- Babel pesa 3 MB y ahora sale de nuestro servidor: es tráfico propio en
+  cada primera carga (el service worker lo guarda después).
+- Si una cooperativa sale a internet por una sola IP con muchos teléfonos,
+  8 ingresos a la vez por origen podría quedar justo al empezar el turno:
+  el 429 dice que se pruebe en unos segundos.
+- Lo que no se hizo de DIS-02: mandar sólo el último estado del mapa a una
+  conexión atrasada. De DIS-03 (exportaciones en memoria): nada todavía.
+- Babel sigue compilando en el teléfono en cada carga: es el precio de «sin
+  build» y no se tocó.
+
+**Pruebas.** `limites` (nueva: 6 fallas sin los arreglos), `sin-cdn`
+(nueva: 8 fallas con los HTML de antes), `disco`, `vendor`, `puertas`,
+`alta-masiva`, `contraste`, `sintaxis` y la regresión completa.
+
+---
+
 ## Para el manual
 
 Al día el 11/11: `manual/manual.tex` y `manual.pdf` cubren los bloques 3, 4,

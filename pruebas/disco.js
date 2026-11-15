@@ -52,6 +52,40 @@ function arrancarProduccion(env) {
   r = arrancarProduccion({ DB_FILE: sinMontar });
   ok('con la carpeta del volumen inexistente no arranca', r.codigo === 1 && /el volumen no está montado/.test(r.salida), r.codigo);
   ok('y no la crea', !fs.existsSync(path.dirname(sinMontar)));
+  // OPS-01 (revisión 15/11): el volumen está, pero el nombre del archivo
+  // está mal escrito. Antes SQLite creaba una base vacía al lado de la buena.
+  const volumen = path.join(TMP, 'volumen-montado');
+  fs.mkdirSync(path.join(volumen, 'respaldos'), { recursive: true });
+  fs.writeFileSync(path.join(volumen, 'r14.db'), '');
+  const malEscrita = path.join(volumen, 'r14.bd');
+  r = arrancarProduccion({ DB_FILE: malEscrita, DISPATCH_PASSWORD: 'una-clave-larga-de-produccion-9' });
+  ok('con el nombre mal escrito y otra base en la carpeta, no arranca', r.codigo === 1 && /Casi seguro el nombre de DB_FILE está mal escrito/.test(r.salida), r.codigo);
+  ok('y no crea la base vacía', !fs.existsSync(malEscrita));
+  fs.unlinkSync(path.join(volumen, 'r14.db'));
+  fs.writeFileSync(path.join(volumen, 'respaldos', 'respaldo-2026-11-01-060000.db'), '');
+  r = arrancarProduccion({ DB_FILE: malEscrita, DISPATCH_PASSWORD: 'una-clave-larga-de-produccion-9' });
+  ok('tampoco si sólo quedan respaldos', r.codigo === 1 && /1 respaldo\(s\)/.test(r.salida), r.codigo);
+  // Con CREAR_BASE=1 sí: se lo deja correr unos segundos y se lo para
+  const conPermiso = spawn('node', [RAIZ + '/server/index.js'], {
+    env: { ...process.env, PORT: String(P), MODO: '', DB_FILE: malEscrita, CREAR_BASE: '1',
+           DISPATCH_PASSWORD: 'una-clave-larga-de-produccion-9', BASE_EN_DISCO_DE_APP: '1', RESPALDO_CADA_H: '0' },
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  let arranco = false;
+  for (let i = 0; i < 60 && !arranco; i++) { await sleep(250); try { await fetch(API + '/ping'); arranco = true; } catch {} }
+  conPermiso.kill(); await new Promise(res => conPermiso.on('exit', res));
+  ok('con CREAR_BASE=1, sí la crea y arranca', arranco && fs.existsSync(malEscrita));
+  const vacio = path.join(TMP, 'volumen-vacio');
+  fs.mkdirSync(vacio, { recursive: true });
+  const primera = spawn('node', [RAIZ + '/server/index.js'], {
+    env: { ...process.env, PORT: String(P), MODO: '', DB_FILE: path.join(vacio, 'r14.db'),
+           DISPATCH_PASSWORD: 'una-clave-larga-de-produccion-9', BASE_EN_DISCO_DE_APP: '1', RESPALDO_CADA_H: '0' },
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  arranco = false;
+  for (let i = 0; i < 60 && !arranco; i++) { await sleep(250); try { await fetch(API + '/ping'); arranco = true; } catch {} }
+  primera.kill(); await new Promise(res => primera.on('exit', res));
+  ok('en un volumen vacío (primera instalación) arranca sin pedir nada', arranco);
 
   console.log('\nB. /salud MIRA EN QUÉ DISCO ESTÁ LA BASE');
   const archivo = path.join(TMP, 'b.db');

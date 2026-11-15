@@ -63,7 +63,8 @@ app.use((req, res, next) => {
 //   - `'unsafe-inline'` y `'unsafe-eval'` en script: los tres HTML compilan
 //     con Babel standalone EN EL NAVEGADOR (`<script type="text/babel">`),
 //     que es evaluar en caliente. Es el precio de "sin build".
-//   - `unpkg.com`: React, ReactDOM, Babel, Leaflet (con su `integrity`).
+//   - `unpkg.com`: la caída de React, ReactDOM, Babel y Leaflet (con su
+//     `integrity`) cuando la copia de este servidor no está.
 //   - fuentes de Google, tiles de Geoapify y del mapa propio (`'self'`).
 //   - `connect-src` con `wss:`/`ws:`: el WebSocket del tiempo real.
 // `frame-ancestors 'none'` es el equivalente de `X-Frame-Options: DENY` en
@@ -238,6 +239,33 @@ if (EN_PRODUCCION) {
     console.error(`✖ La carpeta de DB_FILE no existe (${path.dirname(process.env.DB_FILE)}): el volumen no está montado.`);
     console.error('  No se arranca con una base nueva en el disco del contenedor: el próximo despliegue la borraría.');
     process.exit(1);
+  }
+  // La carpeta existe pero el ARCHIVO no (revisión 15/11, OPS-01). Con el
+  // nombre mal escrito (`r14.bd`, `R14.db`), SQLite creaba una base vacía al
+  // lado de la buena, `/salud` daba 200 —escribe, lee, hay respaldos
+  // recientes en la misma carpeta— y la cooperativa amanecía sin cuentas ni
+  // historial. Peor: cada 6 h se respaldaba la vacía y en una semana la
+  // rotación se llevaba todos los respaldos buenos.
+  //
+  // Una base nueva es legítima en un volumen VACÍO (la primera instalación).
+  // Si en la carpeta ya hay otra base o respaldos, es un error de nombre: no
+  // se arranca. Para crearla igual a propósito, CREAR_BASE=1.
+  const archivoBase = path.resolve(process.env.DB_FILE);
+  if (!fs.existsSync(archivoBase) && String(process.env.CREAR_BASE || '').trim() !== '1') {
+    const carpeta = path.dirname(archivoBase);
+    let otrasBases = [];
+    try { otrasBases = fs.readdirSync(carpeta).filter(n => /\.(db|sqlite3?)$/i.test(n)); } catch {}
+    let respaldos = 0;
+    try { respaldos = fs.readdirSync(path.join(carpeta, 'respaldos')).filter(n => /^respaldo-.*\.db$/.test(n)).length; } catch {}
+    if (otrasBases.length || respaldos) {
+      console.error(`✖ DB_FILE=${process.env.DB_FILE} no existe, pero en ${carpeta} ya hay ` +
+        [otrasBases.length ? `otra base (${otrasBases.slice(0, 3).join(', ')})` : null,
+         respaldos ? `${respaldos} respaldo(s)` : null].filter(Boolean).join(' y ') + '.');
+      console.error('  Casi seguro el nombre de DB_FILE está mal escrito: no se arranca con una base vacía al lado de la buena.');
+      console.error('  Si de verdad hay que empezar una base nueva en esta carpeta, CREAR_BASE=1 (una vez) y redesplegá.');
+      process.exit(1);
+    }
+    console.warn(`⚠ DB_FILE=${process.env.DB_FILE} no existe y la carpeta está vacía: se crea una base NUEVA (primera instalación).`);
   }
 }
 const db = openDatabase(Database, { crearCarpeta: !EN_PRODUCCION });
@@ -2783,7 +2811,7 @@ function avisarPuerta(routeId) {
     puertaPendiente.delete(routeId);
     const msg = JSON.stringify({ type: 'puerta', routeId, items: puertaDeRuta(routeId) });
     wss.clients.forEach((c) => {
-      if (c.readyState === 1 && esPanel(c) && watching.get(c) === routeId) c.send(msg);
+      if (c.readyState === 1 && esPanel(c) && watching.get(c) === routeId) mandarEnVivo(c, msg);
     });
   }, 1000));
 }
@@ -2849,7 +2877,7 @@ function avisarTelefonos(routeId) {
   if (!telefonosSucios.delete(routeId)) return;
   const msg = JSON.stringify({ type: 'telefonos', routeId, items: telefonosDeRuta(routeId) });
   wss.clients.forEach((c) => {
-    if (c.readyState === 1 && esPanel(c) && watching.get(c) === routeId) c.send(msg);
+    if (c.readyState === 1 && esPanel(c) && watching.get(c) === routeId) mandarEnVivo(c, msg);
   });
 }
 
@@ -3868,12 +3896,40 @@ function fallaLogin(res, unitId, user, ip = '') {
 
 // Async por el scrypt (ver `verifyPasswordAsync`), con su red: Express 4 no
 // atrapa la promesa.
+//
+// Con TOPE de verificaciones en curso (revisión 15/11, DIS-01). Los frenos
+// de intentos miran ANTES del scrypt y anotan el fallo DESPUÉS: mil pedidos
+// que llegan juntos pasaban todos con el contador en cero, cada uno encolaba
+// su scrypt en el pool de 4 hilos, y durante segundos se demoraban los
+// ingresos de todas las cooperativas —y todo lo demás que usa ese pool: el
+// zlib de los mensajes, los archivos—. Ahora el lugar se reserva antes de
+// verificar: hasta LOGIN_EN_CURSO_ORIGEN por origen y LOGIN_EN_CURSO_MAX en
+// todo el servidor; el que no entra recibe 429 en el acto, sin costar nada.
+// Los topes son holgados para la gente de verdad: muchos choferes salen a
+// internet por la misma IP del operador móvil, y un scrypt dura ~50 ms.
+const LOGIN_EN_CURSO_ORIGEN = Number(process.env.LOGIN_EN_CURSO_ORIGEN || 8);
+const LOGIN_EN_CURSO_MAX = Number(process.env.LOGIN_EN_CURSO_MAX || 64);
+const loginsEnCurso = new Map();   // origen → cuántos verificando ahora
+let loginsEnCursoTotal = 0;
 app.post('/auth/login', (req, res) => {
+  const ip = origenDe(req);
+  const deEse = loginsEnCurso.get(ip) || 0;
+  if (deEse >= LOGIN_EN_CURSO_ORIGEN || loginsEnCursoTotal >= LOGIN_EN_CURSO_MAX) {
+    res.set('Retry-After', '2');
+    return res.status(429).json({ error: 'Hay muchos ingresos al mismo tiempo. Probá de nuevo en unos segundos.' });
+  }
+  loginsEnCurso.set(ip, deEse + 1);
+  loginsEnCursoTotal++;
+  const soltar = () => {
+    loginsEnCursoTotal--;
+    const n = (loginsEnCurso.get(ip) || 1) - 1;
+    if (n > 0) loginsEnCurso.set(ip, n); else loginsEnCurso.delete(ip);
+  };
   login(req, res).catch((e) => {
     console.error('Login: ' + (e && e.stack || e));
     salud.anotarFallaDeBase(e);
     if (!res.headersSent) res.status(500).json({ error: 'No se pudo iniciar sesión' });
-  });
+  }).finally(soltar);
 });
 async function login(req, res) {
   const unitId = idLimpio(req.body?.user);
@@ -5772,7 +5828,7 @@ function aplicarCambioDeVariante(routeId, nueva, anterior, quien, motivo) {
 
   const msg = mensajeGeometria(routeId);
   for (const [ws, mirando] of watching) {
-    if (mirando === routeId && ws.readyState === 1) { try { ws.send(msg); } catch {} }
+    if (mirando === routeId && ws.readyState === 1) mandarEnVivo(ws, msg);
   }
   scheduleStateBroadcast(routeId, true);
 
@@ -6473,12 +6529,25 @@ class Deshacer extends Error {}
 // El alta masiva con su red: es async y Express 4 no atrapa la promesa, así
 // que un error después del primer `try` dejaba el pedido colgado sin
 // respuesta (auditoría 11/11).
+//
+// Con tope de importaciones a la vez en TODO el servidor (revisión 15/11,
+// DIS-04): cada una abre un hilo lector de hasta 256 MB y, al confirmar,
+// calcula cientos de claves. Diez despachos subiendo planillas a la vez
+// —de cooperativas distintas— eran gigas de memoria y el pool de hilos
+// ocupado, y eso frena los ingresos y el resto del servidor.
+const IMPORTACIONES_A_LA_VEZ = Number(process.env.IMPORTACIONES_A_LA_VEZ || 2);
+let importacionesEnCurso = 0;
 app.post('/admin/users/importar', requireDispatch, (req, res) => {
+  if (importacionesEnCurso >= IMPORTACIONES_A_LA_VEZ) {
+    res.set('Retry-After', '10');
+    return res.status(429).json({ error: 'Se están procesando otras planillas en este momento. Probá de nuevo en unos segundos' });
+  }
+  importacionesEnCurso++;
   importarPersonas(req, res).catch((e) => {
     console.error('Alta masiva: ' + (e && e.stack || e));
     salud.anotarFallaDeBase(e);
     if (!res.headersSent) res.status(500).json({ error: 'No se pudo terminar el alta: ' + (e && e.message || 'error') });
-  });
+  }).finally(() => { importacionesEnCurso--; });
 });
 async function importarPersonas(req, res) {
   let filas;
@@ -6520,6 +6589,26 @@ async function importarPersonas(req, res) {
   const tomados = new Set();
   const resultado = [];
   const valor = (f, k) => (indice[k] === undefined ? '' : String(f[indice[k]] ?? '').trim());
+  // La clave de cada fila se decide ANTES, y al confirmar se calcula su
+  // huella antes de crear nada (revisión 15/11, DIS-04). Antes las cuentas se
+  // creaban con una huella de relleno y la de verdad se ponía después: si el
+  // proceso se cortaba en ese rato, quedaban cuentas creadas en las que no
+  // entraba nadie, y subir la planilla otra vez decía «ya existe». Ahora
+  // cuenta y clave se guardan juntas, en una sola transacción, o nada.
+  //
+  // Las huellas, de a HUELLAS_A_LA_VEZ: el pool de libuv tiene 4 hilos y
+  // ahí también se verifican los ingresos de todas las cooperativas; 500
+  // scrypt de una vez los dejaban esperando varios segundos.
+  const clavesDe = datos.map(f => valor(f, 'clave') || claveGenerada());
+  const huellasDe = new Array(datos.length).fill(HASH_DE_RELLENO);
+  if (confirmar) {
+    const HUELLAS_A_LA_VEZ = 2;
+    for (let i = 0; i < datos.length; i += HUELLAS_A_LA_VEZ) {
+      const tanda = clavesDe.slice(i, i + HUELLAS_A_LA_VEZ);
+      const hechas = await Promise.all(tanda.map(c => hashPasswordAsync(c)));
+      hechas.forEach((h, k) => { huellasDe[i + k] = h; });
+    }
+  }
   const correr = () => {
     datos.forEach((f, j) => {
       const numero = iTitulos + j + 2;   // la fila como la ve la planilla (con títulos en la 1)
@@ -6530,7 +6619,7 @@ async function importarPersonas(req, res) {
       const generadoUsuario = !usuario;
       if (!usuario && nombre) usuario = usuarioDesdeNombre(nombre, tomados, req.empresa) || '';
       const claveDada = valor(f, 'clave');
-      const clave = claveDada || claveGenerada();
+      const clave = clavesDe[j];
       const fila = { fila: numero, usuario, nombre, alias: valor(f, 'alias') || null,
         rol: role, combi: valor(f, 'combi') || null, claveGenerada: !claveDada, usuarioGenerado: generadoUsuario };
       if (!role) { resultado.push({ ...fila, ok: false, motivo: `No sé qué rol es «${rolTexto}»: tiene que ser chofer o cobrador` }); return; }
@@ -6551,27 +6640,17 @@ async function importarPersonas(req, res) {
       }
       const r = altaDePersona(req, { unitId: usuario, name: nombre, alias: fila.alias, personRole: role,
         vehicleId: fila.combi || undefined, routeId: valor(f, 'ruta') || undefined, password: clave },
-        // La huella de relleno (no abre nada): al revisar se descarta, y al
-        // crear se reemplaza por la de verdad apenas termina la tanda
-        { silencioso: !confirmar, passHash: HASH_DE_RELLENO });
+        // Al revisar, la de relleno (no abre nada, y la transacción se
+        // deshace); al confirmar, la de verdad, ya calculada
+        { silencioso: !confirmar, passHash: huellasDe[j] });
       if (r.error) { resultado.push({ ...fila, ok: false, motivo: r.error }); return; }
       tomados.add(r.unitId.toUpperCase());
-      if (confirmar) claves.push([r.unitId, clave]);
       resultado.push({ ...fila, usuario: r.unitId, ok: true, combi: r.vehicleId, ruta: r.routeId,
         ...(confirmar ? { clave } : {}) });
     });
     if (!confirmar) throw new Deshacer();
   };
-  const claves = [];
   try { db.transaction(correr)(); } catch (e) { if (!(e instanceof Deshacer)) throw e; }
-  // Las huellas de verdad, en paralelo y fuera del hilo principal. Hasta que
-  // terminan, esas cuentas tienen la de relleno: no entra nadie (y no se
-  // contesta antes de que estén).
-  if (claves.length) {
-    const huellas = await Promise.all(claves.map(([, c]) => hashPasswordAsync(c)));
-    const poner = db.prepare('UPDATE users SET passHash = ? WHERE unitId = ? AND passHash = ?');
-    db.transaction(() => claves.forEach(([u], i) => poner.run(huellas[i], u, HASH_DE_RELLENO)))();
-  }
 
   const buenas = resultado.filter(r => r.ok).length;
   if (confirmar && buenas) {
@@ -9044,6 +9123,20 @@ for (const [archivo, tipo] of [['leaflet.js', 'application/javascript'], ['leafl
     res.type(tipo).sendFile(path.join(VENDOR_LEAFLET, archivo));
   });
 }
+// React, ReactDOM y Babel, igual que Leaflet (revisión 15/11, DIS-05): sin
+// ellos no se dibuja NADA, ni el SOS del chofer ni los de Despacho, y venían
+// sólo de unpkg. En una primera visita (o con la caché borrada), si el CDN no
+// contestaba, la pantalla quedaba vacía con el servidor de la cooperativa
+// andando perfecto. Son los mismos archivos que unpkg (los hashes de
+// `integrity` de los HTML coinciden byte a byte; la suite `vendor` lo mide).
+const VENDOR_REACT = path.join(__dirname, 'vendor', 'react');
+for (const archivo of ['react.production.min.js', 'react-dom.production.min.js', 'babel.min.js']) {
+  app.get('/vendor/react/' + archivo, (req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.type('application/javascript').sendFile(path.join(VENDOR_REACT, archivo));
+  });
+}
 
 // Cuando la app se sirve desde acá, habla con este mismo origen.
 // En hosting estático separado este archivo da 404 y la app cae al
@@ -9246,6 +9339,37 @@ const CUPO = {
 // Un cliente sano lee lo que recibe; uno que deja que se acumulen megas es
 // un teléfono colgado o alguien inflando la memoria del servidor.
 const WS_BUFFER_MAX = Number(process.env.WS_BUFFER_MAX || 8_000_000);
+// El envío EN VIVO con el mismo tope (revisión 15/11, DIS-02). El tope de
+// arriba sólo lo miraban el historial y el `identify`; el chat, las fotos y
+// los audios del reparto en vivo se encolaban sin mirar. Un teléfono que no
+// lee (red mala, aplicación congelada) juntaba fotos de 1 MB por cada
+// emisor de la ruta en la memoria del proceso que atiende a todas las
+// cooperativas, hasta que el latido lo cortaba. Ahora se corta apenas pasa
+// el tope SOSTENIDO: al reconectar recibe el historial y los SOS abiertos,
+// así que no se pierde nada que no vuelva solo. Devuelve si se mandó.
+//
+// Sostenido y no al primer pico: una ráfaga de fotos a un teléfono sano sube
+// `bufferedAmount` un instante (la compresión de cada una va en cola), y
+// cortarlo ahí era tirar a alguien que estaba leyendo bien. Se corta si
+// sigue arriba del tope WS_LLENO_MS, o en el acto con cuatro veces el tope.
+const WS_LLENO_MS = Number(process.env.WS_LLENO_MS || 5000);
+function mandarEnVivo(ws, crudo) {
+  if (!ws || ws.readyState !== 1) return false;
+  const pendiente = ws.bufferedAmount;
+  if (pendiente > WS_BUFFER_MAX) {
+    const ahora = Date.now();
+    if (!ws.llenoDesde) ws.llenoDesde = ahora;
+    if (pendiente > 4 * WS_BUFFER_MAX || ahora - ws.llenoDesde > WS_LLENO_MS) {
+      const quien = clients.get(ws) || 'sin identificar';
+      console.warn(`WebSocket de ${quien} con ${Math.round(pendiente / 1e6)} MB sin leer: se corta para que se ponga al día`);
+      try { ws.terminate(); } catch {}
+      return false;
+    }
+  } else if (ws.llenoDesde) {
+    ws.llenoDesde = 0;   // se puso al día
+  }
+  try { ws.send(crudo); return true; } catch { return false; }
+}
 // Conexiones a la vez por cuenta. Al pasar el tope se cierra la MÁS VIEJA,
 // no la nueva: la vieja suele ser la «medio muerta» que un teléfono dejó al
 // perder la red, y rechazar la nueva dejaría afuera al que reconecta.
@@ -10233,7 +10357,7 @@ function avisarPaneles(routeId, data) {
   const crudo = JSON.stringify(data);
   for (const [c, id] of clients) {
     if (c.readyState === 1 && panelVeRuta(profiles.get(id), routeId)) {
-      try { c.send(crudo); } catch {}
+      mandarEnVivo(c, crudo);
     }
   }
 }
@@ -10343,7 +10467,7 @@ function avisarAlQuePidio(fila, aviso) {
     const prof = profiles.get(id);
     if (!prof || (prof.role !== 'driver' && prof.role !== 'collector')) continue;
     if (id === fila.unitId || (fila.vehicleId && prof.vehicleId === fila.vehicleId)) {
-      try { c.send(crudo); } catch {}
+      mandarEnVivo(c, crudo);
     }
   }
 }
@@ -10537,12 +10661,12 @@ function enviarPrivadoPersona(routeId, personId, payload, emisorWs = null) {
     const esPanelDeLaRuta = (prof.role === 'dispatch' || prof.role === 'manager') &&
       (watching.get(ws) === routeId || (prof.routeId ? prof.routeId === routeId : rutaDeEmpresa(routeId, prof.companyId)));
     if (esElla || esPanelDeLaRuta) {
-      try { ws.send(crudo); } catch {}
+      mandarEnVivo(ws, crudo);
       mandados.add(ws);
     }
   }
   if (emisorWs && emisorWs.readyState === 1 && !mandados.has(emisorWs)) {
-    try { emisorWs.send(crudo); } catch {}
+    mandarEnVivo(emisorWs, crudo);
   }
 }
 
@@ -10572,12 +10696,12 @@ function enviarPrivado(routeId, toVehicleId, payload, emisorWs = null) {
     const esDeEsaCombi = prof.vehicleId === toVehicleId;
     const esDespachoDeLaRuta = (prof.role === 'dispatch' || prof.role === 'manager') && watching.get(ws) === routeId;
     if (esDeEsaCombi || esDespachoDeLaRuta) {
-      try { ws.send(crudo); } catch {}
+      mandarEnVivo(ws, crudo);
       mandados.add(ws);
     }
   }
   if (emisorWs && emisorWs.readyState === 1 && !mandados.has(emisorWs)) {
-    try { emisorWs.send(crudo); } catch {}
+    mandarEnVivo(emisorWs, crudo);
   }
 }
 
@@ -11334,7 +11458,7 @@ function broadcastToRoute(routeId, data) {
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
     if (client.readyState === 1 && watching.get(client) === routeId) {
-      client.send(msg);
+      mandarEnVivo(client, msg);
     }
   });
 }
@@ -11350,7 +11474,7 @@ function broadcastToSupervisors(data, exceptRoute) {
   wss.clients.forEach((client) => {
     if (client.readyState === 1 && esSupervisor(client) &&
         empresaDe(client) === empresa && watching.get(client) !== exceptRoute) {
-      client.send(msg);
+      mandarEnVivo(client, msg);
     }
   });
 }
