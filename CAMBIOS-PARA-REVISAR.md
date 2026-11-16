@@ -1476,7 +1476,55 @@ quieto y a 500 m, y el chip del ingreso con y sin /ping.
 
 ---
 
+## 21. Auditoría de UI del 16/11, fase 3 — `1579c3d` a `1c39963` (16/11)
+
+**Qué.** La fase 3 del plan: la app nativa, seis commits.
+- **Colores por papel** (A2, A3): texto secundario, verde/ámbar/rojo como
+  texto y como fondo lleno, lo escrito sobre el botón principal, las
+  burbujas del chat y el contorno de los controles tienen su token en las
+  dos paletas, y todos pasan contraste.
+- **De día, clara** (A1): los valores del tema `day` de la web. El mapa
+  sigue oscuro; la barra del sistema cambia de tinta con el tema.
+- **Ningún texto bajo 12 px**, rótulos en la sans (A4).
+- **El diagnóstico del GPS sólo cuando hay algo que avisar** (A5); el
+  detalle completo, en Perfil.
+- **«Quitar animaciones» del teléfono se respeta** en el carrusel (A6).
+- **Con la pantalla apagada, la notificación dice «sin señal»** cuando el
+  envío de la posición falla en ruta (lo que faltaba de N1 en la APK).
+
+**Archivos.** `app/App.js`, `app/tema.js`, `app/hud.js` (`avisoSinSenal`),
+`app/notificacion.js` (`notificarSinSenal`), `app/gps/servicio.js`,
+`app/README.md`, y en `pruebas/`: `contraste.js`, `nativas.js`, `hud.js`.
+Nuevo: `auditoria-ui/vista-apk.js` (vista HTML armada con los estilos
+reales, para revisar sin teléfono).
+
+**Mirar.**
+- **A1 se hizo sin la prueba de campo** que el plan ponía antes. Karma la va
+  a hacer con distintos niveles de brillo. Si no convence: revertir
+  `23c9b72`.
+- **El splash sigue oscuro** (`app/app.json`): pide una APK nueva.
+- **La notificación de «sin señal»** usa la misma notificación de la
+  brecha (mismo id, canal de importancia baja, sin sonido): se reemplaza,
+  no se apila, y cambia una vez por minuto («hace N min»). Ver en el
+  teléfono que de verdad no suene ni vibre.
+- **A6 no se vio** con la preferencia activa en un teléfono.
+- Nada de este bloque corrió en un teléfono: sale por EAS Update y hay que
+  mirarlo antes de mandarlo a todos.
+
+**Pruebas.** `contraste` (26 pares de la APK, día y noche), `nativas`
+(colores a mano, piso de 12 px, el criterio de A5 ejecutado, A6), `hud`
+(seis casos de `avisoSinSenal`), `tema`, `sintaxis` y la regresión
+completa.
+**Manual:** no todavía (ver abajo).
+
+---
+
 ## Para el manual
+
+**Del bloque 21 (16/11), pendiente:** la app nativa de día es clara; el
+diagnóstico del GPS pasó a Perfil («EL GPS») y en la ruta sólo aparece si
+hay un problema; la notificación de «sin señal». Volver a sacar las
+capturas de la APK cuando se haya probado en la calle.
 
 **Del bloque 20 (16/11), pendiente:** el DESHACER de AUSENTE (se declara a
 los 5 s), que el chat sin señal deja el mensaje escrito, que AUSENTE vuelve

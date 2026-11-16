@@ -279,11 +279,45 @@ Lo que salió al hacerla:
 - El deslizador del SOS sigue animando `left` y `width`: tocar ese gesto no
   entraba en un retoque. Queda anotado.
 
-### Fase 3 — La APK (3–4 días, más la prueba de campo)
+### Fase 3 — La APK · **HECHA (16/11)**, falta la prueba en la calle con distintos brillos
 
-1. Prueba de campo de A1 **antes** de escribir código.
-2. Según el resultado: A1 (temas), A2, A3, A4, A5, A6.
-3. Sale por EAS Update; no hace falta una APK nueva.
+Un commit por punto, en `app/`. Detalle en `CAMBIOS-PARA-REVISAR.md`, bloque 21.
+La prueba de campo de A1 iba **antes**; se hizo al revés porque Karma vio la
+paleta clara en los prototipos, le pareció bien y la va a probar él con
+distintos niveles de brillo. Si no convence, volver atrás es revertir
+`23c9b72` (la oscura de antes queda escrita en `tema.js` como `MAPA_DIA`).
+
+| Punto | Commit | Qué quedó |
+| --- | --- | --- |
+| A2 y A3 colores por papel | `1579c3d` | Catorce tokens nuevos en las dos paletas; ningún color a mano en `crearEstilos()` salvo el blanco del logo y el negro del visor; `contraste.js` mide 26 pares de la APK |
+| A1 de día, clara | `23c9b72` | Los valores del tema `day` de la web. El mapa sigue oscuro (`paletaMapa`); la barra del sistema cambia de tinta con el tema |
+| A4 piso de 12 px | `4913101` | Ningún texto bajo 12 px; los rótulos, en la sans |
+| A5 diagnóstico del GPS | `ca19bd0` | En la ruta sólo si hay algo que avisar (servicio parado, batería optimizada, posiciones en espera o descartadas, un envío colgado 20 s, nada enviado hace 60 s); siempre, en Perfil |
+| A6 quitar animaciones | `8ba0deb` | Con la preferencia del teléfono, el carrusel salta sin resorte |
+| N1 en la APK, la notificación | `1c39963` | Con la pantalla apagada, si el envío falla en ruta, la notificación dice «SIN SEÑAL · hace N min» |
+
+**Lo que falta, y no es código:**
+
+1. **La prueba en la calle** con el brillo al mínimo, al medio y al máximo,
+   de mediodía y al atardecer (antes de las 18:30, cuando todavía es la
+   paleta de día): ¿se lee la brecha de reojo? ¿encandila?
+2. **El splash** sigue oscuro (`app/app.json`, `#0A1A2E`): cambiarlo pide
+   una APK nueva, no entra por EAS Update. Un segundo oscuro antes de una
+   pantalla clara no rompe nada; se cambia en el próximo build.
+3. **Nada de esto se vio en un teléfono.** Se vio en código, en las suites y
+   en `auditoria-ui/vista-apk.js`, que arma las pantallas en HTML con los
+   estilos reales de `crearEstilos()` (no es la app: sin fuente del
+   teléfono, sin mapa, sin márgenes del sistema).
+
+Lo que salió al hacerla:
+
+- `linea` hacía de divisor y de contorno de los controles a la vez; un
+  divisor no tiene que verse, un contorno sí (3:1). Se separó en `borde`.
+- La burbuja propia del chat seguía azul brillante de noche: era uno de los
+  colores escritos a mano.
+- El chequeo de «hooks después de un return temprano» de `nativas.js` da
+  falso positivo si un hook se define debajo de un componente; los hooks
+  nuevos van arriba.
 
 ### Fase 4 — Densidad de Despacho (2–3 días)
 
