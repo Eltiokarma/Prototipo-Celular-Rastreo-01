@@ -1783,6 +1783,25 @@ function LoginScreen({ onSuccess, notice }) {
   const [error, setError] = React.useState(null);
   const [offerDemo, setOfferDemo] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  // Lo que dice el chip de arriba: 'buscando', 'si' o 'no'. Antes decía
+  // «Conectado» siempre, antes de haber hablado con el servidor (B13). Si no
+  // contesta, se vuelve a probar cada 10 s y cuando el teléfono avisa que
+  // volvió la red.
+  const [alcance, setAlcance] = React.useState('buscando');
+  React.useEffect(() => {
+    let vivo = true, t = null;
+    const probar = async () => {
+      clearTimeout(t);
+      const ok = window.RealtimeClient && window.RealtimeClient.alcanzable ? await window.RealtimeClient.alcanzable() : false;
+      if (!vivo) return;
+      setAlcance(ok ? 'si' : 'no');
+      if (!ok) t = setTimeout(probar, 10_000);
+    };
+    probar();
+    const enLinea = () => probar();
+    window.addEventListener('online', enLinea);
+    return () => { vivo = false; clearTimeout(t); window.removeEventListener('online', enLinea); };
+  }, []);
   // «Olvidé mi contraseña» era un enlace a "#": tocarlo no hacía nada. No hay
   // recuperación por correo (nadie tiene uno cargado): la clave nueva la pone
   // Despacho, y eso es lo que hay que decir.
@@ -1856,8 +1875,12 @@ function LoginScreen({ onSuccess, notice }) {
         background: HUD.input, border: `1px solid ${HUD.line}`, borderRadius: 100,
         marginBottom: 22,
       }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: HUD.green }} />
-        <span style={{ fontFamily: '"Helvetica Neue", system-ui, sans-serif', fontSize: 13, fontWeight: 700, color: HUD.greenInk }}>Conectado</span>
+        <span style={{ width: 8, height: 8, borderRadius: '50%',
+          background: alcance === 'si' ? HUD.green : alcance === 'no' ? HUD.amber : HUD.dim3 }} />
+        <span role="status" data-alcance={alcance} style={{ fontFamily: '"Helvetica Neue", system-ui, sans-serif', fontSize: 13, fontWeight: 700,
+          color: alcance === 'si' ? HUD.greenInk : alcance === 'no' ? HUD.amberTexto : HUD.dim2 }}>
+          {alcance === 'si' ? 'Conectado' : alcance === 'no' ? 'Sin conexión con el servidor' : 'Buscando el servidor…'}
+        </span>
       </div>
 
       <div onKeyDown={handleKeyDown}>

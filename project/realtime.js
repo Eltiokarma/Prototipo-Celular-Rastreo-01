@@ -712,6 +712,16 @@
   const pedirMarca = (token) => pedirConToken('/marca', token);
   // La última posición si es reciente (la misma regla que el SOS): para el
   // SMS a la central cuando el SOS no sale por internet
+  // ¿Contesta el servidor? Para el ingreso, que decía «Conectado» antes de
+  // haber hablado con nadie (auditoría de UI, B13). Corta a los 5 s.
+  async function alcanzable(ms = 5000) {
+    const corte = new AbortController();
+    const t = setTimeout(() => corte.abort(), ms);
+    try { const res = await fetch(HTTP_URL + '/ping', { cache: 'no-store', signal: corte.signal }); return res.ok; }
+    catch { return false; }
+    finally { clearTimeout(t); }
+  }
+
   function posicionReciente() {
     const fresca = lastPosition && Date.now() - (lastPosition.timestamp || 0) <= POSICION_SOS_MAX_MS;
     // `t` es cuándo la leyó el GPS: el vigía de la ausencia no cuenta dos
@@ -726,6 +736,7 @@
     misCombis,
     pedirMarca,
     posicionReciente,
+    alcanzable,
     elegirCombi,
     connect,
     disconnect,
