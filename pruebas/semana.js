@@ -52,7 +52,7 @@ console.log('\nLA PANTALLA, POR LECTURA');
   ok('la app lee su versión de la instalación (expo-application), no de app.json',
      /from 'expo-application'/.test(app) && /nativeBuildVersion/.test(app) && pkg.dependencies['expo-application'] === '~7.0.8');
   ok('el login lleva la versión y el perfil y el POST /gps la cabecera',
-     /entrar\(usuario\.trim\(\), clave, APP\)/.test(app) && /\.\.\.\(app \? \{ app \} : \{\}\)/.test(cliente) &&
+     /entrar\(usuario\.trim\(\), clave, APP[,)]/.test(app) && /\.\.\.\(app \? \{ app \} : \{\}\)/.test(cliente) &&
      /\.\.\.CABECERA_APP/.test(app) && /\.\.\.CABECERA_APP/.test(servicio) && /cabeceraDeApp/.test(servicio));
   ok('el aviso de versión está en la pantalla de ruta y en el perfil, y el grave va en rojo',
      /avisoApp=\{avisoDeApp\(sesion && sesion\.app, APP\)\}/.test(app) && (app.match(/avisoApp\.grave && \{ color: C\.rojo \}/g) || []).length === 2);

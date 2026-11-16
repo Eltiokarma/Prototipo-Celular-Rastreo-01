@@ -1552,8 +1552,10 @@ otro guardia), `pruebas/regresion.js`.
   entra a la cadena de brechas y no sirve de respaldo para el SOS. En la
   demo, igual que antes.
 - **Usuarios reusados (SEG-02).** No se da de alta un usuario con turnos o
-  mensajes en NINGUNA cooperativa (antes, sólo en la propia). El perfil no
-  muestra nada anterior al alta de la cuenta.
+  mensajes en NINGUNA cooperativa (antes, sólo en la propia). (Se probó
+  también recortar el perfil a la fecha de alta y se sacó: las vueltas son
+  de la combi, no de la persona, y Despacho puede cargar turnos de antes del
+  alta. Con el reuso bloqueado no hace falta.)
 - **La clave que el chofer le pone al cobrador (SEG-03).** Es temporal: el
   login con ella contesta 409 `claveTemporal` y para entrar hay que mandar
   una propia (`nueva`), que se guarda antes de crear la sesión. La app y la

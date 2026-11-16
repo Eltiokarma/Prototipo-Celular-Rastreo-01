@@ -4532,9 +4532,11 @@ app.get('/perfil', (req, res) => {
   // Días de calendario, la misma cuenta que el panel del gerente (E14): si
   // acá fueran rodantes, «Mi semana» y la liquidación de Despacho saldrían
   // distintas y nadie tendría cómo saber cuál está bien.
-  // Nada de antes de que existiera ESTA cuenta (revisión 15/11, SEG-02):
-  // si el usuario fue de otra persona, sus turnos y SOS no son de ésta.
-  const desde = Math.max(desdeEnDias(dias, ahora), Number(user.createdAt) || 0);
+  // (SEG-02, revisión 15/11: lo de otra persona con el mismo usuario no puede
+  // aparecer acá porque un usuario con historia ya no se vuelve a dar de alta
+  // —ver `usuarioConHistoria`—. No se recorta por la fecha de alta: las
+  // vueltas son de la COMBI, y Despacho puede cargar turnos de antes del alta.)
+  const desde = desdeEnDias(dias, ahora);
   const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
 
   // Las vueltas son del VEHÍCULO (la vuelta es de la combi, la maneje
