@@ -230,8 +230,23 @@ function avisoDesdeRespuesta(brecha, ahora = Date.now()) {
   return { titulo: textoNotificacion(hud, true), detalle: hud.instruccion };
 }
 
+// La notificación cuando los envíos dejan de salir (auditoría de UI, N1 en la
+// APK). Con la pantalla apagada la notificación se actualiza con la respuesta
+// de cada POST /gps; si fallan, seguía mostrando la última brecha como si
+// fuera de ahora. En minutos y no en segundos: la notificación se re-emite
+// sólo cuando cambia el texto, y un intento cada 10 s no tiene que
+// re-emitirla cada 10 s. Devuelve null con el último envío fresco.
+function avisoSinSenal(ultimoEnvio, ahora = Date.now()) {
+  if (!ultimoEnvio || ahora - ultimoEnvio < VIEJA_MS) return null;
+  const min = Math.floor((ahora - ultimoEnvio) / 60_000);
+  return {
+    titulo: `SIN SEÑAL · ${min < 1 ? 'hace menos de 1 min' : `hace ${min} min`}`,
+    detalle: 'La última brecha puede haber cambiado. Andá con cuidado: las otras combis siguen en ruta.',
+  };
+}
+
 module.exports = {
-  construirHud, textoNotificacion, avisoDesdeRespuesta,
+  construirHud, textoNotificacion, avisoDesdeRespuesta, avisoSinSenal,
   // Se exportan para las pruebas y para que las pantallas no las repitan
   aMinutos, estadoDe, objetivoLegible, sinCeroInicial, duracionLegible,
   VIEJA_MS, PERDIDA_MS,

@@ -16,7 +16,7 @@
 // es un lujo; la posición es el producto.
 
 import * as Notifications from 'expo-notifications';
-import { avisoDesdeRespuesta } from './hud.js';
+import { avisoDesdeRespuesta, avisoSinSenal } from './hud.js';
 
 const CANAL = 'brecha';
 const ID = 'brecha-viva';
@@ -56,7 +56,17 @@ async function preparar() {
 // bien. Se re-emite solo cuando el TEXTO cambia: la misma brecha cada 10 s
 // no le aporta nada a nadie y desgasta de más.
 export async function notificarBrecha(brecha) {
-  const aviso = avisoDesdeRespuesta(brecha);
+  return mostrar(avisoDesdeRespuesta(brecha));
+}
+
+// Los envíos dejaron de salir: la misma notificación (mismo id, mismo canal
+// bajo) pasa a decir «SIN SEÑAL · hace N min» en vez de la última brecha.
+// El próximo envío que salga la vuelve a la brecha (auditoría de UI, N1).
+export async function notificarSinSenal(ultimoEnvio, ahora = Date.now()) {
+  return mostrar(avisoSinSenal(ultimoEnvio, ahora));
+}
+
+async function mostrar(aviso) {
   if (!aviso || aviso.titulo === ultimo) return;
   await preparar();
   if (!preparado) return;

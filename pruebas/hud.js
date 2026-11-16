@@ -5,7 +5,7 @@
 // probar sin un teléfono, y es justo donde estuvieron todos los bugs de esta
 // pantalla. Cada caso de acá corresponde a algo que salió mal de verdad.
 const RAIZ = require('path').join(__dirname, '..');
-const { construirHud, textoNotificacion, avisoDesdeRespuesta } = require(RAIZ + '/app/hud.js');
+const { construirHud, textoNotificacion, avisoDesdeRespuesta, avisoSinSenal } = require(RAIZ + '/app/hud.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -189,6 +189,17 @@ console.log('\nSIN SEÑAL, LA BRECHA VIEJA NO SE VE COMO VIVA (auditoría de UI,
   ok('el acompañante sin conexión, sí', construirHud(b, T, { recibido: T - 2_000, fiable: false, conectado: false }).viejo === true);
   ok('sin hora de llegada (la notificación) se toma como fresca', !construirHud(b, T).viejo);
   ok('la notificación lo dice', textoNotificacion(vieja, true) === 'Sin señal hace 0:12 · la brecha puede haber cambiado', textoNotificacion(vieja, true));
+}
+
+console.log('\nLA NOTIFICACIÓN TAMBIÉN DICE SIN SEÑAL (pantalla apagada)');
+{
+  const T = 1_700_000_000_000;
+  ok('con el último envío fresco no dice nada', avisoSinSenal(T - 5_000, T) === null);
+  ok('sin ningún envío todavía, tampoco', avisoSinSenal(null, T) === null);
+  ok('a los 30 s, «hace menos de 1 min»', avisoSinSenal(T - 30_000, T).titulo === 'SIN SEÑAL · hace menos de 1 min');
+  ok('a los 3 min, «hace 3 min»', avisoSinSenal(T - 200_000, T).titulo === 'SIN SEÑAL · hace 3 min');
+  ok('el texto cambia por minuto, no por intento', avisoSinSenal(T - 70_000, T).titulo === avisoSinSenal(T - 110_000, T).titulo);
+  ok('y avisa que la brecha puede haber cambiado', /puede haber cambiado/.test(avisoSinSenal(T - 30_000, T).detalle));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
