@@ -194,6 +194,8 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
   ok('B4/B6 · la raíz conserva ?ensayo= al pasar a la app', /location\.replace\('Prototipo\.html' \+ location\.search/.test(leer('project/index.html')));
   // N8: la web no tenía el vigía de la ausencia (la lógica la cubre ausencia.js)
   ok('N8 · la web vigila la ausencia y vuelve a ruta sola', /const vigia = crearVigiaAusencia\(\);/.test(prototipo) && /titulo: 'VOLVISTE A RUTA'/.test(prototipo) && /t: lastPosition\.timestamp/.test(leer('project/realtime.js')));
+  // N6: un bloqueo de 15 s sin explicación se leía como falla
+  ok('N6 · «Entrar AUSENTE» no queda bloqueado sin decir por qué', !/const \[countdown, setCountdown\]/.test(prototipo) && /Entrar AUSENTE \(comer, un repuesto\)/.test(prototipo));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

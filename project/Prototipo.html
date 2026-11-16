@@ -2227,12 +2227,11 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
     }
     setEligiendo(false);
   };
-  const [countdown, setCountdown] = React.useState(15);
-  React.useEffect(() => {
-    if (countdown <= 0) return;
-    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [countdown]);
+  // «Entrar AUSENTE» esperaba 15 s bloqueado («· en 12s») sin decir por qué
+  // (auditoría de UI, N6). Venía de la maqueta del 6/8 («Descansar 10 min ·
+  // disponible en 15s») y nada en el repo explica para qué: se sacó. Entrar
+  // ausente por error no descarta ninguna vuelta (todavía no empezó), y si
+  // arranca a manejar, el vigía de la ausencia lo devuelve a ruta solo.
   const isFirstLap = lapNumber === 1;
   // Lo que se sabe de verdad al abrir el turno. El turno con horario fijo
   // no existe en el modelo: se abre cuando el chofer se conecta y se cierra
@@ -2432,16 +2431,15 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
       {/* Entrar AUSENTE: el que está por comer o buscando un repuesto no
           cruza la puerta mintiendo "en ruta" — declara lo que es. Despacho
           lo ve en el mapa, quieto, fuera de la cadena de brechas. */}
-      <button onClick={onRest} disabled={countdown > 0} style={{
+      <button onClick={onRest} style={{
         width: '100%', minHeight: 48, padding: '10px 12px',
         fontSize: 15, fontWeight: 700, letterSpacing: 0.3,
         fontFamily: sans,
-        background: 'transparent',
-        color: countdown > 0 ? HUD.dim3 : HUD.fg2,
-        border: `${countdown > 0 ? 1 : 2}px solid ${countdown > 0 ? HUD.line : HUD.dim3}`,
-        borderRadius: 12, cursor: countdown > 0 ? 'not-allowed' : 'pointer',
+        background: 'transparent', color: HUD.fg2,
+        border: `2px solid ${HUD.dim3}`,
+        borderRadius: 12, cursor: 'pointer',
       }}>
-        {countdown > 0 ? `Entrar AUSENTE (comer, un repuesto) · en ${countdown}s` : 'Entrar AUSENTE (comer, un repuesto)'}
+        Entrar AUSENTE (comer, un repuesto)
       </button>
 
       {/* SOS: abajo de todo, como en el HUD. El mismo deslizador. */}
