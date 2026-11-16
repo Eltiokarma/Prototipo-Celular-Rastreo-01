@@ -22,7 +22,11 @@ son otra tarea, un commit por cambio.
   queda es densidad: entran 4 de 7 unidades sin desplazar, y hay 46 textos de
   11 px en una pantalla de ocho horas.
 - **Creador, privacidad, consentimiento y gerencia: sin hallazgos de peso.**
-- **Una cosa que no es visual y pesa:** la app le habla de «vos» (Deslizá,
+- **Lo más grave no es visual** (segunda pasada, de comportamiento): sin
+  señal, el HUD del chofer sigue mostrando la brecha vieja en verde con
+  «Mantené el ritmo». A los 30 s todavía dice «EN VIVO»; a los 90 s dice
+  «SIMULADO». Despacho ya resuelve esto; el chofer no.
+- **Otra cosa que no es visual y pesa:** la app le habla de «vos» (Deslizá,
   Mantené, Aflojá) a choferes de Juliaca. Decisión tuya; si se cambia, el
   costo está contado abajo.
 
@@ -44,6 +48,14 @@ contraste contra el fondo real y las animaciones vivas, con y sin
 Criterio: los skills `refactoring-ui` (ubicar cada problema en su nivel antes
 de pulir) y `design-interface-animation` (cada movimiento tiene que ganarse su
 lugar), sobre las invariantes de `diseno-coop`, que mandan.
+
+**Segunda pasada, de comportamiento**, con el skill `design-of-everyday-things`
+(Norman): no cómo se ve cada pantalla sino dónde se rompe la actividad. Qué
+cree la persona que pasó, qué estado le confirma el sistema, qué ocurre si se
+corta la red, si toca dos veces o si borra sin querer. Se leyó el código de
+cada flujo y se hizo una prueba en vivo: cortar la red con el chofer en ruta
+y mirar la pantalla a los 5, 15, 30, 60 y 90 segundos
+([`auditoria-ui/corte.js`](auditoria-ui/corte.js)). Son la sección N.
 
 **Lo que este informe no puede afirmar:** que algo se lea mejor al sol, que el
 chofer se equivoque menos o que Despacho detecte antes un pelotón. Nada se
@@ -126,6 +138,38 @@ el mínimo, ningún control chico, sin movimiento. Nada que cambiar.
 | --- | --- | --- | --- |
 | X1 | P2 | La landing trata de «usted» y las pantallas usan voseo rioplatense: «Deslizá para SOS», «Mantené el ritmo», «Apurá / Aflojá un poco», «¿En qué combi salís?». El público son choferes y despachadores de Juliaca. | Pasar todo a «tú» de una sola vez, con la tabla del prototipo 7. **Si el voseo es a propósito, se descarta este punto.** |
 
+### N. Comportamiento: dónde se rompe la actividad
+
+| ID | P | Qué pasa | Cambio | Cómo se comprueba |
+| --- | --- | --- | --- | --- |
+| N1 | **P1** | **Sin señal, la brecha vieja se ve igual que una viva.** Medido en la web: a los 30 s sin red sigue «EN VIVO · 7»; entre 30 y 60 s el rótulo pasa a «SIMULADO»; a los 90 s el 5:12 sigue grande, verde y con «Mantené el ritmo». La cabecera del chat repite la misma brecha vieja (ahí sí dice «sin conexión»). En la APK el rótulo sí dice «○ SIN CONEXIÓN», pero los dígitos quedan (leído en código). | Reloj en el cliente sobre el último estado recibido: a los 10 s, «SIN SEÑAL» con su tiempo y el número en gris; a los 60 s, el número se retira. Despacho ya lo hace (líneas 6190 y 6578). | Prototipo 8. Prueba de navegador que corte la red; casos nuevos en `pruebas/hud.js`. |
+| N2 | P1 | **«Salir de ruta» se confirma con un doble toque.** El primer toque arma al instante y el botón cambia de función en el mismo lugar; un segundo toque inmediato sale (web línea 2746, APK línea 1499). Un rebote del dedo en una combi en marcha alcanza. Salir borra la combi del mapa y descarta la vuelta. | Ignorar toques los primeros 0,6 s después de armar. Despacho ya aprendió esto: la baja se arma a los 700 ms y «ATENDIDO» a los 1200 ms. | Doble toque rápido no sale; dos toques separados sí. Prototipo 1. |
+| N3 | P2 | **El mensaje del chofer no tiene estado «enviando», y sin señal el borrador se pierde.** En la web el campo se vacía al tocar enviar y la burbuja aparece recién con el eco del servidor. Sin señal queda una burbuja verde, igual a una enviada, con el rótulo «NO SALIÓ», sin forma de reintentar. Despacho conserva el borrador y lo dice; la APK deshabilita el envío y avisa. Son tres respuestas distintas al mismo corte. Además «Tú ✓✓» copia la marca de «entregado» de WhatsApp y aquí solo significa que llegó al servidor. | Que la web haga lo de Despacho: el borrador se queda y se dice. Un solo ✓, o la palabra «Enviado». | Sin red, el texto escrito sigue en el campo. |
+| N4 | P2 | **Trazador: «Borrar la ida» vacía el tramo de un clic y no se puede deshacer.** Está pegado a «Deshacer último punto», del mismo tamaño; «Deshacer» no recupera el borrado. La única salida es cancelar y perder lo demás sin guardar. | Que borrar guarde el tramo anterior y ofrezca recuperarlo. No un «¿Seguro?». | Prototipo 9. |
+| N5 | P2 | **Despacho: a quién le escribo solo lo dice la cabecera.** El hilo privado queda abierto hasta volver al grupo; el campo y el botón son iguales para «toda la ruta» y para «solo Rufo», y el texto de ayuda desaparece con la primera letra. Un mensaje enviado al hilo equivocado no se puede retirar. | El destino escrito junto al campo y en el botón. | **Hipótesis H6**: no consta que el desliz ocurra. Prototipo 10. |
+| N6 | P3 | **«Entrar AUSENTE» está bloqueado 15 s** al abrir la puerta («· en 12s») y la pantalla no dice qué se espera (líneas 2153 y 2366). Un bloqueo que no se explica se lee como falla. | Decir la razón en el botón, o quitar la espera. Falta saber para qué se puso. | — |
+| N7 | P3 | **Hora y duración con el mismo formato en la misma tarjeta** de Despacho: la brecha «08:04» (ocho minutos) al lado de «Sin señal desde 14:58» (una hora del día). | Sin cero adelante, como en el HUD del chofer, y la unidad en la cabecera de la columna. | Entra con la lista compacta (C1). |
+| N8 | P3 | **La web no tiene el vigía de la ausencia** que sí tiene la APK (`app/ausencia.js`): quien almuerza, arranca y olvida «VOLVER A RUTA» trabaja invisible. El servidor lo anota como `ausente_en_marcha`, pero a la pantalla no le llega. | Llevar esa lógica a la web (es JavaScript puro) o que el servidor lo mande en el estado. | Ausente y en marcha: la web avisa o vuelve sola. |
+| N9 | P3 | **«ATENDIDO» en Despacho le llega al chofer como «DESPACHO VIO TU SOS · Lo marcó atendido».** «Visto» y «atendido» prometen cosas distintas a quien espera ayuda. | Elegir una: lo que el botón garantiza hoy es «visto». | Preguntarle a un chofer qué entiende que va a pasar. |
+
+**N1, en detalle** (es el único que puede terminar en una maniobra):
+
+- **Actividad:** el chofer regula su marcha contra las combis de adelante y de
+  atrás, mirando un número de reojo.
+- **Observado:** lo de la tabla, con la red cortada en el navegador. El
+  cliente tarda entre 30 y 60 s en notar que el socket murió.
+- **Inferido:** en una zona sin cobertura el chofer puede recibir «Apurá» o
+  «Mantené» de un dato de hace varios minutos. No se observó a nadie hacerlo.
+- **No sé:** cuánto tarda un teléfono real en notar el corte, y qué muestra la
+  notificación de la APK con la pantalla apagada.
+- **Mecanismo:** el silencio se lee como normalidad. El color de estado
+  afirma algo que el sistema ya no sabe, y «SIMULADO» es vocabulario de la
+  maqueta, no del chofer.
+- **Qué se podría perder:** con umbrales muy cortos, la pantalla parpadea en
+  cada bache de señal. Por eso los primeros 10 s no cambian nada.
+- **Ya está escrito** en `LIMITACIONES.md` (sección B) que «las brechas se
+  congelan». Lo que falta es que la pantalla lo diga.
+
 ---
 
 ## Lo que funciona y no hay que romper
@@ -140,6 +184,16 @@ el mínimo, ningún control chico, sin movimiento. Nada que cambiar.
   700 ms, el número que crece una vez al cambiar de estado (`cambio .22s`), y
   el apagado global con `prefers-reduced-motion`.
 - **Los cuatro avisos de seguridad** están, fijos y a la vista.
+- **La cadena del SOS** está bien pensada de punta a punta: «ALERTA ENVIADA»
+  solo si el servidor contestó, «SOS NO SALIÓ» con llamada y SMS si no, la
+  cola cuando llegan dos, «ATENDIDO» que avisa si no salió, y el aviso de
+  vuelta al chofer.
+- **Lo que el sistema decide no adivinar:** «sin nadie» y «sin señal» son
+  estados distintos; «YENDO A LA RUTA» en vez de una brecha inventada; el
+  relevo nombra a quién le quitas la combi; el tráfico se apaga solo al andar;
+  el vigía de la puerta cuenta en voz alta y deja cancelar.
+- **Despacho sin conexión**: atenúa la lista y el mapa, dice «Reconectando…»
+  y conserva el borrador del mensaje. Es el modelo para N1 y N3.
 - **El tema día de fábrica** y la reserva de `#FF2D55`.
 
 ---
@@ -171,10 +225,13 @@ Cambios chicos que no mueven la apariencia general.
 | 6 | C2 palabras de estado con tokens `*Tinta` | `project/despacho.html` |
 | 7 | C4 tarjetas con teclado | `project/despacho.html` |
 | 8 | E3 botón de la landing | `server/landing.html` |
+| 9 | **N1 brecha vieja sin señal** (va primero si hay que elegir uno) | `project/Prototipo.html`, `app/hud.js` |
+| 10 | N2 «Salir de ruta» se arma a los 0,6 s | `project/Prototipo.html`, `app/App.js` |
 
 ### Fase 2 — El HUD del chofer (2–3 días, con prueba en la calle)
 
-B3 (parte 2: «Deshacer» en AUSENTE), B4, B5, B6, B7, B10, B11, B12, B13.
+B3 (parte 2: «Deshacer» en AUSENTE), B4, B5, B6, B7, B10, B11, B12, B13,
+N3 (borrador del chat), N6 y N8.
 B4 y B6 son hipótesis: se construyen detrás de `tweaks` para poder comparar
 con lo de hoy en el mismo teléfono antes de dejarlas de fábrica.
 
@@ -187,7 +244,8 @@ con lo de hoy en el mismo teléfono antes de dejarlas de fábrica.
 ### Fase 4 — Densidad de Despacho (2–3 días)
 
 C1 (con la persona de Despacho mirando las dos versiones), C3, C5, C6, C7,
-C8. Después, volver a sacar las capturas del manual.
+C8, N4 (deshacer en el trazador), N5 (si la persona de Despacho confirma el
+desliz), N7 y N9. Después, volver a sacar las capturas del manual.
 
 ### Fase 5 — Landing y lenguaje (1–2 días, cuando decidas)
 
@@ -213,6 +271,11 @@ fábrica, los avisos de seguridad ni la tabla de permisos.
 | C1 lista | Nada: usa los campos que ya llegan en el estado en vivo. | `telefono.js` busca «BATERÍA 62 % · CARGANDO · APP 0.3.0»; revisar `paneles`, `privado-web`, `senal`, `desvio`. | Capturas `d02`, `d03`, `d05` del manual. |
 | C2, C3 | Nada. | `contraste.js` (paso 0). | `creador.html` copia a mano `day` de Despacho: si se toca un token, se tocan los dos. |
 | E1, E2 | Nada. `wa.me` es un enlace. | — | Sin dependencias nuevas. |
+| N1 sin señal | Nada: es un reloj en el cliente sobre el estado que ya llega cada 3 s. | `pruebas/hud.js` y una de navegador con la red cortada. | `LIMITACIONES.md` sección B; la notificación de la APK con la brecha. |
+| N2 doble toque | Nada. | Las que salen de ruta con dos clics seguidos (`presencia`, `relevo`) esperan 0,6 s. | Web y APK. |
+| N3 chat | Nada si el borrador se queda. Un «enviando» por mensaje sí pediría que el servidor devuelva un identificador en el eco: hoy `sendChat` no manda ninguno. | `chat.js`, `envio.js`. | — |
+| N4, N5, N7 | Nada. | `trazador.js`; `privado-web`, `privado-persona`, `chat` buscan el campo por su texto de ayuda. | — |
+| N8 vigía en la web | Nada si se copia `app/ausencia.js`. Si lo avisa el servidor, un campo más en el estado de la unidad. | `ausencia.js`. | — |
 | X1 lenguaje | **Sí, solo textos**: 13 líneas de `server/index.js` llevan frases que llegan a las personas. | 7 suites buscan estas frases tal cual. | ~26 líneas en `Prototipo.html`, 13 en `despacho.html`, 9 en `creador.html`, 25 en `app/App.js`, 5 en `app/hud.js`, 9 en `manual/manual.tex`. |
 
 ---
@@ -228,6 +291,8 @@ guste no dice si funciona.
 | H2 (B6) | Marcar el rótulo evita leer el número grande como si fuera del otro lado. | Resalte del rótulo frente a lados en posición fija. | Al cambiar el lado que manda: «¿de quién es ese número?». | Se equivoca igual, o las posiciones fijas ganan. |
 | H3 (C1) | La fila compacta deja ver un pelotón más rápido. | Las dos listas con la misma flota. | Tiempo hasta señalar las dos unidades pegadas; errores. | Tarda lo mismo o confunde las columnas. |
 | H4 (E2) | WhatsApp trae más contactos que el correo. | Un mes cada uno, o los dos a la vista. | Contactos recibidos por canal. | Llegan igual o menos. |
+| H5 (N1) | 10 s y 60 s son buenos umbrales para marcar y para retirar la brecha. | Registro de cortes reales en una vuelta por la ruta. | Cuántas veces por vuelta se dispara cada umbral y cuánto dura cada corte. | Se dispara tan seguido que el chofer deja de mirarlo, o tan tarde que ya actuó. |
+| H6 (N5) | El destino junto al campo evita mandar al hilo equivocado. | Antes de construir: preguntar a quien despacha si le pasó. | Mensajes al hilo equivocado, contados por ella. | Nunca le pasó: no se construye. |
 | A1 | A pleno sol, el tema claro se lee mejor que el oscuro en la APK. | Las dos paletas, mismo teléfono, mediodía. | Lectura correcta de la brecha de reojo; reflejos. | El oscuro se lee igual o mejor. |
 
 ---
@@ -238,4 +303,8 @@ guste no dice si funciona.
 - Sol real, teléfono real, lector de pantalla, otros navegadores que Chromium.
 - El tema `sun` de la web y el tema noche de Despacho (el script no llegó a
   activarlos; los mide `contraste.js`, que está en verde).
+- El corte de señal se hizo en el navegador, no en una red celular: el
+  tiempo que tarda un teléfono en notar que perdió la conexión puede ser otro.
+- Los flujos de N2 a N9 se leyeron en el código; no se observó a nadie
+  cometer esos errores.
 - Nada con personas.

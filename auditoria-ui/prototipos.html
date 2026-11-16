@@ -289,6 +289,56 @@
   .land .fono .sosm::before { content: "SOS"; position: absolute; left: 3px; top: 3px; width: 30px; height: 26px; border-radius: 7px; background: var(--red); color: #fff; font: 400 8px var(--black); display: flex; align-items: center; justify-content: center; }
   @media (max-width: 640px) { .land .heroL { grid-template-columns: 1fr; } }
 
+  /* ── 8 · Sin señal ── */
+  .hud.viejo .borde { background: var(--dim3); }
+  .hud.viejo .vivo b { background: var(--amber); }
+  .hud.viejo .vivo { color: var(--amberInk); }
+  .hud.viejo .lado, .hud.viejo .dig, .hud.viejo .dig2, .hud.viejo .lado.sec { color: var(--dim3); }
+  .hud .sinsenal { display: none; }
+  .hud.perdido .conbrecha { display: none; }
+  .hud.perdido .sinsenal { display: block; }
+  .hud .sinsenal .tit { font: 400 30px var(--black); letter-spacing: 1px; color: var(--amber); }
+  .hud .sinsenal p { font-size: 17px; line-height: 1.5; color: #3D5C7A; margin: 10px 0 0; }
+  .hud .sinsenal .ult { margin-top: 18px; padding-top: 14px; border-top: 1px solid #C9D8E6; font-size: 15px; font-weight: 700; color: var(--dim2); }
+  .reloj { font: 700 13px var(--mono); color: var(--fg2); background: var(--blanco); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; min-width: 150px; text-align: center; }
+
+  /* ── 9 · Trazador ── */
+  .marco.plano { width: 300px; height: auto; border-radius: 14px; background: var(--bg); }
+  .marco.plano img { width: 300px; height: auto; }
+  .traz { width: 300px; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 16px; font-family: system-ui, sans-serif; box-shadow: 0 10px 30px rgba(11,34,57,.10); }
+  .traz .dat { display: flex; gap: 40px; margin: 4px 14px 16px; }
+  .traz .dat small { display: block; font-size: 13px; color: var(--dim); font-weight: 600; }
+  .traz .dat b { font: 400 22px var(--black); }
+  .traz button { display: block; width: 100%; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--blanco); font: 700 14px system-ui, sans-serif; color: var(--fg2); cursor: pointer; margin-top: 8px; }
+  .traz button:disabled { opacity: .5; cursor: default; }
+  .traz .sep { height: 1px; background: var(--divider); margin: 16px 0 8px; }
+  .traz .borrar { color: var(--red); border-color: var(--rojoBorde); }
+  .traz .aviso { display: none; margin-top: 10px; background: var(--ambarFondo); border: 1px solid var(--ambarBorde); border-radius: 10px; padding: 10px 12px; font-size: 14px; color: var(--amberInk); }
+  .traz .aviso button { margin-top: 8px; background: var(--amberInk); border-color: var(--amberInk); color: #fff; }
+  .traz.borrado .aviso { display: block; }
+
+  /* ── 10 · Destinatario ── */
+  .marco.chat { width: 310px; height: 672px; border-radius: 14px; background: #fff; }
+  .marco.chat img { width: 310px; height: 672px; }
+  .comp { width: 388px; height: 840px; transform: scale(.8); transform-origin: 0 0; background: var(--bg); font-family: system-ui, sans-serif; color: var(--fg); display: flex; flex-direction: column; border-left: 1px solid var(--divider); }
+  .comp .cabC { background: #fff; border-bottom: 1px solid var(--divider); padding: 14px 16px; display: flex; align-items: center; gap: 10px; }
+  .comp .cabC b { font-size: 15px; display: block; }
+  .comp .cabC small { font-size: 12.5px; color: var(--dim); }
+  .comp .hilo { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .comp .bur { align-self: flex-end; max-width: 80%; background: #DCEBFB; border-radius: 14px; padding: 9px 12px; font-size: 14px; line-height: 1.4; }
+  .comp .bur.gr { align-self: flex-start; background: #fff; border: 1px solid var(--divider); }
+  .comp .pieC { background: #fff; border-top: 1px solid var(--divider); padding: 10px 12px 14px; }
+  .comp .dest { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--fg2); }
+  .comp .dest .chipD { border-radius: 999px; padding: 5px 10px; background: var(--realce); color: var(--acento); }
+  .comp .dest button { margin-left: auto; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: #fff; font: 600 12.5px system-ui; color: var(--fg2); padding: 0 10px; cursor: pointer; }
+  .comp .filaC { display: flex; gap: 8px; }
+  .comp .filaC input { flex: 1; height: 44px; border-radius: 22px; border: 1px solid var(--line); padding: 0 16px; font: 14px system-ui; min-width: 0; }
+  .comp .filaC .env { height: 44px; border-radius: 22px; border: 0; background: var(--acento); color: #fff; font: 700 13.5px system-ui; padding: 0 14px; white-space: nowrap; cursor: pointer; }
+  .comp.priv .pieC { background: var(--ambarFondo); border-top: 2px solid var(--amber); }
+  .comp.priv .dest .chipD { background: var(--amberInk); color: #fff; }
+  .comp.priv .filaC input { border-color: var(--ambarBorde); }
+  .comp.priv .filaC .env { background: var(--amberInk); }
+
   table.len { border-collapse: collapse; width: 100%; font-size: 15px; }
   table.len th { text-align: left; font-size: 13px; color: var(--dim); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--line); }
   table.len td { padding: 8px 10px; border-bottom: 1px solid var(--divider); }
@@ -300,7 +350,7 @@
 <body>
 <div class="hoja">
   <h1>Prototipos de la auditoría de UI</h1>
-  <p class="bajada">Acompañan a <code>AUDITORIA-UI-2026-11-16.md</code>. Cada bloque enfrenta lo que hay hoy con una propuesta, y abajo dice qué archivos tocaría y si mueve el backend. Los identificadores (B3, C1…) son los del informe.</p>
+  <p class="bajada">Acompañan a <code>AUDITORIA-UI-2026-11-16.md</code>. Cada bloque enfrenta lo que hay hoy con una propuesta, y abajo dice qué archivos tocaría y si mueve el backend. Los identificadores (B3, C1, N1…) son los del informe. Del 1 al 7 es apariencia y movimiento; del 8 al 10, comportamiento (qué entiende la persona y cómo se recupera de un error).</p>
   <div class="leyenda">
     <span><span class="tag hoy">HOY</span> captura real del sistema andando</span>
     <span><span class="tag rec">RECONSTRUCCIÓN</span> armada desde el código, no vista corriendo</span>
@@ -309,6 +359,7 @@
   <nav class="indice" aria-label="Prototipos">
     <a href="#p1">1 · Acciones del chofer</a><a href="#p2">2 · Movimiento del HUD</a><a href="#p3">3 · Puerta «Salir a ruta»</a>
     <a href="#p4">4 · APK: tema de día</a><a href="#p5">5 · Despacho: lista</a><a href="#p6">6 · Landing</a><a href="#p7">7 · Lenguaje</a>
+    <a href="#p8">8 · Sin señal</a><a href="#p9">9 · Borrar con deshacer</a><a href="#p10">10 · A quién le escribo</a>
   </nav>
 
   <!-- ═══ 1 ═══ -->
@@ -349,6 +400,7 @@
           <li><b>56 px</b> de alto, <b>16 px</b> de letra. Tinta <code>amberInk</code> sobre el fondo: <b>11,47:1</b>. El borde ámbar se queda para decir «tráfico».</li>
           <li><b>Ausente</b> y <b>Salir</b> pasan a contorno neutro: son las dos que te sacan de la cadena.</li>
           <li><b>Ausente</b> espera 5 s con «Deshacer» antes de avisar al servidor: un toque sin querer no cuesta la vuelta.</li>
+          <li>«Salir de ruta» se arma a los 0,6 s: un doble toque sin querer no alcanza a confirmar (N2). Despacho ya hace esto con la baja.</li>
           <li>El número, el orden y el SOS quedan intactos. El bloque central absorbe los 28 px extra.</li>
         </ul>
       </figure>
@@ -648,6 +700,136 @@
     </ul></div>
   </section>
 
+  <!-- ═══ 8 ═══ -->
+  <section class="p" id="p8">
+    <header><span class="id">N1</span><h2>Sin señal, la brecha vieja no puede verse igual que una brecha viva</h2>
+      <p class="que">Se cortó la red con el chofer en ruta. A los 30 s la pantalla seguía diciendo «EN VIVO · 7»; a los 90 s decía «SIMULADO», con el mismo 5:12 en verde y «Mantené el ritmo». El chofer puede estar corrigiendo contra una combi que ya no está ahí.</p></header>
+    <div class="par">
+      <figure>
+        <figcaption><span class="tag hoy">HOY</span> <small>captura a los 90 s sin red</small></figcaption>
+        <div class="marco"><img src="img/sinsenal.jpg" alt="Pantalla de brechas a los 90 segundos sin conexión: arriba dice SIMULADO en letra chica; el número 5:12 sigue grande y verde, con la frase Mantené el ritmo."></div>
+        <ul class="notas mal">
+          <li>Lo único que cambia es un rótulo de 15 px, y dice <b>«SIMULADO»</b>: una palabra de la maqueta, no «sin señal».</li>
+          <li>El número conserva su <b>color de estado</b> y su instrucción. Verde afirma «vas bien» sobre un dato de hace minuto y medio.</li>
+          <li>Durante los primeros 30–60 s ni siquiera cambia el rótulo.</li>
+          <li>El panel de Despacho ya resuelve esto: sin conexión atenúa la lista y el mapa y lo dice.</li>
+        </ul>
+      </figure>
+      <figure>
+        <figcaption><span class="tag prop">PROPUESTA</span> <small>corta la señal y mira (el tiempo va 6 veces más rápido)</small></figcaption>
+        <div class="controles" style="margin-bottom:10px">
+          <div class="grupo"><button id="bCorte" aria-pressed="false">Cortar la señal</button></div><span class="reloj" id="relojCorte">con señal</span>
+        </div>
+        <div class="marco"><div class="tel hud" id="hudCorte">
+          <div class="borde"></div>
+          <div class="puntos"><i></i><i class="on"></i><i></i><span class="chip">DÍA</span></div>
+          <div class="cab"><span class="vivo"><b></b><span id="cabCorte">EN VIVO · 7</span></span><span class="vel"><strong>28</strong> km/h</span></div>
+          <div class="centro">
+            <div class="conbrecha">
+              <div class="rot"><span class="lado">ATRÁS</span><span class="uni">−1 · M-02</span></div>
+              <div class="dig">5:12</div>
+              <div class="ins" id="insCorte">Mantené el ritmo. Objetivo 6:00.</div>
+              <hr>
+              <div class="fila2"><div><div class="rot"><span class="lado sec">ADELANTE</span><span class="uni">+1 · M-03</span></div><div class="dig2">6:39</div></div></div>
+            </div>
+            <div class="sinsenal">
+              <div class="tit">SIN SEÑAL</div>
+              <p>No veo a las otras combis desde hace <b id="haceCorte">1:00</b>. Andá con cuidado: siguen en ruta.</p>
+              <div class="ult">Última brecha: 5:12 atrás · 6:39 adelante</div>
+            </div>
+          </div>
+          <div class="acc"><button class="b traf">ESTOY EN TRÁFICO</button><div class="fila"><button class="b neu">AUSENTE</button><button class="b neu salir">SALIR DE RUTA</button></div></div>
+          <div class="sos"><div class="pulgar">SOS</div><span>DESLIZÁ PARA SOS →</span></div>
+        </div></div>
+        <ul class="notas bien">
+          <li><b>Hasta 10 s</b> no cambia nada: un bache corto no hace parpadear la pantalla.</li>
+          <li><b>Desde 10 s</b> (tres estados perdidos): «SIN SEÑAL» con su tiempo, y el número pasa a gris. Sigue ahí, pero deja de afirmar un estado.</li>
+          <li><b>Desde 60 s</b> el número se retira. Queda el aviso con la última brecha como dato, no como instrucción.</li>
+          <li>Al volver la señal, el primer estado del servidor repone todo.</li>
+        </ul>
+      </figure>
+    </div>
+    <div class="impacto"><h3>Impacto en el código</h3><ul>
+      <li><b>Pantalla:</b> <code>project/Prototipo.html</code>: guardar la hora del último <code>state</code> (línea ~3452) y que <code>CenterScreen</code> y la tarjeta del mapa lean su edad; cambiar el rótulo de la línea 2567. En la APK, lo mismo en <code>app/hud.js</code> (que ya recibe <code>ahora</code>) y revisar la notificación con la brecha.</li>
+      <li><b>Backend: ninguno.</b> Es un reloj en el cliente sobre lo que ya llega cada 3 s.</li>
+      <li><b>Pruebas:</b> <code>pruebas/hud.js</code> (casos nuevos: dato de 10 s y de 60 s) y una de navegador que corte la red. <code>LIMITACIONES.md</code> sección B, que hoy dice «las brechas se congelan».</li>
+      <li><b>Los umbrales (10 s y 60 s) son un punto de partida</b>: se ajustan con los cortes reales de la ruta.</li>
+    </ul></div>
+  </section>
+
+  <!-- ═══ 9 ═══ -->
+  <section class="p" id="p9">
+    <header><span class="id">N4</span><h2>Trazador: «Borrar la ida» se puede deshacer</h2>
+      <p class="que">Un clic vacía el tramo entero (131 puntos en la demo) y «Deshacer último punto», que está pegado arriba, no lo trae de vuelta. La única salida es cancelar y perder también lo demás.</p></header>
+    <div class="par">
+      <figure>
+        <figcaption><span class="tag hoy">HOY</span> <small>panel del trazador en Despacho</small></figcaption>
+        <div class="marco plano"><img src="img/trazador.jpg" alt="Panel lateral del trazador: 131 puntos, 7,8 km, y cuatro botones apilados; los dos últimos son Deshacer último punto y Borrar la ida."></div>
+        <ul class="notas mal">
+          <li>«Deshacer» y «Borrar todo» son vecinos, del mismo tamaño y a 8 px: un clic desviado cae en el de abajo.</li>
+          <li>El borrado es inmediato y sin vuelta dentro de la herramienta.</li>
+        </ul>
+      </figure>
+      <figure>
+        <figcaption><span class="tag prop">PROPUESTA</span> <small>se puede probar</small></figcaption>
+        <div class="traz" id="traz">
+          <div class="dat"><div><small>Puntos</small><b id="trPts">131</b></div><div><small>Largo</small><b id="trKm">7.8 km</b></div></div>
+          <button>Importar GPX o GeoJSON</button>
+          <button>Grabaciones de la calle</button>
+          <button id="trUndo">Deshacer último punto</button>
+          <div class="aviso"><span>Se borró la ida (131 puntos).</span><button id="trRec">Recuperar la ida</button></div>
+          <div class="sep"></div>
+          <button class="borrar" id="trDel">Borrar la ida</button>
+        </div>
+        <ul class="notas bien">
+          <li>Sin «¿Seguro?»: borrar sigue siendo un clic, pero deja a la vista cómo volver.</li>
+          <li>«Borrar» se separa del resto: deja de ser el vecino de «Deshacer».</li>
+          <li>La copia vive hasta el siguiente cambio o hasta guardar.</li>
+        </ul>
+      </figure>
+    </div>
+    <div class="impacto"><h3>Impacto en el código</h3><ul>
+      <li><b>Pantalla:</b> el trazador de <code>project/despacho.html</code> (líneas 1780–1792): guardar el arreglo anterior antes de <code>setPuntos([])</code>. El trazador de <code>server/creador.html</code> no tiene ese botón.</li>
+      <li><b>Backend: ninguno.</b> Nada se guarda hasta «Guardar recorrido». <b>Pruebas:</b> <code>trazador.js</code>.</li>
+    </ul></div>
+  </section>
+
+  <!-- ═══ 10 ═══ -->
+  <section class="p" id="p10">
+    <header><span class="id">N5</span><h2>Despacho: a quién le estoy escribiendo, pegado a donde escribo</h2>
+      <p class="que">El hilo privado queda abierto hasta que se vuelve al grupo. Mientras se escribe, lo único que dice a quién va es la cabecera, arriba; el texto de ayuda del campo desaparece con la primera letra.</p></header>
+    <div class="par">
+      <figure>
+        <figcaption><span class="tag hoy">HOY</span> <small>privado con una persona</small></figcaption>
+        <div class="marco chat"><img src="img/privado.jpg" alt="Columna de chat de Despacho en un hilo privado: la cabecera dice Rufo, solo esa persona; abajo, un campo de texto igual al del canal de la ruta."></div>
+        <ul class="notas mal">
+          <li>El campo y el botón de enviar son iguales para «toda la ruta» y para «solo Rufo».</li>
+          <li>Dos deslices posibles: una orden para toda la ruta que le llega a uno solo, o un asunto personal que leen todos. Ninguno se puede retirar.</li>
+        </ul>
+      </figure>
+      <figure>
+        <figcaption><span class="tag prop">PROPUESTA</span> <small>cambia el destino con el botón</small></figcaption>
+        <div class="marco chat" style="background:var(--bg)"><div class="comp" id="comp">
+          <div class="cabC"><div><b id="cTit">Canal de ruta · 18A</b><small id="cSub">Lo leen todos los que van en la ruta</small></div></div>
+          <div class="hilo"><div class="bur gr">Buenos días, salgo del paradero Norte</div><div class="bur">Rufo, en el paradero del mercado esperá 2 minutos.</div></div>
+          <div class="pieC">
+            <div class="dest"><span>Para:</span><span class="chipD" id="cChip">Toda la ruta 18A · 7 personas</span><button id="cCambiar">Solo a Rufo</button></div>
+            <div class="filaC"><input placeholder="Escribí el mensaje…" aria-label="Mensaje"><button class="env" id="cEnv">Enviar a todos</button></div>
+          </div>
+        </div></div>
+        <ul class="notas bien">
+          <li>El destino queda escrito junto al campo y en el botón, también mientras se teclea.</li>
+          <li>El privado tiñe la zona de escritura de ámbar, el mismo color con que el chofer ve «solo para vos».</li>
+          <li><b>Es hipótesis:</b> no consta que este desliz ocurra. Antes de construirlo, preguntarle a quien despacha si alguna vez mandó algo al hilo equivocado.</li>
+        </ul>
+      </figure>
+    </div>
+    <div class="impacto"><h3>Impacto en el código</h3><ul>
+      <li><b>Pantalla:</b> el compositor del chat de <code>project/despacho.html</code> (~líneas 975–1140). <b>Backend: ninguno.</b></li>
+      <li><b>Pruebas:</b> <code>privado-web</code>, <code>privado-persona</code> y <code>chat</code> buscan el campo por su texto de ayuda («Mensaje solo para…»): conservarlo o actualizar las suites.</li>
+    </ul></div>
+  </section>
+
   <p class="pie">Lo que estas maquetas no demuestran: que algo se lea mejor al sol, que el chofer se equivoque menos o que Despacho detecte antes un pelotón. Eso se mide con personas y con el teléfono en el parabrisas; aquí solo queda escrito qué probar y contra qué.</p>
 </div>
 
@@ -691,9 +873,11 @@
     var bS = $('#bSalir');
     bS.addEventListener('click', function () {
       if (!bS.classList.contains('armado')) {
-        bS.classList.add('armado'); bS.textContent = '¿SEGURO? TOCÁ DE NUEVO';
+        bS.classList.add('armado'); bS.textContent = '¿SEGURO? TOCÁ DE NUEVO'; bS.dataset.desde = Date.now();
         tSalir = setTimeout(function () { bS.classList.remove('armado'); bS.textContent = 'SALIR DE RUTA'; }, 4000);
-      } else { clearTimeout(tSalir); bS.classList.remove('armado'); bS.textContent = 'SALIR DE RUTA'; }
+      } else if (Date.now() - Number(bS.dataset.desde) > 600) {   // antes de 0,6 s es el mismo toque rebotando
+        clearTimeout(tSalir); bS.classList.remove('armado'); bS.textContent = 'SALIR DE RUTA';
+      }
     });
   }
   enlazar();
@@ -762,6 +946,43 @@
       [sh, sp].forEach(function (s) { s.classList.remove('enviando', 'listo'); $('.pulgar', s).textContent = 'SOS'; $('.t', s).textContent = 'DESLIZÁ PARA SOS →'; });
     }, 3400);
   });
+  // ── 8 · Sin señal: 0–10 s nada, 10–60 s dato viejo en gris, 60 s+ se retira el número
+  var hc = $('#hudCorte'), bC = $('#bCorte'), rel = $('#relojCorte'), tC = null, sC = 0;
+  var mmss = function (s) { return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  function pintarCorte() {
+    hc.classList.toggle('viejo', sC >= 10); hc.classList.toggle('perdido', sC >= 60);
+    $('#cabCorte').textContent = sC >= 10 ? 'SIN SEÑAL · ' + mmss(sC) : 'EN VIVO · 7';
+    $('#insCorte').textContent = sC >= 10 ? 'Brecha de hace ' + mmss(sC) + '. Puede haber cambiado.' : 'Mantené el ritmo. Objetivo 6:00.';
+    $('#haceCorte').textContent = mmss(sC);
+    rel.textContent = tC ? 'sin señal hace ' + mmss(sC) : 'con señal';
+  }
+  bC.addEventListener('click', function () {
+    if (tC) { clearInterval(tC); tC = null; sC = 0; bC.textContent = 'Cortar la señal'; bC.setAttribute('aria-pressed', 'false'); }
+    else { sC = 0; bC.textContent = 'Vuelve la señal'; bC.setAttribute('aria-pressed', 'true');
+      tC = setInterval(function () { sC += 1; if (sC > 180) sC = 180; pintarCorte(); }, 1000 / 6); }
+    pintarCorte();
+  });
+
+  // ── 9 · Trazador: borrar deja cómo volver
+  var tz = $('#traz'), pts = 131;
+  function pintarTraz() { $('#trPts').textContent = pts; $('#trKm').textContent = (pts * 7.8 / 131).toFixed(1) + ' km';
+    $('#trUndo').disabled = pts === 0; $('#trDel').disabled = pts === 0; }
+  $('#trUndo').addEventListener('click', function () { if (pts > 0) { pts--; tz.classList.remove('borrado'); pintarTraz(); } });
+  $('#trDel').addEventListener('click', function () { tz.dataset.antes = pts; pts = 0; tz.classList.add('borrado');
+    $('.aviso span', tz).textContent = 'Se borró la ida (' + tz.dataset.antes + ' puntos).'; pintarTraz(); });
+  $('#trRec').addEventListener('click', function () { pts = Number(tz.dataset.antes); tz.classList.remove('borrado'); pintarTraz(); });
+
+  // ── 10 · Destinatario
+  var cp = $('#comp');
+  $('#cCambiar').addEventListener('click', function () {
+    var p = cp.classList.toggle('priv');
+    $('#cTit').textContent = p ? 'Rufo · M-01' : 'Canal de ruta · 18A';
+    $('#cSub').textContent = p ? 'Solo esa persona' : 'Lo leen todos los que van en la ruta';
+    $('#cChip').textContent = p ? 'Solo Rufo' : 'Toda la ruta 18A · 7 personas';
+    $('#cCambiar').textContent = p ? 'Volver a toda la ruta' : 'Solo a Rufo';
+    $('#cEnv').textContent = p ? 'Enviar solo a Rufo' : 'Enviar a todos';
+  });
+
   var chk = $('#chkRed');
   chk.checked = matchMedia('(prefers-reduced-motion: reduce)').matches;
   var aplicar = function () { document.body.classList.toggle('reducido', chk.checked); };
