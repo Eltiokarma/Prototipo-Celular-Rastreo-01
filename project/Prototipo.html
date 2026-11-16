@@ -147,6 +147,16 @@ if (typeof L === 'undefined') {
   /* Foco con teclado: el mismo anillo que Despacho, nunca el azul por defecto */
   :focus { outline: none; }
   :focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+  /* «Reducir movimiento» del teléfono: lo que late en bucle se queda quieto
+     y las transiciones son instantáneas. Es el mismo apagado que Despacho.
+     Las animaciones que dependen de JS (los dígitos, la barra de arriba)
+     las apaga `microAnims`, que arranca leyendo esta misma preferencia. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
 </style>
 <script>
   // Antes que React: así el primer cuadro ya sale sin marco.
@@ -2391,10 +2401,17 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
 // ═══════════════════════════════════════════════════════════════
 // APP — Modos, relojes, semáforo, carrusel
 // ═══════════════════════════════════════════════════════════════
+// ¿El teléfono pide menos movimiento? (Ajustes ▸ Accesibilidad ▸ quitar
+// animaciones). Sin matchMedia, como si no.
+const MENOS_MOVIMIENTO = '(prefers-reduced-motion: reduce)';
+function pideMenosMovimiento() {
+  try { return window.matchMedia(MENOS_MOVIMIENTO).matches; } catch { return false; }
+}
+
 const DEFAULT_TWEAKS = {
   frontTime: '02:15', backTime: '01:40',
   front2Time: '04:30', back2Time: '03:35',
-  targetGap: 2, mode: 'day', microAnims: true,
+  targetGap: 2, mode: 'day', microAnims: !pideMenosMovimiento(),
   startPage: 1, initialScreen: 'login',
   currentStop: 'Tumbes', nextStop: 'Lambayeque', avgSpeed: 28,
 };
@@ -3200,6 +3217,14 @@ function Root() {
     return () => clearInterval(t);
   }, [tweaks.mode]);
   const tema = temaDe(tweaks.mode, deNoche);
+
+  // Si el chofer cambia la preferencia con la app abierta, se sigue en el acto
+  React.useEffect(() => {
+    let mq; try { mq = window.matchMedia(MENOS_MOVIMIENTO); } catch { return; }
+    const seguir = (e) => setTweaks(t => ({ ...t, microAnims: !e.matches }));
+    if (mq.addEventListener) mq.addEventListener('change', seguir); else mq.addListener(seguir);
+    return () => { if (mq.removeEventListener) mq.removeEventListener('change', seguir); else mq.removeListener(seguir); };
+  }, []);
 
   // Los tokens del tema se aplican ANTES de renderizar los hijos: HUD es un
   // objeto que se muta, así que tiene que estar en su valor final cuando las
