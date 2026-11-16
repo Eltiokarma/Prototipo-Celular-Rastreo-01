@@ -152,6 +152,12 @@ const PARES_DESP = [
   ['burbuja de chat',               t => t.burbujaInk,       t => t.burbuja, AA],
   ['burbuja propia',                t => t.burbujaPropiaInk, t => t.burbujaPropia, AA],
   ['burbuja de SOS',                t => t.burbujaSosInk,    t => t.burbujaSos, AA],
+  // La etiqueta de cada combi en el mapa, 12 px (auditoría de UI, C8)
+  ['pin verde',                     t => t.sobrePin, t => t.pinVerde, AA],
+  ['pin ámbar',                     t => t.sobrePin, t => t.pinAmbar, AA],
+  ['pin rojo',                      t => t.sobrePin, t => t.red, AA],
+  ['pin sin brecha',                t => t.sobrePin, t => t.pinGris, AA],
+  ['pin apagado (hueco)',           t => t.fg2,      t => t.surface, AA],
 ];
 
 // La APK (app/tema.js). Hasta el 16/11 esta suite medía sólo la web, y la
