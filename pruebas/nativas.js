@@ -390,6 +390,9 @@ console.log('\nLA APK NO ESCRIBE COLORES A MANO (auditoría de UI, A3)');
   const sueltos = [...app.matchAll(/'#[0-9A-Fa-f]{3,8}'|"#[0-9A-Fa-f]{3,8}"/g)].map(x => x[0]);
   const permitidos = ["'#fff'", "'#fff'", "'#000000EE'"];
   ok('sólo quedan los tres colores fijos a propósito', JSON.stringify(sueltos.sort()) === JSON.stringify(permitidos.sort()), sueltos);
+  // A4: rótulos de 10 px en mono con tracking, en la pantalla del parabrisas
+  const chicos = [...app.matchAll(/fontSize: (\d+(?:\.\d+)?)/g)].map(x => Number(x[1])).filter(n => n < 12);
+  ok('ningún texto de la APK baja de 12 px (A4)', chicos.length === 0, chicos);
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

@@ -2907,7 +2907,9 @@ function crearEstilos(C) { return StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: C.fondo },
   tituloChico: { fontFamily: 'monospace', fontSize: 12, letterSpacing: 2, color: C.cielo, textAlign: 'center' },
   subtitulo: { fontSize: 14, color: C.tenue, textAlign: 'center', marginTop: 6, marginBottom: 28 },
-  rotulo: { fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.cielo, marginTop: 14 },
+  // Rótulos en la sans a 13 px; la mono queda para datos, a 12 como mínimo
+  // (auditoría de UI, A4: había rótulos de 10 px en mono con tracking)
+  rotulo: { fontSize: 13, fontWeight: '700', letterSpacing: 0.3, color: C.cielo, marginTop: 14 },
   campo: {
     backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 10,
     color: C.blanco, fontSize: 18, padding: 14, marginTop: 6,
@@ -2915,7 +2917,7 @@ function crearEstilos(C) { return StyleSheet.create({
   error: { color: C.rojoTexto, fontSize: 13, fontWeight: '700', marginTop: 14 },
   boton: { backgroundColor: C.brillante, borderRadius: 14, padding: 18, alignItems: 'center', marginTop: 26 },
   botonTexto: { color: C.sobreBrillante, fontSize: 20, fontWeight: '900', letterSpacing: 2 },
-  pie: { color: C.tenue, fontSize: 11, textAlign: 'center', marginTop: 20, fontFamily: 'monospace' },
+  pie: { color: C.tenue, fontSize: 12, textAlign: 'center', marginTop: 20, fontFamily: 'monospace' },
   // Contorno, no relleno: es una llamada, no el SOS. El rojo lleno queda para
   // lo que dispara una alarma.
   emergenciaSinSesion: { borderWidth: 2, borderColor: C.rojo, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 10, alignItems: 'center', marginTop: 22 },
@@ -2940,7 +2942,7 @@ function crearEstilos(C) { return StyleSheet.create({
   sosSinRedBotonTexto: { color: C.sobreRojo, fontSize: 15, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
   sosSinRedChico: { flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 10, paddingVertical: 9, alignItems: 'center' },
   sosSinRedChicoNum: { color: C.blanco, fontSize: 16, fontWeight: '900' },
-  sosSinRedChicoQuien: { color: C.cielo, fontSize: 11, fontWeight: '700' },
+  sosSinRedChicoQuien: { color: C.cielo, fontSize: 12, fontWeight: '700' },
   sosSinRedCerrar: { color: C.cielo, fontSize: 13, textDecorationLine: 'underline' },
   vigiaTitulo: { color: C.sobreLleno, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
   vigiaTexto: { color: C.sobreLleno, fontSize: 14, marginTop: 4, lineHeight: 19 },
@@ -2950,7 +2952,7 @@ function crearEstilos(C) { return StyleSheet.create({
   },
   vigiaBotonTexto: { color: C.sobreLleno, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
   // ¿En qué combi salís?
-  combiRotulo: { color: C.cielo, fontSize: 10, letterSpacing: 1.5, fontFamily: 'monospace', marginBottom: 8 },
+  combiRotulo: { color: C.cielo, fontSize: 13, fontWeight: '700', letterSpacing: 0.3, marginBottom: 8 },
   combiFila: {
     flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8,
     backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 12,
@@ -2958,16 +2960,16 @@ function crearEstilos(C) { return StyleSheet.create({
   },
   combiFilaElegida: { borderWidth: 2, borderColor: C.brillante, paddingHorizontal: 11, paddingVertical: 9 },
   combiCodigo: { color: C.blanco, fontSize: 20, fontWeight: '900' },
-  combiPlaca: { color: C.cielo, fontSize: 10, letterSpacing: 1, fontFamily: 'monospace' },
+  combiPlaca: { color: C.cielo, fontSize: 12, letterSpacing: 0.5, fontFamily: 'monospace' },
   combiEstado: { color: C.tenue, fontSize: 13, fontWeight: '700' },
-  combiElegida: { color: C.cielo, fontSize: 10, letterSpacing: 1.5, fontFamily: 'monospace' },
+  combiElegida: { color: C.cielo, fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
   combiConfirmar: { backgroundColor: C.panel, borderWidth: 2, borderColor: C.ambar, borderRadius: 12, padding: 12 },
   combiConfirmarTexto: { color: C.blanco, fontSize: 14, lineHeight: 19 },
   combiRelevo: { flex: 1, backgroundColor: C.llenoAmbar, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
   combiRelevoTexto: { color: C.sobreLleno, fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
   combiCancelar: { flex: 1, borderWidth: 1, borderColor: C.borde, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
   combiCancelarTexto: { color: C.cielo, fontSize: 13, fontWeight: '700' },
-  diagnostico: { color: C.tenue, fontSize: 11, fontFamily: 'monospace', marginTop: 8 },
+  diagnostico: { color: C.tenue, fontSize: 12, fontFamily: 'monospace', marginTop: 8 },
 
   centro: { flex: 1, justifyContent: 'center' },
   sinSenalTitulo: { fontSize: 30, fontWeight: '900', letterSpacing: 1, color: C.ambarTexto },
@@ -3025,7 +3027,7 @@ function crearEstilos(C) { return StyleSheet.create({
     flexBasis: '30%', flexGrow: 1, borderRadius: 12, padding: 12,
     backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
   },
-  perfilEtiqueta: { color: C.tenue, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  perfilEtiqueta: { color: C.tenue, fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
   perfilValor: { color: C.brillante, fontSize: 22, fontWeight: '900', marginTop: 4 },
   perfilSeccion: { color: C.tenue, fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
   // Un cobrador de la combi: quién es arriba, sus horas y sus botones abajo
@@ -3076,7 +3078,7 @@ function crearEstilos(C) { return StyleSheet.create({
     borderRadius: 100, paddingVertical: 7, paddingHorizontal: 16,
   },
   pistaMapaTexto: {
-    fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.cielo,
+    fontSize: 12, fontWeight: '700', letterSpacing: 0.5, color: C.cielo,
   },
   soltar: {
     position: 'absolute', top: 12, right: 16,
@@ -3089,7 +3091,7 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
   },
-  centrarTexto: { color: C.cielo, fontSize: 11, fontWeight: '900', letterSpacing: 1.5 },
+  centrarTexto: { color: C.cielo, fontSize: 12, fontWeight: '900', letterSpacing: 1 },
 
   // ── Marca de la cooperativa ──────────────────────────────────
   marca: { borderRadius: 6, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
@@ -3102,9 +3104,9 @@ function crearEstilos(C) { return StyleSheet.create({
   },
   campoSinBorde: { flex: 1, marginTop: 0, borderWidth: 0, backgroundColor: 'transparent' },
   ojo: { paddingHorizontal: 14, paddingVertical: 14 },
-  ojoTexto: { color: C.cielo, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
+  ojoTexto: { color: C.cielo, fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
   chipTema: {
-    fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.tenue,
+    fontFamily: 'monospace', fontSize: 12, letterSpacing: 1, color: C.tenue,
     borderWidth: 1, borderColor: C.borde, borderRadius: 6,
     paddingHorizontal: 7, paddingVertical: 3,
   },
@@ -3119,7 +3121,7 @@ function crearEstilos(C) { return StyleSheet.create({
   // Cuánto pesó. En una ruta con datos prepago no es un detalle de nerd.
   camaraAviso: {
     position: 'absolute', bottom: 54, right: 0, width: 120, textAlign: 'right',
-    color: C.tenue, fontSize: 11,
+    color: C.tenue, fontSize: 12,
   },
   miniatura: {
     width: 200, height: 150, borderRadius: 10, marginTop: 6,
@@ -3145,7 +3147,7 @@ function crearEstilos(C) { return StyleSheet.create({
     minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5,
     backgroundColor: C.brillante, alignItems: 'center', justifyContent: 'center',
   },
-  badgeTexto: { color: C.sobreBrillante, fontSize: 11, fontWeight: '900' },
+  badgeTexto: { color: C.sobreBrillante, fontSize: 12, fontWeight: '900' },
 
   // ── Chat ─────────────────────────────────────────────────────
   canales: { flexDirection: 'row', gap: 8, marginBottom: 12 },
@@ -3165,7 +3167,7 @@ function crearEstilos(C) { return StyleSheet.create({
   burbujaDespacho: { borderLeftWidth: 3, borderLeftColor: C.brillante },
   burbujaSos: { backgroundColor: C.burbujaSos, borderLeftWidth: 3, borderLeftColor: C.rojo },
   burbujaQuien: {
-    fontFamily: 'monospace', fontSize: 10, letterSpacing: 1,
+    fontFamily: 'monospace', fontSize: 12, letterSpacing: 0.5,
     color: C.cielo, marginBottom: 3,
   },
   burbujaTexto: { color: C.blanco, fontSize: 15, lineHeight: 21 },
