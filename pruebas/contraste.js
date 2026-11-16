@@ -135,6 +135,14 @@ const PARES_DESP = [
   ['tinta ámbar / su fondo',        t => t.ambarTinta,  t => t.ambarFondo, AA],
   ['tinta ámbar 2 / su fondo',      t => t.ambarTinta2, t => t.ambarFondo, AA],
   ['tinta roja / su fondo',         t => t.rojoTinta,   t => t.rojoFondo, AA],
+  // Las palabras y datos chicos en verde o ámbar van en su tinta, no en el
+  // color de estado (auditoría de UI, C2): sobre el fondo, la tarjeta y la celda
+  ['tinta verde / fondo',           t => t.verdeTinta,  t => t.bg, AA],
+  ['tinta verde / superficie',      t => t.verdeTinta,  t => t.surface, AA],
+  ['tinta verde / celda',           t => t.verdeTinta,  t => t.celda, AA],
+  ['tinta ámbar 2 / fondo',         t => t.ambarTinta2, t => t.bg, AA],
+  ['tinta ámbar 2 / superficie',    t => t.ambarTinta2, t => t.surface, AA],
+  ['tinta ámbar 2 / celda',         t => t.ambarTinta2, t => t.celda, AA],
   ['tinta azul / su fondo',         t => t.azulTinta,   t => t.azulFondo, AA],
   ['clave generada / su fondo',     t => t.okClave, t => t.okFondo, AA],
   ['acento / fondo',                t => t.bright,  t => t.bg, AA],

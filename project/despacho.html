@@ -539,11 +539,17 @@ const btnIcono = (activo, tam = 36) => ({
 // Etiqueta: encabezado de columna, label de campo, kicker. Era mono en
 // mayúscula con tracking; ahora es la sans del cuerpo en caja normal. La
 // mono queda para los DATOS (horas, brechas, placas, códigos): `dato()`.
+// El verde y el ámbar de estado son para números grandes, puntos y bordes:
+// en texto chico no llegan a 4,5:1 (#1F8A4F da 4,37 y #A67300 4,14 sobre
+// blanco). Una palabra o un dato chico van en su tinta, que conserva el tono
+// y pasa AA en los dos temas (auditoría de UI, C2). Cualquier otro color
+// pasa igual.
+const tintaDeTexto = (c) => c === HUD.green ? HUD.verdeTinta : c === HUD.amber ? HUD.ambarTinta2 : c;
 const rotulo = (tam = 9, tinta) => ({
-  fontSize: tam + 3, fontWeight: 600, color: tinta || HUD.dim2, letterSpacing: 0,
+  fontSize: tam + 3, fontWeight: 600, color: tintaDeTexto(tinta) || HUD.dim2, letterSpacing: 0,
 });
 const dato = (tam = 12, tinta) => ({
-  fontFamily: mono, fontSize: tam, fontWeight: 700, color: tinta || HUD.fg2,
+  fontFamily: mono, fontSize: tam, fontWeight: 700, color: tintaDeTexto(tinta) || HUD.fg2,
   fontVariantNumeric: 'tabular-nums',
 });
 const tarjeta = (relleno = 14) => ({
@@ -1520,7 +1526,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
         }}>{routeId}{routeName ? ` · ${routeName}` : ''}</span>
         <div style={{ flex: 1 }} />
         {(vueltaIncompleta || idaIncompleta || sinIda) && (
-          <span style={{ fontSize: 12, color: HUD.amber, fontWeight: 700, textAlign: 'right' }}>
+          <span style={{ fontSize: 12, color: HUD.ambarTinta2, fontWeight: 700, textAlign: 'right' }}>
             {sinIda ? 'Falta la ida: el circuito arranca por ahí'
               : `La ${idaIncompleta ? 'ida' : 'vuelta'} tiene un solo punto`}
           </span>
@@ -1561,7 +1567,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
           borderBottom: `2px solid ${HUD.amber}`,
           display: 'flex', gap: 13, alignItems: 'flex-start',
         }}>
-          <span style={{ fontFamily: black, fontSize: 15, color: HUD.amber, flexShrink: 0 }}>ATENCIÓN</span>
+          <span style={{ fontFamily: black, fontSize: 15, color: HUD.ambarTinta2, flexShrink: 0 }}>ATENCIÓN</span>
           <span style={{ fontSize: 14, lineHeight: 1.55, color: HUD.ambarTinta }}>
             Estás dibujando <strong>«{variante.name}»</strong>, que <strong>no es el
             trazado con el que se está midiendo hoy</strong>
@@ -1730,7 +1736,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 700 }}>{p.vehicleId}</div>
                       <div style={{ fontFamily: mono, fontSize: 10,
-                        color: p.estado === 'grabando' ? HUD.green : HUD.dim3 }}>
+                        color: p.estado === 'grabando' ? HUD.verdeTinta : HUD.dim3 }}>
                         {p.estado === 'grabando' ? '● grabando' : 'esperando a la app'}
                         {' · pedida '}{nowTime(p.pedidaEn)}
                       </div>
@@ -3455,7 +3461,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                         </span>
                         <span style={{
                           fontFamily: mono, fontSize: 12, fontWeight: 700,
-                          color: t.abierto ? HUD.green : HUD.dim2,
+                          color: t.abierto ? HUD.verdeTinta : HUD.dim2,
                         }}>
                           {t.abierto ? 'en ruta' : hhmm(t.endedAt)}
                           {/* El turno que cruza la medianoche cierra en el día
@@ -3472,7 +3478,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           {t.correccion && (
                             <div title={`${t.correccion.tipo === 'agregar' ? 'Agregado' : t.correccion.tipo === 'anular' ? 'Anulado' : 'Corregido'} por ${t.correccion.quien}: ${t.correccion.motivo}`}
                               data-corregido={t.id}
-                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 2 }}>
+                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, letterSpacing: .6, color: HUD.ambarTinta2, marginTop: 2 }}>
                               {t.correccion.tipo === 'agregar' ? 'AGREGADO A MANO' : t.correccion.tipo === 'anular' ? 'ANULADO A MANO' : 'CORREGIDO A MANO'}
                             </div>
                           )}
@@ -3736,7 +3742,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                     background: color, borderRadius: 3,
                                   }} />
                                 </span>
-                                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color, flexShrink: 0 }}>
+                                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: tintaDeTexto(color), flexShrink: 0 }}>
                                   {l.brechaProm === null ? '—' : fmtSeg(l.brechaProm)}
                                 </span>
                               </span>
@@ -3746,7 +3752,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                   <span title={`Entró a la ruta al ${Math.round((l.progresoInicial || 0) * 100)} % del circuito: esto no es una vuelta entera`}
                                     style={{
                                       display: 'block', fontFamily: mono, fontSize: 9,
-                                      fontWeight: 700, color: HUD.amber, marginTop: 2,
+                                      fontWeight: 700, color: HUD.ambarTinta2, marginTop: 2,
                                     }}>PARCIAL · {Math.round((l.progresoInicial || 0) * 100)}%</span>
                                 )}
                               </span>
@@ -3816,13 +3822,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               <span title={`${m.parciales} vuelta(s) empezadas con la ruta ya avanzada`}
                                 style={{
                                   display: 'block', fontFamily: mono, fontSize: 9,
-                                  fontWeight: 700, color: HUD.amber, marginTop: 2,
+                                  fontWeight: 700, color: HUD.ambarTinta2, marginTop: 2,
                                 }}>{m.parciales} PARCIAL{m.parciales === 1 ? '' : 'ES'}</span>
                             )}
                           </span>
                           <span style={{
                             fontFamily: mono, fontSize: 13, fontWeight: 700,
-                            color: m.lapsToday > 0 ? HUD.green : HUD.dim3,
+                            color: m.lapsToday > 0 ? HUD.verdeTinta : HUD.dim3,
                           }}>{m.lapsToday}</span>
                           <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.dim }}>{m.lapsTotal}</span>
                           <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.dim }}>{m.idas}</span>
@@ -3831,7 +3837,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             // Menos retornos que idas es el dato: salió y no
                             // volvió. Se pinta en ámbar, no en rojo — no es una
                             // emergencia, es algo para preguntar.
-                            color: m.idas > m.retornos ? HUD.amber : HUD.dim,
+                            color: m.idas > m.retornos ? HUD.ambarTinta2 : HUD.dim,
                           }} title={m.idas > m.retornos
                             ? `${m.idas - m.retornos} ida(s) sin su retorno` : undefined}>{m.retornos}</span>
                           {/* «Última» decía sólo cuánto DURÓ la última
@@ -3848,7 +3854,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                   display: 'block', fontFamily: mono, fontSize: 9, fontWeight: 700,
                                   // Más de un día sin cerrar una vuelta no es
                                   // una alarma, pero es lo que hay que ver.
-                                  color: Date.now() - m.lastFinish > 86400e3 ? HUD.amber : HUD.dim3,
+                                  color: Date.now() - m.lastFinish > 86400e3 ? HUD.ambarTinta2 : HUD.dim3,
                                   marginTop: 2,
                                 }}>{fmtWhen(m.lastFinish).toUpperCase()}</span>
                             )}
@@ -4119,7 +4125,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               <div style={{ fontFamily: mono }}>{min(g.segundos)}</div>
                               <div style={{ fontFamily: mono, color: g.unidades > 1 ? HUD.fg : HUD.dim3 }}>{g.unidades}</div>
                               <div title="Cortes que no trajeron después las posiciones que faltaban: el teléfono estaba apagado o la app muerta, no es la antena"
-                                style={{ fontFamily: mono, color: g.sinDatos ? HUD.amber : HUD.dim3, textAlign: 'right' }}>
+                                style={{ fontFamily: mono, color: g.sinDatos ? HUD.ambarTinta2 : HUD.dim3, textAlign: 'right' }}>
                                 {g.sinDatos || '—'}
                               </div>
                             </div>
@@ -4280,7 +4286,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           tenía que leer la cabecera para enterarse
                           (REVISION-2026-09-10.md, E19). */}
                       {dias > 90 && (
-                        <div style={{ fontSize: 12, color: HUD.amber, marginTop: 8, fontWeight: 700 }}>
+                        <div style={{ fontSize: 12, color: HUD.ambarTinta2, marginTop: 8, fontWeight: 700 }}>
                           El período máximo son 90 días: el informe va a salir con
                           los últimos 90 del rango que elegiste, no con los {dias}.
                         </div>
@@ -4614,7 +4620,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               un día raro, todas las semanas es otra cosa. */}
                           {u.parciales > 0 && (
                             <div title={`${u.parciales} vuelta(s) empezadas con la ruta ya avanzada`}
-                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, color: HUD.amber }}>
+                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, color: HUD.ambarTinta2 }}>
                               {u.parciales} PARCIAL{u.parciales === 1 ? '' : 'ES'}
                             </div>
                           )}
@@ -4626,13 +4632,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           ? `${(u.idas ?? 0) - (u.retornos ?? 0)} ida(s) sin su retorno` : undefined}
                           style={{
                             fontFamily: mono,
-                            color: (u.idas ?? 0) > (u.retornos ?? 0) ? HUD.amber : HUD.fg,
+                            color: (u.idas ?? 0) > (u.retornos ?? 0) ? HUD.ambarTinta2 : HUD.fg,
                           }}>{u.retornos ?? 0}</div>
                         <div style={{
                           fontWeight: 700,
                           color: u.cumplimiento === null ? HUD.dim3
-                            : u.cumplimiento >= 70 ? HUD.green
-                            : u.cumplimiento >= 40 ? HUD.amber : HUD.red,
+                            : u.cumplimiento >= 70 ? HUD.verdeTinta
+                            : u.cumplimiento >= 40 ? HUD.ambarTinta2 : HUD.red,
                         }}>{u.cumplimiento === null ? '—' : `${u.cumplimiento}%`}</div>
                         <div style={{ fontFamily: mono }}>
                           {u.brechaProm === null ? '—' : fmtSeg(u.brechaProm)}
@@ -4663,7 +4669,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             dos se ven igual. */}
                         <div title={(u.desvios ? `${Math.round((u.desvioSec || 0) / 60)} min fuera del recorrido en total` : 'No se salió del recorrido') +
                                     (u.desviosAparte ? ` · ${u.desviosAparte} episodio(s) aparte: silenciado(s) por Despacho o cerrado(s) por cambio de trazado, que no cuentan como salidas` : '')}
-                          style={{ fontFamily: mono, color: u.desvios ? HUD.amber : HUD.dim3, textAlign: 'right' }}>
+                          style={{ fontFamily: mono, color: u.desvios ? HUD.ambarTinta2 : HUD.dim3, textAlign: 'right' }}>
                           {u.desvios ? `${u.desvios} · ${Math.round((u.desvioSec || 0) / 60)}′` : '—'}
                         </div>
                       </div>
@@ -4706,7 +4712,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               en todo el período no manejó queda en «—». */}
                           <div style={{ fontFamily: mono, color: manejo(p) ? HUD.fg : HUD.dim3 }}>{manejo(p) ? (p.vueltas || 0) : '—'}</div>
                           <div style={{ fontFamily: mono, color: p.cumplimiento == null ? HUD.dim3 : HUD.fg }}>{p.cumplimiento == null ? '—' : `${p.cumplimiento}%`}</div>
-                          <div style={{ fontFamily: mono, color: p.desvios ? HUD.amber : HUD.dim3 }}>{manejo(p) ? (p.desvios || '—') : '—'}</div>
+                          <div style={{ fontFamily: mono, color: p.desvios ? HUD.ambarTinta2 : HUD.dim3 }}>{manejo(p) ? (p.desvios || '—') : '—'}</div>
                           <div style={{ fontFamily: mono, color: HUD.dim2, textAlign: 'right' }}>{(p.unidades || []).join(' · ') || '—'}</div>
                         </div>
                       ))}
@@ -4720,7 +4726,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       {' '}<strong>Vueltas</strong>, <strong>Cumple</strong> y <strong>Salidas</strong> son las de la combi
                       mientras la persona tenía el turno de chofer.
                       {resumenGer.totales.sinAtribuir > 0 && (
-                        <span style={{ color: HUD.amber }}>
+                        <span style={{ color: HUD.ambarTinta2 }}>
                           {' '}{resumenGer.totales.sinAtribuir} vuelta(s) del período no cayeron en el turno de nadie y no se le atribuyen a ninguna persona.
                         </span>
                       )}
@@ -4892,17 +4898,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 apagado, la app muerta, o el corte pasó de 25
                                 min—. Un corte de red las trae al volver. */}
                             <div title={s.noVolvio ? `${s.noVolvio} corte(s) sin volver en 2 h` : 'Cortes cuyas posiciones no llegaron después'}
-                              style={{ fontFamily: mono, color: s.sinDatos ? HUD.amber : HUD.dim3 }}>{s.sinDatos || '—'}</div>
+                              style={{ fontFamily: mono, color: s.sinDatos ? HUD.ambarTinta2 : HUD.dim3 }}>{s.sinDatos || '—'}</div>
                             <div title={s.ausenteEnMarcha ? `${s.ausenteEnMarcha} vez/veces ausente y en marcha sobre el trazado` : undefined}
-                              style={{ fontFamily: mono, color: s.ausenteEnMarcha ? HUD.amber : s.ausenteSec ? HUD.fg : HUD.dim3 }}>
+                              style={{ fontFamily: mono, color: s.ausenteEnMarcha ? HUD.ambarTinta2 : s.ausenteSec ? HUD.fg : HUD.dim3 }}>
                               {s.ausencias ? `${s.ausencias} · ${min(s.ausenteSec)}` : '—'}{s.ausenteEnMarcha ? ' · en marcha' : ''}</div>
                             <div title="Saltos de más de 120 km/h entre dos posiciones: dos teléfonos con la misma cuenta, o un GPS que inventa"
-                              style={{ fontFamily: mono, color: s.saltos ? HUD.amber : HUD.dim3 }}>{s.saltos || '—'}</div>
+                              style={{ fontFamily: mono, color: s.saltos ? HUD.ambarTinta2 : HUD.dim3 }}>{s.saltos || '—'}</div>
                             <div title={s.descartadas ? `${s.descartadas} posición(es) con hora imposible` : 'Veces que el reloj del teléfono apareció atrasado'}
-                              style={{ fontFamily: mono, color: (s.reloj || s.descartadas) ? HUD.amber : HUD.dim3 }}>
+                              style={{ fontFamily: mono, color: (s.reloj || s.descartadas) ? HUD.ambarTinta2 : HUD.dim3 }}>
                               {s.reloj || s.descartadas ? `${s.reloj}${s.descartadas ? ` · ${s.descartadas} desc.` : ''}` : '—'}</div>
                             <div title="Episodios de GPS falso (Android marcó las posiciones como simuladas), sospechoso (la firma de un simulador sin el flag: velocidad que no varía, clavado en el trazado, velocidad que no cuadra) e impreciso (más de 100 m de error declarado: no se juzgó desvío ni parada)"
-                              style={{ fontFamily: mono, fontWeight: (s.gpsSimulado || s.gpsSospechoso) ? 800 : 400, color: gps.length ? HUD.amber : HUD.dim3 }}>
+                              style={{ fontFamily: mono, fontWeight: (s.gpsSimulado || s.gpsSospechoso) ? 800 : 400, color: gps.length ? HUD.ambarTinta2 : HUD.dim3 }}>
                               {gps.length ? gps.join(' · ') : '—'}</div>
                             {/* Avisos de tráfico del chofer, y cuántos sin que el
                                 servidor viera la parada (T7): la excusa, o el
@@ -4919,12 +4925,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               style={{ fontFamily: mono, color: s.paradas ? HUD.fg : HUD.dim3 }}>
                               {s.paradas ? `${s.paradas} · ${Math.round((s.paradasSec || 0) / 60)}′` : '—'}</div>
                             <div title={s.avisosTrafico ? `${s.avisosTrafico} aviso(s) de tráfico; ${s.avisosSinParada} sin parada medida por el servidor` : 'Avisos de tráfico del chofer'}
-                              style={{ fontFamily: mono, color: s.avisosSinParada ? HUD.amber : s.avisosTrafico ? HUD.fg : HUD.dim3 }}>
+                              style={{ fontFamily: mono, color: s.avisosSinParada ? HUD.ambarTinta2 : s.avisosTrafico ? HUD.fg : HUD.dim3 }}>
                               {s.avisosTrafico ? `${s.avisosTrafico}${s.avisosSinParada ? ` · ${s.avisosSinParada} sin parada` : ''}` : '—'}</div>
                             {/* Entradas a la ruta empezada (se metió en el
                                 medio): estaban sólo en la auditoría (E13). */}
                             <div title="Veces que entró a la ruta con el circuito ya avanzado, en vez de desde el inicio"
-                              style={{ fontFamily: mono, color: s.entradasTardias ? HUD.amber : HUD.dim3 }}>{s.entradasTardias || '—'}</div>
+                              style={{ fontFamily: mono, color: s.entradasTardias ? HUD.ambarTinta2 : HUD.dim3 }}>{s.entradasTardias || '—'}</div>
                           </div>
                         );
                       })}
@@ -4960,14 +4966,14 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       las vueltas: si la mayoría no tuvo con quién medirse el
                       porcentaje sale de pocas, y hay que decirlo (E6). */}
                   {resumenGer.totales.sinBrecha > 0 && (
-                    <span style={{ color: HUD.amber }}>
+                    <span style={{ color: HUD.ambarTinta2 }}>
                       {' '}El cumplimiento sale de {resumenGer.totales.vueltas - resumenGer.totales.sinBrecha} de las
                       {' '}{resumenGer.totales.vueltas} vueltas: {resumenGer.totales.sinBrecha} no tuvieron con quién
                       medir la brecha (unidad sola en su tramo) y no se juzgan.
                     </span>
                   )}
                   {resumenGer.totales.parciales > 0 && (
-                    <span style={{ color: HUD.amber }}>
+                    <span style={{ color: HUD.ambarTinta2 }}>
                       {' '}{resumenGer.totales.parciales} vuelta(s) del período empezaron con la
                       ruta ya avanzada —la unidad se metió en el medio, o estuvo sin señal y
                       la vuelta se partió— y quedan fuera de los promedios y del cumplimiento.
@@ -4979,7 +4985,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       exacto un promedio que todavía no lo es. Con el tiempo
                       llega solo a cero y esta línea desaparece sola. */}
                   {resumenGer.totales.conObjetivoViejo > 0 && (
-                    <span style={{ color: HUD.amber }}>
+                    <span style={{ color: HUD.ambarTinta2 }}>
                       {' '}De las {resumenGer.totales.conObjetivoViejo + resumenGer.totales.conObjetivoPropio}
                       {' '}vueltas juzgadas, {resumenGer.totales.conObjetivoViejo} son anteriores a que el
                       objetivo se guardara con cada vuelta y se miden contra el de hoy.
@@ -5075,7 +5081,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}>{ev.actor}</span>
                           <span style={{ fontSize: 13, color: HUD.fg2, minWidth: 0 }}>
-                            <span style={{ color: a.color, fontWeight: 700 }}>{a.label}</span>
+                            <span style={{ color: tintaDeTexto(a.color), fontWeight: 700 }}>{a.label}</span>
                             {ev.target && <span style={{ fontFamily: black, fontSize: 13, color: HUD.fg }}> {ev.target}</span>}
                             {ev.detail && <span style={{ color: HUD.dim3 }}> · {ev.detail}</span>}
                           </span>
@@ -6398,7 +6404,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                             dice para un daltónico rojo-verde. Ver
                             LIMITACIONES.md, sección Accesibilidad. */}
                         {palabra && (
-                          <div style={{ fontSize: 11, fontWeight: 800, color, marginTop: 1 }}>{oracion(palabra)}</div>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: tintaDeTexto(color), marginTop: 1 }}>{oracion(palabra)}</div>
                         )}
                       </div>
                     );
@@ -6524,23 +6530,23 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                   return (
                     <div data-telefono={u.choferId} style={{ marginTop: 6 }}>
                       {partes.length > 0 && (
-                        <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: .6, color: baja ? HUD.amber : HUD.dim2, fontWeight: baja ? 700 : 400 }}>
+                        <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: .6, color: baja ? HUD.ambarTinta2 : HUD.dim2, fontWeight: baja ? 700 : 400 }}>
                           {partes.join(' · ')}
                         </div>
                       )}
                       {t.bateria != null && t.bateria <= 10 && !t.cargando && (
-                        <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                        <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.ambarTinta2, marginTop: 3 }}>
                           SE ESTÁ POR APAGAR: QUE LO ENCHUFE
                         </div>
                       )}
                       {t.optimizada === true && (
                         <div title="Con el ahorro de batería, Android le corta la red a la app con la pantalla apagada: deja de aparecer en el mapa. Se apaga en Ajustes → Batería → la app → «Sin restricciones»."
-                          style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                          style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.ambarTinta2, marginTop: 3 }}>
                           AHORRO DE BATERÍA ACTIVADO: PUEDE DESAPARECER DEL MAPA
                         </div>
                       )}
                       {t.versionEstado === 'vieja' && (
-                        <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                        <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.ambarTinta2, marginTop: 3 }}>
                           APP VIEJA: TIENE QUE ACTUALIZAR
                         </div>
                       )}
