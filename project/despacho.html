@@ -378,6 +378,15 @@ function fmtMin(min) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
+// La brecha llega del servidor como «08:04», y la hora del día también va
+// con dos cifras («Sin señal desde 08:04»): en la misma tarjeta, ocho minutos
+// y las ocho y cuatro se escribían igual. La duración se muestra sin el cero
+// de adelante y con su unidad, como el objetivo de la cabecera y como el HUD
+// del chofer (auditoría de UI, N7). Sólo al mostrarla: el valor no cambia.
+function duracion(gapStr) {
+  return gapStr ? String(gapStr).replace(/^0(\d:)/, '$1') : gapStr;
+}
+
 function gapColor(gapStr, target = TARGET_GAP_DEFAULT) {
   const v = parseMin(gapStr);
   if (v === null || isNaN(v)) return HUD.dim3;
@@ -6428,7 +6437,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                         <div key={color} style={{
                           fontFamily: black, fontSize: 18, lineHeight: 1.2, color,
                           animation: 'cambio .22s ease-out', transformOrigin: 'left center',
-                        }}>{val || '—'}</div>
+                        }}>{val ? <>{duracion(val)}<span style={{ ...dato(11, HUD.dim2), marginLeft: 1 }}>{' '}min</span></> : '—'}</div>
                         {/* El juicio en palabras, porque el color solo no lo
                             dice para un daltónico rojo-verde. Ver
                             LIMITACIONES.md, sección Accesibilidad. */}

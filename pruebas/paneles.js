@@ -207,5 +207,15 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
     ok('B12 · el HUD no escribe colores a mano', !/'#[0-9A-Fa-f]{6}'/.test(hud) && /color: HUD\.ins/.test(hud) && /color: HUD\.secundario/.test(hud)); }
 }
 
+console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 4');
+{
+  // N9: «atendido» le prometía al chofer más de lo que el botón garantiza
+  ok('N9 · al chofer le llega «Lo vio», no «lo marcó atendido» (web y APK)', [prototipo, leer('app/App.js')].every(src => /Lo vio \{/.test(src) && !/Lo marcó atendido/.test(src)));
+  // C8: la etiqueta apagada iba con opacidad y la de color en blanco sobre neón
+  ok('C8 · las etiquetas del mapa: hueca la apagada, tinta legible la de color', /border:1\.5px dashed \$\{HUD\.dim3\}/.test(despacho) && /color:\$\{HUD\.sobrePin\}/.test(despacho) && !/font-size:11px;color:#fff;background:\$\{colorPin\}/.test(despacho) && !/@keyframes latido/.test(despacho));
+  // N7: «08:04» de brecha al lado de «desde 08:04» de hora
+  ok('N7 · la brecha se muestra sin cero adelante y con «min»', /function duracion\(gapStr\)/.test(despacho) && /\{duracion\(val\)\}<span/.test(despacho));
+}
+
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
 process.exit(fallas ? 1 : 0);
