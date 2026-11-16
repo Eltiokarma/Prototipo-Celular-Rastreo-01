@@ -101,10 +101,6 @@ if (typeof L === 'undefined') {
     0%, 100% { transform: scale(1); opacity: 0.25; }
     50%      { transform: scale(1.35); opacity: 0; }
   }
-  @keyframes combiRing {
-    0%   { transform: scale(1); opacity: 0.7; }
-    100% { transform: scale(1.08); opacity: 0; }
-  }
   @keyframes combiPulse {
     0%   { transform: translate(-50%,-50%) scale(0.8); opacity: 0.5; }
     100% { transform: translate(-50%,-50%) scale(2); opacity: 0; }
@@ -1527,7 +1523,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
 // ═══════════════════════════════════════════════════════════════
 // SOS SLIDER
 // ═══════════════════════════════════════════════════════════════
-function SosSlider({ status, enableAnim, onFire }) {
+function SosSlider({ onFire }) {
   const trackRef = React.useRef(null);
   const [progress, setProgress] = React.useState(0);
   const [dragging, setDragging] = React.useState(false);
@@ -1588,7 +1584,10 @@ function SosSlider({ status, enableAnim, onFire }) {
   const trackH = 84;
   const thumbSize = 70;
   const sun = !HUD.resplandor;   // fondo claro
-  const suggestSos = status === 'red' && enableAnim;
+  // Sin anillo que late con la brecha en rojo: una brecha crítica es un
+  // pelotón, no una emergencia, y el anillo invitaba a deslizar el SOS por
+  // algo que no lo es (auditoría UI B2). El SOS no tiene que llamar la
+  // atención: tiene que estar siempre igual y en el mismo lugar.
 
   return (
     <div ref={trackRef} data-noswipe="sos" style={{
@@ -1600,15 +1599,6 @@ function SosSlider({ status, enableAnim, onFire }) {
       WebkitTapHighlightColor: 'transparent',
       boxSizing: 'border-box',
     }}>
-      {suggestSos && !dragging && progress === 0 && (
-        <div style={{
-          position: 'absolute', inset: -5,
-          borderRadius: 24,
-          border: `2px solid ${HUD.red}`,
-          animation: 'combiRing 1.6s ease-out infinite',
-          pointerEvents: 'none',
-        }} />
-      )}
       {/* relleno de avance */}
       <div style={{
         position: 'absolute', top: 0, bottom: 0, left: 0,
@@ -2388,7 +2378,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
       {/* SOS: abajo de todo, como en el HUD. El mismo deslizador. */}
       {onSos && (
         <div data-sos-puerta style={{ marginTop: 18 }}>
-          <SosSlider status="none" enableAnim={tweaks ? tweaks.microAnims : true} onFire={sos.disparar} />
+          <SosSlider onFire={sos.disparar} />
         </div>
       )}
     </div>
@@ -2774,7 +2764,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
 
       {/* SOS */}
       <div style={{ padding: '0 18px 26px', position: 'relative' }}>
-        <SosSlider status={hero.status} enableAnim={tweaks.microAnims} onFire={onFireSos} />
+        <SosSlider onFire={onFireSos} />
       </div>
     </div>
   );
