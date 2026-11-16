@@ -176,5 +176,13 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 1 (AUDITORIA-UI-2026-11-16.md)')
   ok('C4 · la tarjeta de unidad se puede usar con el teclado', /<button type="button" data-centrar=\{u\.unitId\}/.test(despacho) && /e\.stopPropagation\(\); focusUnit\(u\);/.test(despacho));
 }
 
+console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
+{
+  // N3: sin señal el mensaje se perdía y quedaba una burbuja como enviada
+  ok('N3 · sin señal el texto del chofer queda en el campo, y se dice', /if \(!connectedRef\.current\) return false;/.test(prototipo) && /if \(onSendText\(text, privadoDelCanal\) === false\) \{ setNoSalio\(true\); return; \}/.test(prototipo) && /data-no-salio/.test(prototipo));
+  ok('N3 · con la brecha vieja el chat tampoco manda (el socket tarda en enterarse)', /if \(hud && hud\.viejo\) \{ setNoSalio\(true\); return; \}/.test(prototipo));
+  ok('N3 · un solo ✓: llegó al servidor, no «leído»', /'Tú ✓'\)/.test(prototipo) && !/Tú ✓✓/.test(prototipo));
+}
+
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
 process.exit(fallas ? 1 : 0);

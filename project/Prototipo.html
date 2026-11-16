@@ -1166,6 +1166,12 @@ function bubbleStyle(msg) {
       borderLeft: `4px solid ${HUD.warnEdge}`,
     };
   }
+  // La nota de voz que no salió se queda en el hilo, pero no en el verde de
+  // las enviadas (N3)
+  if (msg.role === 'you' && msg.noSalio) {
+    return { ...base, borderRadius: '16px 16px 5px 16px', background: HUD.burbujaWarn, color: HUD.burbujaWarnInk,
+             borderRight: `4px solid ${HUD.warnEdge}` };
+  }
   if (msg.role === 'you') {
     return { ...base, borderRadius: '16px 16px 5px 16px', background: HUD.burbujaPropia, color: HUD.burbujaPropiaInk };
   }
@@ -1184,6 +1190,7 @@ function bubbleStyle(msg) {
 function ChatMsg({ msg }) {
   const isYou = msg.role === 'you';
   const nameColor =
+    isYou && msg.noSalio ? HUD.amberTexto :
     isYou ? HUD.greenTexto :   // el verde de estado daba 4,17:1 a 15 px (auditoría UI B9)
     msg.tone === 'warn' ? HUD.warnEdge :
     msg.tone === 'sos' ? HUD.red :
@@ -1211,7 +1218,7 @@ function ChatMsg({ msg }) {
         <span style={{
           fontSize: 15, fontWeight: 700, color: nameColor,
           fontFamily: 'system-ui, sans-serif',
-        }}>{isYou ? (msg.noSalio ? 'Tú · NO SALIÓ (sin conexión)' : 'Tú ✓✓') : msg.from}</span>
+        }}>{isYou ? (msg.noSalio ? 'Tú · NO SALIÓ (sin señal)' : 'Tú ✓') : msg.from}</span>
         {/* La combi en la que va: el nombre dice quién habla, esto dice
             desde qué unidad — que es lo que le importa al que va manejando */}
         {!isYou && msg.unit && (
@@ -1285,6 +1292,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
     catch { return { despacho: 0, personal: 0 }; }
   });
   const [draft, setDraft] = React.useState('');
+  const [noSalio, setNoSalio] = React.useState(false);
   const [recording, setRecording] = React.useState(false);
   const [recElapsed, setRecElapsed] = React.useState(0);
   const recRef = React.useRef(null); // { recorder, stream, chunks, started }
@@ -1372,7 +1380,12 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
   const send = () => {
     const text = draft.trim();
     if (!text) return;
-    onSendText(text, privadoDelCanal);
+    // El socket tarda hasta 40 s en notar que murió: en ese rato el mensaje
+    // salía a un socket muerto y se perdía sin aviso. Si el HUD ya sabe que
+    // no llegan datos (la brecha está vieja), tampoco se manda.
+    if (hud && hud.viejo) { setNoSalio(true); return; }
+    if (onSendText(text, privadoDelCanal) === false) { setNoSalio(true); return; }
+    setNoSalio(false);
     setDraft('');
   };
 
@@ -1478,6 +1491,18 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
         )}
       </div>
 
+      {/* Sin conexión el mensaje no sale: queda escrito, y se dice (N3) */}
+      {noSalio && (
+        <div role="alert" data-no-salio style={{
+          margin: '0 14px', padding: '10px 12px', borderRadius: 12,
+          background: HUD.burbujaWarn, color: HUD.burbujaWarnInk, borderLeft: `4px solid ${HUD.warnEdge}`,
+          fontSize: 15, fontWeight: 600, lineHeight: 1.35, fontFamily: 'system-ui, sans-serif',
+        }}>
+          {connected && !(hud && hud.viejo)
+            ? 'Volvió la señal: tocá enviar.'
+            : 'Sin señal: el mensaje no salió. Queda escrito para mandarlo cuando vuelva.'}
+        </div>
+      )}
       {/* Barra de entrada — los tres controles a 56px */}
       <div style={{
         padding: '10px 14px 26px',
@@ -3793,14 +3818,14 @@ function Root() {
 
   // privado = 'combi' (con Despacho, sobre esta combi), 'persona' (con
   // Despacho, sólo yo) o false (al grupo de la ruta)
+  // Devuelve si salió. Sin conexión el texto NO se pinta como mensaje: queda
+  // en el campo para mandarlo cuando vuelva, como en Despacho. Antes quedaba
+  // una burbuja verde igual a una enviada, con un rótulo chico «NO SALIÓ», y
+  // el borrador se perdía (auditoría de UI, N3).
   const sendText = (text, privado) => {
-    if (connectedRef.current) {
-      window.RealtimeClient.sendChat(text, privado); // el eco del servidor lo agrega al hilo
-    } else {
-      // Sin conexión NO salió, y se dice: se pintaba «Tú ✓✓» y desaparecía
-      // al volver la señal, sin haber salido nunca (barrido del 22/9).
-      pushMsg({ from: 'TÚ', role: 'you', privado: privado || false, text, time: nowTime(), tone: 'normal', noSalio: true });
-    }
+    if (!connectedRef.current) return false;
+    window.RealtimeClient.sendChat(text, privado); // el eco del servidor lo agrega al hilo
+    return true;
   };
 
   // Nota de voz: si hay audio y conexión va al canal elegido (el eco la
