@@ -1,6 +1,8 @@
 // Los colores, y cuándo cambian.
 //
-// La app ya era oscura, pero "oscura" no es "de noche". A las diez de la
+// (De día la app es clara desde el 16/11; ver DIA, abajo.)
+//
+// La app era oscura también de día, pero "oscura" no es "de noche". A las diez de la
 // noche, en la cabina de una combi, una pantalla azul brillante a 30 cm de la
 // cara hace dos cosas malas: encandila, y arruina la visión nocturna del
 // chofer durante varios segundos después de mirarla. Eso último es lo caro —
@@ -48,17 +50,37 @@ function esDeNoche(fecha = new Date()) {
 //   borde           el contorno de un control: 3:1 contra el fondo. `linea`
 //                   queda para divisores, que no tienen que distinguirse.
 // Todos los pares los mide pruebas/contraste.js.
+// ─── DE DÍA, CLARA (auditoría de UI, A1, 16/11) ─────────────────────
+// La app nativa era oscura también de día, con un azul noche. La web del
+// chofer ya se había pasado a claro, con este argumento: el teléfono va en
+// el parabrisas con sol directo a 3800 m, y una pantalla clara se lee mucho
+// mejor que una oscura al mediodía. El repo tenía las dos respuestas a la
+// misma pregunta; ahora tiene una. Son los valores del tema `day` de
+// project/Prototipo.html, en los nombres de esta paleta (`blanco` es el
+// texto principal, aunque de día sea azul marino). La brecha se lee en el
+// verde, ámbar y rojo de estado; lo chico, en su tinta.
+//
+// Hay que probarla en la calle con distintos brillos de pantalla antes de
+// darla por buena. Si se vuelve atrás, la oscura de antes es MAPA_DIA.
 const DIA = {
+  fondo: '#F7FAFD', panel: '#FFFFFF', linea: '#C3D4E4',
+  marca: '#1668C4', brillante: '#1668C4', cielo: '#1668C4',
+  tenue: '#496A86', blanco: '#0B2239',
+  verde: '#1F8A4F', ambar: '#A67300', rojo: '#C2001D',
+  verdeTexto: '#0B6B33', ambarTexto: '#6B4A00', rojoTexto: '#C2001D',
+  ins: '#3D5C7A', secundario: '#3D5C7A',
+  llenoVerde: '#0B6B33', llenoAmbar: '#6B4A00', llenoRojo: '#C2001D',
+  sobreLleno: '#FFFFFF', sobreRojo: '#FFFFFF', sobreBrillante: '#FFFFFF',
+  burbujaPropia: '#DCEBFB', burbujaSos: '#FFE1E7',
+  borde: '#5A7591',
+};
+
+// El MAPA sigue oscuro de día (ver app/mapa.js: con un mapa claro de calles
+// las combis había que buscarlas). Lleva los colores de la paleta oscura de
+// antes, sólo los que el mapa usa.
+const MAPA_DIA = {
   fondo: '#0A1A2E', panel: '#16304A', linea: '#234969',
-  marca: '#2580CF', brillante: '#2E9DFF', cielo: '#71BCFF',
-  tenue: '#8FA8C0', blanco: '#F5F9FF',
-  verde: '#3DD685', ambar: '#F5C542', rojo: '#FF4D6D',
-  verdeTexto: '#3DD685', ambarTexto: '#F5C542', rojoTexto: '#FF7A90',
-  ins: '#93AAC2', secundario: '#A9C0D6',
-  llenoVerde: '#3DD685', llenoAmbar: '#F5C542', llenoRojo: '#FF4D6D',
-  sobreLleno: '#0A1A2E', sobreRojo: '#0A1A2E', sobreBrillante: '#0A1A2E',
-  burbujaPropia: '#1D598F', burbujaSos: '#4A0D1B',
-  borde: '#6F8FAE',
+  brillante: '#2E9DFF', tenue: '#8FA8C0', blanco: '#F5F9FF', ambar: '#F5C542',
 };
 
 // Casi negro, y lo poco que brilla tira a ámbar. El texto principal no es
@@ -93,6 +115,11 @@ function esOscuro(modo = 'auto', fecha = new Date()) {
   return paleta(modo, fecha) === NOCHE;
 }
 
+// Los colores para el mapa, que es oscuro siempre
+function paletaMapa(modo = 'auto', fecha = new Date()) {
+  return esOscuro(modo, fecha) ? NOCHE : MAPA_DIA;
+}
+
 // El ciclo del botón. 'auto' primero porque es el que hay que preferir.
 const MODOS = ['auto', 'dia', 'noche'];
 function siguienteModo(modo) {
@@ -103,6 +130,6 @@ function siguienteModo(modo) {
 const ETIQUETA = { auto: 'AUTO', dia: 'DÍA', noche: 'NOCHE' };
 
 module.exports = {
-  paleta, esDeNoche, esOscuro, siguienteModo, MODOS, ETIQUETA, PALETAS,
+  paleta, paletaMapa, esDeNoche, esOscuro, siguienteModo, MODOS, ETIQUETA, PALETAS, MAPA_DIA,
   _limites: { NOCHE_DESDE, NOCHE_HASTA },
 };

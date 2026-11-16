@@ -490,7 +490,11 @@ reinstalar en cada teléfono.
 - **Los nombres se escapan antes de entrar al WebView.** Los tipea Despacho a
   mano, y un apellido con comilla o con `<` rompe la página entera — en el
   celular eso es una pantalla en blanco sin ningún mensaje.
-- **Modo noche ≠ modo oscuro.** La app ya era oscura. De noche, en la cabina,
+- **De día, clara (16/11).** Hasta la auditoría de UI la app era oscura
+  también de día. Se pasó a los valores del tema día de la web del chofer:
+  al sol, a 3800 m, una pantalla clara se lee mejor. El mapa sigue oscuro
+  (ver arriba). Falta probarla en la calle con distintos brillos.
+- **Modo noche ≠ modo oscuro.** La app de día era oscura. De noche, en la cabina,
   lo que encandila es el AZUL: es lo que más dilata la pupila y lo que más
   tarda en soltar la vista, o sea tiempo manejando con los ojos todavía
   adaptándose. La paleta de noche baja la luminancia y se va al ámbar, como

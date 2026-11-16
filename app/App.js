@@ -38,7 +38,7 @@ import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
 import { margenes, margenBarra } from './margenes';
 import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL } from './gestos';
 import * as mapa from './mapa';
-import { paleta, esOscuro, siguienteModo, ETIQUETA } from './tema';
+import { paletaMapa, paleta, esOscuro, siguienteModo, ETIQUETA } from './tema';
 import { levantar } from './teclado';
 import { useAudioRecorder, useAudioPlayer, RecordingPresets,
          pedirPermisoMicrofono, aDataUrl, MAX_SEGUNDOS } from './voz';
@@ -108,6 +108,14 @@ function usarAhoraSiEnvejece(recibido) {
   return ahora;
 }
 
+// Los íconos de la barra de Android (hora, batería) en el color que se lee:
+// claros sobre la paleta oscura, oscuros sobre la clara (A1). Sobre el mapa,
+// que es oscuro siempre, van claros.
+function BarraDeEstado() {
+  const { oscuro } = usarTema();
+  return <StatusBar style={oscuro ? 'light' : 'dark'} />;
+}
+
 // La hoja se arma una vez por paleta y se guarda: `StyleSheet.create` en cada
 // render sería un objeto nuevo por frame, justo mientras el dedo arrastra.
 const hojas = new Map();
@@ -151,6 +159,7 @@ function ConTema({ children }) {
   const C = paleta(modo, ahora);
   const valor = React.useMemo(() => ({
     C, s: hojaDe(C), modo, oscuro: esOscuro(modo, ahora),
+    Cmapa: paletaMapa(modo, ahora),   // el mapa es oscuro siempre (A1)
     alternar: () => {
       const nuevo = siguienteModo(modo);
       setModo(nuevo);
@@ -209,7 +218,7 @@ function Presentacion({ mostrando }) {
         backgroundColor: C.fondo, opacity: opacidad,
         alignItems: 'center', justifyContent: 'center',
       }]}>
-      <StatusBar style="light" />
+      <BarraDeEstado />
       <Image source={require('./assets/icon.png')} style={{ width: 112, height: 112, borderRadius: 26 }} />
       <Text style={[s.tituloChico, { marginTop: 24 }]}>MICROS TEMPO</Text>
       <Text style={[s.subtitulo, { marginBottom: 0 }]}>Control de ruta</Text>
@@ -1123,7 +1132,7 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
 
   return (
     <View style={[s.pantalla, margen]}>
-      <StatusBar style="light" />
+      <BarraDeEstado />
       <Text style={s.tituloChico}>CONTROL DE RUTA</Text>
       <Text style={s.subtitulo}>Ingresá con el usuario que te dio tu cooperativa</Text>
 
@@ -1293,7 +1302,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
   if (presencia === 'fuera') {
     return (
       <View style={[s.pantalla, margen]}>
-        <StatusBar style="light" />
+        <BarraDeEstado />
         {cabecera}
         <View style={s.centro}>
           <Text style={[s.ladoEtiqueta, { color: C.brillante }]}>¿SALÍS A RUTA?</Text>
@@ -1376,7 +1385,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
   if (presencia === 'ausente') {
     return (
       <View style={[s.pantalla, margen]}>
-        <StatusBar style="light" />
+        <BarraDeEstado />
         {cabecera}
         <View style={s.centro}>
           <Text style={[s.ladoEtiqueta, { color: C.ambarTexto }]}>AUSENTE</Text>
@@ -1405,7 +1414,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
 
   return (
     <View style={[s.pantalla, margen]}>
-      <StatusBar style="light" />
+      <BarraDeEstado />
       {cabecera}
 
       {/* El aviso se muestra HAYA O NO rol de GPS. Antes era `!reporta &&
@@ -2205,7 +2214,7 @@ function Deslizable({ texto, textoBoton, colorListo, onDisparar }) {
 // Qué se dibuja está en `mapa.js`, que es JS puro y se prueba en Node. Acá
 // solo se le pasa el papel.
 function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, onIr }) {
-  const { s, C, oscuro } = usarTema();
+  const { s, C, Cmapa, oscuro } = usarTema();
   const margen = margenes(useSafeAreaInsets(), { conBarra: true });
   const web = React.useRef(null);
   const [siguiendo, setSiguiendo] = React.useState(true);
@@ -2279,8 +2288,8 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
 
   React.useEffect(() => {
     if (!listo) return;
-    mandar({ tipo: 'tema', oscuro, colores: mapa.coloresDe(C) });
-  }, [listo, oscuro, C, mandar]);
+    mandar({ tipo: 'tema', oscuro, colores: mapa.coloresDe(Cmapa) });
+  }, [listo, oscuro, Cmapa, mandar]);
 
   // La clave de las tiles y las zonas con mapa propio vienen del login (el
   // servidor tiene la clave en una variable de entorno; en la app no hay
@@ -2627,7 +2636,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
   // —achicar la ventana— no ocurre con edge-to-edge. Ver `teclado.js`.
   return (
     <View style={[s.pantalla, margen, { paddingBottom: alto }]}>
-      <StatusBar style="light" />
+      <BarraDeEstado />
 
       <View style={s.canales}>
         {[['grupo', 'RUTA'], ['directo', 'COMBI'], ['personal', 'PERSONAL']].map(([id, texto]) => (
