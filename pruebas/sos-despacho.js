@@ -250,7 +250,7 @@ const hayCartel = (pg) => pg.$('[data-sos-atendido]').then(Boolean);
   await A.click('[data-sos-atendido]');
   ok('Despacho lo atiende: a Luis le aparece «DESPACHO VIO TU SOS»', await hasta(() => L.$('[data-sos-visto]').then(Boolean)));
   const cartel = await L.$eval('[data-sos-visto]', e => e.innerText).catch(() => '');
-  ok('con quién y a qué hora', /DESPACHO VIO TU SOS/.test(cartel) && /Lo marcó atendido Despacho a las \d\d:\d\d/.test(cartel), cartel);
+  ok('con quién y a qué hora', /DESPACHO VIO TU SOS/.test(cartel) && /Lo vio Despacho a las \d\d:\d\d/.test(cartel), cartel);
   ok('su cobradora, en la misma combi, también se entera', rosa.visto.some(m => m.type === 'sos_atendido' && m.sosId === tercero));
   ok('otro chofer de la ruta, no', !juan.visto.some(m => m.type === 'sos_atendido'));
   const otra = await socket(tLuis);

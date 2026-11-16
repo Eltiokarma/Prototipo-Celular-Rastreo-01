@@ -3562,6 +3562,9 @@ function Root() {
   const [sosPropio, setSosPropio] = React.useState(null);
   // «Despacho vio tu SOS» (31/10): lo primero que quiere saber el que pidió
   // ayuda. Queda hasta que lo toca; los ya cerrados no vuelven al reconectar.
+  // Dice «lo vio» y no «lo marcó atendido»: el botón ATENDIDO de Despacho
+  // garantiza que alguien lo vio, no que la ayuda va en camino, y a quien la
+  // está esperando las dos palabras le prometen cosas distintas (auditoría N9).
   const [sosVisto, setSosVisto] = React.useState(null);
   // El teléfono de la central (PENDIENTES 0.5): el de la sesión guardada —que
   // es lo que hay sin internet— y, si se puede, el de ahora. En su propio
@@ -4189,7 +4192,7 @@ function Root() {
                 día da 3,8:1, poco para 13 px */}
             <div style={{ color: HUD.greenInk, fontSize: 13, fontWeight: 900, letterSpacing: 1 }}>DESPACHO VIO TU SOS</div>
             <div style={{ color: HUD.fg, fontSize: 12, lineHeight: 1.35, marginTop: 2 }}>
-              Lo marcó atendido {sosVisto.por || 'Despacho'} a las {nowTime(sosVisto.en)}. Tocá para cerrar.
+              Lo vio {sosVisto.por || 'Despacho'} a las {nowTime(sosVisto.en)}. Tocá para cerrar.
             </div>
           </button>
         )}

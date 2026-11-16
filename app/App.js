@@ -352,7 +352,8 @@ function Aplicacion() {
         if (c.sesion && m.unitId === c.sesion.unitId) setTipificarSos(true);
       }),
       // «Despacho vio tu SOS» (31/10): queda hasta que lo toca, y el que ya
-      // cerró no vuelve con cada reconexión
+      // cerró no vuelve con cada reconexión. Dice «lo vio», no «lo marcó
+      // atendido»: ATENDIDO sólo garantiza que alguien lo vio (auditoría N9).
       c.on('sosAtendido', (m) => {
         if (!sosVistosCerrados.current.has(m.sosId)) setSosVisto(m);
       }),
@@ -2500,7 +2501,7 @@ function SosVisto({ visto, onCerrar }) {
     <Pressable onPress={onCerrar} style={s.sosVisto} accessibilityRole="button">
       <Text style={s.vigiaTitulo}>DESPACHO VIO TU SOS</Text>
       <Text style={s.vigiaTexto}>
-        Lo marcó atendido {visto.por || 'Despacho'} a las {hora}. Tocá para cerrar.
+        Lo vio {visto.por || 'Despacho'} a las {hora}. Tocá para cerrar.
       </Text>
     </Pressable>
   );
