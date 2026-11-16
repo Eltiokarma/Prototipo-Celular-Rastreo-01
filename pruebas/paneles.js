@@ -198,6 +198,8 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
   ok('N6 · «Entrar AUSENTE» no queda bloqueado sin decir por qué', !/const \[countdown, setCountdown\]/.test(prototipo) && /Entrar AUSENTE \(comer, un repuesto\)/.test(prototipo));
   // B13: el ingreso decía «Conectado» antes de hablar con nadie
   ok('B13 · el ingreso dice «Conectado» sólo si el servidor contestó', /async function alcanzable/.test(leer('project/realtime.js')) && /alcance === 'si' \? 'Conectado'/.test(prototipo) && !/>Conectado<\/span>/.test(prototipo));
+  // B10: coordenadas crudas que el chofer no usa
+  ok('B10 · la tarjeta del mapa no muestra coordenadas; los avisos de GPS quedan', !/realPos\.lat\.toFixed\(4\)/.test(prototipo) && /gpsError \? 'SIN GPS' : 'ESPERANDO GPS…'/.test(prototipo));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

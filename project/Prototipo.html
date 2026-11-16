@@ -1009,12 +1009,16 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
             }}>{hud.sec.display}</div>
           </div>
         </div>
+        {/* El pie: en la maqueta, los paraderos; en vivo, sólo si el GPS
+            tiene algo que decir. Antes mostraba la coordenada cruda
+            («-15.4869, -70.1358») y no había nada que el chofer hiciera con
+            ella (auditoría de UI, B10). */}
+        {(!hud.vivo || !realPos) && (
         <div style={{
           borderTop: `1px solid ${HUD.divider}`, paddingTop: 12,
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          {/* Los paraderos son de la maqueta: el servidor no los tiene. En
-              vivo queda solo la coordenada, que sí es real. */}
+          {/* Los paraderos son de la maqueta: el servidor no los tiene. */}
           {!hud.vivo && (
             <React.Fragment>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: P.bright, flexShrink: 0 }} />
@@ -1026,16 +1030,15 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
             </React.Fragment>
           )}
           {hud.vivo && <span style={{ flex: 1 }} />}
-          <span style={{
-            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-            fontSize: 13, fontWeight: 700, color: realPos ? HUD.dim3 : HUD.amber,
-            whiteSpace: 'nowrap',
-          }}>
-            {realPos
-              ? `${realPos.lat.toFixed(4)}, ${realPos.lng.toFixed(4)}`
-              : gpsError ? 'SIN GPS' : 'ESPERANDO GPS…'}
-          </span>
+          {!realPos && (
+            <span style={{
+              fontFamily: 'system-ui, sans-serif',
+              fontSize: 14, fontWeight: 800, letterSpacing: 0.5, color: HUD.amberTexto,
+              whiteSpace: 'nowrap',
+            }}>{gpsError ? 'SIN GPS' : 'ESPERANDO GPS…'}</span>
+          )}
         </div>
+        )}
       </div>
     </div>
   );
