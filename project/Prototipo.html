@@ -113,6 +113,8 @@ if (typeof L === 'undefined') {
     0%, 100% { opacity: 0.55; }
     50%      { opacity: 1; }
   }
+  /* La cuenta del «Deshacer» de AUSENTE: la franja se vacía en 5 s */
+  @keyframes vaciar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
   @keyframes combiRecDot {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.35; }
@@ -2539,6 +2541,10 @@ function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) 
 // estado tiñe el halo, la barra superior y el lavado de fondo.
 // Cuánto espera «¿SEGURO? TOCÁ DE NUEVO» antes de aceptar el segundo toque
 const ARMA_SALIR_MS = 600;
+// AUSENTE saca de la cadena y descarta la vuelta en curso: un toque sin
+// querer costaba la vuelta. Se avisa al servidor recién pasados estos
+// segundos, y mientras tanto se puede deshacer (auditoría de UI, B3).
+const DESHACER_AUSENTE_MS = 5000;
 
 function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gpsRole, onFireSos, presencia, onPresencia, miEstado, onTrafico }) {
   const hud = buildHudModel(tweaks, gapMeta, comoSeMide);
@@ -2558,6 +2564,19 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
   // rebote del dedo con la combi en marcha alcanzaba para salir. Despacho ya
   // arma así la baja (700 ms) y ATENDIDO (1200 ms) (auditoría de UI, N2).
   const armadoEn = React.useRef(0);
+
+  // AUSENTE con «Deshacer»: `ausenteEn` es cuándo se tocó; a los 5 s se
+  // declara. Desmontar la pantalla (cerrar sesión) lo cancela.
+  const [ausenteEn, setAusenteEn] = React.useState(null);
+  const [, setTic] = React.useState(0);
+  React.useEffect(() => {
+    if (!ausenteEn) return;
+    const reloj = setInterval(() => setTic(n => n + 1), 250);
+    const t = setTimeout(() => { setAusenteEn(null); onPresencia && onPresencia('ausente'); },
+      Math.max(0, DESHACER_AUSENTE_MS - (Date.now() - ausenteEn)));
+    return () => { clearInterval(reloj); clearTimeout(t); };
+  }, [ausenteEn]);
+  const faltaAusente = ausenteEn ? Math.max(1, Math.ceil((DESHACER_AUSENTE_MS - (Date.now() - ausenteEn)) / 1000)) : 0;
 
   // Sobre fondo claro (día y sol extremo) el halo no funciona: el dígito va
   // sólido, con el color de estado como tinta. Los tokens ya vienen del tema.
@@ -2853,9 +2872,32 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
           }}>{miEstado?.trafico ? 'EN TRÁFICO · TOCÁ PARA QUITAR' : miEstado?.parado ? '¿ESTÁS EN TRÁFICO? · TOCÁ PARA AVISAR' : 'ESTOY EN TRÁFICO'}</button>
         </div>
       )}
-      {onPresencia && (
+      {/* Pasando a AUSENTE: se puede deshacer hasta que se avisa */}
+      {onPresencia && ausenteEn && (
+        <div data-deshacer-ausente style={{ padding: '0 18px 10px', position: 'relative' }}>
+          <div style={{
+            ...botonHud, cursor: 'default', position: 'relative', overflow: 'hidden',
+            display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px 0 14px',
+            background: HUD.burbujaWarn, border: `2px solid ${HUD.amber}`,
+          }}>
+            <span key={ausenteEn} style={{
+              position: 'absolute', inset: 0, background: HUD.amber, opacity: 0.16,
+              transformOrigin: 'left', animation: `vaciar ${DESHACER_AUSENTE_MS}ms linear forwards`,
+            }} />
+            <span role="status" style={{ flex: 1, position: 'relative', color: HUD.burbujaWarnInk, fontSize: 15, fontWeight: 700, letterSpacing: 0 }}>
+              Pasás a AUSENTE en {faltaAusente} s
+            </span>
+            <button data-noswipe="presencia" onClick={() => setAusenteEn(null)} style={{
+              position: 'relative', height: 'calc(100% - 8px)', padding: '0 16px', borderRadius: 10, border: 'none',
+              background: HUD.amberTexto, color: HUD.bg, cursor: 'pointer',
+              fontSize: 15, fontWeight: 800, letterSpacing: 0.5, fontFamily: 'system-ui, sans-serif',
+            }}>DESHACER</button>
+          </div>
+        </div>
+      )}
+      {onPresencia && !ausenteEn && (
         <div style={{ padding: '0 18px 10px', position: 'relative', display: 'flex', gap: 8 }}>
-          {!ausente && <button data-noswipe="presencia" onClick={() => onPresencia('ausente')} style={{
+          {!ausente && <button data-noswipe="presencia" onClick={() => setAusenteEn(Date.now())} style={{
             ...botonHud, flex: 1, width: 'auto',
             border: `2px solid ${HUD.dim3}`, background: 'transparent', color: HUD.fg2,
           }}>AUSENTE</button>}

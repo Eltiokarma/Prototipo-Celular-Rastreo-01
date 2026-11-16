@@ -182,6 +182,8 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
   ok('N3 · sin señal el texto del chofer queda en el campo, y se dice', /if \(!connectedRef\.current\) return false;/.test(prototipo) && /if \(onSendText\(text, privadoDelCanal\) === false\) \{ setNoSalio\(true\); return; \}/.test(prototipo) && /data-no-salio/.test(prototipo));
   ok('N3 · con la brecha vieja el chat tampoco manda (el socket tarda en enterarse)', /if \(hud && hud\.viejo\) \{ setNoSalio\(true\); return; \}/.test(prototipo));
   ok('N3 · un solo ✓: llegó al servidor, no «leído»', /'Tú ✓'\)/.test(prototipo) && !/Tú ✓✓/.test(prototipo));
+  // B3: AUSENTE descartaba la vuelta con un solo toque
+  ok('B3 · AUSENTE se declara a los 5 s y se puede deshacer', /const DESHACER_AUSENTE_MS = 5000;/.test(prototipo) && /onClick=\{\(\) => setAusenteEn\(Date\.now\(\)\)\}/.test(prototipo) && /onClick=\{\(\) => setAusenteEn\(null\)\}/.test(prototipo) && !/onClick=\{\(\) => onPresencia\('ausente'\)\}/.test(prototipo));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

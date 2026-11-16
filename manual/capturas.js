@@ -584,7 +584,8 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     await foto(de, 'd05b-sos-tipo', { clip: { x: 0, y: 0, width: 1440, height: 300 } });
   });
   await paso('chofer: ausente', async () => {
-    await clic(ch, 'button:has-text("AUSENTE")', 2500);
+    // AUSENTE se declara a los 5 s: hasta entonces se puede deshacer
+    await clic(ch, 'button:has-text("AUSENTE")', 7000);
     await foto(ch, 'c06-ausente');
     await clic(ch, 'button:has-text("VOLVER A RUTA")', 2500);
     await clic(ch, 'button:has-text("SALIR DE RUTA")', 400);
