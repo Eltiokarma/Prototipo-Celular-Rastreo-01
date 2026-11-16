@@ -2467,6 +2467,43 @@ function pideMenosMovimiento() {
   try { return window.matchMedia(MENOS_MOVIMIENTO).matches; } catch { return false; }
 }
 
+// ── VIGÍA DE LA AUSENCIA: copia de app/ausencia.js ──────────────────
+// AUSENTE se declara a mano y se olvida a mano: el chofer almuerza, arranca
+// y no toca VOLVER A RUTA, y trabaja invisible (sin brecha, sin vueltas). La
+// APK lo resuelve con este vigía; la web no lo tenía (auditoría de UI, N8).
+// Es la MISMA lógica, copiada porque esta página no tiene paso de build:
+// pruebas/ausencia.js corre esta copia y la original con los mismos casos,
+// y falla si dicen cosas distintas. Si se cambia una, se cambian las dos.
+const AUSENCIA = { RADIO_VOLVER_M: 300, TOPE_AUSENTE_MS: 2 * 60 * 60 * 1000, SEGUIDAS: 2, QUIETO_M: 40 };
+function crearVigiaAusencia({ radioM = AUSENCIA.RADIO_VOLVER_M, topeMs = AUSENCIA.TOPE_AUSENTE_MS, quietoM = AUSENCIA.QUIETO_M } = {}) {
+  const metros = (aLat, aLng, bLat, bLng) => {
+    const kLng = Math.cos((aLat + bLat) / 2 * Math.PI / 180);
+    return Math.hypot((bLat - aLat) * 111320, (bLng - aLng) * 111320 * kLng);
+  };
+  let ancla = null, candidata = null, desde = null, lejosSeguidas = 0;
+  return {
+    // null (nada), 'volver' (está manejando de nuevo) o 'fuera' (ya no es un almuerzo)
+    posicion(lat, lng, ts = Date.now()) {
+      if (desde === null) desde = ts;
+      if (ts - desde > topeMs) return 'fuera';
+      if (!ancla) {
+        if (candidata && metros(candidata.lat, candidata.lng, lat, lng) <= quietoM) ancla = { lat, lng };
+        else candidata = { lat, lng };
+        return null;
+      }
+      if (metros(ancla.lat, ancla.lng, lat, lng) > radioM) {
+        lejosSeguidas++;
+        if (lejosSeguidas >= AUSENCIA.SEGUIDAS) return 'volver';
+      } else {
+        lejosSeguidas = 0;
+      }
+      return null;
+    },
+    haceCuanto(ts = Date.now()) { return desde === null ? 0 : ts - desde; },
+  };
+}
+// ── FIN DEL VIGÍA DE LA AUSENCIA ───────────────────────────────────
+
 // ─── ENSAYOS (auditoría de UI, hipótesis H1 y H2) ────────────────────
 // Dos cambios del HUD que no se dejan de fábrica sin probarlos en la calle,
 // con el mismo teléfono y comparando contra lo de hoy:
@@ -3553,8 +3590,32 @@ function Root() {
     } catch {}
     if (window.RealtimeClient) window.RealtimeClient.setPresencia(nueva, motivo);
   };
-  // «Saliste a ruta solo»: se ve arriba unos segundos al entrar a la pantalla
+  // «Saliste a ruta solo» / «Volviste a ruta»: se ve arriba unos segundos
   const [avisoSalida, setAvisoSalida] = React.useState(null);
+
+  // El vigía de la ausencia (N8). Mira la última posición del GPS cada 5 s
+  // mientras esté AUSENTE: si se aleja del lugar donde quedó parado, volvió a
+  // manejar y vuelve a ruta solo; si la ausencia pasa las dos horas, ya no es
+  // un almuerzo y sale de ruta. Cada ausencia ancla de nuevo.
+  React.useEffect(() => {
+    if (presencia !== 'ausente' || screen !== 'app' || user?.role === 'collector') return;
+    const vigia = crearVigiaAusencia();
+    let ultima = null;
+    const t = setInterval(() => {
+      const pos = window.RealtimeClient && window.RealtimeClient.posicionReciente();
+      if (!pos || (ultima && pos.t === ultima)) return;   // la misma lectura no cuenta dos veces
+      ultima = pos.t;
+      const accion = vigia.posicion(pos.lat, pos.lng, Date.now());
+      if (accion === 'volver') {
+        declararPresencia('ruta', 'auto');
+        setAvisoSalida({ titulo: 'VOLVISTE A RUTA', texto: 'Te vimos en movimiento estando AUSENTE. Si no estás manejando, tocá AUSENTE de nuevo.' });
+      } else if (accion === 'fuera') {
+        declararPresencia('fuera');
+        setScreen('start');
+      }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [presencia, screen, user?.role]);
   React.useEffect(() => {
     if (!avisoSalida) return;
     const t = setTimeout(() => setAvisoSalida(null), 12_000);
@@ -3983,7 +4044,7 @@ function Root() {
       // (y al servidor, para que Despacho lo vea en Actividad)
       onAutoStart={user?.role === 'collector' ? null : () => {
         declararPresencia('ruta', 'auto');
-        setAvisoSalida('Te vimos manejando: saliste a ruta solo');
+        setAvisoSalida({ titulo: 'SALISTE A RUTA SOLO', texto: 'Te vimos manejando sin haber tocado SALIR A RUTA. Despacho lo ve en la actividad.' });
         setScreen('app');
       }}
       onLogout={logout}
@@ -4055,10 +4116,8 @@ function Root() {
             background: HUD.surface, border: `2px solid ${HUD.amber}`,
             borderRadius: 12, padding: '10px 12px',
           }}>
-            <div style={{ color: HUD.amber, fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>SALISTE A RUTA SOLO</div>
-            <div style={{ color: HUD.dim2, fontSize: 11, lineHeight: 1.35 }}>
-              Te vimos manejando sin haber tocado SALIR A RUTA. Despacho lo ve en la actividad.
-            </div>
+            <div style={{ color: HUD.amberTexto, fontSize: 14, fontWeight: 900, letterSpacing: 0.5 }}>{avisoSalida.titulo}</div>
+            <div style={{ color: HUD.fg2, fontSize: 14, lineHeight: 1.35 }}>{avisoSalida.texto}</div>
           </div>
         )}
         {screen === 'app' && presencia === 'ausente' && (

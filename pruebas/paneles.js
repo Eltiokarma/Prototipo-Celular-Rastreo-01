@@ -192,6 +192,8 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
   // B4 y B6 son hipótesis: apagadas de fábrica, se prenden con ?ensayo=
   ok('B4/B6 · los ensayos arrancan apagados y se prenden por la dirección', /barraFija: ENSAYOS\.has\('barra'\), rotuloResalta: ENSAYOS\.has\('rotulo'\)/.test(prototipo) && /localStorage\.setItem\('r14_ensayo', v\)/.test(prototipo) && /data-ensayo/.test(prototipo));
   ok('B4/B6 · la raíz conserva ?ensayo= al pasar a la app', /location\.replace\('Prototipo\.html' \+ location\.search/.test(leer('project/index.html')));
+  // N8: la web no tenía el vigía de la ausencia (la lógica la cubre ausencia.js)
+  ok('N8 · la web vigila la ausencia y vuelve a ruta sola', /const vigia = crearVigiaAusencia\(\);/.test(prototipo) && /titulo: 'VOLVISTE A RUTA'/.test(prototipo) && /t: lastPosition\.timestamp/.test(leer('project/realtime.js')));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

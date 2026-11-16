@@ -714,7 +714,9 @@
   // SMS a la central cuando el SOS no sale por internet
   function posicionReciente() {
     const fresca = lastPosition && Date.now() - (lastPosition.timestamp || 0) <= POSICION_SOS_MAX_MS;
-    return fresca ? { lat: lastPosition.coords.latitude, lng: lastPosition.coords.longitude } : null;
+    // `t` es cuándo la leyó el GPS: el vigía de la ausencia no cuenta dos
+    // veces la misma lectura
+    return fresca ? { lat: lastPosition.coords.latitude, lng: lastPosition.coords.longitude, t: lastPosition.timestamp } : null;
   }
   const elegirCombi = (token, vehicleId) =>
     pedirConToken('/combi', token, { method: 'POST', body: JSON.stringify({ vehicleId }) });
