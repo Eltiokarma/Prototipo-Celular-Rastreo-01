@@ -1232,6 +1232,9 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
   );
 }
 
+// Cuánto espera «¿SEGURO? TOCÁ DE NUEVO» antes de aceptar el segundo toque
+const ARMA_SALIR_MS = 600;
+
 function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, sosVisto, onSosVistoCerrar,
                 sosSinRed, central, onSosSinRedCerrar, miNombre, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
@@ -1267,6 +1270,11 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
     const t = setTimeout(() => setConfirmarSalida(false), 4000);
     return () => clearTimeout(t);
   }, [confirmarSalida]);
+  // Y el segundo toque cuenta recién a los 0,6 s: el primero arma al
+  // instante y el botón cambia de función en el mismo lugar, así que un
+  // rebote del dedo con la combi en marcha alcanzaba para salir. Despacho ya
+  // arma así la baja (700 ms) y ATENDIDO (1200 ms) (auditoría de UI, N2).
+  const armadoEn = React.useRef(0);
 
   const cabecera = (
     <View style={s.barra}>
@@ -1535,7 +1543,8 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           <Text style={[s.botonPresenciaTexto, { color: C.ambar }]}>AUSENTE</Text>
         </Pressable>
         <Pressable onPress={() => {
-          if (!confirmarSalida) { setConfirmarSalida(true); return; }
+          if (!confirmarSalida) { armadoEn.current = Date.now(); setConfirmarSalida(true); return; }
+          if (Date.now() - armadoEn.current < ARMA_SALIR_MS) return;   // el mismo toque, rebotando
           setConfirmarSalida(false);
           onPresencia('fuera');
         }} style={[s.botonPresencia, confirmarSalida && { backgroundColor: C.rojo, borderColor: C.rojo }]}>

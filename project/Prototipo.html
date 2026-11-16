@@ -2512,6 +2512,9 @@ function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) 
 // Pantalla RUTA — propuesta 2a "Temporizador".
 // Un solo dato dominante: la unidad más desviada del objetivo. El color de
 // estado tiñe el halo, la barra superior y el lavado de fondo.
+// Cuánto espera «¿SEGURO? TOCÁ DE NUEVO» antes de aceptar el segundo toque
+const ARMA_SALIR_MS = 600;
+
 function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gpsRole, onFireSos, presencia, onPresencia, miEstado, onTrafico }) {
   const hud = buildHudModel(tweaks, gapMeta, comoSeMide);
   const { hero, sec, target } = hud;
@@ -2525,6 +2528,11 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
     const t = setTimeout(() => setConfirmarSalida(false), 4000);
     return () => clearTimeout(t);
   }, [confirmarSalida]);
+  // Y el segundo toque cuenta recién a los 0,6 s: el primero arma al
+  // instante y el botón cambia de función en el mismo lugar, así que un
+  // rebote del dedo con la combi en marcha alcanzaba para salir. Despacho ya
+  // arma así la baja (700 ms) y ATENDIDO (1200 ms) (auditoría de UI, N2).
+  const armadoEn = React.useRef(0);
 
   // Sobre fondo claro (día y sol extremo) el halo no funciona: el dígito va
   // sólido, con el color de estado como tinta. Los tokens ya vienen del tema.
@@ -2827,7 +2835,8 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
             border: `2px solid ${HUD.dim3}`, background: 'transparent', color: HUD.fg2,
           }}>AUSENTE</button>}
           <button data-noswipe="presencia" onClick={() => {
-            if (!confirmarSalida) { setConfirmarSalida(true); return; }
+            if (!confirmarSalida) { armadoEn.current = Date.now(); setConfirmarSalida(true); return; }
+            if (Date.now() - armadoEn.current < ARMA_SALIR_MS) return;   // el mismo toque, rebotando
             setConfirmarSalida(false);
             onPresencia('fuera');
           }} style={{

@@ -168,6 +168,8 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 1 (AUDITORIA-UI-2026-11-16.md)')
   ok('N1 · la brecha de más de 10 s se dice vieja y en gris', /VIEJA_MS = 10_000, PERDIDA_MS = 60_000/.test(prototipo) && /const tono = viejo \? HUD_STATUS\.none/.test(prototipo));
   ok('N1 · al minuto el número se retira y queda «SIN SEÑAL»', /!ausente && hud\.perdido &&/.test(prototipo) && /!ausente && !hud\.perdido &&/.test(prototipo));
   ok('N1 · un reloj despierta el HUD aunque no lleguen estados', /function usarAhoraSiEnvejece/.test(prototipo) && /recibido: Date\.now\(\)/.test(prototipo));
+  // N2: el primer toque arma al instante; un rebote del dedo salía de ruta
+  ok('N2 · «¿SEGURO?» acepta el segundo toque recién a los 0,6 s (web y APK)', [prototipo, leer('app/App.js')].every(src => /const ARMA_SALIR_MS = 600;/.test(src) && /Date\.now\(\) - armadoEn\.current < ARMA_SALIR_MS\) return/.test(src)));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
