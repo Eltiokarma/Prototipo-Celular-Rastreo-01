@@ -2233,67 +2233,70 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
   // Con más de una combi, la unidad se elige abajo y no va en tarjeta
   const tarjetas = [combis.length > 1 ? null : ['Unidad', unidad], ['Ruta', ruta]].filter(t => t && t[1]);
 
+  // La puerta lee del tema, como el ingreso y el HUD (auditoría de UI, B7).
+  // Era la única pantalla con la paleta oscura fija `P`: de día quedaba un
+  // azul noche entre un ingreso claro y un HUD claro, con el botón principal
+  // a 2,69:1 y ocho textos de 9 a 11 px. Los textos y los data-* no cambian.
+  const sans = 'system-ui, -apple-system, "Helvetica Neue", sans-serif';
+  const black = '"Archivo Black", system-ui, sans-serif';
+  const mono = 'JetBrains Mono, ui-monospace, monospace';
+  const rotuloPuerta = { fontFamily: sans, fontSize: 14, fontWeight: 700, color: HUD.fg2 };
+
   return (
     // Los avisos del SOS cubren la pantalla entera, no el pedazo scrolleado:
     // van en este marco, fuera de la caja que scrollea.
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
     <div style={{
-      width: '100%', height: '100%', background: P.bg,
+      width: '100%', height: '100%', background: HUD.bg,
       display: 'flex', flexDirection: 'column',
       padding: '28px 22px 22px', boxSizing: 'border-box',
-      color: P.white, overflowY: 'auto',
+      color: HUD.fg, overflowY: 'auto',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <CoopLogo size={36} ruta={rutaId} />
+        {/* Sin la ruta adentro: a este tamaño se dibujaba a ~5 px, y la ruta
+            ya está en su tarjeta, abajo */}
+        <CoopLogo size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: sans, fontSize: 13, fontWeight: 600, color: HUD.dim }}>Hola, conductor</div>
           <div style={{
-            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-            fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
-          }}>Hola, conductor</div>
-          <div style={{
-            fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 18, color: P.white, letterSpacing: -0.3,
+            fontFamily: black, fontSize: 18, color: HUD.fg, letterSpacing: -0.3,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>{user}</div>
         </div>
         {onLogout && (
           <button onClick={onLogout} style={{
-            background: 'transparent', border: `1px solid ${P.line}`,
-            borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
-            fontFamily: '"Helvetica Neue", system-ui, sans-serif',
-            fontSize: 12, fontWeight: 700, color: P.mute, flexShrink: 0,
+            background: 'transparent', border: `1px solid ${HUD.dim3}`,
+            borderRadius: 10, height: 44, padding: '0 14px', cursor: 'pointer',
+            fontFamily: sans, fontSize: 14, fontWeight: 700, color: HUD.fg2, flexShrink: 0,
           }}>Salir</button>
         )}
       </div>
 
-      {/* Parece que ya está manejando. Fuerte y arriba de todo: amarillo
+      {/* Parece que ya está manejando. Fuerte y arriba de todo: ámbar lleno
           sobre la pantalla, con la cuenta a la vista. Abajo, con dos o más
           combis para elegir, quedaba fuera de la pantalla de un celular chico
           y no se podía contestar (revisión previa a la APK). No es un toast
           que se va solo: se va saliendo o diciendo que no. */}
       {falta !== null && (
         <div role="alert" data-vigia-puerta style={{
-          background: P.yellow, color: P.bg, borderRadius: 14,
+          background: HUD.amberTexto, color: HUD.bg, borderRadius: 14,
           padding: '14px 14px 12px', marginBottom: 12,
         }}>
-          <div style={{
-            fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 19, lineHeight: 1.15, marginBottom: 4,
-          }}>¿Ya estás manejando?</div>
-          <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, marginBottom: 10 }}>
+          <div style={{ fontFamily: black, fontSize: 19, lineHeight: 1.15, marginBottom: 4 }}>¿Ya estás manejando?</div>
+          <div style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.35, marginBottom: 10 }}>
             Tu combi no está en el mapa. Salís a ruta solo en{' '}
-            <strong style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>.
+            <strong style={{ fontFamily: mono, whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>.
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onStart} style={{
-              flex: 1, padding: '12px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
-              background: P.bg, color: P.yellow,
-              fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 14, letterSpacing: 1,
+              flex: 1, minHeight: 48, padding: '10px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              background: HUD.bg, color: HUD.amberTexto,
+              fontFamily: black, fontSize: 15, letterSpacing: 1,
             }}>SALIR AHORA</button>
             <button onClick={callar} style={{
-              flex: 1, padding: '12px 8px', borderRadius: 10, cursor: 'pointer',
-              background: 'transparent', color: P.bg, border: `2px solid ${P.bg}`,
-              fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 800,
+              flex: 1, minHeight: 48, padding: '10px 8px', borderRadius: 10, cursor: 'pointer',
+              background: 'transparent', color: HUD.bg, border: `2px solid ${HUD.bg}`,
+              fontFamily: sans, fontSize: 15, fontWeight: 800,
             }}>No estoy manejando</button>
           </div>
         </div>
@@ -2306,19 +2309,14 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
           trampa. La vuelta de verdad está en Despacho. */}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ ...rotuloPuerta, color: HUD.dim, marginBottom: 10 }}>{isFirstLap ? 'Inicio de turno' : `Vuelta ${lapNumber}`}</div>
         <div style={{
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 11, letterSpacing: 2, color: P.sky,
-          textTransform: 'uppercase', marginBottom: 10,
-        }}>{isFirstLap ? 'Inicio de turno' : `Vuelta ${lapNumber}`}</div>
-        <div style={{
-          fontFamily: '"Archivo Black", system-ui, sans-serif',
-          fontSize: 38, fontWeight: 900, letterSpacing: -1.2,
-          color: P.white, textAlign: 'center', lineHeight: 1.05, marginBottom: 8,
+          fontFamily: black, fontSize: 38, fontWeight: 900, letterSpacing: -1.2,
+          color: HUD.fg, textAlign: 'center', lineHeight: 1.05, marginBottom: 10,
         }}>¿Salir a ruta<br/>ahora?</div>
         <div style={{
-          fontFamily: '"Helvetica Neue", system-ui', fontSize: 15, color: P.mute,
-          textAlign: 'center', lineHeight: 1.4, maxWidth: 280,
+          fontFamily: sans, fontSize: 16, color: HUD.fg2,
+          textAlign: 'center', lineHeight: 1.45, maxWidth: 320,
         }}>
           Al salir, tu combi aparece en el mapa y empieza a emitir tu
           posición. Tu vuelta y tu brecha arrancan recién cuando pises el
@@ -2333,19 +2331,16 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
         }}>
           {tarjetas.map(([label, val]) => (
             <div key={label} style={{
-              background: P.panel, border: `1px solid ${P.line}`, borderRadius: 12,
+              background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 12,
               padding: '10px 12px', minWidth: 0,
             }}>
-              <div style={{
-                fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-                fontSize: 9, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
-              }}>{label}</div>
+              <div style={{ fontFamily: sans, fontSize: 13, fontWeight: 600, color: HUD.dim }}>{label}</div>
               {/* El nombre de una ruta es bastante más largo que "M-12": si
                   no baja de cuerpo se sale de la tarjeta en un celular. */}
               <div style={{
-                fontFamily: '"Archivo Black", system-ui',
-                fontSize: String(val).length > 10 ? 14 : 20,
-                color: P.white, letterSpacing: -0.3, lineHeight: 1.15,
+                fontFamily: black,
+                fontSize: String(val).length > 10 ? 15 : 20,
+                color: HUD.fg, letterSpacing: -0.3, lineHeight: 1.15,
                 overflowWrap: 'anywhere',
               }}>{val}</div>
             </div>
@@ -2355,34 +2350,31 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
 
       {combis.length > 1 && (
         <div data-combis style={{ marginBottom: 14 }}>
-          <div style={{
-            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-            fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase', marginBottom: 8,
-          }}>¿En qué combi salís?</div>
+          <div style={{ ...rotuloPuerta, marginBottom: 8 }}>¿En qué combi salís?</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {combis.map(c => {
               const elegida = c.vehicleId === unidad;
               return (
                 <button key={c.vehicleId} data-combi={c.vehicleId} aria-pressed={elegida}
                   onClick={() => elegir(c)} disabled={eligiendo} style={{
-                    display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', width: '100%',
-                    background: elegida ? P.navy : P.panel, color: P.white, cursor: 'pointer',
-                    border: `${elegida ? 2 : 1}px solid ${elegida ? P.bright : P.line}`,
+                    display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', width: '100%', minHeight: 56,
+                    background: HUD.input, color: HUD.fg, cursor: 'pointer',
+                    border: `${elegida ? 2 : 1}px solid ${elegida ? HUD.acento : HUD.line}`,
                     borderRadius: 12, padding: elegida ? '9px 11px' : '10px 12px',
                   }}>
-                  <span style={{ fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 20, letterSpacing: -0.3 }}>{c.vehicleId}</span>
+                  <span style={{ fontFamily: black, fontSize: 20, letterSpacing: -0.3 }}>{c.vehicleId}</span>
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{
-                      display: 'block', fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10,
-                      letterSpacing: 1, color: P.sky, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      display: 'block', fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                     }}>{[c.label, c.routeId !== rutaId ? c.routeName : null].filter(Boolean).join(' · ')}</span>
                     <span style={{
-                      display: 'block', fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 700,
-                      color: c.estado === 'ocupada' ? P.yellow : P.sky,
+                      display: 'block', fontFamily: sans, fontSize: 14, fontWeight: 700,
+                      color: c.estado === 'ocupada' ? HUD.amberTexto : HUD.fg2,
                     }}>{c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}</span>
                   </span>
                   {elegida && (
-                    <span style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10, letterSpacing: 1.5, color: P.sky }}>ELEGIDA</span>
+                    <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 800, letterSpacing: 0.5, color: HUD.acentoTexto }}>✓ ELEGIDA</span>
                   )}
                 </button>
               );
@@ -2392,28 +2384,28 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
               un relevo, y se hace a propósito, no por un dedo que se corrió. */}
           {confirmar && (
             <div role="alert" style={{
-              marginTop: 8, background: P.panel, border: `1px solid ${P.yellow}`, borderRadius: 12, padding: 12,
+              marginTop: 8, background: HUD.burbujaWarn, border: `2px solid ${HUD.amber}`, borderRadius: 12, padding: 12,
             }}>
-              <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, color: P.white, marginBottom: 10 }}>
+              <div style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.35, color: HUD.burbujaWarnInk, marginBottom: 10 }}>
                 {confirmar.vehicleId} la está manejando <strong>{confirmar.quien}</strong>. Si es un relevo, al
                 salir a ruta la tomás vos y a {confirmar.quien} se le avisa.
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => elegir(confirmar, true)} disabled={eligiendo} style={{
-                  flex: 1, padding: '11px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
-                  background: P.yellow, color: P.bg,
-                  fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 13, letterSpacing: 0.5,
+                  flex: 1, minHeight: 48, padding: '10px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                  background: HUD.amberTexto, color: HUD.bg,
+                  fontFamily: black, fontSize: 14, letterSpacing: 0.5,
                 }}>ES UN RELEVO</button>
                 <button onClick={() => setConfirmar(null)} style={{
-                  flex: 1, padding: '11px 8px', borderRadius: 10, cursor: 'pointer',
-                  background: 'transparent', color: P.sky, border: `1px solid ${P.line}`,
-                  fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 700,
+                  flex: 1, minHeight: 48, padding: '10px 8px', borderRadius: 10, cursor: 'pointer',
+                  background: 'transparent', color: HUD.fg2, border: `1px solid ${HUD.dim3}`,
+                  fontFamily: sans, fontSize: 15, fontWeight: 700,
                 }}>Cancelar</button>
               </div>
             </div>
           )}
           {errorCombi && (
-            <div style={{ marginTop: 8, fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, color: P.red }}>{errorCombi}</div>
+            <div style={{ marginTop: 8, fontFamily: sans, fontSize: 14, fontWeight: 600, color: HUD.red }}>{errorCombi}</div>
           )}
         </div>
       )}
@@ -2421,9 +2413,9 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
       <button onClick={onStart} style={{
         width: '100%', padding: '22px',
         fontSize: 24, fontWeight: 900, letterSpacing: 2.5,
-        fontFamily: '"Archivo Black", system-ui, sans-serif',
-        background: P.bright, color: P.white, border: 'none', borderRadius: 16,
-        cursor: 'pointer', boxShadow: `0 5px 0 ${P.deep}`, marginBottom: 10,
+        fontFamily: black,
+        background: HUD.acento, color: HUD.acentoInk, border: 'none', borderRadius: 16,
+        cursor: 'pointer', boxShadow: '0 4px 0 rgba(0,0,0,.28)', marginBottom: 10,
       }}>
         SALIR A RUTA →
       </button>
@@ -2432,13 +2424,13 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
           cruza la puerta mintiendo "en ruta" — declara lo que es. Despacho
           lo ve en el mapa, quieto, fuera de la cadena de brechas. */}
       <button onClick={onRest} disabled={countdown > 0} style={{
-        width: '100%', padding: '12px',
-        fontSize: 13, fontWeight: 700, letterSpacing: 1,
-        fontFamily: '"Helvetica Neue", system-ui, sans-serif',
+        width: '100%', minHeight: 48, padding: '10px 12px',
+        fontSize: 15, fontWeight: 700, letterSpacing: 0.3,
+        fontFamily: sans,
         background: 'transparent',
-        color: countdown > 0 ? P.mute : P.sky,
-        border: `1px solid ${countdown > 0 ? P.line : P.deep}`,
-        borderRadius: 10, cursor: countdown > 0 ? 'not-allowed' : 'pointer',
+        color: countdown > 0 ? HUD.dim3 : HUD.fg2,
+        border: `${countdown > 0 ? 1 : 2}px solid ${countdown > 0 ? HUD.line : HUD.dim3}`,
+        borderRadius: 12, cursor: countdown > 0 ? 'not-allowed' : 'pointer',
       }}>
         {countdown > 0 ? `Entrar AUSENTE (comer, un repuesto) · en ${countdown}s` : 'Entrar AUSENTE (comer, un repuesto)'}
       </button>

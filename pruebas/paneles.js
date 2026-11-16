@@ -184,6 +184,9 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
   ok('N3 · un solo ✓: llegó al servidor, no «leído»', /'Tú ✓'\)/.test(prototipo) && !/Tú ✓✓/.test(prototipo));
   // B3: AUSENTE descartaba la vuelta con un solo toque
   ok('B3 · AUSENTE se declara a los 5 s y se puede deshacer', /const DESHACER_AUSENTE_MS = 5000;/.test(prototipo) && /onClick=\{\(\) => setAusenteEn\(Date\.now\(\)\)\}/.test(prototipo) && /onClick=\{\(\) => setAusenteEn\(null\)\}/.test(prototipo) && !/onClick=\{\(\) => onPresencia\('ausente'\)\}/.test(prototipo));
+  // B7: la puerta era la única pantalla con la paleta oscura fija
+  { const puerta = prototipo.split('function StartRouteScreen(')[1].split('\nfunction ')[0];
+    ok('B7 · la puerta «Salir a ruta» sigue el tema (sin la paleta fija P)', !/\bP\.[a-z]/.test(puerta) && /background: HUD\.acento, color: HUD\.acentoInk/.test(puerta)); }
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
