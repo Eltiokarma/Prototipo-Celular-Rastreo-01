@@ -352,6 +352,9 @@ const TEMAS = {
     green:   '#1F8A4F',  greenInk: '#0B3D22',
     amber:   '#A67300',  amberInk: '#4A3200',
     red:     '#C2001D',  redInk:   '#5C0010',
+    // Texto ámbar chico (los botones del HUD) y lo que va escrito sobre el
+    // rojo lleno. El ámbar de estado da 3,95:1 y no alcanza para 16 px.
+    amberTexto: '#6B4A00', sobreRojo: '#FFFFFF',
     fg:      '#0B2239',  // texto primario
     fg2:     '#2A4864',  // texto secundario / iconos
     dim:     '#41627F',  // etiquetas
@@ -382,6 +385,7 @@ const TEMAS = {
     green:   '#146134',  greenInk: '#04220F',
     amber:   '#7A5400',  amberInk: '#2E2000',
     red:     '#960016',  redInk:   '#3D000B',
+    amberTexto: '#5C3F00', sobreRojo: '#FFFFFF',
     fg:      '#04121F',
     fg2:     '#0B2239',
     dim:     '#20415C',
@@ -409,6 +413,7 @@ const TEMAS = {
     green:   '#39FF14',  greenInk: '#EAFFE4',
     amber:   '#FFD400',  amberInk: '#FFF7D6',
     red:     '#FF2D55',  redInk:   '#FFE0E7',
+    amberTexto: '#FFD400', sobreRojo: '#03060a',
     fg:      '#EAF4FF',
     fg2:     '#C6D6E6',
     dim:     '#8FA8C0',
@@ -2505,6 +2510,11 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   const dim2 = HUD.dim2;
   const dim3 = HUD.dim3;
   const glow = (spec) => sun ? 'none' : spec;
+  const botonHud = {
+    width: '100%', height: 'clamp(46px, 7vh, 56px)', borderRadius: 14, cursor: 'pointer',
+    padding: '0 10px', fontSize: 16, fontWeight: 800, letterSpacing: 0.5, lineHeight: 1.15,
+    fontFamily: 'system-ui, sans-serif',
+  };
 
   // Cadencia de la barra superior según urgencia (tomada del semáforo viejo)
   const edgeDur = hero.status === 'red' ? '0.8s' : hero.status === 'yellow' ? '1.4s' : '2.4s';
@@ -2730,6 +2740,11 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         </div>
       )}
 
+      {/* Los tres botones del turno (auditoría UI B3). Se tocan manejando:
+          16 px y una altura que llega a 56 px; en un celular bajo (640 px)
+          baja a 46, porque si no el número de brecha se recorta. El borde
+          ámbar queda sólo para «tráfico»: AUSENTE y SALIR DE RUTA, las dos
+          que te sacan de la cadena, van en contorno neutro. */}
       {/* La presencia, igual que en la app nativa: AUSENTE saca de la
           cadena sin salir del mapa; SALIR DE RUTA borra del mapa en el
           acto — y por eso pide un segundo toque: apretarlo sin querer a
@@ -2740,34 +2755,27 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
       {onTrafico && !ausente && (
         <div style={{ padding: '0 18px 8px' }}>
           <button data-noswipe="trafico" onClick={() => onTrafico(!miEstado?.trafico)} style={{
-            width: '100%', height: 42, borderRadius: 12, cursor: 'pointer',
-            border: `1px solid ${HUD.amber}`,
-            background: miEstado?.trafico ? HUD.amber : 'transparent',
-            color: miEstado?.trafico ? HUD.bg : HUD.amber,
-            fontSize: 12, fontWeight: 800, letterSpacing: 1,
-            fontFamily: 'system-ui, sans-serif',
+            ...botonHud, border: `2px solid ${HUD.amber}`,
+            background: miEstado?.trafico ? HUD.amberTexto : 'transparent',
+            color: miEstado?.trafico ? HUD.bg : HUD.amberTexto,
           }}>{miEstado?.trafico ? 'EN TRÁFICO · TOCÁ PARA QUITAR' : miEstado?.parado ? '¿ESTÁS EN TRÁFICO? · TOCÁ PARA AVISAR' : 'ESTOY EN TRÁFICO'}</button>
         </div>
       )}
       {onPresencia && (
         <div style={{ padding: '0 18px 10px', position: 'relative', display: 'flex', gap: 8 }}>
           {!ausente && <button data-noswipe="presencia" onClick={() => onPresencia('ausente')} style={{
-            flex: 1, height: 42, borderRadius: 12, cursor: 'pointer',
-            border: `1px solid ${HUD.amber}`, background: 'transparent',
-            color: HUD.amber, fontSize: 12, fontWeight: 800, letterSpacing: 1,
-            fontFamily: 'system-ui, sans-serif',
+            ...botonHud, flex: 1, width: 'auto',
+            border: `2px solid ${HUD.dim3}`, background: 'transparent', color: HUD.fg2,
           }}>AUSENTE</button>}
           <button data-noswipe="presencia" onClick={() => {
             if (!confirmarSalida) { setConfirmarSalida(true); return; }
             setConfirmarSalida(false);
             onPresencia('fuera');
           }} style={{
-            flex: 1.4, height: 42, borderRadius: 12, cursor: 'pointer',
-            border: `1px solid ${confirmarSalida ? HUD.red : HUD.line}`,
+            ...botonHud, flex: 1.4, width: 'auto',
+            border: `2px solid ${confirmarSalida ? HUD.red : HUD.dim3}`,
             background: confirmarSalida ? HUD.red : 'transparent',
-            color: confirmarSalida ? '#fff' : HUD.dim2,
-            fontSize: 12, fontWeight: 800, letterSpacing: 1,
-            fontFamily: 'system-ui, sans-serif',
+            color: confirmarSalida ? HUD.sobreRojo : HUD.fg2,
           }}>{confirmarSalida ? '¿SEGURO? TOCÁ DE NUEVO' : 'SALIR DE RUTA'}</button>
         </div>
       )}

@@ -112,6 +112,11 @@ const PARES_PROTO = [
   ['burbuja de aviso',              t => t.burbujaWarnInk,   t => t.burbujaWarn, AA],
   ['burbuja de SOS',                t => t.burbujaSosInk,    t => t.burbujaSos, AA],
   ['insignia de privado / su ámbar', t => t.warnEdgeInk,     t => t.warnEdge, AA],
+  // Los botones del HUD (auditoría UI B3): texto de 16 px, piso AA
+  ['botón ámbar / fondo',           t => t.amberTexto, t => t.bg, AA],
+  ['botón ámbar lleno',             t => t.bg,         t => t.amberTexto, AA],
+  ['botones del turno / fondo',     t => t.fg2,        t => t.bg, AA],
+  ['«¿seguro?» sobre rojo',         t => t.sobreRojo,  t => t.red, AA],
 ];
 const PARES_DESP = [
   ['texto primario / fondo',        t => t.fg,   t => t.bg, AA],
