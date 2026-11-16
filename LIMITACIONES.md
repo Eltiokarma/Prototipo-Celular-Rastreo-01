@@ -92,7 +92,9 @@ limitación se resuelva o aparezca una nueva.
 - **Sin señal no hay tiempo real:** la interfaz carga desde caché
   (service worker) en unos 3 segundos —lo que tarda en darse por vencido
   el intento de red— pero las brechas se congelan y el chat solo agrega
-  mensajes locales. **No hay cola de reenvío**: lo que se emite durante
+  mensajes locales. Desde el 16/11 la web del chofer **lo dice**: a los 10 s
+  sin un estado nuevo pasa a «SIN SEÑAL · m:ss» con el número en gris, y al
+  minuto el número se retira (auditoría de UI, N1). **No hay cola de reenvío**: lo que se emite durante
   un corte de señal se pierde (no hay acuse ni reintento por mensaje).
 - **Reconexión:** automática cada 3 s. Al volver, el cliente recibe el
   historial del servidor (se resincroniza), pero lo enviado en el

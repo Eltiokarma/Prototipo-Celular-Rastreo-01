@@ -527,9 +527,29 @@ function fmtTarget(min) {
 // hace minutos y medirse contra ella sería inventar, pero tampoco es "no hay
 // nadie": el chofer tiene una combi adelante que no ve en el mapa, y eso es
 // justo lo que necesita saber.
-function buildHudModel(tweaks, gapMeta) {
+// ─── LA BRECHA VIEJA (auditoría UI N1, 16/11) ─────────────────────
+// Sin señal, el HUD seguía mostrando la última brecha en su color y con su
+// instrucción: medido, a los 90 s sin red decía 5:12 en verde y «Mantené el
+// ritmo», y el rótulo de arriba tardaba entre 30 y 60 s en cambiar (y
+// cambiaba a «SIMULADO»). El chofer podía estar corrigiendo contra una combi
+// que ya no estaba ahí.
+//
+// Con el teléfono reportando, el estado llega cada ~3 s (cada posición que
+// manda dispara uno), así que la edad del último es la mejor medida de la
+// señal: el socket tarda hasta 40 s en darse cuenta de que murió.
+//   - menos de 10 s: nada cambia; un bache corto no hace parpadear nada.
+//   - desde 10 s: «SIN SEÑAL» con el tiempo, y el número en gris.
+//   - desde 60 s: el número se retira y queda la última brecha como dato.
+// El acompañante no reporta: su estado depende de otros teléfonos, y ahí
+// manda el socket.
+const VIEJA_MS = 10_000, PERDIDA_MS = 60_000;
+
+function buildHudModel(tweaks, gapMeta, { ahora = Date.now(), fiable = true, conectado = true } = {}) {
   const target = tweaks.targetGap;
   const vivo = !!gapMeta?.vivo;
+  const edad = vivo && gapMeta.recibido ? Math.max(0, ahora - gapMeta.recibido) : 0;
+  const viejo = vivo && (fiable ? edad >= VIEJA_MS : !conectado);
+  const perdido = viejo && edad >= PERDIDA_MS;
   // Y a cualquiera de los tres estados se le puede sumar el tráfico del
   // vecino: N minutos sin avanzar (lo midió el servidor) o avisó que está
   // trabado (lo dijo él). Lo mismo que muestra la app nativa; antes la web
@@ -558,11 +578,14 @@ function buildHudModel(tweaks, gapMeta) {
       };
     }
     const status = sideStatus(value, target);
+    // Vieja: el número sigue, pero en gris. El color afirmaba «vas bien» (o
+    // «apurá») sobre un dato que ya no se sabe si vale.
+    const tono = viejo ? HUD_STATUS.none : HUD_STATUS[status];
     return {
       value, label, sign, unit, sinSenal: false,
       status,
-      color: HUD_STATUS[status].c,
-      ink: HUD_STATUS[status].ink,
+      color: tono.c,
+      ink: tono.ink,
       display: fmtGap(value),
       ...trafico(t),
     };
@@ -586,7 +609,7 @@ function buildHudModel(tweaks, gapMeta) {
     : front.vacio ? true
     : desvio(backVal) >= desvio(frontVal);
   return {
-    target, vivo,
+    target, vivo, edad, viejo, perdido,
     front, back,
     hero: heroIsBack ? back : front,
     sec:  heroIsBack ? front : back,
@@ -2489,9 +2512,10 @@ function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) 
 // Pantalla RUTA — propuesta 2a "Temporizador".
 // Un solo dato dominante: la unidad más desviada del objetivo. El color de
 // estado tiñe el halo, la barra superior y el lavado de fondo.
-function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFireSos, presencia, onPresencia, miEstado, onTrafico }) {
-  const hud = buildHudModel(tweaks, gapMeta);
+function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gpsRole, onFireSos, presencia, onPresencia, miEstado, onTrafico }) {
+  const hud = buildHudModel(tweaks, gapMeta, comoSeMide);
   const { hero, sec, target } = hud;
+  const haceCuanto = fmtDur(Math.floor(hud.edad / 1000));
 
   // "Salir de ruta" pide un segundo toque, y el pedido caduca solo: quedar
   // armado para siempre convierte el próximo toque distraído en una salida.
@@ -2543,7 +2567,9 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   // mismo — que se lee como una falla del sistema.
   const ausente = presencia === 'ausente';
   const yendo = !ausente && presencia === 'ruta' && connected && miEstado?.confirmada === false;
-  const instruction = yendo
+  const instruction = hud.viejo
+    ? (hero.vacio ? `Sin datos nuevos desde hace ${haceCuanto}.` : `Brecha de hace ${haceCuanto}. Puede haber cambiado.`)
+    : yendo
     ? 'YENDO A LA RUTA: tu brecha y tu vuelta arrancan al pisar el trazado.'
     : hud.front.enTrafico
     ? `${hud.front.unit} ${hud.front.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada'} ${hud.front.traficoMin} min. Mantené: no te apures hacia el embotellamiento.`
@@ -2576,7 +2602,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         position: 'absolute', top: 0, left: 0, right: 0, height: 6,
         background: stateColor,
         boxShadow: sun ? 'none' : `0 0 26px ${stateColor}`,
-        animation: tweaks.microAnims ? `combiEdge ${edgeDur} ease-in-out infinite` : 'none',
+        animation: tweaks.microAnims && !hud.viejo ? `combiEdge ${edgeDur} ease-in-out infinite` : 'none',
       }} />
 
       {/* header: en vivo + velocidad */}
@@ -2588,13 +2614,15 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{
             width: 9, height: 9, borderRadius: '50%',
-            background: connected ? HUD.green : HUD.amber,
-            boxShadow: sun ? 'none' : `0 0 10px ${connected ? HUD.green : HUD.amber}`,
+            background: connected && !hud.viejo ? HUD.green : HUD.amber,
+            boxShadow: sun ? 'none' : `0 0 10px ${connected && !hud.viejo ? HUD.green : HUD.amber}`,
           }} />
           <span style={{
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
             fontSize: 15, fontWeight: 700, letterSpacing: 0.5, color: dim,
-          }}>{connected ? `EN VIVO · ${unitsOnRoute}` : 'SIMULADO'}</span>
+            ...(hud.viejo ? { color: HUD.amberTexto } : {}),
+          }}>{hud.viejo ? `SIN SEÑAL · ${haceCuanto}`
+            : connected || hud.vivo ? `EN VIVO · ${unitsOnRoute}` : 'SIMULADO'}</span>
           {/* Acompañante: la posición de la combi la manda el celular del
               chofer. Sin este aviso, el cobrador creería que su GPS falla. */}
           {connected && gpsRole && gpsRole.reporting === false && (
@@ -2610,7 +2638,8 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
           <span style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 26, color: sun ? P.navy : HUD.fg,
+            // la velocidad también la manda el servidor: vieja, en gris (N1)
+            fontSize: 26, color: hud.viejo ? HUD.dim3 : sun ? P.navy : HUD.fg,
             fontVariantNumeric: 'tabular-nums',
           }}>{tweaks.avgSpeed}</span>
           <span style={{ fontSize: 15, fontWeight: 700, color: dim, fontFamily: 'system-ui, sans-serif' }}>km/h</span>
@@ -2639,8 +2668,35 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         </div>
       )}
 
+      {/* Un minuto sin datos: el número se retira. Queda la última brecha,
+          como dato y no como instrucción. */}
+      {!ausente && hud.perdido && (
+        <div data-sin-senal style={{
+          flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+          padding: '0 18px', position: 'relative', minHeight: 0,
+        }}>
+          <div style={{
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 30, letterSpacing: 1, color: HUD.amberTexto,
+          }}>SIN SEÑAL</div>
+          <div style={{
+            fontSize: 17, lineHeight: 1.5, color: HUD.fg2,
+            marginTop: 10, fontFamily: 'system-ui, sans-serif',
+          }}>
+            No veo a las otras combis desde hace <strong>{haceCuanto}</strong>.
+            Andá con cuidado: siguen en ruta.
+          </div>
+          <div style={{
+            marginTop: 18, paddingTop: 14, borderTop: `1px solid ${HUD.divider}`,
+            fontSize: 15, fontWeight: 700, color: HUD.dim2, fontFamily: 'system-ui, sans-serif',
+          }}>
+            Última brecha: {[hud.back.vacio ? null : `${hud.back.display} atrás`, hud.front.vacio ? null : `${hud.front.display} adelante`].filter(Boolean).join(' · ') || 'ninguna'}
+          </div>
+        </div>
+      )}
+
       {/* bloque héroe */}
-      {!ausente && (
+      {!ausente && !hud.perdido && (
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
         padding: '0 18px', position: 'relative', minHeight: 0,
@@ -2806,6 +2862,25 @@ function textoSmsSos({ combi, nombre, pos }) {
 }
 const urlSms = (numero, texto) => `sms:${numero}?body=${encodeURIComponent(texto)}`;
 
+// El HUD se re-dibuja con cada estado que llega. Si dejan de llegar, nada lo
+// re-dibujaría: esto lo despierta a los 10 s y después cada segundo, para
+// que el «hace 0:24» avance. Con el dato fresco no corre ningún reloj.
+function usarAhoraSiEnvejece(recibido) {
+  const [ahora, setAhora] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (!recibido) return;
+    setAhora(Date.now());
+    let t;
+    const programar = () => {
+      const edad = Date.now() - recibido;
+      t = setTimeout(() => { setAhora(Date.now()); programar(); }, edad < VIEJA_MS ? VIEJA_MS - edad + 50 : 1000);
+    };
+    programar();
+    return () => clearTimeout(t);
+  }, [recibido]);
+  return ahora;
+}
+
 function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, combi, persona, nombre, central, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
   // Leaflet necesita un div visible para inicializarse — si lo montamos antes,
@@ -2898,7 +2973,9 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
   }, [dragging, page, dragDx]);
 
   const sun = !HUD.resplandor;   // fondo claro (día o sol extremo)
-  const hud = buildHudModel(tweaks, gapMeta);
+  const ahora = usarAhoraSiEnvejece(gapMeta?.recibido);
+  const comoSeMide = { ahora, fiable: !gpsRole || gpsRole.reporting !== false, conectado: connected };
+  const hud = buildHudModel(tweaks, gapMeta, comoSeMide);
   // Las que están EN LA CADENA, contadas por el servidor (`totalOnRoute`
   // excluye ausentes y «yendo»), el mismo número que Despacho. Antes se
   // contaba `otherUnits + 1` y los dos paneles decían cosas distintas (C17).
@@ -2945,6 +3022,7 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
           <CenterScreen
             tweaks={tweaks}
             gapMeta={gapMeta}
+            comoSeMide={comoSeMide}
             connected={connected}
             unitsOnRoute={unitsOnRoute}
             gpsRole={gpsRole}
@@ -3538,6 +3616,9 @@ function Root() {
       // en la ruta no tiene brechas y es justo el caso que se inventaba.
       setGapMeta({
         vivo: true,
+        // Cuándo llegó: el HUD mide con esto si la brecha que muestra es de
+        // ahora o de hace un minuto (auditoría UI N1)
+        recibido: Date.now(),
         toAhead: myGaps?.toAhead || null,
         toBehind: myGaps?.toBehind || null,
         aheadUnit: myGaps?.aheadUnit || null,

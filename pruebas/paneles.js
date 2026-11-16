@@ -156,5 +156,19 @@ console.log('\nLO QUE SALIÓ DE RECORRER LAS PANTALLAS (28/10)');
   ok('«Dónde se traba» explica las anomalías en pantalla', /QUE_ES_ANOMALIA/.test(despacho) && !/está en <strong>TRUCOS/.test(despacho));
 }
 
+console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 1 (AUDITORIA-UI-2026-11-16.md)');
+{
+  // B1: era la única pantalla sin el apagado de «reducir movimiento»
+  ok('B1 · la web del chofer respeta «reducir movimiento»', /@media \(prefers-reduced-motion: reduce\)/.test(prototipo) && /microAnims: !pideMenosMovimiento\(\)/.test(prototipo));
+  // B2: una brecha crítica es un pelotón, no una emergencia
+  ok('B2 · el SOS no late con la brecha en rojo', !/suggestSos/.test(prototipo) && !/combiRing/.test(prototipo));
+  // B8: el ✓ es una confirmación; antes salía al soltar, sin respuesta
+  ok('B8 · el ✓ del SOS sale sólo con la respuesta', /resultado === 'ok' \? '✓'/.test(prototipo) && !/\{fired \? '✓' : 'SOS'\}/.test(prototipo));
+  // N1: sin señal la brecha vieja se veía como una viva
+  ok('N1 · la brecha de más de 10 s se dice vieja y en gris', /VIEJA_MS = 10_000, PERDIDA_MS = 60_000/.test(prototipo) && /const tono = viejo \? HUD_STATUS\.none/.test(prototipo));
+  ok('N1 · al minuto el número se retira y queda «SIN SEÑAL»', /!ausente && hud\.perdido &&/.test(prototipo) && /!ausente && !hud\.perdido &&/.test(prototipo));
+  ok('N1 · un reloj despierta el HUD aunque no lleguen estados', /function usarAhoraSiEnvejece/.test(prototipo) && /recibido: Date\.now\(\)/.test(prototipo));
+}
+
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
 process.exit(fallas ? 1 : 0);
