@@ -1373,7 +1373,63 @@ fusionó con la auditoría (y dónde se apartó del paquete), en su apartado
 
 ---
 
+## 19. Auditoría de UI del 16/11, fase 1 — `8b71a1d` a `db330e9` (16/11)
+
+**Qué.** La fase 1 del plan de `AUDITORIA-UI-2026-11-16.md`: diez arreglos
+chicos de acceso y de señales, uno por commit, sin rediseñar nada.
+- Chofer web: respeta «reducir movimiento» (B1); el SOS ya no late con la
+  brecha en rojo (B2); el ✓ del SOS sale con la respuesta del servidor y no
+  al soltar (B8); los tres botones del turno a 16 px y hasta 56 px de alto,
+  con el ámbar sólo para tráfico (B3, parte 1); el chat con contraste
+  suficiente (B9).
+- **Sin señal, la brecha vieja deja de verse como viva** (N1), en la web y
+  en la APK: a los 10 s sin un estado nuevo, «SIN SEÑAL · 0:12» y el número
+  en gris; al minuto el número se retira. Antes, a los 90 s sin red, seguía
+  «Mantené el ritmo» en verde.
+- «Salir de ruta» acepta el segundo toque recién a los 0,6 s, en la web y
+  en la APK (N2).
+- Despacho: las palabras y datos chicos en verde o ámbar van en su tinta
+  (C2); el código de la unidad en la tarjeta es un botón, y el teclado llega
+  (C4).
+- Landing: el botón principal a 5,51:1 y «Ya soy cliente» a 44 px (E3).
+
+**Archivos.** `project/Prototipo.html`, `project/despacho.html`,
+`project/service-worker.js` (v100 a v108), `app/App.js`, `app/hud.js`,
+`server/landing.html`, `LIMITACIONES.md` (sección B), y en `pruebas/`:
+`contraste.js`, `paneles.js`, `hud.js`.
+
+**Mirar.**
+- N1 mide la señal por la **edad del último estado**, no por el socket (que
+  tarda hasta 40 s en notar que murió). Vale porque el teléfono que reporta
+  dispara un estado con cada posición, cada ~3 s. Si algún día el servidor
+  deja de emitir estados con cada posición, el HUD diría «SIN SEÑAL» con la
+  red buena. El acompañante, que no reporta, sigue al socket.
+- En la APK, N1 no se vio en un teléfono. La notificación con la pantalla
+  apagada no lo toma: se actualiza con cada POST /gps, y si fallan sigue
+  mostrando la última brecha (anotado para la fase 3).
+- B3 usa `clamp(46px, 7vh, 56px)`: en un celular de 640 px de alto los
+  botones miden 46, porque con 56 el número de brecha se recortaba.
+- C2 cambia el color de 35 textos con un solo ayudante (`tintaDeTexto`). Los
+  números de brecha de la tarjeta, los puntos, las barras y los bordes
+  siguen en el color de estado.
+
+**Pruebas.** `contraste` (12 pares nuevos), `paneles` (un bloque nuevo con
+las aserciones de la fase), `hud` (11 casos), `nativas`, `revision-apk`,
+`tema`, `sintaxis` y la regresión completa. Además, contra el servidor de
+demostración del manual: `auditoria-ui/medir.js` antes y después, la red
+cortada con el chofer en ruta (`auditoria-ui/corte.js`), el SOS con red
+lenta y sin red, el doble toque en «Salir de ruta» y la tarjeta con Tab.
+**Manual:** no todavía (ver abajo).
+
+---
+
 ## Para el manual
+
+**Del bloque 19 (16/11), pendiente:** explicar el estado «SIN SEÑAL» de la
+pantalla del chofer (qué significa el gris y por qué se retira el número), y
+que el ✓ del SOS sale cuando llegó. Volver a sacar las capturas del HUD, del
+chat del chofer y de Despacho: los botones y los colores cambiaron; los
+nombres no.
 
 Al día el 11/11: `manual/manual.tex` y `manual.pdf` cubren los bloques 3, 4,
 5, 7 a 13, 15, 17 y 18, con las capturas sacadas de nuevo (con el mapa

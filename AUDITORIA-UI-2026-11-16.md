@@ -211,22 +211,39 @@ Un commit por punto, pruebas en verde antes de subir. Cada cambio en
    literales del chofer vueltos tokens (B12) y la paleta nativa (A2).
    **Va a quedar en rojo: es lo esperado**, y es la lista de lo que sigue.
 
-### Fase 1 — Acceso y señales, sin rediseñar nada (1–2 días)
+### Fase 1 — Acceso y señales, sin rediseñar nada · **HECHA (16/11)**
 
-Cambios chicos que no mueven la apariencia general.
+Un commit por punto, en la rama `claude/ui-audit-improvements-w2apo4`.
+Cada uno dice qué se midió para darlo por bueno; el detalle está en
+`CAMBIOS-PARA-REVISAR.md`, bloque 19.
 
-| Orden | Punto | Archivo |
+| Punto | Commit | Qué quedó |
 | --- | --- | --- |
-| 1 | B1 respetar «reducir movimiento» | `project/Prototipo.html` |
-| 2 | B2 quitar el anillo del SOS | `project/Prototipo.html` |
-| 3 | B8 ✓ del SOS solo al confirmar | `project/Prototipo.html` |
-| 4 | B3 (parte 1) tamaño y tinta de las acciones | `project/Prototipo.html` |
-| 5 | B9 contraste del chat del chofer | `project/Prototipo.html` |
-| 6 | C2 palabras de estado con tokens `*Tinta` | `project/despacho.html` |
-| 7 | C4 tarjetas con teclado | `project/despacho.html` |
-| 8 | E3 botón de la landing | `server/landing.html` |
-| 9 | **N1 brecha vieja sin señal** (va primero si hay que elegir uno) | `project/Prototipo.html`, `app/hud.js` |
-| 10 | N2 «Salir de ruta» se arma a los 0,6 s | `project/Prototipo.html`, `app/App.js` |
+| B1 respetar «reducir movimiento» | `8b71a1d` | Con la preferencia, 0 animaciones vivas en el HUD (antes 2 en bucle) |
+| B2 quitar el anillo del SOS | `f0a66f9` | El SOS se ve igual en los tres estados de brecha |
+| B8 ✓ del SOS sólo al confirmar | `95aca39` | «…» mientras envía; ✓ con la respuesta; sin red, nunca ✓ |
+| B3 (parte 1) tamaño y tinta de las acciones | `f710934` | 16 px; 56 px de alto, 46 en un celular de 640 px (con 56 se recortaba la brecha); tokens `amberTexto` y `sobreRojo` |
+| B9 contraste del chat del chofer | `188f84f` | 0 textos bajo su piso en el chat (antes 3); token `greenTexto` |
+| **N1 brecha vieja sin señal**, web | `cd34d5b` | 10 s: «SIN SEÑAL · 0:12» y en gris; 60 s: se retira el número; vuelve sola |
+| **N1** en la APK | `4356c7e` | La misma lógica en `app/hud.js`, con 11 casos en `pruebas/hud.js`. No vista en un teléfono |
+| N2 «Salir de ruta» se arma a los 0,6 s | `9e2f62f` | Web y APK; un doble clic ya no sale |
+| C2 palabras de estado con su tinta | `1ad5881` | Vehículos, Turnos, Vueltas, Dónde se traba y Actividad: 0 textos bajo su piso |
+| C4 tarjetas con teclado | `87e6059` | El código de la unidad es un botón: Tab y Enter centran el mapa |
+| E3 botón de la landing | `db330e9` | 5,51:1 y 44 px |
+
+Lo que salió al hacerla y queda anotado:
+
+- **La notificación de la APK con la pantalla apagada** sigue mostrando la
+  última brecha si los POST /gps fallan: se actualiza sólo con sus
+  respuestas. Arreglarlo es tocar la tarea de fondo (`app/gps/servicio.js`).
+  Va con la fase 3.
+- **El gris de la brecha vieja en la APK** es `tenue`, que de noche da 2,57:1.
+  Se arregla con A2 (fase 3).
+- **Las capturas del manual** del HUD, del chat y de Despacho cambiaron
+  (botones más grandes, colores del chat). Los nombres de los botones no:
+  el texto del manual sigue valiendo. Se sacan de nuevo al cerrar la fase 4.
+- **«SIN SEÑAL»** es un estado nuevo de la pantalla del chofer y el manual
+  todavía no lo explica.
 
 ### Fase 2 — El HUD del chofer (2–3 días, con prueba en la calle)
 
