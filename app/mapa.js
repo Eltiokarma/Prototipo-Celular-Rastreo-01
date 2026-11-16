@@ -294,7 +294,9 @@ function html() {
   mapa.attributionControl.setPrefix('');
 
   var capaLineas = L.layerGroup().addTo(mapa);
-  var marcas = {};            // id -> marcador, para MOVERLOS y no redibujarlos
+  // Sin prototipo: la clave es el código de la combi, y con {} una combi
+  // «constructor» encontraba la función heredada (revisión 15/11, UX-04)
+  var marcas = Object.create(null);  // id -> marcador, para MOVERLOS y no redibujarlos
   var lineas = [];            // las polilíneas, para poder recolorearlas
   var seguir = true;          // hasta que el chofer mueva el mapa con el dedo
   var dibujadas = false;
@@ -349,7 +351,7 @@ function html() {
     // Los marcadores SE MUEVEN, no se rehacen. Borrar y recrear veinte
     // marcadores cada 3 s hace parpadear el mapa y tira las etiquetas justo
     // cuando el chofer las está leyendo.
-    var vistos = {};
+    var vistos = Object.create(null);
     (v.marcadores || []).forEach(function (u) {
       vistos[u.id] = true;
       var m = marcas[u.id];

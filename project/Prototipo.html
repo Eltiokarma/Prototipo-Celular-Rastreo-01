@@ -790,7 +790,8 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
   const tilesRef = React.useRef(null);
   const trazadoRef = React.useRef(null);
   const youMarkerRef = React.useRef(null);
-  const otherMarkersRef = React.useRef({});
+  // Sin prototipo: la clave es el código de la combi (revisión 15/11, UX-04)
+  const otherMarkersRef = React.useRef(Object.create(null));
   const [mapReady, setMapReady] = React.useState(false);
   const [realPos, setRealPos] = React.useState(null);
   const [gpsError, setGpsError] = React.useState(null);
@@ -1743,6 +1744,10 @@ function LoginScreen({ onSuccess, notice }) {
     try { return localStorage.getItem('r14_lastUser') || ''; } catch { return ''; }
   });
   const [pass, setPass] = React.useState('');
+  // La clave es la TEMPORAL que puso el chofer: hay que elegir una propia
+  // para entrar (revisión 15/11, SEG-03)
+  const [pideNueva, setPideNueva] = React.useState(false);
+  const [nueva, setNueva] = React.useState('');
   const [error, setError] = React.useState(null);
   const [offerDemo, setOfferDemo] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
@@ -1765,7 +1770,7 @@ function LoginScreen({ onSuccess, notice }) {
     setError(null);
     setOfferDemo(false);
     try {
-      const session = await window.RealtimeClient.login(user.trim(), pass);
+      const session = await window.RealtimeClient.login(user.trim(), pass, pideNueva ? nueva : null);
       try { localStorage.setItem('r14_lastUser', session.unitId); } catch {}
       recordarCoop(session.companyName);
       onSuccess(session);
@@ -1773,6 +1778,7 @@ function LoginScreen({ onSuccess, notice }) {
       setLoading(false);
       if (e.status) {
         setError(e.message);
+        if (e.claveTemporal) setPideNueva(true);
         if (e.status === 401) setPass('');
       } else {
         // el servidor no responde: se puede probar la app sin conexión
@@ -1826,6 +1832,9 @@ function LoginScreen({ onSuccess, notice }) {
       <div onKeyDown={handleKeyDown}>
         <Field label="Usuario" value={user} onChange={setUser} autoFocus={true} error={!!error && !user} />
         <Field label="Contraseña" value={pass} onChange={setPass} type="password" error={!!error} />
+        {pideNueva && (
+          <Field label="Tu contraseña nueva" value={nueva} onChange={setNueva} type="password" error={!!error} />
+        )}
       </div>
 
       {(error || notice) && (
@@ -3294,15 +3303,23 @@ function Root() {
   }, [central]);
   React.useEffect(() => {
     if (screen !== 'app' || !user?.token || !window.RealtimeClient?.pedirMarca) return;
+    // La respuesta de la sesión anterior no se aplica a la de ahora
+    // (teléfono compartido; revisión 15/11, SEG-06)
+    let vigente = true;
     window.RealtimeClient.pedirMarca(user.token).then(m => {
+      if (!vigente) return;
       const c = (m && m.marca && m.marca.central) || null;
       setCentral(c);
+      // Sin central en ESTA cooperativa, se olvida la recordada: era la de
+      // otra, y el ingreso seguía ofreciéndola
+      if (!c && m && m.marca) { try { localStorage.removeItem('r14_central'); } catch {} }
       // Y en la sesión guardada, para la próxima vez sin internet
       try {
         const g = JSON.parse(localStorage.getItem('r14_session') || 'null');
         if (g && g.unitId === user.unitId && g.central !== c) localStorage.setItem('r14_session', JSON.stringify({ ...g, central: c }));
       } catch {}
     }).catch(() => {});
+    return () => { vigente = false; };
   }, [screen, user?.token]);
   const cerrarSosVisto = () => {
     if (sosVisto) {

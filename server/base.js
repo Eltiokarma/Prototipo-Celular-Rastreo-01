@@ -100,9 +100,17 @@ function verifyPasswordAsync(password, stored) {
 // NOMBRES y alias no tienen esta restricción: van por React, que los escapa.
 const ID_VALIDO = /^[A-Za-z0-9._-]{1,24}$/;
 
+// Y que no sean nombres internos de JavaScript (revisión 15/11, UX-04): los
+// códigos se usan como clave en objetos del servidor, de Despacho y de la
+// app, y `__proto__`, `constructor` o `toString` pasaban la expresión de
+// arriba. Un chofer «constructor» rompía el informe Turnos (500) y el mapa;
+// uno «__proto__» escribía en el prototipo de TODOS los objetos del proceso.
+const NOMBRES_DE_JS = new Set([...Object.getOwnPropertyNames(Object.prototype), 'prototype']);
+const esNombreDeJs = (s) => NOMBRES_DE_JS.has(String(s));
+
 function idLimpio(v) {
   const s = String(v || '').trim();
-  return ID_VALIDO.test(s) ? s : null;
+  return ID_VALIDO.test(s) && !esNombreDeJs(s) ? s : null;
 }
 
 // Los nombres que firman en la auditoría sin ser una cuenta: el panel del
@@ -113,4 +121,4 @@ const ID_RESERVADOS = new Set(['CREADOR', 'SISTEMA']);
 const idReservado = (id) => ID_RESERVADOS.has(String(id || '').toUpperCase());
 
 module.exports = {
-  hashPasswordAsync, openDatabase, hashPassword, verifyPassword, verifyPasswordAsync, idLimpio, idReservado, ID_VALIDO };
+  hashPasswordAsync, openDatabase, hashPassword, verifyPassword, verifyPasswordAsync, idLimpio, idReservado, ID_VALIDO, esNombreDeJs };

@@ -76,6 +76,19 @@ function crearVigiaDeEnvio({ corteMs = CORTE_MS, ahora = () => Date.now() } = {}
       return { accion: 'cortado', vuelo };
     },
 
+    // Corta el que esté en vuelo, sin devolverlo a nadie: al SALIR DE RUTA
+    // lo que estaba subiendo ya no es de este turno (revisión 15/11,
+    // GPS-02). Antes seguía su curso y llegaba cuando el chofer ya se había
+    // ido. Devuelve si había uno.
+    cortar() {
+      if (!enVuelo) return false;
+      const vuelo = enVuelo;
+      vuelo.cortado = true;
+      enVuelo = null;
+      try { vuelo.control?.abort(); } catch {}
+      return true;
+    },
+
     get enVuelo() { return enVuelo; },
   };
 }

@@ -1481,7 +1481,7 @@ function sessionUser(token) {
   if (!s) return null;
   renovarSesion(token, s.expiresAt, ahora);
   return db.prepare(
-    'SELECT unitId, driverName, name, alias, role, routeId, vehicleId, companyId, appVersion, appVersionCode, appActualizacion FROM users WHERE unitId = ?'
+    'SELECT unitId, driverName, name, alias, role, routeId, vehicleId, companyId, appVersion, appVersionCode, appActualizacion, createdAt FROM users WHERE unitId = ?'
   ).get(s.unitId) || null;
 }
 
@@ -2864,7 +2864,8 @@ function estadoDeVersion(code) {
   return 'al_dia';
 }
 function telefonosDeRuta(routeId) {
-  const items = {};
+  // Sin prototipo: la clave es el código de una persona (revisión 15/11, UX-04)
+  const items = Object.create(null);
   const ahora = Date.now();
   for (const [personId, t] of telefonos) {
     if (t.routeId !== routeId || ahora - t.en > 2 * 60 * 60_000) continue;
@@ -4045,6 +4046,29 @@ async function login(req, res) {
       return fallaLogin(res, unitId, vigente || null, ip);
     }
     user = vigente;
+    // La clave temporal que puso el chofer (SEG-03): para entrar con ella hay
+    // que elegir una propia en el mismo pedido (`nueva`). Sin `nueva`, 409 y
+    // la pantalla la pide. Se guarda antes de crear la sesión, y sin `await`
+    // en el medio: lo que se relee arriba sigue valiendo.
+    if (user.claveTemporal) {
+      const nueva = String(req.body?.nueva || '');
+      if (!nueva) {
+        return res.status(409).json({ claveTemporal: true,
+          error: 'Esa contraseña te la puso tu chofer y sirve una sola vez: elegí una tuya para entrar' });
+      }
+      if (nueva.length < CLAVE_MINIMA || nueva.length > 64) {
+        return res.status(400).json({ claveTemporal: true, error: `Tu contraseña necesita entre ${CLAVE_MINIMA} y 64 caracteres` });
+      }
+      if (nueva === password) {
+        return res.status(400).json({ claveTemporal: true, error: 'Elegí una distinta de la que te dio tu chofer' });
+      }
+      const hecha = hashPassword(nueva);
+      db.prepare('UPDATE users SET passHash = ?, claveTemporal = NULL WHERE unitId = ? AND passHash = ?')
+        .run(hecha, user.unitId, user.passHash);
+      user.passHash = hecha;
+      user.claveTemporal = null;
+      audit(user.unitId, 'clave_propia_tras_temporal', null, null, user.routeId);
+    }
   }
 
   // La empresa desactivada corta el acceso de toda su gente de una vez. Se
@@ -4485,7 +4509,9 @@ app.get('/perfil', (req, res) => {
   // Días de calendario, la misma cuenta que el panel del gerente (E14): si
   // acá fueran rodantes, «Mi semana» y la liquidación de Despacho saldrían
   // distintas y nadie tendría cómo saber cuál está bien.
-  const desde = desdeEnDias(dias, ahora);
+  // Nada de antes de que existiera ESTA cuenta (revisión 15/11, SEG-02):
+  // si el usuario fue de otra persona, sus turnos y SOS no son de ésta.
+  const desde = Math.max(desdeEnDias(dias, ahora), Number(user.createdAt) || 0);
   const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
 
   // Las vueltas son del VEHÍCULO (la vuelta es de la combi, la maneje
@@ -4778,7 +4804,7 @@ app.post('/perfil/clave', (req, res) => {
     return res.status(403).json({ error: 'La contraseña actual no es esa' });
   }
   intentosClavePropia.delete(user.unitId);
-  db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(nueva), user.unitId);
+  db.prepare('UPDATE users SET passHash = ?, claveTemporal = NULL WHERE unitId = ?').run(hashPassword(nueva), user.unitId);
   const propio = tokenDe(req);
   const otras = db.prepare('DELETE FROM sessions WHERE unitId = ? AND token IS NOT ?')
     .run(user.unitId, propio ? huellaToken(propio) : null).changes;
@@ -4980,8 +5006,16 @@ app.post('/perfil/cobradores/:unitId/clave', (req, res) => {
   // que el cobrador había hablado a solas con Despacho —quejas sobre el
   // chofer, descargos—, que es justo lo que ese canal promete que no ve
   // nadie más (auditoría 11/11, probado). Despacho lo sigue teniendo.
-  db.prepare('UPDATE users SET passHash = ?, privadoDesde = ? WHERE unitId = ?').run(hashPassword(nueva), Date.now(), c.unitId);
-  kickUnit(c.unitId, 'Tu chofer cambió tu contraseña. Ingresá con la nueva.');
+  //
+  // Y la clave que pone el chofer es TEMPORAL (revisión 15/11, SEG-03): sirve
+  // para entrar UNA vez, eligiendo ahí una propia que el chofer no conoce.
+  // Antes era permanente: el chofer sabía la clave y podía entrar como el
+  // cobrador cuando quisiera —mandar mensajes y SOS en su nombre, leer su
+  // privado de ahí en adelante—. Si el chofer la usara primero, el cobrador
+  // no podría entrar y se enteraría: deja de ser algo que pasa en silencio.
+  db.prepare('UPDATE users SET passHash = ?, privadoDesde = ?, claveTemporal = 1 WHERE unitId = ?')
+    .run(hashPassword(nueva), Date.now(), c.unitId);
+  kickUnit(c.unitId, 'Tu chofer te puso una contraseña temporal. Ingresá con ella y elegí la tuya.');
   // Queda QUE la cambió, nunca cuál: el mismo criterio que la clave propia.
   audit(user.unitId, 'clave_cobrador', c.unitId, null, user.routeId);
   console.log(`Clave de cobrador cambiada por su chofer: ${c.unitId}`);
@@ -5240,6 +5274,7 @@ app.post('/gps', (req, res) => {
   // toma el mando. (Antes, al detectar a otro dueño por WS, se le pasaba el
   // mando al que posteaba y desde ahí nadie lo tenía: dos teléfonos en la
   // misma combi entraban los dos y la unidad saltaba entre ambos.)
+  let tomarElMando = () => {};
   {
     // El relevado no recupera la combi mandando posiciones, aunque el que la
     // maneja se haya callado (ver `relevados`): su app quedó en 'ruta' y la
@@ -5259,17 +5294,26 @@ app.post('/gps', (req, res) => {
         .filter(t => Number.isFinite(t) && t <= ahoraL + 120_000 && t >= ahoraL - ATRASO_MAXIMO_MS);
       return ts.length ? Math.min(...ts) : null;
     })();
-    if (dueno && dueno.personId !== user.unitId) {
-      if (otroTieneElMando(vehicleId, user.unitId)) {
-        cerrarTurno(user.unitId);
-        return res.json({ ok: true, aceptadas: 0, yaVistas: 0, descartadas: 0, routeId: user.routeId || DEFAULT_ROUTE,
-          gpsRole: false, motivo: 'Otro chofer tiene la unidad: tu GPS ya no se usa' });
-      }
-      asumirMando(vehicleId, user.unitId, null, `por HTTP, el dueño callado hace ${Math.round((Date.now() - dueno.oidoEn) / 1000)} s`,
-        { routeId: user.routeId, driverName: displayName(user), desde: desdeLote });
-    } else if (!dueno) {
-      asumirMando(vehicleId, user.unitId, null, 'por HTTP, sin dueño', { routeId: user.routeId, driverName: displayName(user), desde: desdeLote });
+    if (dueno && dueno.personId !== user.unitId && otroTieneElMando(vehicleId, user.unitId)) {
+      cerrarTurno(user.unitId);
+      return res.json({ ok: true, aceptadas: 0, yaVistas: 0, descartadas: 0, routeId: user.routeId || DEFAULT_ROUTE,
+        gpsRole: false, motivo: 'Otro chofer tiene la unidad: tu GPS ya no se usa' });
     }
+    // TOMAR el mando (y con él abrir el turno y poner la combi en el mapa)
+    // queda para DESPUÉS de validar el lote (revisión 15/11, GPS-02): antes
+    // pasaba acá, antes de saber si había posiciones, si eran válidas o si
+    // eran de antes del último «fuera». Un envío que Android terminaba de
+    // mandar cuando el chofer ya había tocado SALIR DE RUTA le reabría el
+    // turno y le devolvía la combi, con la hora vieja del lote.
+    tomarElMando = () => {
+      const d = duenoDe.get(vehicleId);
+      if (d && d.personId !== user.unitId) {
+        asumirMando(vehicleId, user.unitId, null, `por HTTP, el dueño callado hace ${Math.round((Date.now() - d.oidoEn) / 1000)} s`,
+          { routeId: user.routeId, driverName: displayName(user), desde: desdeLote });
+      } else if (!d) {
+        asumirMando(vehicleId, user.unitId, null, 'por HTTP, sin dueño', { routeId: user.routeId, driverName: displayName(user), desde: desdeLote });
+      }
+    };
   }
 
   // La presencia puede venir pegada a las posiciones: con la pantalla
@@ -5348,9 +5392,6 @@ app.post('/gps', (req, res) => {
   // Con la ruta de la COMBI, como el `identify`: con persona y combi en rutas
   // distintas (datos viejos), el identify abría el turno en una y este POST en
   // la otra — horas partidas y solapadas (repaso de la tanda 9).
-  abrirTurnoSiHaceFalta(user.unitId, vehicleId, rutaDeLaCombi(vehicleId, user.routeId || prof.routeId), user.role,
-    buenas[0] ? buenas[0].cuando : null);
-  quitarDeLaPuerta(user.unitId);
 
   // Lo que YA se sabía no se procesa dos veces. Con la pantalla apagada la
   // app corta un envío que no vuelve y lo manda de nuevo — y ese envío puede
@@ -5376,6 +5417,20 @@ app.post('/gps', (req, res) => {
   const nuevas = buenas.filter(p => p.cuando > conocidaHasta && p.cuando > salioEn);
   const yaVistas = buenas.length - nuevas.length;
   const deAntesDeSalir = buenas.filter(p => p.cuando <= salioEn).length;
+  // Recién ahora, con el lote validado: si trae posiciones posteriores al
+  // último «fuera», está en ruta, y el mando, el turno y la salida de la
+  // puerta son suyos (revisión 15/11, GPS-02). Un lote sólo de antes del
+  // «fuera» no cambia nada de eso.
+  // (El turno, con la ruta de la COMBI, como el `identify`: con persona y
+  // combi en rutas distintas, el identify abría el turno en una y este POST
+  // en la otra —horas partidas—; repaso de la tanda 9.)
+  const posteriores = buenas.filter(p => p.cuando > salioEn);
+  if (posteriores.length) {
+    tomarElMando();
+    abrirTurnoSiHaceFalta(user.unitId, vehicleId, rutaDeLaCombi(vehicleId, user.routeId || prof.routeId), user.role,
+      posteriores[0].cuando);
+    quitarDeLaPuerta(user.unitId);
+  }
 
   // Qué tan vieja viene la posición más nueva del lote. Es lo que alimenta la
   // estimación del reloj del teléfono (server/reloj.js), y va ANTES de anotar
@@ -6353,9 +6408,16 @@ app.get('/admin/users', requireDispatch, (req, res) => {
 // En la MISMA cooperativa: es donde están sus informes. Otra cooperativa
 // puede usar ese nombre (los informes de cada una sólo miran sus rutas), y
 // decirle que «lo usó otra persona» sería contarle algo de una ajena.
+// En CUALQUIER cooperativa, y con mensajes o SOS además de turnos (revisión
+// 15/11, SEG-02). Antes sólo miraba los turnos de la propia: una cuenta dada
+// de baja en una cooperativa podía renacer con el mismo usuario en otra, y
+// el nuevo dueño veía en su perfil las horas del anterior y, con un SOS del
+// anterior todavía abierto, su SOS devolvía ESE —con sus coordenadas— en vez
+// de sonar. El usuario es global (es la clave de la tabla), así que la
+// historia también. `companyId` queda por compatibilidad.
 function usuarioConHistoria(unitId, companyId) {
-  return !!db.prepare(`SELECT 1 FROM shifts WHERE personId = ?
-    AND routeId IN (SELECT routeId FROM routes WHERE companyId = ?) LIMIT 1`).get(unitId, companyId);
+  return !!(db.prepare('SELECT 1 FROM shifts WHERE personId = ? LIMIT 1').get(unitId) ||
+            db.prepare('SELECT 1 FROM messages WHERE unitId = ? LIMIT 1').get(unitId));
 }
 
 function altaDePersona(req, body, { silencioso = false, passHash = null } = {}) {
@@ -6707,6 +6769,9 @@ addColumnIfMissing('users', 'consentimientoFecha', 'TEXT');     // 'AAAA-MM-DD',
 // Desde cuándo la persona ve su privado personal: lo mueve el chofer al
 // cambiarle la clave al cobrador (ver /perfil/cobradores/:id/clave)
 addColumnIfMissing('users', 'privadoDesde', 'INTEGER');
+// 1 = la clave la puso el CHOFER (`/perfil/cobradores/:id/clave`): sirve una
+// sola vez, para entrar eligiendo una propia (revisión 15/11, SEG-03).
+addColumnIfMissing('users', 'claveTemporal', 'INTEGER');
 addColumnIfMissing('users', 'consentimientoVersion', 'TEXT');
 addColumnIfMissing('users', 'consentimientoPor', 'TEXT');
 app.post('/admin/users/:unitId/consentimiento', requireDispatch, (req, res) => {
@@ -7033,7 +7098,7 @@ app.post('/admin/users/:unitId/password', requireDispatch, (req, res) => {
   }
   const chequeo = cuentaEnAlcance(req, unitId);
   if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
-  db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(password), unitId);
+  db.prepare('UPDATE users SET passHash = ?, claveTemporal = NULL WHERE unitId = ?').run(hashPassword(password), unitId);
   // Las sesiones viejas dejan de valer y la unidad conectada vuelve al login
   kickUnit(unitId, 'Despacho reseteó tu contraseña. Ingresá con la nueva.');
   audit(req.dispatchUser.unitId, 'reset_clave', unitId, null, chequeo.user.routeId);
@@ -7490,7 +7555,7 @@ const INFORMES = {
     `).all(filtro);
     const QUE_ES = {
       salto: 'salto imposible entre dos posiciones', ausente_en_marcha: 'ausente y en marcha sobre el trazado',
-      reloj: 'reloj del teléfono atrasado', descartadas: 'posiciones con hora imposible', gps_simulado: 'GPS simulado (Android)',
+      reloj: 'reloj del teléfono atrasado', descartadas: 'posiciones con hora imposible', gps_simulado: 'GPS simulado',
       gps_sospechoso: 'GPS sospechoso de inventar (sin el flag de Android)',
       gps_impreciso: `GPS impreciso (más de ${PRECISION_MAX_M} m de error)`,
     };
@@ -7678,7 +7743,10 @@ app.get('/admin/shifts', requireDispatch, (req, res) => {
 
   // Total por persona, que es el número que le interesa a la cooperativa.
   // Con los roles del rango, no con el del primer turno (E12).
-  const porPersona = {};
+  // Sin prototipo: la clave es el código de una persona. Con `{}`, un
+  // «constructor» encontraba la función heredada (500) y un «__proto__»
+  // escribía en Object.prototype de todo el proceso (revisión 15/11, UX-04).
+  const porPersona = Object.create(null);
   for (const t of todos) {
     const k = t.personId;
     if (!porPersona[k]) {
@@ -10182,12 +10250,6 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
   // la persona tenga uno sin atender de los últimos minutos, volver a
   // deslizar devuelve ESE: la alarma ya está sonando. Atendido el anterior,
   // uno nuevo es una emergencia nueva.
-  const previo = sosAbiertoReciente(unitId);
-  if (previo) {
-    console.log(`🚨 SOS repetido de ${unitId}: es el ${previo.sosId}, que sigue sin atender`);
-    return { ...previo, repetido: true };
-  }
-  console.log(`🚨 SOS de ${unitId} (${routeId})`);
   // La emergencia sale IGUAL aunque el GPS no tenga fijo: lo que no puede
   // pasar es que una coordenada inventada entre al registro —o rompa el
   // `toFixed` de la auditoría dos líneas abajo, que no está en ningún
@@ -10208,10 +10270,26 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
   let posicionDe = coordenadaValida(lat, lng) ? 'telefono' : null;
   if (!posicionDe && prof.vehicleId && vaEnLaCombi(unitId, prof)) {
     const u = units.get(prof.vehicleId);
-    if (u && coordenadaValida(u.lat, u.lng) && !u.sinSenal && Date.now() - (u.timestamp || 0) < 60_000) {
+    if (u && coordenadaValida(u.lat, u.lng) && !u.sinSenal && (!u.gpsSimulado || ES_DEMO) &&
+        Date.now() - (u.timestamp || 0) < 60_000) {
       lat = u.lat; lng = u.lng; posicionDe = 'combi';
     }
   }
+  const previo = sosAbiertoReciente(unitId);
+  if (previo) {
+    console.log(`🚨 SOS repetido de ${unitId}: es el ${previo.sosId}, que sigue sin atender`);
+    // Pero si el reintento trae una posición, la del SOS abierto se
+    // actualiza y los paneles se enteran, sin que vuelva a sonar (revisión
+    // 15/11, SOS-03). Antes el reintento devolvía el primero tal cual: el
+    // que pidió ayuda sin GPS y lo volvió a deslizar ya con posición, o el
+    // que se fue moviendo, seguía en el mapa donde estaba al principio —o
+    // en ningún lado—. La del teléfono no se pisa con la de la combi.
+    const mejora = posicionDe && !(previo.posicionDe === 'telefono' && posicionDe === 'combi') &&
+      (previo.lat !== lat || previo.lng !== lng);
+    if (mejora) actualizarPosicionDeSos(previo, lat, lng, posicionDe);
+    return { ...previo, repetido: true };
+  }
+  console.log(`🚨 SOS de ${unitId} (${routeId})`);
   const conPosicion = posicionDe != null;
   const alert = {
     unitId,
@@ -10243,6 +10321,24 @@ function dispararSos(unitId, prof, routeId, { lat, lng, timestamp } = {}) {
   broadcastToRoute(routeId, { type: 'sos_alert', sosId, ...alert });
   broadcastToSupervisors({ type: 'sos_alert', sosId, ...alert }, routeId);
   return { sosId, ...alert };
+}
+
+// La posición nueva de un SOS que sigue abierto (ver `dispararSos`). Se
+// guarda donde vive el SOS (la base, o la memoria si la base no lo pudo
+// guardar) y se avisa a la ruta y a los supervisores con `sos_posicion`.
+function actualizarPosicionDeSos(sos, lat, lng, posicionDe) {
+  sos.lat = lat; sos.lng = lng; sos.posicionDe = posicionDe;
+  const enMemoria = sosEnMemoria.get(sos.sosId);
+  if (enMemoria) Object.assign(enMemoria, { lat, lng, posicionDe });
+  else {
+    try { db.prepare('UPDATE messages SET lat = ?, lng = ?, posicionDe = ? WHERE id = ?').run(lat, lng, posicionDe, sos.sosId); }
+    catch (e) { salud.anotarFallaDeBase(e); }
+  }
+  console.log(`🚨 SOS ${sos.sosId} de ${sos.unitId}: posición nueva (${posicionDe})`);
+  const aviso = { type: 'sos_posicion', sosId: sos.sosId, unitId: sos.unitId, vehicleId: sos.vehicleId,
+                  routeId: sos.routeId, lat, lng, posicionDe, en: Date.now() };
+  broadcastToRoute(sos.routeId, aviso);
+  broadcastToSupervisors(aviso, sos.routeId);
 }
 
 // ¿Hay señal de que esta persona va arriba de su combi? El chofer, si es él
@@ -10968,7 +11064,10 @@ function buildState(routeId, acumular) {
   // fila: el que pasa cerca de la casa de Ignacio no se mide contra él.
   // Es distinto de sinSenal, que SÍ ocupa su lugar: esa combi está en la
   // calle trabajando y solo se calló; estas dos nunca entraron o se bajaron.
-  const enCadena = all.filter(u => u.enRuta !== false && u.presencia !== 'ausente');
+  // Y la de GPS simulado tampoco, salvo en la demo (revisión 15/11, GPS-03):
+  // su posición no dice dónde está la combi, y medirla contra las vecinas
+  // les mandaba «apurá» o «esperá» por un punto inventado.
+  const enCadena = all.filter(u => u.enRuta !== false && u.presencia !== 'ausente' && (!u.gpsSimulado || ES_DEMO));
 
   const objetivo = objetivoDe(routeId);
   const ruta2 = routeOf(routeId);
@@ -11314,7 +11413,12 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   // Detección de vuelta completa a partir del progreso (del vehículo).
   // SOLO para las confirmadas en ruta: el viaje de la casa a la ruta no es
   // una vuelta, y el almuerzo estacionado cerca del terminal tampoco.
-  if (enRuta && (!decl || decl.estado === 'ruta')) {
+  //
+  // Y no con una posición SIMULADA (revisión 15/11, GPS-03): se guarda en la
+  // unidad y en la auditoría para diagnóstico, pero en producción no mide
+  // vueltas ni medias vueltas —una app de ubicación falsa completaba vueltas
+  // que nadie manejó—. En la demo todo es simulado, y ahí sí cuenta.
+  if (enRuta && (!decl || decl.estado === 'ruta') && (!simulado || ES_DEMO)) {
     trackLap(vehicleId, routeId, progreso, pos.speed || 0, cuando);
     // Y las medias vueltas, que es lo que queda cuando el circuito entero no
     // se completa. Necesita la proyección —el tramo sale de la geometría—,
@@ -11356,7 +11460,7 @@ function mismoTramo(a, b) {
 }
 
 function calculateGaps(sortedUnits, durationMin, anotar) {
-  const gaps = {};
+  const gaps = Object.create(null);   // clave: código de la combi (UX-04)
   for (let i = 0; i < sortedUnits.length; i++) {
     const current = sortedUnits[i];
     const vecinaAdelante = sortedUnits[i - 1]; // más progreso
@@ -11741,6 +11845,20 @@ process.on('unhandledRejection', (e) => {
 });
 
 // ─── ARRANCAR ────────────────────────────────────────────────
+// Los códigos que ya estaban cargados con un nombre interno de JavaScript
+// (`constructor`, `toString`…: antes se aceptaban, ver base.js) se avisan al
+// arrancar, para renombrarlos. Ya no se pueden crear (revisión 15/11, UX-04).
+try {
+  const { esNombreDeJs } = require('./base');
+  const raros = [];
+  for (const [tabla, col] of [['users', 'unitId'], ['vehicles', 'vehicleId'], ['routes', 'routeId'], ['companies', 'companyId']]) {
+    for (const f of db.prepare(`SELECT ${col} AS id FROM ${tabla}`).all()) if (esNombreDeJs(f.id)) raros.push(`${tabla}.${f.id}`);
+  }
+  if (raros.length) {
+    console.warn(`⚠ Hay códigos que coinciden con nombres internos de JavaScript y rompen el mapa o los informes: ${raros.join(', ')}. ` +
+      'Dalos de baja y volvé a crearlos con otro código.');
+  }
+} catch (e) { console.error('No se pudieron revisar los códigos: ' + (e && e.message)); }
 const PORT = process.env.PORT || 3001;
 // La excepción a la red de arriba: si no se puede escuchar (puerto tomado),
 // no hay servidor que salvar. Antes esto mataba el proceso por ser una

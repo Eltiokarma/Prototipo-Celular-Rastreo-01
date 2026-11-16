@@ -350,14 +350,29 @@ function Aplicacion() {
   React.useEffect(() => {
     SecureStore.getItemAsync(gps.LLAVE_CENTRAL).then(c => { if (c) setCentralGuardada(c); }).catch(() => {});
   }, []);
+  // Sin central en la cooperativa de AHORA (`null` explícito), se olvida la
+  // guardada: era la de otra cooperativa, y la pantalla de ingreso seguía
+  // ofreciendo llamar a una central que no es la de esta persona (revisión
+  // 15/11, SEG-06). `undefined` (no se sabe) no toca nada.
   const guardarCentral = (c) => {
+    if (c === null) {
+      setCentralGuardada(null);
+      SecureStore.deleteItemAsync(gps.LLAVE_CENTRAL).catch(() => {});
+      return;
+    }
     if (!c) return;
     setCentralGuardada(c);
     SecureStore.setItemAsync(gps.LLAVE_CENTRAL, String(c)).catch(() => {});
   };
+  // De qué sesión es lo que está en vuelo (revisión 15/11, SEG-06): en un
+  // teléfono compartido, la respuesta tardía de la marca o de las combis
+  // del que salió llegaba con el que entró, y le ponía la central o la
+  // combi del anterior. Lo que llega de otra sesión se tira.
+  const sesionViva = React.useRef(null);
 
   const entrarConSesion = async (s) => {
     saliendo.current = false;
+    sesionViva.current = s ? s.token : null;
     setSesion(s);
     if (s && s.central) guardarCentral(s.central);
     // El servidor va al disco junto con la sesión porque la tarea de fondo
@@ -367,7 +382,7 @@ function Aplicacion() {
     // y la brecha, el chat y el mapa fallan en silencio. Ver `conectar()`.
     cliente.current.conectar(s.token, s);
     cliente.current.pedirMarca(s.token).then(m => {
-      if (!m) return;
+      if (!m || sesionViva.current !== s.token) return;
       setMarca(m);
       // El teléfono de la central viene con la marca (PENDIENTES 0.5): si la
       // gerencia lo cambió, queda en la sesión guardada, que es lo que hay
@@ -375,7 +390,7 @@ function Aplicacion() {
       if (m.central !== undefined) guardarCentral(m.central);
       if (m.central !== undefined && m.central !== (s.central ?? null)) {
         setSesion(prev => {
-          if (!prev) return prev;
+          if (!prev || prev.token !== s.token) return prev;
           const nueva = { ...prev, central: m.central };
           SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
           return nueva;
@@ -542,7 +557,9 @@ function Aplicacion() {
   const enLaPuerta = !!sesion && sesion.role !== 'collector' && presencia === 'fuera' && primerPlano;
   const recargarCombis = React.useCallback(() => {
     if (!cliente.current) return;
+    const deQuien = sesionViva.current;
     cliente.current.misCombis().then(d => {
+      if (deQuien !== sesionViva.current) return;   // es de la sesión anterior (SEG-06)
       setCombis(d.combis || []);
       // La de hoy la decide el servidor: Despacho pudo cambiarla con la app
       // cerrada, y la sesión seguía con la vieja
@@ -624,6 +641,7 @@ function Aplicacion() {
   // teléfono: su última posición, su hilo (con el privado con Despacho) y el
   // «¿qué pasó?» de un SOS suyo (barrido del 22/9).
   const olvidarDeLaSesion = () => {
+    sesionViva.current = null;
     ultimaPos.current = { lat: null, lng: null, t: 0 };
     setMensajes([]);
     setTipificarSos(false); setTipoSosFallo(false);
@@ -1095,13 +1113,18 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
   const [verClave, setVerClave] = React.useState(false);
   const [cargando, setCargando] = React.useState(false);
   const [error, setError] = React.useState(null);
+  // La clave que se escribió es la TEMPORAL que puso el chofer: para entrar
+  // hay que elegir una propia (revisión 15/11, SEG-03)
+  const [pideNueva, setPideNueva] = React.useState(false);
+  const [nueva, setNueva] = React.useState('');
   const margen = margenes(useSafeAreaInsets());
 
   const enviar = async () => {
     setError(null); setCargando(true);
     try {
-      onEntrar(await clienteRef.current.entrar(usuario.trim(), clave, APP));
+      onEntrar(await clienteRef.current.entrar(usuario.trim(), clave, APP, pideNueva ? nueva : null));
     } catch (e) {
+      if (e.claveTemporal) setPideNueva(true);
       // El mensaje del servidor ya dice el intento y cuántos quedan: se
       // muestra tal cual en vez de inventar uno genérico.
       setError(e.status ? e.message : 'No se pudo conectar con el servidor');
@@ -1132,6 +1155,15 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
           <Text style={s.ojoTexto}>{verClave ? 'OCULTAR' : 'VER'}</Text>
         </Pressable>
       </View>
+
+      {pideNueva && (
+        <>
+          <Text style={s.rotulo}>TU CONTRASEÑA NUEVA</Text>
+          <TextInput style={s.campo} value={nueva} onChangeText={setNueva}
+            secureTextEntry={!verClave} autoCapitalize="none" autoCorrect={false}
+            placeholder="la que vas a usar desde ahora" placeholderTextColor={C.tenue} onSubmitEditing={enviar} />
+        </>
+      )}
 
       {(error || aviso) && <Text style={s.error}>{error || aviso}</Text>}
 
@@ -2025,15 +2057,15 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
                   {claveDe === c.unitId && (<>
                     <TextInput style={[s.campo, { marginTop: 10 }]}
                       value={claveNuevaCob} onChangeText={setClaveNuevaCob}
-                      placeholder="Contraseña nueva (mínimo 6)" placeholderTextColor={C.tenue} secureTextEntry />
+                      placeholder="Contraseña temporal (mínimo 6)" placeholderTextColor={C.tenue} secureTextEntry />
                     <Pressable style={[s.botonAncho, { backgroundColor: C.marca, marginTop: 10 }]}
                       onPress={async () => {
                         const fue = await post(`/perfil/cobradores/${encodeURIComponent(c.unitId)}/clave`,
                           { nueva: claveNuevaCob },
-                          `Clave cambiada. ${c.alias || c.name} tiene que entrar de nuevo.`);
+                          `Clave temporal puesta. ${c.alias || c.name} entra con ella una vez y elige la suya.`);
                         if (fue) { setClaveDe(null); setClaveNuevaCob(''); }
                       }}>
-                      <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>CAMBIAR SU CLAVE</Text>
+                      <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>PONERLE UNA CLAVE TEMPORAL</Text>
                     </Pressable>
                   </>)}
                 </>)}

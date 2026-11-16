@@ -64,7 +64,9 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   // token dura 30 días: se guarda en el dispositivo y se reusa.
   // `app` es `{ version, versionCode }` del APK (lo lee App.js de la
   // instalación): el servidor anota quién tiene cuál y contesta qué reparte.
-  async function entrar(usuario, password, app = null) {
+  // `nueva`: la contraseña propia, cuando la que se manda es la temporal que
+  // puso el chofer (el servidor contesta 409 con `claveTemporal`; SEG-03).
+  async function entrar(usuario, password, app = null, nueva = null) {
     // Con corte: con la conexión trabada el INGRESAR quedaba girando para
     // siempre y el botón bloqueado (barrido del 22/9). Es pantalla prendida,
     // así que el timer corre.
@@ -75,7 +77,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
       r = await fetch(servidor + '/auth/login', {
         method: 'POST', signal: control.signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user: usuario, password, ...(app ? { app } : {}) }),
+        body: JSON.stringify({ user: usuario, password, ...(app ? { app } : {}), ...(nueva ? { nueva } : {}) }),
       });
     } catch (e) {
       throw new Error(e?.name === 'AbortError' ? 'El servidor no contesta: probá de nuevo' : 'Sin conexión con el servidor');
@@ -84,6 +86,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
     if (!r.ok) {
       const e = new Error(cuerpo.error || 'No se pudo entrar');
       e.status = r.status;         // 401 contraseña, 403 cooperativa suspendida
+      e.claveTemporal = !!cuerpo.claveTemporal;   // hay que elegir una propia
       throw e;
     }
     sesion = cuerpo;

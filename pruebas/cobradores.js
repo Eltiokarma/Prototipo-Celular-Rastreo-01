@@ -40,9 +40,9 @@ const API = `http://localhost:${P}`;
 const DB = path.join(__dirname, 'cobradores.db');
 const limpiar = () => { for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} } };
 
-const login = (u, p) => fetch(API + '/auth/login', {
+const login = (u, p, nueva) => fetch(API + '/auth/login', {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ user: u, password: p }),
+  body: JSON.stringify({ user: u, password: p, ...(nueva ? { nueva } : {}) }),
 }).then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
 const H = (t) => ({ 'Content-Type': 'application/json', Authorization: 'Bearer ' + t });
@@ -162,8 +162,17 @@ let servidor = null;
     ok('el chofer le cambia la clave a su cobrador', c.status === 200, c.body);
     const vieja = await login('cob-1', 'cobrador12');
     ok('la clave vieja deja de servir', !vieja.body.token, vieja.status);
-    const nueva = await login('cob-1', 'clavenueva9');
-    ok('y con la nueva entra', !!nueva.body.token);
+    // Revisión 15/11, SEG-03: la que pone el chofer es TEMPORAL. Sirve para
+    // entrar una vez eligiendo una propia, que el chofer no conoce.
+    const temporal = await login('cob-1', 'clavenueva9');
+    ok('con la temporal sola no entra: le pide elegir una suya', temporal.status === 409 &&
+      temporal.body.claveTemporal === true && !temporal.body.token, temporal.body);
+    const igual = await login('cob-1', 'clavenueva9', 'clavenueva9');
+    ok('no puede elegir la misma que le dio el chofer', igual.status === 400 && !igual.body.token, igual.body);
+    const nueva = await login('cob-1', 'clavenueva9', 'la-mia-propia-7');
+    ok('y eligiendo la suya, entra', !!nueva.body.token, nueva.body);
+    ok('la temporal ya no sirve más', !(await login('cob-1', 'clavenueva9')).body.token);
+    ok('la suya sí, sin pedir nada', !!(await login('cob-1', 'la-mia-propia-7')).body.token);
     const corta = await post(ch1, '/perfil/cobradores/cob-1/clave', { nueva: '123' });
     ok('una clave corta no pasa', corta.status === 400, corta.status);
 

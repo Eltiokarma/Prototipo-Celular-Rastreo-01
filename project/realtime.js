@@ -62,16 +62,19 @@
   // Devuelve { token, unitId, driverName, role, created } o lanza un
   // Error con .status (400/401/429) si el servidor rechazó el login.
   // Un error sin .status significa que no se pudo llegar al servidor.
-  async function login(user, password) {
+  // `nueva`: la contraseña propia, cuando `password` es la temporal que puso
+  // el chofer (el servidor contesta 409 con `claveTemporal`; revisión 15/11).
+  async function login(user, password, nueva) {
     const res = await fetch(HTTP_URL + '/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user, password }),
+      body: JSON.stringify({ user, password, ...(nueva ? { nueva } : {}) }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const err = new Error(data.error || 'Error de autenticación');
       err.status = res.status;
+      err.claveTemporal = !!data.claveTemporal;
       throw err;
     }
     authUnitId = data.unitId || null;

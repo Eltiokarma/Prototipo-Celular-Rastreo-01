@@ -438,10 +438,15 @@ export function enEspera() { return pendientes.length; }
 // esperando red antes del «fuera» es de antes del «fuera», y mandarlo con el
 // turno siguiente volvía a dibujar la combi donde estuvo ayer (el servidor
 // lo descarta igual, pero no hay por qué gastarle los datos).
+//
+// Y el envío que esté EN VUELO se corta (revisión 15/11, GPS-02): seguía su
+// curso y llegaba al servidor cuando el chofer ya había salido. Con la
+// generación nueva, lo que falle de ese envío no vuelve a ninguna cola.
 export function vaciarCola() {
   generacion++;
   pendientes = [];
   diagnostico.enEspera = 0;
+  vigiaEnvio.cortar();
 }
 
 // Salir es salir: nada de esta sesión sobrevive para la siguiente. Sin esto,
