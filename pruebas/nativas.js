@@ -405,6 +405,8 @@ console.log('\nLA APK NO ESCRIBE COLORES A MANO (auditoría de UI, A3)');
   ok('A5 · un envío colgado, también', hay({ ...bien, enVueloDesde: T - 30_000 }, T) === true);
   ok('A5 · y la batería optimizada', hay({ ...bien, bateriaOptimizada: true }, T) === true);
   ok('A5 · completo en Perfil', /<Text style=\{s\.perfilSeccion\}>EL GPS<\/Text>\s*<DiagnosticoGps diag=\{diag\} \/>/.test(app));
+  // A6: la app no consultaba «quitar animaciones»
+  ok('A6 · con «quitar animaciones» el carrusel no se desliza', /AccessibilityInfo\.isReduceMotionEnabled\(\)/.test(app) && /if \(menosRef\.current\) \{ x\.setValue\(destino\); return; \}/.test(app) && !/Animated\.spring\(x, \{\s*toValue: -/.test(app));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

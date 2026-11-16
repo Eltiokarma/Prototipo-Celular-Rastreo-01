@@ -20,6 +20,7 @@ import {
   View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
   FlatList, PanResponder, Animated, Vibration,
   Image, Modal, Dimensions, Keyboard, BackHandler, ScrollView, Linking,
+  AccessibilityInfo,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -114,6 +115,19 @@ function usarAhoraSiEnvejece(recibido) {
 function BarraDeEstado() {
   const { oscuro } = usarTema();
   return <StatusBar style={oscuro ? 'light' : 'dark'} />;
+}
+
+// ¿El teléfono pide menos movimiento? (Ajustes ▸ Accesibilidad ▸ quitar
+// animaciones). Se sigue si lo cambian con la app abierta (auditoría de UI, A6).
+function usarMenosMovimiento() {
+  const [menos, setMenos] = React.useState(false);
+  React.useEffect(() => {
+    let vivo = true;
+    AccessibilityInfo.isReduceMotionEnabled().then(v => { if (vivo) setMenos(!!v); }).catch(() => {});
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', v => setMenos(!!v));
+    return () => { vivo = false; sub && sub.remove && sub.remove(); };
+  }, []);
+  return menos;
 }
 
 // La hoja se arma una vez por paleta y se guarda: `StyleSheet.create` en cada
@@ -1050,6 +1064,15 @@ function Aplicacion() {
 // se prueba en Node. Acá solo se dibuja.
 function Carrusel({ pantalla, onIr, children }) {
   const { ancho } = useVentana();
+  // Con «quitar animaciones», la pantalla cambia en el acto en vez de
+  // deslizarse con resorte. El arrastre con el dedo sigue igual: es directo.
+  const menosMovimiento = usarMenosMovimiento();
+  const menosRef = React.useRef(menosMovimiento);
+  menosRef.current = menosMovimiento;
+  const llevarA = (destino) => {
+    if (menosRef.current) { x.setValue(destino); return; }
+    Animated.spring(x, { toValue: destino, useNativeDriver: true, bounciness: 0, speed: 14 }).start();
+  };
   const indice = Math.max(0, PANTALLAS.indexOf(pantalla));
   const x = React.useRef(new Animated.Value(0)).current;
   const indiceRef = React.useRef(indice);
@@ -1058,12 +1081,7 @@ function Carrusel({ pantalla, onIr, children }) {
   // Cuando se cambia de pantalla con la barra —no con el dedo— igual se
   // desliza. Que el mismo destino se vea igual sin importar cómo se llegó es
   // lo que hace que la app se sienta de una pieza.
-  React.useEffect(() => {
-    Animated.spring(x, {
-      toValue: -indice * ancho,
-      useNativeDriver: true, bounciness: 0, speed: 14,
-    }).start();
-  }, [indice, ancho]);
+  React.useEffect(() => { llevarA(-indice * ancho); }, [indice, ancho]);
 
   const pan = React.useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
@@ -1071,20 +1089,12 @@ function Carrusel({ pantalla, onIr, children }) {
     onPanResponderMove: (_, g) => x.setValue(desplazamiento(indiceRef.current, g.dx, ancho)),
     onPanResponderRelease: (_, g) => {
       const destino = indiceDestino(indiceRef.current, g, ancho);
-      Animated.spring(x, {
-        toValue: -destino * ancho,
-        useNativeDriver: true, bounciness: 0, speed: 14,
-      }).start();
+      llevarA(-destino * ancho);
       if (destino !== indiceRef.current) onIr(PANTALLAS[destino]);
     },
     // Si el gesto se cancela —una llamada entrante, el sistema tomando el
     // borde—, la pantalla no puede quedar a mitad de camino.
-    onPanResponderTerminate: () => {
-      Animated.spring(x, {
-        toValue: -indiceRef.current * ancho,
-        useNativeDriver: true, bounciness: 0, speed: 14,
-      }).start();
-    },
+    onPanResponderTerminate: () => llevarA(-indiceRef.current * ancho),
   }), [ancho, onIr]);
 
   return (
