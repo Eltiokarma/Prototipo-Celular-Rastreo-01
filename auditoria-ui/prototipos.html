@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prototipos — Auditoría de UI del 16/11/2026</title>
+<!-- Prototipos de la auditoría (ver ../AUDITORIA-UI-2026-11-16.md). NO es
+     código de producción: son maquetas para decidir. «Hoy» es captura real
+     del sistema andando (o reconstrucción rotulada, cuando no se pudo correr);
+     «Propuesta» es HTML con los tokens que ya existen en el repo. Cada
+     maqueta cambia UNA cosa: los textos quedan como están hoy (voseo
+     incluido) para no mezclar la propuesta de lenguaje con las demás. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    /* day de project/Prototipo.html y project/despacho.html */
+    --bg: #F7FAFD; --surface: #E9F0F8; --blanco: #FFFFFF; --line: #C3D4E4; --divider: #D6E2EE;
+    --green: #1F8A4F; --greenInk: #0B3D22; --amber: #A67300; --amberInk: #4A3200; --red: #C2001D; --redInk: #5C0010;
+    --fg: #0B2239; --fg2: #2A4864; --dim: #41627F; --dim2: #496A86; --dim3: #5A7591;
+    --acento: #1668C4; --realce: #EAF2FB;
+    --verdeFondo: #E9F7EF; --verdeTinta: #0B6B33; --ambarFondo: #FDF6E4; --ambarBorde: #E4C88A; --ambarTinta2: #6B4A00;
+    --rojoFondo: #FCEBEE; --rojoBorde: #E6BFC6;
+    --black: "Archivo Black", "Arial Black", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --llegar: cubic-bezier(0, 0, .2, 1);
+  }
+  body { margin: 0; background: #EEF3F8; color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Helvetica Neue", sans-serif; }
+  .hoja { max-width: 1120px; margin: 0 auto; padding: 28px 20px 80px; }
+  h1 { font: 400 30px/1.15 var(--black); margin: 0 0 8px; letter-spacing: -.01em; }
+  .bajada { color: var(--fg2); max-width: 760px; margin: 0 0 8px; }
+  .leyenda { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; color: var(--dim); margin: 14px 0 26px; }
+  .leyenda b { color: var(--fg); }
+  nav.indice { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 30px; }
+  nav.indice a { font-size: 14px; font-weight: 600; color: var(--fg2); text-decoration: none; background: var(--blanco); border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; }
+  nav.indice a:hover, nav.indice a:focus-visible { border-color: var(--acento); color: var(--acento); }
+  section.p { background: var(--blanco); border: 1px solid var(--divider); border-radius: 20px; padding: 26px; margin-bottom: 26px; }
+  .p > header { margin-bottom: 18px; }
+  .p .id { display: inline-block; font: 700 13px var(--mono); color: var(--acento); background: var(--realce); border-radius: 8px; padding: 4px 8px; margin-bottom: 8px; }
+  .p h2 { font: 400 21px/1.25 var(--black); margin: 0; }
+  .p .que { margin: 6px 0 0; color: var(--fg2); max-width: 780px; }
+  .par { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 26px; align-items: start; }
+  figure { margin: 0; }
+  figcaption { font-size: 13px; font-weight: 700; margin-bottom: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-height: 26px; }
+  .tag { font: 700 11px var(--mono); letter-spacing: .04em; border-radius: 6px; padding: 3px 7px; }
+  .tag.hoy { background: #E3E9F0; color: var(--fg2); }
+  .tag.prop { background: var(--verdeFondo); color: var(--verdeTinta); }
+  .tag.rec { background: var(--ambarFondo); color: var(--ambarTinta2); }
+  figcaption small { font-weight: 400; color: var(--dim); font-size: 13px; }
+  .notas { margin: 12px 0 0; padding: 0; list-style: none; font-size: 14px; color: var(--fg2); display: grid; gap: 6px; }
+  .notas li { padding-left: 22px; position: relative; }
+  .notas li::before { position: absolute; left: 0; top: 0; font-weight: 800; }
+  .notas.mal li::before { content: "✕"; color: var(--red); }
+  .notas.bien li::before { content: "✓"; color: var(--verdeTinta); }
+  .notas b, .impacto b { color: var(--fg); }
+  .impacto { margin-top: 22px; background: var(--bg); border: 1px solid var(--divider); border-radius: 14px; padding: 14px 16px; font-size: 14px; color: var(--fg2); }
+  .impacto h3 { margin: 0 0 6px; font-size: 13px; color: var(--dim); font-weight: 700; }
+  .impacto ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+  code { font: 700 12.5px var(--mono); background: #EDF2F7; border-radius: 5px; padding: 1px 5px; color: var(--fg2); }
+
+  /* ── Marcos: la maqueta se dibuja a tamaño real (412×892) y se escala ── */
+  .marco { width: 288px; height: 624px; border-radius: 22px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(11,34,57,.12); background: #000; }
+  .marco img { width: 288px; height: 624px; display: block; }
+  .tel { width: 412px; height: 892px; transform: scale(.7); transform-origin: 0 0; position: relative; overflow: hidden; display: flex; flex-direction: column; font-family: system-ui, sans-serif; }
+  .tel button { font: inherit; cursor: pointer; }
+
+  /* ── HUD web del chofer, tema day ── */
+  .hud { background: var(--bg); color: var(--fg); }
+  .hud .borde { height: 6px; background: var(--green); flex: none; }
+  .hud .puntos { position: absolute; top: 16px; left: 0; right: 0; display: flex; justify-content: center; gap: 22px; align-items: center; }
+  .hud .puntos i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+  .hud .puntos i.on { width: 24px; background: #2E9DFF; border-radius: 6px; }
+  .hud .chip { position: absolute; right: 16px; top: -6px; font: 700 11px var(--mono); letter-spacing: 1.5px; color: var(--dim2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  .hud .cab { padding: 50px 20px 0; display: flex; justify-content: space-between; align-items: center; }
+  .hud .vivo { font: 700 15px var(--mono); letter-spacing: .5px; color: var(--dim); display: flex; align-items: center; gap: 8px; }
+  .hud .vivo b { width: 9px; height: 9px; border-radius: 50%; background: var(--green); }
+  .hud .vel { font-weight: 700; font-size: 15px; color: var(--dim); }
+  .hud .vel strong { font: 400 26px var(--black); color: #16304A; }
+  .hud .centro { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0 18px; min-height: 0; }
+  .hud .rot { display: flex; align-items: baseline; gap: 10px; }
+  .hud .lado { font: 400 19px var(--black); letter-spacing: 1px; color: var(--green); }
+  .hud .lado.sec { font-size: 17px; color: #3D5C7A; letter-spacing: 0; }
+  .hud .uni { font-size: 15px; font-weight: 700; color: var(--dim2); }
+  .hud .dig { font: 400 118px/.95 var(--black); letter-spacing: -5px; color: var(--green); font-variant-numeric: tabular-nums; }
+  .hud .dig2 { font: 400 62px/.95 var(--black); letter-spacing: -2px; color: var(--green); font-variant-numeric: tabular-nums; }
+  .hud .ins { font-size: 16px; line-height: 1.5; color: #3D5C7A; margin-top: 10px; }
+  .hud hr { border: 0; height: 1px; background: #C9D8E6; margin: 26px 0 20px; width: 100%; }
+  .hud .fila2 { display: flex; justify-content: space-between; align-items: flex-end; }
+  .hud .ok { font-size: 15px; font-weight: 700; color: var(--dim2); padding-bottom: 10px; }
+  .hud .acc { padding: 0 18px 10px; display: grid; gap: 8px; }
+  .hud .acc .fila { display: flex; gap: 8px; }
+  /* Propuesta: 56 px de alto, 16 px de letra, tinta que pasa AA */
+  .hud .b { height: 56px; border-radius: 14px; background: transparent; font-size: 16px; font-weight: 800; letter-spacing: .5px; width: 100%; }
+  .hud .b.traf { border: 2px solid var(--amber); color: var(--amberInk); }
+  .hud .b.traf[aria-pressed="true"] { background: var(--amber); color: #fff; }
+  .hud .b.neu { border: 2px solid var(--dim3); color: var(--fg2); flex: 1; }
+  .hud .b.neu.salir { flex: 1.4; }
+  .hud .b.neu.armado { background: var(--red); border-color: var(--red); color: #fff; }
+  .hud .deshacer { height: 56px; border-radius: 14px; background: var(--ambarFondo); border: 2px solid var(--amber); display: flex; align-items: center; gap: 10px; padding: 0 8px 0 14px; position: relative; overflow: hidden; }
+  .hud .deshacer span { flex: 1; font-size: 15px; font-weight: 700; color: var(--amberInk); position: relative; }
+  .hud .deshacer button { height: 42px; padding: 0 16px; border-radius: 10px; border: 0; background: var(--amberInk); color: #fff; font-weight: 800; font-size: 15px; letter-spacing: .5px; position: relative; }
+  .hud .deshacer i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: rgba(166,115,0,.16); transform-origin: left; }
+  .hud .deshacer.corre i { animation: cuenta 5s linear forwards; }
+  @keyframes cuenta { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  .hud .sos { margin: 0 18px 26px; height: 84px; border-radius: 20px; background: var(--surface); border: 2px solid var(--line); position: relative; display: flex; align-items: center; flex: none; }
+  .hud .sos .pulgar { position: absolute; left: 6px; top: 5px; width: 70px; height: 70px; border-radius: 16px; background: var(--red); color: #fff; font: 400 19px var(--black); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+  .hud .sos span { padding-left: 88px; font-size: 16px; font-weight: 700; letter-spacing: .5px; color: var(--dim2); }
+  .hud .estadoAus { margin: 0 18px 10px; border-radius: 14px; background: var(--ambarFondo); border: 2px solid var(--amber); padding: 12px 14px; font-size: 15px; font-weight: 700; color: var(--amberInk); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .hud .estadoAus button { height: 44px; border-radius: 10px; border: 0; background: var(--green); color: #fff; font-weight: 800; padding: 0 14px; }
+
+  /* ── Puerta ── */
+  .puerta { background: var(--bg); color: var(--fg); padding: 22px 22px 26px; }
+  .puerta .top { display: flex; align-items: center; gap: 12px; }
+  .puerta .logo { width: 44px; height: 44px; border-radius: 50%; background: var(--acento); flex: none; position: relative; }
+  .puerta .logo::after { content: ""; position: absolute; inset: 11px; border: 3px solid #fff; border-radius: 50%; }
+  .puerta .hola { font-size: 13px; color: var(--dim); font-weight: 600; }
+  .puerta .nombre { font: 400 18px var(--black); }
+  .puerta .salir { margin-left: auto; height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--dim3); background: transparent; color: var(--fg2); font-weight: 700; font-size: 14px; }
+  .puerta .medio { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+  .puerta .kick { font-size: 14px; font-weight: 700; color: var(--dim); }
+  .puerta h3 { font: 400 36px/1.1 var(--black); margin: 8px 0 12px; letter-spacing: -.01em; }
+  .puerta p { margin: 0 auto; font-size: 16px; line-height: 1.5; color: var(--fg2); max-width: 320px; }
+  .puerta .campo { border: 1px solid var(--line); background: var(--blanco); border-radius: 12px; padding: 10px 14px; margin-top: 10px; }
+  .puerta .campo small { display: block; font-size: 13px; color: var(--dim); font-weight: 600; }
+  .puerta .campo b { font-size: 16px; }
+  .puerta .rotulo { font-size: 14px; font-weight: 700; color: var(--fg2); margin: 16px 0 0; }
+  .puerta .combi { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); background: var(--blanco); border-radius: 12px; padding: 10px 14px; margin-top: 8px; min-height: 56px; }
+  .puerta .combi.elegida { border: 2px solid var(--acento); padding: 9px 13px; }
+  .puerta .combi .cod { font: 400 20px var(--black); }
+  .puerta .combi .det { font-size: 14px; color: var(--dim); font-weight: 600; line-height: 1.3; }
+  .puerta .combi .det em { font-style: normal; color: var(--ambarTinta2); font-weight: 700; }
+  .puerta .combi .marca { margin-left: auto; font-size: 13px; font-weight: 800; color: var(--acento); }
+  .puerta .cta { margin-top: 14px; height: 70px; border-radius: 16px; border: 0; background: var(--acento); color: #fff; font: 400 24px var(--black); letter-spacing: 2px; width: 100%; box-shadow: 0 4px 0 #0F4F9E; }
+  .puerta .sec { margin-top: 12px; height: 48px; border-radius: 12px; border: 1px solid var(--dim3); background: transparent; color: var(--fg2); font-weight: 700; font-size: 15px; width: 100%; }
+  .puerta .sos { margin: 12px 0 0; }
+
+  /* ── APK nativa: reconstrucción de crearEstilos() con PALETAS.dia ── */
+  .apk { background: #0A1A2E; color: #F5F9FF; padding: 18px 20px 14px; }
+  .apk .barra { display: flex; justify-content: space-between; align-items: center; }
+  .apk .chipA { font: 700 12px var(--mono); letter-spacing: 1px; color: #3DD685; }
+  .apk .chipT { font: 700 10px var(--mono); letter-spacing: 1.5px; color: #5A7A99; border: 1px solid #234969; border-radius: 6px; padding: 3px 7px; }
+  .apk .diag { font: 11px var(--mono); color: #5A7A99; margin-top: 8px; }
+  .apk .centro { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .apk .lado { font-size: 19px; font-weight: 900; letter-spacing: 1px; color: #3DD685; }
+  .apk .uni { font-size: 15px; font-weight: 700; color: #5A7A99; margin-left: 10px; }
+  .apk .dig { font: 400 108px/118px var(--black); letter-spacing: -5px; color: #3DD685; }
+  .apk .ins { font-size: 16px; line-height: 24px; color: #93AAC2; margin-top: 10px; }
+  .apk .div { height: 1px; background: #234969; margin: 24px 0; }
+  .apk .ladoS { font-size: 17px; font-weight: 900; color: #A9C0D6; }
+  .apk .digS { font: 400 58px/1.1 var(--black); letter-spacing: -2px; color: #3DD685; }
+  .apk .bt { height: 46px; border-radius: 12px; border: 1px solid #234969; background: #16304A; color: #5A7A99; font-size: 13px; font-weight: 900; letter-spacing: 1px; display: flex; align-items: center; justify-content: center; margin-top: 12px; }
+  .apk .fila { display: flex; gap: 10px; }
+  .apk .fila .bt { flex: 1; }
+  .apk .bt.amb { border-color: #F5C542; color: #F5C542; }
+  .apk .pista { height: 62px; border-radius: 16px; background: #16304A; border: 1px solid #234969; margin-top: 10px; position: relative; display: flex; align-items: center; justify-content: center; color: #5A7A99; font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+  .apk .pista b { position: absolute; left: 4px; top: 3px; width: 70px; height: 54px; border-radius: 12px; background: #FF4D6D; color: #fff; font-size: 18px; font-weight: 900; letter-spacing: 1px; display: flex; align-items: center; justify-content: center; }
+  .apk .tabs { display: flex; border-top: 1px solid #234969; margin-top: 12px; padding-top: 10px; }
+  .apk .tabs span { flex: 1; text-align: center; padding: 8px 0; color: #5A7A99; font-size: 15px; font-weight: 900; letter-spacing: 2px; }
+  /* Propuesta: mismos componentes, tokens day de la web */
+  .apk.claro { background: var(--bg); color: var(--fg); }
+  .apk.claro .chipA { color: var(--verdeTinta); }
+  .apk.claro .chipT { color: var(--dim2); border-color: var(--line); font-size: 12px; padding: 5px 8px; }
+  .apk.claro .lado, .apk.claro .dig, .apk.claro .digS { color: var(--green); }
+  .apk.claro .uni { color: var(--dim2); }
+  .apk.claro .ins { color: #3D5C7A; }
+  .apk.claro .div { background: #C9D8E6; }
+  .apk.claro .ladoS { color: #3D5C7A; }
+  .apk.claro .bt { background: transparent; border: 2px solid var(--dim3); color: var(--fg2); height: 56px; font-size: 16px; letter-spacing: .5px; }
+  .apk.claro .bt.amb { border-color: var(--amber); color: var(--amberInk); }
+  .apk.claro .pista { background: var(--surface); border: 2px solid var(--line); color: var(--dim2); height: 70px; }
+  .apk.claro .pista b { background: var(--red); height: 60px; top: 3px; }
+  .apk.claro .tabs { border-top-color: var(--divider); }
+  .apk.claro .tabs span { color: var(--fg2); }
+  .fichas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .ficha { font: 700 12px var(--mono); border-radius: 6px; padding: 4px 8px; background: var(--rojoFondo); color: var(--redInk); border: 1px solid var(--rojoBorde); }
+  .ficha.ok { background: var(--verdeFondo); color: var(--verdeTinta); border-color: #BEE3CD; }
+
+  /* ── Laboratorio de movimiento ── */
+  .controles { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-bottom: 18px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--divider); border-radius: 14px; font-size: 14px; }
+  .controles .grupo { display: flex; gap: 6px; align-items: center; }
+  .controles button { font: 600 14px system-ui, sans-serif; height: 36px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--blanco); color: var(--fg2); cursor: pointer; }
+  .controles button[aria-pressed="true"] { background: var(--fg); color: #fff; border-color: var(--fg); }
+  .controles label { display: flex; gap: 8px; align-items: center; font-weight: 600; color: var(--fg2); cursor: pointer; }
+  .mini { background: var(--bg); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; position: relative; max-width: 420px; }
+  .mini .borde { height: 6px; background: var(--c); }
+  .mini .cuerpo { padding: 18px 18px 14px; }
+  .mini .rot { display: flex; align-items: baseline; gap: 10px; }
+  .mini .lado { font: 400 17px var(--black); letter-spacing: 1px; color: var(--c); border-radius: 6px; padding: 2px 6px; margin-left: -6px; }
+  .mini .uni { font-size: 14px; font-weight: 700; color: var(--dim2); }
+  .mini .dig { font: 400 84px/1 var(--black); letter-spacing: -3px; color: var(--c); font-variant-numeric: tabular-nums; display: flex; transform-origin: left center; }
+  .mini .dig span { display: inline-block; min-width: .62em; text-align: center; }
+  .mini .dig span.dp { min-width: .35em; }
+  .mini .ins { font-size: 15px; color: #3D5C7A; margin-top: 8px; min-height: 23px; }
+  .mini .sec { display: flex; align-items: baseline; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #C9D8E6; }
+  .mini .sec .lado { font-size: 15px; color: #3D5C7A; letter-spacing: 0; }
+  .mini .sec b { font: 400 30px var(--black); color: var(--green); margin-left: auto; font-variant-numeric: tabular-nums; }
+  .mini .sos { height: 60px; border-radius: 16px; background: var(--surface); border: 2px solid var(--line); margin-top: 14px; position: relative; display: flex; align-items: center; }
+  .mini .sos .pulgar { position: absolute; left: 4px; top: 3px; width: 54px; height: 50px; border-radius: 12px; background: var(--red); color: #fff; font: 400 15px var(--black); display: flex; align-items: center; justify-content: center; transition: left .3s cubic-bezier(.4,0,.2,1); }
+  .mini .sos span.t { padding-left: 70px; font-size: 14px; font-weight: 700; letter-spacing: .5px; color: var(--dim2); }
+  .mini .sos.enviando .pulgar, .mini .sos.listo .pulgar { left: calc(100% - 58px); }
+  .mini .sos.enviando span.t, .mini .sos.listo span.t { color: var(--red); padding-left: 16px; }
+  .mini .anillo { position: absolute; inset: -5px; border-radius: 20px; border: 2px solid var(--red); pointer-events: none; display: none; }
+  /* HOY: los keyframes y las cadencias son los de project/Prototipo.html */
+  @keyframes combiEdge { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+  @keyframes combiRing { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(1.08); opacity: 0; } }
+  #labHoy .borde { animation: combiEdge var(--cad) ease-in-out infinite; }
+  #labHoy.rojo .anillo { display: block; animation: combiRing 1.6s ease-out infinite; }
+  #labHoy .dig span { transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .22s; }
+  #labHoy .dig span.salto { transform: translateY(-2px); opacity: .85; }
+  /* PROPUESTA: la barra avisa tres veces al cambiar de estado y queda fija;
+     el número crece una vez; los dígitos no saltan; el SOS no late */
+  @keyframes aviso { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+  @keyframes cambio { from { transform: scale(1.07); } to { transform: none; } }
+  @keyframes marca { from { background: var(--ambarFondo); box-shadow: 0 0 0 2px var(--ambarBorde); } 70% { background: var(--ambarFondo); box-shadow: 0 0 0 2px var(--ambarBorde); } to { background: transparent; box-shadow: 0 0 0 2px transparent; } }
+  @keyframes puntitos { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+  #labProp.avisa .borde { animation: aviso .6s ease-in-out 3; }
+  #labProp.avisa .dig { animation: cambio .32s var(--llegar); }
+  #labProp .lado.marcado { animation: marca 1.6s linear; }
+  #labProp .sos.enviando .pulgar i { animation: puntitos 1s ease-in-out infinite; font-style: normal; }
+  /* Movimiento reducido: sin escala ni latido. Quedan el color, la palabra
+     y la marca del lado como resalte fijo que se apaga. */
+  .reducido #labProp.avisa .borde, .reducido #labProp.avisa .dig, .reducido #labProp .sos.enviando .pulgar i { animation: none; }
+  .reducido .mini .sos .pulgar { transition: none; }
+  .reducido .hud .deshacer.corre i { animation: none; transform: scaleX(0); }
+  @media (prefers-reduced-motion: reduce) {
+    #labHoy .borde, #labHoy.rojo .anillo { animation: none; }   /* la página de la auditoría sí respeta la preferencia */
+  }
+
+  /* ── Despacho: lista compacta ── */
+  .marco.lista { width: 272px; height: 672px; background: var(--bg); border-radius: 14px; }
+  .marco.lista img { width: 272px; height: 672px; }
+  .desp { width: 340px; height: 840px; transform: scale(.8); transform-origin: 0 0; background: var(--bg); font-family: system-ui, sans-serif; color: var(--fg); padding: 14px 10px; overflow: hidden; }
+  .desp .cabL { display: flex; justify-content: space-between; align-items: baseline; padding: 0 6px 8px; }
+  .desp .cabL b { font-size: 14px; }
+  .desp .cabL span { font-size: 13px; color: var(--dim); }
+  .desp .cabL span strong { font: 400 14px var(--black); color: var(--fg); }
+  .desp .al { border-radius: 10px; padding: 8px 10px; font-size: 12.5px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .desp .al.amb { background: var(--ambarFondo); border: 1px solid var(--ambarBorde); border-left: 4px solid var(--amber); color: var(--amberInk); font-weight: 700; }
+  .desp .al.inf { background: #E8EFF7; border: 1px solid var(--line); color: var(--fg2); }
+  .desp .al .sil { display: flex; gap: 6px; margin-top: 6px; }
+  .desp .al button { height: 32px; border-radius: 8px; border: 1px solid var(--ambarBorde); background: #fff; font: 600 12px system-ui; color: var(--amberInk); padding: 0 10px; }
+  .desp .cols { display: grid; grid-template-columns: 1fr 56px 56px; gap: 0 6px; padding: 8px 10px 4px; font-size: 12px; color: var(--dim); font-weight: 600; }
+  .desp .cols span:not(:first-child) { text-align: right; }
+  .desp .u { background: #fff; border: 1px solid var(--divider); border-radius: 12px; padding: 8px 10px; margin-bottom: 6px; }
+  .desp .u .l1 { display: grid; grid-template-columns: 28px 1fr 56px 56px; gap: 0 6px; align-items: center; }
+  .desp .av { width: 28px; height: 28px; border-radius: 50%; background: #E3EDF7; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; color: var(--fg2); }
+  .desp .quien { min-width: 0; line-height: 1.25; white-space: nowrap; overflow: hidden; }
+  .desp .quien b { font: 400 15px var(--black); }
+  .desp .quien small { font-size: 12px; color: var(--dim); margin-left: 4px; font-weight: 600; }
+  .desp .quien div { font-size: 13px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .desp .g { text-align: right; line-height: 1.15; }
+  .desp .g b { font: 400 16px var(--black); font-variant-numeric: tabular-nums; display: block; }
+  .desp .g small { font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .desp .g.v b { color: var(--green); } .desp .g.v small { color: var(--verdeTinta); }
+  .desp .g.a b { color: var(--amber); } .desp .g.a small { color: var(--ambarTinta2); }
+  .desp .g.r b { color: var(--red); }   .desp .g.r small { color: var(--redInk); }
+  .desp .g.n b { color: var(--dim3); font-size: 14px; }
+  .desp .l2 { font-size: 12.5px; color: var(--fg2); margin: 6px 0 0 36px; }
+  .desp .l2.fuera { margin: 8px 0 0; background: var(--ambarFondo); border: 1px solid var(--ambarBorde); border-radius: 8px; padding: 6px 10px; font-weight: 800; color: var(--amberInk); letter-spacing: .3px; }
+
+  /* ── Landing ── */
+  .marcoL { border-radius: 16px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(11,34,57,.10); max-width: 880px; }
+  .marcoL img { width: 100%; display: block; }
+  .land { background: var(--bg); padding: 26px 22px 30px; }
+  .land .cabz { display: flex; justify-content: space-between; align-items: center; }
+  .land .logo { font-weight: 600; font-size: 24px; letter-spacing: .01em; }
+  .land .entrar { height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--fg2); font-weight: 700; font-size: 15px; display: inline-flex; align-items: center; }
+  .land .heroL { display: grid; grid-template-columns: 1fr 210px; gap: 30px; align-items: center; margin-top: 34px; }
+  .land h3 { font: 400 clamp(26px, 4.4vw, 40px)/1.12 var(--black); margin: 0 0 14px; letter-spacing: -.01em; }
+  .land h3 em { font-style: normal; color: var(--acento); }
+  .land p { font-size: 17px; line-height: 1.6; color: var(--fg2); margin: 0 0 20px; }
+  .land .ctas { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  .land .cta { background: var(--acento); color: #fff; padding: 14px 22px; border-radius: 12px; font-weight: 800; font-size: 17px; }
+  .land .cta2 { color: var(--acento); font-weight: 700; font-size: 15px; text-decoration: underline; }
+  .land .nota { font-size: 14px; color: var(--dim3); margin-top: 10px; }
+  .land .fono { width: 200px; height: 380px; border-radius: 26px; border: 8px solid #0B2239; background: var(--bg); overflow: hidden; display: flex; flex-direction: column; justify-self: center; box-shadow: 0 14px 30px rgba(11,34,57,.18); }
+  .land .fono .b { height: 5px; background: var(--green); }
+  .land .fono .in { padding: 14px 12px; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .land .fono .l { font: 400 11px var(--black); letter-spacing: .5px; color: var(--green); }
+  .land .fono .l small { font: 700 9px system-ui; color: var(--dim2); margin-left: 4px; letter-spacing: 0; }
+  .land .fono .d { font: 400 62px/.95 var(--black); letter-spacing: -3px; color: var(--green); }
+  .land .fono .t { font-size: 10px; color: #3D5C7A; margin: 6px 0 12px; }
+  .land .fono .s { border-top: 1px solid #C9D8E6; padding-top: 10px; }
+  .land .fono .s .l { color: #3D5C7A; font-size: 10px; }
+  .land .fono .s .d { font-size: 32px; letter-spacing: -1px; }
+  .land .fono .sosm { margin: 0 10px 12px; height: 34px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); position: relative; }
+  .land .fono .sosm::before { content: "SOS"; position: absolute; left: 3px; top: 3px; width: 30px; height: 26px; border-radius: 7px; background: var(--red); color: #fff; font: 400 8px var(--black); display: flex; align-items: center; justify-content: center; }
+  @media (max-width: 640px) { .land .heroL { grid-template-columns: 1fr; } }
+
+  table.len { border-collapse: collapse; width: 100%; font-size: 15px; }
+  table.len th { text-align: left; font-size: 13px; color: var(--dim); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  table.len td { padding: 8px 10px; border-bottom: 1px solid var(--divider); }
+  table.len td:first-child { color: var(--dim); font-size: 13px; }
+  .pie { color: var(--dim); font-size: 14px; max-width: 800px; }
+  :focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="hoja">
+  <h1>Prototipos de la auditoría de UI</h1>
+  <p class="bajada">Acompañan a <code>AUDITORIA-UI-2026-11-16.md</code>. Cada bloque enfrenta lo que hay hoy con una propuesta, y abajo dice qué archivos tocaría y si mueve el backend. Los identificadores (B3, C1…) son los del informe.</p>
+  <div class="leyenda">
+    <span><span class="tag hoy">HOY</span> captura real del sistema andando</span>
+    <span><span class="tag rec">RECONSTRUCCIÓN</span> armada desde el código, no vista corriendo</span>
+    <span><span class="tag prop">PROPUESTA</span> maqueta con los tokens que ya existen</span>
+  </div>
+  <nav class="indice" aria-label="Prototipos">
+    <a href="#p1">1 · Acciones del chofer</a><a href="#p2">2 · Movimiento del HUD</a><a href="#p3">3 · Puerta «Salir a ruta»</a>
+    <a href="#p4">4 · APK: tema de día</a><a href="#p5">5 · Despacho: lista</a><a href="#p6">6 · Landing</a><a href="#p7">7 · Lenguaje</a>
+  </nav>
+
+  <!-- ═══ 1 ═══ -->
+  <section class="p" id="p1">
+    <header><span class="id">B3</span><h2>Las acciones del chofer: más grandes, legibles y sin compartir señal</h2>
+      <p class="que">El chofer las toca manejando. Hoy miden 42 px con letra de 12 px a 3,95:1, y «Estoy en tráfico» y «Ausente» se ven iguales aunque una avisa y la otra descarta la vuelta.</p></header>
+    <div class="par">
+      <figure>
+        <figcaption><span class="tag hoy">HOY</span> <small>project/Prototipo.html · tema día</small></figcaption>
+        <div class="marco"><img src="img/hud.jpg" alt="Pantalla de brechas actual: el número 6:15 en verde ocupa el centro; abajo, tres botones delgados de contorno y el deslizador de SOS."></div>
+        <ul class="notas mal">
+          <li>Botones de <b>42 px</b> de alto y texto de <b>12 px</b>: bajo la meta de 44 px y con ámbar a <b>3,95:1</b> (el mínimo para ese tamaño es 4,5).</li>
+          <li><b>Tráfico</b> y <b>Ausente</b> usan el mismo contorno ámbar: una señal, dos significados.</li>
+          <li><b>Ausente</b> descarta la vuelta con un solo toque, pegado al botón de tráfico. «Salir de ruta» sí pide dos.</li>
+          <li>Quedan ~150 px de aire arriba del número mientras las acciones van apretadas abajo.</li>
+        </ul>
+      </figure>
+      <figure>
+        <figcaption><span class="tag prop">PROPUESTA</span> <small>toca los botones: se puede probar</small></figcaption>
+        <div class="marco"><div class="tel hud" id="hudP">
+          <div class="borde"></div>
+          <div class="puntos"><i></i><i class="on"></i><i></i><span class="chip">DÍA</span></div>
+          <div class="cab"><span class="vivo"><b></b>EN VIVO · 7</span><span class="vel"><strong>28</strong> km/h</span></div>
+          <div class="centro">
+            <div class="rot"><span class="lado">ATRÁS</span><span class="uni">−1 · M-02</span></div>
+            <div class="dig">6:15</div>
+            <div class="ins">Mantené el ritmo. Objetivo 6:00.</div>
+            <hr>
+            <div class="fila2"><div><div class="rot"><span class="lado sec">ADELANTE</span><span class="uni">+1 · M-03</span></div><div class="dig2">6:01</div></div><span class="ok">OK</span></div>
+          </div>
+          <div class="acc" id="accP">
+            <button class="b traf" aria-pressed="false" id="bTraf">ESTOY EN TRÁFICO</button>
+            <div class="fila" id="filaPres"><button class="b neu" id="bAus">AUSENTE</button><button class="b neu salir" id="bSalir">SALIR DE RUTA</button></div>
+          </div>
+          <div class="sos"><div class="pulgar">SOS</div><span>DESLIZÁ PARA SOS →</span></div>
+        </div></div>
+        <ul class="notas bien">
+          <li><b>56 px</b> de alto, <b>16 px</b> de letra. Tinta <code>amberInk</code> sobre el fondo: <b>11,47:1</b>. El borde ámbar se queda para decir «tráfico».</li>
+          <li><b>Ausente</b> y <b>Salir</b> pasan a contorno neutro: son las dos que te sacan de la cadena.</li>
+          <li><b>Ausente</b> espera 5 s con «Deshacer» antes de avisar al servidor: un toque sin querer no cuesta la vuelta.</li>
+          <li>El número, el orden y el SOS quedan intactos. El bloque central absorbe los 28 px extra.</li>
+        </ul>
+      </figure>
+    </div>
+    <div class="impacto"><h3>Impacto en el código</h3><ul>
+      <li><b>Pantalla:</b> <code>project/Prototipo.html</code> (CenterScreen, ~líneas 2707–2760) y, si se replica, <code>app/App.js</code> (<code>botonTrafico</code>, <code>botonPresencia</code>). Subir <code>CACHE_NAME</code>.</li>
+      <li><b>Backend: ninguno.</b> El «Deshacer» retrasa en el cliente el <code>POST</code> de presencia; el servidor recibe lo mismo, 5 s después.</li>
+      <li><b>Pruebas:</b> las que tocan «AUSENTE» en el navegador (<code>presencia</code>, <code>ausencia</code>, <code>relevo</code>, <code>trafico</code>) tienen que esperar esos 5 s o usar un atajo de prueba. Los textos no cambian.</li>
+    </ul></div>
+  </section>
+
+  <!-- ═══ 2 ═══ -->
+  <section class="p" id="p2">
+    <header><span class="id">B1 · B2 · B4 · B5 · B6 · B8</span><h2>El movimiento del HUD: que avise cuando algo cambia, no todo el tiempo</h2>
+      <p class="que">A la izquierda, los keyframes y cadencias que están hoy en el código. A la derecha, la propuesta. Cambia el estado y mira qué se mueve en cada lado y por cuánto tiempo.</p></header>
+    <div class="controles" id="ctl">
+      <div class="grupo"><span>Brecha:</span>
+        <button data-est="verde" aria-pressed="true">En objetivo</button><button data-est="ambar" aria-pressed="false">Al límite</button><button data-est="rojo" aria-pressed="false">Crítica</button></div>
+      <div class="grupo"><button id="bLado">Cambiar el lado que manda</button><button id="bSos">Simular envío de SOS</button></div>
+      <label><input type="checkbox" id="chkRed"> Reducir movimiento</label>
+    </div>
+    <div class="par">
+      <figure>
+        <figcaption><span class="tag rec">HOY</span> <small>reconstrucción con los keyframes de Prototipo.html</small></figcaption>
+        <div class="mini" id="labHoy"><div class="borde"></div><div class="cuerpo">
+          <div class="rot"><span class="lado">ATRÁS</span><span class="uni">−1 · M-02</span></div>
+          <div class="dig"></div><div class="ins"></div>
+          <div class="sec"><span class="lado">ADELANTE</span><span class="uni">+1 · M-03</span><b>6:01</b></div>
+          <div class="sos"><div class="anillo"></div><div class="pulgar">SOS</div><span class="t">DESLIZÁ PARA SOS →</span></div>
+        </div></div>
+        <ul class="notas mal">
+          <li>La barra de arriba late <b>siempre</b>, también en verde (cada 2,4 s; 1,4 s en ámbar; 0,8 s en rojo).</li>
+          <li>Cada dígito que cambia salta 2 px y se atenúa: pasa cada pocos segundos, todo el turno.</li>
+          <li>Con la brecha en rojo, un anillo rojo late sobre el <b>SOS</b>: mezcla «pelotón» con «emergencia».</li>
+          <li>Si el lado que manda cambia, los rótulos se intercambian sin ninguna señal.</li>
+          <li>Al enviar, el pulgar muestra <b>✓</b> mientras el texto todavía dice «ENVIANDO…».</li>
+          <li>Nada de esto se apaga con «reducir movimiento» del teléfono (medido: 2 animaciones infinitas vivas).</li>
+        </ul>
+      </figure>
+      <figure>
+        <figcaption><span class="tag prop">PROPUESTA</span></figcaption>
+        <div class="mini" id="labProp"><div class="borde"></div><div class="cuerpo">
+          <div class="rot"><span class="lado">ATRÁS</span><span class="uni">−1 · M-02</span></div>
+          <div class="dig"></div><div class="ins"></div>
+          <div class="sec"><span class="lado">ADELANTE</span><span class="uni">+1 · M-03</span><b>6:01</b></div>
+          <div class="sos"><div class="pulgar">SOS</div><span class="t">DESLIZÁ PARA SOS →</span></div>
+        </div></div>
+        <ul class="notas bien">
+          <li>La barra queda <b>fija</b>. Al cambiar de estado avisa tres veces (1,8 s) y se queda quieta con el color nuevo.</li>
+          <li>El número crece una vez (320 ms) solo cuando cambia el <b>estado</b>; segundo a segundo no se mueve.</li>
+          <li>El SOS no late nunca: su señal es su forma y su rojo.</li>
+          <li>Cuando el lado que manda cambia, el rótulo queda resaltado 1,6 s (un fundido, sin desplazamiento).</li>
+          <li>El pulgar muestra «…» mientras envía y <b>✓</b> recién cuando el servidor confirma.</li>
+          <li>Con movimiento reducido no hay escala ni latido; quedan el color, la frase y el resalte del rótulo.</li>
+        </ul>
+      </figure>
+    </div>
+    <div class="impacto"><h3>Impacto en el código</h3><ul>
+      <li><b>Pantalla:</b> solo <code>project/Prototipo.html</code>: <code>combiEdge</code> (línea 2549), <code>suggestSos</code> (1581), <code>AnimatedDigit</code> (2424), el pulgar de <code>SosSlider</code> (1651) y el valor inicial de <code>tweaks.microAnims</code> (2397), que pasa a leer <code>prefers-reduced-motion</code>.</li>
+      <li><b>Backend: ninguno.</b> El ✓ ya depende de la promesa de <code>onFire</code>; solo cambia cuándo se dibuja.</li>
+      <li><b>Pruebas:</b> <code>sos.js</code> y <code>sos-sin-red.js</code> si miran el texto del pulgar. Subir <code>CACHE_NAME</code>.</li>
+      <li><b>Es hipótesis:</b> que la barra fija se lea igual de bien de reojo se comprueba en la calle, no aquí.</li>
+    </ul></div>
+  </section>
+
+  <!-- ═══ 3 ═══ -->
+  <section class="p" id="p3">
+    <header><span class="id">B7</span><h2>La puerta «Salir a ruta» sigue al tema, como ya hace el ingreso</h2>
+      <p class="que">Desde el retoque del 11/11 el ingreso es claro y el HUD es claro; en el medio queda una pantalla azul oscuro fija, con su botón principal a 2,69:1.</p></header>
+    <div class="par">
+      <figure>
+        <figcaption><span class="tag hoy">HOY</span> <small>paleta fija <code>P</code>, no sigue el tema</small></figcaption>
+        <div class="marco"><img src="img/puerta.jpg" alt="Pantalla Salir a ruta actual sobre fondo azul oscuro, con el botón celeste SALIR A RUTA."></div>
+        <ul class="notas mal">
+          <li>«SALIR A RUTA»: blanco sobre <code>#2E9DFF</code> = <b>2,69:1</b>. No llega ni al 3:1 de texto grande.</li>
+          <li>Párrafo, «Salir» y «Entrar AUSENTE» en <code>#5A7A99</code> sobre azul oscuro: <b>3,90:1</b>.</li>
+          <li>Ocho textos de 9 a 11 px en mono con tracking (ruta, placa, «ELEGIDA»…).</li>
+          <li>«Salir» mide 48×29 px.</li>
+        </ul>
+      </figure>
+      <figure>
+        <figcaption><span class="tag prop">PROPUESTA</span> <small>mismos datos, tokens <code>HUD</code> del tema activo</small></figcaption>
+        <div class="marco"><div class="tel puerta">
+          <div class="top"><div class="logo"></div><div><div class="hola">Hola, conductor</div><div class="nombre">RUFO</div></div><button class="salir">Salir</button></div>
+          <div class="medio">
+            <div class="kick">Inicio de turno</div>
+            <h3>¿Salir a ruta ahora?</h3>
+            <p>Tu vuelta y tu brecha arrancan cuando pises el trazado.</p>
+          </div>
+          <div class="campo"><small>Ruta</small><b>Norte ⇄ Taparachi</b></div>
+          <div class="rotulo">¿En qué combi salís?</div>
+          <div class="combi elegida"><span class="cod">M-01</span><span class="det">Z1A-701<br>la tenés vos</span><span class="marca">✓ Elegida</span></div>
+          <div class="combi"><span class="cod">M-07</span><span class="det">Z1A-707<br><em>la maneja Rosa Ticona Larico</em></span></div>
+          <button class="cta">SALIR A RUTA →</button>
+          <button class="sec">Entrar AUSENTE (comer, un repuesto)</button>
+          <div class="hud" style="background:none"><div class="sos" style="margin:12px 0 0"><div class="pulgar">SOS</div><span>DESLIZÁ PARA SOS →</span></div></div>
+        </div></div>
+        <ul class="notas bien">
+          <li>Botón principal con <code>acento</code>/<code>acentoInk</code>: <b>5,51:1</b> de día, 7,14:1 de noche.</li>
+          <li>Texto secundario en <code>fg2</code> (9,07:1) y rótulos de 13–14 px en la sans, como el ingreso.</li>
+          <li>De noche sigue saliendo oscura: es el mismo tema automático del resto de la app.</li>
+          <li>El párrafo se acorta a lo que cambia una decisión; el chofer lo ve todas las mañanas.</li>
+        </ul>
+      </figure>
+    </div>
+    <div class="impacto"><h3>Impacto en el código</h3><ul>
+      <li><b>Pantalla:</b> <code>StartRouteScreen</code> en <code>project/Prototipo.html</code> (líneas 2105–2395): ~30 referencias a <code>P.*</code> pasan a <code>HUD.*</code>. Sin tokens nuevos.</li>
+      <li><b>Backend: ninguno.</b> <b>Documentos:</b> <code>LIMITACIONES.md:330</code> dice que login y puerta son oscuras «a propósito»; el login ya no lo es, hay que actualizar la línea.</li>
+      <li><b>Pruebas:</b> <code>puerta-web</code>, <code>vigia-puerta</code>, <code>sos-puerta</code> buscan textos y <code>data-*</code>, que no cambian. Captura <code>c02-*</code> del manual a rehacer.</li>
+    </ul></div>
+  </section>
+
+  <!-- ═══ 4 ═══ -->
+  <section class="p" id="p4">
+    <header><span class="id">A1 · A2 · A3</span><h2>La APK: el «día» sigue siendo oscuro y varios textos no pasan el mínimo</h2>
+      <p class="que">La web del chofer ya se pasó a claro con contraste medido. La app nativa —la que de verdad va al parabrisas— quedó con la paleta azul oscuro. El repo tiene las dos respuestas a la misma pregunta.</p></header>
+    <div class="par">
+      <figure>
+        <figcaption><span class="tag rec">HOY</span> <small>desde <code>app/tema.js</code> y <code>crearEstilos()</code>; no vista corriendo</small></figcaption>
+        <div class="marco"><div class="tel apk">
+          <div class="barra"><span class="chipA">● EN VIVO · 7</span><span class="chipT">AUTO</span></div>
+          <div class="diag">Servicio de GPS: corriendo</div>
+          <div class="diag">GPS enviadas 412 · fallidas 0 · último hace 3s</div>
+          <div class="centro">
+            <div><span class="lado">ATRÁS</span><span class="uni">−1 · M-02</span></div>
+            <div class="dig">6:15</div>
+            <div class="ins">Mantené el ritmo. Objetivo 6:00.</div>
+            <div class="div"></div>
+            <div><span class="ladoS">ADELANTE</span><span class="uni">+1 · M-03</span></div>
+            <div class="digS">6:01</div>
+          </div>
+          <div class="bt">ESTOY EN TRÁFICO</div>
+          <div class="fila"><div class="bt amb">AUSENTE</div><div class="bt">SALIR DE RUTA</div></div>
+          <div class="pista"><b>SOS</b>DESLIZÁ PARA SOS</div>
+          <div class="tabs"><span>MAPA</span><span>CHAT</span></div>
+        </div></div>
+        <div class="fichas">
+          <span class="ficha">tenue/panel 3,01:1</span><span class="ficha">tenue/fondo 3,90:1</span>
+          <span class="ficha">noche: tenue 2,37:1</span><span class="ficha">blanco/INGRESAR 2,84:1</span><span class="ficha">noche: 2,42:1</span>
+        </div>
+        <ul class="notas mal">
+          <li>El color <code>tenue</code> escribe «SALIR DE RUTA», «DESLIZÁ PARA SOS», «MAPA», «CHAT»: bajo 4,5:1 de día y cerca de 2,4:1 de noche.</li>
+          <li>Seis colores escritos a mano no cambian de noche (la burbuja propia sigue azul brillante).</li>
+          <li>Dos renglones de diagnóstico de GPS viven en la pantalla del chofer.</li>
+        </ul>
+      </figure>
+      <figure>
+        <figcaption><span class="tag prop">PROPUESTA</span> <small>mismos componentes con los tokens <code>day</code> de la web</small></figcaption>
+        <div class="marco"><div class="tel apk claro">
+          <div class="barra"><span class="chipA">● EN VIVO · 7</span><span class="chipT">AUTO</span></div>
+          <div class="centro">
+            <div><span class="lado">ATRÁS</span><span class="uni">−1 · M-02</span></div>
+            <div class="dig">6:15</div>
+            <div class="ins">Mantené el ritmo. Objetivo 6:00.</div>
+            <div class="div"></div>
+            <div><span class="ladoS">ADELANTE</span><span class="uni">+1 · M-03</span></div>
+            <div class="digS">6:01</div>
+          </div>
+          <div class="bt amb">ESTOY EN TRÁFICO</div>
+          <div class="fila"><div class="bt">AUSENTE</div><div class="bt">SALIR DE RUTA</div></div>
+          <div class="pista"><b>SOS</b>DESLIZÁ PARA SOS</div>
+          <div class="tabs"><span>MAPA</span><span>CHAT</span></div>
+        </div></div>
+        <div class="fichas">
+          <span class="ficha ok">fg2/fondo 9,07:1</span><span class="ficha ok">amberInk 11,47:1</span>
+          <span class="ficha ok">dim2 5,43:1</span><span class="ficha ok">blanco/acento 5,51:1</span>
+        </div>
+        <ul class="notas bien">
+          <li>Un solo juego de temas para la web y la APK: <code>day</code>, <code>sun</code>, <code>night</code>, con la misma vara de <code>contraste.js</code>.</li>
+          <li>El diagnóstico de GPS aparece solo si hay algo que avisar; el resto se va a Perfil.</li>
+          <li>Se entrega por EAS Update (es JavaScript): no hace falta una APK nueva.</li>
+          <li><b>Antes de decidir:</b> el mismo teléfono al mediodía en el parabrisas, con las dos paletas. Esa prueba manda sobre esta maqueta.</li>
+        </ul>
+      </figure>
+    </div>
+    <div class="impacto"><h3>Impacto en el código</h3><ul>
+      <li><b>App:</b> <code>app/tema.js</code> (paletas y nombres de token), <code>crearEstilos()</code> en <code>app/App.js</code> (29 usos de <code>tenue</code> y 6 literales), <code>app/mapa.js</code> (hoy fuerza el mapa oscuro, líneas 169 y 258–265).</li>
+      <li><b>Backend: ninguno.</b> El servidor ya sirve el mapa propio en estilo <code>claro</code> y <code>oscuro</code>; la web lo usa así.</li>
+      <li><b>Pruebas:</b> <code>pruebas/tema.js</code> comprueba la regla horaria, las claves y que la noche sea más oscura, pero no mide pares de texto; <code>contraste.js</code> solo mira la web. Hay que sumar la paleta nativa a esa vara.</li>
+      <li><b>Decisión del dueño:</b> <code>app/README.md</code> documenta lo oscuro como rasgo de diseño. Esto lo contradice a propósito; por eso va con prueba de campo.</li>
+    </ul></div>
+  </section>
+
+  <!-- ═══ 5 ═══ -->
+  <section class="p" id="p5">
+    <header><span class="id">C1 · C2 · C3</span><h2>Despacho: la cadena completa a la vista, sin desplazar</h2>
+      <p class="que">La tarea de quien despacha es comparar brechas entre unidades. Con tarjetas de ~150 px entran cuatro o cinco de nueve; las celdas vacías ocupan lo mismo que las llenas.</p></header>
+    <div class="par">
+      <figure>
+        <figcaption><span class="tag hoy">HOY</span> <small>columna izquierda a 1440×900</small></figcaption>
+        <div class="marco lista"><img src="img/lista.jpg" alt="Lista de unidades actual: dos avisos arriba y cuatro tarjetas altas, cada una con dos celdas de brecha, varias vacías."></div>
+        <ul class="notas mal">
+          <li>Se ven <b>4 de 7</b> unidades; el resto, desplazando.</li>
+          <li>«+1 adelante» y «−1 atrás» se repiten en cada tarjeta y los números no quedan en columna.</li>
+          <li>El nombre se corta («Rosa Ticona Larico · Z1A…») por mostrar la placa.</li>
+          <li>46 textos de 11 px en una pantalla de ocho horas; «en ruta», «en línea» y «Al límite» en verde/ámbar a 4,1–4,4:1.</li>
+        </ul>
+      </figure>
+      <figure>
+        <figcaption><span class="tag prop">PROPUESTA</span> <small>mismo ancho y alto · datos de ejemplo</small></figcaption>
+        <div class="marco lista"><div class="desp">
+          <div class="cabL"><b>Unidades en ruta</b><span><strong>7</strong> de 9</span></div>
+          <div class="al amb">⚠ 1 unidad fuera del recorrido · M-04 (312 m)<div class="sil"><button>Silenciar 1 h</button><button>3 h</button><button>el turno</button></div></div>
+          <div class="al inf">Rubén Condori (M-09) entró y no salió · 6 min</div>
+          <div class="cols"><span>Unidad</span><span>Adelante</span><span>Atrás</span></div>
+          <div class="u"><div class="l1"><span class="av">EC</span><div class="quien"><b>M-02</b><small>32 km/h · ida</small><div>Elmer Ccama Huanca</div></div><div class="g v"><b>5:48</b><small>objetivo</small></div><div class="g v"><b>6:12</b><small>objetivo</small></div></div></div>
+          <div class="u"><div class="l1"><span class="av">JM</span><div class="quien"><b>M-03</b><small>28 km/h · ida</small><div>Julia Mamani Colque</div></div><div class="g v"><b>6:12</b><small>objetivo</small></div><div class="g a"><b>4:17</b><small>límite</small></div></div></div>
+          <div class="u"><div class="l1"><span class="av">WA</span><div class="quien"><b>M-04</b><small>23 km/h · vuelta</small><div>Wilber Apaza Ticona</div></div><div class="g a"><b>4:17</b><small>límite</small></div><div class="g r"><b>1:07</b><small>crítica</small></div></div><div class="l2 fuera">⚠ FUERA DE RUTA · 312 M</div></div>
+          <div class="u"><div class="l1"><span class="av">NA</span><div class="quien"><b>M-05</b><small>13 km/h · vuelta</small><div>Nilda Arapa Cutipa</div></div><div class="g r"><b>1:07</b><small>crítica</small></div><div class="g r"><b>18:01</b><small>crítica</small></div></div></div>
+          <div class="u"><div class="l1"><span class="av">EL</span><div class="quien"><b>M-08</b><small>1 km/h · vuelta</small><div>Edwin Larico Vilca</div></div><div class="g r"><b>18:01</b><small>crítica</small></div><div class="g v"><b>6:20</b><small>objetivo</small></div></div><div class="l2">En tráfico · 6 min · avisó el chofer</div></div>
+          <div class="u"><div class="l1"><span class="av">RQ</span><div class="quien"><b>M-01</b><small>ida</small><div>Rufino Quispe Mamani (Rufo)</div></div><div class="g v"><b>6:20</b><small>objetivo</small></div><div class="g n"><b>—</b></div></div><div class="l2">Sin señal desde 14:58</div></div>
+          <div class="u"><div class="l1"><span class="av">RT</span><div class="quien"><b>M-07</b><small>0 km/h</small><div>Rosa Ticona Larico</div></div><div class="g n"><b>—</b></div><div class="g n"><b>—</b></div></div><div class="l2">Ausente — fuera de la cadena</div></div>
+        </div></div>
+        <ul class="notas bien">
+          <li>Entran las <b>7</b> en el mismo alto, con sus avisos. Una unidad sin novedad ocupa una fila de ~50 px (hoy, ~150).</li>
+          <li>Las brechas quedan en <b>dos columnas alineadas</b>: el pelotón (1:07 entre M-04 y M-05) se ve bajando la vista.</li>
+          <li>El nombre gana el lugar de la placa (que sigue en el detalle y en Vehículos); se corta solo si es muy largo.</li>
+          <li>El color no va solo: cada brecha lleva su palabra, en <code>verdeTinta</code> / <code>ambarTinta2</code> / <code>rojoTinta</code> (≥ 6,6:1). Nada baja de 12 px.</li>
+          <li><b>«FUERA DE RUTA» no se toca</b>: sigue en mayúscula, con ícono y franja ámbar de ancho completo.</li>
+        </ul>
+      </figure>
+    </div>
+    <div class="impacto"><h3>Impacto en el código</h3><ul>
+      <li><b>Pantalla:</b> la tarjeta de unidad de <code>project/despacho.html</code> (~línea 6320 en adelante). Hay que conservar los dos botones de privado (combi y persona) en la fila: en la maqueta faltan a propósito para mostrar solo la densidad.</li>
+      <li><b>Backend: ninguno.</b> Usa los mismos campos que ya llegan en el estado en vivo.</li>
+      <li><b>Pruebas:</b> <code>telefono.js</code> busca «BATERÍA 62 % · CARGANDO · APP 0.3.0» y varias suites leen la tarjeta por texto: revisar <code>paneles</code>, <code>privado-web</code>, <code>senal</code>, <code>desvio</code>. Subir <code>CACHE_NAME</code>.</li>
+      <li><b>Es hipótesis</b> que la fila compacta haga más rápido detectar un pelotón; se comprueba con la persona de Despacho, misma flota, dos versiones.</li>
+    </ul></div>
+  </section>
+
+  <!-- ═══ 6 ═══ -->
+  <section class="p" id="p6">
+    <header><span class="id">E1 · E2 · E3</span><h2>Landing: mostrar el producto y abrir el canal que la gente usa</h2>
+      <p class="que">La página promete «la brecha en grande» y no la muestra. El único contacto es un correo.</p></header>
+    <div class="par" style="grid-template-columns: 1fr">
+      <figure>
+        <figcaption><span class="tag hoy">HOY</span> <small>server/landing.html</small></figcaption>
+        <div class="marcoL"><img src="img/landing.jpg" alt="Cabecera actual de la landing: titular, párrafo y un botón azul con una dirección de correo."></div>
+        <ul class="notas mal">
+          <li>Ni una imagen del sistema: todo se explica con texto.</li>
+          <li>El botón es un <code>mailto:</code>. Blanco sobre <code>#2580CF</code> a 17 px = <b>4,14:1</b>.</li>
+        </ul>
+      </figure>
+      <figure>
+        <figcaption><span class="tag prop">PROPUESTA</span> <small>el teléfono es HTML y CSS: ~1 KB, sin imágenes ni JavaScript</small></figcaption>
+        <div class="marcoL"><div class="land">
+          <div class="cabz"><span class="logo">micros tempo</span><span class="entrar">Ya soy cliente: entrar →</span></div>
+          <div class="heroL">
+            <div>
+              <h3>Más pasajeros. Más control. <em>Menos accidentes.</em></h3>
+              <p>Toda su flota en un mapa vivo y la separación entre combis medida en serio: el conductor ve su brecha en grande mientras maneja, su central ve la ruta entera y la gerencia ve los números.</p>
+              <div class="ctas"><span class="cta">Escríbanos por WhatsApp</span><span class="cta2">o por correo: soporte@microstempo.com</span></div>
+              <div class="nota">Le mostramos el sistema andando con su propia ruta, sin compromiso.</div>
+            </div>
+            <div class="fono" role="img" aria-label="La pantalla del conductor: 6 minutos 15 segundos con la combi de atrás, en verde.">
+              <div class="b"></div>
+              <div class="in"><div class="l">ATRÁS <small>−1 · M-02</small></div><div class="d">6:15</div><div class="t">Mantenga el ritmo. Objetivo 6:00.</div>
+                <div class="s"><div class="l">ADELANTE <small>+1 · M-03</small></div><div class="d">6:01</div></div></div>
+              <div class="sosm"></div>
+            </div>
+          </div>
+        </div></div>
+        <ul class="notas bien">
+          <li>El número grande del HUD es el argumento de venta: ahora está en la primera pantalla.</li>
+          <li>WhatsApp como acción principal y el correo como alternativa. <b>El número lo define el dueño</b>; sin número, no se publica.</li>
+          <li>Botón en <code>#1668C4</code>: <b>5,51:1</b>. «Ya soy cliente» sube a 44 px.</li>
+        </ul>
+      </figure>
+    </div>
+    <div class="impacto"><h3>Impacto en el código</h3><ul>
+      <li><b>Página:</b> solo <code>server/landing.html</code>. Sin dependencias nuevas; sigue sin JavaScript.</li>
+      <li><b>Backend: ninguno.</b> El enlace es <code>https://wa.me/51…</code>.</li>
+      <li><b>Es hipótesis</b> que WhatsApp traiga más contactos que el correo: es una suposición sobre el mercado, no un dato.</li>
+    </ul></div>
+  </section>
+
+  <!-- ═══ 7 ═══ -->
+  <section class="p" id="p7">
+    <header><span class="id">X1</span><h2>El lenguaje: la app le habla de «vos» a choferes de Juliaca</h2>
+      <p class="que">La landing trata de «usted» y las pantallas usan voseo rioplatense. No es un tema visual, pero es lo primero que lee el chofer. Si es a propósito, se descarta; si no, se cambia todo de una vez con esta tabla.</p></header>
+    <table class="len">
+      <thead><tr><th>Dónde</th><th>Hoy</th><th>Propuesta (tú)</th></tr></thead>
+      <tbody>
+        <tr><td>HUD</td><td>Mantené el ritmo. Objetivo 6:00.</td><td>Mantén el ritmo. Objetivo 6:00.</td></tr>
+        <tr><td>HUD</td><td>Apurá un poco. / Aflojá un poco.</td><td>Acelera un poco. / Baja un poco.</td></tr>
+        <tr><td>SOS</td><td>DESLIZÁ PARA SOS →</td><td>DESLIZA PARA SOS →</td></tr>
+        <tr><td>Acciones</td><td>¿SEGURO? TOCÁ DE NUEVO</td><td>¿SEGURO? TOCA DE NUEVO</td></tr>
+        <tr><td>Puerta</td><td>¿En qué combi salís? · la tenés vos</td><td>¿En qué combi sales? · la tienes tú</td></tr>
+        <tr><td>Ingreso</td><td>Ingresá con el usuario que te dio tu cooperativa</td><td>Ingresa con el usuario que te dio tu cooperativa</td></tr>
+        <tr><td>Despacho</td><td>Escribí al canal de la ruta…</td><td>Escribe al canal de la ruta…</td></tr>
+      </tbody>
+    </table>
+    <div class="impacto"><h3>Impacto en el código</h3><ul>
+      <li><b>Pantallas:</b> ~26 líneas en <code>Prototipo.html</code>, 13 en <code>despacho.html</code>, 9 en <code>creador.html</code>, 25 en <code>app/App.js</code> y 5 en <code>app/hud.js</code>.</li>
+      <li><b>Backend: sí, solo textos.</b> 13 líneas de <code>server/index.js</code> llevan frases que llegan a las personas. No cambia ningún endpoint ni dato.</li>
+      <li><b>Pruebas y manual:</b> 7 suites buscan estas frases tal cual, y <code>manual/manual.tex</code> las cita (9 líneas) con sus capturas.</li>
+    </ul></div>
+  </section>
+
+  <p class="pie">Lo que estas maquetas no demuestran: que algo se lea mejor al sol, que el chofer se equivoque menos o que Despacho detecte antes un pelotón. Eso se mide con personas y con el teléfono en el parabrisas; aquí solo queda escrito qué probar y contra qué.</p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var red = function () { return document.body.classList.contains('reducido'); };
+
+  // ── 1 · Acciones: tráfico alterna, AUSENTE espera 5 s con Deshacer, SALIR pide dos toques
+  var bTraf = $('#bTraf'), fila = $('#filaPres'), acc = $('#accP');
+  var filaHtml = fila.outerHTML, t5 = null, tSalir = null;
+  bTraf.addEventListener('click', function () {
+    var on = bTraf.getAttribute('aria-pressed') !== 'true';
+    bTraf.setAttribute('aria-pressed', on);
+    bTraf.textContent = on ? 'EN TRÁFICO · TOCÁ PARA QUITAR' : 'ESTOY EN TRÁFICO';
+  });
+  function restaurar() {
+    clearTimeout(t5);
+    var viejo = $('#filaPres') || $('#desh') || $('#estAus');
+    var tmp = document.createElement('div'); tmp.innerHTML = filaHtml;
+    viejo.replaceWith(tmp.firstChild); bTraf.style.display = '';
+    enlazar();
+  }
+  function enlazar() {
+    $('#bAus').addEventListener('click', function () {
+      var d = document.createElement('div'); d.className = 'deshacer'; d.id = 'desh';
+      d.innerHTML = '<i></i><span>Pasás a AUSENTE en <b id="seg">5</b> s</span><button>DESHACER</button>';
+      $('#filaPres').replaceWith(d);
+      requestAnimationFrame(function () { d.classList.add('corre'); });
+      var n = 5, cuenta = setInterval(function () { n--; var s = $('#seg'); if (s && n > 0) s.textContent = n; else clearInterval(cuenta); }, 1000);
+      d.querySelector('button').addEventListener('click', function () { clearInterval(cuenta); restaurar(); });
+      t5 = setTimeout(function () {
+        clearInterval(cuenta);
+        var e = document.createElement('div'); e.className = 'estadoAus'; e.id = 'estAus';
+        e.innerHTML = '<span>AUSENTE · fuera de la cadena</span><button>VOLVER A RUTA</button>';
+        d.replaceWith(e); bTraf.style.display = 'none';
+        e.querySelector('button').addEventListener('click', restaurar);
+      }, 5000);
+    });
+    var bS = $('#bSalir');
+    bS.addEventListener('click', function () {
+      if (!bS.classList.contains('armado')) {
+        bS.classList.add('armado'); bS.textContent = '¿SEGURO? TOCÁ DE NUEVO';
+        tSalir = setTimeout(function () { bS.classList.remove('armado'); bS.textContent = 'SALIR DE RUTA'; }, 4000);
+      } else { clearTimeout(tSalir); bS.classList.remove('armado'); bS.textContent = 'SALIR DE RUTA'; }
+    });
+  }
+  enlazar();
+
+  // ── 2 · Laboratorio de movimiento
+  var EST = {
+    verde: { c: 'var(--green)', cad: '2.4s', base: 375, ins: 'Mantené el ritmo. Objetivo 6:00.' },
+    ambar: { c: 'var(--amber)', cad: '1.4s', base: 268, ins: 'Aflojá un poco. Objetivo 6:00.' },
+    rojo:  { c: 'var(--red)',   cad: '0.8s', base: 127, ins: 'Aflojá un poco. Objetivo 6:00.' }
+  };
+  var hoy = $('#labHoy'), prop = $('#labProp'), estado = 'verde', seg = EST.verde.base, lado = 'ATRÁS';
+  var fmt = function (s) { return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  function pintarDigitos(caja, txt, saltar) {
+    var antes = caja.dataset.v || '';
+    if (caja.children.length !== txt.length) {
+      caja.innerHTML = txt.split('').map(function (ch) { return '<span class="' + (ch === ':' ? 'dp' : '') + '">' + ch + '</span>'; }).join('');
+    }
+    [].forEach.call(caja.children, function (sp, i) {
+      if (sp.textContent !== txt[i]) sp.textContent = txt[i];
+      if (saltar && antes && antes[i] !== txt[i]) {
+        sp.classList.add('salto'); setTimeout(function () { sp.classList.remove('salto'); }, 260);
+      }
+    });
+    caja.dataset.v = txt;
+  }
+  function pintar(cambioDeEstado) {
+    var e = EST[estado], t = fmt(seg);
+    [hoy, prop].forEach(function (m) {
+      m.style.setProperty('--c', e.c); m.style.setProperty('--cad', e.cad);
+      // brecha corta con el de atrás: apurar; con el de adelante: aflojar
+      $('.ins', m).textContent = estado === 'verde' ? e.ins : (lado === 'ATRÁS' ? 'Apurá' : 'Aflojá') + ' un poco. Objetivo 6:00.';
+      $('.rot .lado', m).textContent = lado;
+      $('.rot .uni', m).textContent = lado === 'ATRÁS' ? '−1 · M-02' : '+1 · M-03';
+      $('.sec .lado', m).textContent = lado === 'ATRÁS' ? 'ADELANTE' : 'ATRÁS';
+      $('.sec .uni', m).textContent = lado === 'ATRÁS' ? '+1 · M-03' : '−1 · M-02';
+    });
+    hoy.classList.toggle('rojo', estado === 'rojo');
+    pintarDigitos($('.dig', hoy), t, true);     // hoy: cada dígito que cambia salta
+    pintarDigitos($('.dig', prop), t, false);   // propuesta: no
+    if (cambioDeEstado) {
+      prop.classList.remove('avisa'); void prop.offsetWidth; prop.classList.add('avisa');
+      setTimeout(function () { prop.classList.remove('avisa'); }, 1900);
+    }
+  }
+  setInterval(function () { seg += Math.random() < .5 ? -1 : 1; seg = Math.max(EST[estado].base - 6, Math.min(EST[estado].base + 6, seg)); pintar(false); }, 1500);
+  [].forEach.call(document.querySelectorAll('#ctl [data-est]'), function (b) {
+    b.addEventListener('click', function () {
+      if (b.dataset.est === estado) return;
+      [].forEach.call(document.querySelectorAll('#ctl [data-est]'), function (x) { x.setAttribute('aria-pressed', x === b); });
+      estado = b.dataset.est; seg = EST[estado].base; pintar(true);
+    });
+  });
+  $('#bLado').addEventListener('click', function () {
+    lado = lado === 'ATRÁS' ? 'ADELANTE' : 'ATRÁS'; pintar(false);
+    var r = $('.rot .lado', prop); r.classList.remove('marcado'); void r.offsetWidth; r.classList.add('marcado');
+  });
+  $('#bSos').addEventListener('click', function () {
+    var sh = $('.sos', hoy), sp = $('.sos', prop);
+    if (sh.classList.contains('enviando') || sp.classList.contains('enviando')) return;
+    // Hoy: ✓ en el pulgar mientras el rótulo dice ENVIANDO...
+    sh.classList.add('enviando'); $('.pulgar', sh).textContent = '✓'; $('.t', sh).textContent = 'ENVIANDO...';
+    // Propuesta: «…» mientras envía; ✓ cuando el servidor contesta
+    sp.classList.add('enviando'); $('.pulgar', sp).innerHTML = '<i>…</i>'; $('.t', sp).textContent = 'ENVIANDO…';
+    setTimeout(function () { sp.classList.remove('enviando'); sp.classList.add('listo'); $('.pulgar', sp).textContent = '✓'; $('.t', sp).textContent = 'ENVIADO'; }, 1800);
+    setTimeout(function () {
+      [sh, sp].forEach(function (s) { s.classList.remove('enviando', 'listo'); $('.pulgar', s).textContent = 'SOS'; $('.t', s).textContent = 'DESLIZÁ PARA SOS →'; });
+    }, 3400);
+  });
+  var chk = $('#chkRed');
+  chk.checked = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var aplicar = function () { document.body.classList.toggle('reducido', chk.checked); };
+  chk.addEventListener('change', aplicar); aplicar();
+  pintar(false);
+})();
+</script>
+</body>
+</html>

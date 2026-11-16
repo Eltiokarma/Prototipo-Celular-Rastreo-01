@@ -44,3 +44,6 @@ manual/*.synctex.gz
 *.out
 *.toc
 *.synctex.gz
+
+# Auditoría de UI: lo que deja medir.js (capturas y JSON); se regenera
+auditoria-ui/medidas/

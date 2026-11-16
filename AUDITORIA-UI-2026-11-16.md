@@ -1,0 +1,241 @@
+# Auditoría de UI y plan de mejoras — 16/11/2026
+
+Qué se revisó, qué se encontró y en qué orden conviene arreglarlo. Los
+prototipos visuales de cada propuesta están en
+[`auditoria-ui/prototipos.html`](auditoria-ui/prototipos.html) (se abre con
+doble clic; varios se pueden tocar).
+
+**No se cambió ninguna pantalla.** Esto es el informe y el plan; los arreglos
+son otra tarea, un commit por cambio.
+
+## En corto
+
+- **Ninguna invariante de `diseno-coop` está rota** en las tres pantallas web.
+  `contraste.js` y `sintaxis` están en verde.
+- **Lo más serio está en la app del chofer, no en los paneles.** La web del
+  chofer ignora «reducir movimiento», hace latir el SOS cuando la brecha está
+  en rojo, y sus botones de acción miden 42 px con letra de 12 px a 3,95:1.
+- **La APK quedó atrás de la web.** Su tema de «día» sigue siendo azul oscuro
+  y el color `tenue` escribe botones enteros a 3,0:1 (2,4:1 de noche). La web
+  ya resolvió esto; el repo tiene las dos respuestas a la misma pregunta.
+- **Despacho está bien de estructura** después del retoque del 11/11. Lo que
+  queda es densidad: entran 4 de 7 unidades sin desplazar, y hay 46 textos de
+  11 px en una pantalla de ocho horas.
+- **Creador, privacidad, consentimiento y gerencia: sin hallazgos de peso.**
+- **Una cosa que no es visual y pesa:** la app le habla de «vos» (Deslizá,
+  Mantené, Aflojá) a choferes de Juliaca. Decisión tuya; si se cambia, el
+  costo está contado abajo.
+
+## Cómo se hizo
+
+| Qué | Cómo se vio |
+| --- | --- |
+| `project/Prototipo.html` (chofer web) | Corriendo, con la cooperativa de demostración del manual y la flota reportando. 54 capturas y medición en el navegador. |
+| `project/despacho.html` | Corriendo, a 1440×900 y a 390×844 (celular). Todas las secciones de Gestión. |
+| `server/creador.html` | Corriendo, las cinco pestañas. |
+| `server/landing.html`, `privacidad.html`, `consentimiento.html`, `project/gerencia.html` | Corriendo, escritorio y celular. |
+| `app/` (APK nativa) | **Solo el código.** No se pudo correr aquí: todo lo que se dice de ella es lectura de `tema.js` y `crearEstilos()`, con el contraste calculado. |
+
+Las cifras salen de [`auditoria-ui/medir.js`](auditoria-ui/medir.js): recorre
+cada pantalla y anota el tamaño de cada control, el tamaño de cada texto, su
+contraste contra el fondo real y las animaciones vivas, con y sin
+`prefers-reduced-motion`.
+
+Criterio: los skills `refactoring-ui` (ubicar cada problema en su nivel antes
+de pulir) y `design-interface-animation` (cada movimiento tiene que ganarse su
+lugar), sobre las invariantes de `diseno-coop`, que mandan.
+
+**Lo que este informe no puede afirmar:** que algo se lea mejor al sol, que el
+chofer se equivoque menos o que Despacho detecte antes un pelotón. Nada se
+probó con personas ni en la calle. Donde una propuesta depende de eso, dice
+«hipótesis» y qué prueba la decide.
+
+---
+
+## Hallazgos
+
+Prioridad: **P1** = acceso, seguridad o un estado que confunde. **P2** =
+jerarquía, orientación, legibilidad. **P3** = acabado.
+
+### A. App del chofer — APK (`app/`) · vista solo en código
+
+| ID | P | Qué pasa | Cambio | Cómo se comprueba |
+| --- | --- | --- | --- | --- |
+| A1 | P1 | El tema `dia` es oscuro (`fondo #0A1A2E`). `Prototipo.html` dice que «una pantalla clara se lee mucho mejor» al sol y `app/README.md` dice que lo oscuro es el rasgo de diseño. Las dos no pueden ser ciertas al mediodía. | Llevar a `app/tema.js` los tres temas de la web (`day`, `sun`, `night`). | **Prueba de campo antes de decidir**: el mismo teléfono en el parabrisas al mediodía, con las dos paletas, leyendo la brecha de reojo. |
+| A2 | P1 | `tenue` como color de texto: 3,90:1 sobre el fondo y 3,01:1 sobre los paneles; de noche 2,57 y 2,37. Escribe «SALIR DE RUTA», «DESLIZÁ PARA SOS», «MAPA», «CHAT» y los subtítulos (29 usos). Blanco sobre `brillante` («INGRESAR», enviar, contadores): 2,84:1 de día y 2,42:1 de noche. | Texto secundario con un token que pase 4,5:1 en las dos paletas; tinta oscura sobre `brillante`. | Sumar la paleta nativa a `pruebas/contraste.js`. Hoy `pruebas/tema.js` comprueba claves y que la noche sea más oscura, no pares de texto. |
+| A3 | P2 | Seis colores escritos a mano en `crearEstilos()` (`#A9C0D6`, `#93AAC2`, `#1D598F`, `#4A0D1B`, `#fff`, `#08131F`) no cambian de noche. La burbuja propia sigue azul brillante, contra lo que `tema.js` explica sobre el azul en la cabina. | Pasarlos a tokens en las dos paletas. | `grep` de `#[0-9a-fA-F]{6}` en `App.js` fuera de `tema.js` queda vacío. |
+| A4 | P2 | Rótulos de 10 px en mono con tracking (placa, «ELEGIDA», etiquetas del perfil) y 11 px en el pie. | Piso de 12 px; sans para rótulos, mono solo para datos. | Revisión del stylesheet. |
+| A5 | P2 | Dos renglones de diagnóstico de GPS («Servicio de GPS: corriendo», «enviadas 412 · fallidas 0…») viven arriba del HUD. El propio código dice que están «mientras se mide en la calle». | Mostrarlos solo si hay algo que avisar (servicio caído, batería optimizada, fallidas > 0); el resto, a Perfil. | Con todo normal, la pantalla de ruta no muestra diagnóstico. |
+| A6 | P3 | No se consulta `AccessibilityInfo.isReduceMotionEnabled()`. El carrusel usa resorte sin rebote, que está bien; solo falta el interruptor. | Con la preferencia activa, cambio de pantalla sin resorte. | En un teléfono con «quitar animaciones». **No verificado.** |
+
+### B. App del chofer — web (`project/Prototipo.html`)
+
+| ID | P | Qué pasa | Cambio | Cómo se comprueba |
+| --- | --- | --- | --- | --- |
+| B1 | P1 | Ignora `prefers-reduced-motion`. Medido con la preferencia activa: `combiEdge` y `combiRing` siguen corriendo en bucle. Es la única pantalla sin ese apagado. | `tweaks.microAnims` (línea 2397) arranca leyendo la preferencia y la escucha. | `medir.js` con `reducido`: 0 animaciones infinitas. |
+| B2 | P1 | Con la brecha en rojo, un anillo rojo late sobre el SOS (`suggestSos = status === 'red'`, línea 1581). Una brecha crítica es un pelotón, no una emergencia: la señal invita a deslizar el SOS por algo que no lo es. | Quitar el anillo. El SOS no necesita llamar la atención; necesita estar siempre en el mismo lugar. | El SOS se ve igual en los tres estados de brecha. |
+| B3 | P1 | Las tres acciones del HUD miden **42 px** de alto con texto de **12 px**. «ESTOY EN TRÁFICO» y «AUSENTE» van en ámbar `#A67300` sobre `#F7FAFD`: **3,95:1** (mínimo 4,5). Las dos comparten el contorno ámbar. «AUSENTE» descarta la vuelta con un toque; «SALIR DE RUTA» pide dos. Mientras tanto sobran ~150 px arriba del número. | 56 px y 16 px; texto en `amberInk` (11,47:1); ámbar solo para tráfico, contorno neutro para las dos que sacan de la cadena; «Deshacer» de 5 s en AUSENTE. | `medir.js`: 0 controles bajo 44 px y 0 textos bajo piso en el HUD. Prototipo 1. |
+| B4 | P2 | La barra superior late **siempre**, también en verde (2,4 s; 1,4 s en ámbar; 0,8 s en rojo). Un énfasis que nunca se apaga deja de avisar, y es movimiento permanente en el borde de la vista de alguien que maneja. | Fija. Al cambiar de estado late tres veces y se queda quieta con el color nuevo. | **Hipótesis H1.** Prototipo 2. |
+| B5 | P2 | Cada dígito que cambia salta 2 px y baja a 0,85 de opacidad (`AnimatedDigit`, línea 2424). La brecha cambia cada pocos segundos todo el turno: el número se atenúa justo cuando trae el dato nuevo. Además `prev.current` no se actualiza cuando sí anima, así que compara contra un valor viejo. | Quitar el salto. Que el número crezca una vez (320 ms) solo cuando cambia el **estado**. | Prototipo 2. |
+| B6 | P2 | Cuando el lado que manda cambia (ATRÁS ↔ ADELANTE), los rótulos se intercambian sin señal. De reojo, el número grande pasa a hablar de la otra combi y nada lo marca. | Resaltar el rótulo 1,6 s al cambiar (fundido, sin desplazamiento). | **Hipótesis H2.** La alternativa a probar es dejar cada lado en un lugar fijo. |
+| B7 | P2 | «Salir a ruta» usa la paleta oscura fija `P` (~30 referencias, líneas 2105–2395). «SALIR A RUTA →»: blanco sobre `#2E9DFF` = **2,69:1**. Párrafo, «Salir» y «Entrar AUSENTE»: `#5A7A99` sobre `#0A1A2E` = 3,90:1. Ocho textos de 9 a 11 px. «Salir» mide 48×29. `LIMITACIONES.md:330` dice que login y puerta son oscuras «a propósito»; desde el 11/11 el login ya no lo es. | Que lea de `HUD` como el ingreso. Botón con `acento`/`acentoInk` (5,51:1). | Prototipo 3. Actualizar esa línea de `LIMITACIONES.md`. |
+| B8 | P2 | Al disparar el SOS, el pulgar muestra **✓** mientras el rótulo dice «ENVIANDO…» (línea 1651). Es una confirmación antes del resultado, en la acción más delicada del sistema. | «…» mientras envía; ✓ cuando la promesa de `onFire` resuelve. Si falla, ya existe «SOS NO SALIÓ», que está bien. | Con la red cortada, nunca se ve ✓. |
+| B9 | P3 | Pestaña activa del chat: blanco sobre `#2E9DFF` a 13 px = 2,69:1. Ícono de enviar: 2,84:1. «Tú ✓✓»: 4,17:1. Pestañas de 40 px de alto. | `acento` del tema para el estado activo; `greenInk` para «Tú». | `medir.js` en el chat. |
+| B10 | P3 | La tarjeta del mapa muestra las coordenadas crudas («-15.4869, -70.1358») en mono. No hay nada que el chofer haga con ellas. | Quitarlas de la vista del chofer. | — |
+| B11 | P3 | Puntos de página de 44×36 y selector de tema de 64×36. `transition: 'all 0.3s'` (línea 2983). El deslizador anima `left` y `width` en vez de `transform`. | Zonas de 44 px; listar las propiedades. | `medir.js`. |
+| B12 | P3 | Colores fuera de `TEMAS` dentro del JSX: `sun ? '#3D5C7A' : '#93AAC2'`, `'#C9D8E6'`, `'#5A7A99'`. No rompen ningún tema porque van condicionados, pero esquivan los tokens y a `contraste.js`. | Volverlos tokens (`ins`, `secundario`…) en los tres temas. | `contraste.js` los mide. |
+| B13 | P3 | El chip «Conectado» del ingreso aparece antes de conectar (ya anotado en `CAMBIOS-UI.md`; sigue). | Mostrarlo solo con conexión comprobada, o quitarlo. | Sin red, el ingreso no dice «Conectado». |
+
+### C. Panel de Despacho (`project/despacho.html`)
+
+| ID | P | Qué pasa | Cambio | Cómo se comprueba |
+| --- | --- | --- | --- | --- |
+| C1 | P2 | A 1440×900 entran **4 de 7** unidades. Cada tarjeta mide 130–160 px; las celdas de brecha vacías («—») ocupan lo mismo que las llenas; «+1 adelante / −1 atrás» se repite en cada una y los números no quedan en columna. El nombre se corta para mostrar la placa. | Fila compacta: brechas en dos columnas alineadas, línea de estado solo si hay algo que decir. | **Hipótesis H3.** Prototipo 5: entran las 7 con espacio de sobra. |
+| C2 | P2 | Palabras chicas en el color de la brecha: verde `#1F8A4F` sobre blanco **4,37:1** («en ruta», brechas de Vueltas) y ámbar `#A67300` **4,14:1** («en línea», «Al límite», «PARCIAL» a 9 px). `contraste.js` mide el número grande, no estas. | En texto de menos de 18 px usar `verdeTinta` / `ambarTinta2` / `rojoTinta`, que ya existen. El color de brecha queda para números grandes y puntos. | Sumar esos pares a `contraste.js`. |
+| C3 | P2 | **46 textos de 11 px** en el panel principal (22 en mono con tracking). Es la pantalla que se mira ocho horas. | Piso de 12 px; mono solo para datos. | `medir.js`: 0 textos bajo 12 px. |
+| C4 | P2 | Las tarjetas de unidad son `div` con `onClick` (línea 6320): centran el mapa, pero no reciben foco ni responden al teclado. | `role="button"`, `tabIndex`, Enter y Espacio. | Recorrer la lista con Tab. |
+| C5 | P3 | Controles bajos para un panel que también se instala en tablet: «Silenciar 1 h / 3 h / el turno» 26 px; «Corregir» 27 px; filtros 27–30 px; «¿Olvidaste la clave?» 16 px. | 32 px como mínimo en escritorio, 44 en la vista de celular. | `medir.js`. |
+| C6 | P3 | KPI con huérfano: Vueltas arma 5 + 1 y Números 7 + 5. | Grilla de 3 o 6 columnas. | — |
+| C7 | P3 | Informes: diez botones de ancho desigual; uno va de principal sin que la tarea lo pida. | Lista con una línea de descripción y el mismo botón «CSV» en cada fila. | — |
+| C8 | P3 | Pines atenuados del mapa (ausente, sin señal): 11 px a 3,02:1. `@keyframes latido` quedó sin uso. | Tinta más oscura; borrar el keyframe. | — |
+
+### D. Panel del creador (`server/creador.html`)
+
+Sobrio a propósito, y lo está. Solo detalles:
+
+| ID | P | Qué pasa | Cambio |
+| --- | --- | --- | --- |
+| D1 | P3 | SISTEMA dice dos veces lo mismo: «ATENCIÓN · La base está en el mismo disco…» (ámbar) y «RIESGO DE PÉRDIDA · La base está en el mismo disco…» (rojo). Compiten entre sí. | **No se toca sin tu visto bueno** (es uno de los cuatro avisos de seguridad). Si se une, queda el rojo, que es el que explica. |
+| D2 | P3 | 14 rótulos de 9 px en SISTEMA. Iniciales blancas sobre naranja `#FF8A3D`: 2,35:1. «nunca reportó GPS» en ámbar: 4,14:1. | 12 px; tinta oscura en avatares claros; `ambarTinta2`. |
+| D3 | P3 | «Suspender» va en rojo en reposo en cada fila. Es grave, pero no es la acción principal de la lista. | Contorno neutro en reposo; el rojo queda para la confirmación, que ya nombra a la cooperativa. Opinión. |
+
+### E. Páginas públicas
+
+| ID | P | Qué pasa | Cambio |
+| --- | --- | --- | --- |
+| E1 | P2 | La landing vende «la brecha en grande» y no muestra el sistema: es todo texto. | Dibujar el HUD en HTML y CSS junto al titular (~1 KB, sin imágenes ni JavaScript). Prototipo 6. |
+| E2 | P2 | El único contacto es un `mailto:`. | WhatsApp como acción principal y el correo como alternativa. **Hipótesis H4**; hace falta el número. |
+| E3 | P3 | Botón principal: blanco sobre `#2580CF` a 17 px = 4,14:1. «Ya soy cliente» mide 40 px. | `#1668C4` (5,51:1); 44 px. |
+
+`privacidad.html`, `consentimiento.html` y `gerencia.html`: ningún texto bajo
+el mínimo, ningún control chico, sin movimiento. Nada que cambiar.
+
+### X. Transversal
+
+| ID | P | Qué pasa | Cambio |
+| --- | --- | --- | --- |
+| X1 | P2 | La landing trata de «usted» y las pantallas usan voseo rioplatense: «Deslizá para SOS», «Mantené el ritmo», «Apurá / Aflojá un poco», «¿En qué combi salís?». El público son choferes y despachadores de Juliaca. | Pasar todo a «tú» de una sola vez, con la tabla del prototipo 7. **Si el voseo es a propósito, se descarta este punto.** |
+
+---
+
+## Lo que funciona y no hay que romper
+
+- **El número de brecha**: 118 px, un solo dato dominante, color más frase.
+  Es el corazón del producto y está bien resuelto.
+- **El SOS**: deslizable, con «SOS NO SALIÓ» y salida por llamada o SMS cuando
+  no hay red. Lo único que se propone es el ✓ adelantado (B8) y el anillo (B2).
+- **«Salir de ruta» con segundo toque que caduca a los 4 s.**
+- **Despacho**: Gestión como vista con riel, el cartel de SOS siempre arriba,
+  los diálogos de baja y de trazado que nombran sobre qué y se arman a los
+  700 ms, el número que crece una vez al cambiar de estado (`cambio .22s`), y
+  el apagado global con `prefers-reduced-motion`.
+- **Los cuatro avisos de seguridad** están, fijos y a la vista.
+- **El tema día de fábrica** y la reserva de `#FF2D55`.
+
+---
+
+## Plan
+
+Un commit por punto, pruebas en verde antes de subir. Cada cambio en
+`project/` sube `CACHE_NAME`.
+
+### Paso 0 — Que la medición sea repetible (medio día)
+
+1. `manual/capturas.js`: opción `VIVO=1` que deja el servidor y la flota
+   andando al terminar. Hoy los apaga, y `medir.js` necesita algo que medir.
+2. `pruebas/contraste.js`: sumar los pares chicos de Despacho (C2), los
+   literales del chofer vueltos tokens (B12) y la paleta nativa (A2).
+   **Va a quedar en rojo: es lo esperado**, y es la lista de lo que sigue.
+
+### Fase 1 — Acceso y señales, sin rediseñar nada (1–2 días)
+
+Cambios chicos que no mueven la apariencia general.
+
+| Orden | Punto | Archivo |
+| --- | --- | --- |
+| 1 | B1 respetar «reducir movimiento» | `project/Prototipo.html` |
+| 2 | B2 quitar el anillo del SOS | `project/Prototipo.html` |
+| 3 | B8 ✓ del SOS solo al confirmar | `project/Prototipo.html` |
+| 4 | B3 (parte 1) tamaño y tinta de las acciones | `project/Prototipo.html` |
+| 5 | B9 contraste del chat del chofer | `project/Prototipo.html` |
+| 6 | C2 palabras de estado con tokens `*Tinta` | `project/despacho.html` |
+| 7 | C4 tarjetas con teclado | `project/despacho.html` |
+| 8 | E3 botón de la landing | `server/landing.html` |
+
+### Fase 2 — El HUD del chofer (2–3 días, con prueba en la calle)
+
+B3 (parte 2: «Deshacer» en AUSENTE), B4, B5, B6, B7, B10, B11, B12, B13.
+B4 y B6 son hipótesis: se construyen detrás de `tweaks` para poder comparar
+con lo de hoy en el mismo teléfono antes de dejarlas de fábrica.
+
+### Fase 3 — La APK (3–4 días, más la prueba de campo)
+
+1. Prueba de campo de A1 **antes** de escribir código.
+2. Según el resultado: A1 (temas), A2, A3, A4, A5, A6.
+3. Sale por EAS Update; no hace falta una APK nueva.
+
+### Fase 4 — Densidad de Despacho (2–3 días)
+
+C1 (con la persona de Despacho mirando las dos versiones), C3, C5, C6, C7,
+C8. Después, volver a sacar las capturas del manual.
+
+### Fase 5 — Landing y lenguaje (1–2 días, cuando decidas)
+
+E1, E2 (con el número de WhatsApp) y X1 (si se aprueba).
+
+### Lo que no entra
+
+D1 y D3 son tuyos. No se propone tocar el slider del SOS, el tema de
+fábrica, los avisos de seguridad ni la tabla de permisos.
+
+---
+
+## Impacto en el backend y en el resto del código
+
+**Ningún punto cambia un endpoint, el protocolo ni la base.**
+
+| Punto | Servidor | Pruebas | Otros |
+| --- | --- | --- | --- |
+| B3 «Deshacer» | Nada: el cliente manda el mismo `POST` de presencia 5 s después. | `presencia`, `ausencia`, `relevo`, `trafico` tocan «AUSENTE» en el navegador: esperan los 5 s o usan un atajo de prueba. | Si se replica en la APK, mirar `app/ausencia.js`. |
+| B1, B2, B4, B5, B6, B8 | Nada. | `sos.js`, `sos-sin-red.js` si miran el pulgar. | — |
+| B7 puerta | Nada. | `puerta-web`, `vigia-puerta`, `sos-puerta` (buscan textos y `data-*`, que no cambian). | `LIMITACIONES.md:330`; capturas `c02-*`. |
+| A1–A6 APK | Nada. El mapa propio ya se sirve en `claro` y `oscuro`. | `pruebas/tema.js`, `pruebas/hud.js`. | `app/mapa.js` fuerza el mapa oscuro (líneas 169 y 258–265); `app/README.md` documenta lo oscuro como decisión. |
+| C1 lista | Nada: usa los campos que ya llegan en el estado en vivo. | `telefono.js` busca «BATERÍA 62 % · CARGANDO · APP 0.3.0»; revisar `paneles`, `privado-web`, `senal`, `desvio`. | Capturas `d02`, `d03`, `d05` del manual. |
+| C2, C3 | Nada. | `contraste.js` (paso 0). | `creador.html` copia a mano `day` de Despacho: si se toca un token, se tocan los dos. |
+| E1, E2 | Nada. `wa.me` es un enlace. | — | Sin dependencias nuevas. |
+| X1 lenguaje | **Sí, solo textos**: 13 líneas de `server/index.js` llevan frases que llegan a las personas. | 7 suites buscan estas frases tal cual. | ~26 líneas en `Prototipo.html`, 13 en `despacho.html`, 9 en `creador.html`, 25 en `app/App.js`, 5 en `app/hud.js`, 9 en `manual/manual.tex`. |
+
+---
+
+## Hipótesis y cómo se prueban
+
+Ninguna está validada. Opinión y desempeño se anotan por separado: que algo
+guste no dice si funciona.
+
+| | Hipótesis | Comparación | Qué se mide | Qué la refuta |
+| --- | --- | --- | --- | --- |
+| H1 (B4) | La barra fija se lee igual de bien de reojo que la que late. | Mismo teléfono en el parabrisas, las dos versiones, una vuelta cada una. | Si el chofer nota el paso a ámbar o rojo sin que se lo digan, y cuánto tarda. | Se le pasan cambios de estado que con el latido veía. |
+| H2 (B6) | Marcar el rótulo evita leer el número grande como si fuera del otro lado. | Resalte del rótulo frente a lados en posición fija. | Al cambiar el lado que manda: «¿de quién es ese número?». | Se equivoca igual, o las posiciones fijas ganan. |
+| H3 (C1) | La fila compacta deja ver un pelotón más rápido. | Las dos listas con la misma flota. | Tiempo hasta señalar las dos unidades pegadas; errores. | Tarda lo mismo o confunde las columnas. |
+| H4 (E2) | WhatsApp trae más contactos que el correo. | Un mes cada uno, o los dos a la vista. | Contactos recibidos por canal. | Llegan igual o menos. |
+| A1 | A pleno sol, el tema claro se lee mejor que el oscuro en la APK. | Las dos paletas, mismo teléfono, mediodía. | Lectura correcta de la brecha de reojo; reflejos. | El oscuro se lee igual o mejor. |
+
+---
+
+## No verificado
+
+- La APK corriendo: ni en emulador ni en teléfono.
+- Sol real, teléfono real, lector de pantalla, otros navegadores que Chromium.
+- El tema `sun` de la web y el tema noche de Despacho (el script no llegó a
+  activarlos; los mide `contraste.js`, que está en verde).
+- Nada con personas.
