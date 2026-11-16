@@ -1020,7 +1020,7 @@ function Aplicacion() {
     </Carrusel>
     {/* Fuera del carrusel: el perfil no es una página más, es un alto */}
     {verPerfil && (
-      <Perfil sesion={sesion} marca={marca} onCerrar={() => setVerPerfil(false)}
+      <Perfil sesion={sesion} marca={marca} diag={diag} onCerrar={() => setVerPerfil(false)}
         onCerrarTodo={() => { setVerPerfil(false); comun.onSalir(); }} />
     )}
     {presentacion}
@@ -1179,6 +1179,70 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
 // restringe): se lleva al chofer a la lista y él elige esta app. Si el
 // fabricante no tiene esa pantalla, la de la app misma, donde Batería está a
 // un toque.
+// ¿Hay algo del GPS que el chofer tenga que ver? El servicio no corre,
+// Android le va a cortar la red, hay posiciones esperando, un envío colgado,
+// nada salió en el último minuto, o el servidor no las usa.
+function hayProblemaDeGps(diag, ahora = Date.now()) {
+  if (!diag) return false;
+  return diag.servicio !== 'corriendo'
+    || diag.bateriaOptimizada === true
+    || diag.enEspera > 0
+    || !!diag.motivoNoUsadas
+    || (!!diag.enVueloDesde && ahora - diag.enVueloDesde > 20_000)
+    || (!!diag.ultimoEnvio && ahora - diag.ultimoEnvio > 60_000);
+}
+
+// Lo que está haciendo el GPS, renglón por renglón. Se dibuja arriba de la
+// ruta cuando hay un problema y siempre en Perfil.
+function DiagnosticoGps({ diag }) {
+  const { s, C } = usarTema();
+  return (<>
+    {/* Qué está haciendo el GPS. Está a la vista a propósito mientras se
+        mide en la calle: "no aparece en el mapa" no distingue entre el GPS
+        que no dispara, el envío que falla y el servidor que rechaza. */}
+    {/* El estado del SERVICIO va primero. Sin él, "enviadas 0 · fallidas 0"
+        no distingue entre "todavía no llegó la primera posición" y "el
+        servicio ni siquiera está corriendo", y esa ambigüedad ya costó una
+        sesión entera de diagnóstico. */}
+    <Text style={[s.diagnostico, diag.servicio !== 'corriendo' && { color: C.rojoTexto }]}>
+      Servicio de GPS: {diag.servicio}
+    </Text>
+    {/* Lo que Android va a hacer con la red apenas se apague la pantalla.
+        Va arriba de los contadores porque los explica: con esto activo,
+        "enviando hace 300s" no es un bug de la app. Tocar lleva a la
+        pantalla del sistema donde se apaga. */}
+    {diag.bateriaOptimizada === true && (
+      <Pressable onPress={abrirOptimizacionDeBateria}>
+        <Text style={[s.diagnostico, { color: C.rojoTexto }]}>
+          BATERÍA: optimización ACTIVA — Android corta la red con la pantalla apagada. Tocá acá y poné esta app en «Sin restricciones»
+        </Text>
+      </Pressable>
+    )}
+    <Text style={s.diagnostico}>
+      GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
+      {diag.rechazadas > 0 ? ` · ${diag.rechazadas} no usadas` : ''}
+      {diag.enEspera > 0 ? ` · ${diag.enEspera} esperando` : ''}
+      {diag.ultimoEnvio ? ` · último hace ${Math.round((Date.now() - diag.ultimoEnvio) / 1000)}s` : ' · todavía ninguna'}
+      {/* Un envío en vuelo que envejece es un envío colgado: es lo que
+          hay que ver cuando "último hace" crece y no hay ningún error. */}
+      {diag.enVueloDesde ? ` · enviando hace ${Math.round((Date.now() - diag.enVueloDesde) / 1000)}s` : ''}
+    </Text>
+    {/* Por qué no se usó ninguna. El caso real: la web abierta y la app en
+        el teléfono reportando la misma combi, cada una con su reloj — sin
+        esto son ceros sin explicación (REVISION-2026-09-10.md, C20). */}
+    {diag.motivoNoUsadas && (
+      <Text style={[s.diagnostico, { color: C.ambarTexto }]}>{diag.motivoNoUsadas}</Text>
+    )}
+    {/* Los motivos, con su cuenta. Es lo que dice DÓNDE está el problema:
+        "sin red" es el teléfono, un HTTP 4xx es el servidor rechazando. */}
+    {Object.keys(diag.motivos || {}).length > 0 && (
+      <Text style={s.diagnostico}>
+        {Object.entries(diag.motivos).map(([m, n]) => `${m} ×${n}`).join(' · ')}
+      </Text>
+    )}
+  </>);
+}
+
 function abrirOptimizacionDeBateria() {
   Linking.sendIntent('android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS')
     .catch(() => Linking.openSettings().catch(() => {}));
@@ -1448,49 +1512,11 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
         </Text>
       )}
 
-      {/* Qué está haciendo el GPS. Está a la vista a propósito mientras se
-          mide en la calle: "no aparece en el mapa" no distingue entre el GPS
-          que no dispara, el envío que falla y el servidor que rechaza. */}
-      {/* El estado del SERVICIO va primero. Sin él, "enviadas 0 · fallidas 0"
-          no distingue entre "todavía no llegó la primera posición" y "el
-          servicio ni siquiera está corriendo", y esa ambigüedad ya costó una
-          sesión entera de diagnóstico. */}
-      <Text style={[s.diagnostico, diag.servicio !== 'corriendo' && { color: C.rojoTexto }]}>
-        Servicio de GPS: {diag.servicio}
-      </Text>
-      {/* Lo que Android va a hacer con la red apenas se apague la pantalla.
-          Va arriba de los contadores porque los explica: con esto activo,
-          "enviando hace 300s" no es un bug de la app. Tocar lleva a la
-          pantalla del sistema donde se apaga. */}
-      {diag.bateriaOptimizada === true && (
-        <Pressable onPress={abrirOptimizacionDeBateria}>
-          <Text style={[s.diagnostico, { color: C.rojoTexto }]}>
-            BATERÍA: optimización ACTIVA — Android corta la red con la pantalla apagada. Tocá acá y poné esta app en «Sin restricciones»
-          </Text>
-        </Pressable>
-      )}
-      <Text style={s.diagnostico}>
-        GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
-        {diag.rechazadas > 0 ? ` · ${diag.rechazadas} no usadas` : ''}
-        {diag.enEspera > 0 ? ` · ${diag.enEspera} esperando` : ''}
-        {diag.ultimoEnvio ? ` · último hace ${Math.round((Date.now() - diag.ultimoEnvio) / 1000)}s` : ' · todavía ninguna'}
-        {/* Un envío en vuelo que envejece es un envío colgado: es lo que
-            hay que ver cuando "último hace" crece y no hay ningún error. */}
-        {diag.enVueloDesde ? ` · enviando hace ${Math.round((Date.now() - diag.enVueloDesde) / 1000)}s` : ''}
-      </Text>
-      {/* Por qué no se usó ninguna. El caso real: la web abierta y la app en
-          el teléfono reportando la misma combi, cada una con su reloj — sin
-          esto son ceros sin explicación (REVISION-2026-09-10.md, C20). */}
-      {diag.motivoNoUsadas && (
-        <Text style={[s.diagnostico, { color: C.ambarTexto }]}>{diag.motivoNoUsadas}</Text>
-      )}
-      {/* Los motivos, con su cuenta. Es lo que dice DÓNDE está el problema:
-          "sin red" es el teléfono, un HTTP 4xx es el servidor rechazando. */}
-      {Object.keys(diag.motivos || {}).length > 0 && (
-        <Text style={s.diagnostico}>
-          {Object.entries(diag.motivos).map(([m, n]) => `${m} ×${n}`).join(' · ')}
-        </Text>
-      )}
+      {/* El diagnóstico del GPS, arriba del HUD SÓLO si hay algo que avisar
+          (auditoría de UI, A5). Estuvo siempre a la vista «mientras se mide
+          en la calle»; con todo andando eran dos renglones de números que el
+          chofer no usa. Completo, está en Perfil. */}
+      {hayProblemaDeGps(diag) && <DiagnosticoGps diag={diag} />}
 
       {/* Un minuto sin datos: el número se retira. Queda la última brecha,
           como dato y no como instrucción (auditoría de UI, N1). */}
@@ -1605,7 +1631,7 @@ function TipoSos({ onElegir }) {
 // vueltas, mismas horas, misma vara— pedido a /perfil, que solo contesta
 // lo del que pregunta. El alias se edita acá porque es cómo lo llaman en
 // la ruta; el nombre no, porque con ese se liquidan las horas.
-function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
+function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
   const { s, C } = usarTema();
   const margen = margenes(useSafeAreaInsets(), { conBarra: false });
   const [datos, setDatos] = React.useState(null);
@@ -1792,6 +1818,11 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
   // pudo cargar» y el chofer se quedaba justo sin la única herramienta que
   // ahí sí le servía (REVISION-2026-09-10.md, P10).
   const bloqueGrabador = (<>
+            {diag && (<>
+              <View style={s.divisor} />
+              <Text style={s.perfilSeccion}>EL GPS</Text>
+              <DiagnosticoGps diag={diag} />
+            </>)}
             <View style={s.divisor} />
             <Text style={s.perfilSeccion}>GRABADOR DE RECORRIDO</Text>
             <Text style={s.diagnostico}>

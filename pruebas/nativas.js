@@ -393,6 +393,18 @@ console.log('\nLA APK NO ESCRIBE COLORES A MANO (auditoría de UI, A3)');
   // A4: rótulos de 10 px en mono con tracking, en la pantalla del parabrisas
   const chicos = [...app.matchAll(/fontSize: (\d+(?:\.\d+)?)/g)].map(x => Number(x[1])).filter(n => n < 12);
   ok('ningún texto de la APK baja de 12 px (A4)', chicos.length === 0, chicos);
+  // A5: el diagnóstico del GPS arriba de la ruta, sólo si hay algo que avisar
+  const fuente = (app.match(/function hayProblemaDeGps\([\s\S]*?\n\}/) || [''])[0];
+  ok('A5 · el criterio existe y se usa arriba de la ruta', !!fuente && /\{hayProblemaDeGps\(diag\) && <DiagnosticoGps diag=\{diag\} \/>\}/.test(app));
+  const hay = new Function(fuente + '\nreturn hayProblemaDeGps;')();
+  const T = 1_700_000_000_000, bien = { servicio: 'corriendo', enEspera: 0, ultimoEnvio: T - 3000 };
+  ok('A5 · todo andando: no se muestra nada', hay(bien, T) === false);
+  ok('A5 · el servicio parado se muestra', hay({ ...bien, servicio: 'detenido' }, T) === true);
+  ok('A5 · posiciones esperando, también', hay({ ...bien, enEspera: 4 }, T) === true);
+  ok('A5 · nada salió en el último minuto, también', hay({ ...bien, ultimoEnvio: T - 90_000 }, T) === true);
+  ok('A5 · un envío colgado, también', hay({ ...bien, enVueloDesde: T - 30_000 }, T) === true);
+  ok('A5 · y la batería optimizada', hay({ ...bien, bateriaOptimizada: true }, T) === true);
+  ok('A5 · completo en Perfil', /<Text style=\{s\.perfilSeccion\}>EL GPS<\/Text>\s*<DiagnosticoGps diag=\{diag\} \/>/.test(app));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
