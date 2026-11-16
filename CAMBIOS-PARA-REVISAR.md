@@ -1423,7 +1423,67 @@ lenta y sin red, el doble toque en «Salir de ruta» y la tarjeta con Tab.
 
 ---
 
+## 20. Auditoría de UI del 16/11, fase 2 — `2e8eab2` a `ce08749` (16/11)
+
+**Qué.** La fase 2 del plan: el HUD y la puerta del chofer web, once
+commits.
+- **Sin señal el mensaje queda escrito** en el campo y se dice; con la
+  brecha vieja tampoco se manda; la nota de voz que no salió va en ámbar;
+  «Tú ✓» en vez de ✓✓ (N3).
+- **AUSENTE espera 5 s con DESHACER** antes de avisar al servidor (B3).
+- **La puerta «Salir a ruta» sigue el tema**: clara de día (B7).
+- **El número de brecha no salta** en cada cambio; crece una vez sólo al
+  cambiar de estado (B5).
+- **Barra fija y rótulo resaltado, como ensayos apagados** (B4, B6):
+  `/?ensayo=barra,rotulo` los prende y quedan recordados; `/?ensayo=` los
+  apaga. La raíz ya no pierde los parámetros.
+- **El vigía de la ausencia en la web** (N8): copia de `app/ausencia.js`.
+- **«Entrar AUSENTE» sin la espera de 15 s** (N6).
+- **El ingreso dice «Conectado» sólo si /ping contestó** (B13).
+- La tarjeta del mapa sin coordenadas (B10); 44 px en los puntos de página,
+  el tema y las pestañas del chat (B11); los colores a mano del HUD, a
+  tokens (B12).
+
+**Archivos.** `project/Prototipo.html`, `project/realtime.js`
+(`alcanzable()` y la hora en `posicionReciente()`), `project/index.html`,
+`project/service-worker.js` (v109 a v119), `manual/capturas.js` (espera los
+5 s de AUSENTE), `LIMITACIONES.md`, y en `pruebas/`: `paneles.js`,
+`ausencia.js`, `contraste.js`.
+
+**Mirar.**
+- **N6 es una decisión con poca evidencia**: la espera de 15 s llegó con la
+  maqueta del 6/8 y nada decía para qué era. Si tenía un motivo que no
+  quedó escrito, vuelve con una línea que lo diga.
+- **N8 es una copia**: si se cambia el vigía de la APK, se cambia el de la
+  web. `ausencia.js` corre las dos con los mismos recorridos y falla si
+  responden distinto.
+- **B4 y B6 no están de fábrica.** Para decidirlos falta la prueba en la
+  calle (H1 y H2 del informe).
+- El chat con la brecha vieja no manda aunque el socket diga que está vivo:
+  si algún día el servidor deja de emitir estados con cada posición, el
+  chat se callaría con la red buena (lo mismo que N1).
+- AUSENTE durante los 5 s del DESHACER: si se cierra la sesión, no se
+  declara.
+
+**Pruebas.** `paneles` (doce aserciones nuevas), `ausencia` (la copia de
+la web contra la original), `contraste` (pares nuevos), `puerta-web`,
+`vigia-puerta`, `sos-puerta`, `combis-web`, `sintaxis` y la regresión
+completa. Además, contra el servidor de demostración: el chat con y sin
+red, AUSENTE con DESHACER, la puerta de día y de noche, 40 s de dígitos
+sin animar, los ensayos con los escenarios del panel, el vigía con el GPS
+quieto y a 500 m, y el chip del ingreso con y sin /ping.
+**Manual:** no todavía (ver abajo).
+
+---
+
 ## Para el manual
+
+**Del bloque 20 (16/11), pendiente:** el DESHACER de AUSENTE (se declara a
+los 5 s), que el chat sin señal deja el mensaje escrito, que AUSENTE vuelve
+a ruta solo si la combi se mueve (ya lo decía para la APK; ahora vale para
+la web), que «Entrar AUSENTE» ya no espera, y la puerta clara de día.
+Capturas a sacar de nuevo: la puerta (`c02-*`), el HUD, AUSENTE (`c06`) y
+el chat.
 
 **Del bloque 19 (16/11), pendiente:** explicar el estado «SIN SEÑAL» de la
 pantalla del chofer (qué significa el gris y por qué se retira el número), y

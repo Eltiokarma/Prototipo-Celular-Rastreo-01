@@ -245,12 +245,39 @@ Lo que salió al hacerla y queda anotado:
 - **«SIN SEÑAL»** es un estado nuevo de la pantalla del chofer y el manual
   todavía no lo explica.
 
-### Fase 2 — El HUD del chofer (2–3 días, con prueba en la calle)
+### Fase 2 — El HUD del chofer · **HECHA (16/11)**, falta la prueba en la calle
 
-B3 (parte 2: «Deshacer» en AUSENTE), B4, B5, B6, B7, B10, B11, B12, B13,
-N3 (borrador del chat), N6 y N8.
-B4 y B6 son hipótesis: se construyen detrás de `tweaks` para poder comparar
-con lo de hoy en el mismo teléfono antes de dejarlas de fábrica.
+Un commit por punto, todo en `project/Prototipo.html` (y `realtime.js` /
+`index.html` donde se dice). Detalle en `CAMBIOS-PARA-REVISAR.md`, bloque 20.
+
+| Punto | Commit | Qué quedó |
+| --- | --- | --- |
+| N3 borrador del chat | `2e8eab2` | Sin señal el texto queda en el campo y se dice; con la brecha vieja tampoco se manda; «Tú ✓» en vez de ✓✓ |
+| B3 (parte 2) «Deshacer» en AUSENTE | `eee1803` | Se declara a los 5 s; DESHACER no le manda nada al servidor |
+| B7 la puerta sigue el tema | `4544f4d` | Sin la paleta fija `P`; ningún control bajo 44 px ni texto bajo su piso, de día y de noche |
+| B5 dígitos quietos | `01127d3` | El número crece una vez sólo al cambiar de estado |
+| B4 y B6, ensayos | `584b411` | Construidos y **apagados**: se prenden con `/?ensayo=barra,rotulo` y se apagan con `/?ensayo=` |
+| N8 vigía de la ausencia | `2f0c300` | Copia de `app/ausencia.js`; `pruebas/ausencia.js` comprueba que responden igual |
+| N6 la espera de «Entrar AUSENTE» | `809c7bb` | **Se sacó.** Venía de la maqueta del 6/8 y nada decía para qué era |
+| B13 «Conectado» sólo si es verdad | `985e563` | El chip pregunta a /ping |
+| B10 sin coordenadas | `3a12d6f` | Quedan sólo los avisos de GPS |
+| B11 zonas de 44 px | `dc7fd6a` | Puntos de página, tema y pestañas del chat |
+| B12 colores a tokens | `ce08749` | Seis tokens nuevos en los tres temas; contraste.js mide dos pares más |
+
+**Lo que falta, y no es código:** probar H1 y H2 en la calle. Con el mismo
+teléfono en el parabrisas, una vuelta con `/?ensayo=` (lo de hoy) y otra con
+`/?ensayo=barra,rotulo`; anotar si el chofer nota los cambios de estado y de
+lado sin que se lo digan. Recién con eso se decide si quedan de fábrica.
+
+Lo que salió al hacerla:
+
+- El socket tarda hasta 40 s en notar que murió, y en ese rato **el chat
+  mandaba a un socket muerto** sin avisar. Ahora, con la brecha vieja, el
+  chat tampoco manda (va con N3).
+- La raíz `/` redirigía con un meta refresh que perdía los parámetros; ahora
+  los conserva (va con B4/B6).
+- El deslizador del SOS sigue animando `left` y `width`: tocar ese gesto no
+  entraba en un retoque. Queda anotado.
 
 ### Fase 3 — La APK (3–4 días, más la prueba de campo)
 
