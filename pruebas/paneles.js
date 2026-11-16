@@ -200,6 +200,8 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
   ok('B13 · el ingreso dice «Conectado» sólo si el servidor contestó', /async function alcanzable/.test(leer('project/realtime.js')) && /alcance === 'si' \? 'Conectado'/.test(prototipo) && !/>Conectado<\/span>/.test(prototipo));
   // B10: coordenadas crudas que el chofer no usa
   ok('B10 · la tarjeta del mapa no muestra coordenadas; los avisos de GPS quedan', !/realPos\.lat\.toFixed\(4\)/.test(prototipo) && /gpsError \? 'SIN GPS' : 'ESPERANDO GPS…'/.test(prototipo));
+  // B11: zonas de 44 px y nada de `transition: all`
+  ok('B11 · puntos de página, tema y pestañas del chat a 44 px; sin «transition: all»', /width: 44, height: 44,/.test(prototipo) && /height: 44, minWidth: 64/.test(prototipo) && /height: 44, borderRadius: 12, cursor: 'pointer', padding: '0 4px'/.test(prototipo) && !/transition: 'all/.test(prototipo));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
