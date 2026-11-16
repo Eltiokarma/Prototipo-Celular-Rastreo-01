@@ -29,7 +29,7 @@
   :root {
     --bg: #F7FAFD; --surface: #FFFFFF; --line: #C3D4E4; --divider: #E1E9F2;
     --fg: #0B2239; --fg2: #2A4864; --dim: #41627F; --dim3: #5A7591;
-    --azul: #2580CF; --azulOscuro: #1668C4;
+    --azul: #2580CF; --azulOscuro: #1668C4; --azulHondo: #0F4F9E;
     --verdeFondo: #E9F7EF; --verdeTinta: #0B6B33;
   }
   * { box-sizing: border-box; }
@@ -42,7 +42,7 @@
   header { padding: 26px 0 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
   /* La puerta para el que ya es cliente: la landing también es la entrada */
   .entrar {
-    display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px;
+    display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px;
     border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
     color: var(--fg2); font-weight: 700; font-size: 15px; text-decoration: none;
   }
@@ -64,12 +64,13 @@
   h1 { font-family: "Archivo Black", system-ui, sans-serif; font-size: clamp(30px, 5.5vw, 46px); line-height: 1.12; letter-spacing: -.01em; margin: 0 0 18px; font-weight: 400; }
   h1 em { font-style: normal; color: var(--azul); }
   .bajada { font-size: 19px; color: var(--fg2); max-width: 640px; margin: 0 0 26px; }
+  /* Blanco sobre --azul daba 4,14:1; sobre --azulOscuro, 5,51 (auditoría de UI, E3) */
   .cta {
-    display: inline-block; background: var(--azul); color: #fff;
+    display: inline-block; background: var(--azulOscuro); color: #fff;
     padding: 14px 26px; border-radius: 12px; font-weight: 800;
     text-decoration: none; font-size: 17px;
   }
-  .cta:hover { background: var(--azulOscuro); }
+  .cta:hover { background: var(--azulHondo); }
   .nota-cta { font-size: 14px; color: var(--dim3); margin-top: 10px; }
   h2 { font-family: "Archivo Black", system-ui, sans-serif; font-size: 22px; letter-spacing: -.01em; color: var(--fg); font-weight: 400; margin: 56px 0 6px; }
   .roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 14px; }
