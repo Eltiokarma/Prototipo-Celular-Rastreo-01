@@ -1528,6 +1528,10 @@ function SosSlider({ onFire }) {
   const [progress, setProgress] = React.useState(0);
   const [dragging, setDragging] = React.useState(false);
   const [fired, setFired] = React.useState(false);
+  // Lo que contestó el envío: null mientras no se sabe, 'ok' o 'fallo'. El ✓
+  // sale recién con 'ok' (auditoría UI B8): antes aparecía al soltar, con el
+  // rótulo diciendo todavía ENVIANDO, en la acción más delicada del sistema.
+  const [resultado, setResultado] = React.useState(null);
   const startX = React.useRef(0);
   const startProg = React.useRef(0);
 
@@ -1553,9 +1557,12 @@ function SosSlider({ onFire }) {
       // volvía a «DESLIZÁ PARA SOS» a los 2,2 s sin ningún resultado a la
       // vista — y un segundo deslizamiento duplicaba la alerta (22/9).
       const t0 = Date.now();
-      Promise.resolve(onFire && onFire()).catch(() => {}).finally(() => {
-        setTimeout(() => { setFired(false); setProgress(0); }, Math.max(0, 2200 - (Date.now() - t0)));
-      });
+      setResultado(null);
+      Promise.resolve(onFire && onFire())
+        .then(ok => setResultado(ok === true ? 'ok' : ok === false ? 'fallo' : null), () => setResultado('fallo'))
+        .finally(() => {
+          setTimeout(() => { setFired(false); setProgress(0); setResultado(null); }, Math.max(0, 2200 - (Date.now() - t0)));
+        });
     }
   };
   const onUp = () => {
@@ -1619,7 +1626,9 @@ function SosSlider({ onFire }) {
         whiteSpace: 'nowrap',
         transition: 'color 0.2s', pointerEvents: 'none', zIndex: 2,
       }}>
-        {fired ? 'ENVIANDO...' : progress > 0.5 ? 'SUELTA PARA SOS' : 'DESLIZÁ PARA SOS →'}
+        {fired
+          ? (resultado === 'ok' ? 'ENVIADA' : resultado === 'fallo' ? 'NO SALIÓ' : 'ENVIANDO…')
+          : progress > 0.5 ? 'SUELTA PARA SOS' : 'DESLIZÁ PARA SOS →'}
       </div>
       {/* thumb arrastrable */}
       <div
@@ -1640,7 +1649,7 @@ function SosSlider({ onFire }) {
           zIndex: 3, touchAction: 'none',
         }}
       >
-        {fired ? '✓' : 'SOS'}
+        {!fired ? 'SOS' : resultado === 'ok' ? '✓' : resultado === 'fallo' ? '!' : '…'}
       </div>
     </div>
   );
@@ -2098,6 +2107,7 @@ function usarSos(onSos) {
     if (r && r.ok) { setFired(true); setFallo(false); }
     else setFallo({ en: Date.now(), pos: window.RealtimeClient && window.RealtimeClient.posicionReciente
       ? window.RealtimeClient.posicionReciente() : null });
+    return !!(r && r.ok);   // el deslizador pinta ✓ sólo con esto en true
   };
   return { fired, fallo, disparar, cerrarFallo: () => setFallo(false) };
 }
@@ -2933,6 +2943,7 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
               if (r && r.ok) { setEmergencyFired(true); setSosFallo(false); }
               else setSosFallo({ en: Date.now(), pos: window.RealtimeClient && window.RealtimeClient.posicionReciente
                 ? window.RealtimeClient.posicionReciente() : null });
+              return !!(r && r.ok);   // el deslizador pinta ✓ sólo con esto en true
             }}
             presencia={presencia}
             onPresencia={onPresencia}
