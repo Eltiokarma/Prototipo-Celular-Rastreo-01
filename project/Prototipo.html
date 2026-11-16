@@ -354,7 +354,7 @@ const TEMAS = {
     red:     '#C2001D',  redInk:   '#5C0010',
     // Texto ámbar chico (los botones del HUD) y lo que va escrito sobre el
     // rojo lleno. El ámbar de estado da 3,95:1 y no alcanza para 16 px.
-    amberTexto: '#6B4A00', sobreRojo: '#FFFFFF',
+    amberTexto: '#6B4A00', sobreRojo: '#FFFFFF', greenTexto: '#0B6B33',
     fg:      '#0B2239',  // texto primario
     fg2:     '#2A4864',  // texto secundario / iconos
     dim:     '#41627F',  // etiquetas
@@ -385,7 +385,7 @@ const TEMAS = {
     green:   '#146134',  greenInk: '#04220F',
     amber:   '#7A5400',  amberInk: '#2E2000',
     red:     '#960016',  redInk:   '#3D000B',
-    amberTexto: '#5C3F00', sobreRojo: '#FFFFFF',
+    amberTexto: '#5C3F00', sobreRojo: '#FFFFFF', greenTexto: '#146134',
     fg:      '#04121F',
     fg2:     '#0B2239',
     dim:     '#20415C',
@@ -413,7 +413,7 @@ const TEMAS = {
     green:   '#39FF14',  greenInk: '#EAFFE4',
     amber:   '#FFD400',  amberInk: '#FFF7D6',
     red:     '#FF2D55',  redInk:   '#FFE0E7',
-    amberTexto: '#FFD400', sobreRojo: '#03060a',
+    amberTexto: '#FFD400', sobreRojo: '#03060a', greenTexto: '#39FF14',
     fg:      '#EAF4FF',
     fg2:     '#C6D6E6',
     dim:     '#8FA8C0',
@@ -1161,7 +1161,7 @@ function bubbleStyle(msg) {
 function ChatMsg({ msg }) {
   const isYou = msg.role === 'you';
   const nameColor =
-    isYou ? HUD.green :
+    isYou ? HUD.greenTexto :   // el verde de estado daba 4,17:1 a 15 px (auditoría UI B9)
     msg.tone === 'warn' ? HUD.warnEdge :
     msg.tone === 'sos' ? HUD.red :
     HUD.dim;
@@ -1177,9 +1177,10 @@ function ChatMsg({ msg }) {
         {msg.role === 'admin' && (
           <span style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 11, background: msg.privado ? HUD.warnEdge : P.bright,
-            // blanco sobre el ámbar de noche daba 1,79:1 (revisión previa a la APK)
-            color: msg.privado ? HUD.warnEdgeInk : P.white,
+            fontSize: 11, background: msg.privado ? HUD.warnEdge : HUD.acento,
+            // blanco sobre el ámbar de noche daba 1,79:1 (revisión previa a la APK),
+            // y blanco sobre el celeste fijo, 2,84 (auditoría UI B9)
+            color: msg.privado ? HUD.warnEdgeInk : HUD.acentoInk,
             padding: '2px 6px', borderRadius: 4, letterSpacing: 0.5,
           }}>{msg.privado === 'persona' ? 'DESPACHO · SOLO PARA VOS'
             : msg.privado ? 'DESPACHO · PARA TU COMBI' : 'DESPACHO'}</span>
@@ -1410,9 +1411,11 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
           return (
             <button key={k} data-canal={k} onClick={() => setCanal(k)} style={{
               flex: 1, minWidth: 0, height: 40, borderRadius: 12, cursor: 'pointer', padding: '0 4px',
-              border: `1px solid ${activo ? P.bright : HUD.line}`,
-              background: activo ? P.bright : 'transparent',
-              color: activo ? P.white : HUD.dim,
+              // el acento del tema y su tinta: blanco sobre el celeste fijo daba
+              // 2,69:1 (auditoría UI B9)
+              border: `1px solid ${activo ? HUD.acento : HUD.line}`,
+              background: activo ? HUD.acento : 'transparent',
+              color: activo ? HUD.acentoInk : HUD.dim,
               fontFamily: 'system-ui, sans-serif', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             }}>
@@ -1502,22 +1505,22 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
           style={{
             width: controlH, height: controlH, boxSizing: 'border-box',
             borderRadius: '50%', flexShrink: 0,
-            background: recording ? P.bright : HUD.mic,
-            border: `1px solid ${recording ? P.bright : HUD.micLine}`,
+            background: recording ? HUD.acento : HUD.mic,
+            border: `1px solid ${recording ? HUD.acento : HUD.micLine}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
             touchAction: 'none',
           }}>
-          <MicGlyph color={recording ? '#FFFFFF' : HUD.fg2} />
+          <MicGlyph color={recording ? HUD.acentoInk : HUD.fg2} />
         </button>
         <button
           onClick={send}
           style={{
             width: controlH, height: controlH, boxSizing: 'border-box',
             borderRadius: '50%', flexShrink: 0,
-            background: P.bright, border: 'none',
+            background: HUD.acento, border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, color: '#FFFFFF', cursor: 'pointer',
+            fontSize: 22, color: HUD.acentoInk, cursor: 'pointer',
             WebkitTapHighlightColor: 'transparent',
           }}>➤</button>
       </div>

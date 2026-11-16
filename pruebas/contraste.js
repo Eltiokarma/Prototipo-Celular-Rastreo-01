@@ -117,6 +117,9 @@ const PARES_PROTO = [
   ['botón ámbar lleno',             t => t.bg,         t => t.amberTexto, AA],
   ['botones del turno / fondo',     t => t.fg2,        t => t.bg, AA],
   ['«¿seguro?» sobre rojo',         t => t.sobreRojo,  t => t.red, AA],
+  // El chat (auditoría UI B9): canal activo, enviar, insignia de Despacho y «Tú»
+  ['acento lleno y su tinta',       t => t.acentoInk,  t => t.acento, AA],
+  ['«Tú» / fondo',                  t => t.greenTexto, t => t.bg, AA],
 ];
 const PARES_DESP = [
   ['texto primario / fondo',        t => t.fg,   t => t.bg, AA],
