@@ -113,6 +113,8 @@ if (typeof L === 'undefined') {
     0%, 100% { opacity: 0.55; }
     50%      { opacity: 1; }
   }
+  /* El número de brecha crece una vez cuando cambia de estado (B5) */
+  @keyframes cambioEstado { from { transform: scale(1.07); } to { transform: none; } }
   /* La cuenta del «Deshacer» de AUSENTE: la franja se vacía en 5 s */
   @keyframes vaciar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
   @keyframes combiRecDot {
@@ -2488,41 +2490,41 @@ function computeStatus(front, back, target) {
 }
 
 
-function AnimatedDigit({ ch, fontSize, color, enableAnim }) {
-  const prev = React.useRef(ch);
-  const [anim, setAnim] = React.useState(false);
-  React.useEffect(() => {
-    if (prev.current !== ch && enableAnim) {
-      setAnim(true);
-      const t = setTimeout(() => setAnim(false), 260);
-      return () => clearTimeout(t);
-    }
-    prev.current = ch;
-  }, [ch, enableAnim]);
+// Un dígito en su caja: el ancho fijo evita que el número baile cuando
+// cambia un dígito (fontVariantNumeric no alcanza con Archivo Black).
+function Digito({ ch, fontSize, color }) {
   return (
     <span style={{
       display: 'inline-block',
       minWidth: ch === ':' ? fontSize * 0.35 : fontSize * 0.62,
       textAlign: 'center', color,
-      transform: anim ? 'translateY(-2px)' : 'translateY(0)',
-      opacity: anim ? 0.85 : 1,
-      transition: 'transform 0.22s cubic-bezier(.2,.8,.2,1), opacity 0.22s',
     }}>{ch}</span>
   );
 }
 
-// Fila de dígitos héroe/secundario con la micro-animación por carácter
-function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) {
+// Los dígitos del héroe y del secundario. Antes cada dígito que cambiaba
+// saltaba 2 px y se atenuaba a 0,85: la brecha cambia cada pocos segundos
+// todo el turno, así que el número se atenuaba justo cuando traía el dato
+// nuevo (y comparaba contra un valor viejo: `prev` no se actualizaba al
+// animar). Ahora el número se queda quieto, y crece UNA vez, 320 ms, sólo
+// cuando cambia el ESTADO (verde → ámbar → rojo): es lo único que el chofer
+// tiene que notar de reojo (auditoría de UI, B5).
+function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim, estado }) {
+  const previo = React.useRef(estado);
+  const cambio = !!enableAnim && previo.current !== estado;
+  React.useEffect(() => { previo.current = estado; }, [estado]);
   return (
-    <div style={{
+    <div key={cambio ? 'cambio-' + estado : 'quieto'} style={{
       fontFamily: '"Archivo Black", system-ui, sans-serif',
       fontSize, lineHeight: 0.95, letterSpacing,
       textShadow: glow,
       fontVariantNumeric: 'tabular-nums',
       display: 'flex', maxWidth: '100%',
+      transformOrigin: 'left center',
+      animation: cambio ? 'cambioEstado 320ms cubic-bezier(0, 0, .2, 1)' : 'none',
     }}>
       {value.split('').map((ch, i) => (
-        <AnimatedDigit key={i} ch={ch} fontSize={fontSize} color={color} enableAnim={enableAnim} />
+        <Digito key={i} ch={ch} fontSize={fontSize} color={color} />
       ))}
     </div>
   );
@@ -2767,6 +2769,7 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
               letterSpacing={-5}
               glow={glow(`0 0 8px ${stateColor}, 0 0 26px ${stateColor}, 0 0 70px ${stateColor}, 0 0 130px ${stateColor}`)}
               enableAnim={tweaks.microAnims}
+              estado={hero.status}
             />
           </div>
         )}
@@ -2799,6 +2802,7 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
                   letterSpacing={-2}
                   glow={glow(`0 0 16px ${secColor}8C`)}
                   enableAnim={tweaks.microAnims}
+                  estado={sec.status}
                 />
               </div>
             )}

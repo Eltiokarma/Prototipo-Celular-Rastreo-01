@@ -187,6 +187,8 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
   // B7: la puerta era la única pantalla con la paleta oscura fija
   { const puerta = prototipo.split('function StartRouteScreen(')[1].split('\nfunction ')[0];
     ok('B7 · la puerta «Salir a ruta» sigue el tema (sin la paleta fija P)', !/\bP\.[a-z]/.test(puerta) && /background: HUD\.acento, color: HUD\.acentoInk/.test(puerta)); }
+  // B5: cada dígito saltaba y se atenuaba en cada cambio, todo el turno
+  ok('B5 · los dígitos quietos; el número crece sólo al cambiar de estado', !/function AnimatedDigit/.test(prototipo) && /const cambio = !!enableAnim && previo\.current !== estado;/.test(prototipo) && /estado=\{hero\.status\}/.test(prototipo));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
