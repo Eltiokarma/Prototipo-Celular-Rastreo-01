@@ -113,6 +113,13 @@ if (typeof L === 'undefined') {
     0%, 100% { opacity: 0.55; }
     50%      { opacity: 1; }
   }
+  /* Ensayo «barra» (B4): tres latidos al cambiar de estado, después quieta */
+  @keyframes avisoBarra { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  /* Ensayo «rotulo» (B6): el rótulo del lado que manda, resaltado 1,6 s */
+  @keyframes marcaLado {
+    0%, 70% { background: var(--marca-lado); box-shadow: 0 0 0 2px var(--marca-lado-borde); }
+    100%    { background: transparent; box-shadow: 0 0 0 2px transparent; }
+  }
   /* El número de brecha crece una vez cuando cambia de estado (B5) */
   @keyframes cambioEstado { from { transform: scale(1.07); } to { transform: none; } }
   /* La cuenta del «Deshacer» de AUSENTE: la franja se vacía en 5 s */
@@ -2460,10 +2467,33 @@ function pideMenosMovimiento() {
   try { return window.matchMedia(MENOS_MOVIMIENTO).matches; } catch { return false; }
 }
 
+// ─── ENSAYOS (auditoría de UI, hipótesis H1 y H2) ────────────────────
+// Dos cambios del HUD que no se dejan de fábrica sin probarlos en la calle,
+// con el mismo teléfono y comparando contra lo de hoy:
+//   barra   la barra de arriba queda fija y avisa tres veces al cambiar de
+//           estado (hoy late siempre, también en verde) — B4, H1.
+//   rotulo  cuando el lado que manda cambia (ATRÁS ↔ ADELANTE), el rótulo
+//           queda resaltado 1,6 s (hoy cambia sin ninguna señal) — B6, H2.
+// Se prenden abriendo la app con `?ensayo=barra,rotulo` (o uno solo) y
+// quedan recordados en ese teléfono; `?ensayo=` los apaga. El panel de
+// diseño no sirve para esto: en un celular no se puede abrir.
+function leerEnsayos() {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    if (q.has('ensayo')) {
+      const v = (q.get('ensayo') || '').trim();
+      if (v) localStorage.setItem('r14_ensayo', v); else localStorage.removeItem('r14_ensayo');
+    }
+    return new Set((localStorage.getItem('r14_ensayo') || '').split(',').map(s => s.trim()).filter(Boolean));
+  } catch { return new Set(); }
+}
+const ENSAYOS = leerEnsayos();
+
 const DEFAULT_TWEAKS = {
   frontTime: '02:15', backTime: '01:40',
   front2Time: '04:30', back2Time: '03:35',
   targetGap: 2, mode: 'day', microAnims: !pideMenosMovimiento(),
+  barraFija: ENSAYOS.has('barra'), rotuloResalta: ENSAYOS.has('rotulo'),
   startPage: 1, initialScreen: 'login',
   currentStop: 'Tumbes', nextStop: 'Lambayeque', avgSpeed: 28,
 };
@@ -2591,6 +2621,17 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
 
   // Cadencia de la barra superior según urgencia (tomada del semáforo viejo)
   const edgeDur = hero.status === 'red' ? '0.8s' : hero.status === 'yellow' ? '1.4s' : '2.4s';
+  // Ensayo «barra» (B4): fija, y tres latidos sólo cuando cambia el estado
+  const estadoPrevio = React.useRef(hero.status);
+  const estadoCambio = estadoPrevio.current !== hero.status;
+  React.useEffect(() => { estadoPrevio.current = hero.status; }, [hero.status]);
+  const animBarra = !tweaks.microAnims || hud.viejo ? 'none'
+    : !tweaks.barraFija ? `combiEdge ${edgeDur} ease-in-out infinite`
+    : estadoCambio ? 'avisoBarra .6s ease-in-out 3' : 'none';
+  // Ensayo «rotulo» (B6): el rótulo del lado que manda se resalta al cambiar
+  const ladoPrevio = React.useRef(hero.label);
+  const ladoCambio = ladoPrevio.current !== hero.label;
+  React.useEffect(() => { ladoPrevio.current = hero.label; }, [hero.label]);
 
   // Instrucción: qué hacer con la brecha, en una línea
   const heroIsBack = hero === hud.back;
@@ -2644,11 +2685,11 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
         }} />
       )}
       {/* barra de borde superior — pulsa con la urgencia */}
-      <div style={{
+      <div key={tweaks.barraFija && estadoCambio ? 'aviso-' + hero.status : 'barra'} style={{
         position: 'absolute', top: 0, left: 0, right: 0, height: 6,
         background: stateColor,
         boxShadow: sun ? 'none' : `0 0 26px ${stateColor}`,
-        animation: tweaks.microAnims && !hud.viejo ? `combiEdge ${edgeDur} ease-in-out infinite` : 'none',
+        animation: animBarra,
       }} />
 
       {/* header: en vivo + velocidad */}
@@ -2748,10 +2789,12 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
         padding: '0 18px', position: 'relative', minHeight: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-          <span style={{
+          <span key={tweaks.rotuloResalta && ladoCambio ? 'lado-' + hero.label : 'lado'} style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 19, letterSpacing: 1, color: stateColor,
             textShadow: glow(`0 0 14px ${stateColor}`),
+            borderRadius: 6, padding: '2px 6px', margin: '-2px -6px',
+            animation: tweaks.rotuloResalta && ladoCambio ? 'marcaLado 1.6s linear' : 'none',
           }}>{hero.label}</span>
           <span style={{ fontSize: 15, fontWeight: 700, color: dim2, fontFamily: 'system-ui, sans-serif' }}>
             {rotuloLado(hero)}
@@ -3192,6 +3235,13 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
           }}>{ETIQUETA_MODO[tweaks.mode] || 'DÍA'}</span>
         </button>
       )}
+      {/* Un ensayo prendido se ve: quien compara tiene que saber cuál mira */}
+      {(tweaks.barraFija || tweaks.rotuloResalta) && (
+        <span data-ensayo style={{
+          position: 'absolute', top: 7, left: 10, zIndex: 10, pointerEvents: 'none',
+          fontFamily: 'system-ui, sans-serif', fontSize: 12, fontWeight: 700, color: HUD.dim2,
+        }}>ENSAYO · {[tweaks.barraFija && 'barra', tweaks.rotuloResalta && 'rótulo'].filter(Boolean).join(' + ')}</span>
+      )}
     </div>
   );
 }
@@ -3343,6 +3393,18 @@ function TweaksPanel({ tweaks, setTweaks, visible, onNav, currentScreen }) {
         />
       </TweakRow>
 
+      {/* Los ensayos de la auditoría de UI (H1, H2): lo mismo que ?ensayo= */}
+      <TweakRow label="Barra de arriba (ensayo B4)">
+        <Seg value={tweaks.barraFija ? 'fija' : 'late'} onChange={v => update({ barraFija: v === 'fija' })}
+          options={[{ v: 'late', l: 'Late siempre' }, { v: 'fija', l: 'Fija, avisa al cambiar' }]}
+        />
+      </TweakRow>
+      <TweakRow label="Cambio de lado (ensayo B6)">
+        <Seg value={tweaks.rotuloResalta ? 'si' : 'no'} onChange={v => update({ rotuloResalta: v === 'si' })}
+          options={[{ v: 'no', l: 'Sin señal' }, { v: 'si', l: 'Resaltar el rótulo' }]}
+        />
+      </TweakRow>
+
       <div style={{
         fontFamily: 'ui-monospace, monospace', fontSize: 9, color: '#555', lineHeight: 1.5, marginTop: 8,
       }}>
@@ -3401,6 +3463,8 @@ function Root() {
     r.setProperty('--pag-fg', HUD.resplandor ? '#eee' : HUD.fg);
     r.setProperty('--pag-dim', HUD.resplandor ? '#888' : HUD.dim2);
     r.setProperty('--pag-dim2', HUD.resplandor ? '#666' : HUD.dim3);
+    r.setProperty('--marca-lado', HUD.burbujaWarn);
+    r.setProperty('--marca-lado-borde', HUD.warnEdge);
   }, [tweaks.mode, tema]);
   const [tweaksVisible, setTweaksVisible] = React.useState(false);
   // En el teléfono no hay marco: los avisos de arriba van pegados al borde

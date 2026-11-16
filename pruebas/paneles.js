@@ -189,6 +189,9 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
     ok('B7 · la puerta «Salir a ruta» sigue el tema (sin la paleta fija P)', !/\bP\.[a-z]/.test(puerta) && /background: HUD\.acento, color: HUD\.acentoInk/.test(puerta)); }
   // B5: cada dígito saltaba y se atenuaba en cada cambio, todo el turno
   ok('B5 · los dígitos quietos; el número crece sólo al cambiar de estado', !/function AnimatedDigit/.test(prototipo) && /const cambio = !!enableAnim && previo\.current !== estado;/.test(prototipo) && /estado=\{hero\.status\}/.test(prototipo));
+  // B4 y B6 son hipótesis: apagadas de fábrica, se prenden con ?ensayo=
+  ok('B4/B6 · los ensayos arrancan apagados y se prenden por la dirección', /barraFija: ENSAYOS\.has\('barra'\), rotuloResalta: ENSAYOS\.has\('rotulo'\)/.test(prototipo) && /localStorage\.setItem\('r14_ensayo', v\)/.test(prototipo) && /data-ensayo/.test(prototipo));
+  ok('B4/B6 · la raíz conserva ?ensayo= al pasar a la app', /location\.replace\('Prototipo\.html' \+ location\.search/.test(leer('project/index.html')));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
