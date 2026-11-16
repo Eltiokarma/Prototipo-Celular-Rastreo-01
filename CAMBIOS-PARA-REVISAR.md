@@ -1529,6 +1529,85 @@ otro guardia), `pruebas/regresion.js`.
 
 ---
 
+## 22. Revisión del 15/11 — grupo 4: lo que quedaba
+
+**Qué.**
+- **Códigos con nombre interno de JavaScript (UX-04).** `idLimpio` rechaza
+  `__proto__`, `constructor`, `toString` y los demás nombres de
+  `Object.prototype`. Turnos, brechas, teléfonos y los mapas de marcadores
+  (Despacho, web, Android) usan objetos sin prototipo: un «constructor» ya
+  cargado no rompe el informe (antes 500) y un «__proto__» no contamina el
+  proceso. El arranque avisa si ya hay códigos así.
+- **El reintento del SOS trae posición (SOS-03).** Si el SOS sigue abierto y
+  el reintento trae una posición (o la de la combi con señal de que va en
+  ella), se actualiza y se avisa con `sos_posicion`, sin volver a sonar.
+  Despacho mueve el pin y dice «POSICIÓN ACTUALIZADA hh:mm». La del teléfono
+  no se pisa con la de la combi.
+- **Salir de ruta corta de verdad (GPS-02).** `POST /gps` toma el mando,
+  abre el turno y saca de la puerta recién con el lote validado y con
+  posiciones posteriores al último «fuera». Android corta el envío en vuelo
+  al salir (`vigiaEnvio.cortar()`).
+- **GPS simulado (GPS-03).** En producción una posición simulada se ve en el
+  mapa y queda en la auditoría, pero no mide vueltas ni medias vueltas, no
+  entra a la cadena de brechas y no sirve de respaldo para el SOS. En la
+  demo, igual que antes.
+- **Usuarios reusados (SEG-02).** No se da de alta un usuario con turnos o
+  mensajes en NINGUNA cooperativa (antes, sólo en la propia). El perfil no
+  muestra nada anterior al alta de la cuenta.
+- **La clave que el chofer le pone al cobrador (SEG-03).** Es temporal: el
+  login con ella contesta 409 `claveTemporal` y para entrar hay que mandar
+  una propia (`nueva`), que se guarda antes de crear la sesión. La app y la
+  web piden el campo. Si el chofer la usara primero, el cobrador no podría
+  entrar y se enteraría.
+- **Teléfono compartido (SEG-06).** Android descarta la respuesta de la
+  marca y de las combis que llega de la sesión anterior; la web, la de la
+  marca. Sin central en la cooperativa nueva, se olvida la recordada.
+- **El vigía de la puerta (GPS-04), decidido con el dueño el 16/11.** Al
+  vencer la cuenta ya NO sale a ruta solo ni transmite: el aviso queda fijo
+  («Te vimos en movimiento… si estás manejando, deslizá SALIR A RUTA») y
+  Despacho lo ve en la Actividad (`vigia_puerta`, por socket o
+  `POST /vigia-puerta`, una vez cada media hora, sin ubicación).
+- **El cobrador ve el mapa (UX-01).** En Android, la condición «fuera» ya no
+  le tapa el mapa: ver y emitir son cosas distintas.
+- **Dos teléfonos (UX-02).** Cerrar sesión en uno no cierra el turno si la
+  persona sigue conectada en otro con otra sesión.
+- **El chat de otra ruta (UX-03).** Despacho descarta el `chat_history` de
+  una ruta que no es la que mira, como ya hacía con `state`.
+- **El hilo en memoria (UX-05).** Android guarda los últimos 300 mensajes y
+  sólo los 20 adjuntos más nuevos con su contenido; los demás quedan como
+  burbuja («liberada de la memoria del teléfono: vuelve al reconectar»).
+- **Exportación de datos (DIS-03), en parte.** El peso se mide en la base
+  antes de leer nada. Armarlo por partes fuera del proceso de tiempo real
+  sigue pendiente.
+
+**Archivos.** `server/index.js`, `server/base.js`, `app/App.js`,
+`app/chat.js`, `app/envio.js`, `app/gps/servicio.js`, `app/mapa.js`,
+`app/protocolo/cliente.js`, `project/Prototipo.html`,
+`project/despacho.html`, `project/realtime.js`,
+`project/service-worker.js` (v103), `pruebas/grupo4.js` (nueva),
+`pruebas/cobradores.js` (clave temporal), `pruebas/datos-persona.js` (el
+reuso entre cooperativas ahora se rechaza), `pruebas/puerta-web.js` (el
+vigía ya no sale solo), `pruebas/regresion.js`.
+
+**Mirar.**
+- Lo de Android (mapa del cobrador, vigía, clave temporal, teléfono
+  compartido, tope del hilo, corte del envío) necesita un APK nuevo. Un APK
+  viejo con un cobrador que recibe una clave temporal no sabe pedir la
+  propia: tiene que entrar por la web o actualizar.
+- El vigía ya no saca a nadie a ruta solo: el que se olvida de SALIR A RUTA
+  y no mira el teléfono trabaja invisible hasta que Despacho lo vea en la
+  Actividad o en «entró y no salió». Fue la decisión del 16/11.
+- Un usuario dado de baja no se puede volver a usar nunca (mientras tenga
+  turnos o mensajes guardados). El mensaje sugiere otro.
+- `avisoSalida` («SALISTE A RUTA SOLO») ya no se dispara: quedó el código
+  por si se vuelve a la opción C.
+
+**Pruebas.** `grupo4` (nueva), `cobradores`, `datos-persona`, `puerta-web`,
+`vigia-puerta`, `gpshttp`, `presencia`, `relevo`, `puertas`, `contraste`,
+`sintaxis` y la regresión completa.
+
+---
+
 ## Para el manual
 
 Al día el 11/11: `manual/manual.tex` y `manual.pdf` cubren los bloques 3, 4,

@@ -758,6 +758,14 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   // si está vivo, HTTP si no — el botón tiene que andar con mala señal.
   // El servidor lo apaga solo cuando la combi vuelve a andar; desmarcar a
   // mano existe para el toque en falso.
+  // El vigía de la puerta lo vio manejando y nadie contestó (GPS-04): se le
+  // avisa a Despacho, sin posición. Si no hay socket, no se insiste: es un
+  // dato para la Actividad, no una emergencia (un intento por HTTP).
+  function avisarVigia() {
+    if (enviar({ type: 'vigia_puerta' })) return Promise.resolve(true);
+    return declararPorHttp('/vigia-puerta', {}, 1);
+  }
+
   async function marcarTrafico(activo) {
     const a = !!activo;
     if (ws && conectado) {
@@ -769,7 +777,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   return {
     entrar, conectar, salir, cerrarSesion,
     mandarGps, mandarChat, mandarVoz, mandarFoto, mandarSos,
-    marcarTipoSos, pedirMarca, marcarPresencia, recordarPresencia, marcarTrafico,
+    marcarTipoSos, pedirMarca, marcarPresencia, recordarPresencia, marcarTrafico, avisarVigia,
     misCombis, elegirCombi,
     miBrecha, otrasUnidades, miUnidad,
     on(evento, fn) {

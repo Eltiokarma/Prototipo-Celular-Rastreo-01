@@ -5070,6 +5070,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   // El mando de la combi (opciones B y C, 30/10)
                   relevo: { label: 'tomó la combi que manejaba', color: HUD.bright },
                   salio_solo: { label: 'salió a ruta solo en', color: HUD.amber },
+                  vigia_puerta: { label: 'parecía estar manejando sin haber salido a ruta en', color: HUD.amber },
                 };
                 const cols = '120px 150px 1fr';
                 return (
@@ -5711,6 +5712,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
               : x));
           }
         } else if (msg.type === 'chat_history') {
+          // El mismo cuidado que con `state` (revisión 15/11, UX-03): al
+          // reconectar, el historial de la ruta inicial sale en diferido y
+          // llegaba DESPUÉS del de la ruta mirada, y lo pisaba: el mapa en una
+          // ruta y el chat de otra.
+          if (rutaMiradaRef.current && msg.routeId && msg.routeId !== rutaMiradaRef.current) return;
           setMessages((msg.items || []).map(it => mapMsg(
             { ...it, expired: (it.kind === 'voice' || it.kind === 'photo') && !it.data && !it.aparte },
             it.kind

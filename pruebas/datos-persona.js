@@ -145,11 +145,16 @@ let servidor = null;
   base.prepare("INSERT INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES ('M-90', NULL, 'R-9', 'OTRA', ?)").run(Date.now());
   coop.gerente(base, { companyId: 'OTRA', usuario: 'GERENTE-OTRA', clave: 'gerente-otra-1' });
   const HG2 = (await post('/auth/login', null, { user: 'GERENTE-OTRA', password: 'gerente-otra-1' })).body.token;
+  // Desde la revisión del 15/11 (SEG-02) ni se puede: un usuario con turnos
+  // o mensajes no se vuelve a dar de alta en NINGUNA cooperativa —antes
+  // sólo se miraba la propia, y el nuevo veía en su perfil las horas y el
+  // SOS abierto del anterior—. Con otro usuario, el alta anda.
   const alta2 = await post('/admin/users', HG2, { unitId: 'juan', name: 'Juan Otro', vehicleId: 'M-90', password: 'clave12345' });
-  const z2 = alta2.status === 200 && abrirZip(Buffer.from(await (await fetch(`${API}/admin/users/juan/datos.zip`, { headers: { Authorization: 'Bearer ' + D2 } })).arrayBuffer()));
-  ok('el «juan» nuevo de la otra cooperativa no trae nada del anterior',
-     !!z2 && z2.texto('turnos.csv').trim().split('\r\n').length === 1 && z2.texto('vueltas.csv').trim().split('\r\n').length === 1 &&
-     !/Juan en el grupo/.test(z2.texto('mensajes.csv')), alta2.status === 200 ? [z2.texto('turnos.csv'), z2.texto('vueltas.csv')] : alta2.body);
+  ok('el «juan» de la otra cooperativa no puede reusar el usuario', alta2.status === 409 && /lo usó otra persona/.test(alta2.body.error || ''), alta2.body);
+  const alta3 = await post('/admin/users', HG2, { unitId: 'juan.otro', name: 'Juan Otro', vehicleId: 'M-90', password: 'clave12345' });
+  const z2 = alta3.status === 200 && abrirZip(Buffer.from(await (await fetch(`${API}/admin/users/juan.otro/datos.zip`, { headers: { Authorization: 'Bearer ' + D2 } })).arrayBuffer()));
+  ok('con otro usuario sí, y su ZIP empieza vacío',
+     !!z2 && z2.texto('turnos.csv').trim().split('\r\n').length === 1 && !/Juan en el grupo/.test(z2.texto('mensajes.csv')), alta3.body);
 
   console.log('\nEN LA PANTALLA DE DESPACHO (Chromium)');
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });

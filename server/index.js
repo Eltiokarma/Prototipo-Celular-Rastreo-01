@@ -1778,7 +1778,7 @@ const CLASE_AUDIT = {};
 for (const a of ['login', 'login_bloqueado', 'login_empresa_inactiva', 'creador_login', 'creador_bloqueo'])
   CLASE_AUDIT[a] = 'acceso';
 for (const a of ['desvio', 'vuelta_parcial', 'entrada_tardia', 'gps_simulado', 'gps_sospechoso',
-                 'salio_solo', 'relevo', 'cambio_combi', 'sos', 'sos_atendido', 'grabacion',
+                 'salio_solo', 'vigia_puerta', 'relevo', 'cambio_combi', 'sos', 'sos_atendido', 'grabacion',
                  'grabacion_pedida', 'grabacion_pedido_cancelado', 'aviso_visto'])
   CLASE_AUDIT[a] = 'operacion';
 const claseDeAudit = (action) => CLASE_AUDIT[action] || 'gestion';
@@ -2739,6 +2739,29 @@ function asumirMando(vehicleId, personId, ws, como, quien = {}) {
 // Salió a ruta SOLO: el vigía de la puerta lo vio manejando sin haber tocado
 // el botón y nadie contestó el aviso (opción C, 30/10). No acusa a nadie —es
 // lo que pasó—, pero Despacho tiene que poder verlo: va a la Actividad.
+// Una anotación del vigía por persona y combi cada media hora: la app la
+// repite si se rehace el vigía, y la Actividad no es para eso.
+const vigiaAnotado = new Set();
+function anotarVigiaPuerta(personId, prof) {
+  const vehicleId = prof.vehicleId;
+  if (!vehicleId || prof.role !== 'driver') return false;
+  const clave = personId + '|' + vehicleId;
+  if (vigiaAnotado.has(clave)) return true;
+  vigiaAnotado.add(clave);
+  setTimeout(() => vigiaAnotado.delete(clave), 30 * 60_000).unref();
+  audit(personId, 'vigia_puerta', vehicleId, 'la app lo vio manejando sin haber tocado SALIR A RUTA; espera que confirme',
+    rutaDeLaCombi(vehicleId, prof.routeId));
+  return true;
+}
+// Lo mismo por HTTP: en la puerta la web no tiene socket abierto (se abre al
+// salir a ruta), y la app puede no tenerlo.
+app.post('/vigia-puerta', (req, res) => {
+  const auth = String(req.headers.authorization || '');
+  const user = sessionUser(auth.startsWith('Bearer ') ? auth.slice(7) : null);
+  if (!user) return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  const ok = anotarVigiaPuerta(user.unitId, { vehicleId: user.vehicleId, role: user.role, routeId: user.routeId });
+  res.status(ok ? 200 : 403).json(ok ? { ok: true } : { error: 'Sólo el chofer' });
+});
 function anotarSalidaSola(personId, vehicleId, rutaPersona) {
   audit(personId, 'salio_solo', vehicleId, 'la app lo vio manejando sin haber tocado SALIR A RUTA',
     rutaDeLaCombi(vehicleId, rutaPersona));
@@ -4840,8 +4863,24 @@ app.post('/auth/logout', (req, res) => {
     : db.prepare('DELETE FROM sessions WHERE token = ?').run(huellaToken(token)).changes;
   // Cerrar sesión es bajarse: el turno se cierra acá, no cuando alguien se
   // acuerde de reiniciar el servidor (REVISION-2026-09-10.md, L1).
-  cerrarTurno(sesion.unitId);
-  quitarDeLaPuerta(sesion.unitId);
+  //
+  // Salvo que la persona siga conectada en OTRO teléfono, con otra sesión
+  // (revisión 15/11, UX-02): el cobrador con dos celulares cerraba sesión en
+  // uno y el otro seguía conectado pero sin turno, sin sumar horas hasta
+  // volver a identificarse. Es la misma regla que el cierre del socket.
+  const huella = huellaToken(token);
+  let otroTelefono = false;
+  if (!todas) {
+    for (const [ws, id] of clients) {
+      if (id === sesion.unitId && ws.readyState === 1 && ws.huellaSesion && ws.huellaSesion !== huella) {
+        otroTelefono = true; break;
+      }
+    }
+  }
+  if (!otroTelefono) {
+    cerrarTurno(sesion.unitId);
+    quitarDeLaPuerta(sesion.unitId);
+  }
   if (todas) {
     // Los WebSocket abiertos con esos tokens también: si no, la pantalla del
     // que se llevó el teléfono sigue recibiendo el mapa y el chat en vivo.
@@ -6734,7 +6773,7 @@ async function importarPersonas(req, res) {
 // consentimiento, bajar sus datos): ahí la regla de Despacho contra Despacho
 // no aplica, y cada endpoint dice lo suyo.
 function cuentaEnAlcance(req, unitId, { gestion = true } = {}) {
-  const u = db.prepare('SELECT unitId, role, routeId, companyId FROM users WHERE unitId = ?').get(unitId);
+  const u = db.prepare('SELECT unitId, role, routeId, companyId, createdAt FROM users WHERE unitId = ?').get(unitId);
   // Una cuenta de otra empresa se responde como inexistente. Distinguirlas
   // convertiría estos endpoints en un buscador de usuarios ajenos.
   if (!u || u.companyId !== req.empresa) return { error: 404, msg: 'Esa unidad no existe' };
@@ -6982,15 +7021,35 @@ function datosDePersona(unitId, empresa, quien) {
   return { archivos, cuenta, fotos, audios };
 }
 
+// El PESO se mide en la base ANTES de leer nada (revisión 15/11, DIS-03):
+// antes se leían y decodificaban todas las fotos y audios y recién después
+// se veía si pasaban el tope, con el base64, lo decodificado y el ZIP en
+// memoria a la vez, en el mismo proceso que atiende la flota. (Armarlo por
+// partes fuera del proceso de tiempo real queda pendiente: PENDIENTES.)
+const EXPORTACION_MAX_BYTES = 500 * 1024 * 1024;
 app.get('/admin/users/:unitId/datos.zip', requireDispatch, (req, res) => {
   const chequeo = cuentaEnAlcance(req, req.params.unitId, { gestion: false });
   if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
+  {
+    // El base64 ocupa 4/3 de lo que pesa el archivo
+    const crudo = db.prepare(`SELECT COUNT(*) n, COALESCE(SUM(length(data)), 0) b FROM messages
+      WHERE (unitId = @p OR toPersonId = @p) AND timestamp >= @creada
+        AND routeId IN (SELECT routeId FROM routes WHERE companyId = @empresa)`)
+      .get({ p: chequeo.user.unitId, creada: Number(chequeo.user.createdAt) || 0, empresa: req.empresa });
+    const estimado = Math.round(crudo.b * 3 / 4);
+    if (crudo.n > 20_000 || estimado > EXPORTACION_MAX_BYTES) {
+      return res.status(413).json({ error: `Son demasiados datos para un solo archivo (${crudo.n} mensajes, ~${Math.round(estimado / 1048576)} MB). Pedilo al soporte del sistema` });
+    }
+  }
+  exportarDatos(req, res, chequeo);
+});
+function exportarDatos(req, res, chequeo) {
   const { archivos, fotos, audios } = datosDePersona(chequeo.user.unitId, req.empresa, req.dispatchUser.unitId);
   // Topes con un error claro: el ZIP es sin ZIP64 (hasta 65 535 archivos) y
   // se arma en memoria (revisión integral del 04/11). Con 30 días de chat,
   // una persona real está muy lejos de los dos.
   const pesa = archivos.reduce((t, a) => t + (Buffer.isBuffer(a.datos) ? a.datos.length : Buffer.byteLength(String(a.datos))), 0);
-  if (archivos.length > 20_000 || pesa > 500 * 1024 * 1024) {
+  if (archivos.length > 20_000 || pesa > EXPORTACION_MAX_BYTES) {
     return res.status(413).json({ error: `Son demasiados datos para un solo archivo (${archivos.length} archivos, ${Math.round(pesa / 1048576)} MB). Pedilo al soporte del sistema` });
   }
   const zip = crearZip(archivos);
@@ -7001,7 +7060,7 @@ app.get('/admin/users/:unitId/datos.zip', requireDispatch, (req, res) => {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="datos-${chequeo.user.unitId}-${fecha}.zip"`);
   res.send(zip);
-});
+}
 
 // Las combis que puede manejar una persona (habilitaciones, 30/10). Se manda
 // la lista entera: { combis: [...], todaLaRuta, actual? }. `actual` cambia la
@@ -9608,6 +9667,9 @@ wss.on('connection', (ws) => {
         return;
       }
       clients.set(ws, user.unitId);
+      // Con qué sesión se identificó: cerrar ESA sesión no tiene por qué
+      // cortarle el turno al otro teléfono de la misma persona (UX-02)
+      ws.huellaSesion = huellaToken(String(msg.token || ''));
       clearTimeout(cerrarSiNoSeIdentifica);   // ya se presentó
       // Tope de conexiones por cuenta: se va la más vieja
       {
@@ -9937,6 +9999,16 @@ wss.on('connection', (ws) => {
 
     // "Estoy en tráfico" / "ya no". Sólo el chofer, como la presencia: es de
     // la unidad. Un booleano explícito; cualquier otra cosa se ignora.
+    // El vigía de la puerta lo vio manejando y nadie contestó el aviso
+    // (revisión 15/11, GPS-04). Ya NO sale a ruta solo: queda esperando que
+    // el chofer confirme, y Despacho lo ve en la Actividad. Sin ubicación:
+    // en la puerta no se emite, y esto tampoco.
+    if (msg.type === 'vigia_puerta') {
+      const personId = clients.get(ws);
+      const prof = personId ? profiles.get(personId) : null;
+      if (prof) anotarVigiaPuerta(personId, prof);
+    }
+
     if (msg.type === 'trafico') {
       const personId = clients.get(ws);
       const prof = personId ? profiles.get(personId) : null;

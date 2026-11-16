@@ -4,8 +4,10 @@
 //      y deja de verlo cuando sale.
 //   C. La web del chofer, en la puerta y con el permiso de ubicación ya
 //      dado, mira el GPS sin mandarlo: si ve que ya está manejando avisa con
-//      cuenta regresiva y, si nadie contesta, sale a ruta sola. Despacho lo
-//      ve en la Actividad. «No estoy manejando» lo calla.
+//      cuenta regresiva y, si nadie contesta, se le cuenta a Despacho (en la
+//      Actividad) y el aviso queda fijo. Desde la revisión del 15/11 (GPS-04)
+//      ya NO sale a ruta sola: salir es tocar SALIR A RUTA. «No estoy
+//      manejando» lo calla.
 //
 // El reloj de la página del chofer se maneja a mano (Playwright clock): la
 // cuenta regresiva es de un minuto y la velocidad se mide sobre ventanas de
@@ -121,7 +123,7 @@ const LAT = -15.4900, LNG = -70.1330, M = 1 / 111320;
   ok('avisa', !!aviso);
   ok('antes de los dos minutos de andar', paso * 5 <= 120, paso * 5);
   const texto = aviso ? await aviso.innerText() : '';
-  ok('dice qué pasa y cuánto falta', /¿Ya estás manejando\?/.test(texto) && /Salís a ruta solo en \d+ s/.test(texto), texto);
+  ok('dice qué pasa y cuánto falta', /¿Ya estás manejando\?/.test(texto) && /le avisamos a Despacho en \d+ s/.test(texto), texto);
 
   // «No estoy manejando»
   await ch.click('button:has-text("No estoy manejando")');
@@ -145,21 +147,27 @@ const LAT = -15.4900, LNG = -70.1330, M = 1 / 111320;
   }
   ok('pasada la media hora vuelve a avisar', !!aviso);
 
-  console.log('\nC. NADIE CONTESTA: SALE SOLO');
+  console.log('\nC. NADIE CONTESTA: NO SALE SOLO, LE AVISA A DESPACHO');
   await ch.clock.fastForward(61_000);
   await ch.waitForTimeout(1500);
-  const fuera = await ch.$('button:has-text("SALIR A RUTA")');
-  ok('al minuto sale a ruta solo', !fuera);
+  ok('al minuto NO sale a ruta solo: sigue en la puerta', !!(await ch.$('button:has-text("SALIR A RUTA")')));
   const t = await ch.evaluate(() => document.body.innerText);
-  ok('y se le dice', /SALISTE A RUTA SOLO/.test(t), t.slice(0, 200));
-  ok('quedó declarado en ruta', await ch.evaluate(() => localStorage.getItem('r14_presencia')) === 'ruta');
+  ok('el aviso queda fijo, pidiéndole que confirme', /Te vimos en movimiento/.test(t) && !!(await ch.$('[data-vigia-puerta]')), t.slice(0, 200));
+  ok('no quedó declarado en ruta', await ch.evaluate(() => localStorage.getItem('r14_presencia')) !== 'ruta');
 
   await sleep(2500);
   const aud = await pedir('/admin/audit', { headers: H });
-  const ev = (aud.body.events || aud.body || []).find(e => e.action === 'salio_solo');
+  const eventos = aud.body.events || aud.body || [];
+  const ev = eventos.find(e => e.action === 'vigia_puerta');
   ok('Despacho lo ve en la Actividad', !!ev && ev.actor === 'pedro' && ev.target === 'M-05', ev);
+  ok('y no figura como que salió solo', !eventos.some(e => e.action === 'salio_solo'));
   b = await bloque();
-  ok('y deja de figurar como que no salió', !b, b);
+  ok('sigue figurando como que no salió', !!b && /Pedro Mamani · M-05/.test(b), b);
+  // Salir sigue siendo tocar el botón
+  await ch.click('[data-vigia-puerta] button:has-text("SALIR AHORA")');
+  await ch.waitForTimeout(1500);
+  ok('con SALIR AHORA sale', !(await ch.$('button:has-text("SALIR A RUTA")')) &&
+    await ch.evaluate(() => localStorage.getItem('r14_presencia')) === 'ruta');
 
   ok('ninguna de las dos páginas tiró errores', errores.length === 0, errores);
 

@@ -1988,11 +1988,21 @@ function usarPaginaVisible() {
   return visible;
 }
 
-function usarVigiaPuerta(activo, onSalir) {
+// Al vencer la cuenta ya NO sale a ruta solo (revisión 15/11, GPS-04): el
+// aviso queda fijo (`espera`) hasta que diga que sí o que no, y se le avisa a
+// Despacho con `onVencio`. Antes salía solo y empezaba a mandar la ubicación,
+// y el que iba de pasajero en otro vehículo quedaba rastreado.
+function usarVigiaPuerta(activo, onVencio) {
   const vigia = React.useRef(null);
   const [falta, setFalta] = React.useState(null);   // ms de la cuenta, o null
-  const salirRef = React.useRef(onSalir);
-  salirRef.current = onSalir;
+  const [espera, setEspera] = React.useState(false);
+  const salirRef = React.useRef(null);
+  salirRef.current = () => {
+    setFalta(null);
+    setEspera(true);
+    try { navigator.vibrate && navigator.vibrate([400, 200, 400]); } catch {}
+    try { onVencio && onVencio(); } catch {}
+  };
   // «No estoy manejando» vale media hora aunque el vigía se rehaga (la
   // página se escondió y volvió)
   const calladoHasta = React.useRef(0);
@@ -2034,8 +2044,9 @@ function usarVigiaPuerta(activo, onSalir) {
     if (vigia.current) vigia.current.callar(ahora);
     calladoHasta.current = ahora + PUERTA_CALLADO_MS;
     setFalta(null);
+    setEspera(false);
   };
-  return { falta, callar };
+  return { falta, espera, callar };
 }
 
 // ¿En qué combi salís? (habilitaciones, 30/10). La lista y su estado —libre,
@@ -2178,7 +2189,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
   const deHoy = combis.find(c => c.vehicleId === unidad);
   const ocupada = !!deHoy && deHoy.estado === 'ocupada';
   const visible = usarPaginaVisible();
-  const { falta, callar } = usarVigiaPuerta(!!onAutoStart && !ocupada && visible, onAutoStart);
+  const { falta, espera, callar } = usarVigiaPuerta(!!onAutoStart && !ocupada && visible, onAutoStart);
   const [confirmar, setConfirmar] = React.useState(null);
   const [errorCombi, setErrorCombi] = React.useState(null);
   const [eligiendo, setEligiendo] = React.useState(false);
@@ -2251,7 +2262,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
           combis para elegir, quedaba fuera de la pantalla de un celular chico
           y no se podía contestar (revisión previa a la APK). No es un toast
           que se va solo: se va saliendo o diciendo que no. */}
-      {falta !== null && (
+      {(falta !== null || espera) && (
         <div role="alert" data-vigia-puerta style={{
           background: P.yellow, color: P.bg, borderRadius: 14,
           padding: '14px 14px 12px', marginBottom: 12,
@@ -2261,8 +2272,12 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
             fontSize: 19, lineHeight: 1.15, marginBottom: 4,
           }}>¿Ya estás manejando?</div>
           <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, marginBottom: 10 }}>
-            Tu combi no está en el mapa. Salís a ruta solo en{' '}
-            <strong style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>.
+            {espera ? (
+              <>Te vimos en movimiento y tu combi no está en el mapa. Si estás manejando, salí a ruta. Despacho lo ve en la actividad.</>
+            ) : (
+              <>Tu combi no está en el mapa. Si estás manejando, salí a ruta (le avisamos a Despacho en{' '}
+              <strong style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>).</>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onStart} style={{
@@ -3785,12 +3800,11 @@ function Root() {
       lapNumber={lap}
       onStart={() => { declararPresencia('ruta'); setScreen('app'); }}
       onRest={() => { declararPresencia('ausente'); setScreen('app'); }}
-      // El vigía vio que ya maneja y nadie contestó: sale solo, y se le dice
-      // (y al servidor, para que Despacho lo vea en Actividad)
+      // El vigía vio que ya maneja y nadie contestó. Ya no sale solo (revisión
+      // 15/11, GPS-04): el aviso queda en la puerta y se le cuenta a
+      // Despacho, sin ubicación. Salir sigue siendo tocar SALIR A RUTA.
       onAutoStart={user?.role === 'collector' ? null : () => {
-        declararPresencia('ruta', 'auto');
-        setAvisoSalida('Te vimos manejando: saliste a ruta solo');
-        setScreen('app');
+        window.RealtimeClient && window.RealtimeClient.avisarVigia && window.RealtimeClient.avisarVigia(user?.token || null);
       }}
       onLogout={logout}
       token={user?.token || null}

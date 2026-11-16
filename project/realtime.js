@@ -767,6 +767,16 @@
   const pedirMarca = (token) => pedirConToken('/marca', token);
   // La última posición si es reciente (la misma regla que el SOS): para el
   // SMS a la central cuando el SOS no sale por internet
+  // El vigía de la puerta lo vio manejando y nadie contestó (revisión 15/11,
+  // GPS-04): se le cuenta a Despacho, sin ubicación. Por HTTP: en la puerta
+  // el socket no está abierto.
+  function avisarVigia(token) {
+    const tk = authToken || token;
+    if (!tk) return Promise.resolve(false);
+    return fetch(HTTP_URL + '/vigia-puerta', { method: 'POST', headers: { Authorization: 'Bearer ' + tk } })
+      .then(r => r.ok, () => false);
+  }
+
   function posicionReciente() {
     const fresca = lastPosition && Date.now() - (lastPosition.timestamp || 0) <= POSICION_SOS_MAX_MS;
     return fresca ? { lat: lastPosition.coords.latitude, lng: lastPosition.coords.longitude } : null;
@@ -779,6 +789,7 @@
     misCombis,
     pedirMarca,
     posicionReciente,
+    avisarVigia,
     elegirCombi,
     connect,
     disconnect,

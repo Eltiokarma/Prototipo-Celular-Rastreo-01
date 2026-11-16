@@ -104,4 +104,30 @@ function sinLeer(mensajes, canal, vistoHasta = 0) {
   return mensajes.filter(m => m.canal === canal && !m.propio && m.timestamp > vistoHasta).length;
 }
 
-module.exports = { aMensaje, hilo, sinLeer, hora, conTipoSos, TIPOS_SOS };
+// El hilo en memoria, con tope (revisión 15/11, UX-05). Durante una conexión
+// los mensajes se iban sumando sin límite, y cada foto o audio quedaba ADENTRO
+// como data-URL base64: en una ruta grande, horas sin reconectar eran decenas
+// de MB en un teléfono con poca RAM. Se guardan los últimos `maxMensajes`, y
+// sólo los `maxMedios` adjuntos más nuevos conservan su contenido; los de
+// antes quedan como burbuja (con su pie) y vuelven enteros al reconectar,
+// con el historial.
+const MAX_MENSAJES = 300;
+const MAX_MEDIOS = 20;
+function conTope(lista, { maxMensajes = MAX_MENSAJES, maxMedios = MAX_MEDIOS } = {}) {
+  let v = lista.length > maxMensajes ? lista.slice(-maxMensajes) : lista;
+  let medios = 0;
+  let cambio = v !== lista;
+  const salida = v.slice();
+  for (let i = salida.length - 1; i >= 0; i--) {
+    const m = salida[i];
+    if (!m || !(m.imagen || m.audio)) continue;
+    medios++;
+    if (medios > maxMedios) {
+      salida[i] = { ...m, imagen: null, audio: null, medioQuitado: true };
+      cambio = true;
+    }
+  }
+  return cambio ? salida : lista;
+}
+
+module.exports = { aMensaje, hilo, sinLeer, hora, conTipoSos, TIPOS_SOS, conTope, MAX_MENSAJES, MAX_MEDIOS };

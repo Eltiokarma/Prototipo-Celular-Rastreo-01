@@ -34,7 +34,7 @@ import { cabeceraDeApp, avisoDeApp, actualizacionDe } from './version';
 import { tocaPreguntar, sePuedeAplicar } from './actualizacion';
 import { limpiarNotificacion, limpiarSiSinRol } from './notificacion.js';
 import { construirHud, textoNotificacion } from './hud';
-import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
+import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS, conTope } from './chat';
 import { margenes, margenBarra } from './margenes';
 import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL } from './gestos';
 import * as mapa from './mapa';
@@ -292,9 +292,9 @@ function Aplicacion() {
       }),
       // El historial llega al identificarse y trae solo lo que a este chofer
       // le corresponde ver: el filtrado del privado lo hace el servidor.
-      c.on('historial', (items) => setMensajes(items.map(m => aMensaje(m, quienSoy(c))))),
-      c.on('chat', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
-      c.on('sos',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
+      c.on('historial', (items) => setMensajes(conTope(items.map(m => aMensaje(m, quienSoy(c)))))),
+      c.on('chat', (m) => setMensajes(v => conTope([...v, aMensaje(m, quienSoy(c))]))),
+      c.on('sos',  (m) => setMensajes(v => conTope([...v, aMensaje(m, quienSoy(c))]))),
       // El tipo llega después que el SOS y actualiza la burbuja YA dibujada
       // en vez de sumar otra: en el hilo la emergencia es una sola.
       c.on('sosTipo', (e) => setMensajes(v =>
@@ -312,8 +312,8 @@ function Aplicacion() {
       c.on('sosAtendido', (m) => {
         if (!sosVistosCerrados.current.has(m.sosId)) setSosVisto(m);
       }),
-      c.on('voz',  (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
-      c.on('foto', (m) => setMensajes(v => [...v, aMensaje(m, quienSoy(c))])),
+      c.on('voz',  (m) => setMensajes(v => conTope([...v, aMensaje(m, quienSoy(c))]))),
+      c.on('foto', (m) => setMensajes(v => conTope([...v, aMensaje(m, quienSoy(c))]))),
       // El cupo por minuto del servidor. Lo que se manda de más se descarta,
       // y antes se descartaba sin decir nada: la burbuja no aparecía y no
       // había explicación en ninguna pantalla (C10).
@@ -473,14 +473,23 @@ function Aplicacion() {
   // necesita saber si la de hoy la está manejando otro
   const [combis, setCombis] = React.useState(null);
   const [avisoSalida, setAvisoSalida] = React.useState(null);   // cuándo salió solo
+  // Venció la cuenta del vigía y nadie contestó (revisión 15/11, GPS-04).
+  // Antes salía a ruta SOLO y empezaba a mandar la ubicación: el chofer que
+  // iba de pasajero en otro vehículo, con la app abierta, quedaba rastreado
+  // como si manejara su combi —y la política de privacidad promete que fuera
+  // del turno no se emite—. Ahora el aviso se queda fijo hasta que diga que
+  // sí (deslizando SALIR A RUTA) o que no, y Despacho lo ve en la Actividad.
+  const [vigiaEspera, setVigiaEspera] = React.useState(false);
   const salirSolo = React.useRef(null);
   salirSolo.current = () => {
     setFaltaPuerta(null);
-    cambiarPresencia('ruta', 'auto');
-    // En su propio estado y no en `aviso`: el `rolGps` de la conexión que
-    // abre la salida lo borraba al instante (revisión previa a la APK)
-    setAvisoSalida(Date.now());
+    setVigiaEspera(true);
+    setPantalla('ruta');
+    Vibration.vibrate([0, 400, 200, 400]);
+    try { cliente.current && cliente.current.avisarVigia(); } catch {}
   };
+  // Saliendo de la puerta (a ruta o ausente), el aviso no tiene más sentido
+  React.useEffect(() => { if (presencia !== 'fuera') setVigiaEspera(false); }, [presencia]);
   // «No estoy manejando» vale media hora aunque el vigía se rehaga (la app
   // fue atrás y volvió, cambió la combi): antes volvía a contar enseguida
   const calladoHasta = React.useRef(0);
@@ -540,6 +549,7 @@ function Aplicacion() {
     if (vigiaPuerta.current) vigiaPuerta.current.callar(ahora);
     calladoHasta.current = ahora + CALLADO_MS;
     setFaltaPuerta(null);
+    setVigiaEspera(false);
   };
   React.useEffect(() => {
     if (!avisoSalida) return;
@@ -930,6 +940,7 @@ function Aplicacion() {
         confirmada={enRutaConfirmada}
         onPresencia={cambiarPresencia}
         faltaPuerta={faltaPuerta}
+        vigiaEspera={vigiaEspera}
         onNoManejo={noEstoyManejando}
         avisoSalida={avisoSalida}
         sosVisto={sosVisto}
@@ -1256,7 +1267,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
                 sosSinRed, central, onSosSinRedCerrar, miNombre, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
                 tipificarSos, tipoSosFallo, onTipoSos, onPerfil, yo, onTrafico, rol,
-                faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi }) {
+                faltaPuerta, vigiaEspera, onNoManejo, combis, miCombi, onElegirCombi }) {
   const { s, C } = usarTema();
   // ── Tráfico: lo que el servidor midió de MÍ, y lo que yo dije ───────
   // `yo.parado` es el hecho (N minutos sin avanzar por la ruta, lo mide el
@@ -1337,17 +1348,19 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
             a propósito, no por un dedo que se corrió. */}
         {/* Mientras cuenta el vigía, no: con varias combis el aviso quedaba
             debajo de la lista, fuera de la pantalla de un teléfono chico. */}
-        {(combis || []).length > 1 && faltaPuerta == null && (
+        {(combis || []).length > 1 && faltaPuerta == null && !vigiaEspera && (
           <ElegirCombi combis={combis} miCombi={miCombi} onElegir={onElegirCombi} />
         )}
         {/* ¿Ya estás manejando? (el vigía de la puerta). Fuerte y arriba del
             deslizador que se olvidó: no es un aviso que se vaya solo — se va
             saliendo, o diciendo que no. Salir sigue siendo deslizar. */}
-        {faltaPuerta != null && rol !== 'collector' && (
+        {(faltaPuerta != null || vigiaEspera) && rol !== 'collector' && (
           <View style={s.vigiaPuerta}>
             <Text style={s.vigiaTitulo}>¿YA ESTÁS MANEJANDO?</Text>
             <Text style={s.vigiaTexto}>
-              Tu combi no está en el mapa. Salís a ruta solo en {Math.ceil(faltaPuerta / 1000)} s.
+              {vigiaEspera
+                ? 'Te vimos en movimiento y tu combi no está en el mapa. Si estás manejando, deslizá SALIR A RUTA. Despacho lo ve en la actividad.'
+                : `Tu combi no está en el mapa. Si estás manejando, deslizá SALIR A RUTA (te avisamos a Despacho en ${Math.ceil(faltaPuerta / 1000)} s).`}
             </Text>
             <Pressable onPress={onNoManejo} style={s.vigiaBoton} hitSlop={8}>
               <Text style={s.vigiaBotonTexto}>NO ESTOY MANEJANDO</Text>
@@ -2200,7 +2213,7 @@ function Deslizable({ texto, textoBoton, colorListo, onDisparar }) {
 //
 // Qué se dibuja está en `mapa.js`, que es JS puro y se prueba en Node. Acá
 // solo se le pasa el papel.
-function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, onIr }) {
+function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, onIr, rol }) {
   const { s, C, oscuro } = usarTema();
   const margen = margenes(useSafeAreaInsets(), { conBarra: true });
   const web = React.useRef(null);
@@ -2297,7 +2310,13 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
   // Fuera de ruta el mapa está vedado: es el mapa DE LA RUTA, de los que
   // están trabajando. Además el WebView ni se monta — sin señal emitida no
   // hay nada que mirar, y las tiles gastan datos.
-  if (presencia === 'fuera') {
+  //
+  // Salvo para el COBRADOR (revisión 15/11, UX-01): él no emite nunca —la
+  // posición la manda el teléfono del chofer—, así que su presencia es
+  // siempre «fuera». Con la misma condición el mapa no se le abría jamás, y
+  // la puerta le prometía «tenés el chat, el mapa y el SOS». Ver el mapa y
+  // publicar la ubicación son permisos distintos.
+  if (presencia === 'fuera' && rol !== 'collector') {
     return (
       <View style={[s.pantalla, margen]}>
         <StatusBar style="light" />
@@ -2670,7 +2689,10 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
             )}
             {/* Una foto sin imagen ya expiró en el servidor: la burbuja se
                 queda, con su pie, para que se sepa que existió. */}
-            {m.tono === 'foto' && !m.imagen && <Text style={s.expirada}>Foto ya no disponible</Text>}
+            {m.tono === 'foto' && !m.imagen && <Text style={s.expirada}>{m.medioQuitado
+              ? 'Foto liberada de la memoria del teléfono: vuelve al reconectar'
+              : 'Foto ya no disponible'}</Text>}
+            {m.medioQuitado && m.tono !== 'foto' && <Text style={s.expirada}>Nota de voz liberada de la memoria: vuelve al reconectar</Text>}
             {!m.audio && <Text style={s.burbujaTexto}>{m.texto}</Text>}
           </View>
         )}
