@@ -172,6 +172,8 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 1 (AUDITORIA-UI-2026-11-16.md)')
   ok('N2 · «¿SEGURO?» acepta el segundo toque recién a los 0,6 s (web y APK)', [prototipo, leer('app/App.js')].every(src => /const ARMA_SALIR_MS = 600;/.test(src) && /Date\.now\(\) - armadoEn\.current < ARMA_SALIR_MS\) return/.test(src)));
   // C2: el verde y el ámbar de estado no llegan a AA en texto chico
   ok('C2 · en Despacho, la palabra chica va en su tinta', /const tintaDeTexto = \(c\) => c === HUD\.green \? HUD\.verdeTinta : c === HUD\.amber \? HUD\.ambarTinta2 : c;/.test(despacho) && /color: tintaDeTexto\(tinta\) \|\| HUD\.dim2/.test(despacho) && /color: tintaDeTexto\(color\), marginTop: 1/.test(despacho));
+  // C4: las tarjetas centraban el mapa sólo con el mouse
+  ok('C4 · la tarjeta de unidad se puede usar con el teclado', /<button type="button" data-centrar=\{u\.unitId\}/.test(despacho) && /e\.stopPropagation\(\); focusUnit\(u\);/.test(despacho));
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

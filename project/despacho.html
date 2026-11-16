@@ -6333,7 +6333,18 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                   <Avatar nombre={nombre || u.unitId} tam={36} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg }}>{u.unitId}</span>
+                      {/* El código es el botón de la tarjeta: con el teclado se llega
+                          con Tab y Enter centra el mapa, que es lo que hace el clic en
+                          cualquier parte de la tarjeta. La tarjeta no es un botón
+                          porque adentro tiene otros dos (auditoría de UI, C4). */}
+                      <button type="button" data-centrar={u.unitId}
+                        onClick={(e) => { e.stopPropagation(); focusUnit(u); }}
+                        title={`Ver ${u.unitId} en el mapa`}
+                        style={{
+                          fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg,
+                          background: 'none', border: 'none', padding: 0, margin: 0,
+                          cursor: 'pointer', borderRadius: 4, lineHeight: 'inherit',
+                        }}>{u.unitId}<span style={ocultoVisual}>: ver en el mapa</span></button>
                       {/* Sin señal la última velocidad es vieja: mostrarla haría
                           creer que la combi sigue andando a ese ritmo. */}
                       <span style={dato(11, HUD.dim2)}>
