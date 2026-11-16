@@ -84,8 +84,35 @@ function armarLado(brechaLado, etiqueta, signo, objetivoMin, ahora) {
   };
 }
 
-// `brecha` es lo que devuelve cliente.miBrecha().
-function construirHud(brecha, ahora = Date.now()) {
+// ─── LA BRECHA VIEJA (auditoría de UI, N1, 16/11) ───────────────────
+// Sin señal la pantalla seguía mostrando la última brecha en su color y con
+// su instrucción: «Mantené el ritmo» sobre un dato de hace minutos. Con el
+// teléfono reportando, el estado llega cada ~3 s (cada posición dispara
+// uno), así que su edad mide la señal mejor que el socket, que tarda en
+// darse cuenta de que murió. Los mismos cortes que la web:
+//   - menos de 10 s: nada cambia;
+//   - desde 10 s: la brecha es VIEJA, va en gris y se dice cuánto hace;
+//   - desde 60 s: está PERDIDA, la pantalla retira el número.
+// El acompañante no reporta (su estado depende de otros teléfonos): ahí
+// manda la conexión.
+const VIEJA_MS = 10_000, PERDIDA_MS = 60_000;
+
+// 75 000 ms → "1:15"
+function duracionLegible(ms) {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// Un lado con número, apagado: el número queda, el color de estado no.
+const apagado = (lado) => (lado.vacio ? lado : { ...lado, estadoReal: lado.estado, estado: 'ninguno' });
+
+// `brecha` es lo que devuelve cliente.miBrecha(). `recibido` es cuándo llegó
+// el estado de donde sale; sin él (la notificación, las pruebas viejas) la
+// brecha se toma como fresca.
+function construirHud(brecha, ahora = Date.now(), { recibido = null, fiable = true, conectado = true } = {}) {
+  const edad = recibido ? Math.max(0, ahora - recibido) : 0;
+  const viejo = !!recibido && (fiable ? edad >= VIEJA_MS : !conectado);
+  const perdido = viejo && edad >= PERDIDA_MS;
   const objetivoMin = brecha?.objetivoMin ?? null;
   const adelante = armarLado(brecha?.adelante, 'ADELANTE', '+1', objetivoMin, ahora);
   const atras    = armarLado(brecha?.atras,    'ATRÁS',    '−1', objetivoMin, ahora);
@@ -102,10 +129,21 @@ function construirHud(brecha, ahora = Date.now()) {
   const principal = heroeEsAtras ? atras : adelante;
   const secundario = heroeEsAtras ? adelante : atras;
 
+  if (viejo) {
+    const hace = duracionLegible(edad);
+    return {
+      objetivoMin, adelante: apagado(adelante), atras: apagado(atras),
+      principal: apagado(principal), secundario: apagado(secundario),
+      instruccion: principal.vacio
+        ? `Sin datos nuevos desde hace ${hace}.`
+        : `Brecha de hace ${hace}. Puede haber cambiado.`,
+      estado: 'ninguno', viejo, perdido, edad, hace,
+    };
+  }
   return {
     objetivoMin, adelante, atras, principal, secundario,
     instruccion: instruccionDe(principal, heroeEsAtras, objetivoMin, adelante, atras),
-    estado: principal.estado,
+    estado: principal.estado, viejo: false, perdido: false, edad, hace: null,
   };
 }
 
@@ -151,6 +189,7 @@ function instruccionDe(principal, esAtras, objetivoMin, adelante, atras) {
 // desbloquear.
 function textoNotificacion(hud, reportaGps) {
   if (!reportaGps) return 'Modo acompañante · tu GPS no se usa';
+  if (hud.viejo) return `Sin señal hace ${hud.hace} · la brecha puede haber cambiado`;
   const p = hud.principal;
   // El tráfico adelante es lo primero que se lee sin desbloquear
   if (hud.adelante.enTrafico) {
@@ -194,5 +233,6 @@ function avisoDesdeRespuesta(brecha, ahora = Date.now()) {
 module.exports = {
   construirHud, textoNotificacion, avisoDesdeRespuesta,
   // Se exportan para las pruebas y para que las pantallas no las repitan
-  aMinutos, estadoDe, objetivoLegible, sinCeroInicial,
+  aMinutos, estadoDe, objetivoLegible, sinCeroInicial, duracionLegible,
+  VIEJA_MS, PERDIDA_MS,
 };

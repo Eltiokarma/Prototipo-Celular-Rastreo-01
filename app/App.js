@@ -33,7 +33,7 @@ import { crearCliente } from './protocolo/cliente';
 import { cabeceraDeApp, avisoDeApp, actualizacionDe } from './version';
 import { tocaPreguntar, sePuedeAplicar } from './actualizacion';
 import { limpiarNotificacion, limpiarSiSinRol } from './notificacion.js';
-import { construirHud, textoNotificacion } from './hud';
+import { construirHud, textoNotificacion, VIEJA_MS } from './hud';
 import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
 import { margenes, margenBarra } from './margenes';
 import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL } from './gestos';
@@ -87,6 +87,26 @@ const quienSoy = (c) => ({
 // olvida uno y queda una pantalla mitad de día y mitad de noche.
 const Tema = React.createContext(null);
 const usarTema = () => React.useContext(Tema);
+
+// La pantalla se re-dibuja con cada estado que llega. Si dejan de llegar,
+// nada la re-dibujaría y la brecha vieja quedaría como si fuera de ahora:
+// esto la despierta a los 10 s y después cada segundo, para que el «hace
+// 0:24» avance. Con el dato fresco no corre ningún reloj (auditoría de UI, N1).
+function usarAhoraSiEnvejece(recibido) {
+  const [ahora, setAhora] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (!recibido) return;
+    setAhora(Date.now());
+    let t;
+    const programar = () => {
+      const edad = Date.now() - recibido;
+      t = setTimeout(() => { setAhora(Date.now()); programar(); }, edad < VIEJA_MS ? VIEJA_MS - edad + 50 : 1000);
+    };
+    programar();
+    return () => clearTimeout(t);
+  }, [recibido]);
+  return ahora;
+}
 
 // La hoja se arma una vez por paleta y se guarda: `StyleSheet.create` en cada
 // render sería un objeto nuevo por frame, justo mientras el dedo arrastra.
@@ -200,7 +220,9 @@ function Presentacion({ mostrando }) {
 
 function Aplicacion() {
   const [sesion, setSesion] = React.useState(null);
-  const [hud, setHud] = React.useState(() => construirHud(null));
+  // La brecha y CUÁNDO llegó: el HUD se arma con las dos, para poder decir
+  // que es vieja (auditoría de UI, N1). Antes se guardaba el HUD ya armado.
+  const [brecha, setBrecha] = React.useState({ datos: null, recibido: null });
   // El estado crudo y el trazado son para el mapa. El HUD ya sale de la
   // brecha; el mapa necesita dónde está cada una.
   const [estado, setEstado] = React.useState(null);
@@ -245,7 +267,7 @@ function Aplicacion() {
     cliente.current = crearCliente({ servidor: SERVIDOR, WebSocketImpl: WebSocket });
     const c = cliente.current;
     const off = [
-      c.on('estado', () => { setHud(construirHud(c.miBrecha())); setEstado(c.estado); }),
+      c.on('estado', () => { setBrecha({ datos: c.miBrecha(), recibido: Date.now() }); setEstado(c.estado); }),
       c.on('geometria', (g) => setGeometria(g)),
       // La combi de hoy cambió (en la puerta, o Despacho): la sesión, y la
       // guardada, para que al reabrir la app diga la que es
@@ -630,7 +652,7 @@ function Aplicacion() {
     // /marca no contesta quedaba la de la cooperativa anterior) y lo leído
     // (los privados viejos del siguiente contaban como vistos). El resto
     // también, para no mostrar «en vivo» lo de otro (repaso de la tanda 9).
-    setMarca(null); setEstado(null); setGeometria(null); setHud(construirHud(null));
+    setMarca(null); setEstado(null); setGeometria(null); setBrecha({ datos: null, recibido: null });
     setCanal('grupo'); setVistoHasta({ grupo: 0, directo: 0, personal: 0 }); setAviso(null);
     // Las combis y el vigía del anterior tampoco: el siguiente veía la lista
     // del otro hasta que contestara el servidor (revisión previa a la APK)
@@ -641,6 +663,10 @@ function Aplicacion() {
   // El texto de la notificación va en un ref para que los oyentes se
   // suscriban UNA vez: si dependieran del hud, se re-suscribirían con cada
   // brecha nueva. Lo usan la vigilancia y el cambio de cadencia.
+  const ahora = usarAhoraSiEnvejece(brecha.recibido);
+  const hud = React.useMemo(
+    () => construirHud(brecha.datos, ahora, { recibido: brecha.recibido, fiable: reporta, conectado }),
+    [brecha, ahora, reporta, conectado]);
   const textoRef = React.useRef('Turno en curso');
   textoRef.current = textoNotificacion(hud, reporta);
 
@@ -1245,8 +1271,8 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
   const cabecera = (
     <View style={s.barra}>
       <Marca marca={marca} />
-      <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
-        {conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
+      <Text style={[s.chip, { color: conectado && !hud.viejo ? C.verde : C.ambar }]}>
+        {hud.viejo ? `○ SIN SEÑAL · ${hud.hace}` : conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
       </Text>
       {onPerfil && <Pressable onPress={onPerfil}><Text style={s.salir}>Perfil</Text></Pressable>}
       <Pressable onPress={onSalir}><Text style={s.salir}>Salir</Text></Pressable>
@@ -1449,6 +1475,20 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
         </Text>
       )}
 
+      {/* Un minuto sin datos: el número se retira. Queda la última brecha,
+          como dato y no como instrucción (auditoría de UI, N1). */}
+      {hud.perdido ? (
+        <View style={s.centro}>
+          <Text style={s.sinSenalTitulo}>SIN SEÑAL</Text>
+          <Text style={s.sinSenalTexto}>
+            No veo a las otras combis desde hace {hud.hace}. Andá con cuidado: siguen en ruta.
+          </Text>
+          <View style={s.divisor} />
+          <Text style={s.ladoUnidad}>
+            Última brecha: {[hud.atras.display ? `${hud.atras.display} atrás` : null, hud.adelante.display ? `${hud.adelante.display} adelante` : null].filter(Boolean).join(' · ') || 'ninguna'}
+          </Text>
+        </View>
+      ) : (
       <View style={s.centro}>
         <View style={s.filaRotulo}>
           <Text style={[s.ladoEtiqueta, { color }]}>{p.etiqueta}</Text>
@@ -1469,6 +1509,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           <Text style={[s.digitosSec, { color: colorEstado(C)[sec.estado] }]}>{sec.display}</Text>
         )}
       </View>
+      )}
 
       {/* Tráfico, de un toque. Tres caras: nada (avisar), el servidor me vio
           parado y pregunta (confirmar), y ya avisé (se apaga solo al andar;
@@ -2911,6 +2952,8 @@ function crearEstilos(C) { return StyleSheet.create({
   diagnostico: { color: C.tenue, fontSize: 11, fontFamily: 'monospace', marginTop: 8 },
 
   centro: { flex: 1, justifyContent: 'center' },
+  sinSenalTitulo: { fontSize: 30, fontWeight: '900', letterSpacing: 1, color: C.ambar },
+  sinSenalTexto: { fontSize: 17, color: C.blanco, marginTop: 10, lineHeight: 25 },
   filaRotulo: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   ladoEtiqueta: { fontSize: 19, fontWeight: '900', letterSpacing: 1 },
   ladoEtiquetaSec: { fontSize: 17, fontWeight: '900', color: '#A9C0D6' },

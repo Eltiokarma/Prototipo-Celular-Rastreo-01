@@ -170,5 +170,26 @@ ok('sin brechas todavía, no revienta',
    construirHud(undefined).principal.vacio === true);
 ok('sin objetivo, tampoco', construirHud({ adelante: unidad('02:00', 'M-08'), atras: null }).estado === 'ninguno');
 
+console.log('\nSIN SEÑAL, LA BRECHA VIEJA NO SE VE COMO VIVA (auditoría de UI, N1)');
+{
+  // Medido en la web: a los 90 s sin red seguía 5:12 en verde y «Mantené el
+  // ritmo». La edad del último estado es lo que dice si la brecha vale.
+  const T = 1_700_000_000_000;
+  const b = { adelante: unidad('02:00', 'M-08'), atras: unidad('01:10', 'M-21'), objetivoMin: 2 };
+  const fresca = construirHud(b, T, { recibido: T - 5_000 });
+  ok('con 5 s, nada cambia', !fresca.viejo && fresca.estado !== 'ninguno' && /Aflojá|Apurá|Mantené/.test(fresca.instruccion), fresca.instruccion);
+  const vieja = construirHud(b, T, { recibido: T - 12_000 });
+  ok('con 12 s es vieja y no perdida', vieja.viejo && !vieja.perdido);
+  ok('el número sigue, pero sin color de estado', vieja.principal.display === fresca.principal.display && vieja.principal.estado === 'ninguno' && vieja.secundario.estado === 'ninguno');
+  ok('y el estado real no se pierde', vieja.principal.estadoReal === fresca.principal.estado);
+  ok('no da una instrucción de manejo: dice cuánto hace', vieja.instruccion === 'Brecha de hace 0:12. Puede haber cambiado.', vieja.instruccion);
+  ok('con 61 s está perdida', construirHud(b, T, { recibido: T - 61_000 }).perdido === true);
+  ok('sin brecha, no habla de una brecha', construirHud({ adelante: null, atras: null, objetivoMin: 2 }, T, { recibido: T - 15_000 }).instruccion === 'Sin datos nuevos desde hace 0:15.');
+  ok('el acompañante conectado no se marca por la edad', !construirHud(b, T, { recibido: T - 30_000, fiable: false, conectado: true }).viejo);
+  ok('el acompañante sin conexión, sí', construirHud(b, T, { recibido: T - 2_000, fiable: false, conectado: false }).viejo === true);
+  ok('sin hora de llegada (la notificación) se toma como fresca', !construirHud(b, T).viejo);
+  ok('la notificación lo dice', textoNotificacion(vieja, true) === 'Sin señal hace 0:12 · la brecha puede haber cambiado', textoNotificacion(vieja, true));
+}
+
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
 process.exit(fallas ? 1 : 0);
