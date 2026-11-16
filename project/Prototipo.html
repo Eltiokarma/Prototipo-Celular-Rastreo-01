@@ -366,6 +366,11 @@ const TEMAS = {
     // Texto ámbar chico (los botones del HUD) y lo que va escrito sobre el
     // rojo lleno. El ámbar de estado da 3,95:1 y no alcanza para 16 px.
     amberTexto: '#6B4A00', sobreRojo: '#FFFFFF', greenTexto: '#0B6B33',
+    // Lo que el HUD escribía a mano según `sun` (auditoría de UI, B12):
+    // la instrucción, el rótulo del lado secundario, el divisor y el borde
+    // de los chips chicos. Ahora son tokens y contraste.js los mide.
+    ins: '#3D5C7A', secundario: '#3D5C7A', divisorHud: '#C9D8E6', chipBorde: '#C8D8E8',
+    ondaViva: '#0B6B33', ondaApagada: '#BEE3CD',
     fg:      '#0B2239',  // texto primario
     fg2:     '#2A4864',  // texto secundario / iconos
     dim:     '#41627F',  // etiquetas
@@ -397,6 +402,8 @@ const TEMAS = {
     amber:   '#7A5400',  amberInk: '#2E2000',
     red:     '#960016',  redInk:   '#3D000B',
     amberTexto: '#5C3F00', sobreRojo: '#FFFFFF', greenTexto: '#146134',
+    ins: '#20415C', secundario: '#20415C', divisorHud: '#BACBDA', chipBorde: '#8FA8BE',
+    ondaViva: '#146134', ondaApagada: '#A9D6B8',
     fg:      '#04121F',
     fg2:     '#0B2239',
     dim:     '#20415C',
@@ -425,6 +432,8 @@ const TEMAS = {
     amber:   '#FFD400',  amberInk: '#FFF7D6',
     red:     '#FF2D55',  redInk:   '#FFE0E7',
     amberTexto: '#FFD400', sobreRojo: '#03060a', greenTexto: '#39FF14',
+    ins: '#93AAC2', secundario: '#A9C0D6', divisorHud: '#16222f', chipBorde: '#232b36',
+    ondaViva: '#7DF06A', ondaApagada: '#2e5c3c',
     fg:      '#EAF4FF',
     fg2:     '#C6D6E6',
     dim:     '#8FA8C0',
@@ -1129,8 +1138,8 @@ function VoiceBubble({ seconds, own, audio, expired }) {
   };
 
   const playBg  = own ? HUD.green : P.bright;
-  const litBar  = own ? '#7DF06A' : P.sky;
-  const dimBar  = own ? '#2e5c3c' : '#3d5f80';
+  const litBar  = own ? HUD.ondaViva : P.sky;
+  const dimBar  = own ? HUD.ondaApagada : HUD.line;
   const litCount = playing ? Math.max(1, Math.round((elapsed / seconds) * 12)) : 6;
 
   return (
@@ -1239,7 +1248,7 @@ function ChatMsg({ msg }) {
           <span style={{
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
             fontSize: 12, fontWeight: 700, color: HUD.dim3,
-            border: `1px solid #232b36`, borderRadius: 4, padding: '1px 5px',
+            border: `1px solid ${HUD.chipBorde}`, borderRadius: 4, padding: '1px 5px',
           }}>{msg.unit}</span>
         )}
         <span style={{
@@ -2777,8 +2786,8 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
             <span title={gpsRole.reason || 'La posición la reporta el chofer'} style={{
               fontFamily: 'JetBrains Mono, ui-monospace, monospace',
               fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
-              color: sun ? '#5A7A99' : HUD.dim2,
-              border: `1px solid ${sun ? '#C8D8E8' : '#232b36'}`,
+              color: HUD.dim2,
+              border: `1px solid ${HUD.chipBorde}`,
               borderRadius: 5, padding: '2px 6px',
             }}>ACOMPAÑANTE</span>
           )}
@@ -2806,7 +2815,7 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
             fontSize: 30, letterSpacing: 1, color: HUD.amber,
           }}>AUSENTE</div>
           <div style={{
-            fontSize: 16, lineHeight: 1.5, color: sun ? '#3D5C7A' : '#93AAC2',
+            fontSize: 16, lineHeight: 1.5, color: HUD.ins,
             marginTop: 10, fontFamily: 'system-ui, sans-serif',
           }}>
             Estás fuera de la cadena: nadie se mide contra vos y tu vuelta quedó
@@ -2878,12 +2887,12 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
           </div>
         )}
         <div style={{
-          fontSize: 16, lineHeight: 1.5, color: yendo ? HUD.amber : sun ? '#3D5C7A' : '#93AAC2',
+          fontSize: 16, lineHeight: 1.5, color: yendo ? HUD.amberTexto : HUD.ins,
           fontWeight: yendo ? 700 : 400,
           marginTop: 10, fontFamily: 'system-ui, sans-serif',
         }}>{instruction}</div>
 
-        <div style={{ height: 1, background: sun ? '#C9D8E6' : HUD.divider, margin: '26px 0 20px' }} />
+        <div style={{ height: 1, background: HUD.divisorHud, margin: '26px 0 20px' }} />
 
         {/* secundario: el otro lado, subordinado */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
@@ -2891,7 +2900,7 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <span style={{
                 fontFamily: '"Archivo Black", system-ui, sans-serif',
-                fontSize: 17, color: sun ? '#3D5C7A' : '#A9C0D6',
+                fontSize: 17, color: HUD.secundario,
               }}>{sec.label}</span>
               <span style={{ fontSize: 15, fontWeight: 700, color: dim2, fontFamily: 'system-ui, sans-serif' }}>
                 {rotuloLado(sec)}

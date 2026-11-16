@@ -120,6 +120,9 @@ const PARES_PROTO = [
   // El chat (auditoría UI B9): canal activo, enviar, insignia de Despacho y «Tú»
   ['acento lleno y su tinta',       t => t.acentoInk,  t => t.acento, AA],
   ['«Tú» / fondo',                  t => t.greenTexto, t => t.bg, AA],
+  // Lo que el HUD escribía a mano (auditoría UI B12)
+  ['instrucción / fondo',           t => t.ins,        t => t.bg, AA],
+  ['lado secundario / fondo',       t => t.secundario, t => t.bg, AA],
 ];
 const PARES_DESP = [
   ['texto primario / fondo',        t => t.fg,   t => t.bg, AA],

@@ -202,6 +202,9 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
   ok('B10 · la tarjeta del mapa no muestra coordenadas; los avisos de GPS quedan', !/realPos\.lat\.toFixed\(4\)/.test(prototipo) && /gpsError \? 'SIN GPS' : 'ESPERANDO GPS…'/.test(prototipo));
   // B11: zonas de 44 px y nada de `transition: all`
   ok('B11 · puntos de página, tema y pestañas del chat a 44 px; sin «transition: all»', /width: 44, height: 44,/.test(prototipo) && /height: 44, minWidth: 64/.test(prototipo) && /height: 44, borderRadius: 12, cursor: 'pointer', padding: '0 4px'/.test(prototipo) && !/transition: 'all/.test(prototipo));
+  // B12: colores a mano según `sun`, que esquivaban los tokens y la medición
+  { const hud = prototipo.split('function CenterScreen(')[1].split('\nfunction ')[0];
+    ok('B12 · el HUD no escribe colores a mano', !/'#[0-9A-Fa-f]{6}'/.test(hud) && /color: HUD\.ins/.test(hud) && /color: HUD\.secundario/.test(hud)); }
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
