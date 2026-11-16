@@ -154,6 +154,40 @@ const PARES_DESP = [
   ['burbuja de SOS',                t => t.burbujaSosInk,    t => t.burbujaSos, AA],
 ];
 
+// La APK (app/tema.js). Hasta el 16/11 esta suite medía sólo la web, y la
+// app nativa —la que va de verdad al parabrisas— tenía botones enteros a
+// 3,0:1 de día y 2,4 de noche (auditoría de UI, A2). Los papeles son los de
+// crearEstilos() en app/App.js.
+const BORDE = 3;   // 1.4.11: lo que identifica un control, contra su fondo
+const PARES_APK = [
+  ['texto primario / fondo',        t => t.blanco,     t => t.fondo, AA],
+  ['texto primario / panel',        t => t.blanco,     t => t.panel, AA],
+  ['texto secundario / fondo',      t => t.tenue,      t => t.fondo, AA],
+  ['texto secundario / panel',      t => t.tenue,      t => t.panel, AA],
+  ['rótulos (cielo) / fondo',       t => t.cielo,      t => t.fondo, AA],
+  ['rótulos (cielo) / panel',       t => t.cielo,      t => t.panel, AA],
+  ['acento como texto / panel',     t => t.brillante,  t => t.panel, AA],
+  ['instrucción / fondo',           t => t.ins,        t => t.fondo, AA],
+  ['lado secundario / fondo',       t => t.secundario, t => t.fondo, AA],
+  ['verde de texto / fondo',        t => t.verdeTexto, t => t.fondo, AA],
+  ['ámbar de texto / fondo',        t => t.ambarTexto, t => t.fondo, AA],
+  ['ámbar de texto / panel',        t => t.ambarTexto, t => t.panel, AA],
+  ['rojo de texto / fondo',         t => t.rojoTexto,  t => t.fondo, AA],
+  ['rojo de texto / panel',         t => t.rojoTexto,  t => t.panel, AA],
+  ['sobre el botón principal',      t => t.sobreBrillante, t => t.brillante, AA],
+  ['sobre verde lleno',             t => t.sobreLleno, t => t.llenoVerde, AA],
+  ['sobre ámbar lleno',             t => t.sobreLleno, t => t.llenoAmbar, AA],
+  ['sobre rojo lleno',              t => t.sobreRojo,  t => t.llenoRojo, AA],
+  ['burbuja propia',                t => t.blanco,     t => t.burbujaPropia, AA],
+  ['burbuja de SOS',                t => t.blanco,     t => t.burbujaSos, AA],
+  ['BRECHA verde / fondo',          t => t.verde,      t => t.fondo, GRANDE],
+  ['BRECHA ámbar / fondo',          t => t.ambar,      t => t.fondo, GRANDE],
+  ['BRECHA roja / fondo',           t => t.rojo,       t => t.fondo, GRANDE],
+  ['brecha vieja (tenue) / fondo',  t => t.tenue,      t => t.fondo, GRANDE],
+  ['borde de control / fondo',      t => t.borde,      t => t.fondo, BORDE],
+  ['borde de control / panel',      t => t.borde,      t => t.panel, BORDE],
+];
+
 const bajoAA = [];   // lo que pasó su piso pero no llega a AA: se informa
 let paresAAA = 0, paresTotal = 0;
 
@@ -207,6 +241,7 @@ console.log('\nNINGÚN TEMA TIENE HUECOS');
 console.log('\nCONTRASTE, PAR POR PAR');
 medir('chofer', proto.temas, PARES_PROTO);
 medir('despacho', desp.temas, PARES_DESP);
+medir('apk', require(RAIZ + '/app/tema.js').PALETAS, PARES_APK);
 
 {
   console.log('\ncreador · tema único');

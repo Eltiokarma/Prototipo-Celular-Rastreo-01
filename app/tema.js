@@ -34,11 +34,31 @@ function esDeNoche(fecha = new Date()) {
   return h >= NOCHE_DESDE || h < NOCHE_HASTA;
 }
 
+// Los papeles, además de los colores base (auditoría de UI, A2 y A3):
+//   tenue           texto secundario. Era #5A7A99: 3,0:1 sobre los paneles.
+//   verdeTexto…     verde, ámbar y rojo escritos como TEXTO chico.
+//   ins, secundario la instrucción bajo la brecha y el rótulo del otro lado.
+//   llenoVerde…     verde, ámbar y rojo como FONDO lleno de un botón o aviso,
+//   sobreLleno      con lo que va escrito encima (sobreRojo, aparte: de noche
+//   sobreRojo       el blanco es lo único que se lee sobre el rojo apagado).
+//   sobreBrillante  lo escrito sobre el botón principal. Era blanco: 2,84:1
+//                   de día y 2,42 de noche.
+//   burbujaPropia,  las burbujas del chat que estaban escritas a mano y no
+//   burbujaSos      cambiaban de noche (la propia seguía azul brillante).
+//   borde           el contorno de un control: 3:1 contra el fondo. `linea`
+//                   queda para divisores, que no tienen que distinguirse.
+// Todos los pares los mide pruebas/contraste.js.
 const DIA = {
   fondo: '#0A1A2E', panel: '#16304A', linea: '#234969',
   marca: '#2580CF', brillante: '#2E9DFF', cielo: '#71BCFF',
-  tenue: '#5A7A99', blanco: '#F5F9FF',
+  tenue: '#8FA8C0', blanco: '#F5F9FF',
   verde: '#3DD685', ambar: '#F5C542', rojo: '#FF4D6D',
+  verdeTexto: '#3DD685', ambarTexto: '#F5C542', rojoTexto: '#FF7A90',
+  ins: '#93AAC2', secundario: '#A9C0D6',
+  llenoVerde: '#3DD685', llenoAmbar: '#F5C542', llenoRojo: '#FF4D6D',
+  sobreLleno: '#0A1A2E', sobreRojo: '#0A1A2E', sobreBrillante: '#0A1A2E',
+  burbujaPropia: '#1D598F', burbujaSos: '#4A0D1B',
+  borde: '#6F8FAE',
 };
 
 // Casi negro, y lo poco que brilla tira a ámbar. El texto principal no es
@@ -47,8 +67,14 @@ const DIA = {
 const NOCHE = {
   fondo: '#05080C', panel: '#0E141B', linea: '#1C2731',
   marca: '#8A6A2E', brillante: '#D89B3C', cielo: '#B98A45',
-  tenue: '#5C5044', blanco: '#D8CFC2',
+  tenue: '#968776', blanco: '#D8CFC2',
   verde: '#4E8F62', ambar: '#B98A2E', rojo: '#B34A54',
+  verdeTexto: '#5FA373', ambarTexto: '#B98A2E', rojoTexto: '#D9737C',
+  ins: '#B3A797', secundario: '#C2B6A6',
+  llenoVerde: '#4E8F62', llenoAmbar: '#B98A2E', llenoRojo: '#B34A54',
+  sobreLleno: '#05080C', sobreRojo: '#FFFFFF', sobreBrillante: '#05080C',
+  burbujaPropia: '#2A2418', burbujaSos: '#3A1418',
+  borde: '#6E6152',
 };
 
 const PALETAS = { dia: DIA, noche: NOCHE };

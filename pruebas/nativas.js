@@ -380,5 +380,17 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
      /export async function limpiarSiSinRol\(\) \{\s*if \(ultimo !== 'MODO ACOMPAÑANTE'\) return;/.test(notif));
 }
 
+console.log('\nLA APK NO ESCRIBE COLORES A MANO (auditoría de UI, A3)');
+{
+  // Un color escrito a mano no cambia de noche: la burbuja propia seguía azul
+  // brillante en la cabina. Quedan tres, y son a propósito: el fondo blanco
+  // del logo de la cooperativa, el texto sobre su color de marca y el negro
+  // del visor de fotos.
+  const app = require('fs').readFileSync(RAIZ + '/app/App.js', 'utf8');
+  const sueltos = [...app.matchAll(/'#[0-9A-Fa-f]{3,8}'|"#[0-9A-Fa-f]{3,8}"/g)].map(x => x[0]);
+  const permitidos = ["'#fff'", "'#fff'", "'#000000EE'"];
+  ok('sólo quedan los tres colores fijos a propósito', JSON.stringify(sueltos.sort()) === JSON.stringify(permitidos.sort()), sueltos);
+}
+
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
 process.exit(fallas ? 1 : 0);

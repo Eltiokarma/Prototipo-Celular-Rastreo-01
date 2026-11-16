@@ -1148,7 +1148,7 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
       {(error || aviso) && <Text style={s.error}>{error || aviso}</Text>}
 
       <Pressable style={[s.boton, cargando && { opacity: 0.6 }]} onPress={enviar} disabled={cargando}>
-        {cargando ? <ActivityIndicator color="#fff" /> : <Text style={s.botonTexto}>INGRESAR</Text>}
+        {cargando ? <ActivityIndicator color={C.sobreBrillante} /> : <Text style={s.botonTexto}>INGRESAR</Text>}
       </Pressable>
       {/* Sin sesión no hay SOS (el servidor no sabe quién lo pide), pero
           la central sí atiende el teléfono. Es sólo una llamada: no dispara
@@ -1202,7 +1202,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
             <Text style={s.combiCodigo}>{c.vehicleId}</Text>
             <View style={{ flex: 1 }}>
               {!!c.label && <Text style={s.combiPlaca}>{c.label}</Text>}
-              <Text style={[s.combiEstado, c.estado === 'ocupada' && { color: C.ambar }]}>
+              <Text style={[s.combiEstado, c.estado === 'ocupada' && { color: C.ambarTexto }]}>
                 {c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}
               </Text>
             </View>
@@ -1279,7 +1279,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
   const cabecera = (
     <View style={s.barra}>
       <Marca marca={marca} />
-      <Text style={[s.chip, { color: conectado && !hud.viejo ? C.verde : C.ambar }]}>
+      <Text style={[s.chip, { color: conectado && !hud.viejo ? C.verdeTexto : C.ambarTexto }]}>
         {hud.viejo ? `○ SIN SEÑAL · ${hud.hace}` : conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
       </Text>
       {onPerfil && <Pressable onPress={onPerfil}><Text style={s.salir}>Perfil</Text></Pressable>}
@@ -1379,14 +1379,14 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
         <StatusBar style="light" />
         {cabecera}
         <View style={s.centro}>
-          <Text style={[s.ladoEtiqueta, { color: C.ambar }]}>AUSENTE</Text>
+          <Text style={[s.ladoEtiqueta, { color: C.ambarTexto }]}>AUSENTE</Text>
           <Text style={[s.instruccion, { marginTop: 14 }]}>
             Estás fuera de la cadena: nadie se mide contra vos y tu vuelta
             quedó descartada. Despacho te sigue viendo en el mapa, quieto.
             Si arrancás de nuevo, volvés a ruta solo. Pasadas 2 horas, te
             sacamos de ruta.
           </Text>
-          <Pressable onPress={() => onPresencia('ruta')} style={[s.botonAncho, { backgroundColor: C.verde }]}>
+          <Pressable onPress={() => onPresencia('ruta')} style={[s.botonAncho, { backgroundColor: C.llenoVerde }]}>
             <Text style={s.botonAnchoTexto}>VOLVER A RUTA</Text>
           </Pressable>
           <Text style={s.diagnostico}>
@@ -1428,13 +1428,13 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
       {/* «Hay una versión nueva» / «ésta ya no sirve»: lo dice el servidor
           con el login (P5). Se queda a la vista; no es un toast. */}
       {avisoApp && (
-        <Text style={[s.avisoBarra, avisoApp.grave && { color: C.rojo }]}>{avisoApp.texto}</Text>
+        <Text style={[s.avisoBarra, avisoApp.grave && { color: C.rojoTexto }]}>{avisoApp.texto}</Text>
       )}
 
       {/* Declarado en ruta pero el GPS todavía no lo vio sobre el trazado:
           se dice, para que "no tengo brecha" no parezca una falla. */}
       {!confirmada && (
-        <Text style={[s.avisoBarra, { color: C.ambar }]}>
+        <Text style={[s.avisoBarra, { color: C.ambarTexto }]}>
           YENDO A LA RUTA — tu brecha y tu vuelta arrancan al pisar el trazado
         </Text>
       )}
@@ -1446,7 +1446,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           no distingue entre "todavía no llegó la primera posición" y "el
           servicio ni siquiera está corriendo", y esa ambigüedad ya costó una
           sesión entera de diagnóstico. */}
-      <Text style={[s.diagnostico, diag.servicio !== 'corriendo' && { color: C.rojo }]}>
+      <Text style={[s.diagnostico, diag.servicio !== 'corriendo' && { color: C.rojoTexto }]}>
         Servicio de GPS: {diag.servicio}
       </Text>
       {/* Lo que Android va a hacer con la red apenas se apague la pantalla.
@@ -1455,7 +1455,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           pantalla del sistema donde se apaga. */}
       {diag.bateriaOptimizada === true && (
         <Pressable onPress={abrirOptimizacionDeBateria}>
-          <Text style={[s.diagnostico, { color: C.rojo }]}>
+          <Text style={[s.diagnostico, { color: C.rojoTexto }]}>
             BATERÍA: optimización ACTIVA — Android corta la red con la pantalla apagada. Tocá acá y poné esta app en «Sin restricciones»
           </Text>
         </Pressable>
@@ -1473,7 +1473,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           el teléfono reportando la misma combi, cada una con su reloj — sin
           esto son ceros sin explicación (REVISION-2026-09-10.md, C20). */}
       {diag.motivoNoUsadas && (
-        <Text style={[s.diagnostico, { color: C.ambar }]}>{diag.motivoNoUsadas}</Text>
+        <Text style={[s.diagnostico, { color: C.ambarTexto }]}>{diag.motivoNoUsadas}</Text>
       )}
       {/* Los motivos, con su cuenta. Es lo que dice DÓNDE está el problema:
           "sin red" es el teléfono, un HTTP 4xx es el servidor rechazando. */}
@@ -1525,9 +1525,9 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           "apurá" hacia acá. */}
       <Pressable onPress={() => onTrafico(!enTrafico)}
         style={[s.botonTrafico,
-                enTrafico && { backgroundColor: C.ambar, borderColor: C.ambar },
+                enTrafico && { backgroundColor: C.llenoAmbar, borderColor: C.llenoAmbar },
                 !enTrafico && parado && { borderColor: C.ambar }]}>
-        <Text style={[s.botonPresenciaTexto, (enTrafico || parado) && { color: enTrafico ? '#08131F' : C.ambar }]}>
+        <Text style={[s.botonPresenciaTexto, (enTrafico || parado) && { color: enTrafico ? C.sobreLleno : C.ambarTexto }]}>
           {enTrafico
             ? `EN TRÁFICO · ${minTrabado} MIN · se apaga solo al andar`
             : parado
@@ -1540,15 +1540,15 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           (ausente) y terminar (salir de ruta, con confirmación de 2 toques). */}
       <View style={s.filaPresencia}>
         <Pressable onPress={() => onPresencia('ausente')} style={[s.botonPresencia, { borderColor: C.ambar }]}>
-          <Text style={[s.botonPresenciaTexto, { color: C.ambar }]}>AUSENTE</Text>
+          <Text style={[s.botonPresenciaTexto, { color: C.ambarTexto }]}>AUSENTE</Text>
         </Pressable>
         <Pressable onPress={() => {
           if (!confirmarSalida) { armadoEn.current = Date.now(); setConfirmarSalida(true); return; }
           if (Date.now() - armadoEn.current < ARMA_SALIR_MS) return;   // el mismo toque, rebotando
           setConfirmarSalida(false);
           onPresencia('fuera');
-        }} style={[s.botonPresencia, confirmarSalida && { backgroundColor: C.rojo, borderColor: C.rojo }]}>
-          <Text style={[s.botonPresenciaTexto, confirmarSalida && { color: '#fff' }]}>
+        }} style={[s.botonPresencia, confirmarSalida && { backgroundColor: C.llenoRojo, borderColor: C.llenoRojo }]}>
+          <Text style={[s.botonPresenciaTexto, confirmarSalida && { color: C.sobreRojo }]}>
             {confirmarSalida ? '¿SEGURO? TOCÁ DE NUEVO' : 'SALIR DE RUTA'}
           </Text>
         </Pressable>
@@ -1807,7 +1807,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
                 {` · ${((grabacion.largoM || 0) / 1000).toFixed(1)} km`}
               </Text>
               <Pressable disabled={mandandoGrabacion}
-                style={[s.botonAncho, { backgroundColor: C.verde, marginTop: 10 }]}
+                style={[s.botonAncho, { backgroundColor: C.llenoVerde, marginTop: 10 }]}
                 onPress={terminarYMandar}>
                 <Text style={s.botonAnchoTexto}>
                   {mandandoGrabacion ? 'ENVIANDO…' : grabacion.parada ? 'ENVIAR' : 'TERMINAR Y ENVIAR'}
@@ -1987,7 +1987,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
             <Text style={s.diagnostico}>Como te llaman en la ruta. Vacío, se muestra tu nombre.</Text>
             <TextInput style={s.campo} value={alias} onChangeText={setAlias}
               placeholder={datos.persona.name} placeholderTextColor={C.tenue} maxLength={30} />
-            <Pressable style={[s.botonAncho, { backgroundColor: C.verde, marginTop: 12 }]}
+            <Pressable style={[s.botonAncho, { backgroundColor: C.llenoVerde, marginTop: 12 }]}
               onPress={async () => {
                 const fue = await post('/perfil/alias', { alias }, 'Alias guardado — Despacho ya te ve así');
                 if (fue) setDatos(d => ({ ...d, persona: { ...d.persona, alias: alias.trim() || null } }));
@@ -2052,7 +2052,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
                         if (await borrar(`/perfil/cobradores/${encodeURIComponent(c.unitId)}`,
                                          `${c.alias || c.name} ya no va en tu combi`)) cargar();
                       }}>
-                      <Text style={[s.cobradorBotonTexto, { color: C.rojo }]}>
+                      <Text style={[s.cobradorBotonTexto, { color: C.rojoTexto }]}>
                         {confirmarBaja === c.unitId ? '¿SEGURO? TOCÁ DE NUEVO' : 'DAR DE BAJA'}
                       </Text>
                     </Pressable>
@@ -2062,14 +2062,14 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
                     <TextInput style={[s.campo, { marginTop: 10 }]}
                       value={claveNuevaCob} onChangeText={setClaveNuevaCob}
                       placeholder="Contraseña nueva (mínimo 6)" placeholderTextColor={C.tenue} secureTextEntry />
-                    <Pressable style={[s.botonAncho, { backgroundColor: C.marca, marginTop: 10 }]}
+                    <Pressable style={[s.botonAncho, { backgroundColor: C.brillante, marginTop: 10 }]}
                       onPress={async () => {
                         const fue = await post(`/perfil/cobradores/${encodeURIComponent(c.unitId)}/clave`,
                           { nueva: claveNuevaCob },
                           `Clave cambiada. ${c.alias || c.name} tiene que entrar de nuevo.`);
                         if (fue) { setClaveDe(null); setClaveNuevaCob(''); }
                       }}>
-                      <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>CAMBIAR SU CLAVE</Text>
+                      <Text style={[s.botonAnchoTexto, { color: C.sobreBrillante }]}>CAMBIAR SU CLAVE</Text>
                     </Pressable>
                   </>)}
                 </>)}
@@ -2083,13 +2083,13 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
               placeholder="Contraseña actual" placeholderTextColor={C.tenue} secureTextEntry />
             <TextInput style={[s.campo, { marginTop: 10 }]} value={claveNueva} onChangeText={setClaveNueva}
               placeholder="Contraseña nueva (mínimo 6)" placeholderTextColor={C.tenue} secureTextEntry />
-            <Pressable style={[s.botonAncho, { backgroundColor: C.marca, marginTop: 12 }]}
+            <Pressable style={[s.botonAncho, { backgroundColor: C.brillante, marginTop: 12 }]}
               onPress={async () => {
                 const fue = await post('/perfil/clave', { actual: claveActual, nueva: claveNueva },
                   'Contraseña cambiada. Esta sesión sigue abierta.');
                 if (fue) { setClaveActual(''); setClaveNueva(''); }
               }}>
-              <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>CAMBIAR</Text>
+              <Text style={[s.botonAnchoTexto, { color: C.sobreBrillante }]}>CAMBIAR</Text>
             </Pressable>
 
             {/* Cerrar TODAS las sesiones. El servidor lo soporta desde que
@@ -2133,7 +2133,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
               {'\n'}{SERVIDOR}
             </Text>
             {avisoApp && (
-              <Text style={[s.avisoBarra, avisoApp.grave && { color: C.rojo }]}>{avisoApp.texto}</Text>
+              <Text style={[s.avisoBarra, avisoApp.grave && { color: C.rojoTexto }]}>{avisoApp.texto}</Text>
             )}
           </>)}
         </ScrollView>
@@ -2561,7 +2561,7 @@ function SosDeslizable({ onDisparar }) {
 
   return (
     <View style={s.sosPista} onLayout={e => setAncho(e.nativeEvent.layout.width)}>
-      <Text style={[s.sosTexto, fase === 'fallo' && { color: C.rojo }]}>
+      <Text style={[s.sosTexto, fase === 'fallo' && { color: C.rojoTexto }]}>
         {fase === 'enviando' ? 'ENVIANDO…'
           : fase === 'enviada' ? 'ALERTA ENVIADA'
           : fase === 'fallo' ? 'NO SALIÓ — REPETÍ'
@@ -2569,9 +2569,9 @@ function SosDeslizable({ onDisparar }) {
       </Text>
       <Animated.View {...pan.panHandlers}
         style={[s.sosBoton, { transform: [{ translateX: x }] },
-                fase === 'enviada' && { backgroundColor: C.verde },
-                fase === 'enviando' && { backgroundColor: C.ambar }]}>
-        <Text style={s.sosBotonTexto}>{fase === 'enviada' ? '✓' : fase === 'fallo' ? '!' : fase === 'enviando' ? '…' : 'SOS'}</Text>
+                fase === 'enviada' && { backgroundColor: C.llenoVerde },
+                fase === 'enviando' && { backgroundColor: C.llenoAmbar }]}>
+        <Text style={[s.sosBotonTexto, (fase === 'enviada' || fase === 'enviando') && { color: C.sobreLleno }]}>{fase === 'enviada' ? '✓' : fase === 'fallo' ? '!' : fase === 'enviando' ? '…' : 'SOS'}</Text>
       </Animated.View>
     </View>
   );
@@ -2633,7 +2633,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
         {[['grupo', 'RUTA'], ['directo', 'COMBI'], ['personal', 'PERSONAL']].map(([id, texto]) => (
           <Pressable key={id} onPress={() => onCanal(id)}
             style={[s.canal, canal === id && s.canalActivo]}>
-            <Text style={[s.canalTexto, canal === id && { color: '#fff' }]}>{texto}</Text>
+            <Text style={[s.canalTexto, canal === id && { color: C.sobreBrillante }]}>{texto}</Text>
             {noLeidos?.[id] > 0 && canal !== id && (
               <View style={s.badge}><Text style={s.badgeTexto}>{noLeidos[id]}</Text></View>
             )}
@@ -2749,7 +2749,7 @@ function useTeclado(insetAbajo) {
 // una ruta con datos prepago eso no es un detalle de nerd, y es la diferencia
 // entre que el chofer use esto o lo apague.
 function Camara({ onListo, habilitado }) {
-  const { s } = usarTema();
+  const { s, C } = usarTema();
   const [ocupado, setOcupado] = React.useState(false);
   const [aviso, setAviso] = React.useState(null);
 
@@ -2776,7 +2776,7 @@ function Camara({ onListo, habilitado }) {
       <Pressable onPress={() => correr(tomarFoto)} onLongPress={() => correr(elegirFoto)}
         disabled={!habilitado || ocupado}
         style={[s.camara, (!habilitado || ocupado) && { opacity: 0.4 }]}>
-        {ocupado ? <ActivityIndicator color="#fff" /> : <Text style={s.camaraTexto}>📷</Text>}
+        {ocupado ? <ActivityIndicator color={C.blanco} /> : <Text style={s.camaraTexto}>📷</Text>}
       </Pressable>
       {aviso && <Text style={s.camaraAviso}>{aviso}</Text>}
     </View>
@@ -2863,7 +2863,7 @@ function Grabar({ onListo, habilitado }) {
         onPressIn={empezar}
         onPressOut={() => soltar(false)}
         disabled={!habilitado}
-        style={[s.enviar, grabando && { backgroundColor: C.rojo },
+        style={[s.enviar, grabando && { backgroundColor: C.llenoRojo },
                 !habilitado && { opacity: 0.4 }]}>
         <Text style={s.enviarTexto}>{grabando ? '●' : '🎤'}</Text>
       </Pressable>
@@ -2900,51 +2900,51 @@ function crearEstilos(C) { return StyleSheet.create({
   subtitulo: { fontSize: 14, color: C.tenue, textAlign: 'center', marginTop: 6, marginBottom: 28 },
   rotulo: { fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.cielo, marginTop: 14 },
   campo: {
-    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 10,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 10,
     color: C.blanco, fontSize: 18, padding: 14, marginTop: 6,
   },
-  error: { color: C.rojo, fontSize: 13, fontWeight: '700', marginTop: 14 },
+  error: { color: C.rojoTexto, fontSize: 13, fontWeight: '700', marginTop: 14 },
   boton: { backgroundColor: C.brillante, borderRadius: 14, padding: 18, alignItems: 'center', marginTop: 26 },
-  botonTexto: { color: '#fff', fontSize: 20, fontWeight: '900', letterSpacing: 2 },
+  botonTexto: { color: C.sobreBrillante, fontSize: 20, fontWeight: '900', letterSpacing: 2 },
   pie: { color: C.tenue, fontSize: 11, textAlign: 'center', marginTop: 20, fontFamily: 'monospace' },
   // Contorno, no relleno: es una llamada, no el SOS. El rojo lleno queda para
   // lo que dispara una alarma.
   emergenciaSinSesion: { borderWidth: 2, borderColor: C.rojo, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 10, alignItems: 'center', marginTop: 22 },
-  emergenciaSinSesionTexto: { color: C.rojo, fontSize: 14, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
+  emergenciaSinSesionTexto: { color: C.rojoTexto, fontSize: 14, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
 
   barra: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chip: { fontFamily: 'monospace', fontSize: 12, letterSpacing: 1, fontWeight: '700' },
   salir: { color: C.tenue, fontSize: 14, fontWeight: '700' },
-  avisoBarra: { color: C.ambar, fontSize: 13, marginTop: 10 },
+  avisoBarra: { color: C.ambarTexto, fontSize: 13, marginTop: 10 },
   // El vigía de la puerta: ámbar lleno con tinta de fondo, lo más fuerte
   // que hay sin ser el rojo de la emergencia
-  vigiaPuerta: { backgroundColor: C.ambar, borderRadius: 14, padding: 14, marginBottom: 12 },
-  sosVisto: { backgroundColor: C.verde, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
+  vigiaPuerta: { backgroundColor: C.llenoAmbar, borderRadius: 14, padding: 14, marginBottom: 12 },
+  sosVisto: { backgroundColor: C.llenoVerde, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
   // El SOS sin internet: fondo de la pantalla con el borde del SOS, y los
   // botones grandes en rojo (es la emergencia, el único uso del rojo)
   sosSinRed: { backgroundColor: C.fondo, borderWidth: 3, borderColor: C.rojo, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
-  sosSinRedTitulo: { color: C.rojo, fontSize: 22, fontWeight: '900', letterSpacing: 1, textAlign: 'center' },
+  sosSinRedTitulo: { color: C.rojoTexto, fontSize: 22, fontWeight: '900', letterSpacing: 1, textAlign: 'center' },
   sosSinRedTexto: { color: C.blanco, fontSize: 14, lineHeight: 19, textAlign: 'center', marginTop: 6, marginBottom: 10 },
-  sosSinRedBoton: { backgroundColor: C.rojo, borderRadius: 12, paddingVertical: 15, paddingHorizontal: 10, alignItems: 'center', marginBottom: 8 },
-  // Tinta de fondo sobre el rojo: 5,4:1 de día y 3,9 de noche; el blanco
-  // daba 3,0 y 3,4
-  sosSinRedBotonTexto: { color: C.fondo, fontSize: 15, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
-  sosSinRedChico: { flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 10, paddingVertical: 9, alignItems: 'center' },
+  sosSinRedBoton: { backgroundColor: C.llenoRojo, borderRadius: 12, paddingVertical: 15, paddingHorizontal: 10, alignItems: 'center', marginBottom: 8 },
+  // Lo escrito sobre el rojo es un token: tinta oscura de día (5,4:1) y blanco
+  // de noche (5,2:1); la tinta de fondo daba 3,9 de noche
+  sosSinRedBotonTexto: { color: C.sobreRojo, fontSize: 15, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
+  sosSinRedChico: { flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 10, paddingVertical: 9, alignItems: 'center' },
   sosSinRedChicoNum: { color: C.blanco, fontSize: 16, fontWeight: '900' },
   sosSinRedChicoQuien: { color: C.cielo, fontSize: 11, fontWeight: '700' },
   sosSinRedCerrar: { color: C.cielo, fontSize: 13, textDecorationLine: 'underline' },
-  vigiaTitulo: { color: C.fondo, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
-  vigiaTexto: { color: C.fondo, fontSize: 14, marginTop: 4, lineHeight: 19 },
+  vigiaTitulo: { color: C.sobreLleno, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
+  vigiaTexto: { color: C.sobreLleno, fontSize: 14, marginTop: 4, lineHeight: 19 },
   vigiaBoton: {
-    marginTop: 10, borderWidth: 2, borderColor: C.fondo, borderRadius: 10,
+    marginTop: 10, borderWidth: 2, borderColor: C.sobreLleno, borderRadius: 10,
     paddingVertical: 11, alignItems: 'center',
   },
-  vigiaBotonTexto: { color: C.fondo, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
+  vigiaBotonTexto: { color: C.sobreLleno, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
   // ¿En qué combi salís?
   combiRotulo: { color: C.cielo, fontSize: 10, letterSpacing: 1.5, fontFamily: 'monospace', marginBottom: 8 },
   combiFila: {
     flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8,
-    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 12,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 12,
     paddingHorizontal: 12, paddingVertical: 10,
   },
   combiFilaElegida: { borderWidth: 2, borderColor: C.brillante, paddingHorizontal: 11, paddingVertical: 9 },
@@ -2952,30 +2952,30 @@ function crearEstilos(C) { return StyleSheet.create({
   combiPlaca: { color: C.cielo, fontSize: 10, letterSpacing: 1, fontFamily: 'monospace' },
   combiEstado: { color: C.tenue, fontSize: 13, fontWeight: '700' },
   combiElegida: { color: C.cielo, fontSize: 10, letterSpacing: 1.5, fontFamily: 'monospace' },
-  combiConfirmar: { backgroundColor: C.panel, borderWidth: 1, borderColor: C.ambar, borderRadius: 12, padding: 12 },
+  combiConfirmar: { backgroundColor: C.panel, borderWidth: 2, borderColor: C.ambar, borderRadius: 12, padding: 12 },
   combiConfirmarTexto: { color: C.blanco, fontSize: 14, lineHeight: 19 },
-  combiRelevo: { flex: 1, backgroundColor: C.ambar, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
-  combiRelevoTexto: { color: C.fondo, fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
-  combiCancelar: { flex: 1, borderWidth: 1, borderColor: C.linea, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  combiRelevo: { flex: 1, backgroundColor: C.llenoAmbar, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  combiRelevoTexto: { color: C.sobreLleno, fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
+  combiCancelar: { flex: 1, borderWidth: 1, borderColor: C.borde, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
   combiCancelarTexto: { color: C.cielo, fontSize: 13, fontWeight: '700' },
   diagnostico: { color: C.tenue, fontSize: 11, fontFamily: 'monospace', marginTop: 8 },
 
   centro: { flex: 1, justifyContent: 'center' },
-  sinSenalTitulo: { fontSize: 30, fontWeight: '900', letterSpacing: 1, color: C.ambar },
+  sinSenalTitulo: { fontSize: 30, fontWeight: '900', letterSpacing: 1, color: C.ambarTexto },
   sinSenalTexto: { fontSize: 17, color: C.blanco, marginTop: 10, lineHeight: 25 },
   filaRotulo: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   ladoEtiqueta: { fontSize: 19, fontWeight: '900', letterSpacing: 1 },
-  ladoEtiquetaSec: { fontSize: 17, fontWeight: '900', color: '#A9C0D6' },
+  ladoEtiquetaSec: { fontSize: 17, fontWeight: '900', color: C.secundario },
   ladoUnidad: { fontSize: 15, fontWeight: '700', color: C.tenue },
   digitos: { fontSize: 108, fontWeight: '900', letterSpacing: -5, lineHeight: 118 },
   digitosSec: { fontSize: 58, fontWeight: '900', letterSpacing: -2 },
-  instruccion: { fontSize: 16, color: '#93AAC2', marginTop: 10, lineHeight: 24 },
+  instruccion: { fontSize: 16, color: C.ins, marginTop: 10, lineHeight: 24 },
   divisor: { height: 1, backgroundColor: C.linea, marginVertical: 24 },
 
   // ── SOS ──────────────────────────────────────────────────────
   sosPista: {
     height: 62, borderRadius: 16, backgroundColor: C.panel,
-    borderWidth: 1, borderColor: C.linea,
+    borderWidth: 1, borderColor: C.borde,
     justifyContent: 'center', marginTop: 10, overflow: 'hidden',
   },
   sosTexto: {
@@ -2984,9 +2984,9 @@ function crearEstilos(C) { return StyleSheet.create({
   },
   sosBoton: {
     width: 70, height: 54, margin: 4, borderRadius: 12,
-    backgroundColor: C.rojo, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.llenoRojo, alignItems: 'center', justifyContent: 'center',
   },
-  sosBotonTexto: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+  sosBotonTexto: { color: C.sobreRojo, fontSize: 18, fontWeight: '900', letterSpacing: 1 },
   // El "¿qué pasó?" de después del SOS. Botones grandes: se tocan con el
   // pulgar, posiblemente arriba de la combi y con apuro.
   tipoSosCaja: {
@@ -2994,12 +2994,12 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.panel, padding: 12, marginTop: 10,
   },
   tipoSosTitulo: {
-    color: C.rojo, fontSize: 13, fontWeight: '900', letterSpacing: 1,
+    color: C.rojoTexto, fontSize: 13, fontWeight: '900', letterSpacing: 1,
     textAlign: 'center',
   },
   filaTipoSos: { flexDirection: 'row', gap: 8, marginTop: 10 },
   botonTipoSos: {
-    flex: 1, minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
+    flex: 1, minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: C.borde,
     backgroundColor: C.fondo, alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 4, paddingVertical: 8,
   },
@@ -3028,7 +3028,7 @@ function crearEstilos(C) { return StyleSheet.create({
   cobradorDato: { color: C.tenue, fontSize: 12, marginTop: 3 },
   cobradorBotones: { flexDirection: 'row', gap: 8, marginTop: 10 },
   cobradorBoton: {
-    flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: C.linea,
+    flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: C.borde,
     backgroundColor: C.fondo, alignItems: 'center', justifyContent: 'center',
   },
   cobradorBotonTexto: { fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
@@ -3042,12 +3042,12 @@ function crearEstilos(C) { return StyleSheet.create({
   // ── Presencia ────────────────────────────────────────────────
   filaPresencia: { flexDirection: 'row', gap: 10, marginTop: 12 },
   botonTrafico: {
-    height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
+    height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.borde,
     backgroundColor: C.panel, alignItems: 'center', justifyContent: 'center',
     marginTop: 12, paddingHorizontal: 12,
   },
   botonPresencia: {
-    flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
+    flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.borde,
     backgroundColor: C.panel, alignItems: 'center', justifyContent: 'center',
   },
   botonPresenciaTexto: { color: C.tenue, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
@@ -3055,7 +3055,7 @@ function crearEstilos(C) { return StyleSheet.create({
     height: 58, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
     marginTop: 26,
   },
-  botonAnchoTexto: { color: '#08131F', fontSize: 17, fontWeight: '900', letterSpacing: 1.5 },
+  botonAnchoTexto: { color: C.sobreLleno, fontSize: 17, fontWeight: '900', letterSpacing: 1.5 },
 
   // ── Mapa ─────────────────────────────────────────────────────
   mapaCaja: { flex: 1, overflow: 'hidden' },
@@ -3074,10 +3074,10 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.brillante, borderRadius: 10,
     paddingHorizontal: 16, paddingVertical: 10,
   },
-  soltarTexto: { color: '#fff', fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
+  soltarTexto: { color: C.sobreBrillante, fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
   centrar: {
     position: 'absolute', right: 16, bottom: 16,
-    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
   },
   centrarTexto: { color: C.cielo, fontSize: 11, fontWeight: '900', letterSpacing: 1.5 },
@@ -3089,21 +3089,21 @@ function crearEstilos(C) { return StyleSheet.create({
   // ── Entrar / tema ────────────────────────────────────────────
   campoConBoton: {
     flexDirection: 'row', alignItems: 'center', marginTop: 6,
-    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 10,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 10,
   },
   campoSinBorde: { flex: 1, marginTop: 0, borderWidth: 0, backgroundColor: 'transparent' },
   ojo: { paddingHorizontal: 14, paddingVertical: 14 },
   ojoTexto: { color: C.cielo, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
   chipTema: {
     fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.tenue,
-    borderWidth: 1, borderColor: C.linea, borderRadius: 6,
+    borderWidth: 1, borderColor: C.borde, borderRadius: 6,
     paddingHorizontal: 7, paddingVertical: 3,
   },
 
   // ── Foto ─────────────────────────────────────────────────────
   camara: {
     width: 50, height: 50, borderRadius: 12, backgroundColor: C.panel,
-    borderWidth: 1, borderColor: C.linea,
+    borderWidth: 1, borderColor: C.borde,
     alignItems: 'center', justifyContent: 'center',
   },
   camaraTexto: { fontSize: 22 },
@@ -3136,13 +3136,13 @@ function crearEstilos(C) { return StyleSheet.create({
     minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5,
     backgroundColor: C.brillante, alignItems: 'center', justifyContent: 'center',
   },
-  badgeTexto: { color: '#fff', fontSize: 11, fontWeight: '900' },
+  badgeTexto: { color: C.sobreBrillante, fontSize: 11, fontWeight: '900' },
 
   // ── Chat ─────────────────────────────────────────────────────
   canales: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   canal: {
     flex: 1, paddingVertical: 11, borderRadius: 10,
-    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde,
     alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8,
   },
   canalActivo: { backgroundColor: C.brillante, borderColor: C.brillante },
@@ -3152,9 +3152,9 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.panel, borderRadius: 12, padding: 11,
     marginBottom: 8, maxWidth: '88%', alignSelf: 'flex-start',
   },
-  burbujaPropia: { alignSelf: 'flex-end', backgroundColor: '#1D598F' },
+  burbujaPropia: { alignSelf: 'flex-end', backgroundColor: C.burbujaPropia },
   burbujaDespacho: { borderLeftWidth: 3, borderLeftColor: C.brillante },
-  burbujaSos: { backgroundColor: '#4A0D1B', borderLeftWidth: 3, borderLeftColor: C.rojo },
+  burbujaSos: { backgroundColor: C.burbujaSos, borderLeftWidth: 3, borderLeftColor: C.rojo },
   burbujaQuien: {
     fontFamily: 'monospace', fontSize: 10, letterSpacing: 1,
     color: C.cielo, marginBottom: 3,
@@ -3162,21 +3162,21 @@ function crearEstilos(C) { return StyleSheet.create({
   burbujaTexto: { color: C.blanco, fontSize: 15, lineHeight: 21 },
   escribir: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 6 },
   campoChat: {
-    flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+    flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde,
     borderRadius: 12, color: C.blanco, fontSize: 16, padding: 12, maxHeight: 110,
   },
   enviar: {
     width: 50, height: 50, borderRadius: 12, backgroundColor: C.brillante,
     alignItems: 'center', justifyContent: 'center',
   },
-  enviarTexto: { color: '#fff', fontSize: 20 },
+  enviarTexto: { color: C.sobreBrillante, fontSize: 20 },
   grabandoAviso: {
-    color: C.ambar, fontSize: 12, fontWeight: '700',
+    color: C.ambarTexto, fontSize: 12, fontWeight: '700',
     position: 'absolute', bottom: 56, right: 0, width: 220, textAlign: 'right',
   },
   reproducir: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   reproducirIcono: {
-    color: '#fff', fontSize: 13, width: 30, height: 30, borderRadius: 15,
+    color: C.sobreBrillante, fontSize: 13, width: 30, height: 30, borderRadius: 15,
     backgroundColor: C.brillante, textAlign: 'center', lineHeight: 30,
   },
 }); }
