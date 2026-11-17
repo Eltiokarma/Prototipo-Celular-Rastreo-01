@@ -1375,6 +1375,16 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   // cambiar de variante) tiraba un TypeError y dejaba la pantalla en blanco.
   const setPuntos = (fn) => setTramos(t => t ? ({ ...t, [tramoRef.current]:
     typeof fn === 'function' ? fn(t[tramoRef.current]) : fn }) : t);
+  // «Borrar la ida» vaciaba el tramo de un clic y «Deshacer último punto»
+  // no lo traía de vuelta: la única salida era cancelar y perder lo demás
+  // (auditoría de UI, N4). Sin «¿Seguro?»: borrar sigue siendo un clic, pero
+  // guarda lo que había y lo ofrece recuperar. La copia vive hasta que ese
+  // tramo vuelve a tener puntos (se dibuja de nuevo, se importa o se
+  // recupera); nada de esto toca el servidor hasta «Guardar».
+  const [borrado, setBorrado] = React.useState(null);   // { tramo, puntos }
+  React.useEffect(() => {
+    if (borrado && tramos && (tramos[borrado.tramo] || []).length) setBorrado(null);
+  }, [tramos]);
 
   // El recorrido que ya tenía esa variante. Se recarga al cambiar de una a
   // otra: cada una tiene su propio dibujo.
@@ -1824,10 +1834,27 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
               style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2, opacity: puntos && puntos.length ? 1 : .5 }}>
               Deshacer último punto
             </button>
-            <button onClick={() => { setPuntos([]); setAviso(null); }}
+            {borrado && borrado.tramo === tramo && (
+              <div data-borrado style={{
+                display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px',
+                borderRadius: 10, background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`,
+                fontSize: 13, color: HUD.ambarTinta,
+              }}>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  Se borró la {borrado.tramo} ({borrado.puntos.length} punto{borrado.puntos.length === 1 ? '' : 's'}).
+                </span>
+                <button data-recuperar onClick={() => setTramos(t => t ? ({ ...t, [borrado.tramo]: borrado.puntos }) : t)}
+                  style={btnChico(HUD.ambarTinta, HUD.ambarBorde)}>
+                  Recuperar la {borrado.tramo}
+                </button>
+              </div>
+            )}
+            {/* Separado de «Deshacer»: eran vecinos del mismo tamaño a 8 px,
+                y un clic desviado caía en el de abajo. */}
+            <button onClick={() => { setBorrado({ tramo, puntos }); setPuntos([]); setAviso(null); }}
               disabled={!puntos || !puntos.length}
               style={{
-                ...btnSecundario(38), width: '100%', color: HUD.red,
+                ...btnSecundario(38), width: '100%', color: HUD.red, marginTop: 10,
                 borderColor: HUD.rojoBorde, opacity: puntos && puntos.length ? 1 : .5,
               }}>
               Borrar la {tramo}

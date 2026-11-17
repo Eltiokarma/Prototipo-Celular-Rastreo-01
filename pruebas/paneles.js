@@ -220,6 +220,8 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 4');
   ok('C6 · las fichas de números van en filas parejas', /className="r14-kpi6"/.test(despacho) && /className="r14-kpi12"/.test(despacho) && !/repeat\(auto-fill, minmax\(150px, 1fr\)\)/.test(despacho));
   // C7: diez botones de ancho desigual, uno de principal sin motivo
   ok('C7 · Informes es una lista con lo que trae cada uno y el mismo botón CSV', /data-informe=\{tipo\}/.test(despacho) && /<Icono n="descargar" tam=\{16\} \/>CSV/.test(despacho) && !/principal \? btnPrimario\(40\) : btnSecundario\(40\)/.test(despacho));
+  // N4: «Borrar la ida» vaciaba el tramo sin vuelta
+  ok('N4 · borrar un tramo guarda lo que había y ofrece recuperarlo', /setBorrado\(\{ tramo, puntos \}\); setPuntos\(\[\]\);/.test(despacho) && /data-recuperar onClick=\{\(\) => setTramos\(t => t \? \(\{ \.\.\.t, \[borrado\.tramo\]: borrado\.puntos \}\) : t\)\}/.test(despacho));
   // N7: «08:04» de brecha al lado de «desde 08:04» de hora
   ok('N7 · la brecha se muestra sin cero adelante y con «min»', /function duracion\(gapStr\)/.test(despacho) && /\{duracion\(val\)\}<span/.test(despacho));
 }
