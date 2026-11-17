@@ -105,5 +105,33 @@ console.log('\nLOS NÚMEROS SON LOS QUE SE PROMETEN');
   ok('el tope son 2 horas', TOPE_AUSENTE_MS === 2 * 60 * 60 * 1000, TOPE_AUSENTE_MS);
 }
 
+console.log('\nLA COPIA DE LA WEB DICE LO MISMO (auditoría de UI, N8)');
+{
+  // La web del chofer no tiene build: lleva una copia del vigía entre dos
+  // marcas. Se saca de ahí, se corre con los mismos recorridos que el
+  // original, y tiene que dar las mismas respuestas, posición por posición.
+  const html = require('fs').readFileSync(RAIZ + '/project/Prototipo.html', 'utf8');
+  const ini = html.indexOf('// ── VIGÍA DE LA AUSENCIA: copia de app/ausencia.js');
+  const fin = html.indexOf('// ── FIN DEL VIGÍA DE LA AUSENCIA');
+  ok('la web tiene la copia, entre sus marcas', ini > 0 && fin > ini);
+  const copia = new Function(html.slice(ini, fin) + '\nreturn { crearVigiaAusencia, AUSENCIA };')();
+  ok('con los mismos números', copia.AUSENCIA.RADIO_VOLVER_M === RADIO_VOLVER_M && copia.AUSENCIA.TOPE_AUSENTE_MS === TOPE_AUSENTE_MS
+     && copia.AUSENCIA.SEGUIDAS === SEGUIDAS && copia.AUSENCIA.QUIETO_M === QUIETO_M, copia.AUSENCIA);
+  // Recorridos: almorzar con zigzag, arrancar, un salto de GPS, declarar
+  // rodando, pasarse del tope. Cada uno, punto por punto, en las dos.
+  const rec = {
+    almuerzo: [...Array(12)].map((_, i) => [R.lat + (i % 2 ? 0.00025 : -0.00025), R.lng, T0 + min(3 * i)]),
+    arranca: [[R.lat, R.lng, T0], [R.lat, R.lng, T0 + min(0.2)], [R.lat + 0.0036, R.lng, T0 + min(31)], [R.lat + 0.0063, R.lng, T0 + min(31.2)]],
+    salto: [[R.lat, R.lng, T0], [R.lat, R.lng, T0 + min(0.2)], [R.lat + 0.0045, R.lng, T0 + min(10)], [R.lat, R.lng, T0 + min(10.2)], [R.lat + 0.0045, R.lng, T0 + min(20)]],
+    rodando: [[R.lat - 0.008, R.lng, T0], [R.lat - 0.004, R.lng, T0 + min(1)], [R.lat, R.lng, T0 + min(2)], [R.lat + 0.0001, R.lng, T0 + min(2.2)], [R.lat, R.lng, T0 + min(40)]],
+    tope: [[R.lat, R.lng, T0], [R.lat, R.lng, T0 + min(0.2)], [R.lat, R.lng, T0 + TOPE_AUSENTE_MS + min(1)]],
+  };
+  for (const [nombre, pasos] of Object.entries(rec)) {
+    const a = crearVigia(), b = copia.crearVigiaAusencia();
+    const ra = pasos.map(([la, ln, ts]) => a.posicion(la, ln, ts)), rb = pasos.map(([la, ln, ts]) => b.posicion(la, ln, ts));
+    ok(`«${nombre}»: la web y la APK responden igual`, JSON.stringify(ra) === JSON.stringify(rb), { apk: ra, web: rb });
+  }
+}
+
 console.log(fallas === 0 ? '\nTODO EN ORDEN\n' : `\n${fallas} FALLA(S)\n`);
 process.exit(fallas === 0 ? 0 : 1);

@@ -1,7 +1,7 @@
 // El SOS sin internet: llamar o mandar un SMS a la central (PENDIENTES 0.5,
 // 03/11).
 //
-// Antes, si el SOS no salía, la web decía «NO SALIÓ… o llamá» cuatro segundos
+// Antes, si el SOS no salía, la web decía «NO SALIÓ… o llama» cuatro segundos
 // y se iba, sin decir a quién; la nativa, «NO SALIÓ — REPETÍ». Una llamada o
 // un SMS salen con señal de voz aunque no haya datos, que es justo lo que pasa
 // donde el SOS no sale. Acá:

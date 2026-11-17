@@ -35,7 +35,7 @@ echo === 1 de 4: Traer lo ultimo del repositorio ===
 git pull origin main
 if errorlevel 1 (
   echo [ERROR] No se pudo actualizar el repositorio. Revisa tu internet
-  echo         o si tenes cambios locales sin guardar, y proba de nuevo.
+  echo         o si tienes cambios locales sin guardar, y prueba de nuevo.
   pause
   exit /b 1
 )
@@ -75,7 +75,7 @@ if not errorlevel 1 (
   echo.
   echo [NO SE PUBLICA] Hay cambios en esta PC que no estan en el repositorio:
   git status --short -- . ..\pruebas
-  echo Subilos ^(o descartalos^) y volve a correr esto.
+  echo Subelos ^(o descartalos^) y vuelve a correr esto.
   pause
   exit /b 1
 )
@@ -95,7 +95,7 @@ echo.
 echo === 4 de 4: A quien? ===
 echo.
 echo   [1] PRUEBA  - solo los telefonos con la APK de prueba (el tuyo).
-echo                 Empeza SIEMPRE por aca.
+echo                 Empieza SIEMPRE por aca.
 echo   [2] TODOS   - todos los choferes con la APK normal
 echo   [3] PLAY    - los que la instalaron desde Google Play
 echo   [4] VOLVER ATRAS - deshacer: los telefonos de un canal vuelven al
@@ -165,8 +165,8 @@ echo Gestion - Personas, al lado de "app" aparece "act." con la fecha:
 echo asi ves quien ya lo tiene.
 if "%canal%"=="prueba" (
   echo.
-  echo Probalo en tu telefono: cerra la app del todo y abrila dos veces
+  echo Pruebalo en tu telefono: cierra la app del todo y abrela dos veces
   echo ^(la primera la baja, la segunda arranca con ella^). Si anda bien,
-  echo volve a correr esto y elegi [2] TODOS.
+  echo vuelve a correr esto y elige [2] TODOS.
 )
 pause

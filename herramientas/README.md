@@ -16,7 +16,7 @@ cómo se ve todo esto con veinte unidades antes de que existan veinte
 unidades.
 
 Con eso levantado se puede, por fin, trabajar el trazado de una ruta y verlo
-poblado: dibujás el recorrido con el trazador del panel, y las combis
+poblado: dibujas el recorrido con el trazador del panel, y las combis
 arrancan a recorrerlo.
 
 ### No simula en el cliente, y es a propósito
@@ -37,7 +37,7 @@ que se quiere de una herramienta de prueba.
 ### Qué hace falta antes
 
 **La ruta tiene que tener trazado cargado.** Las unidades caminan sobre el
-recorrido que vos dibujaste con el trazador del panel de Despacho, no sobre un
+recorrido que tú dibujaste con el trazador del panel de Despacho, no sobre un
 círculo inventado. Si no hay trazado, la herramienta lo dice y no arranca.
 
 ### Opciones
@@ -54,7 +54,7 @@ círculo inventado. Si no hay trazado, la herramienta lo dice y no arranca.
 | `--acelerar` | `1` | Reloj simulado ×N. Las posiciones salen igual cada 3 s, pero las combis avanzan N veces más rápido: con `--acelerar 10`, el almuerzo de 30 min dura 3 |
 
 Las velocidades son **distintas entre sí** a propósito: con todas iguales las
-brechas quedan congeladas y no se ve nunca un "apurá" ni un "aguantá", que es
+brechas quedan congeladas y no se ve nunca un "apura" ni un "aguanta", que es
 justo lo que se viene a mirar.
 
 ### Los perfiles
@@ -131,7 +131,7 @@ Así se encontró justamente eso — ver `COSTOS.md` §3.
 
 Usa el puerto **3199** y una base temporal propia; no toca nada tuyo. Sembrar
 2000 unidades tarda ~1,5 min y ocupa ~730 MB de disco; 20 000 tarda bastante
-más y ocupa ~7 GB. Con `--keep` la base **no se borra**: acordate de borrarla.
+más y ocupa ~7 GB. Con `--keep` la base **no se borra**: acuérdate de borrarla.
 
 ## `arranque.js` — en qué se le va el tiempo al servidor antes de contestar
 
@@ -160,11 +160,11 @@ no es el que se despliega.
 ### Cuidado
 
 - Siembra en `os.tmpdir()` y **no borra** las bases: a 5000 unidades son 2 GB.
-  Borralas a mano cuando termines.
-- Sembrar 5000 unidades tarda ~3,5 min y la base pesa 2 GB. Empezá por 500.
+  Bórralas a mano cuando termines.
+- Sembrar 5000 unidades tarda ~3,5 min y la base pesa 2 GB. Empieza por 500.
 - **El primer arranque contra una base recién sembrada no es representativo**:
   si el techo de filas aprieta, esa vez borra de verdad y tarda mucho más que
-  las siguientes. Medí dos veces y quedate con la segunda, que es la que se
+  las siguientes. Mide dos veces y quédate con la segunda, que es la que se
   paga en cada reinicio.
 
 ## `emision.js` — el CPU del WebSocket de estado, y cómo crece

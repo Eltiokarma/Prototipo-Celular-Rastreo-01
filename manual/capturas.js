@@ -401,6 +401,11 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     // Rufino también puede manejar M-07 (la de Rosa): habilitada desde acá
     if (D.COMBIS_EXTRA_RUFINO) {
       // Desde el retoque de la UI, «Combis» vive en el menú «⋯» de la fila
+      // Primero la fila al medio de la pantalla: el menú se cierra con
+      // cualquier scroll, y con la fila al borde el clic desplazaba la
+      // página y lo cerraba en el acto.
+      await de.locator(`[data-acciones="${p0.usuario}"]`).evaluate(el => el.scrollIntoView({ block: 'center' }));
+      await de.waitForTimeout(600);
       await clic(de, `[data-acciones="${p0.usuario}"]`, 500);
       await de.locator('[role="menu"] button:has-text("Combis")').click({ timeout: 6000 });
       await de.waitForTimeout(600);
@@ -525,7 +530,7 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
       .filter({ has: de.locator('button:has-text("Mensaje directo")') }).last();
     await tarjeta.locator('button:has-text("Mensaje directo")').click({ timeout: 6000 }); await de.waitForTimeout(1000);
     const entrada = de.locator('input[placeholder^="Mensaje solo para"], textarea[placeholder^="Mensaje solo para"]').last();
-    await entrada.fill('Rufo, en el paradero del mercado esperá 2 minutos: viene pegado M-02.');
+    await entrada.fill('Rufo, en el paradero del mercado espera 2 minutos: viene pegado M-02.');
     await entrada.press('Enter');
     await de.waitForTimeout(1500);
     await foto(de, 'd04-mensaje-directo');
@@ -535,7 +540,7 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     const personal = tarjeta.locator('button:has-text("Solo a")');
     await personal.click({ timeout: 6000 }); await de.waitForTimeout(800);
     const aEl = de.locator('input[placeholder^="Mensaje solo para"]').last();
-    await aEl.fill('Rufo, al terminar el turno pasá por la oficina a firmar.');
+    await aEl.fill('Rufo, al terminar el turno pasa por la oficina a firmar.');
     await aEl.press('Enter');
     await de.waitForTimeout(1500);
     await foto(de, 'd04b-mensaje-personal');
@@ -565,7 +570,7 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     await clic(ch, 'button:has-text("EN TRÁFICO")', 1500);
   });
   await paso('chofer: SOS', async () => {
-    const perilla = await ch.locator('text=DESLIZÁ PARA SOS').boundingBox();
+    const perilla = await ch.locator('text=DESLIZA PARA SOS').boundingBox();
     const sos = await ch.locator('div:text-is("SOS")').last().boundingBox();
     const desde = sos || { x: perilla.x - 80, y: perilla.y, width: 60, height: perilla.height };
     const y = desde.y + desde.height / 2;
@@ -584,7 +589,8 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     await foto(de, 'd05b-sos-tipo', { clip: { x: 0, y: 0, width: 1440, height: 300 } });
   });
   await paso('chofer: ausente', async () => {
-    await clic(ch, 'button:has-text("AUSENTE")', 2500);
+    // AUSENTE se declara a los 5 s: hasta entonces se puede deshacer
+    await clic(ch, 'button:has-text("AUSENTE")', 7000);
     await foto(ch, 'c06-ausente');
     await clic(ch, 'button:has-text("VOLVER A RUTA")', 2500);
     await clic(ch, 'button:has-text("SALIR DE RUTA")', 400);
@@ -635,6 +641,8 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
       // El menú «⋯» de una fila de Personas, abierto (desde el retoque, ahí
       // están Clave, Combis, Editar y Baja)
       if (boton === 'Personas') {
+        await de.locator(`[data-acciones="${D.PERSONAS[0].usuario}"]`).evaluate(el => el.scrollIntoView({ block: 'center' }));
+        await de.waitForTimeout(600);
         await clic(de, `[data-acciones="${D.PERSONAS[0].usuario}"]`, 700);
         await foto(de, 'd07b-acciones');
         await de.keyboard.press('Escape'); await de.waitForTimeout(400);

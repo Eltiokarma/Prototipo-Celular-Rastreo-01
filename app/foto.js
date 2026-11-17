@@ -45,7 +45,7 @@ async function preparar(asset) {
   const dataUrl = `data:image/jpeg;base64,${salida.base64}`;
   // El servidor la descartaría en silencio y el chofer creería que salió.
   // Mejor decírselo acá, donde todavía se puede repetir.
-  if (demasiadoPesada(dataUrl)) return { error: 'La foto pesa demasiado, probá con otra' };
+  if (demasiadoPesada(dataUrl)) return { error: 'La foto pesa demasiado, prueba con otra' };
   return { dataUrl, bytes: pesoAproximado(dataUrl) };
 }
 

@@ -55,7 +55,7 @@ console.log('\nLA PANTALLA, POR LECTURA');
      /entrar\(usuario\.trim\(\), clave, APP\)/.test(app) && /\.\.\.\(app \? \{ app \} : \{\}\)/.test(cliente) &&
      /\.\.\.CABECERA_APP/.test(app) && /\.\.\.CABECERA_APP/.test(servicio) && /cabeceraDeApp/.test(servicio));
   ok('el aviso de versión está en la pantalla de ruta y en el perfil, y el grave va en rojo',
-     /avisoApp=\{avisoDeApp\(sesion && sesion\.app, APP\)\}/.test(app) && (app.match(/avisoApp\.grave && \{ color: C\.rojo \}/g) || []).length === 2);
+     /avisoApp=\{avisoDeApp\(sesion && sesion\.app, APP\)\}/.test(app) && (app.match(/avisoApp\.grave && \{ color: C\.rojoTexto \}/g) || []).length === 2);
   ok('el perfil pide la ventana y ofrece 7 o 30 días', /\/perfil\?dias=' \+ dias/.test(app) && /\[7, 30\]\.map/.test(app));
   ok('las vueltas se rotulan de la combi, con las «tuyas» aparte y la vara', /VUELTAS DE \$\{combi\}/.test(app) && /\['TUYAS'/.test(app) && /\['OBJETIVO', mmss\(m\.objetivoSec\)\]/.test(app));
   ok('hay «Mi semana» con lo de la combi y los turnos uno por uno', /'MI SEMANA'/.test(app) && /TUS TURNOS/.test(app) && /datos\.turnos\.map/.test(app));

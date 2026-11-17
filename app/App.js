@@ -20,6 +20,7 @@ import {
   View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
   FlatList, PanResponder, Animated, Vibration,
   Image, Modal, Dimensions, Keyboard, BackHandler, ScrollView, Linking,
+  AccessibilityInfo,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,13 +33,13 @@ import * as Updates from 'expo-updates';
 import { crearCliente } from './protocolo/cliente';
 import { cabeceraDeApp, avisoDeApp, actualizacionDe } from './version';
 import { tocaPreguntar, sePuedeAplicar } from './actualizacion';
-import { limpiarNotificacion, limpiarSiSinRol } from './notificacion.js';
-import { construirHud, textoNotificacion } from './hud';
+import { limpiarNotificacion, limpiarSiSinRol, remirarPermiso } from './notificacion.js';
+import { construirHud, textoNotificacion, VIEJA_MS, estadoDeMiCombi, avisoDeMiCombi } from './hud';
 import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
 import { margenes, margenBarra } from './margenes';
 import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL } from './gestos';
 import * as mapa from './mapa';
-import { paleta, esOscuro, siguienteModo, ETIQUETA } from './tema';
+import { paletaMapa, paleta, esOscuro, siguienteModo, ETIQUETA } from './tema';
 import { levantar } from './teclado';
 import { useAudioRecorder, useAudioPlayer, RecordingPresets,
          pedirPermisoMicrofono, aDataUrl, MAX_SEGUNDOS } from './voz';
@@ -88,6 +89,47 @@ const quienSoy = (c) => ({
 const Tema = React.createContext(null);
 const usarTema = () => React.useContext(Tema);
 
+// La pantalla se re-dibuja con cada estado que llega. Si dejan de llegar,
+// nada la re-dibujaría y la brecha vieja quedaría como si fuera de ahora:
+// esto la despierta a los 10 s y después cada segundo, para que el «hace
+// 0:24» avance. Con el dato fresco no corre ningún reloj (auditoría de UI, N1).
+function usarAhoraSiEnvejece(recibido) {
+  const [ahora, setAhora] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (!recibido) return;
+    setAhora(Date.now());
+    let t;
+    const programar = () => {
+      const edad = Date.now() - recibido;
+      t = setTimeout(() => { setAhora(Date.now()); programar(); }, edad < VIEJA_MS ? VIEJA_MS - edad + 50 : 1000);
+    };
+    programar();
+    return () => clearTimeout(t);
+  }, [recibido]);
+  return ahora;
+}
+
+// Los íconos de la barra de Android (hora, batería) en el color que se lee:
+// claros sobre la paleta oscura, oscuros sobre la clara (A1). Sobre el mapa,
+// que es oscuro siempre, van claros.
+function BarraDeEstado() {
+  const { oscuro } = usarTema();
+  return <StatusBar style={oscuro ? 'light' : 'dark'} />;
+}
+
+// ¿El teléfono pide menos movimiento? (Ajustes ▸ Accesibilidad ▸ quitar
+// animaciones). Se sigue si lo cambian con la app abierta (auditoría de UI, A6).
+function usarMenosMovimiento() {
+  const [menos, setMenos] = React.useState(false);
+  React.useEffect(() => {
+    let vivo = true;
+    AccessibilityInfo.isReduceMotionEnabled().then(v => { if (vivo) setMenos(!!v); }).catch(() => {});
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', v => setMenos(!!v));
+    return () => { vivo = false; sub && sub.remove && sub.remove(); };
+  }, []);
+  return menos;
+}
+
 // La hoja se arma una vez por paleta y se guarda: `StyleSheet.create` en cada
 // render sería un objeto nuevo por frame, justo mientras el dedo arrastra.
 const hojas = new Map();
@@ -131,6 +173,7 @@ function ConTema({ children }) {
   const C = paleta(modo, ahora);
   const valor = React.useMemo(() => ({
     C, s: hojaDe(C), modo, oscuro: esOscuro(modo, ahora),
+    Cmapa: paletaMapa(modo, ahora),   // el mapa es oscuro siempre (A1)
     alternar: () => {
       const nuevo = siguienteModo(modo);
       setModo(nuevo);
@@ -189,7 +232,7 @@ function Presentacion({ mostrando }) {
         backgroundColor: C.fondo, opacity: opacidad,
         alignItems: 'center', justifyContent: 'center',
       }]}>
-      <StatusBar style="light" />
+      <BarraDeEstado />
       <Image source={require('./assets/icon.png')} style={{ width: 112, height: 112, borderRadius: 26 }} />
       <Text style={[s.tituloChico, { marginTop: 24 }]}>MICROS TEMPO</Text>
       <Text style={[s.subtitulo, { marginBottom: 0 }]}>Control de ruta</Text>
@@ -200,7 +243,9 @@ function Presentacion({ mostrando }) {
 
 function Aplicacion() {
   const [sesion, setSesion] = React.useState(null);
-  const [hud, setHud] = React.useState(() => construirHud(null));
+  // La brecha y CUÁNDO llegó: el HUD se arma con las dos, para poder decir
+  // que es vieja (auditoría de UI, N1). Antes se guardaba el HUD ya armado.
+  const [brecha, setBrecha] = React.useState({ datos: null, recibido: null });
   // El estado crudo y el trazado son para el mapa. El HUD ya sale de la
   // brecha; el mapa necesita dónde está cada una.
   const [estado, setEstado] = React.useState(null);
@@ -245,7 +290,7 @@ function Aplicacion() {
     cliente.current = crearCliente({ servidor: SERVIDOR, WebSocketImpl: WebSocket });
     const c = cliente.current;
     const off = [
-      c.on('estado', () => { setHud(construirHud(c.miBrecha())); setEstado(c.estado); }),
+      c.on('estado', () => { setBrecha({ datos: c.miBrecha(), recibido: Date.now() }); setEstado(c.estado); }),
       c.on('geometria', (g) => setGeometria(g)),
       // La combi de hoy cambió (en la puerta, o Despacho): la sesión, y la
       // guardada, para que al reabrir la app diga la que es
@@ -307,7 +352,8 @@ function Aplicacion() {
         if (c.sesion && m.unitId === c.sesion.unitId) setTipificarSos(true);
       }),
       // «Despacho vio tu SOS» (31/10): queda hasta que lo toca, y el que ya
-      // cerró no vuelve con cada reconexión
+      // cerró no vuelve con cada reconexión. Dice «lo vio», no «lo marcó
+      // atendido»: ATENDIDO sólo garantiza que alguien lo vio (auditoría N9).
       c.on('sosAtendido', (m) => {
         if (!sosVistosCerrados.current.has(m.sosId)) setSosVisto(m);
       }),
@@ -317,7 +363,7 @@ function Aplicacion() {
       // y antes se descartaba sin decir nada: la burbuja no aparecía y no
       // había explicación en ninguna pantalla (C10).
       c.on('cupo', (m) => setAviso(
-        `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, esperá un momento`)),
+        `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, espera un momento`)),
     ];
     return () => off.forEach(f => f());
   }, []);
@@ -448,7 +494,9 @@ function Aplicacion() {
   // para eso haría falta el servicio de fondo, que es emitir.
   const [primerPlano, setPrimerPlano] = React.useState(AppState.currentState === 'active');
   React.useEffect(() => {
-    const sub = AppState.addEventListener('change', (e) => setPrimerPlano(e === 'active'));
+    // Al volver (por ejemplo, de Ajustes con el permiso de notificaciones
+    // recién dado), que el módulo de notificaciones lo mire de nuevo
+    const sub = AppState.addEventListener('change', (e) => { setPrimerPlano(e === 'active'); if (e === 'active') remirarPermiso(); });
     return () => sub.remove();
   }, []);
   const vigiaPuerta = React.useRef(null);
@@ -531,7 +579,7 @@ function Aplicacion() {
     return () => clearTimeout(t);
   }, [avisoSalida]);
 
-  // ── ¿En qué combi salís? (habilitaciones, 30/10) ────────────
+  // ── ¿En qué combi sales? (habilitaciones, 30/10) ────────────
   // En la puerta, la lista de las que puede elegir con su estado —libre, o
   // quién la maneja—, refrescada cada 20 s. Elegir no toma nada: la combi se
   // toma al deslizar SALIR A RUTA, y si otro la maneja eso es un relevo.
@@ -585,7 +633,7 @@ function Aplicacion() {
     });
     if (otraCombi && presencia !== 'fuera' && sesion.role !== 'collector') {
       cambiarPresencia('fuera');
-      setAviso(`Despacho te pasó a ${m.vehicleId}. Para salir en ella, deslizá SALIR A RUTA.`);
+      setAviso(`Despacho te pasó a ${m.vehicleId}. Para salir en ella, desliza SALIR A RUTA.`);
     }
   };
 
@@ -630,7 +678,7 @@ function Aplicacion() {
     // /marca no contesta quedaba la de la cooperativa anterior) y lo leído
     // (los privados viejos del siguiente contaban como vistos). El resto
     // también, para no mostrar «en vivo» lo de otro (repaso de la tanda 9).
-    setMarca(null); setEstado(null); setGeometria(null); setHud(construirHud(null));
+    setMarca(null); setEstado(null); setGeometria(null); setBrecha({ datos: null, recibido: null });
     setCanal('grupo'); setVistoHasta({ grupo: 0, directo: 0, personal: 0 }); setAviso(null);
     // Las combis y el vigía del anterior tampoco: el siguiente veía la lista
     // del otro hasta que contestara el servidor (revisión previa a la APK)
@@ -641,6 +689,14 @@ function Aplicacion() {
   // El texto de la notificación va en un ref para que los oyentes se
   // suscriban UNA vez: si dependieran del hud, se re-suscribirían con cada
   // brecha nueva. Lo usan la vigilancia y el cambio de cadencia.
+  const ahora = usarAhoraSiEnvejece(brecha.recibido);
+  const hud = React.useMemo(
+    () => construirHud(brecha.datos, ahora, { recibido: brecha.recibido, fiable: reporta, conectado }),
+    [brecha, ahora, reporta, conectado]);
+  // El cobrador: qué le pasa a su combi, antes de mostrarle brechas
+  const avisoCombi = React.useMemo(
+    () => (sesion?.role === 'collector' ? avisoDeMiCombi(estadoDeMiCombi(estado, sesion.vehicleId)) : null),
+    [estado, sesion?.role, sesion?.vehicleId]);
   const textoRef = React.useRef('Turno en curso');
   textoRef.current = textoNotificacion(hud, reporta);
 
@@ -694,7 +750,7 @@ function Aplicacion() {
         if (cliente.current) cliente.current.salir();
         olvidarDeLaSesion();
         gps.limpiarSesion();
-        setAviso('Tu sesión ya no vale: entrá de nuevo');
+        setAviso('Tu sesión ya no vale: entra de nuevo');
         setSesion(null); setPresencia('fuera');
         return;
       }
@@ -711,7 +767,7 @@ function Aplicacion() {
       // le decía por qué (REVISION-2026-09-10.md, C5).
       if (gps.diagnostico.relojAdelantadoSec) {
         setAviso(`El reloj del teléfono está ${Math.max(1, Math.round(gps.diagnostico.relojAdelantadoSec / 60))} min adelantado: ` +
-          'el servidor no puede usar tus posiciones. Activá la fecha y hora automáticas en Ajustes.');
+          'el servidor no puede usar tus posiciones. Activa la fecha y hora automáticas en Ajustes.');
       }
       const corriendo = await gps.estaCorriendo();
       if (!vivo || saliendo.current) return;
@@ -906,7 +962,7 @@ function Aplicacion() {
     <Carrusel pantalla={pantalla} onIr={irA}>
       <Mapa {...comun} estado={estado} geometria={geometria}
         yo={cliente.current?.sesion} activo={pantalla === 'mapa'} />
-      <Ruta {...comun} hud={hud} reporta={reporta}
+      <Ruta {...comun} hud={hud} reporta={reporta} avisoCombi={avisoCombi}
         avisoApp={avisoDeApp(sesion && sesion.app, APP)}
         confirmada={enRutaConfirmada}
         onPresencia={cambiarPresencia}
@@ -945,7 +1001,7 @@ function Aplicacion() {
           if (!tipo) return;
           const r = await cliente.current.marcarTipoSos(tipo);
           if (r === 'sin-sos') setAviso('No hay ninguna emergencia tuya abierta para calificar');
-          else if (r) setAviso('SOS ENVIADO. El tipo no salió: decí por chat si es ambulancia o grúa');
+          else if (r) setAviso('SOS ENVIADO. El tipo no salió: escribe por el chat si es ambulancia o grúa');
         }}
         onPerfil={() => setVerPerfil(true)} />
       <Chat {...comun}
@@ -957,7 +1013,7 @@ function Aplicacion() {
           // sin socket no pasa NADA: ni burbuja, ni error. Antes el retorno
           // se descartaba (C10).
           if (!cliente.current.mandarChat(texto, { privado: canal === 'directo', personal: canal === 'personal' })) {
-            setAviso('Sin conexión: el mensaje no salió, probá de nuevo');
+            setAviso('Sin conexión: el mensaje no salió, prueba de nuevo');
             return false;
           }
           return true;
@@ -966,8 +1022,8 @@ function Aplicacion() {
           // Ídem la nota de voz, que es peor: el chofer graba cuarenta
           // segundos, suelta, y no pasa nada.
           const r = cliente.current.mandarVoz({ data, duration, privado: canal === 'directo', personal: canal === 'personal' });
-          if (r === 'muy-larga') setAviso('La nota es muy larga y no salió: grabá una más corta');
-          else if (r === 'sin-conexion') setAviso('Sin conexión: la nota no salió, probá de nuevo');
+          if (r === 'muy-larga') setAviso('La nota es muy larga y no salió: graba una más corta');
+          else if (r === 'sin-conexion') setAviso('Sin conexión: la nota no salió, prueba de nuevo');
           else if (r) setAviso('Eso no es una nota de voz');
           // Y se devuelve: `Grabar` y `Camara` lo muestran al lado del botón,
           // que es donde está mirando el que mandó (barrido del 22/9).
@@ -977,15 +1033,15 @@ function Aplicacion() {
           // Si no salió, se dice por qué. Antes la pantalla ignoraba el
           // retorno y una foto pesada o sin conexión se perdía en silencio.
           const r = cliente.current.mandarFoto({ data, privado: canal === 'directo', personal: canal === 'personal' });
-          if (r === 'muy-pesada') setAviso('La foto pesa demasiado y no salió: sacala de más lejos');
-          else if (r === 'sin-conexion') setAviso('Sin conexión: la foto no salió, probá de nuevo');
+          if (r === 'muy-pesada') setAviso('La foto pesa demasiado y no salió: sácala de más lejos');
+          else if (r === 'sin-conexion') setAviso('Sin conexión: la foto no salió, prueba de nuevo');
           else if (r) setAviso('Eso no es una foto');
           return r;
         }} />
     </Carrusel>
     {/* Fuera del carrusel: el perfil no es una página más, es un alto */}
     {verPerfil && (
-      <Perfil sesion={sesion} marca={marca} onCerrar={() => setVerPerfil(false)}
+      <Perfil sesion={sesion} marca={marca} diag={diag} onCerrar={() => setVerPerfil(false)}
         onCerrarTodo={() => { setVerPerfil(false); comun.onSalir(); }} />
     )}
     {presentacion}
@@ -1015,6 +1071,15 @@ function Aplicacion() {
 // se prueba en Node. Acá solo se dibuja.
 function Carrusel({ pantalla, onIr, children }) {
   const { ancho } = useVentana();
+  // Con «quitar animaciones», la pantalla cambia en el acto en vez de
+  // deslizarse con resorte. El arrastre con el dedo sigue igual: es directo.
+  const menosMovimiento = usarMenosMovimiento();
+  const menosRef = React.useRef(menosMovimiento);
+  menosRef.current = menosMovimiento;
+  const llevarA = (destino) => {
+    if (menosRef.current) { x.setValue(destino); return; }
+    Animated.spring(x, { toValue: destino, useNativeDriver: true, bounciness: 0, speed: 14 }).start();
+  };
   const indice = Math.max(0, PANTALLAS.indexOf(pantalla));
   const x = React.useRef(new Animated.Value(0)).current;
   const indiceRef = React.useRef(indice);
@@ -1023,12 +1088,7 @@ function Carrusel({ pantalla, onIr, children }) {
   // Cuando se cambia de pantalla con la barra —no con el dedo— igual se
   // desliza. Que el mismo destino se vea igual sin importar cómo se llegó es
   // lo que hace que la app se sienta de una pieza.
-  React.useEffect(() => {
-    Animated.spring(x, {
-      toValue: -indice * ancho,
-      useNativeDriver: true, bounciness: 0, speed: 14,
-    }).start();
-  }, [indice, ancho]);
+  React.useEffect(() => { llevarA(-indice * ancho); }, [indice, ancho]);
 
   const pan = React.useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
@@ -1036,20 +1096,12 @@ function Carrusel({ pantalla, onIr, children }) {
     onPanResponderMove: (_, g) => x.setValue(desplazamiento(indiceRef.current, g.dx, ancho)),
     onPanResponderRelease: (_, g) => {
       const destino = indiceDestino(indiceRef.current, g, ancho);
-      Animated.spring(x, {
-        toValue: -destino * ancho,
-        useNativeDriver: true, bounciness: 0, speed: 14,
-      }).start();
+      llevarA(-destino * ancho);
       if (destino !== indiceRef.current) onIr(PANTALLAS[destino]);
     },
     // Si el gesto se cancela —una llamada entrante, el sistema tomando el
     // borde—, la pantalla no puede quedar a mitad de camino.
-    onPanResponderTerminate: () => {
-      Animated.spring(x, {
-        toValue: -indiceRef.current * ancho,
-        useNativeDriver: true, bounciness: 0, speed: 14,
-      }).start();
-    },
+    onPanResponderTerminate: () => llevarA(-indiceRef.current * ancho),
   }), [ancho, onIr]);
 
   return (
@@ -1097,9 +1149,9 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
 
   return (
     <View style={[s.pantalla, margen]}>
-      <StatusBar style="light" />
+      <BarraDeEstado />
       <Text style={s.tituloChico}>CONTROL DE RUTA</Text>
-      <Text style={s.subtitulo}>Ingresá con el usuario que te dio tu cooperativa</Text>
+      <Text style={s.subtitulo}>Ingresa con el usuario que te dio tu cooperativa</Text>
 
       <Text style={s.rotulo}>USUARIO</Text>
       <TextInput style={s.campo} value={usuario} onChangeText={setUsuario}
@@ -1122,7 +1174,7 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
       {(error || aviso) && <Text style={s.error}>{error || aviso}</Text>}
 
       <Pressable style={[s.boton, cargando && { opacity: 0.6 }]} onPress={enviar} disabled={cargando}>
-        {cargando ? <ActivityIndicator color="#fff" /> : <Text style={s.botonTexto}>INGRESAR</Text>}
+        {cargando ? <ActivityIndicator color={C.sobreBrillante} /> : <Text style={s.botonTexto}>INGRESAR</Text>}
       </Pressable>
       {/* Sin sesión no hay SOS (el servidor no sabe quién lo pide), pero
           la central sí atiende el teléfono. Es sólo una llamada: no dispara
@@ -1144,6 +1196,70 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
 // restringe): se lleva al chofer a la lista y él elige esta app. Si el
 // fabricante no tiene esa pantalla, la de la app misma, donde Batería está a
 // un toque.
+// ¿Hay algo del GPS que el chofer tenga que ver? El servicio no corre,
+// Android le va a cortar la red, hay posiciones esperando, un envío colgado,
+// nada salió en el último minuto, o el servidor no las usa.
+function hayProblemaDeGps(diag, ahora = Date.now()) {
+  if (!diag) return false;
+  return diag.servicio !== 'corriendo'
+    || diag.bateriaOptimizada === true
+    || diag.enEspera > 0
+    || !!diag.motivoNoUsadas
+    || (!!diag.enVueloDesde && ahora - diag.enVueloDesde > 20_000)
+    || (!!diag.ultimoEnvio && ahora - diag.ultimoEnvio > 60_000);
+}
+
+// Lo que está haciendo el GPS, renglón por renglón. Se dibuja arriba de la
+// ruta cuando hay un problema y siempre en Perfil.
+function DiagnosticoGps({ diag }) {
+  const { s, C } = usarTema();
+  return (<>
+    {/* Qué está haciendo el GPS. Está a la vista a propósito mientras se
+        mide en la calle: "no aparece en el mapa" no distingue entre el GPS
+        que no dispara, el envío que falla y el servidor que rechaza. */}
+    {/* El estado del SERVICIO va primero. Sin él, "enviadas 0 · fallidas 0"
+        no distingue entre "todavía no llegó la primera posición" y "el
+        servicio ni siquiera está corriendo", y esa ambigüedad ya costó una
+        sesión entera de diagnóstico. */}
+    <Text style={[s.diagnostico, diag.servicio !== 'corriendo' && { color: C.rojoTexto }]}>
+      Servicio de GPS: {diag.servicio}
+    </Text>
+    {/* Lo que Android va a hacer con la red apenas se apague la pantalla.
+        Va arriba de los contadores porque los explica: con esto activo,
+        "enviando hace 300s" no es un bug de la app. Tocar lleva a la
+        pantalla del sistema donde se apaga. */}
+    {diag.bateriaOptimizada === true && (
+      <Pressable onPress={abrirOptimizacionDeBateria}>
+        <Text style={[s.diagnostico, { color: C.rojoTexto }]}>
+          BATERÍA: optimización ACTIVA — Android corta la red con la pantalla apagada. Toca acá y pon esta app en «Sin restricciones»
+        </Text>
+      </Pressable>
+    )}
+    <Text style={s.diagnostico}>
+      GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
+      {diag.rechazadas > 0 ? ` · ${diag.rechazadas} no usadas` : ''}
+      {diag.enEspera > 0 ? ` · ${diag.enEspera} esperando` : ''}
+      {diag.ultimoEnvio ? ` · último hace ${Math.round((Date.now() - diag.ultimoEnvio) / 1000)}s` : ' · todavía ninguna'}
+      {/* Un envío en vuelo que envejece es un envío colgado: es lo que
+          hay que ver cuando "último hace" crece y no hay ningún error. */}
+      {diag.enVueloDesde ? ` · enviando hace ${Math.round((Date.now() - diag.enVueloDesde) / 1000)}s` : ''}
+    </Text>
+    {/* Por qué no se usó ninguna. El caso real: la web abierta y la app en
+        el teléfono reportando la misma combi, cada una con su reloj — sin
+        esto son ceros sin explicación (REVISION-2026-09-10.md, C20). */}
+    {diag.motivoNoUsadas && (
+      <Text style={[s.diagnostico, { color: C.ambarTexto }]}>{diag.motivoNoUsadas}</Text>
+    )}
+    {/* Los motivos, con su cuenta. Es lo que dice DÓNDE está el problema:
+        "sin red" es el teléfono, un HTTP 4xx es el servidor rechazando. */}
+    {Object.keys(diag.motivos || {}).length > 0 && (
+      <Text style={s.diagnostico}>
+        {Object.entries(diag.motivos).map(([m, n]) => `${m} ×${n}`).join(' · ')}
+      </Text>
+    )}
+  </>);
+}
+
 function abrirOptimizacionDeBateria() {
   Linking.sendIntent('android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS')
     .catch(() => Linking.openSettings().catch(() => {}));
@@ -1164,7 +1280,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
   };
   return (
     <View style={{ marginBottom: 12 }}>
-      <Text style={s.combiRotulo}>¿EN QUÉ COMBI SALÍS?</Text>
+      <Text style={s.combiRotulo}>¿EN QUÉ COMBI SALES?</Text>
       {/* Con alto máximo: con cinco o seis combis la lista empujaba el
           deslizador de SALIR A RUTA fuera de la pantalla */}
       <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
@@ -1176,8 +1292,8 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
             <Text style={s.combiCodigo}>{c.vehicleId}</Text>
             <View style={{ flex: 1 }}>
               {!!c.label && <Text style={s.combiPlaca}>{c.label}</Text>}
-              <Text style={[s.combiEstado, c.estado === 'ocupada' && { color: C.ambar }]}>
-                {c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}
+              <Text style={[s.combiEstado, c.estado === 'ocupada' && { color: C.ambarTexto }]}>
+                {c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tienes tú' : 'libre'}
               </Text>
             </View>
             {elegida && <Text style={s.combiElegida}>ELEGIDA</Text>}
@@ -1189,7 +1305,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
         <View style={s.combiConfirmar}>
           <Text style={s.combiConfirmarTexto}>
             {confirmar.vehicleId} la está manejando {confirmar.quien}. Si es un relevo, al salir a
-            ruta la tomás vos y a {confirmar.quien} se le avisa.
+            ruta la tomas tú y a {confirmar.quien} se le avisa.
           </Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             <Pressable onPress={() => elegir(confirmar, true)} style={s.combiRelevo} disabled={eligiendo}>
@@ -1206,11 +1322,19 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
   );
 }
 
+// Cuánto espera «¿SEGURO? TOCA DE NUEVO» antes de aceptar el segundo toque
+const ARMA_SALIR_MS = 600;
+// AUSENTE espera 5 s con DESHACER antes de avisar, como en la web (auditoría
+// de UI, B3). En la APK se declaraba en el acto: un toque sin querer sacaba
+// a la combi de la cadena y descartaba la vuelta (segunda revisión con
+// ChatGPT, 17/11).
+const DESHACER_AUSENTE_MS = 5000;
+
 function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, sosVisto, onSosVistoCerrar,
                 sosSinRed, central, onSosSinRedCerrar, miNombre, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
                 tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol,
-                faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi }) {
+                faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi, avisoCombi }) {
   const { s, C } = usarTema();
   // ── Tráfico: lo que el servidor midió de MÍ, y lo que yo dije ───────
   // `yo.parado` es el hecho (N minutos sin avanzar por la ruta, lo mide el
@@ -1241,12 +1365,30 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
     const t = setTimeout(() => setConfirmarSalida(false), 4000);
     return () => clearTimeout(t);
   }, [confirmarSalida]);
+  // `ausenteEn`: cuándo se tocó AUSENTE. A los 5 s se declara; DESHACER lo
+  // cancela sin mandarle nada al servidor. Salir de la pantalla lo cancela.
+  const [ausenteEn, setAusenteEn] = React.useState(null);
+  const [, setTicAusente] = React.useState(0);
+  React.useEffect(() => {
+    if (!ausenteEn) return;
+    const reloj = setInterval(() => setTicAusente(n => n + 1), 250);
+    const t = setTimeout(() => { setAusenteEn(null); onPresencia('ausente'); },
+      Math.max(0, DESHACER_AUSENTE_MS - (Date.now() - ausenteEn)));
+    return () => { clearInterval(reloj); clearTimeout(t); };
+  }, [ausenteEn]);
+  React.useEffect(() => { if (presencia !== 'ruta') setAusenteEn(null); }, [presencia]);
+  const faltaAusente = ausenteEn ? Math.max(1, Math.ceil((DESHACER_AUSENTE_MS - (Date.now() - ausenteEn)) / 1000)) : 0;
+  // Y el segundo toque cuenta recién a los 0,6 s: el primero arma al
+  // instante y el botón cambia de función en el mismo lugar, así que un
+  // rebote del dedo con la combi en marcha alcanzaba para salir. Despacho ya
+  // arma así la baja (700 ms) y ATENDIDO (1200 ms) (auditoría de UI, N2).
+  const armadoEn = React.useRef(0);
 
   const cabecera = (
     <View style={s.barra}>
       <Marca marca={marca} />
-      <Text style={[s.chip, { color: conectado ? C.verde : C.ambar }]}>
-        {conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
+      <Text style={[s.chip, { color: conectado && !hud.viejo ? C.verdeTexto : C.ambarTexto }]}>
+        {hud.viejo ? `○ SIN SEÑAL · ${hud.hace}` : conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
       </Text>
       {onPerfil && <Pressable onPress={onPerfil}><Text style={s.salir}>Perfil</Text></Pressable>}
       <Pressable onPress={onSalir}><Text style={s.salir}>Salir</Text></Pressable>
@@ -1256,13 +1398,21 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
   // ── FUERA: la puerta. Recién entrado (o ya retirado): no se emite señal,
   // el mapa está vedado, el chat queda abierto. Salir a ruta es un gesto
   // deliberado — el mismo deslizar del SOS, para que no pase por accidente.
-  if (presencia === 'fuera') {
+  //
+  // El COBRADOR no pasa por la puerta. Está siempre «fuera» (no emite: la
+  // posición de la combi la manda el chofer), y por eso quedaba encerrado
+  // acá, sin brechas ni mapa, aunque la puerta misma le prometía «el chat,
+  // el mapa y el SOS» y el manual dice que ve lo mismo que su chofer. Ve el
+  // HUD de su combi, de acompañante, sin los botones del turno (revisión
+  // del manual, 17/11).
+  const acompanante = rol === 'collector';
+  if (presencia === 'fuera' && !acompanante) {
     return (
       <View style={[s.pantalla, margen]}>
-        <StatusBar style="light" />
+        <BarraDeEstado />
         {cabecera}
         <View style={s.centro}>
-          <Text style={[s.ladoEtiqueta, { color: C.brillante }]}>¿SALÍS A RUTA?</Text>
+          <Text style={[s.ladoEtiqueta, { color: C.brillante }]}>¿SALES A RUTA?</Text>
           {/* Esta pantalla es además la "divulgación destacada" que Google
               Play exige ANTES de pedir el permiso de ubicación en segundo
               plano: dice QUÉ se recopila (tu ubicación), CUÁNDO (también
@@ -1286,7 +1436,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           {/* «Te sacamos de ruta» cae justo en esta pantalla, y no se veía */}
           {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
-        {/* ¿En qué combi salís? Con más de una habilitada. Elegir una que
+        {/* ¿En qué combi sales? Con más de una habilitada. Elegir una que
             maneja otro pide confirmar, nombrándolo: es un relevo, y se hace
             a propósito, no por un dedo que se corrió. */}
         {/* Mientras cuenta el vigía, no: con varias combis el aviso quedaba
@@ -1301,7 +1451,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           <View style={s.vigiaPuerta}>
             <Text style={s.vigiaTitulo}>¿YA ESTÁS MANEJANDO?</Text>
             <Text style={s.vigiaTexto}>
-              Tu combi no está en el mapa. Salís a ruta solo en {Math.ceil(faltaPuerta / 1000)} s.
+              Tu combi no está en el mapa. Sales a ruta solo en {Math.ceil(faltaPuerta / 1000)} s.
             </Text>
             <Pressable onPress={onNoManejo} style={s.vigiaBoton} hitSlop={8}>
               <Text style={s.vigiaBotonTexto}>NO ESTOY MANEJANDO</Text>
@@ -1313,11 +1463,11 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
             quedaba con el GPS alto y un 403 cada 3 s todo el turno (A4). */}
         {rol === 'collector' ? (
           <Text style={[s.diagnostico, { marginBottom: 12 }]}>
-            La ubicación la emite el teléfono del chofer. Vos tenés el chat, el
+            La ubicación la emite el teléfono del chofer. Tú tienes el chat, el
             mapa y el SOS.
           </Text>
         ) : (
-          <Deslizable texto="DESLIZÁ PARA SALIR A RUTA  →" textoBoton="IR"
+          <Deslizable texto="DESLIZA PARA SALIR A RUTA  →" textoBoton="IR"
             colorListo={C.verde} onDisparar={() => onPresencia('ruta')} />
         )}
         {/* El SOS tiene que ESTAR en la puerta, para el cobrador y para el
@@ -1342,21 +1492,21 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
   if (presencia === 'ausente') {
     return (
       <View style={[s.pantalla, margen]}>
-        <StatusBar style="light" />
+        <BarraDeEstado />
         {cabecera}
         <View style={s.centro}>
-          <Text style={[s.ladoEtiqueta, { color: C.ambar }]}>AUSENTE</Text>
+          <Text style={[s.ladoEtiqueta, { color: C.ambarTexto }]}>AUSENTE</Text>
           <Text style={[s.instruccion, { marginTop: 14 }]}>
-            Estás fuera de la cadena: nadie se mide contra vos y tu vuelta
+            Estás fuera de la cadena: nadie se mide contra ti y tu vuelta
             quedó descartada. Despacho te sigue viendo en el mapa, quieto.
-            Si arrancás de nuevo, volvés a ruta solo. Pasadas 2 horas, te
+            Si arrancas de nuevo, vuelves a ruta solo. Pasadas 2 horas, te
             sacamos de ruta.
           </Text>
-          <Pressable onPress={() => onPresencia('ruta')} style={[s.botonAncho, { backgroundColor: C.verde }]}>
+          <Pressable onPress={() => onPresencia('ruta')} style={[s.botonAncho, { backgroundColor: C.llenoVerde }]}>
             <Text style={s.botonAnchoTexto}>VOLVER A RUTA</Text>
           </Pressable>
           <Text style={s.diagnostico}>
-            Al volver, entrás a la cadena cuando el GPS te vea sobre el trazado.
+            Al volver, entras a la cadena cuando el GPS te vea sobre el trazado.
           </Text>
           {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
@@ -1371,7 +1521,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
 
   return (
     <View style={[s.pantalla, margen]}>
-      <StatusBar style="light" />
+      <BarraDeEstado />
       {cabecera}
 
       {/* El aviso se muestra HAYA O NO rol de GPS. Antes era `!reporta &&
@@ -1386,7 +1536,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
         <Pressable onPress={onAvisoSalidaVisto} style={s.vigiaPuerta}>
           <Text style={s.vigiaTitulo}>SALISTE A RUTA SOLO</Text>
           <Text style={s.vigiaTexto}>
-            Te vimos manejando sin haber deslizado SALIR A RUTA. Despacho lo ve en la actividad. Tocá para cerrar.
+            Te vimos manejando sin haber deslizado SALIR A RUTA. Despacho lo ve en la actividad. Toca para cerrar.
           </Text>
         </Pressable>
       )}
@@ -1394,61 +1544,47 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
       {/* «Hay una versión nueva» / «ésta ya no sirve»: lo dice el servidor
           con el login (P5). Se queda a la vista; no es un toast. */}
       {avisoApp && (
-        <Text style={[s.avisoBarra, avisoApp.grave && { color: C.rojo }]}>{avisoApp.texto}</Text>
+        <Text style={[s.avisoBarra, avisoApp.grave && { color: C.rojoTexto }]}>{avisoApp.texto}</Text>
       )}
 
       {/* Declarado en ruta pero el GPS todavía no lo vio sobre el trazado:
           se dice, para que "no tengo brecha" no parezca una falla. */}
-      {!confirmada && (
-        <Text style={[s.avisoBarra, { color: C.ambar }]}>
+      {!confirmada && !acompanante && (
+        <Text style={[s.avisoBarra, { color: C.ambarTexto }]}>
           YENDO A LA RUTA — tu brecha y tu vuelta arrancan al pisar el trazado
         </Text>
       )}
-
-      {/* Qué está haciendo el GPS. Está a la vista a propósito mientras se
-          mide en la calle: "no aparece en el mapa" no distingue entre el GPS
-          que no dispara, el envío que falla y el servidor que rechaza. */}
-      {/* El estado del SERVICIO va primero. Sin él, "enviadas 0 · fallidas 0"
-          no distingue entre "todavía no llegó la primera posición" y "el
-          servicio ni siquiera está corriendo", y esa ambigüedad ya costó una
-          sesión entera de diagnóstico. */}
-      <Text style={[s.diagnostico, diag.servicio !== 'corriendo' && { color: C.rojo }]}>
-        Servicio de GPS: {diag.servicio}
-      </Text>
-      {/* Lo que Android va a hacer con la red apenas se apague la pantalla.
-          Va arriba de los contadores porque los explica: con esto activo,
-          "enviando hace 300s" no es un bug de la app. Tocar lleva a la
-          pantalla del sistema donde se apaga. */}
-      {diag.bateriaOptimizada === true && (
-        <Pressable onPress={abrirOptimizacionDeBateria}>
-          <Text style={[s.diagnostico, { color: C.rojo }]}>
-            BATERÍA: optimización ACTIVA — Android corta la red con la pantalla apagada. Tocá acá y poné esta app en «Sin restricciones»
-          </Text>
-        </Pressable>
-      )}
-      <Text style={s.diagnostico}>
-        GPS enviadas {diag.enviadas} · fallidas {diag.fallidas}
-        {diag.rechazadas > 0 ? ` · ${diag.rechazadas} no usadas` : ''}
-        {diag.enEspera > 0 ? ` · ${diag.enEspera} esperando` : ''}
-        {diag.ultimoEnvio ? ` · último hace ${Math.round((Date.now() - diag.ultimoEnvio) / 1000)}s` : ' · todavía ninguna'}
-        {/* Un envío en vuelo que envejece es un envío colgado: es lo que
-            hay que ver cuando "último hace" crece y no hay ningún error. */}
-        {diag.enVueloDesde ? ` · enviando hace ${Math.round((Date.now() - diag.enVueloDesde) / 1000)}s` : ''}
-      </Text>
-      {/* Por qué no se usó ninguna. El caso real: la web abierta y la app en
-          el teléfono reportando la misma combi, cada una con su reloj — sin
-          esto son ceros sin explicación (REVISION-2026-09-10.md, C20). */}
-      {diag.motivoNoUsadas && (
-        <Text style={[s.diagnostico, { color: C.ambar }]}>{diag.motivoNoUsadas}</Text>
-      )}
-      {/* Los motivos, con su cuenta. Es lo que dice DÓNDE está el problema:
-          "sin red" es el teléfono, un HTTP 4xx es el servidor rechazando. */}
-      {Object.keys(diag.motivos || {}).length > 0 && (
-        <Text style={s.diagnostico}>
-          {Object.entries(diag.motivos).map(([m, n]) => `${m} ×${n}`).join(' · ')}
+      {acompanante && (
+        <Text style={[s.diagnostico, { marginTop: 6 }]}>
+          ACOMPAÑANTE · la posición de la combi la manda el teléfono del chofer
         </Text>
       )}
 
+      {/* El diagnóstico del GPS, arriba del HUD SÓLO si hay algo que avisar
+          (auditoría de UI, A5). Estuvo siempre a la vista «mientras se mide
+          en la calle»; con todo andando eran dos renglones de números que el
+          chofer no usa. Completo, está en Perfil. */}
+      {!acompanante && hayProblemaDeGps(diag) && <DiagnosticoGps diag={diag} />}
+
+      {/* Un minuto sin datos: el número se retira. Queda la última brecha,
+          como dato y no como instrucción (auditoría de UI, N1). */}
+      {acompanante && avisoCombi ? (
+        <View style={s.centro}>
+          <Text style={s.sinSenalTitulo}>{avisoCombi.titulo}</Text>
+          <Text style={s.sinSenalTexto}>{avisoCombi.texto}</Text>
+        </View>
+      ) : hud.perdido ? (
+        <View style={s.centro}>
+          <Text style={s.sinSenalTitulo}>SIN SEÑAL</Text>
+          <Text style={s.sinSenalTexto}>
+            No veo a las otras combis desde hace {hud.hace}. Ve con cuidado: siguen en ruta.
+          </Text>
+          <View style={s.divisor} />
+          <Text style={s.ladoUnidad}>
+            Última brecha: {[hud.atras.display ? `${hud.atras.display} atrás` : null, hud.adelante.display ? `${hud.adelante.display} adelante` : null].filter(Boolean).join(' · ') || 'ninguna'}
+          </Text>
+        </View>
+      ) : (
       <View style={s.centro}>
         <View style={s.filaRotulo}>
           <Text style={[s.ladoEtiqueta, { color }]}>{p.etiqueta}</Text>
@@ -1469,40 +1605,53 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           <Text style={[s.digitosSec, { color: colorEstado(C)[sec.estado] }]}>{sec.display}</Text>
         )}
       </View>
+      )}
 
       {/* Tráfico, de un toque. Tres caras: nada (avisar), el servidor me vio
           parado y pregunta (confirmar), y ya avisé (se apaga solo al andar;
           tocar retira). El de atrás lo ve en su brecha y deja de recibir
-          "apurá" hacia acá. */}
+          "apura" hacia acá. */}
+      {!acompanante && (<>
       <Pressable onPress={() => onTrafico(!enTrafico)}
         style={[s.botonTrafico,
-                enTrafico && { backgroundColor: C.ambar, borderColor: C.ambar },
+                enTrafico && { backgroundColor: C.llenoAmbar, borderColor: C.llenoAmbar },
                 !enTrafico && parado && { borderColor: C.ambar }]}>
-        <Text style={[s.botonPresenciaTexto, (enTrafico || parado) && { color: enTrafico ? '#08131F' : C.ambar }]}>
+        <Text style={[s.botonPresenciaTexto, (enTrafico || parado) && { color: enTrafico ? C.sobreLleno : C.ambarTexto }]}>
           {enTrafico
             ? `EN TRÁFICO · ${minTrabado} MIN · se apaga solo al andar`
             : parado
-              ? `¿ESTÁS EN TRÁFICO? · parado hace ${minTrabado} min · tocá para avisar`
+              ? `¿ESTÁS EN TRÁFICO? · parado hace ${minTrabado} min · toca para avisar`
               : 'ESTOY EN TRÁFICO'}
         </Text>
       </Pressable>
 
       {/* Los dos movimientos del turno, a un toque del pulgar: pausar
           (ausente) y terminar (salir de ruta, con confirmación de 2 toques). */}
+      {ausenteEn ? (
+        <View style={[s.filaPresencia, s.deshacerAusente]} accessibilityLiveRegion="polite">
+          <Text style={s.deshacerAusenteTexto}>Pasas a AUSENTE en {faltaAusente} s</Text>
+          <Pressable onPress={() => setAusenteEn(null)} style={s.deshacerAusenteBoton} hitSlop={6}>
+            <Text style={s.deshacerAusenteBotonTexto}>DESHACER</Text>
+          </Pressable>
+        </View>
+      ) : (
       <View style={s.filaPresencia}>
-        <Pressable onPress={() => onPresencia('ausente')} style={[s.botonPresencia, { borderColor: C.ambar }]}>
-          <Text style={[s.botonPresenciaTexto, { color: C.ambar }]}>AUSENTE</Text>
+        <Pressable onPress={() => setAusenteEn(Date.now())} style={[s.botonPresencia, { borderColor: C.ambar }]}>
+          <Text style={[s.botonPresenciaTexto, { color: C.ambarTexto }]}>AUSENTE</Text>
         </Pressable>
         <Pressable onPress={() => {
-          if (!confirmarSalida) { setConfirmarSalida(true); return; }
+          if (!confirmarSalida) { armadoEn.current = Date.now(); setConfirmarSalida(true); return; }
+          if (Date.now() - armadoEn.current < ARMA_SALIR_MS) return;   // el mismo toque, rebotando
           setConfirmarSalida(false);
           onPresencia('fuera');
-        }} style={[s.botonPresencia, confirmarSalida && { backgroundColor: C.rojo, borderColor: C.rojo }]}>
-          <Text style={[s.botonPresenciaTexto, confirmarSalida && { color: '#fff' }]}>
-            {confirmarSalida ? '¿SEGURO? TOCÁ DE NUEVO' : 'SALIR DE RUTA'}
+        }} style={[s.botonPresencia, confirmarSalida && { backgroundColor: C.llenoRojo, borderColor: C.llenoRojo }]}>
+          <Text style={[s.botonPresenciaTexto, confirmarSalida && { color: C.sobreRojo }]}>
+            {confirmarSalida ? '¿SEGURO? TOCA DE NUEVO' : 'SALIR DE RUTA'}
           </Text>
         </Pressable>
       </View>
+      )}
+      </>)}
 
       {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
 
@@ -1546,7 +1695,7 @@ function TipoSos({ onElegir }) {
 // vueltas, mismas horas, misma vara— pedido a /perfil, que solo contesta
 // lo del que pregunta. El alias se edita acá porque es cómo lo llaman en
 // la ruta; el nombre no, porque con ese se liquidan las horas.
-function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
+function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
   const { s, C } = usarTema();
   const margen = margenes(useSafeAreaInsets(), { conBarra: false });
   const [datos, setDatos] = React.useState(null);
@@ -1600,7 +1749,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
       }
       setAviso(hecho);
       return true;
-    } catch { setAviso('Sin conexión — probá de nuevo'); return false; }
+    } catch { setAviso('Sin conexión — prueba de nuevo'); return false; }
   };
 
   const borrar = async (ruta, hecho) => {
@@ -1614,7 +1763,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
       if (!r.ok) { setAviso(cuerpo.error || 'No se pudo'); return false; }
       setAviso(hecho);
       return true;
-    } catch { setAviso('Sin conexión — probá de nuevo'); return false; }
+    } catch { setAviso('Sin conexión — prueba de nuevo'); return false; }
   };
 
   // ── Los cobradores de la combi ──────────────────────────────
@@ -1668,8 +1817,8 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
       if (fue) await gps.descartarGrabacion();
       // Si el servidor la RECHAZÓ (demasiado grande, cupo del día) ya dijo
       // por qué, y reintentar daría lo mismo: no se le pide que reintente
-      // (barrido del 22/9). Sólo la falla de red dice «probá de nuevo».
-      else if (!fueRechazo.current) setAviso('No salió — la grabación quedó guardada. Probá ENVIAR de nuevo con señal.');
+      // (barrido del 22/9). Sólo la falla de red dice «prueba de nuevo».
+      else if (!fueRechazo.current) setAviso('No salió — la grabación quedó guardada. Prueba ENVIAR de nuevo con señal.');
     } finally { setMandandoGrabacion(false); }
   };
 
@@ -1678,7 +1827,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
   const combi = datos?.vehiculo?.vehicleId || 'LA COMBI';
   const tarjetas = m ? [
     // Las vueltas son de la COMBI, la maneje quien la maneje; las «tuyas»
-    // son las que se cerraron con vos arriba, con la misma regla que usa el
+    // son las que se cerraron contigo arriba, con la misma regla que usa el
     // gerente. Antes decía «vueltas» a secas, y el que tomó la combi
     // anteayer veía siete días de vueltas de otro al lado de SUS horas (P2).
     [`VUELTAS DE ${combi}`, String(m.vueltas)],
@@ -1705,7 +1854,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
   // la persona (vueltas, salidas de ruta en su turno, SOS, grabaciones).
   const sn = datos?.combi?.senal, dv = datos?.combi?.desvios, pr = datos?.propios;
   const miSemana = sn && dv && pr ? [
-    ['Vueltas con vos arriba', String(pr.vueltas)],
+    ['Vueltas contigo arriba', String(pr.vueltas)],
     ['Salidas de ruta de la combi', `${dv.veces}${dv.veces ? ` · la más lejos, ${dv.maxM} m` : ''}`],
     ['   de ésas, en tu turno', String(pr.desvios)],
     ['Cortes de señal', `${sn.cortes}${sn.cortes ? ` · el más largo ${mmss(sn.corteMaxSec)}` : ''}`],
@@ -1733,14 +1882,19 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
   // pudo cargar» y el chofer se quedaba justo sin la única herramienta que
   // ahí sí le servía (REVISION-2026-09-10.md, P10).
   const bloqueGrabador = (<>
+            {diag && (<>
+              <View style={s.divisor} />
+              <Text style={s.perfilSeccion}>EL GPS</Text>
+              <DiagnosticoGps diag={diag} />
+            </>)}
             <View style={s.divisor} />
             <Text style={s.perfilSeccion}>GRABADOR DE RECORRIDO</Text>
             <Text style={s.diagnostico}>
-              Con la salida a ruta activa, manejá la vuelta entera: se guarda
+              Con la salida a ruta activa, maneja la vuelta entera: se guarda
               un punto cada 30 metros (parar en un semáforo no ensucia). Al
               terminar se envía, y Despacho lo importa desde su trazador.
               {'\n'}Hasta que se envía vive SOLO en este teléfono: si
-              desinstalás la app, se pierde.
+              desinstalas la app, se pierde.
             </Text>
             {!grabacion && (
               <Pressable style={[s.botonAncho, {
@@ -1757,7 +1911,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
                 {` · ${((grabacion.largoM || 0) / 1000).toFixed(1)} km`}
               </Text>
               <Pressable disabled={mandandoGrabacion}
-                style={[s.botonAncho, { backgroundColor: C.verde, marginTop: 10 }]}
+                style={[s.botonAncho, { backgroundColor: C.llenoVerde, marginTop: 10 }]}
                 onPress={terminarYMandar}>
                 <Text style={s.botonAnchoTexto}>
                   {mandandoGrabacion ? 'ENVIANDO…' : grabacion.parada ? 'ENVIAR' : 'TERMINAR Y ENVIAR'}
@@ -1856,7 +2010,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
             {m && m.vueltasPropias != null && m.vueltas !== m.vueltasPropias && (
               <Text style={s.diagnostico}>
                 Las vueltas son de {combi}, la maneje quien la maneje. «Tuyas» son las
-                {datos.persona.role === 'collector' ? ' que se cerraron con vos arriba' : ' que se cerraron con vos al volante'}:
+                {datos.persona.role === 'collector' ? ' que se cerraron contigo arriba' : ' que se cerraron contigo al volante'}:
                 las otras {m.vueltas - m.vueltasPropias} son de otro turno.
               </Text>
             )}
@@ -1894,7 +2048,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
               <Text style={s.perfilSeccion}>{dias === 7 ? 'MI SEMANA' : `MIS ${dias} DÍAS`}</Text>
               <Text style={s.diagnostico}>
                 Lo que Despacho ve de {combi} en estos {dias} días, con la misma cuenta.
-                Lo de la combi es de la combi; «en tu turno» y «tuyos» son de vos.
+                Lo de la combi es de la combi; lo que dice «en tu turno» o «tuyos» es solo tuyo.
               </Text>
               {miSemana.map(([etiqueta, valor]) => (
                 <View key={etiqueta} style={s.semanaFila}>
@@ -1937,7 +2091,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
             <Text style={s.diagnostico}>Como te llaman en la ruta. Vacío, se muestra tu nombre.</Text>
             <TextInput style={s.campo} value={alias} onChangeText={setAlias}
               placeholder={datos.persona.name} placeholderTextColor={C.tenue} maxLength={30} />
-            <Pressable style={[s.botonAncho, { backgroundColor: C.verde, marginTop: 12 }]}
+            <Pressable style={[s.botonAncho, { backgroundColor: C.llenoVerde, marginTop: 12 }]}
               onPress={async () => {
                 const fue = await post('/perfil/alias', { alias }, 'Alias guardado — Despacho ya te ve así');
                 if (fue) setDatos(d => ({ ...d, persona: { ...d.persona, alias: alias.trim() || null } }));
@@ -1961,8 +2115,8 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
             {datos.puedeGestionar && (
               <Text style={s.diagnostico}>
                 Cada uno entra con SU usuario: así las horas de cada uno son
-                suyas. Podés cambiarles la clave y sacarlos de tu combi.
-                Para AGREGAR uno nuevo, pedíselo a Despacho o a la gerencia:
+                suyas. Puedes cambiarles la clave y sacarlos de tu combi.
+                Para AGREGAR uno nuevo, pídeselo a Despacho o a la gerencia:
                 el alta lleva el nombre real con el que se liquidan las horas.
               </Text>
             )}
@@ -2002,8 +2156,8 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
                         if (await borrar(`/perfil/cobradores/${encodeURIComponent(c.unitId)}`,
                                          `${c.alias || c.name} ya no va en tu combi`)) cargar();
                       }}>
-                      <Text style={[s.cobradorBotonTexto, { color: C.rojo }]}>
-                        {confirmarBaja === c.unitId ? '¿SEGURO? TOCÁ DE NUEVO' : 'DAR DE BAJA'}
+                      <Text style={[s.cobradorBotonTexto, { color: C.rojoTexto }]}>
+                        {confirmarBaja === c.unitId ? '¿SEGURO? TOCA DE NUEVO' : 'DAR DE BAJA'}
                       </Text>
                     </Pressable>
                   </View>
@@ -2012,14 +2166,14 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
                     <TextInput style={[s.campo, { marginTop: 10 }]}
                       value={claveNuevaCob} onChangeText={setClaveNuevaCob}
                       placeholder="Contraseña nueva (mínimo 6)" placeholderTextColor={C.tenue} secureTextEntry />
-                    <Pressable style={[s.botonAncho, { backgroundColor: C.marca, marginTop: 10 }]}
+                    <Pressable style={[s.botonAncho, { backgroundColor: C.brillante, marginTop: 10 }]}
                       onPress={async () => {
                         const fue = await post(`/perfil/cobradores/${encodeURIComponent(c.unitId)}/clave`,
                           { nueva: claveNuevaCob },
                           `Clave cambiada. ${c.alias || c.name} tiene que entrar de nuevo.`);
                         if (fue) { setClaveDe(null); setClaveNuevaCob(''); }
                       }}>
-                      <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>CAMBIAR SU CLAVE</Text>
+                      <Text style={[s.botonAnchoTexto, { color: C.sobreBrillante }]}>CAMBIAR SU CLAVE</Text>
                     </Pressable>
                   </>)}
                 </>)}
@@ -2033,13 +2187,13 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
               placeholder="Contraseña actual" placeholderTextColor={C.tenue} secureTextEntry />
             <TextInput style={[s.campo, { marginTop: 10 }]} value={claveNueva} onChangeText={setClaveNueva}
               placeholder="Contraseña nueva (mínimo 6)" placeholderTextColor={C.tenue} secureTextEntry />
-            <Pressable style={[s.botonAncho, { backgroundColor: C.marca, marginTop: 12 }]}
+            <Pressable style={[s.botonAncho, { backgroundColor: C.brillante, marginTop: 12 }]}
               onPress={async () => {
                 const fue = await post('/perfil/clave', { actual: claveActual, nueva: claveNueva },
                   'Contraseña cambiada. Esta sesión sigue abierta.');
                 if (fue) { setClaveActual(''); setClaveNueva(''); }
               }}>
-              <Text style={[s.botonAnchoTexto, { color: '#fff' }]}>CAMBIAR</Text>
+              <Text style={[s.botonAnchoTexto, { color: C.sobreBrillante }]}>CAMBIAR</Text>
             </Pressable>
 
             {/* Cerrar TODAS las sesiones. El servidor lo soporta desde que
@@ -2065,7 +2219,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
             }}>
               <Text style={[s.botonAnchoTexto, { color: confirmarCerrarTodo ? C.rojo : C.tenue }]}>
                 {confirmarCerrarTodo
-                  ? '¿SEGURO? TAMBIÉN CIERRA ESTA — TOCÁ DE NUEVO'
+                  ? '¿SEGURO? TAMBIÉN CIERRA ESTA — TOCA DE NUEVO'
                   : 'CERRAR TODAS MIS SESIONES'}
               </Text>
             </Pressable>
@@ -2083,7 +2237,7 @@ function Perfil({ sesion, marca, onCerrar, onCerrarTodo }) {
               {'\n'}{SERVIDOR}
             </Text>
             {avisoApp && (
-              <Text style={[s.avisoBarra, avisoApp.grave && { color: C.rojo }]}>{avisoApp.texto}</Text>
+              <Text style={[s.avisoBarra, avisoApp.grave && { color: C.rojoTexto }]}>{avisoApp.texto}</Text>
             )}
           </>)}
         </ScrollView>
@@ -2154,8 +2308,8 @@ function Deslizable({ texto, textoBoton, colorListo, onDisparar }) {
 //
 // Qué se dibuja está en `mapa.js`, que es JS puro y se prueba en Node. Acá
 // solo se le pasa el papel.
-function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, onIr }) {
-  const { s, C, oscuro } = usarTema();
+function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, rol, onIr }) {
+  const { s, C, Cmapa, oscuro } = usarTema();
   const margen = margenes(useSafeAreaInsets(), { conBarra: true });
   const web = React.useRef(null);
   const [siguiendo, setSiguiendo] = React.useState(true);
@@ -2229,8 +2383,8 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
 
   React.useEffect(() => {
     if (!listo) return;
-    mandar({ tipo: 'tema', oscuro, colores: mapa.coloresDe(C) });
-  }, [listo, oscuro, C, mandar]);
+    mandar({ tipo: 'tema', oscuro, colores: mapa.coloresDe(Cmapa) });
+  }, [listo, oscuro, Cmapa, mandar]);
 
   // La clave de las tiles y las zonas con mapa propio vienen del login (el
   // servidor tiene la clave en una variable de entorno; en la app no hay
@@ -2250,15 +2404,16 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
 
   // Fuera de ruta el mapa está vedado: es el mapa DE LA RUTA, de los que
   // están trabajando. Además el WebView ni se monta — sin señal emitida no
-  // hay nada que mirar, y las tiles gastan datos.
-  if (presencia === 'fuera') {
+  // hay nada que mirar, y las tiles gastan datos. El cobrador sí lo ve: va
+  // arriba de una combi que está trabajando (ver la puerta, en Ruta).
+  if (presencia === 'fuera' && rol !== 'collector') {
     return (
       <View style={[s.pantalla, margen]}>
         <StatusBar style="light" />
         <View style={s.centro}>
           <Text style={s.ladoEtiquetaSec}>EL MAPA ES DE LA RUTA</Text>
           <Text style={[s.instruccion, { marginTop: 12 }]}>
-            Salí a ruta para verlo. Desde acá podés chatear con el grupo y
+            Sal a ruta para verlo. Desde acá puedes chatear con el grupo y
             con Despacho mientras tanto.
           </Text>
         </View>
@@ -2310,7 +2465,7 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
         {!suelto && (
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setSuelto(true)}>
             <View style={s.pistaMapa} pointerEvents="none">
-              <Text style={s.pistaMapaTexto}>TOCÁ PARA MOVER EL MAPA</Text>
+              <Text style={s.pistaMapaTexto}>TOCA PARA MOVER EL MAPA</Text>
             </View>
           </Pressable>
         )}
@@ -2400,7 +2555,7 @@ function SosVisto({ visto, onCerrar }) {
     <Pressable onPress={onCerrar} style={s.sosVisto} accessibilityRole="button">
       <Text style={s.vigiaTitulo}>DESPACHO VIO TU SOS</Text>
       <Text style={s.vigiaTexto}>
-        Lo marcó atendido {visto.por || 'Despacho'} a las {hora}. Tocá para cerrar.
+        Lo vio {visto.por || 'Despacho'} a las {hora}. Toca para cerrar.
       </Text>
     </Pressable>
   );
@@ -2415,7 +2570,7 @@ function textoSmsSos({ combi, nombre, pos }) {
   const donde = pos
     ? ` Estoy en ${pos.lat.toFixed(5)},${pos.lng.toFixed(5)} https://maps.google.com/?q=${pos.lat.toFixed(5)},${pos.lng.toFixed(5)}`
     : ' No tengo mi posición.';
-  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet).`;
+  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet o sin respuesta del servidor).`;
 }
 function SosSinRed({ fallo, central, combi, nombre, onCerrar }) {
   const { s } = usarTema();
@@ -2424,7 +2579,7 @@ function SosSinRed({ fallo, central, combi, nombre, onCerrar }) {
     <View style={s.sosSinRed} accessibilityRole="alert">
       <Text style={s.sosSinRedTitulo}>SOS NO SALIÓ</Text>
       <Text style={s.sosSinRedTexto}>
-        Sin internet. Pedí ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+        No se pudo confirmar que llegó (sin internet, o el servidor no respondió). Pide ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
       </Text>
       {central ? (
         <>
@@ -2511,17 +2666,17 @@ function SosDeslizable({ onDisparar }) {
 
   return (
     <View style={s.sosPista} onLayout={e => setAncho(e.nativeEvent.layout.width)}>
-      <Text style={[s.sosTexto, fase === 'fallo' && { color: C.rojo }]}>
+      <Text style={[s.sosTexto, fase === 'fallo' && { color: C.rojoTexto }]}>
         {fase === 'enviando' ? 'ENVIANDO…'
           : fase === 'enviada' ? 'ALERTA ENVIADA'
           : fase === 'fallo' ? 'NO SALIÓ — REPETÍ'
-          : 'DESLIZÁ PARA SOS  →'}
+          : 'DESLIZA PARA SOS  →'}
       </Text>
       <Animated.View {...pan.panHandlers}
         style={[s.sosBoton, { transform: [{ translateX: x }] },
-                fase === 'enviada' && { backgroundColor: C.verde },
-                fase === 'enviando' && { backgroundColor: C.ambar }]}>
-        <Text style={s.sosBotonTexto}>{fase === 'enviada' ? '✓' : fase === 'fallo' ? '!' : fase === 'enviando' ? '…' : 'SOS'}</Text>
+                fase === 'enviada' && { backgroundColor: C.llenoVerde },
+                fase === 'enviando' && { backgroundColor: C.llenoAmbar }]}>
+        <Text style={[s.sosBotonTexto, (fase === 'enviada' || fase === 'enviando') && { color: C.sobreLleno }]}>{fase === 'enviada' ? '✓' : fase === 'fallo' ? '!' : fase === 'enviando' ? '…' : 'SOS'}</Text>
       </Animated.View>
     </View>
   );
@@ -2577,13 +2732,13 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
   // —achicar la ventana— no ocurre con edge-to-edge. Ver `teclado.js`.
   return (
     <View style={[s.pantalla, margen, { paddingBottom: alto }]}>
-      <StatusBar style="light" />
+      <BarraDeEstado />
 
       <View style={s.canales}>
         {[['grupo', 'RUTA'], ['directo', 'COMBI'], ['personal', 'PERSONAL']].map(([id, texto]) => (
           <Pressable key={id} onPress={() => onCanal(id)}
             style={[s.canal, canal === id && s.canalActivo]}>
-            <Text style={[s.canalTexto, canal === id && { color: '#fff' }]}>{texto}</Text>
+            <Text style={[s.canalTexto, canal === id && { color: C.sobreBrillante }]}>{texto}</Text>
             {noLeidos?.[id] > 0 && canal !== id && (
               <View style={s.badge}><Text style={s.badgeTexto}>{noLeidos[id]}</Text></View>
             )}
@@ -2603,7 +2758,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
               ? 'Todavía no hay mensajes en el canal de la ruta.'
               : canal === 'directo'
                 ? 'Acá va lo que Despacho habla con tu combi: lo ven el chofer y el cobrador que van arriba, y el que la maneje después.'
-                : 'Acá hablás solo vos con Despacho. Te sigue aunque cambies de combi, y no lo ve nadie más.'}
+                : 'Acá hablas solo tú con Despacho. Te sigue aunque cambies de combi, y no lo ve nadie más.'}
           </Text>
         }
         renderItem={({ item: m }) => (
@@ -2664,7 +2819,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
              onRequestClose={() => setVerFoto(null)}>
         <Pressable style={s.visor} onPress={() => setVerFoto(null)}>
           {verFoto && <Image source={{ uri: verFoto }} style={s.visorFoto} resizeMode="contain" />}
-          <Text style={s.visorPie}>Tocá para cerrar</Text>
+          <Text style={s.visorPie}>Toca para cerrar</Text>
         </Pressable>
       </Modal>
     </View>
@@ -2699,7 +2854,7 @@ function useTeclado(insetAbajo) {
 // una ruta con datos prepago eso no es un detalle de nerd, y es la diferencia
 // entre que el chofer use esto o lo apague.
 function Camara({ onListo, habilitado }) {
-  const { s } = usarTema();
+  const { s, C } = usarTema();
   const [ocupado, setOcupado] = React.useState(false);
   const [aviso, setAviso] = React.useState(null);
 
@@ -2726,7 +2881,7 @@ function Camara({ onListo, habilitado }) {
       <Pressable onPress={() => correr(tomarFoto)} onLongPress={() => correr(elegirFoto)}
         disabled={!habilitado || ocupado}
         style={[s.camara, (!habilitado || ocupado) && { opacity: 0.4 }]}>
-        {ocupado ? <ActivityIndicator color="#fff" /> : <Text style={s.camaraTexto}>📷</Text>}
+        {ocupado ? <ActivityIndicator color={C.blanco} /> : <Text style={s.camaraTexto}>📷</Text>}
       </Pressable>
       {aviso && <Text style={s.camaraAviso}>{aviso}</Text>}
     </View>
@@ -2806,14 +2961,14 @@ function Grabar({ onListo, habilitado }) {
     <View>
       {(grabando || error) && (
         <Text style={s.grabandoAviso}>
-          {error || `● Grabando ${segundos}s — soltá para enviar`}
+          {error || `● Grabando ${segundos}s — suelta para enviar`}
         </Text>
       )}
       <Pressable
         onPressIn={empezar}
         onPressOut={() => soltar(false)}
         disabled={!habilitado}
-        style={[s.enviar, grabando && { backgroundColor: C.rojo },
+        style={[s.enviar, grabando && { backgroundColor: C.llenoRojo },
                 !habilitado && { opacity: 0.4 }]}>
         <Text style={s.enviarTexto}>{grabando ? '●' : '🎤'}</Text>
       </Pressable>
@@ -2848,82 +3003,86 @@ function crearEstilos(C) { return StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: C.fondo },
   tituloChico: { fontFamily: 'monospace', fontSize: 12, letterSpacing: 2, color: C.cielo, textAlign: 'center' },
   subtitulo: { fontSize: 14, color: C.tenue, textAlign: 'center', marginTop: 6, marginBottom: 28 },
-  rotulo: { fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.cielo, marginTop: 14 },
+  // Rótulos en la sans a 13 px; la mono queda para datos, a 12 como mínimo
+  // (auditoría de UI, A4: había rótulos de 10 px en mono con tracking)
+  rotulo: { fontSize: 13, fontWeight: '700', letterSpacing: 0.3, color: C.cielo, marginTop: 14 },
   campo: {
-    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 10,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 10,
     color: C.blanco, fontSize: 18, padding: 14, marginTop: 6,
   },
-  error: { color: C.rojo, fontSize: 13, fontWeight: '700', marginTop: 14 },
+  error: { color: C.rojoTexto, fontSize: 13, fontWeight: '700', marginTop: 14 },
   boton: { backgroundColor: C.brillante, borderRadius: 14, padding: 18, alignItems: 'center', marginTop: 26 },
-  botonTexto: { color: '#fff', fontSize: 20, fontWeight: '900', letterSpacing: 2 },
-  pie: { color: C.tenue, fontSize: 11, textAlign: 'center', marginTop: 20, fontFamily: 'monospace' },
+  botonTexto: { color: C.sobreBrillante, fontSize: 20, fontWeight: '900', letterSpacing: 2 },
+  pie: { color: C.tenue, fontSize: 12, textAlign: 'center', marginTop: 20, fontFamily: 'monospace' },
   // Contorno, no relleno: es una llamada, no el SOS. El rojo lleno queda para
   // lo que dispara una alarma.
   emergenciaSinSesion: { borderWidth: 2, borderColor: C.rojo, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 10, alignItems: 'center', marginTop: 22 },
-  emergenciaSinSesionTexto: { color: C.rojo, fontSize: 14, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
+  emergenciaSinSesionTexto: { color: C.rojoTexto, fontSize: 14, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
 
   barra: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chip: { fontFamily: 'monospace', fontSize: 12, letterSpacing: 1, fontWeight: '700' },
   salir: { color: C.tenue, fontSize: 14, fontWeight: '700' },
-  avisoBarra: { color: C.ambar, fontSize: 13, marginTop: 10 },
+  avisoBarra: { color: C.ambarTexto, fontSize: 13, marginTop: 10 },
   // El vigía de la puerta: ámbar lleno con tinta de fondo, lo más fuerte
   // que hay sin ser el rojo de la emergencia
-  vigiaPuerta: { backgroundColor: C.ambar, borderRadius: 14, padding: 14, marginBottom: 12 },
-  sosVisto: { backgroundColor: C.verde, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
+  vigiaPuerta: { backgroundColor: C.llenoAmbar, borderRadius: 14, padding: 14, marginBottom: 12 },
+  sosVisto: { backgroundColor: C.llenoVerde, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
   // El SOS sin internet: fondo de la pantalla con el borde del SOS, y los
   // botones grandes en rojo (es la emergencia, el único uso del rojo)
   sosSinRed: { backgroundColor: C.fondo, borderWidth: 3, borderColor: C.rojo, borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 10 },
-  sosSinRedTitulo: { color: C.rojo, fontSize: 22, fontWeight: '900', letterSpacing: 1, textAlign: 'center' },
+  sosSinRedTitulo: { color: C.rojoTexto, fontSize: 22, fontWeight: '900', letterSpacing: 1, textAlign: 'center' },
   sosSinRedTexto: { color: C.blanco, fontSize: 14, lineHeight: 19, textAlign: 'center', marginTop: 6, marginBottom: 10 },
-  sosSinRedBoton: { backgroundColor: C.rojo, borderRadius: 12, paddingVertical: 15, paddingHorizontal: 10, alignItems: 'center', marginBottom: 8 },
-  // Tinta de fondo sobre el rojo: 5,4:1 de día y 3,9 de noche; el blanco
-  // daba 3,0 y 3,4
-  sosSinRedBotonTexto: { color: C.fondo, fontSize: 15, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
-  sosSinRedChico: { flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 10, paddingVertical: 9, alignItems: 'center' },
+  sosSinRedBoton: { backgroundColor: C.llenoRojo, borderRadius: 12, paddingVertical: 15, paddingHorizontal: 10, alignItems: 'center', marginBottom: 8 },
+  // Lo escrito sobre el rojo es un token: tinta oscura de día (5,4:1) y blanco
+  // de noche (5,2:1); la tinta de fondo daba 3,9 de noche
+  sosSinRedBotonTexto: { color: C.sobreRojo, fontSize: 15, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
+  sosSinRedChico: { flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 10, paddingVertical: 9, alignItems: 'center' },
   sosSinRedChicoNum: { color: C.blanco, fontSize: 16, fontWeight: '900' },
-  sosSinRedChicoQuien: { color: C.cielo, fontSize: 11, fontWeight: '700' },
+  sosSinRedChicoQuien: { color: C.cielo, fontSize: 12, fontWeight: '700' },
   sosSinRedCerrar: { color: C.cielo, fontSize: 13, textDecorationLine: 'underline' },
-  vigiaTitulo: { color: C.fondo, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
-  vigiaTexto: { color: C.fondo, fontSize: 14, marginTop: 4, lineHeight: 19 },
+  vigiaTitulo: { color: C.sobreLleno, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
+  vigiaTexto: { color: C.sobreLleno, fontSize: 14, marginTop: 4, lineHeight: 19 },
   vigiaBoton: {
-    marginTop: 10, borderWidth: 2, borderColor: C.fondo, borderRadius: 10,
+    marginTop: 10, borderWidth: 2, borderColor: C.sobreLleno, borderRadius: 10,
     paddingVertical: 11, alignItems: 'center',
   },
-  vigiaBotonTexto: { color: C.fondo, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
-  // ¿En qué combi salís?
-  combiRotulo: { color: C.cielo, fontSize: 10, letterSpacing: 1.5, fontFamily: 'monospace', marginBottom: 8 },
+  vigiaBotonTexto: { color: C.sobreLleno, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
+  // ¿En qué combi sales?
+  combiRotulo: { color: C.cielo, fontSize: 13, fontWeight: '700', letterSpacing: 0.3, marginBottom: 8 },
   combiFila: {
     flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8,
-    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 12,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 12,
     paddingHorizontal: 12, paddingVertical: 10,
   },
   combiFilaElegida: { borderWidth: 2, borderColor: C.brillante, paddingHorizontal: 11, paddingVertical: 9 },
   combiCodigo: { color: C.blanco, fontSize: 20, fontWeight: '900' },
-  combiPlaca: { color: C.cielo, fontSize: 10, letterSpacing: 1, fontFamily: 'monospace' },
+  combiPlaca: { color: C.cielo, fontSize: 12, letterSpacing: 0.5, fontFamily: 'monospace' },
   combiEstado: { color: C.tenue, fontSize: 13, fontWeight: '700' },
-  combiElegida: { color: C.cielo, fontSize: 10, letterSpacing: 1.5, fontFamily: 'monospace' },
-  combiConfirmar: { backgroundColor: C.panel, borderWidth: 1, borderColor: C.ambar, borderRadius: 12, padding: 12 },
+  combiElegida: { color: C.cielo, fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
+  combiConfirmar: { backgroundColor: C.panel, borderWidth: 2, borderColor: C.ambar, borderRadius: 12, padding: 12 },
   combiConfirmarTexto: { color: C.blanco, fontSize: 14, lineHeight: 19 },
-  combiRelevo: { flex: 1, backgroundColor: C.ambar, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
-  combiRelevoTexto: { color: C.fondo, fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
-  combiCancelar: { flex: 1, borderWidth: 1, borderColor: C.linea, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  combiRelevo: { flex: 1, backgroundColor: C.llenoAmbar, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  combiRelevoTexto: { color: C.sobreLleno, fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
+  combiCancelar: { flex: 1, borderWidth: 1, borderColor: C.borde, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
   combiCancelarTexto: { color: C.cielo, fontSize: 13, fontWeight: '700' },
-  diagnostico: { color: C.tenue, fontSize: 11, fontFamily: 'monospace', marginTop: 8 },
+  diagnostico: { color: C.tenue, fontSize: 12, fontFamily: 'monospace', marginTop: 8 },
 
   centro: { flex: 1, justifyContent: 'center' },
+  sinSenalTitulo: { fontSize: 30, fontWeight: '900', letterSpacing: 1, color: C.ambarTexto },
+  sinSenalTexto: { fontSize: 17, color: C.blanco, marginTop: 10, lineHeight: 25 },
   filaRotulo: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   ladoEtiqueta: { fontSize: 19, fontWeight: '900', letterSpacing: 1 },
-  ladoEtiquetaSec: { fontSize: 17, fontWeight: '900', color: '#A9C0D6' },
+  ladoEtiquetaSec: { fontSize: 17, fontWeight: '900', color: C.secundario },
   ladoUnidad: { fontSize: 15, fontWeight: '700', color: C.tenue },
   digitos: { fontSize: 108, fontWeight: '900', letterSpacing: -5, lineHeight: 118 },
   digitosSec: { fontSize: 58, fontWeight: '900', letterSpacing: -2 },
-  instruccion: { fontSize: 16, color: '#93AAC2', marginTop: 10, lineHeight: 24 },
+  instruccion: { fontSize: 16, color: C.ins, marginTop: 10, lineHeight: 24 },
   divisor: { height: 1, backgroundColor: C.linea, marginVertical: 24 },
 
   // ── SOS ──────────────────────────────────────────────────────
   sosPista: {
     height: 62, borderRadius: 16, backgroundColor: C.panel,
-    borderWidth: 1, borderColor: C.linea,
+    borderWidth: 1, borderColor: C.borde,
     justifyContent: 'center', marginTop: 10, overflow: 'hidden',
   },
   sosTexto: {
@@ -2932,9 +3091,9 @@ function crearEstilos(C) { return StyleSheet.create({
   },
   sosBoton: {
     width: 70, height: 54, margin: 4, borderRadius: 12,
-    backgroundColor: C.rojo, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.llenoRojo, alignItems: 'center', justifyContent: 'center',
   },
-  sosBotonTexto: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+  sosBotonTexto: { color: C.sobreRojo, fontSize: 18, fontWeight: '900', letterSpacing: 1 },
   // El "¿qué pasó?" de después del SOS. Botones grandes: se tocan con el
   // pulgar, posiblemente arriba de la combi y con apuro.
   tipoSosCaja: {
@@ -2942,12 +3101,12 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.panel, padding: 12, marginTop: 10,
   },
   tipoSosTitulo: {
-    color: C.rojo, fontSize: 13, fontWeight: '900', letterSpacing: 1,
+    color: C.rojoTexto, fontSize: 13, fontWeight: '900', letterSpacing: 1,
     textAlign: 'center',
   },
   filaTipoSos: { flexDirection: 'row', gap: 8, marginTop: 10 },
   botonTipoSos: {
-    flex: 1, minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
+    flex: 1, minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: C.borde,
     backgroundColor: C.fondo, alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 4, paddingVertical: 8,
   },
@@ -2964,7 +3123,7 @@ function crearEstilos(C) { return StyleSheet.create({
     flexBasis: '30%', flexGrow: 1, borderRadius: 12, padding: 12,
     backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
   },
-  perfilEtiqueta: { color: C.tenue, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  perfilEtiqueta: { color: C.tenue, fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
   perfilValor: { color: C.brillante, fontSize: 22, fontWeight: '900', marginTop: 4 },
   perfilSeccion: { color: C.tenue, fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
   // Un cobrador de la combi: quién es arriba, sus horas y sus botones abajo
@@ -2976,7 +3135,7 @@ function crearEstilos(C) { return StyleSheet.create({
   cobradorDato: { color: C.tenue, fontSize: 12, marginTop: 3 },
   cobradorBotones: { flexDirection: 'row', gap: 8, marginTop: 10 },
   cobradorBoton: {
-    flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: C.linea,
+    flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: C.borde,
     backgroundColor: C.fondo, alignItems: 'center', justifyContent: 'center',
   },
   cobradorBotonTexto: { fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
@@ -2989,13 +3148,20 @@ function crearEstilos(C) { return StyleSheet.create({
 
   // ── Presencia ────────────────────────────────────────────────
   filaPresencia: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  deshacerAusente: {
+    height: 46, borderRadius: 12, borderWidth: 2, borderColor: C.ambar, backgroundColor: C.panel,
+    alignItems: 'center', paddingLeft: 14, paddingRight: 4,
+  },
+  deshacerAusenteTexto: { flex: 1, color: C.ambarTexto, fontSize: 15, fontWeight: '700' },
+  deshacerAusenteBoton: { height: 36, borderRadius: 10, backgroundColor: C.llenoAmbar, paddingHorizontal: 16, justifyContent: 'center' },
+  deshacerAusenteBotonTexto: { color: C.sobreLleno, fontSize: 15, fontWeight: '800', letterSpacing: 0.5 },
   botonTrafico: {
-    height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
+    height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.borde,
     backgroundColor: C.panel, alignItems: 'center', justifyContent: 'center',
     marginTop: 12, paddingHorizontal: 12,
   },
   botonPresencia: {
-    flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.linea,
+    flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.borde,
     backgroundColor: C.panel, alignItems: 'center', justifyContent: 'center',
   },
   botonPresenciaTexto: { color: C.tenue, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
@@ -3003,7 +3169,7 @@ function crearEstilos(C) { return StyleSheet.create({
     height: 58, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
     marginTop: 26,
   },
-  botonAnchoTexto: { color: '#08131F', fontSize: 17, fontWeight: '900', letterSpacing: 1.5 },
+  botonAnchoTexto: { color: C.sobreLleno, fontSize: 17, fontWeight: '900', letterSpacing: 1.5 },
 
   // ── Mapa ─────────────────────────────────────────────────────
   mapaCaja: { flex: 1, overflow: 'hidden' },
@@ -3015,20 +3181,20 @@ function crearEstilos(C) { return StyleSheet.create({
     borderRadius: 100, paddingVertical: 7, paddingHorizontal: 16,
   },
   pistaMapaTexto: {
-    fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.cielo,
+    fontSize: 12, fontWeight: '700', letterSpacing: 0.5, color: C.cielo,
   },
   soltar: {
     position: 'absolute', top: 12, right: 16,
     backgroundColor: C.brillante, borderRadius: 10,
     paddingHorizontal: 16, paddingVertical: 10,
   },
-  soltarTexto: { color: '#fff', fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
+  soltarTexto: { color: C.sobreBrillante, fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
   centrar: {
     position: 'absolute', right: 16, bottom: 16,
-    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
   },
-  centrarTexto: { color: C.cielo, fontSize: 11, fontWeight: '900', letterSpacing: 1.5 },
+  centrarTexto: { color: C.cielo, fontSize: 12, fontWeight: '900', letterSpacing: 1 },
 
   // ── Marca de la cooperativa ──────────────────────────────────
   marca: { borderRadius: 6, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
@@ -3037,28 +3203,28 @@ function crearEstilos(C) { return StyleSheet.create({
   // ── Entrar / tema ────────────────────────────────────────────
   campoConBoton: {
     flexDirection: 'row', alignItems: 'center', marginTop: 6,
-    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea, borderRadius: 10,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde, borderRadius: 10,
   },
   campoSinBorde: { flex: 1, marginTop: 0, borderWidth: 0, backgroundColor: 'transparent' },
   ojo: { paddingHorizontal: 14, paddingVertical: 14 },
-  ojoTexto: { color: C.cielo, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
+  ojoTexto: { color: C.cielo, fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
   chipTema: {
-    fontFamily: 'monospace', fontSize: 10, letterSpacing: 1.5, color: C.tenue,
-    borderWidth: 1, borderColor: C.linea, borderRadius: 6,
+    fontFamily: 'monospace', fontSize: 12, letterSpacing: 1, color: C.tenue,
+    borderWidth: 1, borderColor: C.borde, borderRadius: 6,
     paddingHorizontal: 7, paddingVertical: 3,
   },
 
   // ── Foto ─────────────────────────────────────────────────────
   camara: {
     width: 50, height: 50, borderRadius: 12, backgroundColor: C.panel,
-    borderWidth: 1, borderColor: C.linea,
+    borderWidth: 1, borderColor: C.borde,
     alignItems: 'center', justifyContent: 'center',
   },
   camaraTexto: { fontSize: 22 },
   // Cuánto pesó. En una ruta con datos prepago no es un detalle de nerd.
   camaraAviso: {
     position: 'absolute', bottom: 54, right: 0, width: 120, textAlign: 'right',
-    color: C.tenue, fontSize: 11,
+    color: C.tenue, fontSize: 12,
   },
   miniatura: {
     width: 200, height: 150, borderRadius: 10, marginTop: 6,
@@ -3084,13 +3250,13 @@ function crearEstilos(C) { return StyleSheet.create({
     minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5,
     backgroundColor: C.brillante, alignItems: 'center', justifyContent: 'center',
   },
-  badgeTexto: { color: '#fff', fontSize: 11, fontWeight: '900' },
+  badgeTexto: { color: C.sobreBrillante, fontSize: 12, fontWeight: '900' },
 
   // ── Chat ─────────────────────────────────────────────────────
   canales: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   canal: {
     flex: 1, paddingVertical: 11, borderRadius: 10,
-    backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+    backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde,
     alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8,
   },
   canalActivo: { backgroundColor: C.brillante, borderColor: C.brillante },
@@ -3100,31 +3266,31 @@ function crearEstilos(C) { return StyleSheet.create({
     backgroundColor: C.panel, borderRadius: 12, padding: 11,
     marginBottom: 8, maxWidth: '88%', alignSelf: 'flex-start',
   },
-  burbujaPropia: { alignSelf: 'flex-end', backgroundColor: '#1D598F' },
+  burbujaPropia: { alignSelf: 'flex-end', backgroundColor: C.burbujaPropia },
   burbujaDespacho: { borderLeftWidth: 3, borderLeftColor: C.brillante },
-  burbujaSos: { backgroundColor: '#4A0D1B', borderLeftWidth: 3, borderLeftColor: C.rojo },
+  burbujaSos: { backgroundColor: C.burbujaSos, borderLeftWidth: 3, borderLeftColor: C.rojo },
   burbujaQuien: {
-    fontFamily: 'monospace', fontSize: 10, letterSpacing: 1,
+    fontFamily: 'monospace', fontSize: 12, letterSpacing: 0.5,
     color: C.cielo, marginBottom: 3,
   },
   burbujaTexto: { color: C.blanco, fontSize: 15, lineHeight: 21 },
   escribir: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 6 },
   campoChat: {
-    flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.linea,
+    flex: 1, backgroundColor: C.panel, borderWidth: 1, borderColor: C.borde,
     borderRadius: 12, color: C.blanco, fontSize: 16, padding: 12, maxHeight: 110,
   },
   enviar: {
     width: 50, height: 50, borderRadius: 12, backgroundColor: C.brillante,
     alignItems: 'center', justifyContent: 'center',
   },
-  enviarTexto: { color: '#fff', fontSize: 20 },
+  enviarTexto: { color: C.sobreBrillante, fontSize: 20 },
   grabandoAviso: {
-    color: C.ambar, fontSize: 12, fontWeight: '700',
+    color: C.ambarTexto, fontSize: 12, fontWeight: '700',
     position: 'absolute', bottom: 56, right: 0, width: 220, textAlign: 'right',
   },
   reproducir: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   reproducirIcono: {
-    color: '#fff', fontSize: 13, width: 30, height: 30, borderRadius: 15,
+    color: C.sobreBrillante, fontSize: 13, width: 30, height: 30, borderRadius: 15,
     backgroundColor: C.brillante, textAlign: 'center', lineHeight: 30,
   },
 }); }

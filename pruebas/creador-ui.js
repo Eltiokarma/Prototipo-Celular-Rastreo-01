@@ -135,7 +135,7 @@ const ok = (n, c, e) => {
   await p.click('button:has-text("RUTAS")');
   await p.waitForTimeout(1500);
   t = await p.innerText('body');
-  ok('la pestaña pide elegir cooperativa y ruta', /Elegí cooperativa y ruta/.test(t));
+  ok('la pestaña pide elegir cooperativa y ruta', /Elige cooperativa y ruta/.test(t));
   ok('la lógica del trazador llegó al navegador',
     (await p.evaluate(() => typeof window.Trazador)) === 'object');
 

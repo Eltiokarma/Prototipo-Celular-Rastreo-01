@@ -112,8 +112,8 @@ setTimeout(function () {
       'border-radius:14px;color:#5C0010;">' +
       '<strong>El panel no pudo cargar sus librerías.</strong><br>' +
       'React o Babel no llegaron desde el CDN (unpkg.com). Suele ser un corte ' +
-      'de red de un momento: recargá con Ctrl+Shift+R. Si sigue pasando, ' +
-      'fijate si tu red bloquea unpkg.com.</div>';
+      'de red de un momento: recarga con Ctrl+Shift+R. Si sigue pasando, ' +
+      'fíjate si tu red bloquea unpkg.com.</div>';
   }
 }, 6000);
 </script>
@@ -372,7 +372,7 @@ function LogoDeEmpresa({ empresa, api, correr, ocupado }) {
       </div>
       <div style={{ fontSize: 12, color: 'var(--dim3)', marginTop: 8, lineHeight: 1.5 }}>
         PNG, JPG o WEBP. Se achica solo a {LADO_LOGO} px.
-        Dejalo puesto al dar de alta: así la cooperativa recibe el sistema con su marca.
+        Déjalo puesto al dar de alta: así la cooperativa recibe el sistema con su marca.
       </div>
       <input ref={entrada} type="file" accept="image/png,image/jpeg,image/webp"
         style={{ display: 'none' }}
@@ -562,7 +562,7 @@ function Empresas({ api, empresas, recargar, aviso, fallo }) {
             La ruta y la cuenta de Despacho son opcionales, pero conviene
             cargarlas acá: sin ruta nadie de esa cooperativa se puede conectar,
             y sin cuenta de Despacho no hay quien la administre. La clave se
-            ve una sola vez — anotala ahora para dictarla.
+            ve una sola vez — anótala ahora para dictarla.
           </div>
           <button disabled={ocupado} onClick={crear} style={{
             padding: '10px 18px', fontSize: 14, background: 'var(--bright)', color: '#fff',
@@ -898,7 +898,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar, sucioPanelRef }) {
       }}>
         <div className="black" style={{ fontSize: 15, marginBottom: 6 }}>El trazador no pudo cargar</div>
         No llegó {falta} desde el servidor. Suele ser un corte de red de un
-        momento: recargá la página (Ctrl+Shift+R). Si sigue pasando, avisanos.
+        momento: recarga la página (Ctrl+Shift+R). Si sigue pasando, avísanos.
       </div>
     );
   }
@@ -1010,7 +1010,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar, sucioPanelRef }) {
       // Si la carga FALLA, `tramos` queda en null —no se puede dibujar ni
       // guardar—. Quedaba vacío, y dibujar y guardar sobre eso pisaba el
       // trazado real con uno nuevo (barrido del 22/9).
-      .catch(e => { fallo(`No se pudo cargar el recorrido: ${e.message}. Volvé a elegir la ruta antes de dibujar.`); });
+      .catch(e => { fallo(`No se pudo cargar el recorrido: ${e.message}. Vuelve a elegir la ruta antes de dibujar.`); });
     return () => { vivo = false; };
   }, [variantId]);
 
@@ -1317,14 +1317,14 @@ function Rutas({ api, empresas, aviso, fallo, recargar, sucioPanelRef }) {
         <div>
           <label>Cooperativa</label>
           <select value={companyId} onChange={e => elegirEmpresa(e.target.value)}>
-            <option value="">Elegí una…</option>
+            <option value="">Elige una…</option>
             {empresas.map(e => <option key={e.companyId} value={e.companyId}>{e.name} ({e.companyId})</option>)}
           </select>
         </div>
         <div>
           <label>Ruta</label>
           <select value={routeId} disabled={!empresa} onChange={e => elegirRuta(e.target.value)}>
-            <option value="">{empresa && !rutas.length ? 'No tiene rutas' : 'Elegí una…'}</option>
+            <option value="">{empresa && !rutas.length ? 'No tiene rutas' : 'Elige una…'}</option>
             {rutas.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}{r.name ? ` · ${r.name}` : ''}</option>)}
           </select>
         </div>
@@ -1449,7 +1449,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar, sucioPanelRef }) {
 
       {!variantId && (
         <div style={{ fontSize: 13, color: 'var(--dim2)', lineHeight: 1.6, maxWidth: 640 }}>
-          Elegí cooperativa y ruta para dibujar su recorrido. Acá se crean
+          Elige cooperativa y ruta para dibujar su recorrido. Acá se crean
           los trazados y acá se dibujan; la tarjeta de COOPERATIVAS
           administra cuentas y datos. Lo que se guarda sobre el trazado que
           está midiendo sale en el mapa de esa cooperativa al instante.
@@ -1472,9 +1472,9 @@ function Rutas({ api, empresas, aviso, fallo, recargar, sucioPanelRef }) {
 
           {/* La barra de herramientas */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-            {botonModo('dibujar', 'DIBUJAR', 'Clic agrega al final · clic sobre la línea inserta en el medio · arrastrá para mover · clic en un punto lo borra')}
-            {botonModo('mano', 'MANO', 'Moverse por el mapa sin sembrar puntos (o mantené la barra espaciadora)')}
-            {botonModo('seleccionar', 'SELECCIONAR', 'Dos clics: desde acá hasta acá, y borrás la cuadra entera')}
+            {botonModo('dibujar', 'DIBUJAR', 'Clic agrega al final · clic sobre la línea inserta en el medio · arrastra para mover · clic en un punto lo borra')}
+            {botonModo('mano', 'MANO', 'Moverse por el mapa sin sembrar puntos (o mantén la barra espaciadora)')}
+            {botonModo('seleccionar', 'SELECCIONAR', 'Dos clics: desde acá hasta acá, y borras la cuadra entera')}
             <span style={{ width: 1, height: 22, background: 'var(--divider)' }} />
             {['ida', 'vuelta'].map(tr => (
               <button key={tr} onClick={() => { setTramo(tr); setSeleccion([]); }} style={{
@@ -1501,7 +1501,7 @@ function Rutas({ api, empresas, aviso, fallo, recargar, sucioPanelRef }) {
                 border: seleccion.length === 2 ? 'none' : '1px solid var(--line)',
               }}>
                 {seleccion.length === 2 ? 'Borrar la cuadra elegida' :
-                 seleccion.length === 1 ? 'Elegí el otro extremo…' : 'Elegí dos puntos'}
+                 seleccion.length === 1 ? 'Elige el otro extremo…' : 'Elige dos puntos'}
               </button>
             )}
             <div style={{ flex: 1 }} />
@@ -1525,10 +1525,10 @@ function Rutas({ api, empresas, aviso, fallo, recargar, sucioPanelRef }) {
 
           <div style={{ fontSize: 12, color: 'var(--dim3)', marginTop: 8, lineHeight: 1.6 }}>
             Clic agrega al final · clic <b>sobre la línea</b> inserta en el
-            medio · arrastrá un punto para moverlo · clic en un punto lo borra
+            medio · arrastra un punto para moverlo · clic en un punto lo borra
             · <b>espacio</b> = mano · <b>Ctrl+Z</b> deshace
             {tramos && tramos[tramo].length > TOPE_ARRASTRABLES &&
-              ` · con más de ${TOPE_ARRASTRABLES} puntos no se arrastran (usá SELECCIONAR y Deshacer)`}
+              ` · con más de ${TOPE_ARRASTRABLES} puntos no se arrastran (usa SELECCIONAR y Deshacer)`}
           </div>
 
           <input ref={archivoRef} type="file" accept=".gpx,.json,.geojson,application/gpx+xml"
@@ -1604,7 +1604,7 @@ function Respaldos({ datos, api, recargar, aviso, fallo, token }) {
           borderLeft: '3px solid var(--red)', borderRadius: 11,
           padding: '11px 13px', marginBottom: 14, fontSize: 13, fontWeight: 700,
           color: 'var(--rojoTinta)',
-        }}>La base está EN MEMORIA: no hay nada que respaldar ni que salvar. Montá el volumen primero.</div>
+        }}>La base está EN MEMORIA: no hay nada que respaldar ni que salvar. Monta el volumen primero.</div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
         <button disabled={ocupado || datos.enMemoria} onClick={crear} style={{
@@ -1613,7 +1613,7 @@ function Respaldos({ datos, api, recargar, aviso, fallo, token }) {
         }}>{ocupado ? 'Creando…' : 'Respaldar ahora'}</button>
         <span style={{ fontSize: 12, color: 'var(--dim2)' }}>
           Automático cada {datos.cadaHoras} h · se conservan {datos.conservar} ·
-          y cada tanto <b>bajate uno</b>: el archivo en tu máquina es el respaldo
+          y cada tanto <b>descarga uno</b>: el archivo en tu máquina es el respaldo
           que sobrevive a perder el servidor.
         </span>
       </div>
@@ -1734,7 +1734,7 @@ function Sistema({ datos }) {
           <Aviso tono="amber" titulo="BASE RESTAURADA">
             El {new Date(datos.restauracion.en).toLocaleString('es-PE')} se restauró desde <code>{datos.restauracion.pedido}</code>.
             {datos.restauracion.anterior ? <> La de antes quedó en el volumen como <code>{datos.restauracion.anterior}</code>.</> : null}
-            {' '}Si ya está todo bien, sacá <code>RESTAURAR_DESDE</code> de las variables.
+            {' '}Si ya está todo bien, saca <code>RESTAURAR_DESDE</code> de las variables.
           </Aviso>
         )}
         {datos.salud && datos.salud.detalle.filter(d => d.codigo !== 'base_en_memoria').map(d => (
@@ -1881,7 +1881,7 @@ function Panel({ token, onSalir, onVencida }) {
     // el panel y se llevaba los puntos (barrido del 22/9).
     if (res.status === 401) {
       if (sucioPanelRef.current && onVencida) onVencida(); else onSalir();
-      throw new Error('La sesión venció: entrá de nuevo');
+      throw new Error('La sesión venció: entra de nuevo');
     }
     if (!res.ok) throw new Error(data.error || 'Error del servidor');
     return data;
@@ -2027,8 +2027,8 @@ class Muro extends React.Component {
       }}>
         <div className="black" style={{ fontSize: 18, marginBottom: 8 }}>El panel se rompió</div>
         <div>
-          Es un error del programa, no tuyo. Recargá la página; si vuelve a
-          pasar, mandanos una captura de este cartel — el renglón de abajo
+          Es un error del programa, no tuyo. Recarga la página; si vuelve a
+          pasar, envíanos una captura de este cartel — el renglón de abajo
           dice exactamente qué se rompió.
         </div>
         <code style={{

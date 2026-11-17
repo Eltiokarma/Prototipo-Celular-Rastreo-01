@@ -37,7 +37,7 @@ module.exports = {
   ],
 
   // Además de M-01, Rufino puede manejar M-07 (la de Rosa): habilitada por
-  // Despacho, para que la puerta muestre «¿en qué combi salís?»
+  // Despacho, para que la puerta muestre «¿en qué combi sales?»
   COMBIS_EXTRA_RUFINO: ['M-07'],
 
   // Rufino es el protagonista: su teléfono es el navegador del manual.

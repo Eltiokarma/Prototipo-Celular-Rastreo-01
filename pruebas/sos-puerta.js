@@ -108,7 +108,10 @@ async function deslizarSos(pg) {
 
   console.log('\nLA APP NATIVA (leída)');
   const app = fs.readFileSync(RAIZ + '/app/App.js', 'utf8');
-  const puerta = app.slice(app.indexOf("if (presencia === 'fuera') {"), app.indexOf("if (presencia === 'ausente') {"));
+  // Desde el 17/11 el cobrador no pasa por la puerta (ve el HUD de acompañante)
+  const inicioPuerta = app.indexOf("if (presencia === 'fuera' && !acompanante) {");
+  ok('la puerta de la APK se encuentra en el código', inicioPuerta > 0);
+  const puerta = app.slice(inicioPuerta, app.indexOf("if (presencia === 'ausente') {"));
   ok('en la puerta el SOS no depende del rol', /<SosDeslizable onDisparar=\{onSos\} \/>/.test(puerta) &&
     !/rol === 'collector' \? \([\s\S]*SosDeslizable[\s\S]*\) : \(/.test(puerta));
   ok('la central se guarda aparte de la sesión', /gps\.LLAVE_CENTRAL/.test(app));

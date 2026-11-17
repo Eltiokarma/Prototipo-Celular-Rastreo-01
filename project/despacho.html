@@ -93,14 +93,23 @@ if (typeof L === 'undefined') {
   @keyframes entrarMsg { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
   @keyframes velo { from { opacity: 0; } to { opacity: 1; } }
   @keyframes cambio { from { transform: scale(1.12); } to { transform: none; } }
-  @keyframes latido { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
   @keyframes cargando { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
 
   /* «Guardar como evidencia» aparece al pasar por el mensaje; en pantallas
      táctiles (sin hover) queda siempre a la vista. */
   .r14-msg .r14-evid { opacity: 0; }
   .r14-msg:hover .r14-evid, .r14-msg:focus-within .r14-evid { opacity: 1; }
-  @media (hover: none) { .r14-msg .r14-evid { opacity: 1; } }
+  @media (hover: none) { .r14-msg .r14-evid { opacity: 1; min-height: 44px; } }
+
+  /* Las fichas de números en filas parejas (auditoría de UI, C6). Con
+     auto-fill quedaban 5 + 1 en Vueltas y 7 + 5 en Números: la huérfana se
+     lee como un dato aparte. Seis fichas van de a 3 (o de a 2 en el
+     celular); doce, de a 6, 4, 3 o 2 según el ancho. */
+  .r14-kpi6  { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .r14-kpi12 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  @media (max-width: 1279px) { .r14-kpi12 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 899px)  { .r14-kpi12 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 599px)  { .r14-kpi6, .r14-kpi12 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
   /* Leaflet con el mismo vocabulario que el panel */
   .leaflet-container { font-family: inherit; background: var(--hueco); }
@@ -117,6 +126,10 @@ if (typeof L === 'undefined') {
                                  border-radius: 8px 0 0 0; padding: 2px 8px !important; }
   .leaflet-control-attribution a { color: var(--dim) !important; }
   @media (max-width: 899px) { .leaflet-control-attribution { font-size: 9px; line-height: 1.35; } }
+  /* En el celular, el dedo: 44 px (auditoría de UI, C5) */
+  @media (max-width: 899px) {
+    .leaflet-bar a, .leaflet-bar a:hover { width: 44px !important; height: 44px !important; line-height: 44px !important; }
+  }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -150,7 +163,7 @@ setTimeout(function () {
       'border-radius:14px;color:#5C0010;">' +
       '<strong>El panel no pudo cargar.</strong><br>' +
       'Sus librerías no llegaron desde internet (unpkg.com). Suele ser un corte ' +
-      'de un momento: recargá con Ctrl+Shift+R. Mientras tanto <strong>no ves ' +
+      'de un momento: recarga con Ctrl+Shift+R. Mientras tanto <strong>no ves ' +
       'el mapa ni los SOS</strong>: si hay una emergencia, la central atiende por teléfono.' +
       '<br><button onclick="location.reload()" style="margin-top:12px;padding:10px 18px;' +
       'font-size:14px;background:#C2001D;color:#fff;border:none;border-radius:9px;cursor:pointer">' +
@@ -212,6 +225,12 @@ const TEMAS = {
     filaCritica: '#FDF3F5', // fila de unidad en rojo
     filaActiva: '#F7FBFF',  // tarjeta de la ruta que se está mirando
     celda: '#F4F8FC',       // fondo de las celdas de brecha
+    // La etiqueta de cada combi en el mapa (auditoría de UI, C8). El punto
+    // lleva el color de la brecha; la etiqueta, una variante en la que se
+    // lee lo escrito encima: blanco sobre verde y ámbar de día daba 4,4 y 4,1.
+    // El rojo va tal cual (y de noche es el reservado: no se copia).
+    pinVerde: '#0B6B33', pinAmbar: '#6B4A00', pinGris: '#5A7591',
+    sobrePin: '#FFFFFF',
     tinta: '#0B2239',       // botón principal del creador, segmentado activo
     flotante: 'rgba(255,255,255,.94)', // tarjetas sobre el mapa
     velo: 'rgba(11,34,57,.42)',        // overlay de modal
@@ -250,6 +269,10 @@ const TEMAS = {
     filaCritica: '#1a0810',
     filaActiva: '#0b1620',
     celda: '#0a0f15',
+    // De noche los colores de estado son neón: blanco encima daba 1,4:1.
+    // Van los mismos colores, con tinta oscura.
+    pinVerde: '#39FF14', pinAmbar: '#FFD400', pinGris: '#63809D',
+    sobrePin: '#03060a',
     tinta: '#EAF4FF',
     flotante: 'rgba(13,17,22,.94)',
     velo: 'rgba(0,0,0,.6)',
@@ -268,6 +291,27 @@ const TEMAS = {
 // Se muta en vez de reemplazarse: así las referencias HUD.* de todo el panel
 // siguen valiendo sin pasar el tema por props.
 const HUD = { ...TEMAS.day };
+// ─── ENSAYOS (auditoría de UI, hipótesis H3) ─────────────────────────
+// La lista compacta de unidades (C1): una fila de ~50 px por unidad, con las
+// brechas en dos columnas alineadas, en vez de tarjetas de ~150 px donde a
+// 1440×900 entran 4 de 7. No queda de fábrica sin que la persona que
+// despacha mire las dos versiones con la flota real. Se prende abriendo el
+// panel con `?ensayo=compacta`, queda recordada en ese navegador, y
+// `?ensayo=` la apaga. La clave es otra que la del chofer: las dos
+// pantallas comparten el origen y el localStorage.
+function leerEnsayosDespacho() {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    if (q.has('ensayo')) {
+      const v = (q.get('ensayo') || '').trim();
+      if (v) localStorage.setItem('r14_ensayo_despacho', v); else localStorage.removeItem('r14_ensayo_despacho');
+    }
+    return new Set((localStorage.getItem('r14_ensayo_despacho') || '').split(',').map(s => s.trim()).filter(Boolean));
+  } catch { return new Set(); }
+}
+const ENSAYOS_DESP = leerEnsayosDespacho();
+const COMPACTA = ENSAYOS_DESP.has('compacta');
+
 function aplicarTema(modo) {
   Object.assign(HUD, TEMAS[modo] || TEMAS.day);
 }
@@ -347,7 +391,7 @@ function notificarSos(s) {
   try {
     const n = new Notification(`SOS · ${(s.vehicleId || s.unitId || 'Unidad').toUpperCase()}`, {
       body: `${s.driverName || s.unitId || 'Un chofer'} pide ayuda` +
-        (s.routeId ? ` · ruta ${s.routeId}` : '') + '. Abrí el panel y marcá ATENDIDO.',
+        (s.routeId ? ` · ruta ${s.routeId}` : '') + '. Abre el panel y marca ATENDIDO.',
       tag: 'sos-' + (s.sosId ?? s.timestamp), requireInteraction: true,
     });
     n.onclick = () => { try { window.focus(); } catch {} n.close(); };
@@ -367,6 +411,15 @@ function fmtMin(min) {
   if (min === null || min === undefined || isNaN(min)) return '—';
   const total = Math.round(min * 60);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+// La brecha llega del servidor como «08:04», y la hora del día también va
+// con dos cifras («Sin señal desde 08:04»): en la misma tarjeta, ocho minutos
+// y las ocho y cuatro se escribían igual. La duración se muestra sin el cero
+// de adelante y con su unidad, como el objetivo de la cabecera y como el HUD
+// del chofer (auditoría de UI, N7). Sólo al mostrarla: el valor no cambia.
+function duracion(gapStr) {
+  return gapStr ? String(gapStr).replace(/^0(\d:)/, '$1') : gapStr;
 }
 
 function gapColor(gapStr, target = TARGET_GAP_DEFAULT) {
@@ -522,11 +575,13 @@ const btnFantasma = (alto = 36) => ({
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
 });
 // Botón de fila: el de las acciones dentro de una tabla o una tarjeta
+// 32 px de alto como mínimo: «Corregir», «Escribir», «Silenciar 1 h» medían
+// 27 en un panel que también se usa en tablet (auditoría de UI, C5).
 const btnChico = (tinta, borde) => ({
-  padding: '5px 9px', background: HUD.surface, color: tinta || HUD.fg2,
+  minHeight: 32, padding: '5px 9px', background: HUD.surface, color: tinta || HUD.fg2,
   border: `1px solid ${borde || HUD.line}`, borderRadius: 8,
   fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
-  whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5,
+  whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
 });
 // Botón de un solo ícono (mensajes de la tarjeta, tema). 36 px: se toca con el
 // dedo en el celular sin errarle al de al lado.
@@ -539,11 +594,17 @@ const btnIcono = (activo, tam = 36) => ({
 // Etiqueta: encabezado de columna, label de campo, kicker. Era mono en
 // mayúscula con tracking; ahora es la sans del cuerpo en caja normal. La
 // mono queda para los DATOS (horas, brechas, placas, códigos): `dato()`.
+// El verde y el ámbar de estado son para números grandes, puntos y bordes:
+// en texto chico no llegan a 4,5:1 (#1F8A4F da 4,37 y #A67300 4,14 sobre
+// blanco). Una palabra o un dato chico van en su tinta, que conserva el tono
+// y pasa AA en los dos temas (auditoría de UI, C2). Cualquier otro color
+// pasa igual.
+const tintaDeTexto = (c) => c === HUD.green ? HUD.verdeTinta : c === HUD.amber ? HUD.ambarTinta2 : c;
 const rotulo = (tam = 9, tinta) => ({
-  fontSize: tam + 3, fontWeight: 600, color: tinta || HUD.dim2, letterSpacing: 0,
+  fontSize: tam + 3, fontWeight: 600, color: tintaDeTexto(tinta) || HUD.dim2, letterSpacing: 0,
 });
 const dato = (tam = 12, tinta) => ({
-  fontFamily: mono, fontSize: tam, fontWeight: 700, color: tinta || HUD.fg2,
+  fontFamily: mono, fontSize: tam, fontWeight: 700, color: tintaDeTexto(tinta) || HUD.fg2,
   fontVariantNumeric: 'tabular-nums',
 });
 const tarjeta = (relleno = 14) => ({
@@ -639,7 +700,7 @@ function Avatar({ nombre, tam = 32 }) {
     <span aria-hidden="true" style={{
       width: tam, height: tam, borderRadius: '50%', flexShrink: 0,
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      background: fondo, color: tinta, fontSize: Math.round(tam * 0.38), fontWeight: 800,
+      background: fondo, color: tinta, fontSize: Math.max(12, Math.round(tam * 0.38)), fontWeight: 800,
       letterSpacing: 0.2, userSelect: 'none', lineHeight: 1,
     }}>{iniciales(nombre)}</span>
   );
@@ -682,9 +743,11 @@ function Estado({ icono, tinta, fondo, borde, mayus, title, mt = 8, children }) 
 function Insignia({ n }) {
   return (
     <span style={{
-      position: 'absolute', top: 1, right: 1, minWidth: 17, height: 17, padding: '0 4px',
-      borderRadius: 9, background: HUD.amber, color: HUD.oscuro ? '#000' : '#fff',
-      fontFamily: mono, fontSize: 10, fontWeight: 800, lineHeight: '17px', textAlign: 'center',
+      // El ámbar con su tinta, como la etiqueta del mapa: blanco sobre el
+      // ámbar de estado daba 4,1:1 a 10 px (auditoría de UI, C3).
+      position: 'absolute', top: 0, right: 0, minWidth: 19, height: 19, padding: '0 4px',
+      borderRadius: 10, background: HUD.pinAmbar, color: HUD.sobrePin,
+      fontFamily: mono, fontSize: 12, fontWeight: 800, lineHeight: '19px', textAlign: 'center',
       boxShadow: `0 0 0 2px ${HUD.surface}`,
     }}>{n}</span>
   );
@@ -782,7 +845,7 @@ function Login({ onSuccess, notice }) {
 
   const submit = async () => {
     if (!user.trim() || pass.length < 4) {
-      setError('Completá usuario y contraseña (mínimo 4 caracteres)');
+      setError('Completa usuario y contraseña (mínimo 4 caracteres)');
       return;
     }
     setLoading(true);
@@ -847,7 +910,7 @@ function Login({ onSuccess, notice }) {
         }}>
           <div style={{ fontFamily: black, fontSize: 26, letterSpacing: -0.3, lineHeight: 1.15 }}>{saludo}</div>
           <div style={{ fontSize: 14, color: HUD.dim2, lineHeight: 1.5, margin: '6px 0 22px' }}>
-            Entrá con tu usuario para ver la flota en vivo.
+            Entra con tu usuario para ver la flota en vivo.
           </div>
 
           <label htmlFor="r14-usuario" style={etiqueta}>Usuario</label>
@@ -887,7 +950,7 @@ function Login({ onSuccess, notice }) {
           </button>
 
           <details style={{ marginTop: 16 }}>
-            <summary style={{ fontSize: 13, fontWeight: 700, color: HUD.bright }}>¿Olvidaste la clave?</summary>
+            <summary style={{ fontSize: 13, fontWeight: 700, color: HUD.bright, padding: '8px 0' }}>¿Olvidaste la clave?</summary>
             <div style={{ marginTop: 8, fontSize: 13, color: HUD.fg2, lineHeight: 1.55 }}>
               La de un chofer o un cobrador la cambia Despacho, en Gestión → Personas.
               La de Despacho y la de gerencia, quien les entregó el sistema.
@@ -945,7 +1008,7 @@ function Evidencia({ m, onEvidencia }) {
     return (
       <button className="r14-evid" data-marcar-evidencia={m.msgId} onClick={() => setAbierto(true)}
         title="Queda guardado aunque el resto del chat se borre"
-        style={{ ...btnFantasma(26), padding: '0 6px', marginTop: 2, fontSize: 12, fontWeight: 600, color: HUD.dim2 }}>
+        style={{ ...btnFantasma(32), padding: '0 6px', marginTop: 2, fontSize: 12, fontWeight: 600, color: HUD.dim2 }}>
         <Icono n="marcador" tam={13} />Guardar como evidencia
       </button>
     );
@@ -958,7 +1021,7 @@ function Evidencia({ m, onEvidencia }) {
         style={{ ...campo(34), fontSize: 13 }} />
       <div style={{ display: 'flex', gap: 6 }}>
         <button data-guardar-evidencia={m.msgId} onClick={() => mandar(true)} style={btnChico(HUD.fg2)}>Guardar</button>
-        <button onClick={() => { setAbierto(false); setError(null); }} style={{ ...btnFantasma(28), fontSize: 12 }}>Cancelar</button>
+        <button onClick={() => { setAbierto(false); setError(null); }} style={{ ...btnFantasma(32), fontSize: 12 }}>Cancelar</button>
       </div>
       {error && <div role="alert" style={{ fontSize: 12, color: HUD.ambarTinta }}>{error}</div>}
     </div>
@@ -1089,7 +1152,7 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
                   {!own && (
                     <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 2, color: sos ? HUD.burbujaSosInk : HUD.fg2 }}>
                       {quien}
-                      {m.unit && m.unit !== m.from && <span style={{ ...dato(11, sos ? HUD.burbujaSosInk : HUD.dim2) }}> · {m.unit}</span>}
+                      {m.unit && m.unit !== m.from && <span style={{ ...dato(12, sos ? HUD.burbujaSosInk : HUD.dim2) }}> · {m.unit}</span>}
                     </div>
                   )}
                   <div style={{ fontSize: 14, lineHeight: 1.45, overflowWrap: 'anywhere' }}>
@@ -1118,7 +1181,7 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
                       : m.text}
                   </div>
                   <div style={{
-                    fontSize: 11, marginTop: 2, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                    fontSize: 12, marginTop: 2, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                     color: sos ? HUD.burbujaSosInk : own ? HUD.burbujaPropiaInk : HUD.dim3,
                   }}>{m.time}</div>
                 </div>
@@ -1140,15 +1203,34 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
           Sin conexión: el mensaje no salió. Queda escrito para mandarlo cuando vuelva.
         </div>
       )}
-      <div style={{ padding: '10px 12px', borderTop: `1px solid ${HUD.divider}`, display: 'flex', gap: 8, alignItems: 'center' }}>
+      {/* A quién va, pegado a donde se escribe y también mientras se teclea:
+          antes lo decía sólo la cabecera, y el texto de ayuda del campo se
+          iba con la primera letra. Una orden para toda la ruta que le llega
+          a uno solo, o algo personal que leen todos, no se puede retirar
+          (auditoría de UI, N5). El privado tiñe la zona de ámbar. */}
+      <div data-destino={privadoCon ? 'privado' : 'ruta'} style={{
+        padding: '8px 14px 0', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
+        borderTop: `1px solid ${privadoCon ? HUD.ambarBorde : HUD.divider}`,
+        background: privadoCon ? HUD.ambarFondo : 'transparent',
+        color: privadoCon ? HUD.ambarTinta : HUD.dim2,
+      }}>
+        <Icono n={privadoCon ? 'persona' : 'chat'} tam={15} />
+        {privadoCon
+          ? <span>Para: solo {nombreDe(privadoCon)} · el resto de la ruta no lo ve</span>
+          : <span>Para: toda la ruta{routeId ? ` ${routeId}` : ''}</span>}
+      </div>
+      <div style={{ padding: '8px 12px 10px', display: 'flex', gap: 8, alignItems: 'center',
+        background: privadoCon ? HUD.ambarFondo : 'transparent' }}>
         <input
           value={draft}
           onChange={e => { setDraft(e.target.value); setNoSalio(false); }}
           onKeyDown={e => { if (e.key === 'Enter') send(); }}
-          placeholder={privadoCon ? `Mensaje solo para ${nombreDe(privadoCon)}…` : 'Escribí al canal de la ruta…'}
+          placeholder={privadoCon ? `Mensaje solo para ${nombreDe(privadoCon)}…` : 'Escribe al canal de la ruta…'}
           style={{ ...campo(44), flex: 1, borderRadius: 22, padding: '0 16px' }}
         />
-        <button onClick={send} aria-label="Enviar" title="Enviar" style={{
+        <button onClick={send}
+          aria-label={privadoCon ? `Enviar solo a ${nombreDe(privadoCon)}` : 'Enviar a toda la ruta'}
+          title={privadoCon ? `Enviar solo a ${nombreDe(privadoCon)}` : 'Enviar a toda la ruta'} style={{
           width: 44, height: 44, borderRadius: '50%', border: 'none', flexShrink: 0,
           background: HUD.bright, color: '#fff', cursor: 'pointer',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -1333,6 +1415,16 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   // cambiar de variante) tiraba un TypeError y dejaba la pantalla en blanco.
   const setPuntos = (fn) => setTramos(t => t ? ({ ...t, [tramoRef.current]:
     typeof fn === 'function' ? fn(t[tramoRef.current]) : fn }) : t);
+  // «Borrar la ida» vaciaba el tramo de un clic y «Deshacer último punto»
+  // no lo traía de vuelta: la única salida era cancelar y perder lo demás
+  // (auditoría de UI, N4). Sin «¿Seguro?»: borrar sigue siendo un clic, pero
+  // guarda lo que había y lo ofrece recuperar. La copia vive hasta que ese
+  // tramo vuelve a tener puntos (se dibuja de nuevo, se importa o se
+  // recupera); nada de esto toca el servidor hasta «Guardar».
+  const [borrado, setBorrado] = React.useState(null);   // { tramo, puntos }
+  React.useEffect(() => {
+    if (borrado && tramos && (tramos[borrado.tramo] || []).length) setBorrado(null);
+  }, [tramos]);
 
   // El recorrido que ya tenía esa variante. Se recarga al cambiar de una a
   // otra: cada una tiene su propio dibujo.
@@ -1352,7 +1444,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
         ida: (d.tramos?.ida || []).map(p => [p.lat, p.lng]),
         vuelta: (d.tramos?.vuelta || []).map(p => [p.lat, p.lng]),
       }); })
-      .catch(e => { if (vigente) setError(`No se pudo cargar el recorrido: ${e.message}. Cerrá y volvé a abrir antes de dibujar.`); });
+      .catch(e => { if (vigente) setError(`No se pudo cargar el recorrido: ${e.message}. Cierra y vuelve a abrir antes de dibujar.`); });
     return () => { vigente = false; };
   }, [routeId, variantId]);
 
@@ -1520,7 +1612,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
         }}>{routeId}{routeName ? ` · ${routeName}` : ''}</span>
         <div style={{ flex: 1 }} />
         {(vueltaIncompleta || idaIncompleta || sinIda) && (
-          <span style={{ fontSize: 12, color: HUD.amber, fontWeight: 700, textAlign: 'right' }}>
+          <span style={{ fontSize: 12, color: HUD.ambarTinta2, fontWeight: 700, textAlign: 'right' }}>
             {sinIda ? 'Falta la ida: el circuito arranca por ahí'
               : `La ${idaIncompleta ? 'ida' : 'vuelta'} tiene un solo punto`}
           </span>
@@ -1561,7 +1653,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
           borderBottom: `2px solid ${HUD.amber}`,
           display: 'flex', gap: 13, alignItems: 'flex-start',
         }}>
-          <span style={{ fontFamily: black, fontSize: 15, color: HUD.amber, flexShrink: 0 }}>ATENCIÓN</span>
+          <span style={{ fontFamily: black, fontSize: 15, color: HUD.ambarTinta2, flexShrink: 0 }}>ATENCIÓN</span>
           <span style={{ fontSize: 14, lineHeight: 1.55, color: HUD.ambarTinta }}>
             Estás dibujando <strong>«{variante.name}»</strong>, que <strong>no es el
             trazado con el que se está midiendo hoy</strong>
@@ -1612,7 +1704,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                     fontFamily: black, fontSize: 14, flex: 1, minWidth: 0,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>{variante ? variante.name : '—'}</span>
-                  <span style={{ fontSize: 11, color: HUD.dim3 }}>▾</span>
+                  <span style={{ fontSize: 12, color: HUD.dim3 }}>▾</span>
                 </span>
                 <select value={variantId || ''} onChange={e => setVariantId(Number(e.target.value))}
                   title="Sobre cuál de los trazados de esta ruta estás dibujando"
@@ -1671,7 +1763,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
               <div style={rotulo(9)}>Largo</div>
               <div style={{ fontFamily: black, fontSize: 22, marginTop: 4 }}>
                 {puntos ? kmDe(puntos) : '—'}
-                <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.dim2, marginLeft: 4 }}>KM</span>
+                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2, marginLeft: 4 }}>KM</span>
               </div>
             </div>
           </div>
@@ -1715,7 +1807,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                       Pedir
                     </button>
                   </div>
-                  <div style={{ fontSize: 10, color: HUD.dim3, marginTop: 6, lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 12, color: HUD.dim3, marginTop: 6, lineHeight: 1.5 }}>
                     Le llega a la app del chofer en su próximo reporte y la grabación
                     arranca sola, con aviso. Él la termina y envía desde su Perfil.
                     Necesita la app instalada; si nadie la levanta, el pedido se vence
@@ -1729,8 +1821,8 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                   }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 700 }}>{p.vehicleId}</div>
-                      <div style={{ fontFamily: mono, fontSize: 10,
-                        color: p.estado === 'grabando' ? HUD.green : HUD.dim3 }}>
+                      <div style={{ fontFamily: mono, fontSize: 12,
+                        color: p.estado === 'grabando' ? HUD.verdeTinta : HUD.dim3 }}>
                         {p.estado === 'grabando' ? '● grabando' : 'esperando a la app'}
                         {' · pedida '}{nowTime(p.pedidaEn)}
                       </div>
@@ -1760,7 +1852,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                         fontSize: 12, fontWeight: 700, overflow: 'hidden',
                         textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       }}>{g.nombre || `Recorrido de ${g.quien}`}</div>
-                      <div style={{ fontFamily: mono, fontSize: 10, color: HUD.dim3 }}>
+                      <div style={{ fontFamily: mono, fontSize: 12, color: HUD.dim3 }}>
                         {g.quien} · {(g.largoM / 1000).toFixed(1)} km · {g.puntos} pts
                         · {new Date(g.createdAt).toLocaleDateString()}
                       </div>
@@ -1770,7 +1862,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                         .then(geo => { importar(JSON.stringify(geo)); setVerGrabaciones(false); })
                         .catch(e => setError(e.message));
                     }} style={{ ...btnChico(HUD.fg2), flexShrink: 0 }}
-                      title={`Cargar estos puntos como la ${tramo} (después ajustás y guardás como siempre)`}>
+                      title={`Cargar estos puntos como la ${tramo} (después ajustas y guardas como siempre)`}>
                       Usar en la {tramo}
                     </button>
                   </div>
@@ -1782,10 +1874,27 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
               style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2, opacity: puntos && puntos.length ? 1 : .5 }}>
               Deshacer último punto
             </button>
-            <button onClick={() => { setPuntos([]); setAviso(null); }}
+            {borrado && borrado.tramo === tramo && (
+              <div data-borrado style={{
+                display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px',
+                borderRadius: 10, background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`,
+                fontSize: 13, color: HUD.ambarTinta,
+              }}>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  Se borró la {borrado.tramo} ({borrado.puntos.length} punto{borrado.puntos.length === 1 ? '' : 's'}).
+                </span>
+                <button data-recuperar onClick={() => setTramos(t => t ? ({ ...t, [borrado.tramo]: borrado.puntos }) : t)}
+                  style={btnChico(HUD.ambarTinta, HUD.ambarBorde)}>
+                  Recuperar la {borrado.tramo}
+                </button>
+              </div>
+            )}
+            {/* Separado de «Deshacer»: eran vecinos del mismo tamaño a 8 px,
+                y un clic desviado caía en el de abajo. */}
+            <button onClick={() => { setBorrado({ tramo, puntos }); setPuntos([]); setAviso(null); }}
               disabled={!puntos || !puntos.length}
               style={{
-                ...btnSecundario(38), width: '100%', color: HUD.red,
+                ...btnSecundario(38), width: '100%', color: HUD.red, marginTop: 10,
                 borderColor: HUD.rojoBorde, opacity: puntos && puntos.length ? 1 : .5,
               }}>
               Borrar la {tramo}
@@ -1804,12 +1913,12 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
           </div>
 
           <div style={{ fontSize: 12, color: HUD.dim3, lineHeight: 1.55 }}>
-            Marcá el recorrido tocando el mapa en el orden en que se maneja: el
+            Marca el recorrido tocando el mapa en el orden en que se maneja: el
             primer punto es la salida (<strong>A</strong>) y el último el final
             (<strong>B</strong>).
             {puntos && puntos.length > TOPE_ARRASTRABLES
-              ? ` Con más de ${TOPE_ARRASTRABLES} puntos no se pueden arrastrar (serían miles de marcadores): usá Deshacer.`
-              : ' Arrastrá un punto para corregirlo, tocalo para borrarlo.'}
+              ? ` Con más de ${TOPE_ARRASTRABLES} puntos no se pueden arrastrar (serían miles de marcadores): usa Deshacer.`
+              : ' Arrastra un punto para corregirlo, tócalo para borrarlo.'}
             {' '}El tramo que no estás editando queda punteado de fondo.
           </div>
         </div>
@@ -1921,8 +2030,8 @@ function PanelConsentimiento({ users, vigente, api, run, busy }) {
     <div data-consentimiento style={{ marginBottom: 14, border: `1px solid ${faltan ? HUD.ambarBorde : HUD.line}`,
       background: faltan ? HUD.ambarFondo : HUD.surface, borderRadius: 10, padding: '10px 12px' }}>
       <button data-consentimiento-abrir onClick={() => setAbierto(a => !a)} aria-expanded={abierto}
-        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
-          fontSize: 13, fontWeight: 700, color: faltan ? HUD.ambarTinta : HUD.fg2, textAlign: 'left' }}>
+        style={{ background: 'none', border: 'none', padding: '8px 0', cursor: 'pointer', fontFamily: 'inherit',
+          fontSize: 13, fontWeight: 700, lineHeight: '16px', color: faltan ? HUD.ambarTinta : HUD.fg2, textAlign: 'left' }}>
         Consentimiento de datos personales: {gente.length - faltan} de {gente.length} firmaron
         {faltan ? ` · faltan ${faltan}` : ''} {abierto ? '▴' : '▾'}
       </button>
@@ -1950,7 +2059,7 @@ function PanelConsentimiento({ users, vigente, api, run, busy }) {
               {e !== 'ok' && (<>
                 <input type="date" data-fecha-consentimiento={u.unitId} value={fechas[u.unitId] || hoyIso()} max={hoyIso()}
                   onChange={ev => setFechas(f => ({ ...f, [u.unitId]: ev.target.value }))}
-                  aria-label={`Fecha en que firmó ${nombre(u)}`} style={{ ...campo(30), fontSize: 12, width: 150 }} />
+                  aria-label={`Fecha en que firmó ${nombre(u)}`} style={{ ...campo(32), fontSize: 12, width: 150 }} />
                 <button data-anotar-consentimiento={u.unitId} disabled={busy}
                   onClick={() => run(() => api(`/admin/users/${encodeURIComponent(u.unitId)}/consentimiento`, {
                     method: 'POST', body: JSON.stringify({ firmado: true, fecha: fechas[u.unitId] || hoyIso() }),
@@ -1966,7 +2075,7 @@ function PanelConsentimiento({ users, vigente, api, run, busy }) {
                   <input data-motivo-retiro={u.unitId} value={retiro.motivo} maxLength={200}
                     placeholder="Cómo lo pidió (queda registrado): carta del 05/11"
                     onChange={ev => setRetiro(r => ({ ...r, motivo: ev.target.value }))}
-                    style={{ ...campo(30), fontSize: 12, flex: '1 1 240px' }} />
+                    style={{ ...campo(32), fontSize: 12, flex: '1 1 240px' }} />
                   <button data-confirmar-retiro={u.unitId} disabled={busy}
                     onClick={() => run(async () => {
                       await api(`/admin/users/${encodeURIComponent(u.unitId)}/consentimiento`, {
@@ -2149,9 +2258,9 @@ function CargaMasiva({ api, onListo }) {
     }}>
       <div style={{ ...rotulo(9), marginBottom: 8 }}>Cargar muchas personas desde una planilla</div>
       <div style={{ fontSize: 13, color: HUD.fg2, lineHeight: 1.55, marginBottom: 10 }}>
-        Excel (.xlsx), LibreOffice o Google Sheets (.ods), CSV, o copiá las celdas y pegalas abajo.
+        Excel (.xlsx), LibreOffice o Google Sheets (.ods), CSV, o copia las celdas y pégalas abajo.
         La primera fila tiene que decir qué es cada columna: <b>Nombre</b> y <b>Combi</b> (obligatorias, la
-        combi tiene que existir), y si querés <b>Usuario</b>, <b>Rol</b> (chofer o cobrador), <b>Clave</b>, <b>Alias</b>, <b>Ruta</b>.
+        combi tiene que existir), y si quieres <b>Usuario</b>, <b>Rol</b> (chofer o cobrador), <b>Clave</b>, <b>Alias</b>, <b>Ruta</b>.
         Sin usuario se arma uno con el nombre; sin clave, se genera una.
         {' '}<a href="planilla-alta-ejemplo.xlsx" download style={{ color: HUD.bright, fontWeight: 700 }}>Bajar una planilla de ejemplo</a>
       </div>
@@ -2160,7 +2269,7 @@ function CargaMasiva({ api, onListo }) {
           onChange={elegir} style={{ fontSize: 13 }} />
       </div>
       <textarea data-planilla-texto value={texto} rows={3}
-        placeholder="…o pegá acá las celdas copiadas de Excel o Google Sheets (con la fila de títulos)"
+        placeholder="…o pega acá las celdas copiadas de Excel o Google Sheets (con la fila de títulos)"
         onChange={e => { setTexto(e.target.value); setRevision(null); setHecho(null); }}
         style={{ ...campo(80), width: '100%', boxSizing: 'border-box', fontFamily: mono, fontSize: 12, padding: 8, resize: 'vertical' }} />
       {error && <div role="alert" style={{ marginTop: 8, fontSize: 13, color: HUD.ambarTinta, background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`, borderRadius: 8, padding: '8px 10px' }}>{error}</div>}
@@ -2191,7 +2300,7 @@ function CargaMasiva({ api, onListo }) {
             borderRadius: 8, padding: '8px 10px', lineHeight: 1.5,
           }}>
             Se crearon {hecho.buenas} persona{hecho.buenas === 1 ? '' : 's'}{hecho.conError ? ` (${hecho.conError} se saltaron)` : ''}.
-            {' '}<b>Las claves se ven ahora y no se vuelven a mostrar:</b> bajalas para repartirlas.
+            {' '}<b>Las claves se ven ahora y no se vuelven a mostrar:</b> descárgalas para repartirlas.
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button data-planilla-claves onClick={bajarClaves} style={btnPrimario(36)}>Bajar las claves (CSV)</button>
@@ -2225,7 +2334,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   const [corrForm, setCorrForm] = React.useState({ inicio: '', fin: '', motivo: '', personId: '', vehicleId: '' });
   const [historialTurno, setHistorialTurno] = React.useState(null);
   const [confirmarAnular, setConfirmarAnular] = React.useState(false);
-  const [rangoTurnos, setRangoTurnos] = React.useState('hoy'); // hoy | ayer | semana
+  const [rangoTurnos, setRangoTurnos] = React.useState('hoy'); // hoy | ayer | semana | dia
+  // «Otro día»: hasta 31 días atrás, lo mismo que se puede corregir
+  const [diaTurnos, setDiaTurnos] = React.useState('');
   const [vueltas, setVueltas] = React.useState(null);
   // Alta de persona: cerrada de entrada. Ocho formularios abiertos a la vez
   // era lo que hacía que la pantalla se leyera como un tablero de controles.
@@ -2362,8 +2473,18 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   // ayer 22:00 a hoy 02:00 sumaba las horas de hoy, y la lista de 500 más
   // nuevas podía dejar afuera los de ayer (barrido del 22/9).
   const inicioDeHoy = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
-  const loadShifts = (rango = rangoTurnos) => {
+  // El comienzo de un día elegido en <input type="date"> («2026-10-28»), en
+  // hora local: new Date('2026-10-28') sería la medianoche UTC.
+  const inicioDelDia = (iso) => { const [a, m, d] = iso.split('-').map(Number); return new Date(a, m - 1, d).getTime(); };
+  const loadShifts = (rango = rangoTurnos, dia = diaTurnos) => {
     const hoy = inicioDeHoy();
+    if (rango === 'dia') {
+      if (!dia) { setShifts(null); return Promise.resolve(); }
+      const desde = inicioDelDia(dia);
+      return api(`/admin/shifts?desde=${desde}&hasta=${desde + 86400e3}`)
+        .then(d => setShifts({ ...d, rango, desde, hasta: desde + 86400e3 }))
+        .catch(e => setError(e.message));
+    }
     const desde = rango === 'hoy' ? hoy : rango === 'ayer' ? hoy - 86400e3 : hoy - 6 * 86400e3;
     return api(`/admin/shifts?desde=${desde}${rango === 'ayer' ? `&hasta=${hoy}` : ''}`)
       .then(d => setShifts({ ...d, rango }))
@@ -2472,7 +2593,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
     const v = (ruta.variantes || []).find(x => x.variantId === variantId);
     if (!v || v.activa) return;
     if (!v.puntos) {
-      setError(`"${v.name}" todavía no tiene recorrido dibujado. Cargalo antes de activarla.`);
+      setError(`"${v.name}" todavía no tiene recorrido dibujado. Cárgalo antes de activarla.`);
       return;
     }
     setConfirmVar({ ruta, v, actual: (ruta.variantes || []).find(x => x.activa) || null });
@@ -2661,7 +2782,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
       <span style={{ flex: 1, minWidth: 0 }}>{etiqueta}</span>
       {cuenta !== null && cuenta !== undefined && (
         <span style={{
-          ...dato(11, tab === key ? HUD.azulTinta : HUD.dim2),
+          ...dato(12, tab === key ? HUD.azulTinta : HUD.dim2),
           background: tab === key ? HUD.surface : HUD.hueco, borderRadius: 10, padding: '1px 7px',
         }}>{cuenta}</span>
       )}
@@ -2698,7 +2819,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
               </div>
             ))}
             <div style={{ padding: '4px 10px', fontSize: 12, color: HUD.dim2, lineHeight: 1.45 }}>
-              {session.companyName || session.companyId || ''}{currentRoute ? <span style={dato(11, HUD.dim2)}> · {currentRoute}</span> : null}
+              {session.companyName || session.companyId || ''}{currentRoute ? <span style={dato(12, HUD.dim2)}> · {currentRoute}</span> : null}
             </div>
           </nav>
         )}
@@ -2750,7 +2871,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     fontSize: 13, fontWeight: 700, color: HUD.fg2, whiteSpace: 'nowrap',
                   }}>
                     {{ '': 'Todos los roles', driver: 'Choferes', collector: 'Cobradores', dispatch: 'Despacho', manager: 'Gerencia' }[filtroRol]}
-                    <span style={{ fontSize: 11, color: HUD.dim3 }}>▾</span>
+                    <span style={{ fontSize: 12, color: HUD.dim3 }}>▾</span>
                   </span>
                   <select value={filtroRol} onChange={e => setFiltroRol(e.target.value)}
                     style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%' }}>
@@ -2788,7 +2909,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             : 'Va arriba, ve brechas y chat, pero no reporta posición'}
                           style={{
                             border: 'none', padding: '0 14px', height: 40, cursor: 'pointer',
-                            fontFamily: mono, fontSize: 11, fontWeight: 700, letterSpacing: 1,
+                            fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: 1,
                             background: form.personRole === k ? HUD.bright : HUD.surface,
                             color: form.personRole === k ? '#fff' : HUD.dim2,
                           }}>{l}</button>
@@ -2847,8 +2968,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       // gerencia. A Despacho el servidor le contesta 403, y
                       // el texto le prometía lo contrario (recorrido del 28/10).
                       ? (esGerente
-                        ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no elegís vehículo, se crea uno con el mismo código del usuario.'
-                        : 'El chofer maneja: su celular es el que reporta la posición de la unidad. Elegí la combi en la que va: las combis las da de alta la cuenta de gerencia.')
+                        ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no eliges vehículo, se crea uno con el mismo código del usuario.'
+                        : 'El chofer maneja: su celular es el que reporta la posición de la unidad. Elige la combi en la que va: las combis las da de alta la cuenta de gerencia.')
                       : 'El cobrador necesita un vehículo ya creado. Ve brechas, mapa y chat, pero su GPS no se usa.'}
                   </div>
                 </div>
@@ -2867,7 +2988,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           credential.vehicleId ? ' en ' + credential.vehicleId : ''}${
                           credential.routeId ? ' · ruta ' + credential.routeId : ''}`
                       : '✓ Contraseña reseteada — su sesión fue cerrada'}
-                    {' '}· anotá o dictá estos datos ahora
+                    {' '}· anota o dicta estos datos ahora
                   </div>
                   {credential.isNew && credential.name && (
                     <div style={{ fontSize: 14, color: HUD.fg2, marginBottom: 10 }}>
@@ -3033,7 +3154,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 return (
                                   <button key={v.vehicleId} data-habilitar={v.vehicleId} aria-pressed={marcada}
                                     disabled={hoy}
-                                    title={hoy ? 'Es la de hoy: para sacarla, elegí otra como la de hoy' : (v.label || undefined)}
+                                    title={hoy ? 'Es la de hoy: para sacarla, elige otra como la de hoy' : (v.label || undefined)}
                                     onClick={() => setCombisForm(f => ({
                                       ...f,
                                       combis: marcada ? f.combis.filter(c => c !== v.vehicleId) : [...f.combis, v.vehicleId],
@@ -3120,7 +3241,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             borderBottom: `1px solid ${HUD.hueco}`,
                           }}>
                             <span style={rotulo(9)}>Nueva clave de {u.unitId}</span>
-                            <input autoFocus placeholder="Dejala vacía y se genera una" value={resetPass}
+                            <input autoFocus placeholder="Déjala vacía y se genera una" value={resetPass}
                               onChange={e => setResetPass(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') resetPassword(u.unitId); }}
                               style={{ ...campo(36), flex: '1 1 200px' }} />
@@ -3210,13 +3331,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 if (destino && destino !== v.routeId) setConfirmMover({ v, destino });
                               }}
                               style={{
-                                ...campo(30), width: '100%', padding: '0 4px', cursor: 'pointer',
-                                fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.bright,
+                                ...campo(32), width: '100%', padding: '0 4px', cursor: 'pointer',
+                                fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.bright,
                               }}>
                               {routeList.map(r => <option key={r.routeId} value={r.routeId}>{r.routeId}</option>)}
                             </select>
                           ) : (
-                            <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: HUD.bright }}>
+                            <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.bright }}>
                               {v.routeId || '—'}
                             </span>
                           )}
@@ -3226,7 +3347,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           }}>{v.label || 'sin placa'}</span>
                           <span title={tambien.length ? `También la pueden manejar: ${tambien.map(h => h.nombre).join(', ')}` : undefined}
                             style={{
-                              fontFamily: mono, fontSize: 11, color: HUD.dim2, minWidth: 0,
+                              fontFamily: mono, fontSize: 12, color: HUD.dim2, minWidth: 0,
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             }}>
                             {asignados.length === 0 ? 'sin asignar'
@@ -3252,7 +3373,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 posición</strong>: así la unidad no salta entre dos celulares.
                 {esSupervisor && routeList.length > 1 && (
                   <> Para pasar una combi a otra ruta de la cooperativa —la que rota
-                  entre la A y la B—, cambiá su ruta en la columna Ruta: va con su gente.</>
+                  entre la A y la B—, cambia su ruta en la columna Ruta: va con su gente.</>
                 )}
               </Pie>
             </div>)}
@@ -3380,16 +3501,28 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 display: 'inline-flex', background: HUD.hueco, borderRadius: 10,
                 padding: 3, marginBottom: 16,
               }}>
-                {[['hoy', 'Hoy'], ['ayer', 'Ayer'], ['semana', 'Esta semana']].map(([k, l]) => (
-                  <button key={k} onClick={() => { setRangoTurnos(k); setShifts(null); setCorrigiendo(null); loadShifts(k); }}
+                {[['hoy', 'Hoy'], ['ayer', 'Ayer'], ['semana', 'Esta semana'], ['dia', 'Otro día']].map(([k, l]) => (
+                  <button key={k} data-rango-turnos={k} onClick={() => { setRangoTurnos(k); setShifts(null); setCorrigiendo(null); loadShifts(k); }}
                     style={{
-                      padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                      minHeight: 32, padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
                       fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
                       background: rangoTurnos === k ? HUD.tinta : 'transparent',
                       color: rangoTurnos === k ? (HUD.oscuro ? HUD.bg : '#fff') : HUD.dim2,
                     }}>{l}</button>
                 ))}
               </div>
+              {/* Otro día: para encontrar el turno a corregir, hasta 31 días
+                  atrás (revisión del manual, 17/11) */}
+              {rangoTurnos === 'dia' && (() => {
+                const iso = (ts) => { const d = new Date(ts), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+                return (
+                  <input type="date" data-dia-turnos value={diaTurnos}
+                    min={iso(Date.now() - 31 * 86400e3)} max={iso(Date.now())}
+                    aria-label="Día de los turnos"
+                    onChange={e => { setDiaTurnos(e.target.value); setShifts(null); setCorrigiendo(null); loadShifts('dia', e.target.value); }}
+                    style={{ ...campo(36), fontFamily: mono, fontSize: 13, marginLeft: 12, verticalAlign: 'top' }} />
+                );
+              })()}
               {/* El turno que no se registró (el teléfono se apagó, se cayó
                   el servidor): se agrega a mano, con motivo */}
               <button data-agregar-turno onClick={() => {
@@ -3400,13 +3533,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 {corrigiendo === 'nuevo' ? 'Cerrar' : 'Agregar un turno que faltó'}
               </button>
 
-              {!shifts && <Vacio>Cargando…</Vacio>}
+              {!shifts && (rangoTurnos === 'dia' && !diaTurnos
+                ? <Vacio>Elige el día: hasta 31 días atrás.</Vacio>
+                : <Vacio>Cargando…</Vacio>)}
               {shifts && (() => {
                 // "Ayer" se recorta acá: el endpoint toma desde, no hasta.
                 const hoy = inicioDeHoy();
                 const turnos = rangoTurnos === 'ayer'
                   ? shifts.turnos.filter(t => t.startedAt < hoy)
-                  : shifts.turnos;
+                  : rangoTurnos === 'dia' && shifts.hasta
+                    ? shifts.turnos.filter(t => t.startedAt < shifts.hasta)
+                    : shifts.turnos;
                 const vacio = !turnos.length;
                 const horas = (sec) => {
                   // Se redondea a minutos PRIMERO y después se parte en horas:
@@ -3455,7 +3592,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                         </span>
                         <span style={{
                           fontFamily: mono, fontSize: 12, fontWeight: 700,
-                          color: t.abierto ? HUD.green : HUD.dim2,
+                          color: t.abierto ? HUD.verdeTinta : HUD.dim2,
                         }}>
                           {t.abierto ? 'en ruta' : hhmm(t.endedAt)}
                           {/* El turno que cruza la medianoche cierra en el día
@@ -3472,7 +3609,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           {t.correccion && (
                             <div title={`${t.correccion.tipo === 'agregar' ? 'Agregado' : t.correccion.tipo === 'anular' ? 'Anulado' : 'Corregido'} por ${t.correccion.quien}: ${t.correccion.motivo}`}
                               data-corregido={t.id}
-                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 2 }}>
+                              style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: .6, color: HUD.ambarTinta2, marginTop: 2 }}>
                               {t.correccion.tipo === 'agregar' ? 'AGREGADO A MANO' : t.correccion.tipo === 'anular' ? 'ANULADO A MANO' : 'CORREGIDO A MANO'}
                             </div>
                           )}
@@ -3504,7 +3641,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             <select data-turno-persona value={corrForm.personId}
                               onChange={e => setCorrForm(f => ({ ...f, personId: e.target.value }))}
                               style={{ ...campo(36), minWidth: 200 }}>
-                              <option value="">Elegí…</option>
+                              <option value="">Elige…</option>
                               {personas.map(u => <option key={u.unitId} value={u.unitId}>{u.alias || u.name || u.unitId} ({u.unitId})</option>)}
                             </select>
                           </label>
@@ -3648,15 +3785,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 const cols = '110px 130px 130px 1fr 120px';
                 return (
                   <div>
-                    <div style={{
-                      display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                      gap: 12, marginBottom: 18,
-                    }}>
+                    <div className="r14-kpi6" style={{ gap: 12, marginBottom: 18 }}>
                       {kpis.map(([et, val, nota]) => (
                         <div key={et} style={{ ...tarjeta(14), background: HUD.bg }}>
                           <div style={rotulo(9)}>{et}</div>
                           <div style={{ fontFamily: black, fontSize: 26, margin: '6px 0 4px' }}>{val}</div>
-                          <div style={{ fontSize: 11, color: HUD.dim2 }}>{nota}</div>
+                          <div style={{ fontSize: 12, color: HUD.dim2 }}>{nota}</div>
                         </div>
                       ))}
                     </div>
@@ -3736,7 +3870,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                     background: color, borderRadius: 3,
                                   }} />
                                 </span>
-                                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color, flexShrink: 0 }}>
+                                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: tintaDeTexto(color), flexShrink: 0 }}>
                                   {l.brechaProm === null ? '—' : fmtSeg(l.brechaProm)}
                                 </span>
                               </span>
@@ -3745,8 +3879,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 {!!l.parcial && (
                                   <span title={`Entró a la ruta al ${Math.round((l.progresoInicial || 0) * 100)} % del circuito: esto no es una vuelta entera`}
                                     style={{
-                                      display: 'block', fontFamily: mono, fontSize: 9,
-                                      fontWeight: 700, color: HUD.amber, marginTop: 2,
+                                      display: 'block', fontFamily: mono, fontSize: 12,
+                                      fontWeight: 700, color: HUD.ambarTinta2, marginTop: 2,
                                     }}>PARCIAL · {Math.round((l.progresoInicial || 0) * 100)}%</span>
                                 )}
                               </span>
@@ -3787,7 +3921,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             : undefined}
                           onClick={() => { setDiasMetrics(d); setMetrics(null); loadMetrics(d); }}
                           style={{
-                            ...btnSecundario(30),
+                            ...btnSecundario(32),
                             background: diasMetrics === d ? HUD.bright : 'transparent',
                             color: diasMetrics === d ? '#fff' : HUD.dim,
                           }}>{etiqueta}</button>
@@ -3815,14 +3949,14 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             {m.parciales > 0 && (
                               <span title={`${m.parciales} vuelta(s) empezadas con la ruta ya avanzada`}
                                 style={{
-                                  display: 'block', fontFamily: mono, fontSize: 9,
-                                  fontWeight: 700, color: HUD.amber, marginTop: 2,
+                                  display: 'block', fontFamily: mono, fontSize: 12,
+                                  fontWeight: 700, color: HUD.ambarTinta2, marginTop: 2,
                                 }}>{m.parciales} PARCIAL{m.parciales === 1 ? '' : 'ES'}</span>
                             )}
                           </span>
                           <span style={{
                             fontFamily: mono, fontSize: 13, fontWeight: 700,
-                            color: m.lapsToday > 0 ? HUD.green : HUD.dim3,
+                            color: m.lapsToday > 0 ? HUD.verdeTinta : HUD.dim3,
                           }}>{m.lapsToday}</span>
                           <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.dim }}>{m.lapsTotal}</span>
                           <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: HUD.dim }}>{m.idas}</span>
@@ -3831,7 +3965,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             // Menos retornos que idas es el dato: salió y no
                             // volvió. Se pinta en ámbar, no en rojo — no es una
                             // emergencia, es algo para preguntar.
-                            color: m.idas > m.retornos ? HUD.amber : HUD.dim,
+                            color: m.idas > m.retornos ? HUD.ambarTinta2 : HUD.dim,
                           }} title={m.idas > m.retornos
                             ? `${m.idas - m.retornos} ida(s) sin su retorno` : undefined}>{m.retornos}</span>
                           {/* «Última» decía sólo cuánto DURÓ la última
@@ -3845,10 +3979,10 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             {m.lastFinish && (
                               <span title={`Última vuelta cerrada: ${new Date(m.lastFinish).toLocaleString()}`}
                                 style={{
-                                  display: 'block', fontFamily: mono, fontSize: 9, fontWeight: 700,
+                                  display: 'block', fontFamily: mono, fontSize: 12, fontWeight: 700,
                                   // Más de un día sin cerrar una vuelta no es
                                   // una alarma, pero es lo que hay que ver.
-                                  color: Date.now() - m.lastFinish > 86400e3 ? HUD.amber : HUD.dim3,
+                                  color: Date.now() - m.lastFinish > 86400e3 ? HUD.ambarTinta2 : HUD.dim3,
                                   marginTop: 2,
                                 }}>{fmtWhen(m.lastFinish).toUpperCase()}</span>
                             )}
@@ -3905,7 +4039,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                   <button key={d} disabled={busy}
                     onClick={() => { setDiasTrabas(d); setTrabas(null); loadTrabas(d); }}
                     style={{
-                      ...btnSecundario(30),
+                      ...btnSecundario(32),
                       background: diasTrabas === d ? HUD.bright : 'transparent',
                       color: diasTrabas === d ? '#fff' : HUD.dim,
                     }}>{etiqueta}</button>
@@ -4119,7 +4253,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               <div style={{ fontFamily: mono }}>{min(g.segundos)}</div>
                               <div style={{ fontFamily: mono, color: g.unidades > 1 ? HUD.fg : HUD.dim3 }}>{g.unidades}</div>
                               <div title="Cortes que no trajeron después las posiciones que faltaban: el teléfono estaba apagado o la app muerta, no es la antena"
-                                style={{ fontFamily: mono, color: g.sinDatos ? HUD.amber : HUD.dim3, textAlign: 'right' }}>
+                                style={{ fontFamily: mono, color: g.sinDatos ? HUD.ambarTinta2 : HUD.dim3, textAlign: 'right' }}>
                                 {g.sinDatos || '—'}
                               </div>
                             </div>
@@ -4209,17 +4343,21 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
 
             {/* ─── INFORMES ─────────────────────────────────────── */}
             {tab === 'informes' && (() => {
+              // Una lista, no diez botones de anchos distintos con uno de
+              // principal sin que la tarea lo pida: cada informe con lo que
+              // trae (sus columnas, en palabras) y el mismo botón (auditoría
+              // de UI, C7).
               const informes = [
-                ['vueltas', 'Vueltas y brechas (CSV)', true],
-                ['tramos', 'Medias vueltas: idas y retornos (CSV)', false],
-                ['horas', 'Turnos por persona (CSV)', false],
-                ['desvios', 'Salidas del recorrido (CSV)', false],
-                ['paradas', 'Paradas y avisos de tráfico: dónde y a qué hora se traba la ruta (CSV)', false],
-                ['senal', 'Cortes de señal (CSV)', false],
-                ['anomalias', 'Anomalías: saltos, ausente en marcha, reloj, GPS simulado (CSV)', false],
-                ['sos', 'Emergencias (CSV)', false],
-                ['mensajes', 'Chat, notas de voz y fotos (CSV)', false],
-                ['actividad', 'Actividad de administración (CSV)', false],
+                ['vueltas', 'Vueltas y brechas', 'Cada vuelta: inicio, fin, duración, velocidad media y la brecha contra el objetivo de ese momento.'],
+                ['tramos', 'Medias vueltas: idas y retornos', 'Cada ida y cada retorno por separado, con su duración.'],
+                ['horas', 'Turnos por persona', 'Entradas, salidas y horas de cada chofer y cobrador en el período.'],
+                ['desvios', 'Salidas del recorrido', 'Cuándo salió cada unidad del trazado, por cuánto tiempo y a qué distancia.'],
+                ['paradas', 'Paradas y avisos de tráfico', 'Dónde y a qué hora se traba la ruta, con el punto del circuito.'],
+                ['senal', 'Cortes de señal', 'Cuándo y dónde se cortó y volvió la señal de cada unidad, y cuántos minutos.'],
+                ['anomalias', 'Anomalías', 'Saltos, ausente en marcha, reloj del teléfono corrido y GPS simulado.'],
+                ['sos', 'Emergencias', 'Cada SOS: quién, dónde, quién lo atendió y cuántos minutos tardó.'],
+                ['mensajes', 'Chat, notas de voz y fotos', 'Lo que se escribió y mandó en los canales y privados.'],
+                ['actividad', 'Actividad de administración', 'Quién cambió qué en este panel: altas, bajas, rutas, correcciones.'],
               ];
               const aMs = (iso, fin) => {
                 const d = new Date(iso + (fin ? 'T23:59:59' : 'T00:00:00'));
@@ -4230,7 +4368,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
               const dias = desde && hasta ? Math.max(1, Math.round((hasta - desde) / 86400e3)) : null;
               const bajar = (tipo) => {
                 if (!desde || !hasta || hasta < desde) {
-                  setError('Revisá las fechas: la de fin tiene que ser posterior a la de inicio');
+                  setError('Revisa las fechas: la de fin tiene que ser posterior a la de inicio');
                   return;
                 }
                 // El navegador no manda el token en una descarga normal, así que
@@ -4280,26 +4418,31 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           tenía que leer la cabecera para enterarse
                           (REVISION-2026-09-10.md, E19). */}
                       {dias > 90 && (
-                        <div style={{ fontSize: 12, color: HUD.amber, marginTop: 8, fontWeight: 700 }}>
+                        <div style={{ fontSize: 12, color: HUD.ambarTinta2, marginTop: 8, fontWeight: 700 }}>
                           El período máximo son 90 días: el informe va a salir con
                           los últimos 90 del rango que elegiste, no con los {dias}.
                         </div>
                       )}
                     </div>
 
-                    <div style={tarjeta(18)}>
-                      <div style={{ ...rotulo(9), marginBottom: 12 }}>Descargar</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
-                        {informes.map(([tipo, etiqueta, principal]) => (
-                          <button key={tipo} onClick={() => bajar(tipo)}
-                            style={{
-                              ...(principal ? btnPrimario(40) : btnSecundario(40)),
-                              // que un rótulo largo baje de renglón y no se salga
-                              height: 'auto', minHeight: 40, padding: '9px 14px',
-                              whiteSpace: 'normal', textAlign: 'left', maxWidth: '100%',
-                            }}>{etiqueta}</button>
-                        ))}
-                      </div>
+                    <div style={{ ...tarjeta(0), gridColumn: '1 / -1' }}>
+                      <div style={{ ...rotulo(9), padding: '14px 18px 4px' }}>Descargar</div>
+                      {informes.map(([tipo, etiqueta, que], i) => (
+                        <div key={tipo} data-informe={tipo} style={{
+                          display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px',
+                          borderTop: i ? `1px solid ${HUD.divider}` : 'none',
+                        }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: HUD.fg }}>{etiqueta}</div>
+                            <div style={{ fontSize: 13, color: HUD.dim2, marginTop: 2, lineHeight: 1.4 }}>{que}</div>
+                          </div>
+                          <button onClick={() => bajar(tipo)} title={`Descargar «${etiqueta}» en CSV`}
+                            style={{ ...btnSecundario(36), flexShrink: 0 }}>
+                            <Icono n="descargar" tam={16} />CSV
+                            <span style={ocultoVisual}>: {etiqueta}</span>
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                   <Pie>
@@ -4533,13 +4676,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               return (
                                 <div key={'barra-' + d.dia} title={`${d.dia}: ${v == null ? 'sin brecha medida' : v + ' %'} · ${d.vueltas} vueltas`}
                                   style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                                  <span style={{ ...dato(10, HUD.dim2), visibility: dias.length <= 16 ? 'visible' : 'hidden' }}>{v == null ? '—' : v}</span>
+                                  <span style={{ ...dato(12, HUD.dim2), visibility: dias.length <= 16 ? 'visible' : 'hidden' }}>{v == null ? '—' : v}</span>
                                   <span style={{ width: '100%', maxWidth: 34, height: ALTO, display: 'flex', alignItems: 'flex-end',
                                     background: HUD.hueco, borderRadius: 6, overflow: 'hidden' }}>
                                     <span style={{ width: '100%', height: v == null ? 0 : Math.max(3, Math.round(ALTO * v / 100)),
                                       background: HUD.bright, borderRadius: 6, transition: 'height .2s ease' }} />
                                   </span>
-                                  <span style={{ ...dato(10, HUD.dim2), whiteSpace: 'nowrap', visibility: conFecha ? 'visible' : 'hidden' }}>{String(d.dia).slice(-5).split('-').reverse().join('/')}</span>
+                                  <span style={{ ...dato(12, HUD.dim2), whiteSpace: 'nowrap', visibility: conFecha ? 'visible' : 'hidden' }}>{String(d.dia).slice(-5).split('-').reverse().join('/')}</span>
                                 </div>
                               );
                             })}
@@ -4549,10 +4692,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     </div>
                   );
                 })()}
-                <div style={{
-                  display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-                  gap: 8, marginBottom: 20,
-                }}>
+                <div className="r14-kpi12" style={{ gap: 8, marginBottom: 20 }}>
                   {[
                     ['Vueltas', resumenGer.totales.vueltas],
                     // Idas y retornos del período. La resta entre las dos es
@@ -4605,7 +4745,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           {u.unitId}
                           {u.activa === false && (
                             <div title={u.ultimaVez ? `Última señal: ${new Date(u.ultimaVez).toLocaleString()}` : 'Nunca reportó'}
-                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, color: HUD.dim3 }}>
+                              style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim3 }}>
                               SIN ACTIVIDAD{u.ultimaVez ? ` · HACE ${Math.max(1, Math.round((Date.now() - u.ultimaVez) / 86400000))} D` : ''}
                             </div>
                           )}
@@ -4614,7 +4754,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               un día raro, todas las semanas es otra cosa. */}
                           {u.parciales > 0 && (
                             <div title={`${u.parciales} vuelta(s) empezadas con la ruta ya avanzada`}
-                              style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, color: HUD.amber }}>
+                              style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.ambarTinta2 }}>
                               {u.parciales} PARCIAL{u.parciales === 1 ? '' : 'ES'}
                             </div>
                           )}
@@ -4626,13 +4766,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           ? `${(u.idas ?? 0) - (u.retornos ?? 0)} ida(s) sin su retorno` : undefined}
                           style={{
                             fontFamily: mono,
-                            color: (u.idas ?? 0) > (u.retornos ?? 0) ? HUD.amber : HUD.fg,
+                            color: (u.idas ?? 0) > (u.retornos ?? 0) ? HUD.ambarTinta2 : HUD.fg,
                           }}>{u.retornos ?? 0}</div>
                         <div style={{
                           fontWeight: 700,
                           color: u.cumplimiento === null ? HUD.dim3
-                            : u.cumplimiento >= 70 ? HUD.green
-                            : u.cumplimiento >= 40 ? HUD.amber : HUD.red,
+                            : u.cumplimiento >= 70 ? HUD.verdeTinta
+                            : u.cumplimiento >= 40 ? HUD.ambarTinta2 : HUD.red,
                         }}>{u.cumplimiento === null ? '—' : `${u.cumplimiento}%`}</div>
                         <div style={{ fontFamily: mono }}>
                           {u.brechaProm === null ? '—' : fmtSeg(u.brechaProm)}
@@ -4648,7 +4788,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           style={{ fontFamily: mono }}>
                           {u.duracionProm == null ? '—' : fmtSeg(u.duracionProm)}
                           {u.duracionMejor != null && (
-                            <div style={{ fontFamily: mono, fontSize: 9, fontWeight: 700, color: HUD.dim3 }}>
+                            <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim3 }}>
                               MEJOR {fmtSeg(u.duracionMejor)}
                             </div>
                           )}
@@ -4663,7 +4803,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             dos se ven igual. */}
                         <div title={(u.desvios ? `${Math.round((u.desvioSec || 0) / 60)} min fuera del recorrido en total` : 'No se salió del recorrido') +
                                     (u.desviosAparte ? ` · ${u.desviosAparte} episodio(s) aparte: silenciado(s) por Despacho o cerrado(s) por cambio de trazado, que no cuentan como salidas` : '')}
-                          style={{ fontFamily: mono, color: u.desvios ? HUD.amber : HUD.dim3, textAlign: 'right' }}>
+                          style={{ fontFamily: mono, color: u.desvios ? HUD.ambarTinta2 : HUD.dim3, textAlign: 'right' }}>
                           {u.desvios ? `${u.desvios} · ${Math.round((u.desvioSec || 0) / 60)}′` : '—'}
                         </div>
                       </div>
@@ -4706,7 +4846,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               en todo el período no manejó queda en «—». */}
                           <div style={{ fontFamily: mono, color: manejo(p) ? HUD.fg : HUD.dim3 }}>{manejo(p) ? (p.vueltas || 0) : '—'}</div>
                           <div style={{ fontFamily: mono, color: p.cumplimiento == null ? HUD.dim3 : HUD.fg }}>{p.cumplimiento == null ? '—' : `${p.cumplimiento}%`}</div>
-                          <div style={{ fontFamily: mono, color: p.desvios ? HUD.amber : HUD.dim3 }}>{manejo(p) ? (p.desvios || '—') : '—'}</div>
+                          <div style={{ fontFamily: mono, color: p.desvios ? HUD.ambarTinta2 : HUD.dim3 }}>{manejo(p) ? (p.desvios || '—') : '—'}</div>
                           <div style={{ fontFamily: mono, color: HUD.dim2, textAlign: 'right' }}>{(p.unidades || []).join(' · ') || '—'}</div>
                         </div>
                       ))}
@@ -4720,7 +4860,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       {' '}<strong>Vueltas</strong>, <strong>Cumple</strong> y <strong>Salidas</strong> son las de la combi
                       mientras la persona tenía el turno de chofer.
                       {resumenGer.totales.sinAtribuir > 0 && (
-                        <span style={{ color: HUD.amber }}>
+                        <span style={{ color: HUD.ambarTinta2 }}>
                           {' '}{resumenGer.totales.sinAtribuir} vuelta(s) del período no cayeron en el turno de nadie y no se le atribuyen a ninguna persona.
                         </span>
                       )}
@@ -4892,17 +5032,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 apagado, la app muerta, o el corte pasó de 25
                                 min—. Un corte de red las trae al volver. */}
                             <div title={s.noVolvio ? `${s.noVolvio} corte(s) sin volver en 2 h` : 'Cortes cuyas posiciones no llegaron después'}
-                              style={{ fontFamily: mono, color: s.sinDatos ? HUD.amber : HUD.dim3 }}>{s.sinDatos || '—'}</div>
+                              style={{ fontFamily: mono, color: s.sinDatos ? HUD.ambarTinta2 : HUD.dim3 }}>{s.sinDatos || '—'}</div>
                             <div title={s.ausenteEnMarcha ? `${s.ausenteEnMarcha} vez/veces ausente y en marcha sobre el trazado` : undefined}
-                              style={{ fontFamily: mono, color: s.ausenteEnMarcha ? HUD.amber : s.ausenteSec ? HUD.fg : HUD.dim3 }}>
+                              style={{ fontFamily: mono, color: s.ausenteEnMarcha ? HUD.ambarTinta2 : s.ausenteSec ? HUD.fg : HUD.dim3 }}>
                               {s.ausencias ? `${s.ausencias} · ${min(s.ausenteSec)}` : '—'}{s.ausenteEnMarcha ? ' · en marcha' : ''}</div>
                             <div title="Saltos de más de 120 km/h entre dos posiciones: dos teléfonos con la misma cuenta, o un GPS que inventa"
-                              style={{ fontFamily: mono, color: s.saltos ? HUD.amber : HUD.dim3 }}>{s.saltos || '—'}</div>
+                              style={{ fontFamily: mono, color: s.saltos ? HUD.ambarTinta2 : HUD.dim3 }}>{s.saltos || '—'}</div>
                             <div title={s.descartadas ? `${s.descartadas} posición(es) con hora imposible` : 'Veces que el reloj del teléfono apareció atrasado'}
-                              style={{ fontFamily: mono, color: (s.reloj || s.descartadas) ? HUD.amber : HUD.dim3 }}>
+                              style={{ fontFamily: mono, color: (s.reloj || s.descartadas) ? HUD.ambarTinta2 : HUD.dim3 }}>
                               {s.reloj || s.descartadas ? `${s.reloj}${s.descartadas ? ` · ${s.descartadas} desc.` : ''}` : '—'}</div>
                             <div title="Episodios de GPS falso (Android marcó las posiciones como simuladas), sospechoso (la firma de un simulador sin el flag: velocidad que no varía, clavado en el trazado, velocidad que no cuadra) e impreciso (más de 100 m de error declarado: no se juzgó desvío ni parada)"
-                              style={{ fontFamily: mono, fontWeight: (s.gpsSimulado || s.gpsSospechoso) ? 800 : 400, color: gps.length ? HUD.amber : HUD.dim3 }}>
+                              style={{ fontFamily: mono, fontWeight: (s.gpsSimulado || s.gpsSospechoso) ? 800 : 400, color: gps.length ? HUD.ambarTinta2 : HUD.dim3 }}>
                               {gps.length ? gps.join(' · ') : '—'}</div>
                             {/* Avisos de tráfico del chofer, y cuántos sin que el
                                 servidor viera la parada (T7): la excusa, o el
@@ -4919,12 +5059,12 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                               style={{ fontFamily: mono, color: s.paradas ? HUD.fg : HUD.dim3 }}>
                               {s.paradas ? `${s.paradas} · ${Math.round((s.paradasSec || 0) / 60)}′` : '—'}</div>
                             <div title={s.avisosTrafico ? `${s.avisosTrafico} aviso(s) de tráfico; ${s.avisosSinParada} sin parada medida por el servidor` : 'Avisos de tráfico del chofer'}
-                              style={{ fontFamily: mono, color: s.avisosSinParada ? HUD.amber : s.avisosTrafico ? HUD.fg : HUD.dim3 }}>
+                              style={{ fontFamily: mono, color: s.avisosSinParada ? HUD.ambarTinta2 : s.avisosTrafico ? HUD.fg : HUD.dim3 }}>
                               {s.avisosTrafico ? `${s.avisosTrafico}${s.avisosSinParada ? ` · ${s.avisosSinParada} sin parada` : ''}` : '—'}</div>
                             {/* Entradas a la ruta empezada (se metió en el
                                 medio): estaban sólo en la auditoría (E13). */}
                             <div title="Veces que entró a la ruta con el circuito ya avanzado, en vez de desde el inicio"
-                              style={{ fontFamily: mono, color: s.entradasTardias ? HUD.amber : HUD.dim3 }}>{s.entradasTardias || '—'}</div>
+                              style={{ fontFamily: mono, color: s.entradasTardias ? HUD.ambarTinta2 : HUD.dim3 }}>{s.entradasTardias || '—'}</div>
                           </div>
                         );
                       })}
@@ -4960,14 +5100,14 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       las vueltas: si la mayoría no tuvo con quién medirse el
                       porcentaje sale de pocas, y hay que decirlo (E6). */}
                   {resumenGer.totales.sinBrecha > 0 && (
-                    <span style={{ color: HUD.amber }}>
+                    <span style={{ color: HUD.ambarTinta2 }}>
                       {' '}El cumplimiento sale de {resumenGer.totales.vueltas - resumenGer.totales.sinBrecha} de las
                       {' '}{resumenGer.totales.vueltas} vueltas: {resumenGer.totales.sinBrecha} no tuvieron con quién
                       medir la brecha (unidad sola en su tramo) y no se juzgan.
                     </span>
                   )}
                   {resumenGer.totales.parciales > 0 && (
-                    <span style={{ color: HUD.amber }}>
+                    <span style={{ color: HUD.ambarTinta2 }}>
                       {' '}{resumenGer.totales.parciales} vuelta(s) del período empezaron con la
                       ruta ya avanzada —la unidad se metió en el medio, o estuvo sin señal y
                       la vuelta se partió— y quedan fuera de los promedios y del cumplimiento.
@@ -4979,7 +5119,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       exacto un promedio que todavía no lo es. Con el tiempo
                       llega solo a cero y esta línea desaparece sola. */}
                   {resumenGer.totales.conObjetivoViejo > 0 && (
-                    <span style={{ color: HUD.amber }}>
+                    <span style={{ color: HUD.ambarTinta2 }}>
                       {' '}De las {resumenGer.totales.conObjetivoViejo + resumenGer.totales.conObjetivoPropio}
                       {' '}vueltas juzgadas, {resumenGer.totales.conObjetivoViejo} son anteriores a que el
                       objetivo se guardara con cada vuelta y se miden contra el de hoy.
@@ -5069,13 +5209,13 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       const when = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${hhmm(ev.timestamp)}`;
                       return (
                         <FilaTabla key={i} cols={cols}>
-                          <span style={{ fontFamily: mono, fontSize: 11, color: HUD.dim3 }}>{when}</span>
+                          <span style={{ fontFamily: mono, fontSize: 12, color: HUD.dim3 }}>{when}</span>
                           <span style={{
                             fontFamily: black, fontSize: 13, minWidth: 0,
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}>{ev.actor}</span>
                           <span style={{ fontSize: 13, color: HUD.fg2, minWidth: 0 }}>
-                            <span style={{ color: a.color, fontWeight: 700 }}>{a.label}</span>
+                            <span style={{ color: tintaDeTexto(a.color), fontWeight: 700 }}>{a.label}</span>
                             {ev.target && <span style={{ fontFamily: black, fontSize: 13, color: HUD.fg }}> {ev.target}</span>}
                             {ev.detail && <span style={{ color: HUD.dim3 }}> · {ev.detail}</span>}
                           </span>
@@ -5348,7 +5488,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     const ws = wsRef.current;
     if (s.sosId == null) { setSosLista(l => l.filter(x => x !== s)); return; }
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      setSosError('Sin conexión: ATENDIDO no salió. Probá de nuevo.');
+      setSosError('Sin conexión: ATENDIDO no salió. Prueba de nuevo.');
       return;
     }
     // Se saca de la lista recién cuando el servidor lo confirma (el
@@ -5362,7 +5502,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       setSosLista(l => {
         const sigue = l.find(x => x.sosId === s.sosId && x.atendiendo);
         if (!sigue) return l;
-        setSosError('ATENDIDO no se confirmó: la conexión está fallando. Probá de nuevo.');
+        setSosError('ATENDIDO no se confirmó: la conexión está fallando. Prueba de nuevo.');
         return l.map(x => x.sosId === s.sosId ? { ...x, atendiendo: null } : x);
       });
     }, 8000);
@@ -5773,8 +5913,17 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       // ausente está comiendo y la que va yendo todavía no pisó el trazado.
       // Ninguna de las dos es una combi contra la que alguien se mida.
       const fueraDeCadena = u.presencia === 'ausente' || (u.presencia === 'ruta' && u.enRuta === false);
-      const colorPin = (callada || fueraDeCadena) ? HUD.dim3 : color;
-      const relleno = (callada || fueraDeCadena) ? HUD.bg : '#fff';
+      const apagada = callada || fueraDeCadena;
+      const colorPin = apagada ? HUD.dim3 : color;
+      const relleno = apagada ? HUD.bg : '#fff';
+      // La etiqueta: la apagada es hueca (superficie, contorno punteado y
+      // tinta secundaria) en vez de la misma etiqueta con opacidad, que
+      // dejaba el nombre a 3:1 sobre el mapa (auditoría de UI, C8). Las
+      // demás, en la variante del color de su brecha que se lee.
+      const etiqueta = apagada
+        ? `color:${HUD.fg2};background:${HUD.surface};border:1.5px dashed ${HUD.dim3};`
+        : `color:${HUD.sobrePin};background:${color === HUD.green ? HUD.pinVerde : color === HUD.amber ? HUD.pinAmbar
+            : color === HUD.red ? HUD.red : HUD.pinGris};border:1.5px solid ${HUD.surface};`;
       const sufijo = u.presencia === 'ausente' ? ' · AUSENTE'
         : (u.presencia === 'ruta' && u.enRuta === false) ? ' · YENDO' : '';
       // La familia va con comillas simples: con las dobles de `black` el
@@ -5782,9 +5931,9 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       // texto suelto, sin fondo, pisándose con el trazado.
       // width:max-content porque el icono de Leaflet mide 0×0: sin eso la
       // etiqueta se parte en dos líneas dentro de un contenedor sin ancho.
-      const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:${fuera ? 6 : 3}px;${(callada || fueraDeCadena) ? 'opacity:.65;' : ''}">
-        <div style="font-family:${black.replace(/"/g, "'")};font-size:11px;color:#fff;background:${colorPin};padding:2px 7px;border-radius:7px;white-space:nowrap;border:1.5px solid ${HUD.surface};box-shadow:${HUD.sombra};">${escaparHtml(u.unitId)}${fuera ? ' ◇' : ''}${callada ? ' ⌁' : ''}${sufijo}</div>
-        <div style="width:10px;height:10px;border-radius:50%;background:${relleno};border:3px solid ${colorPin};box-sizing:content-box;${halo}"></div>
+      const html = `<div style="width:max-content;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:${fuera ? 6 : 3}px;">
+        <div style="font-family:${black.replace(/"/g, "'")};font-size:12px;${etiqueta}padding:2px 7px;border-radius:7px;white-space:nowrap;box-shadow:${HUD.sombra};">${escaparHtml(u.unitId)}${fuera ? ' ◇' : ''}${callada ? ' ⌁' : ''}${sufijo}</div>
+        <div style="width:10px;height:10px;border-radius:50%;background:${relleno};border:3px solid ${colorPin};box-sizing:content-box;${halo}${apagada ? 'opacity:.65;' : ''}"></div>
       </div>`;
       const icon = L.divIcon({ html, className: '', iconSize: [0, 0], iconAnchor: [0, 0] });
       if (existing[u.unitId]) {
@@ -6083,7 +6232,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             <div style={rotulo(9)}>{compacto ? 'Objetivo' : 'Objetivo de brecha'}</div>
             <div style={{ fontFamily: black, fontSize: 16, marginTop: 2 }}>
               {fmtMin(routeInfo.targetGapMin)}
-              <span style={{ ...dato(11, HUD.dim2), marginLeft: 4 }}>min</span>
+              <span style={{ ...dato(12, HUD.dim2), marginLeft: 4 }}>min</span>
             </div>
           </div>
         )}
@@ -6106,8 +6255,8 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             lugar más visible y se leía como una alerta permanente. */}
         {faltaAlarma && !isMobile && (
           <button data-activar-alarma onClick={activarAlarma}
-            title="La alarma de SOS está muda en esta pestaña. Tocá para que suene y avise aunque el panel esté tapado por otra ventana."
-            style={{ ...btnIcono(false), background: HUD.ambarFondo, color: HUD.ambarTinta }}>
+            title="La alarma de SOS está muda en esta pestaña. Toca para que suene y avise aunque el panel esté tapado por otra ventana."
+            style={{ ...btnIcono(false, isMobile ? 44 : 36), background: HUD.ambarFondo, color: HUD.ambarTinta }}>
             <Icono n="campanaNo" tam={18} />
             <span style={ocultoVisual}>Activar alarma de SOS</span>
             <span style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: '50%',
@@ -6116,11 +6265,11 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
         )}
         <button onClick={onAlternarModo}
           title={modo === 'day' ? 'Pasar a modo noche' : 'Pasar a modo día'}
-          style={btnIcono(false)}>
+          style={btnIcono(false, isMobile ? 44 : 36)}>
           <Icono n={modo === 'day' ? 'luna' : 'sol'} tam={18} />
           <span style={ocultoVisual}>{modo === 'day' ? 'Modo noche' : 'Modo día'}</span>
         </button>
-        <button onClick={onLogout} title="Cerrar la sesión en esta pantalla" style={{ ...btnFantasma(36), flexShrink: 0, padding: isMobile ? 0 : '0 10px', width: isMobile ? 36 : 'auto' }}>
+        <button onClick={onLogout} title="Cerrar la sesión en esta pantalla" style={{ ...btnFantasma(isMobile ? 44 : 36), flexShrink: 0, padding: isMobile ? 0 : '0 10px', width: isMobile ? 44 : 'auto' }}>
           <Icono n="salir" tam={17} />
           {isMobile ? <span style={ocultoVisual}>Salir</span> : 'Salir'}
         </button>
@@ -6163,13 +6312,13 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
           {/* fmtWhen y no nowTime: un aviso pendiente puede tener semanas
               (no caducan a propósito), y "14:32" a secas se lee como si
               hubiera llegado hoy — al revés de lo que el aviso certifica. */}
-          <span style={{ fontFamily: mono, fontSize: 10, color: HUD.ambarTinta2, flexShrink: 0 }}>
+          <span style={{ fontFamily: mono, fontSize: 12, color: HUD.ambarTinta2, flexShrink: 0 }}>
             {fmtWhen(a.creadoEn)}
           </span>
           <button onClick={() => marcarAviso(a.id)}
             title="Lo marca visto para toda la cooperativa; queda registrado quién lo vio"
             style={{
-              height: 30, padding: '0 12px', background: HUD.surface,
+              height: 32, padding: '0 12px', background: HUD.surface,
               border: `1px solid ${HUD.ambarBorde}`, borderRadius: 8,
               color: HUD.ambarTinta, fontSize: 12, fontWeight: 700,
               cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
@@ -6242,7 +6391,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                 </div>
                 {fuera.length > 0 && (
                   <div style={{
-                    fontFamily: mono, fontSize: 11, fontWeight: 700,
+                    fontFamily: mono, fontSize: 12, fontWeight: 700,
                     color: mudo ? HUD.dim2 : HUD.ambarTinta2, marginBottom: 9,
                   }}>
                     {fuera.map(u => `${u.unitId} (${u.desvioM} m)`).join(' · ')}
@@ -6251,12 +6400,12 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {mudo ? (
                     <button onClick={() => silenciarDesvio(0)}
-                      style={{ ...btnChico(HUD.fg2, HUD.line), fontSize: 11 }}>Volver a avisar</button>
+                      style={{ ...btnChico(HUD.fg2, HUD.line), fontSize: 12 }}>Volver a avisar</button>
                   ) : (
                     [['Silenciar 1 h', 60], ['3 h', 180], ['el turno', 480]].map(([etiqueta, min]) => (
                       <button key={min} onClick={() => silenciarDesvio(min)}
                         title="Cuando el desvío ya se sabe: una obra, un desfile, un embotellamiento"
-                        style={{ ...btnChico(HUD.ambarTinta, HUD.ambarBorde), fontSize: 11 }}>{etiqueta}</button>
+                        style={{ ...btnChico(HUD.ambarTinta, HUD.ambarBorde), fontSize: 12 }}>{etiqueta}</button>
                     ))
                   )}
                 </div>
@@ -6285,7 +6434,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                 {puerta.map(e => (
                   <div key={e.personId} style={{
                     display: 'flex', gap: 8, alignItems: 'baseline',
-                    fontFamily: mono, fontSize: 11, fontWeight: 700,
+                    fontFamily: mono, fontSize: 12, fontWeight: 700,
                     color: llamar ? HUD.ambarTinta2 : HUD.dim2, lineHeight: 1.6,
                   }}>
                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -6299,6 +6448,20 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
               </div>
             );
           })()}
+          {COMPACTA && units.length > 0 && (
+            <div data-ensayo="compacta" style={{
+              display: 'flex', alignItems: 'center', gap: 8, margin: '0 10px 4px', padding: '0 10px',
+              ...rotulo(9),
+            }}>
+              <span style={{ flex: 1, whiteSpace: 'nowrap' }}>Unidad <span style={{
+                marginLeft: 6, padding: '1px 6px', borderRadius: 6, background: HUD.azulFondo, color: HUD.azulTinta,
+                fontSize: 12, fontWeight: 700,
+              }} title="Lista compacta, en prueba. Se apaga abriendo el panel con ?ensayo=">ensayo</span></span>
+              <span style={{ width: 64, textAlign: 'right' }}>Adelante</span>
+              <span style={{ width: 64, textAlign: 'right' }}>Atrás</span>
+              <span style={{ width: 66, flexShrink: 0 }} />
+            </div>
+          )}
           {units.length === 0 && (
             <Vacio icono="vehiculo" titulo="Todavía no hay combis en ruta"
               accion={<button onClick={() => setAdminOpen(true)} style={btnSecundario(36)}><Icono n="personas" tam={16} />Ver quién tiene cuenta</button>}>
@@ -6318,22 +6481,35 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             const nombre = u.driverName && u.driverName !== u.unitId ? u.driverName : null;
             return (
               <div key={u.unitId} data-tarjeta onClick={() => focusUnit(u)} style={{
-                margin: '0 10px 8px', padding: '11px 12px 12px', cursor: 'pointer',
-                borderRadius: 14, background: HUD.surface,
+                margin: COMPACTA ? '0 10px 4px' : '0 10px 8px', padding: COMPACTA ? '7px 10px' : '11px 12px 12px', cursor: 'pointer',
+                borderRadius: COMPACTA ? 10 : 14, background: HUD.surface,
                 border: `1px solid ${isSos ? HUD.red : privadoCon === u.unitId ? HUD.azulBorde : HUD.divider}`,
                 boxShadow: isSos ? `0 0 0 3px ${HUD.rojoBorde}` : 'none',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Avatar nombre={nombre || u.unitId} tam={36} />
+                  {!COMPACTA && <Avatar nombre={nombre || u.unitId} tam={36} />}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg }}>{u.unitId}</span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: COMPACTA ? 'nowrap' : 'wrap', overflow: COMPACTA ? 'hidden' : 'visible', whiteSpace: 'nowrap' }}>
+                      {/* El código es el botón de la tarjeta: con el teclado se llega
+                          con Tab y Enter centra el mapa, que es lo que hace el clic en
+                          cualquier parte de la tarjeta. La tarjeta no es un botón
+                          porque adentro tiene otros dos (auditoría de UI, C4). */}
+                      <button type="button" data-centrar={u.unitId}
+                        onClick={(e) => { e.stopPropagation(); focusUnit(u); }}
+                        title={`Ver ${u.unitId} en el mapa`}
+                        style={{
+                          fontFamily: black, fontSize: 16, color: isSos ? HUD.red : HUD.fg,
+                          background: 'none', border: 'none', padding: 0, margin: 0,
+                          cursor: 'pointer', borderRadius: 4, lineHeight: 'inherit',
+                        }}>{u.unitId}<span style={ocultoVisual}>: ver en el mapa</span></button>
                       {/* Sin señal la última velocidad es vieja: mostrarla haría
                           creer que la combi sigue andando a ese ritmo. */}
-                      <span style={dato(11, HUD.dim2)}>
+                      {/* En la lista compacta no entran: quedan en las tarjetas.
+                          Una parada se ve igual por «PARADA» o «EN TRÁFICO». */}
+                      {!COMPACTA && <span style={dato(12, HUD.dim2)}>
                         {u.sinSenal ? '—' : Math.round(u.speed || 0)} km/h
-                      </span>
-                      {u.tramo && (
+                      </span>}
+                      {u.tramo && !COMPACTA && (
                         <span title="Tramo del circuito en el que va" style={{
                           fontSize: 12, fontWeight: 700,
                           color: u.tramo === 'vuelta' ? HUD.dim2 : HUD.bright,
@@ -6341,12 +6517,26 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                       )}
                     </div>
                     {nombre && (
-                      <div style={{
+                      <div title={COMPACTA ? nombre : undefined} style={{
                         fontSize: 13, color: HUD.fg2, marginTop: 1,
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>{nombre}{u.label ? <span style={{ color: HUD.dim2 }}> · {u.label}</span> : null}</div>
+                      }}>{nombre}{u.label && !COMPACTA ? <span style={{ color: HUD.dim2 }}> · {u.label}</span> : null}</div>
                     )}
                   </div>
+                  {/* Lista compacta (ensayo C1): las dos brechas como columnas de
+                      la fila, alineadas con las de las otras unidades. */}
+                  {COMPACTA && [[g.toAhead, cAdelante, 'adelante'], [g.toBehind, cAtras, 'atrás']].map(([val, color, lado]) => {
+                    const palabra = gapWord(val, routeInfo.targetGapMin);
+                    return (
+                      <div key={lado} data-brecha={lado} style={{ width: 64, flexShrink: 0, textAlign: 'right' }}>
+                        <div key={color} style={{
+                          fontFamily: black, fontSize: 19, lineHeight: 1.15, color: val ? color : HUD.dim2,
+                          animation: 'cambio .22s ease-out', transformOrigin: 'right center',
+                        }}>{val ? duracion(val) : '—'}<span style={ocultoVisual}> min {lado}</span></div>
+                        {palabra && <div style={{ fontSize: 12, fontWeight: 800, color: tintaDeTexto(color) }}>{oracion(palabra)}</div>}
+                      </div>
+                    );
+                  })}
                   {/* Los dos privados, como íconos: antes eran dos botones con
                       borde que ocupaban un tercio de la tarjeta. El click no
                       debe disparar también el foco del mapa de la fila. */}
@@ -6354,13 +6544,13 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     <button
                       onClick={(e) => { e.stopPropagation(); abrirPrivado(u.unitId); }}
                       title={`Mensaje directo a ${u.unitId}: lo leen los que van arriba de la combi`}
-                      style={btnIcono(privadoCon === u.unitId)}>
+                      style={btnIcono(privadoCon === u.unitId, COMPACTA ? 32 : 36)}>
                       <Icono n="chat" tam={18} />
                       <span style={ocultoVisual}>Mensaje directo</span>
                       {noLeidos[u.unitId] > 0 && <Insignia n={noLeidos[u.unitId]} />}
                     </button>
                     {/* Y el privado PERSONAL con el que la maneja: lo que es de él
-                        y no de la combi (sus horas, «pasá por la oficina»). No lo
+                        y no de la combi (sus horas, «pasa por la oficina»). No lo
                         ve su cobrador ni el que maneje la combi después. */}
                     {u.choferId && (() => {
                       const clave = 'p:' + u.choferId;
@@ -6369,7 +6559,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                         <button
                           onClick={(e) => { e.stopPropagation(); abrirPrivado(clave, u.driverName || u.choferId); }}
                           title={`Escribirle solo a ${u.driverName || u.choferId}, en la combi que esté`}
-                          style={btnIcono(abierto)}>
+                          style={btnIcono(abierto, COMPACTA ? 32 : 36)}>
                           <Icono n="persona" tam={18} />
                           <span style={ocultoVisual}>Solo a {String(u.driverName || u.choferId).split(' ')[0]}</span>
                           {noLeidos[clave] > 0 && <Insignia n={noLeidos[clave]} />}
@@ -6382,28 +6572,31 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     celda propia y en el tamaño de un dato, no como dos
                     números pegados al pie. El número late una vez cuando
                     cambia de estado (key = su color). */}
-                <div style={{
+                {!COMPACTA && <div style={{
                   display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10,
                 }}>
                   {[['+1 adelante', g.toAhead, cAdelante], ['−1 atrás', g.toBehind, cAtras]].map(([et, val, color]) => {
                     const palabra = gapWord(val, routeInfo.targetGapMin);
                     return (
                       <div key={et} style={{ padding: '6px 9px 7px', borderRadius: 10, background: HUD.celda }}>
-                        <div style={rotulo(8)}>{et}</div>
+                        <div style={rotulo(9)}>{et}</div>
+                        {/* 19 px y no 18: desde 18,66 px en negrita es «texto grande»
+                            y el ámbar sobre la celda alcanza (a 18 daba 3,9:1). El
+                            «—» de cuando no hay nadie va en gris de texto. */}
                         <div key={color} style={{
-                          fontFamily: black, fontSize: 18, lineHeight: 1.2, color,
+                          fontFamily: black, fontSize: 19, lineHeight: 1.2, color: val ? color : HUD.dim2,
                           animation: 'cambio .22s ease-out', transformOrigin: 'left center',
-                        }}>{val || '—'}</div>
+                        }}>{val ? <>{duracion(val)}<span style={{ ...dato(12, HUD.dim2), marginLeft: 1 }}>{' '}min</span></> : '—'}</div>
                         {/* El juicio en palabras, porque el color solo no lo
                             dice para un daltónico rojo-verde. Ver
                             LIMITACIONES.md, sección Accesibilidad. */}
                         {palabra && (
-                          <div style={{ fontSize: 11, fontWeight: 800, color, marginTop: 1 }}>{oracion(palabra)}</div>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: tintaDeTexto(color), marginTop: 1 }}>{oracion(palabra)}</div>
                         )}
                       </div>
                     );
                   })}
-                </div>
+                </div>}
                 {/* Entró a la ruta empezada: no salió del paradero inicial,
                     se metió en el medio. No es una alarma —puede tener un
                     motivo— pero tiene que verse EN EL MOMENTO: si aparece al
@@ -6522,30 +6715,32 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                     minutos >= 10 ? `HACE ${minutos} MIN` : null,
                   ].filter(Boolean);
                   return (
-                    <div data-telefono={u.choferId} style={{ marginTop: 6 }}>
-                      {partes.length > 0 && (
-                        <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: .6, color: baja ? HUD.amber : HUD.dim2, fontWeight: baja ? 700 : 400 }}>
+                    <div data-telefono={u.choferId} style={{ marginTop: COMPACTA ? 2 : 6 }}>
+                      {/* En la lista compacta el renglón gris del teléfono sale sólo
+                          si pide algo (batería baja o sin noticias hace rato) */}
+                      {partes.length > 0 && (!COMPACTA || baja || minutos >= 10) && (
+                        <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: .6, color: baja ? HUD.ambarTinta2 : HUD.dim2, fontWeight: baja ? 700 : 400 }}>
                           {partes.join(' · ')}
                         </div>
                       )}
                       {t.bateria != null && t.bateria <= 10 && !t.cargando && (
-                        <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                        <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: .6, color: HUD.ambarTinta2, marginTop: 3 }}>
                           SE ESTÁ POR APAGAR: QUE LO ENCHUFE
                         </div>
                       )}
                       {t.optimizada === true && (
                         <div title="Con el ahorro de batería, Android le corta la red a la app con la pantalla apagada: deja de aparecer en el mapa. Se apaga en Ajustes → Batería → la app → «Sin restricciones»."
-                          style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                          style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: .6, color: HUD.ambarTinta2, marginTop: 3 }}>
                           AHORRO DE BATERÍA ACTIVADO: PUEDE DESAPARECER DEL MAPA
                         </div>
                       )}
                       {t.versionEstado === 'vieja' && (
-                        <div style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: .6, color: HUD.amber, marginTop: 3 }}>
+                        <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, letterSpacing: .6, color: HUD.ambarTinta2, marginTop: 3 }}>
                           APP VIEJA: TIENE QUE ACTUALIZAR
                         </div>
                       )}
                       {t.versionEstado === 'hay_nueva' && (
-                        <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: .6, color: HUD.dim2, marginTop: 3 }}>
+                        <div style={{ fontFamily: mono, fontSize: 12, letterSpacing: .6, color: HUD.dim2, marginTop: 3 }}>
                           HAY UNA VERSIÓN NUEVA DE LA APP
                         </div>
                       )}
@@ -6761,7 +6956,7 @@ function Root() {
     onAuthError={(motivo) => {
       try { localStorage.removeItem('r14_dispatch_session'); } catch {}
       setSession(null);
-      setNotice(motivo && !/expirad|inválid/i.test(motivo) ? `${motivo} Ingresá de nuevo.` : 'Tu sesión expiró. Ingresá de nuevo.');
+      setNotice(motivo && !/expirad|inválid/i.test(motivo) ? `${motivo} Ingresa de nuevo.` : 'Tu sesión expiró. Ingresa de nuevo.');
     }}
   />;
 }
@@ -6814,9 +7009,9 @@ class Muro extends React.Component {
         <div>
           Es un error del programa, no tuyo.{' '}
           {this.props.recargaSola
-            ? (sinRecarga ? 'Recargá la página.' : `La página se recarga sola en ${falta} s.`)
-            : 'El mapa y los SOS siguen funcionando: volvé al mapa.'}
-          {' '}Si vuelve a pasar, mandanos una captura de este cartel: el renglón de abajo dice qué se rompió.
+            ? (sinRecarga ? 'Recarga la página.' : `La página se recarga sola en ${falta} s.`)
+            : 'El mapa y los SOS siguen funcionando: vuelve al mapa.'}
+          {' '}Si vuelve a pasar, envíanos una captura de este cartel: el renglón de abajo dice qué se rompió.
         </div>
         <code style={{
           display: 'block', marginTop: 12, padding: '10px 12px',

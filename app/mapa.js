@@ -59,7 +59,7 @@ const conCoords = (u) => u && esCoord(u.lat) && esCoord(u.lng);
 //   - dibujarla igual que las demás hace creer que ese punto es de ahora, y
 //     es de hace rato.
 //
-// Es el mismo error que ya costó caro en las brechas —"apurá" hacia una combi
+// Es el mismo error que ya costó caro en las brechas —"apura" hacia una combi
 // que estaba justo adelante pero callada— y acá se vería peor, porque un
 // punto en un mapa se cree más que un número.
 //

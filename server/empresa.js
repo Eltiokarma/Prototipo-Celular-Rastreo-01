@@ -35,20 +35,20 @@ let Database;
 try {
   Database = require('better-sqlite3');
 } catch {
-  salir('No se pudo cargar better-sqlite3. Corré `npm install` dentro de server/ con Node 22.');
+  salir('No se pudo cargar better-sqlite3. Corre `npm install` dentro de server/ con Node 22.');
 }
 
 // Sin memoria: una herramienta que escribe en una base que se evapora es
 // peor que una que no arranca.
 const db = openDatabase(Database, { silencioso: true, sinMemoria: true });
-if (!db) salir('No se pudo abrir la base de datos. Revisá DB_FILE.');
+if (!db) salir('No se pudo abrir la base de datos. Revisa DB_FILE.');
 
 // El esquema lo crea el servidor al arrancar. Duplicarlo acá sería tener dos
 // versiones de la verdad y que se separen con el tiempo.
 const tablas = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(t => t.name);
 if (!tablas.includes('companies')) {
   salir('Esta base todavía no tiene la tabla de empresas.\n' +
-        'Arrancá el servidor una vez (npm start) para que cree el esquema, y volvé a intentar.');
+        'Arranca el servidor una vez (npm start) para que cree el esquema, y vuelve a intentar.');
 }
 
 // ─── ARGUMENTOS ──────────────────────────────────────────────
@@ -121,7 +121,7 @@ function alta() {
   if (r.ruta) console.log(`  Ruta inicial: ${r.ruta}`);
   else console.log('  Sin rutas: hasta que tenga una, nadie de esta empresa va a poder conectarse.');
   if (r.usuario) console.log(`  Supervisor:   ${r.usuario}`);
-  else console.log('  Sin cuenta de despacho: creala con `empresa.js despacho`.');
+  else console.log('  Sin cuenta de despacho: créala con `empresa.js despacho`.');
 }
 
 function despacho() {

@@ -92,7 +92,9 @@ limitación se resuelva o aparezca una nueva.
 - **Sin señal no hay tiempo real:** la interfaz carga desde caché
   (service worker) en unos 3 segundos —lo que tarda en darse por vencido
   el intento de red— pero las brechas se congelan y el chat solo agrega
-  mensajes locales. **No hay cola de reenvío**: lo que se emite durante
+  mensajes locales. Desde el 16/11 la web del chofer **lo dice**: a los 10 s
+  sin un estado nuevo pasa a «SIN SEÑAL · m:ss» con el número en gris, y al
+  minuto el número se retira (auditoría de UI, N1). **No hay cola de reenvío**: lo que se emite durante
   un corte de señal se pierde (no hay acuse ni reintento por mensaje).
 - **Reconexión:** automática cada 3 s. Al volver, el cliente recibe el
   historial del servidor (se resincroniza), pero lo enviado en el
@@ -327,9 +329,10 @@ limitación se resuelva o aparezca una nueva.
   celular a otro, las horas quedan a nombre de quien inició sesión. No hay
   edición manual ni aprobación — para nómina no alcanza, para saber quién iba
   en la unidad sí.
-- El tema cubre las tres pantallas y el panel, pero las pantallas de
-  **login y "Salir a ruta"** siguen siendo oscuras a propósito (son las
-  pantallas de marca, no de operación).
+- El tema cubre todas las pantallas del chofer: desde el 11/11 el ingreso
+  y desde el 16/11 la puerta «Salir a ruta» (auditoría de UI, B7) siguen el
+  tema elegido. Antes eran oscuras siempre, como pantallas de marca, y de
+  día quedaban como un parche azul noche entre pantallas claras.
 - El chat privado con una unidad **no tiene acuse de lectura real**: la
   pestaña DESPACHO del chofer cuenta los mensajes que llegaron desde la
   última vez que la abrió en ese celular. Si cambia de teléfono o borra los

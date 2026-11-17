@@ -251,6 +251,11 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   // A4: la puerta del cobrador
   ok('el cobrador no tiene el deslizable de salir a ruta', /rol === 'collector' \? \(/.test(app) && /rol: sesion\?\.role/.test(app));
   ok('ni retoma el GPS al abrir', /s\.role === 'collector'\) \{ setPresencia\('fuera'\); return; \}/.test(app));
+  // Y no queda encerrado en la puerta: ve el HUD y el mapa de su combi, de
+  // acompañante, sin los botones del turno (revisión del manual, 17/11)
+  ok('y antes de las brechas, lo que le pasa a su combi (fuera, ausente, yendo, sin señal)', /avisoDeMiCombi\(estadoDeMiCombi\(estado, sesion\.vehicleId\)\)/.test(app) && /\{acompanante && avisoCombi \? \(/.test(app));
+  ok('AUSENTE espera 5 s con DESHACER, como en la web', /const DESHACER_AUSENTE_MS = 5000;/.test(app) && /onPress=\{\(\) => setAusenteEn\(Date\.now\(\)\)\}/.test(app) && /onPress=\{\(\) => setAusenteEn\(null\)\}/.test(app) && /setAusenteEn\(null\); onPresencia\('ausente'\);/.test(app));
+  ok('el cobrador ve las brechas y el mapa, sin los botones del turno', /const acompanante = rol === 'collector';\n  if \(presencia === 'fuera' && !acompanante\)/.test(app) && /if \(presencia === 'fuera' && rol !== 'collector'\)/.test(app) && /\{!acompanante && \(<>\n      <Pressable onPress=\{\(\) => onTrafico/.test(app) && /ACOMPAÑANTE · la posición de la combi la manda el teléfono del chofer/.test(app));
 
   // A5: la presencia se puede esperar
   // Y desde la revisión previa a la APK, «ruta» también: con un intento,
@@ -380,5 +385,73 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
      /export async function limpiarSiSinRol\(\) \{\s*if \(ultimo !== 'MODO ACOMPAÑANTE'\) return;/.test(notif));
 }
 
-console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
-process.exit(fallas ? 1 : 0);
+console.log('\nLA APK NO ESCRIBE COLORES A MANO (auditoría de UI, A3)');
+{
+  // Un color escrito a mano no cambia de noche: la burbuja propia seguía azul
+  // brillante en la cabina. Quedan tres, y son a propósito: el fondo blanco
+  // del logo de la cooperativa, el texto sobre su color de marca y el negro
+  // del visor de fotos.
+  const app = require('fs').readFileSync(RAIZ + '/app/App.js', 'utf8');
+  const sueltos = [...app.matchAll(/'#[0-9A-Fa-f]{3,8}'|"#[0-9A-Fa-f]{3,8}"/g)].map(x => x[0]);
+  const permitidos = ["'#fff'", "'#fff'", "'#000000EE'"];
+  ok('sólo quedan los tres colores fijos a propósito', JSON.stringify(sueltos.sort()) === JSON.stringify(permitidos.sort()), sueltos);
+  // A4: rótulos de 10 px en mono con tracking, en la pantalla del parabrisas
+  const chicos = [...app.matchAll(/fontSize: (\d+(?:\.\d+)?)/g)].map(x => Number(x[1])).filter(n => n < 12);
+  ok('ningún texto de la APK baja de 12 px (A4)', chicos.length === 0, chicos);
+  // A5: el diagnóstico del GPS arriba de la ruta, sólo si hay algo que avisar
+  const fuente = (app.match(/function hayProblemaDeGps\([\s\S]*?\n\}/) || [''])[0];
+  ok('A5 · el criterio existe y se usa arriba de la ruta', !!fuente && /\{!acompanante && hayProblemaDeGps\(diag\) && <DiagnosticoGps diag=\{diag\} \/>\}/.test(app));
+  const hay = new Function(fuente + '\nreturn hayProblemaDeGps;')();
+  const T = 1_700_000_000_000, bien = { servicio: 'corriendo', enEspera: 0, ultimoEnvio: T - 3000 };
+  ok('A5 · todo andando: no se muestra nada', hay(bien, T) === false);
+  ok('A5 · el servicio parado se muestra', hay({ ...bien, servicio: 'detenido' }, T) === true);
+  ok('A5 · posiciones esperando, también', hay({ ...bien, enEspera: 4 }, T) === true);
+  ok('A5 · nada salió en el último minuto, también', hay({ ...bien, ultimoEnvio: T - 90_000 }, T) === true);
+  ok('A5 · un envío colgado, también', hay({ ...bien, enVueloDesde: T - 30_000 }, T) === true);
+  ok('A5 · y la batería optimizada', hay({ ...bien, bateriaOptimizada: true }, T) === true);
+  ok('A5 · completo en Perfil', /<Text style=\{s\.perfilSeccion\}>EL GPS<\/Text>\s*<DiagnosticoGps diag=\{diag\} \/>/.test(app));
+  // A6: la app no consultaba «quitar animaciones»
+  ok('A6 · con «quitar animaciones» el carrusel no se desliza', /AccessibilityInfo\.isReduceMotionEnabled\(\)/.test(app) && /if \(menosRef\.current\) \{ x\.setValue\(destino\); return; \}/.test(app) && !/Animated\.spring\(x, \{\s*toValue: -/.test(app));
+}
+
+console.log('\nEL PERMISO DE NOTIFICACIONES, DADO DESPUÉS (segunda revisión, 17/11)');
+const pruebaNotif = (async () => {
+  // notificacion.js de verdad, con un Android simulado: el permiso empieza
+  // negado y después se da desde Ajustes. Antes quedaba `sinPermiso = true`
+  // para siempre y no salía ni la brecha ni el aviso de GPS detenido.
+  const fuente = require('fs').readFileSync(RAIZ + '/app/notificacion.js', 'utf8')
+    .replace(/^import .*$/gm, '')
+    .replace(/^export (async function|function|const)/gm, '$1');
+  const hud = require(RAIZ + '/app/hud.js');
+  let concedido = false, pedidos = 0;
+  const programadas = [];
+  const Notifications = {
+    AndroidImportance: { LOW: 2, HIGH: 4 },
+    setNotificationHandler() {}, setNotificationChannelAsync: async () => {},
+    getPermissionsAsync: async () => ({ granted: concedido, canAskAgain: true }),
+    requestPermissionsAsync: async () => { pedidos++; return { granted: concedido, canAskAgain: true }; },
+    scheduleNotificationAsync: async (n) => { programadas.push(n.identifier); },
+    cancelScheduledNotificationAsync: async () => {}, dismissNotificationAsync: async () => {},
+  };
+  let reloj = 1_700_000_000_000;
+  const DateFalso = class extends Date { static now() { return reloj; } };
+  const m = new Function('Notifications', 'avisoDesdeRespuesta', 'avisoSinSenal', 'Date',
+    fuente + '\nreturn { notificarSinSenal, vigilarSilencio, remirarPermiso };')(Notifications, hud.avisoDesdeRespuesta, hud.avisoSinSenal, DateFalso);
+  await m.notificarSinSenal(reloj - 120_000, reloj);
+  ok('negado: no se programa nada, y se pregunta una sola vez', programadas.length === 0 && pedidos === 1, { programadas, pedidos });
+  concedido = true;                                   // lo da desde Ajustes
+  reloj += 5_000;
+  await m.notificarSinSenal(reloj - 300_000, reloj);
+  ok('dentro del minuto no se vuelve a mirar (no se insiste)', programadas.length === 0);
+  m.remirarPermiso();                                  // la app vuelve a primer plano
+  await m.notificarSinSenal(reloj - 400_000, reloj);
+  ok('al volver a primer plano, ya sale la notificación', programadas.length === 1, programadas);
+  await m.vigilarSilencio(reloj);
+  ok('y el aviso de GPS detenido también se programa', programadas.length === 2, programadas);
+  ok('nunca se le volvió a PEDIR al usuario', pedidos === 1, pedidos);
+})();
+
+pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }).then(() => {
+  console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
+  process.exit(fallas ? 1 : 0);
+});

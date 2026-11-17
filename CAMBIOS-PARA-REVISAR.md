@@ -1373,7 +1373,341 @@ fusionó con la auditoría (y dónde se apartó del paquete), en su apartado
 
 ---
 
+## 19. Auditoría de UI del 16/11, fase 1 — `8b71a1d` a `db330e9` (16/11)
+
+**Qué.** La fase 1 del plan de `AUDITORIA-UI-2026-11-16.md`: diez arreglos
+chicos de acceso y de señales, uno por commit, sin rediseñar nada.
+- Chofer web: respeta «reducir movimiento» (B1); el SOS ya no late con la
+  brecha en rojo (B2); el ✓ del SOS sale con la respuesta del servidor y no
+  al soltar (B8); los tres botones del turno a 16 px y hasta 56 px de alto,
+  con el ámbar sólo para tráfico (B3, parte 1); el chat con contraste
+  suficiente (B9).
+- **Sin señal, la brecha vieja deja de verse como viva** (N1), en la web y
+  en la APK: a los 10 s sin un estado nuevo, «SIN SEÑAL · 0:12» y el número
+  en gris; al minuto el número se retira. Antes, a los 90 s sin red, seguía
+  «Mantené el ritmo» en verde.
+- «Salir de ruta» acepta el segundo toque recién a los 0,6 s, en la web y
+  en la APK (N2).
+- Despacho: las palabras y datos chicos en verde o ámbar van en su tinta
+  (C2); el código de la unidad en la tarjeta es un botón, y el teclado llega
+  (C4).
+- Landing: el botón principal a 5,51:1 y «Ya soy cliente» a 44 px (E3).
+
+**Archivos.** `project/Prototipo.html`, `project/despacho.html`,
+`project/service-worker.js` (v100 a v108), `app/App.js`, `app/hud.js`,
+`server/landing.html`, `LIMITACIONES.md` (sección B), y en `pruebas/`:
+`contraste.js`, `paneles.js`, `hud.js`.
+
+**Mirar.**
+- N1 mide la señal por la **edad del último estado**, no por el socket (que
+  tarda hasta 40 s en notar que murió). Vale porque el teléfono que reporta
+  dispara un estado con cada posición, cada ~3 s. Si algún día el servidor
+  deja de emitir estados con cada posición, el HUD diría «SIN SEÑAL» con la
+  red buena. El acompañante, que no reporta, sigue al socket.
+- En la APK, N1 no se vio en un teléfono. La notificación con la pantalla
+  apagada no lo toma: se actualiza con cada POST /gps, y si fallan sigue
+  mostrando la última brecha (anotado para la fase 3).
+- B3 usa `clamp(46px, 7vh, 56px)`: en un celular de 640 px de alto los
+  botones miden 46, porque con 56 el número de brecha se recortaba.
+- C2 cambia el color de 35 textos con un solo ayudante (`tintaDeTexto`). Los
+  números de brecha de la tarjeta, los puntos, las barras y los bordes
+  siguen en el color de estado.
+
+**Pruebas.** `contraste` (12 pares nuevos), `paneles` (un bloque nuevo con
+las aserciones de la fase), `hud` (11 casos), `nativas`, `revision-apk`,
+`tema`, `sintaxis` y la regresión completa. Además, contra el servidor de
+demostración del manual: `auditoria-ui/medir.js` antes y después, la red
+cortada con el chofer en ruta (`auditoria-ui/corte.js`), el SOS con red
+lenta y sin red, el doble toque en «Salir de ruta» y la tarjeta con Tab.
+**Manual:** no todavía (ver abajo).
+
+---
+
+## 20. Auditoría de UI del 16/11, fase 2 — `2e8eab2` a `ce08749` (16/11)
+
+**Qué.** La fase 2 del plan: el HUD y la puerta del chofer web, once
+commits.
+- **Sin señal el mensaje queda escrito** en el campo y se dice; con la
+  brecha vieja tampoco se manda; la nota de voz que no salió va en ámbar;
+  «Tú ✓» en vez de ✓✓ (N3).
+- **AUSENTE espera 5 s con DESHACER** antes de avisar al servidor (B3).
+- **La puerta «Salir a ruta» sigue el tema**: clara de día (B7).
+- **El número de brecha no salta** en cada cambio; crece una vez sólo al
+  cambiar de estado (B5).
+- **Barra fija y rótulo resaltado, como ensayos apagados** (B4, B6):
+  `/?ensayo=barra,rotulo` los prende y quedan recordados; `/?ensayo=` los
+  apaga. La raíz ya no pierde los parámetros.
+- **El vigía de la ausencia en la web** (N8): copia de `app/ausencia.js`.
+- **«Entrar AUSENTE» sin la espera de 15 s** (N6).
+- **El ingreso dice «Conectado» sólo si /ping contestó** (B13).
+- La tarjeta del mapa sin coordenadas (B10); 44 px en los puntos de página,
+  el tema y las pestañas del chat (B11); los colores a mano del HUD, a
+  tokens (B12).
+
+**Archivos.** `project/Prototipo.html`, `project/realtime.js`
+(`alcanzable()` y la hora en `posicionReciente()`), `project/index.html`,
+`project/service-worker.js` (v109 a v119), `manual/capturas.js` (espera los
+5 s de AUSENTE), `LIMITACIONES.md`, y en `pruebas/`: `paneles.js`,
+`ausencia.js`, `contraste.js`.
+
+**Mirar.**
+- **N6 es una decisión con poca evidencia**: la espera de 15 s llegó con la
+  maqueta del 6/8 y nada decía para qué era. Si tenía un motivo que no
+  quedó escrito, vuelve con una línea que lo diga.
+- **N8 es una copia**: si se cambia el vigía de la APK, se cambia el de la
+  web. `ausencia.js` corre las dos con los mismos recorridos y falla si
+  responden distinto.
+- **B4 y B6 no están de fábrica.** Para decidirlos falta la prueba en la
+  calle (H1 y H2 del informe).
+- El chat con la brecha vieja no manda aunque el socket diga que está vivo:
+  si algún día el servidor deja de emitir estados con cada posición, el
+  chat se callaría con la red buena (lo mismo que N1).
+- AUSENTE durante los 5 s del DESHACER: si se cierra la sesión, no se
+  declara.
+
+**Pruebas.** `paneles` (doce aserciones nuevas), `ausencia` (la copia de
+la web contra la original), `contraste` (pares nuevos), `puerta-web`,
+`vigia-puerta`, `sos-puerta`, `combis-web`, `sintaxis` y la regresión
+completa. Además, contra el servidor de demostración: el chat con y sin
+red, AUSENTE con DESHACER, la puerta de día y de noche, 40 s de dígitos
+sin animar, los ensayos con los escenarios del panel, el vigía con el GPS
+quieto y a 500 m, y el chip del ingreso con y sin /ping.
+**Manual:** no todavía (ver abajo).
+
+---
+
+## 21. Auditoría de UI del 16/11, fase 3 — `1579c3d` a `1c39963` (16/11)
+
+**Qué.** La fase 3 del plan: la app nativa, seis commits.
+- **Colores por papel** (A2, A3): texto secundario, verde/ámbar/rojo como
+  texto y como fondo lleno, lo escrito sobre el botón principal, las
+  burbujas del chat y el contorno de los controles tienen su token en las
+  dos paletas, y todos pasan contraste.
+- **De día, clara** (A1): los valores del tema `day` de la web. El mapa
+  sigue oscuro; la barra del sistema cambia de tinta con el tema.
+- **Ningún texto bajo 12 px**, rótulos en la sans (A4).
+- **El diagnóstico del GPS sólo cuando hay algo que avisar** (A5); el
+  detalle completo, en Perfil.
+- **«Quitar animaciones» del teléfono se respeta** en el carrusel (A6).
+- **Con la pantalla apagada, la notificación dice «sin señal»** cuando el
+  envío de la posición falla en ruta (lo que faltaba de N1 en la APK).
+
+**Archivos.** `app/App.js`, `app/tema.js`, `app/hud.js` (`avisoSinSenal`),
+`app/notificacion.js` (`notificarSinSenal`), `app/gps/servicio.js`,
+`app/README.md`, y en `pruebas/`: `contraste.js`, `nativas.js`, `hud.js`.
+Nuevo: `auditoria-ui/vista-apk.js` (vista HTML armada con los estilos
+reales, para revisar sin teléfono).
+
+**Mirar.**
+- **A1 se hizo sin la prueba de campo** que el plan ponía antes. Karma la va
+  a hacer con distintos niveles de brillo. Si no convence: revertir
+  `23c9b72`.
+- **El splash sigue oscuro** (`app/app.json`): pide una APK nueva.
+- **La notificación de «sin señal»** usa la misma notificación de la
+  brecha (mismo id, canal de importancia baja, sin sonido): se reemplaza,
+  no se apila, y cambia una vez por minuto («hace N min»). Ver en el
+  teléfono que de verdad no suene ni vibre.
+- **A6 no se vio** con la preferencia activa en un teléfono.
+- Nada de este bloque corrió en un teléfono: sale por EAS Update y hay que
+  mirarlo antes de mandarlo a todos.
+
+**Pruebas.** `contraste` (26 pares de la APK, día y noche), `nativas`
+(colores a mano, piso de 12 px, el criterio de A5 ejecutado, A6), `hud`
+(seis casos de `avisoSinSenal`), `tema`, `sintaxis` y la regresión
+completa.
+**Manual:** no todavía (ver abajo).
+
+---
+
+## 22. Auditoría de UI del 16/11, fase 4 — `b0e37ba` a `33523a0` (17/11)
+
+**Qué.** La fase 4 del plan: la densidad y los detalles de Despacho, nueve
+commits (más `0ae22c0`, que corrige una prueba de la fase 3).
+- **«Lo vio Despacho»** en vez de «lo marcó atendido» en el cartel del
+  chofer (N9): ATENDIDO garantiza que alguien lo vio, no que la ayuda va.
+- **Las etiquetas del mapa se leen** (C8): de noche eran blanco sobre neón,
+  1,4:1. La apagada (sin señal, ausente, yendo) es hueca, no transparente.
+- **La brecha se escribe «8:04 min»** (N7) y no «08:04», que en la misma
+  tarjeta se confundía con una hora.
+- **Nada bajo 12 px y controles de 32 px** (C3, C5); 44 en el celular para
+  la cabecera, el zoom y «Guardar como evidencia».
+- **Fichas parejas** en Vueltas y Números (C6) e **Informes como lista**
+  con lo que trae cada uno (C7).
+- **«Borrar la ida» se puede recuperar** en el trazador (N4).
+- **A quién va el mensaje**, escrito junto al campo (N5).
+- **La lista compacta, como ensayo apagado** (C1): `?ensayo=compacta`.
+
+**Archivos.** `project/despacho.html`, `project/Prototipo.html` y
+`app/App.js` (sólo N9), `project/service-worker.js` (v119 a v128), y en
+`pruebas/`: `paneles.js` (diez aserciones), `contraste.js` (cinco pares de
+las etiquetas del mapa), `sos-despacho.js` (el texto nuevo de N9),
+`semana.js`.
+
+**Mirar.**
+- **C1 y N5 son hipótesis** (H3 y H6). C1 está apagada. N5 está prendida
+  aunque H6 decía preguntar antes: si a la persona de Despacho nunca le
+  pasó, se revierte `38b849a`.
+- **N9 cambia lo que lee el chofer en la APK**: sale con el próximo EAS
+  Update.
+- **El número de brecha de las tarjetas pasó de 18 a 19 px**: a 18 no
+  contaba como texto grande y el ámbar daba 3,9:1.
+- **En la lista compacta** no van la velocidad, el ida/vuelta ni la placa
+  (siguen en las tarjetas); el renglón gris del teléfono sale sólo si pide
+  algo.
+- La etiqueta ámbar del mapa, de día, es marrón oscuro (`#6B4A00`): se lee,
+  pero se aleja del ámbar del punto. El punto conserva el color de estado.
+
+**Pruebas.** `paneles`, `contraste`, `teclado`, `numeros-ui`, `privado-web`,
+`privado-persona`, `chat`, `evidencia`, `telefono`, `sos-despacho`,
+`combis`, `sintaxis` y la regresión completa. Además, contra el servidor de
+demostración: el mapa de día y de noche, las tarjetas, Vueltas, Números a
+1440 y a 1100, Informes (con dos descargas), el trazador (borrar, recuperar
+y volver a dibujar), el chat de ruta y privado, y la lista compacta prendida
+y apagada; las medidas de `medir.js` (0 textos bajo 12 px).
+**Manual:** no todavía (ver abajo).
+
+---
+
+## 23. Auditoría de UI del 16/11, fase 5 — `df91524` y `10f840d` (17/11)
+
+**Qué.**
+- **Todo el software tutea** (X1). Las pantallas le hablaban de «vos» al
+  chofer, a Despacho y al creador: «Deslizá para SOS» → «Desliza para SOS»,
+  «Mantené el ritmo» → «Mantén el ritmo», «¿En qué combi salís?» → «¿En qué
+  combi sales?», «la tenés vos» → «la tienes tú». También los mensajes del
+  servidor (errores, avisos, consola), las notificaciones de la APK, los
+  comentarios del código, las pruebas y `manual/manual.tex`. La landing
+  sigue de «usted».
+- **La landing muestra el producto** (E1): un teléfono en HTML y CSS junto
+  al titular, con la brecha en grande, la instrucción y el SOS.
+
+**Archivos.** 51 archivos en X1 (`project/`, `server/`, `app/`,
+`manual/manual.tex`, `manual/capturas.js`, `manual/demo.js`, `pruebas/`);
+`server/landing.html` en E1; `project/service-worker.js` (v129);
+`pruebas/paneles.js` (E1 y una guarda contra el voseo).
+
+**Mirar.**
+- **E2 (WhatsApp) no se hizo**: falta el número institucional.
+- **`manual.pdf` está viejo**: el `.tex` tutea, pero hace falta LaTeX para
+  compilarlo.
+- **La APK** recibe los textos nuevos con el próximo EAS Update.
+- **La documentación interna** también tutea desde el 17/11 (salvo las citas del «antes» y `chats/`).
+- «Apurá / Aflojá un poco» quedó «Apura / Afloja un poco» (el prototipo 7
+  proponía «Acelera / Baja»): es tuteo y se entiende en Juliaca; si se
+  prefiere la otra, es una línea en `app/hud.js` y otra en `Prototipo.html`.
+
+**Pruebas.** `paneles` (dos aserciones nuevas), `hud`, `nativas`, `tema`,
+las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
+`alta-masiva`, `datos-persona`, `grabador`, `cadena`, `trafico`,
+`sintaxis` y la regresión completa. La landing, mirada a 1280 y a 390 px.
+**Manual:** el `.tex` al día; falta compilar el PDF.
+
+---
+
+## 25. La segunda revisión (ChatGPT), sobre la rama del PR — 17/11
+
+**Qué.** ChatGPT revisó la rama en `a0204d1`: dos fallas de comportamiento
+y cuatro ajustes del manual. Se verificaron contra el código: las seis eran
+ciertas. Además, la de AUSENTE se resolvió en la app y no en el manual.
+- **El cobrador veía brechas que no eran de su combi** (`6b656eb`): con su
+  combi ausente, yendo o fuera de ruta decía «Eres la única unidad en
+  ruta»; con su chofer sin señal, culpaba al vecino. Ahora dice qué le pasa
+  a SU combi (`estadoDeMiCombi` y `avisoDeMiCombi` en `app/hud.js`).
+- **El permiso de notificaciones dado después no se notaba** (`bc0e846`):
+  quedaba «negado» hasta reiniciar la app. Ahora se vuelve a mirar, sin
+  preguntar, cada minuto y al volver a primer plano.
+- **AUSENTE en la APK, con DESHACER de 5 s** (`edd9d54`), como la web.
+- **El manual**: los permisos de ubicación se piden al salir a ruta y hacen
+  falta los dos, con qué hacer si se negaron; la batería «puede limitar» (no
+  «corta a los minutos»); «DESPACHO VIO TU SOS» al volver, dentro de las 2 h
+  del SOS; la frase vieja de «NO SALIÓ» en Problemas frecuentes; lo que ve
+  el cobrador cuando su combi no está en la cadena.
+
+**Mirar.** Nada de esto corrió en un teléfono: cobrador, notificaciones y
+DESHACER de AUSENTE se probaron con la lógica real y Android simulado.
+
+**Pruebas.** `hud` (seis casos de la combi del cobrador), `nativas` (la
+secuencia del permiso con `notificacion.js` ejecutado, el DESHACER), y la
+regresión completa.
+
+---
+
+## 24. La revisión del manual (ChatGPT), verificada contra el código — 17/11
+
+**Qué.** Una revisión del manual hecha con ChatGPT contra `main` (`1afe6a67`)
+marcó nueve diferencias entre el manual y el código. Se verificaron una por
+una contra esta rama: las nueve eran ciertas. Tres eran del **código** y se
+arreglaron; las otras, del texto del manual.
+- **La APK encerraba al cobrador en la puerta** (`c05abd3`): está siempre
+  «fuera», así que no veía brechas ni mapa, aunque la puerta le prometía
+  «el chat, el mapa y el SOS». Ahora ve el HUD de su combi, de acompañante,
+  sin los botones del turno.
+- **Un turno de hace 20 días no se podía encontrar para corregirlo**
+  (`c6330a2`): se corrige hasta 31 días atrás, pero la pantalla llegaba a una
+  semana y la lista a 8 días. Ahora «Otro día» elige la fecha; el día suelto
+  llega a 31 días. Un día fuera de la ventana sale vacío (antes devolvía el
+  último mes entero).
+- **«SOS NO SALIÓ» decía «Sin internet»** ante cualquier falla (`f20f91e`):
+  ahora «No se pudo confirmar que llegó (sin internet, o el servidor no
+  respondió)», en la web, la APK y el SMS.
+- **El manual**: el chat y sus fotos (30 días, y un tope de 1500 fotos y
+  1500 notas por cooperativa), las 150 posiciones que guarda la APK sin
+  señal (unos 25 min), «Otro día» en Turnos, qué gerencia corrige la
+  empresa (sólo la de toda la cooperativa), los SOS sin atender que vuelven
+  al reabrir (24 h), el cumplimiento (sobre las vueltas con brecha medida),
+  la suspensión (las sesiones abiertas caen en menos de un minuto) y el
+  cobrador en la APK.
+
+**Mirar.**
+- **El cobrador en la APK** salió de una lectura del código: no corrió en
+  un teléfono. Mirarlo con una cuenta de cobrador antes de repartir.
+- `server/index.js`: `/admin/shifts` con `hasta` acepta 31 días atrás
+  (`CORRECCION_DIAS`); sin `hasta`, sigue el tope de 8.
+
+**Pruebas.** `nativas` (el cobrador), `correccion-horas` (cinco aserciones
+nuevas: el turno de hace 20 días, la lista abierta, el día de hace 40, y la
+pantalla), `sos-sin-red`, `sintaxis` y la regresión completa.
+
+---
+
 ## Para el manual
+
+**Al día el 17/11:** `manual.tex` y `manual.pdf` cubren los bloques 19 a 23
+(sin señal, DESHACER de AUSENTE, el chat sin señal, «Lo vio Despacho», la
+línea «Para:», Informes como lista, «Recuperar la ida», la lista compacta en
+prueba, el diagnóstico del GPS en Perfil). Las 54 capturas se sacaron de
+nuevo, con el mapa propio. Nueva: **«Configurar el celular»**, con seis
+ilustraciones de los ajustes de Android (`manual/ilustraciones-android.js`):
+son dibujos, no capturas, y el manual lo dice. Lo que sigue pendiente de
+abajo: las capturas de la **APK** (las del chofer son de la web), cuando se
+haya probado en la calle; y cambiar las ilustraciones por capturas de un
+teléfono de verdad cuando las haya.
+
+**Del bloque 23 (17/11), pendiente:** compilar `manual.pdf` (el `.tex` ya
+tutea) y volver a sacar las capturas donde se lee texto de la app.
+
+**Del bloque 22 (17/11), pendiente:** «Recuperar la ida» en el trazador, la
+línea «Para:» del chat de Despacho, Informes como lista, y que al chofer le
+llega «Lo vio Despacho». Volver a sacar las capturas de Despacho (mapa,
+tarjetas, Vueltas, Números, Informes, chat) y la del cartel del SOS visto.
+
+**Del bloque 21 (16/11), pendiente:** la app nativa de día es clara; el
+diagnóstico del GPS pasó a Perfil («EL GPS») y en la ruta sólo aparece si
+hay un problema; la notificación de «sin señal». Volver a sacar las
+capturas de la APK cuando se haya probado en la calle.
+
+**Del bloque 20 (16/11), pendiente:** el DESHACER de AUSENTE (se declara a
+los 5 s), que el chat sin señal deja el mensaje escrito, que AUSENTE vuelve
+a ruta solo si la combi se mueve (ya lo decía para la APK; ahora vale para
+la web), que «Entrar AUSENTE» ya no espera, y la puerta clara de día.
+Capturas a sacar de nuevo: la puerta (`c02-*`), el HUD, AUSENTE (`c06`) y
+el chat.
+
+**Del bloque 19 (16/11), pendiente:** explicar el estado «SIN SEÑAL» de la
+pantalla del chofer (qué significa el gris y por qué se retira el número), y
+que el ✓ del SOS sale cuando llegó. Volver a sacar las capturas del HUD, del
+chat del chofer y de Despacho: los botones y los colores cambiaron; los
+nombres no.
 
 Al día el 11/11: `manual/manual.tex` y `manual.pdf` cubren los bloques 3, 4,
 5, 7 a 13, 15, 17 y 18, con las capturas sacadas de nuevo (con el mapa

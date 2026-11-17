@@ -103,7 +103,7 @@ const pedir = (ruta, o = {}) => fetch(`http://localhost:${P}${ruta}`,
   ok('la columna dice con quién y que es solo esa persona', /Pedro Mamani[\s\S]*Solo esa persona/i.test(cabecera));
   const entrada = de.locator('input[placeholder^="Mensaje solo para"]');
   ok('y el campo dice «solo para Pedro Mamani»', (await entrada.getAttribute('placeholder')) === 'Mensaje solo para Pedro Mamani…');
-  await entrada.fill('Pedro, pasá por la oficina a las 18');
+  await entrada.fill('Pedro, pasa por la oficina a las 18');
   await entrada.press('Enter');
   await de.waitForTimeout(1200);
   // El eco del propio mensaje viene firmado «Despacho»: no puede pisar el nombre
@@ -117,12 +117,12 @@ const pedir = (ruta, o = {}) => fetch(`http://localhost:${P}${ruta}`,
   ok('la pestaña PERSONAL avisa que hay uno', /PERSONAL\s*1/.test(insignia), insignia);
   await ch.click('[data-canal="despacho"]');
   await ch.waitForTimeout(300);
-  ok('en la de la COMBI no está', !(await ch.evaluate(() => document.body.innerText)).includes('pasá por la oficina'));
+  ok('en la de la COMBI no está', !(await ch.evaluate(() => document.body.innerText)).includes('pasa por la oficina'));
   await ch.click('[data-canal="personal"]');
   await ch.waitForTimeout(300);
   const personal = await ch.evaluate(() => document.body.innerText);
-  ok('en PERSONAL sí, como «solo para vos»', /DESPACHO · SOLO PARA VOS[\s\S]*Pedro, pasá por la oficina a las 18/.test(personal));
-  ok('su cobradora, en la misma combi, no lo recibió', !deRosa.includes('Pedro, pasá por la oficina a las 18'), deRosa);
+  ok('en PERSONAL sí, como «solo para ti»', /DESPACHO · SOLO PARA TI[\s\S]*Pedro, pasa por la oficina a las 18/.test(personal));
+  ok('su cobradora, en la misma combi, no lo recibió', !deRosa.includes('Pedro, pasa por la oficina a las 18'), deRosa);
 
   console.log('\nPEDRO CONTESTA EN PERSONAL');
   await de.click('button:has-text("← Grupo")');
@@ -142,14 +142,14 @@ const pedir = (ruta, o = {}) => fetch(`http://localhost:${P}${ruta}`,
   await de.click('button:has-text("Mensaje directo")');
   await de.waitForTimeout(300);
   const aCombi = de.locator('input[placeholder="Mensaje solo para M-01…"]');
-  await aCombi.fill('M-01: esperá en el mercado');
+  await aCombi.fill('M-01: espera en el mercado');
   await aCombi.press('Enter');
   await ch.waitForTimeout(1200);
-  ok('lo recibe la cobradora', deRosa.includes('M-01: esperá en el mercado'));
+  ok('lo recibe la cobradora', deRosa.includes('M-01: espera en el mercado'));
   await ch.click('[data-canal="despacho"]');
   await ch.waitForTimeout(300);
   ok('y Pedro lo ve en COMBI, «para tu combi»',
-     /DESPACHO · PARA TU COMBI[\s\S]*M-01: esperá en el mercado/.test(await ch.evaluate(() => document.body.innerText)));
+     /DESPACHO · PARA TU COMBI[\s\S]*M-01: espera en el mercado/.test(await ch.evaluate(() => document.body.innerText)));
 
   console.log('\nDESDE PERSONAS');
   await de.click('button:has-text("← Grupo")');

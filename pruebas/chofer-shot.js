@@ -179,7 +179,7 @@ const pedir = (ruta, opts = {}) =>
   const perdida = await p.evaluate(() => document.body.innerText);
   if (!/sin señal/i.test(perdida)) fallos.push('no avisa que la unidad de adelante perdió la señal');
   if (!/M-08/.test(perdida)) fallos.push('deja de nombrar a la unidad que se quedó sin señal');
-  if (/Apurá|Aflojá/.test(perdida)) fallos.push('sigue dando instrucción de ritmo contra una posición vieja');
+  if (/Apura|Afloja/.test(perdida)) fallos.push('sigue dando instrucción de ritmo contra una posición vieja');
   if (/única unidad en ruta/i.test(perdida)) fallos.push('dice que está sola teniendo una unidad adelante');
 
   console.log('capturas en', SALIDA);

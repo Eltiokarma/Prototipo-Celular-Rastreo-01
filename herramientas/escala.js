@@ -96,7 +96,7 @@ async function puertoLibre(quienLlama) {
     await sleep(250);
   }
   throw new Error(`el puerto ${PUERTO} sigue ocupado por otro servidor (${quienLlama}). ` +
-    'Cerralo antes de medir: `pkill -f server/index.js`.');
+    'Ciérralo antes de medir: `pkill -f server/index.js`.');
 }
 
 // Cuánto se le da al servidor para levantar. CINCO MINUTOS, y no es holgura

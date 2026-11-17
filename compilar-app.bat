@@ -31,7 +31,7 @@ echo === 1 de 4: Traer lo ultimo del repositorio ===
 git pull origin main
 if errorlevel 1 (
   echo [ERROR] No se pudo actualizar el repositorio. Revisa tu internet
-  echo         o si tenes cambios locales sin guardar, y proba de nuevo.
+  echo         o si tienes cambios locales sin guardar, y prueba de nuevo.
   pause
   exit /b 1
 )
@@ -83,7 +83,7 @@ echo.
 call npx eas-cli build --platform android --profile %perfil%
 
 echo.
-echo Listo. Si fue el APK de prueba: abri el enlace de arriba en el
+echo Listo. Si fue el APK de prueba: abre el enlace de arriba en el
 echo telefono para descargarlo. Como cambio el paquete de la app
 echo (com.microstempo.chofer), la version vieja se DESINSTALA primero.
 pause

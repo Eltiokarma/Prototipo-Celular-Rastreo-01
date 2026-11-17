@@ -2,7 +2,7 @@
 //
 // Esta suite existe por una medición: con la unidad de adelante borrada, la
 // de atrás pasaba a medirse contra la que sigue, veía el doble de brecha y la
-// pantalla le decía "apurá" hacia una combi que tenía justo adelante. Sin
+// pantalla le decía "apura" hacia una combi que tenía justo adelante. Sin
 // moverse un metro. Todo lo de acá defiende que eso no vuelva.
 //
 // Levanta su propio servidor con los plazos acortados: los de producción son

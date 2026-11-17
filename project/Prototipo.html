@@ -101,10 +101,6 @@ if (typeof L === 'undefined') {
     0%, 100% { transform: scale(1); opacity: 0.25; }
     50%      { transform: scale(1.35); opacity: 0; }
   }
-  @keyframes combiRing {
-    0%   { transform: scale(1); opacity: 0.7; }
-    100% { transform: scale(1.08); opacity: 0; }
-  }
   @keyframes combiPulse {
     0%   { transform: translate(-50%,-50%) scale(0.8); opacity: 0.5; }
     100% { transform: translate(-50%,-50%) scale(2); opacity: 0; }
@@ -117,6 +113,17 @@ if (typeof L === 'undefined') {
     0%, 100% { opacity: 0.55; }
     50%      { opacity: 1; }
   }
+  /* Ensayo «barra» (B4): tres latidos al cambiar de estado, después quieta */
+  @keyframes avisoBarra { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  /* Ensayo «rotulo» (B6): el rótulo del lado que manda, resaltado 1,6 s */
+  @keyframes marcaLado {
+    0%, 70% { background: var(--marca-lado); box-shadow: 0 0 0 2px var(--marca-lado-borde); }
+    100%    { background: transparent; box-shadow: 0 0 0 2px transparent; }
+  }
+  /* El número de brecha crece una vez cuando cambia de estado (B5) */
+  @keyframes cambioEstado { from { transform: scale(1.07); } to { transform: none; } }
+  /* La cuenta del «Deshacer» de AUSENTE: la franja se vacía en 5 s */
+  @keyframes vaciar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
   @keyframes combiRecDot {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.35; }
@@ -147,6 +154,16 @@ if (typeof L === 'undefined') {
   /* Foco con teclado: el mismo anillo que Despacho, nunca el azul por defecto */
   :focus { outline: none; }
   :focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+  /* «Reducir movimiento» del teléfono: lo que late en bucle se queda quieto
+     y las transiciones son instantáneas. Es el mismo apagado que Despacho.
+     Las animaciones que dependen de JS (los dígitos, la barra de arriba)
+     las apaga `microAnims`, que arranca leyendo esta misma preferencia. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
 </style>
 <script>
   // Antes que React: así el primer cuadro ya sale sin marco.
@@ -212,7 +229,7 @@ const P = PALETTE;
 // Esto queda solo para la primerísima pantalla, antes del primer ingreso.
 const COOP = {
   name:  'CONTROL DE RUTA',
-  full:  'Ingresá con el usuario que te dio tu cooperativa',
+  full:  'Ingresa con el usuario que te dio tu cooperativa',
 };
 
 // El nombre de la cooperativa sobrevive al cierre de sesión: si no, el
@@ -346,6 +363,14 @@ const TEMAS = {
     green:   '#1F8A4F',  greenInk: '#0B3D22',
     amber:   '#A67300',  amberInk: '#4A3200',
     red:     '#C2001D',  redInk:   '#5C0010',
+    // Texto ámbar chico (los botones del HUD) y lo que va escrito sobre el
+    // rojo lleno. El ámbar de estado da 3,95:1 y no alcanza para 16 px.
+    amberTexto: '#6B4A00', sobreRojo: '#FFFFFF', greenTexto: '#0B6B33',
+    // Lo que el HUD escribía a mano según `sun` (auditoría de UI, B12):
+    // la instrucción, el rótulo del lado secundario, el divisor y el borde
+    // de los chips chicos. Ahora son tokens y contraste.js los mide.
+    ins: '#3D5C7A', secundario: '#3D5C7A', divisorHud: '#C9D8E6', chipBorde: '#C8D8E8',
+    ondaViva: '#0B6B33', ondaApagada: '#BEE3CD',
     fg:      '#0B2239',  // texto primario
     fg2:     '#2A4864',  // texto secundario / iconos
     dim:     '#41627F',  // etiquetas
@@ -376,6 +401,9 @@ const TEMAS = {
     green:   '#146134',  greenInk: '#04220F',
     amber:   '#7A5400',  amberInk: '#2E2000',
     red:     '#960016',  redInk:   '#3D000B',
+    amberTexto: '#5C3F00', sobreRojo: '#FFFFFF', greenTexto: '#146134',
+    ins: '#20415C', secundario: '#20415C', divisorHud: '#BACBDA', chipBorde: '#8FA8BE',
+    ondaViva: '#146134', ondaApagada: '#A9D6B8',
     fg:      '#04121F',
     fg2:     '#0B2239',
     dim:     '#20415C',
@@ -403,6 +431,9 @@ const TEMAS = {
     green:   '#39FF14',  greenInk: '#EAFFE4',
     amber:   '#FFD400',  amberInk: '#FFF7D6',
     red:     '#FF2D55',  redInk:   '#FFE0E7',
+    amberTexto: '#FFD400', sobreRojo: '#03060a', greenTexto: '#39FF14',
+    ins: '#93AAC2', secundario: '#A9C0D6', divisorHud: '#16222f', chipBorde: '#232b36',
+    ondaViva: '#7DF06A', ondaApagada: '#2e5c3c',
     fg:      '#EAF4FF',
     fg2:     '#C6D6E6',
     dim:     '#8FA8C0',
@@ -516,13 +547,33 @@ function fmtTarget(min) {
 // hace minutos y medirse contra ella sería inventar, pero tampoco es "no hay
 // nadie": el chofer tiene una combi adelante que no ve en el mapa, y eso es
 // justo lo que necesita saber.
-function buildHudModel(tweaks, gapMeta) {
+// ─── LA BRECHA VIEJA (auditoría UI N1, 16/11) ─────────────────────
+// Sin señal, el HUD seguía mostrando la última brecha en su color y con su
+// instrucción: medido, a los 90 s sin red decía 5:12 en verde y «Mantén el
+// ritmo», y el rótulo de arriba tardaba entre 30 y 60 s en cambiar (y
+// cambiaba a «SIMULADO»). El chofer podía estar corrigiendo contra una combi
+// que ya no estaba ahí.
+//
+// Con el teléfono reportando, el estado llega cada ~3 s (cada posición que
+// manda dispara uno), así que la edad del último es la mejor medida de la
+// señal: el socket tarda hasta 40 s en darse cuenta de que murió.
+//   - menos de 10 s: nada cambia; un bache corto no hace parpadear nada.
+//   - desde 10 s: «SIN SEÑAL» con el tiempo, y el número en gris.
+//   - desde 60 s: el número se retira y queda la última brecha como dato.
+// El acompañante no reporta: su estado depende de otros teléfonos, y ahí
+// manda el socket.
+const VIEJA_MS = 10_000, PERDIDA_MS = 60_000;
+
+function buildHudModel(tweaks, gapMeta, { ahora = Date.now(), fiable = true, conectado = true } = {}) {
   const target = tweaks.targetGap;
   const vivo = !!gapMeta?.vivo;
+  const edad = vivo && gapMeta.recibido ? Math.max(0, ahora - gapMeta.recibido) : 0;
+  const viejo = vivo && (fiable ? edad >= VIEJA_MS : !conectado);
+  const perdido = viejo && edad >= PERDIDA_MS;
   // Y a cualquiera de los tres estados se le puede sumar el tráfico del
   // vecino: N minutos sin avanzar (lo midió el servidor) o avisó que está
   // trabado (lo dijo él). Lo mismo que muestra la app nativa; antes la web
-  // no lo veía y le decía «Apurá» al que iba detrás de un embotellamiento
+  // no lo veía y le decía «Apura» al que iba detrás de un embotellamiento
   // (REVISION-2026-09-08.md, A7).
   const trafico = (t) => {
     if (!t || !t.enTrafico) return { enTrafico: false, traficoMin: 0, traficoConfirmado: false };
@@ -547,11 +598,14 @@ function buildHudModel(tweaks, gapMeta) {
       };
     }
     const status = sideStatus(value, target);
+    // Vieja: el número sigue, pero en gris. El color afirmaba «vas bien» (o
+    // «apura») sobre un dato que ya no se sabe si vale.
+    const tono = viejo ? HUD_STATUS.none : HUD_STATUS[status];
     return {
       value, label, sign, unit, sinSenal: false,
       status,
-      color: HUD_STATUS[status].c,
-      ink: HUD_STATUS[status].ink,
+      color: tono.c,
+      ink: tono.ink,
       display: fmtGap(value),
       ...trafico(t),
     };
@@ -575,7 +629,7 @@ function buildHudModel(tweaks, gapMeta) {
     : front.vacio ? true
     : desvio(backVal) >= desvio(frontVal);
   return {
-    target, vivo,
+    target, vivo, edad, viejo, perdido,
     front, back,
     hero: heroIsBack ? back : front,
     sec:  heroIsBack ? front : back,
@@ -964,12 +1018,16 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
             }}>{hud.sec.display}</div>
           </div>
         </div>
+        {/* El pie: en la maqueta, los paraderos; en vivo, sólo si el GPS
+            tiene algo que decir. Antes mostraba la coordenada cruda
+            («-15.4869, -70.1358») y no había nada que el chofer hiciera con
+            ella (auditoría de UI, B10). */}
+        {(!hud.vivo || !realPos) && (
         <div style={{
           borderTop: `1px solid ${HUD.divider}`, paddingTop: 12,
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          {/* Los paraderos son de la maqueta: el servidor no los tiene. En
-              vivo queda solo la coordenada, que sí es real. */}
+          {/* Los paraderos son de la maqueta: el servidor no los tiene. */}
           {!hud.vivo && (
             <React.Fragment>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: P.bright, flexShrink: 0 }} />
@@ -981,16 +1039,15 @@ function GpsMap({ active, otherUnits = [], hud, gapMeta, currentStop, nextStop, 
             </React.Fragment>
           )}
           {hud.vivo && <span style={{ flex: 1 }} />}
-          <span style={{
-            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-            fontSize: 13, fontWeight: 700, color: realPos ? HUD.dim3 : HUD.amber,
-            whiteSpace: 'nowrap',
-          }}>
-            {realPos
-              ? `${realPos.lat.toFixed(4)}, ${realPos.lng.toFixed(4)}`
-              : gpsError ? 'SIN GPS' : 'ESPERANDO GPS…'}
-          </span>
+          {!realPos && (
+            <span style={{
+              fontFamily: 'system-ui, sans-serif',
+              fontSize: 14, fontWeight: 800, letterSpacing: 0.5, color: HUD.amberTexto,
+              whiteSpace: 'nowrap',
+            }}>{gpsError ? 'SIN GPS' : 'ESPERANDO GPS…'}</span>
+          )}
         </div>
+        )}
       </div>
     </div>
   );
@@ -1081,8 +1138,8 @@ function VoiceBubble({ seconds, own, audio, expired }) {
   };
 
   const playBg  = own ? HUD.green : P.bright;
-  const litBar  = own ? '#7DF06A' : P.sky;
-  const dimBar  = own ? '#2e5c3c' : '#3d5f80';
+  const litBar  = own ? HUD.ondaViva : P.sky;
+  const dimBar  = own ? HUD.ondaApagada : HUD.line;
   const litCount = playing ? Math.max(1, Math.round((elapsed / seconds) * 12)) : 6;
 
   return (
@@ -1132,6 +1189,12 @@ function bubbleStyle(msg) {
       borderLeft: `4px solid ${HUD.warnEdge}`,
     };
   }
+  // La nota de voz que no salió se queda en el hilo, pero no en el verde de
+  // las enviadas (N3)
+  if (msg.role === 'you' && msg.noSalio) {
+    return { ...base, borderRadius: '16px 16px 5px 16px', background: HUD.burbujaWarn, color: HUD.burbujaWarnInk,
+             borderRight: `4px solid ${HUD.warnEdge}` };
+  }
   if (msg.role === 'you') {
     return { ...base, borderRadius: '16px 16px 5px 16px', background: HUD.burbujaPropia, color: HUD.burbujaPropiaInk };
   }
@@ -1150,7 +1213,8 @@ function bubbleStyle(msg) {
 function ChatMsg({ msg }) {
   const isYou = msg.role === 'you';
   const nameColor =
-    isYou ? HUD.green :
+    isYou && msg.noSalio ? HUD.amberTexto :
+    isYou ? HUD.greenTexto :   // el verde de estado daba 4,17:1 a 15 px (auditoría UI B9)
     msg.tone === 'warn' ? HUD.warnEdge :
     msg.tone === 'sos' ? HUD.red :
     HUD.dim;
@@ -1166,24 +1230,25 @@ function ChatMsg({ msg }) {
         {msg.role === 'admin' && (
           <span style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 11, background: msg.privado ? HUD.warnEdge : P.bright,
-            // blanco sobre el ámbar de noche daba 1,79:1 (revisión previa a la APK)
-            color: msg.privado ? HUD.warnEdgeInk : P.white,
+            fontSize: 11, background: msg.privado ? HUD.warnEdge : HUD.acento,
+            // blanco sobre el ámbar de noche daba 1,79:1 (revisión previa a la APK),
+            // y blanco sobre el celeste fijo, 2,84 (auditoría UI B9)
+            color: msg.privado ? HUD.warnEdgeInk : HUD.acentoInk,
             padding: '2px 6px', borderRadius: 4, letterSpacing: 0.5,
-          }}>{msg.privado === 'persona' ? 'DESPACHO · SOLO PARA VOS'
+          }}>{msg.privado === 'persona' ? 'DESPACHO · SOLO PARA TI'
             : msg.privado ? 'DESPACHO · PARA TU COMBI' : 'DESPACHO'}</span>
         )}
         <span style={{
           fontSize: 15, fontWeight: 700, color: nameColor,
           fontFamily: 'system-ui, sans-serif',
-        }}>{isYou ? (msg.noSalio ? 'Tú · NO SALIÓ (sin conexión)' : 'Tú ✓✓') : msg.from}</span>
+        }}>{isYou ? (msg.noSalio ? 'Tú · NO SALIÓ (sin señal)' : 'Tú ✓') : msg.from}</span>
         {/* La combi en la que va: el nombre dice quién habla, esto dice
             desde qué unidad — que es lo que le importa al que va manejando */}
         {!isYou && msg.unit && (
           <span style={{
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
             fontSize: 12, fontWeight: 700, color: HUD.dim3,
-            border: `1px solid #232b36`, borderRadius: 4, padding: '1px 5px',
+            border: `1px solid ${HUD.chipBorde}`, borderRadius: 4, padding: '1px 5px',
           }}>{msg.unit}</span>
         )}
         <span style={{
@@ -1250,6 +1315,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
     catch { return { despacho: 0, personal: 0 }; }
   });
   const [draft, setDraft] = React.useState('');
+  const [noSalio, setNoSalio] = React.useState(false);
   const [recording, setRecording] = React.useState(false);
   const [recElapsed, setRecElapsed] = React.useState(0);
   const recRef = React.useRef(null); // { recorder, stream, chunks, started }
@@ -1337,7 +1403,12 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
   const send = () => {
     const text = draft.trim();
     if (!text) return;
-    onSendText(text, privadoDelCanal);
+    // El socket tarda hasta 40 s en notar que murió: en ese rato el mensaje
+    // salía a un socket muerto y se perdía sin aviso. Si el HUD ya sabe que
+    // no llegan datos (la brecha está vieja), tampoco se manda.
+    if (hud && hud.viejo) { setNoSalio(true); return; }
+    if (onSendText(text, privadoDelCanal) === false) { setNoSalio(true); return; }
+    setNoSalio(false);
     setDraft('');
   };
 
@@ -1367,7 +1438,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
             color: canal !== 'grupo' ? HUD.warnEdge : (connected ? HUD.dim2 : HUD.amber),
             fontFamily: 'system-ui, sans-serif',
           }}>{canal === 'despacho' ? 'con Despacho · lo ve tu combi'
-            : canal === 'personal' ? 'con Despacho · solo vos'
+            : canal === 'personal' ? 'con Despacho · solo tú'
             : (connected ? `${online} en línea` : 'sin conexión')}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -1398,10 +1469,12 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
           const pendientes = pendientesDe(k);
           return (
             <button key={k} data-canal={k} onClick={() => setCanal(k)} style={{
-              flex: 1, minWidth: 0, height: 40, borderRadius: 12, cursor: 'pointer', padding: '0 4px',
-              border: `1px solid ${activo ? P.bright : HUD.line}`,
-              background: activo ? P.bright : 'transparent',
-              color: activo ? P.white : HUD.dim,
+              flex: 1, minWidth: 0, height: 44, borderRadius: 12, cursor: 'pointer', padding: '0 4px',
+              // el acento del tema y su tinta: blanco sobre el celeste fijo daba
+              // 2,69:1 (auditoría UI B9)
+              border: `1px solid ${activo ? HUD.acento : HUD.line}`,
+              background: activo ? HUD.acento : 'transparent',
+              color: activo ? HUD.acentoInk : HUD.dim,
               fontFamily: 'system-ui, sans-serif', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             }}>
@@ -1434,13 +1507,25 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
         )}
         {canal === 'personal' && !messages.some(m => m.privado === 'persona') && (
           <div style={{ fontSize: 15, color: HUD.dim2, lineHeight: 1.5, padding: '4px 2px' }}>
-            Acá va lo que hablás <strong>solo vos con Despacho</strong>. Te sigue
+            Acá va lo que hablas <strong>solo tú con Despacho</strong>. Te sigue
             aunque cambies de combi, y no lo ve nadie más: ni tu cobrador, ni el
             que maneje tu combi después.
           </div>
         )}
       </div>
 
+      {/* Sin conexión el mensaje no sale: queda escrito, y se dice (N3) */}
+      {noSalio && (
+        <div role="alert" data-no-salio style={{
+          margin: '0 14px', padding: '10px 12px', borderRadius: 12,
+          background: HUD.burbujaWarn, color: HUD.burbujaWarnInk, borderLeft: `4px solid ${HUD.warnEdge}`,
+          fontSize: 15, fontWeight: 600, lineHeight: 1.35, fontFamily: 'system-ui, sans-serif',
+        }}>
+          {connected && !(hud && hud.viejo)
+            ? 'Volvió la señal: toca enviar.'
+            : 'Sin señal: el mensaje no salió. Queda escrito para mandarlo cuando vuelva.'}
+        </div>
+      )}
       {/* Barra de entrada — los tres controles a 56px */}
       <div style={{
         padding: '10px 14px 26px',
@@ -1467,7 +1552,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
               fontSize: 16, fontWeight: 700, color: HUD.dim2,
               fontFamily: 'system-ui, sans-serif',
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}>Grabando… soltá para enviar</span>
+            }}>Grabando… suelta para enviar</span>
           </div>
         ) : (
           <input
@@ -1491,22 +1576,22 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
           style={{
             width: controlH, height: controlH, boxSizing: 'border-box',
             borderRadius: '50%', flexShrink: 0,
-            background: recording ? P.bright : HUD.mic,
-            border: `1px solid ${recording ? P.bright : HUD.micLine}`,
+            background: recording ? HUD.acento : HUD.mic,
+            border: `1px solid ${recording ? HUD.acento : HUD.micLine}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
             touchAction: 'none',
           }}>
-          <MicGlyph color={recording ? '#FFFFFF' : HUD.fg2} />
+          <MicGlyph color={recording ? HUD.acentoInk : HUD.fg2} />
         </button>
         <button
           onClick={send}
           style={{
             width: controlH, height: controlH, boxSizing: 'border-box',
             borderRadius: '50%', flexShrink: 0,
-            background: P.bright, border: 'none',
+            background: HUD.acento, border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, color: '#FFFFFF', cursor: 'pointer',
+            fontSize: 22, color: HUD.acentoInk, cursor: 'pointer',
             WebkitTapHighlightColor: 'transparent',
           }}>➤</button>
       </div>
@@ -1517,11 +1602,15 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
 // ═══════════════════════════════════════════════════════════════
 // SOS SLIDER
 // ═══════════════════════════════════════════════════════════════
-function SosSlider({ status, enableAnim, onFire }) {
+function SosSlider({ onFire }) {
   const trackRef = React.useRef(null);
   const [progress, setProgress] = React.useState(0);
   const [dragging, setDragging] = React.useState(false);
   const [fired, setFired] = React.useState(false);
+  // Lo que contestó el envío: null mientras no se sabe, 'ok' o 'fallo'. El ✓
+  // sale recién con 'ok' (auditoría UI B8): antes aparecía al soltar, con el
+  // rótulo diciendo todavía ENVIANDO, en la acción más delicada del sistema.
+  const [resultado, setResultado] = React.useState(null);
   const startX = React.useRef(0);
   const startProg = React.useRef(0);
 
@@ -1544,12 +1633,15 @@ function SosSlider({ status, enableAnim, onFire }) {
       setDragging(false);
       // Disparado hasta que el envío TERMINA, y no un tiempo fijo: el envío
       // puede tardar diez segundos (HTTP y después el socket) y el deslizador
-      // volvía a «DESLIZÁ PARA SOS» a los 2,2 s sin ningún resultado a la
+      // volvía a «DESLIZA PARA SOS» a los 2,2 s sin ningún resultado a la
       // vista — y un segundo deslizamiento duplicaba la alerta (22/9).
       const t0 = Date.now();
-      Promise.resolve(onFire && onFire()).catch(() => {}).finally(() => {
-        setTimeout(() => { setFired(false); setProgress(0); }, Math.max(0, 2200 - (Date.now() - t0)));
-      });
+      setResultado(null);
+      Promise.resolve(onFire && onFire())
+        .then(ok => setResultado(ok === true ? 'ok' : ok === false ? 'fallo' : null), () => setResultado('fallo'))
+        .finally(() => {
+          setTimeout(() => { setFired(false); setProgress(0); setResultado(null); }, Math.max(0, 2200 - (Date.now() - t0)));
+        });
     }
   };
   const onUp = () => {
@@ -1578,7 +1670,10 @@ function SosSlider({ status, enableAnim, onFire }) {
   const trackH = 84;
   const thumbSize = 70;
   const sun = !HUD.resplandor;   // fondo claro
-  const suggestSos = status === 'red' && enableAnim;
+  // Sin anillo que late con la brecha en rojo: una brecha crítica es un
+  // pelotón, no una emergencia, y el anillo invitaba a deslizar el SOS por
+  // algo que no lo es (auditoría UI B2). El SOS no tiene que llamar la
+  // atención: tiene que estar siempre igual y en el mismo lugar.
 
   return (
     <div ref={trackRef} data-noswipe="sos" style={{
@@ -1590,15 +1685,6 @@ function SosSlider({ status, enableAnim, onFire }) {
       WebkitTapHighlightColor: 'transparent',
       boxSizing: 'border-box',
     }}>
-      {suggestSos && !dragging && progress === 0 && (
-        <div style={{
-          position: 'absolute', inset: -5,
-          borderRadius: 24,
-          border: `2px solid ${HUD.red}`,
-          animation: 'combiRing 1.6s ease-out infinite',
-          pointerEvents: 'none',
-        }} />
-      )}
       {/* relleno de avance */}
       <div style={{
         position: 'absolute', top: 0, bottom: 0, left: 0,
@@ -1619,7 +1705,9 @@ function SosSlider({ status, enableAnim, onFire }) {
         whiteSpace: 'nowrap',
         transition: 'color 0.2s', pointerEvents: 'none', zIndex: 2,
       }}>
-        {fired ? 'ENVIANDO...' : progress > 0.5 ? 'SUELTA PARA SOS' : 'DESLIZÁ PARA SOS →'}
+        {fired
+          ? (resultado === 'ok' ? 'ENVIADA' : resultado === 'fallo' ? 'NO SALIÓ' : 'ENVIANDO…')
+          : progress > 0.5 ? 'SUELTA PARA SOS' : 'DESLIZA PARA SOS →'}
       </div>
       {/* thumb arrastrable */}
       <div
@@ -1640,7 +1728,7 @@ function SosSlider({ status, enableAnim, onFire }) {
           zIndex: 3, touchAction: 'none',
         }}
       >
-        {fired ? '✓' : 'SOS'}
+        {!fired ? 'SOS' : resultado === 'ok' ? '✓' : resultado === 'fallo' ? '!' : '…'}
       </div>
     </div>
   );
@@ -1707,6 +1795,25 @@ function LoginScreen({ onSuccess, notice }) {
   const [error, setError] = React.useState(null);
   const [offerDemo, setOfferDemo] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  // Lo que dice el chip de arriba: 'buscando', 'si' o 'no'. Antes decía
+  // «Conectado» siempre, antes de haber hablado con el servidor (B13). Si no
+  // contesta, se vuelve a probar cada 10 s y cuando el teléfono avisa que
+  // volvió la red.
+  const [alcance, setAlcance] = React.useState('buscando');
+  React.useEffect(() => {
+    let vivo = true, t = null;
+    const probar = async () => {
+      clearTimeout(t);
+      const ok = window.RealtimeClient && window.RealtimeClient.alcanzable ? await window.RealtimeClient.alcanzable() : false;
+      if (!vivo) return;
+      setAlcance(ok ? 'si' : 'no');
+      if (!ok) t = setTimeout(probar, 10_000);
+    };
+    probar();
+    const enLinea = () => probar();
+    window.addEventListener('online', enLinea);
+    return () => { vivo = false; clearTimeout(t); window.removeEventListener('online', enLinea); };
+  }, []);
   // «Olvidé mi contraseña» era un enlace a "#": tocarlo no hacía nada. No hay
   // recuperación por correo (nadie tiene uno cargado): la clave nueva la pone
   // Despacho, y eso es lo que hay que decir.
@@ -1719,7 +1826,7 @@ function LoginScreen({ onSuccess, notice }) {
   // esa contraseña queda registrada (después Despacho administrará altas).
   const submit = async () => {
     if (!user.trim() || pass.length < 4) {
-      setError('Completá usuario y contraseña (mínimo 4 caracteres)');
+      setError('Completa usuario y contraseña (mínimo 4 caracteres)');
       return;
     }
     setLoading(true);
@@ -1780,8 +1887,12 @@ function LoginScreen({ onSuccess, notice }) {
         background: HUD.input, border: `1px solid ${HUD.line}`, borderRadius: 100,
         marginBottom: 22,
       }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: HUD.green }} />
-        <span style={{ fontFamily: '"Helvetica Neue", system-ui, sans-serif', fontSize: 13, fontWeight: 700, color: HUD.greenInk }}>Conectado</span>
+        <span style={{ width: 8, height: 8, borderRadius: '50%',
+          background: alcance === 'si' ? HUD.green : alcance === 'no' ? HUD.amber : HUD.dim3 }} />
+        <span role="status" data-alcance={alcance} style={{ fontFamily: '"Helvetica Neue", system-ui, sans-serif', fontSize: 13, fontWeight: 700,
+          color: alcance === 'si' ? HUD.greenInk : alcance === 'no' ? HUD.amberTexto : HUD.dim2 }}>
+          {alcance === 'si' ? 'Conectado' : alcance === 'no' ? 'Sin conexión con el servidor' : 'Buscando el servidor…'}
+        </span>
       </div>
 
       <div onKeyDown={handleKeyDown}>
@@ -1839,8 +1950,8 @@ function LoginScreen({ onSuccess, notice }) {
         }}>Olvidé mi contraseña</button>
         {olvido && (
           <div style={{ marginTop: 4, lineHeight: 1.5, color: HUD.fg2 }}>
-            Pedile a Despacho de tu cooperativa que te ponga una clave nueva.
-            Si sos cobrador, también te la puede cambiar el chofer de tu combi.
+            Pídele a Despacho de tu cooperativa que te ponga una clave nueva.
+            Si eres cobrador, también te la puede cambiar el chofer de tu combi.
           </div>
         )}
       </div>
@@ -1990,7 +2101,7 @@ function usarVigiaPuerta(activo, onSalir) {
   return { falta, callar };
 }
 
-// ¿En qué combi salís? (habilitaciones, 30/10). La lista y su estado —libre,
+// ¿En qué combi sales? (habilitaciones, 30/10). La lista y su estado —libre,
 // o quién la maneja— se refrescan cada 20 s: en la puerta de un relevo, el
 // otro puede estar llegando o yéndose.
 function usarCombis(token, actual) {
@@ -2049,7 +2160,7 @@ function SosAvisos({ fired, fallo, central, combi, nombre, onCerrarFallo }) {
             fontSize: 28, fontWeight: 900, letterSpacing: 2, textAlign: 'center', lineHeight: 1.15, marginBottom: 6,
           }}>SOS NO SALIÓ</div>
           <div style={{ color: HUD.fg, fontSize: 15, textAlign: 'center', lineHeight: 1.4, marginBottom: 16 }}>
-            Sin internet. Pedí ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+            No se pudo confirmar que llegó (sin internet, o el servidor no respondió). Pide ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
           </div>
           {central ? (
             <>
@@ -2098,6 +2209,7 @@ function usarSos(onSos) {
     if (r && r.ok) { setFired(true); setFallo(false); }
     else setFallo({ en: Date.now(), pos: window.RealtimeClient && window.RealtimeClient.posicionReciente
       ? window.RealtimeClient.posicionReciente() : null });
+    return !!(r && r.ok);   // el deslizador pinta ✓ sólo con esto en true
   };
   return { fired, fallo, disparar, cerrarFallo: () => setFallo(false) };
 }
@@ -2150,12 +2262,11 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
     }
     setEligiendo(false);
   };
-  const [countdown, setCountdown] = React.useState(15);
-  React.useEffect(() => {
-    if (countdown <= 0) return;
-    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [countdown]);
+  // «Entrar AUSENTE» esperaba 15 s bloqueado («· en 12s») sin decir por qué
+  // (auditoría de UI, N6). Venía de la maqueta del 6/8 («Descansar 10 min ·
+  // disponible en 15s») y nada en el repo explica para qué: se sacó. Entrar
+  // ausente por error no descarta ninguna vuelta (todavía no empezó), y si
+  // arranca a manejar, el vigía de la ausencia lo devuelve a ruta solo.
   const isFirstLap = lapNumber === 1;
   // Lo que se sabe de verdad al abrir el turno. El turno con horario fijo
   // no existe en el modelo: se abre cuando el chofer se conecta y se cierra
@@ -2165,67 +2276,70 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
   // Con más de una combi, la unidad se elige abajo y no va en tarjeta
   const tarjetas = [combis.length > 1 ? null : ['Unidad', unidad], ['Ruta', ruta]].filter(t => t && t[1]);
 
+  // La puerta lee del tema, como el ingreso y el HUD (auditoría de UI, B7).
+  // Era la única pantalla con la paleta oscura fija `P`: de día quedaba un
+  // azul noche entre un ingreso claro y un HUD claro, con el botón principal
+  // a 2,69:1 y ocho textos de 9 a 11 px. Los textos y los data-* no cambian.
+  const sans = 'system-ui, -apple-system, "Helvetica Neue", sans-serif';
+  const black = '"Archivo Black", system-ui, sans-serif';
+  const mono = 'JetBrains Mono, ui-monospace, monospace';
+  const rotuloPuerta = { fontFamily: sans, fontSize: 14, fontWeight: 700, color: HUD.fg2 };
+
   return (
     // Los avisos del SOS cubren la pantalla entera, no el pedazo scrolleado:
     // van en este marco, fuera de la caja que scrollea.
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
     <div style={{
-      width: '100%', height: '100%', background: P.bg,
+      width: '100%', height: '100%', background: HUD.bg,
       display: 'flex', flexDirection: 'column',
       padding: '28px 22px 22px', boxSizing: 'border-box',
-      color: P.white, overflowY: 'auto',
+      color: HUD.fg, overflowY: 'auto',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <CoopLogo size={36} ruta={rutaId} />
+        {/* Sin la ruta adentro: a este tamaño se dibujaba a ~5 px, y la ruta
+            ya está en su tarjeta, abajo */}
+        <CoopLogo size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: sans, fontSize: 13, fontWeight: 600, color: HUD.dim }}>Hola, conductor</div>
           <div style={{
-            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-            fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
-          }}>Hola, conductor</div>
-          <div style={{
-            fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 18, color: P.white, letterSpacing: -0.3,
+            fontFamily: black, fontSize: 18, color: HUD.fg, letterSpacing: -0.3,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>{user}</div>
         </div>
         {onLogout && (
           <button onClick={onLogout} style={{
-            background: 'transparent', border: `1px solid ${P.line}`,
-            borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
-            fontFamily: '"Helvetica Neue", system-ui, sans-serif',
-            fontSize: 12, fontWeight: 700, color: P.mute, flexShrink: 0,
+            background: 'transparent', border: `1px solid ${HUD.dim3}`,
+            borderRadius: 10, height: 44, padding: '0 14px', cursor: 'pointer',
+            fontFamily: sans, fontSize: 14, fontWeight: 700, color: HUD.fg2, flexShrink: 0,
           }}>Salir</button>
         )}
       </div>
 
-      {/* Parece que ya está manejando. Fuerte y arriba de todo: amarillo
+      {/* Parece que ya está manejando. Fuerte y arriba de todo: ámbar lleno
           sobre la pantalla, con la cuenta a la vista. Abajo, con dos o más
           combis para elegir, quedaba fuera de la pantalla de un celular chico
           y no se podía contestar (revisión previa a la APK). No es un toast
           que se va solo: se va saliendo o diciendo que no. */}
       {falta !== null && (
         <div role="alert" data-vigia-puerta style={{
-          background: P.yellow, color: P.bg, borderRadius: 14,
+          background: HUD.amberTexto, color: HUD.bg, borderRadius: 14,
           padding: '14px 14px 12px', marginBottom: 12,
         }}>
-          <div style={{
-            fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 19, lineHeight: 1.15, marginBottom: 4,
-          }}>¿Ya estás manejando?</div>
-          <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, marginBottom: 10 }}>
-            Tu combi no está en el mapa. Salís a ruta solo en{' '}
-            <strong style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>.
+          <div style={{ fontFamily: black, fontSize: 19, lineHeight: 1.15, marginBottom: 4 }}>¿Ya estás manejando?</div>
+          <div style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.35, marginBottom: 10 }}>
+            Tu combi no está en el mapa. Sales a ruta solo en{' '}
+            <strong style={{ fontFamily: mono, whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>.
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onStart} style={{
-              flex: 1, padding: '12px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
-              background: P.bg, color: P.yellow,
-              fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 14, letterSpacing: 1,
+              flex: 1, minHeight: 48, padding: '10px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              background: HUD.bg, color: HUD.amberTexto,
+              fontFamily: black, fontSize: 15, letterSpacing: 1,
             }}>SALIR AHORA</button>
             <button onClick={callar} style={{
-              flex: 1, padding: '12px 8px', borderRadius: 10, cursor: 'pointer',
-              background: 'transparent', color: P.bg, border: `2px solid ${P.bg}`,
-              fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 800,
+              flex: 1, minHeight: 48, padding: '10px 8px', borderRadius: 10, cursor: 'pointer',
+              background: 'transparent', color: HUD.bg, border: `2px solid ${HUD.bg}`,
+              fontFamily: sans, fontSize: 15, fontWeight: 800,
             }}>No estoy manejando</button>
           </div>
         </div>
@@ -2238,19 +2352,14 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
           trampa. La vuelta de verdad está en Despacho. */}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ ...rotuloPuerta, color: HUD.dim, marginBottom: 10 }}>{isFirstLap ? 'Inicio de turno' : `Vuelta ${lapNumber}`}</div>
         <div style={{
-          fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-          fontSize: 11, letterSpacing: 2, color: P.sky,
-          textTransform: 'uppercase', marginBottom: 10,
-        }}>{isFirstLap ? 'Inicio de turno' : `Vuelta ${lapNumber}`}</div>
-        <div style={{
-          fontFamily: '"Archivo Black", system-ui, sans-serif',
-          fontSize: 38, fontWeight: 900, letterSpacing: -1.2,
-          color: P.white, textAlign: 'center', lineHeight: 1.05, marginBottom: 8,
+          fontFamily: black, fontSize: 38, fontWeight: 900, letterSpacing: -1.2,
+          color: HUD.fg, textAlign: 'center', lineHeight: 1.05, marginBottom: 10,
         }}>¿Salir a ruta<br/>ahora?</div>
         <div style={{
-          fontFamily: '"Helvetica Neue", system-ui', fontSize: 15, color: P.mute,
-          textAlign: 'center', lineHeight: 1.4, maxWidth: 280,
+          fontFamily: sans, fontSize: 16, color: HUD.fg2,
+          textAlign: 'center', lineHeight: 1.45, maxWidth: 320,
         }}>
           Al salir, tu combi aparece en el mapa y empieza a emitir tu
           posición. Tu vuelta y tu brecha arrancan recién cuando pises el
@@ -2265,19 +2374,16 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
         }}>
           {tarjetas.map(([label, val]) => (
             <div key={label} style={{
-              background: P.panel, border: `1px solid ${P.line}`, borderRadius: 12,
+              background: HUD.surface, border: `1px solid ${HUD.line}`, borderRadius: 12,
               padding: '10px 12px', minWidth: 0,
             }}>
-              <div style={{
-                fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-                fontSize: 9, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase',
-              }}>{label}</div>
+              <div style={{ fontFamily: sans, fontSize: 13, fontWeight: 600, color: HUD.dim }}>{label}</div>
               {/* El nombre de una ruta es bastante más largo que "M-12": si
                   no baja de cuerpo se sale de la tarjeta en un celular. */}
               <div style={{
-                fontFamily: '"Archivo Black", system-ui',
-                fontSize: String(val).length > 10 ? 14 : 20,
-                color: P.white, letterSpacing: -0.3, lineHeight: 1.15,
+                fontFamily: black,
+                fontSize: String(val).length > 10 ? 15 : 20,
+                color: HUD.fg, letterSpacing: -0.3, lineHeight: 1.15,
                 overflowWrap: 'anywhere',
               }}>{val}</div>
             </div>
@@ -2287,34 +2393,31 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
 
       {combis.length > 1 && (
         <div data-combis style={{ marginBottom: 14 }}>
-          <div style={{
-            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-            fontSize: 10, letterSpacing: 1.5, color: P.sky, textTransform: 'uppercase', marginBottom: 8,
-          }}>¿En qué combi salís?</div>
+          <div style={{ ...rotuloPuerta, marginBottom: 8 }}>¿En qué combi sales?</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {combis.map(c => {
               const elegida = c.vehicleId === unidad;
               return (
                 <button key={c.vehicleId} data-combi={c.vehicleId} aria-pressed={elegida}
                   onClick={() => elegir(c)} disabled={eligiendo} style={{
-                    display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', width: '100%',
-                    background: elegida ? P.navy : P.panel, color: P.white, cursor: 'pointer',
-                    border: `${elegida ? 2 : 1}px solid ${elegida ? P.bright : P.line}`,
+                    display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', width: '100%', minHeight: 56,
+                    background: HUD.input, color: HUD.fg, cursor: 'pointer',
+                    border: `${elegida ? 2 : 1}px solid ${elegida ? HUD.acento : HUD.line}`,
                     borderRadius: 12, padding: elegida ? '9px 11px' : '10px 12px',
                   }}>
-                  <span style={{ fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 20, letterSpacing: -0.3 }}>{c.vehicleId}</span>
+                  <span style={{ fontFamily: black, fontSize: 20, letterSpacing: -0.3 }}>{c.vehicleId}</span>
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{
-                      display: 'block', fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10,
-                      letterSpacing: 1, color: P.sky, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      display: 'block', fontFamily: mono, fontSize: 12, fontWeight: 700, color: HUD.dim2,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                     }}>{[c.label, c.routeId !== rutaId ? c.routeName : null].filter(Boolean).join(' · ')}</span>
                     <span style={{
-                      display: 'block', fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 700,
-                      color: c.estado === 'ocupada' ? P.yellow : P.sky,
-                    }}>{c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}</span>
+                      display: 'block', fontFamily: sans, fontSize: 14, fontWeight: 700,
+                      color: c.estado === 'ocupada' ? HUD.amberTexto : HUD.fg2,
+                    }}>{c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tienes tú' : 'libre'}</span>
                   </span>
                   {elegida && (
-                    <span style={{ fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10, letterSpacing: 1.5, color: P.sky }}>ELEGIDA</span>
+                    <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 800, letterSpacing: 0.5, color: HUD.acentoTexto }}>✓ ELEGIDA</span>
                   )}
                 </button>
               );
@@ -2324,28 +2427,28 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
               un relevo, y se hace a propósito, no por un dedo que se corrió. */}
           {confirmar && (
             <div role="alert" style={{
-              marginTop: 8, background: P.panel, border: `1px solid ${P.yellow}`, borderRadius: 12, padding: 12,
+              marginTop: 8, background: HUD.burbujaWarn, border: `2px solid ${HUD.amber}`, borderRadius: 12, padding: 12,
             }}>
-              <div style={{ fontFamily: '"Helvetica Neue", system-ui', fontSize: 14, lineHeight: 1.35, color: P.white, marginBottom: 10 }}>
+              <div style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.35, color: HUD.burbujaWarnInk, marginBottom: 10 }}>
                 {confirmar.vehicleId} la está manejando <strong>{confirmar.quien}</strong>. Si es un relevo, al
-                salir a ruta la tomás vos y a {confirmar.quien} se le avisa.
+                salir a ruta la tomas tú y a {confirmar.quien} se le avisa.
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => elegir(confirmar, true)} disabled={eligiendo} style={{
-                  flex: 1, padding: '11px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
-                  background: P.yellow, color: P.bg,
-                  fontFamily: '"Archivo Black", system-ui, sans-serif', fontSize: 13, letterSpacing: 0.5,
+                  flex: 1, minHeight: 48, padding: '10px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                  background: HUD.amberTexto, color: HUD.bg,
+                  fontFamily: black, fontSize: 14, letterSpacing: 0.5,
                 }}>ES UN RELEVO</button>
                 <button onClick={() => setConfirmar(null)} style={{
-                  flex: 1, padding: '11px 8px', borderRadius: 10, cursor: 'pointer',
-                  background: 'transparent', color: P.sky, border: `1px solid ${P.line}`,
-                  fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, fontWeight: 700,
+                  flex: 1, minHeight: 48, padding: '10px 8px', borderRadius: 10, cursor: 'pointer',
+                  background: 'transparent', color: HUD.fg2, border: `1px solid ${HUD.dim3}`,
+                  fontFamily: sans, fontSize: 15, fontWeight: 700,
                 }}>Cancelar</button>
               </div>
             </div>
           )}
           {errorCombi && (
-            <div style={{ marginTop: 8, fontFamily: '"Helvetica Neue", system-ui', fontSize: 13, color: P.red }}>{errorCombi}</div>
+            <div style={{ marginTop: 8, fontFamily: sans, fontSize: 14, fontWeight: 600, color: HUD.red }}>{errorCombi}</div>
           )}
         </div>
       )}
@@ -2353,9 +2456,9 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
       <button onClick={onStart} style={{
         width: '100%', padding: '22px',
         fontSize: 24, fontWeight: 900, letterSpacing: 2.5,
-        fontFamily: '"Archivo Black", system-ui, sans-serif',
-        background: P.bright, color: P.white, border: 'none', borderRadius: 16,
-        cursor: 'pointer', boxShadow: `0 5px 0 ${P.deep}`, marginBottom: 10,
+        fontFamily: black,
+        background: HUD.acento, color: HUD.acentoInk, border: 'none', borderRadius: 16,
+        cursor: 'pointer', boxShadow: '0 4px 0 rgba(0,0,0,.28)', marginBottom: 10,
       }}>
         SALIR A RUTA →
       </button>
@@ -2363,22 +2466,21 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
       {/* Entrar AUSENTE: el que está por comer o buscando un repuesto no
           cruza la puerta mintiendo "en ruta" — declara lo que es. Despacho
           lo ve en el mapa, quieto, fuera de la cadena de brechas. */}
-      <button onClick={onRest} disabled={countdown > 0} style={{
-        width: '100%', padding: '12px',
-        fontSize: 13, fontWeight: 700, letterSpacing: 1,
-        fontFamily: '"Helvetica Neue", system-ui, sans-serif',
-        background: 'transparent',
-        color: countdown > 0 ? P.mute : P.sky,
-        border: `1px solid ${countdown > 0 ? P.line : P.deep}`,
-        borderRadius: 10, cursor: countdown > 0 ? 'not-allowed' : 'pointer',
+      <button onClick={onRest} style={{
+        width: '100%', minHeight: 48, padding: '10px 12px',
+        fontSize: 15, fontWeight: 700, letterSpacing: 0.3,
+        fontFamily: sans,
+        background: 'transparent', color: HUD.fg2,
+        border: `2px solid ${HUD.dim3}`,
+        borderRadius: 12, cursor: 'pointer',
       }}>
-        {countdown > 0 ? `Entrar AUSENTE (comer, un repuesto) · en ${countdown}s` : 'Entrar AUSENTE (comer, un repuesto)'}
+        Entrar AUSENTE (comer, un repuesto)
       </button>
 
       {/* SOS: abajo de todo, como en el HUD. El mismo deslizador. */}
       {onSos && (
         <div data-sos-puerta style={{ marginTop: 18 }}>
-          <SosSlider status="none" enableAnim={tweaks ? tweaks.microAnims : true} onFire={sos.disparar} />
+          <SosSlider onFire={sos.disparar} />
         </div>
       )}
     </div>
@@ -2391,10 +2493,77 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
 // ═══════════════════════════════════════════════════════════════
 // APP — Modos, relojes, semáforo, carrusel
 // ═══════════════════════════════════════════════════════════════
+// ¿El teléfono pide menos movimiento? (Ajustes ▸ Accesibilidad ▸ quitar
+// animaciones). Sin matchMedia, como si no.
+const MENOS_MOVIMIENTO = '(prefers-reduced-motion: reduce)';
+function pideMenosMovimiento() {
+  try { return window.matchMedia(MENOS_MOVIMIENTO).matches; } catch { return false; }
+}
+
+// ── VIGÍA DE LA AUSENCIA: copia de app/ausencia.js ──────────────────
+// AUSENTE se declara a mano y se olvida a mano: el chofer almuerza, arranca
+// y no toca VOLVER A RUTA, y trabaja invisible (sin brecha, sin vueltas). La
+// APK lo resuelve con este vigía; la web no lo tenía (auditoría de UI, N8).
+// Es la MISMA lógica, copiada porque esta página no tiene paso de build:
+// pruebas/ausencia.js corre esta copia y la original con los mismos casos,
+// y falla si dicen cosas distintas. Si se cambia una, se cambian las dos.
+const AUSENCIA = { RADIO_VOLVER_M: 300, TOPE_AUSENTE_MS: 2 * 60 * 60 * 1000, SEGUIDAS: 2, QUIETO_M: 40 };
+function crearVigiaAusencia({ radioM = AUSENCIA.RADIO_VOLVER_M, topeMs = AUSENCIA.TOPE_AUSENTE_MS, quietoM = AUSENCIA.QUIETO_M } = {}) {
+  const metros = (aLat, aLng, bLat, bLng) => {
+    const kLng = Math.cos((aLat + bLat) / 2 * Math.PI / 180);
+    return Math.hypot((bLat - aLat) * 111320, (bLng - aLng) * 111320 * kLng);
+  };
+  let ancla = null, candidata = null, desde = null, lejosSeguidas = 0;
+  return {
+    // null (nada), 'volver' (está manejando de nuevo) o 'fuera' (ya no es un almuerzo)
+    posicion(lat, lng, ts = Date.now()) {
+      if (desde === null) desde = ts;
+      if (ts - desde > topeMs) return 'fuera';
+      if (!ancla) {
+        if (candidata && metros(candidata.lat, candidata.lng, lat, lng) <= quietoM) ancla = { lat, lng };
+        else candidata = { lat, lng };
+        return null;
+      }
+      if (metros(ancla.lat, ancla.lng, lat, lng) > radioM) {
+        lejosSeguidas++;
+        if (lejosSeguidas >= AUSENCIA.SEGUIDAS) return 'volver';
+      } else {
+        lejosSeguidas = 0;
+      }
+      return null;
+    },
+    haceCuanto(ts = Date.now()) { return desde === null ? 0 : ts - desde; },
+  };
+}
+// ── FIN DEL VIGÍA DE LA AUSENCIA ───────────────────────────────────
+
+// ─── ENSAYOS (auditoría de UI, hipótesis H1 y H2) ────────────────────
+// Dos cambios del HUD que no se dejan de fábrica sin probarlos en la calle,
+// con el mismo teléfono y comparando contra lo de hoy:
+//   barra   la barra de arriba queda fija y avisa tres veces al cambiar de
+//           estado (hoy late siempre, también en verde) — B4, H1.
+//   rotulo  cuando el lado que manda cambia (ATRÁS ↔ ADELANTE), el rótulo
+//           queda resaltado 1,6 s (hoy cambia sin ninguna señal) — B6, H2.
+// Se prenden abriendo la app con `?ensayo=barra,rotulo` (o uno solo) y
+// quedan recordados en ese teléfono; `?ensayo=` los apaga. El panel de
+// diseño no sirve para esto: en un celular no se puede abrir.
+function leerEnsayos() {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    if (q.has('ensayo')) {
+      const v = (q.get('ensayo') || '').trim();
+      if (v) localStorage.setItem('r14_ensayo', v); else localStorage.removeItem('r14_ensayo');
+    }
+    return new Set((localStorage.getItem('r14_ensayo') || '').split(',').map(s => s.trim()).filter(Boolean));
+  } catch { return new Set(); }
+}
+const ENSAYOS = leerEnsayos();
+
 const DEFAULT_TWEAKS = {
   frontTime: '02:15', backTime: '01:40',
   front2Time: '04:30', back2Time: '03:35',
-  targetGap: 2, mode: 'day', microAnims: true,
+  targetGap: 2, mode: 'day', microAnims: !pideMenosMovimiento(),
+  barraFija: ENSAYOS.has('barra'), rotuloResalta: ENSAYOS.has('rotulo'),
   startPage: 1, initialScreen: 'login',
   currentStop: 'Tumbes', nextStop: 'Lambayeque', avgSpeed: 28,
 };
@@ -2421,41 +2590,41 @@ function computeStatus(front, back, target) {
 }
 
 
-function AnimatedDigit({ ch, fontSize, color, enableAnim }) {
-  const prev = React.useRef(ch);
-  const [anim, setAnim] = React.useState(false);
-  React.useEffect(() => {
-    if (prev.current !== ch && enableAnim) {
-      setAnim(true);
-      const t = setTimeout(() => setAnim(false), 260);
-      return () => clearTimeout(t);
-    }
-    prev.current = ch;
-  }, [ch, enableAnim]);
+// Un dígito en su caja: el ancho fijo evita que el número baile cuando
+// cambia un dígito (fontVariantNumeric no alcanza con Archivo Black).
+function Digito({ ch, fontSize, color }) {
   return (
     <span style={{
       display: 'inline-block',
       minWidth: ch === ':' ? fontSize * 0.35 : fontSize * 0.62,
       textAlign: 'center', color,
-      transform: anim ? 'translateY(-2px)' : 'translateY(0)',
-      opacity: anim ? 0.85 : 1,
-      transition: 'transform 0.22s cubic-bezier(.2,.8,.2,1), opacity 0.22s',
     }}>{ch}</span>
   );
 }
 
-// Fila de dígitos héroe/secundario con la micro-animación por carácter
-function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) {
+// Los dígitos del héroe y del secundario. Antes cada dígito que cambiaba
+// saltaba 2 px y se atenuaba a 0,85: la brecha cambia cada pocos segundos
+// todo el turno, así que el número se atenuaba justo cuando traía el dato
+// nuevo (y comparaba contra un valor viejo: `prev` no se actualizaba al
+// animar). Ahora el número se queda quieto, y crece UNA vez, 320 ms, sólo
+// cuando cambia el ESTADO (verde → ámbar → rojo): es lo único que el chofer
+// tiene que notar de reojo (auditoría de UI, B5).
+function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim, estado }) {
+  const previo = React.useRef(estado);
+  const cambio = !!enableAnim && previo.current !== estado;
+  React.useEffect(() => { previo.current = estado; }, [estado]);
   return (
-    <div style={{
+    <div key={cambio ? 'cambio-' + estado : 'quieto'} style={{
       fontFamily: '"Archivo Black", system-ui, sans-serif',
       fontSize, lineHeight: 0.95, letterSpacing,
       textShadow: glow,
       fontVariantNumeric: 'tabular-nums',
       display: 'flex', maxWidth: '100%',
+      transformOrigin: 'left center',
+      animation: cambio ? 'cambioEstado 320ms cubic-bezier(0, 0, .2, 1)' : 'none',
     }}>
       {value.split('').map((ch, i) => (
-        <AnimatedDigit key={i} ch={ch} fontSize={fontSize} color={color} enableAnim={enableAnim} />
+        <Digito key={i} ch={ch} fontSize={fontSize} color={color} />
       ))}
     </div>
   );
@@ -2464,9 +2633,17 @@ function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim }) 
 // Pantalla RUTA — propuesta 2a "Temporizador".
 // Un solo dato dominante: la unidad más desviada del objetivo. El color de
 // estado tiñe el halo, la barra superior y el lavado de fondo.
-function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFireSos, presencia, onPresencia, miEstado, onTrafico }) {
-  const hud = buildHudModel(tweaks, gapMeta);
+// Cuánto espera «¿SEGURO? TOCA DE NUEVO» antes de aceptar el segundo toque
+const ARMA_SALIR_MS = 600;
+// AUSENTE saca de la cadena y descarta la vuelta en curso: un toque sin
+// querer costaba la vuelta. Se avisa al servidor recién pasados estos
+// segundos, y mientras tanto se puede deshacer (auditoría de UI, B3).
+const DESHACER_AUSENTE_MS = 5000;
+
+function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gpsRole, onFireSos, presencia, onPresencia, miEstado, onTrafico }) {
+  const hud = buildHudModel(tweaks, gapMeta, comoSeMide);
   const { hero, sec, target } = hud;
+  const haceCuanto = fmtDur(Math.floor(hud.edad / 1000));
 
   // "Salir de ruta" pide un segundo toque, y el pedido caduca solo: quedar
   // armado para siempre convierte el próximo toque distraído en una salida.
@@ -2476,6 +2653,24 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
     const t = setTimeout(() => setConfirmarSalida(false), 4000);
     return () => clearTimeout(t);
   }, [confirmarSalida]);
+  // Y el segundo toque cuenta recién a los 0,6 s: el primero arma al
+  // instante y el botón cambia de función en el mismo lugar, así que un
+  // rebote del dedo con la combi en marcha alcanzaba para salir. Despacho ya
+  // arma así la baja (700 ms) y ATENDIDO (1200 ms) (auditoría de UI, N2).
+  const armadoEn = React.useRef(0);
+
+  // AUSENTE con «Deshacer»: `ausenteEn` es cuándo se tocó; a los 5 s se
+  // declara. Desmontar la pantalla (cerrar sesión) lo cancela.
+  const [ausenteEn, setAusenteEn] = React.useState(null);
+  const [, setTic] = React.useState(0);
+  React.useEffect(() => {
+    if (!ausenteEn) return;
+    const reloj = setInterval(() => setTic(n => n + 1), 250);
+    const t = setTimeout(() => { setAusenteEn(null); onPresencia && onPresencia('ausente'); },
+      Math.max(0, DESHACER_AUSENTE_MS - (Date.now() - ausenteEn)));
+    return () => { clearInterval(reloj); clearTimeout(t); };
+  }, [ausenteEn]);
+  const faltaAusente = ausenteEn ? Math.max(1, Math.ceil((DESHACER_AUSENTE_MS - (Date.now() - ausenteEn)) / 1000)) : 0;
 
   // Sobre fondo claro (día y sol extremo) el halo no funciona: el dígito va
   // sólido, con el color de estado como tinta. Los tokens ya vienen del tema.
@@ -2488,9 +2683,25 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   const dim2 = HUD.dim2;
   const dim3 = HUD.dim3;
   const glow = (spec) => sun ? 'none' : spec;
+  const botonHud = {
+    width: '100%', height: 'clamp(46px, 7vh, 56px)', borderRadius: 14, cursor: 'pointer',
+    padding: '0 10px', fontSize: 16, fontWeight: 800, letterSpacing: 0.5, lineHeight: 1.15,
+    fontFamily: 'system-ui, sans-serif',
+  };
 
   // Cadencia de la barra superior según urgencia (tomada del semáforo viejo)
   const edgeDur = hero.status === 'red' ? '0.8s' : hero.status === 'yellow' ? '1.4s' : '2.4s';
+  // Ensayo «barra» (B4): fija, y tres latidos sólo cuando cambia el estado
+  const estadoPrevio = React.useRef(hero.status);
+  const estadoCambio = estadoPrevio.current !== hero.status;
+  React.useEffect(() => { estadoPrevio.current = hero.status; }, [hero.status]);
+  const animBarra = !tweaks.microAnims || hud.viejo ? 'none'
+    : !tweaks.barraFija ? `combiEdge ${edgeDur} ease-in-out infinite`
+    : estadoCambio ? 'avisoBarra .6s ease-in-out 3' : 'none';
+  // Ensayo «rotulo» (B6): el rótulo del lado que manda se resalta al cambiar
+  const ladoPrevio = React.useRef(hero.label);
+  const ladoCambio = ladoPrevio.current !== hero.label;
+  React.useEffect(() => { ladoPrevio.current = hero.label; }, [hero.label]);
 
   // Instrucción: qué hacer con la brecha, en una línea
   const heroIsBack = hero === hud.back;
@@ -2498,34 +2709,36 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
   const speedUp = heroIsBack ? dev < 0 : dev > 0;
   // Sin contra qué medirse no se da una instrucción, pero el motivo cambia
   // todo lo que hay que decir. Con una unidad sin señal, callarse o decir
-  // "sos la única" sería peor que no mostrar nada: hay una combi adelante
+  // "eres la única" sería peor que no mostrar nada: hay una combi adelante
   // que el chofer no ve en el mapa, y manejar como si no estuviera es
   // exactamente lo que hay que evitar.
   const sinSenalCerca = hud.front.sinSenal || hud.back.sinSenal;
   // El de ADELANTE trabado manda sobre todo lo demás: la brecha contra él
-  // crece sola mientras está parado y la cuenta de siempre diría «apurá» —
+  // crece sola mientras está parado y la cuenta de siempre diría «apura» —
   // apurar hacia un embotellamiento es el pelotón que este sistema existe
   // para evitar. El de ATRÁS trabado no es un peligro: se dice, ritmo normal.
   // Mismas frases que `instruccionDe` en app/hud.js.
   // AUSENTE y YENDO, como en la app nativa. Sin esto el ausente leía
-  // «Sos la única unidad en ruta» (está fuera de la cadena: nadie se mide
+  // «Eres la única unidad en ruta» (está fuera de la cadena: nadie se mide
   // contra él), y el que acaba de salir y todavía no pisó el trazado, lo
   // mismo — que se lee como una falla del sistema.
   const ausente = presencia === 'ausente';
   const yendo = !ausente && presencia === 'ruta' && connected && miEstado?.confirmada === false;
-  const instruction = yendo
+  const instruction = hud.viejo
+    ? (hero.vacio ? `Sin datos nuevos desde hace ${haceCuanto}.` : `Brecha de hace ${haceCuanto}. Puede haber cambiado.`)
+    : yendo
     ? 'YENDO A LA RUTA: tu brecha y tu vuelta arrancan al pisar el trazado.'
     : hud.front.enTrafico
-    ? `${hud.front.unit} ${hud.front.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada'} ${hud.front.traficoMin} min. Mantené: no te apures hacia el embotellamiento.`
+    ? `${hud.front.unit} ${hud.front.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada'} ${hud.front.traficoMin} min. Mantén: no te apures hacia el embotellamiento.`
     : hud.back.enTrafico
-      ? `${hud.back.unit} (atrás) ${hud.back.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${hud.back.traficoMin} min. Mantené el ritmo.`
+      ? `${hud.back.unit} (atrás) ${hud.back.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${hud.back.traficoMin} min. Mantén el ritmo.`
     : hero.sinSenal
-    ? `${hero.unit} se quedó sin señal. Andá con cuidado: sigue en ruta.`
+    ? `${hero.unit} se quedó sin señal. Ve con cuidado: sigue en ruta.`
     : hero.vacio
-      ? (sinSenalCerca ? 'Sin brecha para medir por ahora.' : 'Sos la única unidad en ruta.')
+      ? (sinSenalCerca ? 'Sin brecha para medir por ahora.' : 'Eres la única unidad en ruta.')
       : hero.status === 'green'
-        ? `Mantené el ritmo. Objetivo ${fmtTarget(target)}.`
-        : `${speedUp ? 'Apurá' : 'Aflojá'} un poco. Objetivo ${fmtTarget(target)}.`;
+        ? `Mantén el ritmo. Objetivo ${fmtTarget(target)}.`
+        : `${speedUp ? 'Apura' : 'Afloja'} un poco. Objetivo ${fmtTarget(target)}.`;
 
   return (
     <div style={{
@@ -2542,11 +2755,11 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         }} />
       )}
       {/* barra de borde superior — pulsa con la urgencia */}
-      <div style={{
+      <div key={tweaks.barraFija && estadoCambio ? 'aviso-' + hero.status : 'barra'} style={{
         position: 'absolute', top: 0, left: 0, right: 0, height: 6,
         background: stateColor,
         boxShadow: sun ? 'none' : `0 0 26px ${stateColor}`,
-        animation: tweaks.microAnims ? `combiEdge ${edgeDur} ease-in-out infinite` : 'none',
+        animation: animBarra,
       }} />
 
       {/* header: en vivo + velocidad */}
@@ -2558,21 +2771,23 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{
             width: 9, height: 9, borderRadius: '50%',
-            background: connected ? HUD.green : HUD.amber,
-            boxShadow: sun ? 'none' : `0 0 10px ${connected ? HUD.green : HUD.amber}`,
+            background: connected && !hud.viejo ? HUD.green : HUD.amber,
+            boxShadow: sun ? 'none' : `0 0 10px ${connected && !hud.viejo ? HUD.green : HUD.amber}`,
           }} />
           <span style={{
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
             fontSize: 15, fontWeight: 700, letterSpacing: 0.5, color: dim,
-          }}>{connected ? `EN VIVO · ${unitsOnRoute}` : 'SIMULADO'}</span>
+            ...(hud.viejo ? { color: HUD.amberTexto } : {}),
+          }}>{hud.viejo ? `SIN SEÑAL · ${haceCuanto}`
+            : connected || hud.vivo ? `EN VIVO · ${unitsOnRoute}` : 'SIMULADO'}</span>
           {/* Acompañante: la posición de la combi la manda el celular del
               chofer. Sin este aviso, el cobrador creería que su GPS falla. */}
           {connected && gpsRole && gpsRole.reporting === false && (
             <span title={gpsRole.reason || 'La posición la reporta el chofer'} style={{
               fontFamily: 'JetBrains Mono, ui-monospace, monospace',
               fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
-              color: sun ? '#5A7A99' : HUD.dim2,
-              border: `1px solid ${sun ? '#C8D8E8' : '#232b36'}`,
+              color: HUD.dim2,
+              border: `1px solid ${HUD.chipBorde}`,
               borderRadius: 5, padding: '2px 6px',
             }}>ACOMPAÑANTE</span>
           )}
@@ -2580,7 +2795,8 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
           <span style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
-            fontSize: 26, color: sun ? P.navy : HUD.fg,
+            // la velocidad también la manda el servidor: vieja, en gris (N1)
+            fontSize: 26, color: hud.viejo ? HUD.dim3 : sun ? P.navy : HUD.fg,
             fontVariantNumeric: 'tabular-nums',
           }}>{tweaks.avgSpeed}</span>
           <span style={{ fontSize: 15, fontWeight: 700, color: dim, fontFamily: 'system-ui, sans-serif' }}>km/h</span>
@@ -2588,7 +2804,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
       </div>
 
       {/* AUSENTE: fuera de la cadena. No hay brecha que mostrar y decir
-          «sin nadie» sería mentir: hay gente, sólo que no se mide contra vos. */}
+          «sin nadie» sería mentir: hay gente, sólo que no se mide contra ti. */}
       {ausente && (
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
@@ -2599,27 +2815,56 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
             fontSize: 30, letterSpacing: 1, color: HUD.amber,
           }}>AUSENTE</div>
           <div style={{
-            fontSize: 16, lineHeight: 1.5, color: sun ? '#3D5C7A' : '#93AAC2',
+            fontSize: 16, lineHeight: 1.5, color: HUD.ins,
             marginTop: 10, fontFamily: 'system-ui, sans-serif',
           }}>
-            Estás fuera de la cadena: nadie se mide contra vos y tu vuelta quedó
-            descartada. Despacho te sigue viendo en el mapa. Para volver, tocá
+            Estás fuera de la cadena: nadie se mide contra ti y tu vuelta quedó
+            descartada. Despacho te sigue viendo en el mapa. Para volver, toca
             VOLVER A RUTA arriba.
           </div>
         </div>
       )}
 
+      {/* Un minuto sin datos: el número se retira. Queda la última brecha,
+          como dato y no como instrucción. */}
+      {!ausente && hud.perdido && (
+        <div data-sin-senal style={{
+          flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+          padding: '0 18px', position: 'relative', minHeight: 0,
+        }}>
+          <div style={{
+            fontFamily: '"Archivo Black", system-ui, sans-serif',
+            fontSize: 30, letterSpacing: 1, color: HUD.amberTexto,
+          }}>SIN SEÑAL</div>
+          <div style={{
+            fontSize: 17, lineHeight: 1.5, color: HUD.fg2,
+            marginTop: 10, fontFamily: 'system-ui, sans-serif',
+          }}>
+            No veo a las otras combis desde hace <strong>{haceCuanto}</strong>.
+            Ve con cuidado: siguen en ruta.
+          </div>
+          <div style={{
+            marginTop: 18, paddingTop: 14, borderTop: `1px solid ${HUD.divider}`,
+            fontSize: 15, fontWeight: 700, color: HUD.dim2, fontFamily: 'system-ui, sans-serif',
+          }}>
+            Última brecha: {[hud.back.vacio ? null : `${hud.back.display} atrás`, hud.front.vacio ? null : `${hud.front.display} adelante`].filter(Boolean).join(' · ') || 'ninguna'}
+          </div>
+        </div>
+      )}
+
       {/* bloque héroe */}
-      {!ausente && (
+      {!ausente && !hud.perdido && (
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
         padding: '0 18px', position: 'relative', minHeight: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-          <span style={{
+          <span key={tweaks.rotuloResalta && ladoCambio ? 'lado-' + hero.label : 'lado'} style={{
             fontFamily: '"Archivo Black", system-ui, sans-serif',
             fontSize: 19, letterSpacing: 1, color: stateColor,
             textShadow: glow(`0 0 14px ${stateColor}`),
+            borderRadius: 6, padding: '2px 6px', margin: '-2px -6px',
+            animation: tweaks.rotuloResalta && ladoCambio ? 'marcaLado 1.6s linear' : 'none',
           }}>{hero.label}</span>
           <span style={{ fontSize: 15, fontWeight: 700, color: dim2, fontFamily: 'system-ui, sans-serif' }}>
             {rotuloLado(hero)}
@@ -2637,16 +2882,17 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
               letterSpacing={-5}
               glow={glow(`0 0 8px ${stateColor}, 0 0 26px ${stateColor}, 0 0 70px ${stateColor}, 0 0 130px ${stateColor}`)}
               enableAnim={tweaks.microAnims}
+              estado={hero.status}
             />
           </div>
         )}
         <div style={{
-          fontSize: 16, lineHeight: 1.5, color: yendo ? HUD.amber : sun ? '#3D5C7A' : '#93AAC2',
+          fontSize: 16, lineHeight: 1.5, color: yendo ? HUD.amberTexto : HUD.ins,
           fontWeight: yendo ? 700 : 400,
           marginTop: 10, fontFamily: 'system-ui, sans-serif',
         }}>{instruction}</div>
 
-        <div style={{ height: 1, background: sun ? '#C9D8E6' : HUD.divider, margin: '26px 0 20px' }} />
+        <div style={{ height: 1, background: HUD.divisorHud, margin: '26px 0 20px' }} />
 
         {/* secundario: el otro lado, subordinado */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
@@ -2654,7 +2900,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <span style={{
                 fontFamily: '"Archivo Black", system-ui, sans-serif',
-                fontSize: 17, color: sun ? '#3D5C7A' : '#A9C0D6',
+                fontSize: 17, color: HUD.secundario,
               }}>{sec.label}</span>
               <span style={{ fontSize: 15, fontWeight: 700, color: dim2, fontFamily: 'system-ui, sans-serif' }}>
                 {rotuloLado(sec)}
@@ -2669,6 +2915,7 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
                   letterSpacing={-2}
                   glow={glow(`0 0 16px ${secColor}8C`)}
                   enableAnim={tweaks.microAnims}
+                  estado={sec.status}
                 />
               </div>
             )}
@@ -2713,51 +2960,73 @@ function CenterScreen({ tweaks, gapMeta, connected, unitsOnRoute, gpsRole, onFir
         </div>
       )}
 
+      {/* Los tres botones del turno (auditoría UI B3). Se tocan manejando:
+          16 px y una altura que llega a 56 px; en un celular bajo (640 px)
+          baja a 46, porque si no el número de brecha se recorta. El borde
+          ámbar queda sólo para «tráfico»: AUSENTE y SALIR DE RUTA, las dos
+          que te sacan de la cadena, van en contorno neutro. */}
       {/* La presencia, igual que en la app nativa: AUSENTE saca de la
           cadena sin salir del mapa; SALIR DE RUTA borra del mapa en el
           acto — y por eso pide un segundo toque: apretarlo sin querer a
           mitad de vuelta te saca del mapa de todos. */}
       {/* «Estoy en tráfico», de un toque, como en la app nativa: al de atrás
-          le cambia la instrucción a «mantené». Si el servidor ya vio la
+          le cambia la instrucción a «mantén». Si el servidor ya vio la
           parada, el botón pregunta. Se apaga solo al andar (C16). */}
       {onTrafico && !ausente && (
         <div style={{ padding: '0 18px 8px' }}>
           <button data-noswipe="trafico" onClick={() => onTrafico(!miEstado?.trafico)} style={{
-            width: '100%', height: 42, borderRadius: 12, cursor: 'pointer',
-            border: `1px solid ${HUD.amber}`,
-            background: miEstado?.trafico ? HUD.amber : 'transparent',
-            color: miEstado?.trafico ? HUD.bg : HUD.amber,
-            fontSize: 12, fontWeight: 800, letterSpacing: 1,
-            fontFamily: 'system-ui, sans-serif',
-          }}>{miEstado?.trafico ? 'EN TRÁFICO · TOCÁ PARA QUITAR' : miEstado?.parado ? '¿ESTÁS EN TRÁFICO? · TOCÁ PARA AVISAR' : 'ESTOY EN TRÁFICO'}</button>
+            ...botonHud, border: `2px solid ${HUD.amber}`,
+            background: miEstado?.trafico ? HUD.amberTexto : 'transparent',
+            color: miEstado?.trafico ? HUD.bg : HUD.amberTexto,
+          }}>{miEstado?.trafico ? 'EN TRÁFICO · TOCA PARA QUITAR' : miEstado?.parado ? '¿ESTÁS EN TRÁFICO? · TOCA PARA AVISAR' : 'ESTOY EN TRÁFICO'}</button>
         </div>
       )}
-      {onPresencia && (
+      {/* Pasando a AUSENTE: se puede deshacer hasta que se avisa */}
+      {onPresencia && ausenteEn && (
+        <div data-deshacer-ausente style={{ padding: '0 18px 10px', position: 'relative' }}>
+          <div style={{
+            ...botonHud, cursor: 'default', position: 'relative', overflow: 'hidden',
+            display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px 0 14px',
+            background: HUD.burbujaWarn, border: `2px solid ${HUD.amber}`,
+          }}>
+            <span key={ausenteEn} style={{
+              position: 'absolute', inset: 0, background: HUD.amber, opacity: 0.16,
+              transformOrigin: 'left', animation: `vaciar ${DESHACER_AUSENTE_MS}ms linear forwards`,
+            }} />
+            <span role="status" style={{ flex: 1, position: 'relative', color: HUD.burbujaWarnInk, fontSize: 15, fontWeight: 700, letterSpacing: 0 }}>
+              Pasas a AUSENTE en {faltaAusente} s
+            </span>
+            <button data-noswipe="presencia" onClick={() => setAusenteEn(null)} style={{
+              position: 'relative', height: 'calc(100% - 8px)', padding: '0 16px', borderRadius: 10, border: 'none',
+              background: HUD.amberTexto, color: HUD.bg, cursor: 'pointer',
+              fontSize: 15, fontWeight: 800, letterSpacing: 0.5, fontFamily: 'system-ui, sans-serif',
+            }}>DESHACER</button>
+          </div>
+        </div>
+      )}
+      {onPresencia && !ausenteEn && (
         <div style={{ padding: '0 18px 10px', position: 'relative', display: 'flex', gap: 8 }}>
-          {!ausente && <button data-noswipe="presencia" onClick={() => onPresencia('ausente')} style={{
-            flex: 1, height: 42, borderRadius: 12, cursor: 'pointer',
-            border: `1px solid ${HUD.amber}`, background: 'transparent',
-            color: HUD.amber, fontSize: 12, fontWeight: 800, letterSpacing: 1,
-            fontFamily: 'system-ui, sans-serif',
+          {!ausente && <button data-noswipe="presencia" onClick={() => setAusenteEn(Date.now())} style={{
+            ...botonHud, flex: 1, width: 'auto',
+            border: `2px solid ${HUD.dim3}`, background: 'transparent', color: HUD.fg2,
           }}>AUSENTE</button>}
           <button data-noswipe="presencia" onClick={() => {
-            if (!confirmarSalida) { setConfirmarSalida(true); return; }
+            if (!confirmarSalida) { armadoEn.current = Date.now(); setConfirmarSalida(true); return; }
+            if (Date.now() - armadoEn.current < ARMA_SALIR_MS) return;   // el mismo toque, rebotando
             setConfirmarSalida(false);
             onPresencia('fuera');
           }} style={{
-            flex: 1.4, height: 42, borderRadius: 12, cursor: 'pointer',
-            border: `1px solid ${confirmarSalida ? HUD.red : HUD.line}`,
+            ...botonHud, flex: 1.4, width: 'auto',
+            border: `2px solid ${confirmarSalida ? HUD.red : HUD.dim3}`,
             background: confirmarSalida ? HUD.red : 'transparent',
-            color: confirmarSalida ? '#fff' : HUD.dim2,
-            fontSize: 12, fontWeight: 800, letterSpacing: 1,
-            fontFamily: 'system-ui, sans-serif',
-          }}>{confirmarSalida ? '¿SEGURO? TOCÁ DE NUEVO' : 'SALIR DE RUTA'}</button>
+            color: confirmarSalida ? HUD.sobreRojo : HUD.fg2,
+          }}>{confirmarSalida ? '¿SEGURO? TOCA DE NUEVO' : 'SALIR DE RUTA'}</button>
         </div>
       )}
 
       {/* SOS */}
       <div style={{ padding: '0 18px 26px', position: 'relative' }}>
-        <SosSlider status={hero.status} enableAnim={tweaks.microAnims} onFire={onFireSos} />
+        <SosSlider onFire={onFireSos} />
       </div>
     </div>
   );
@@ -2774,9 +3043,28 @@ function textoSmsSos({ combi, nombre, pos }) {
   const donde = pos
     ? ` Estoy en ${pos.lat.toFixed(5)},${pos.lng.toFixed(5)} https://maps.google.com/?q=${pos.lat.toFixed(5)},${pos.lng.toFixed(5)}`
     : ' No tengo mi posición.';
-  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet).`;
+  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet o sin respuesta del servidor).`;
 }
 const urlSms = (numero, texto) => `sms:${numero}?body=${encodeURIComponent(texto)}`;
+
+// El HUD se re-dibuja con cada estado que llega. Si dejan de llegar, nada lo
+// re-dibujaría: esto lo despierta a los 10 s y después cada segundo, para
+// que el «hace 0:24» avance. Con el dato fresco no corre ningún reloj.
+function usarAhoraSiEnvejece(recibido) {
+  const [ahora, setAhora] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (!recibido) return;
+    setAhora(Date.now());
+    let t;
+    const programar = () => {
+      const edad = Date.now() - recibido;
+      t = setTimeout(() => { setAhora(Date.now()); programar(); }, edad < VIEJA_MS ? VIEJA_MS - edad + 50 : 1000);
+    };
+    programar();
+    return () => clearTimeout(t);
+  }, [recibido]);
+  return ahora;
+}
 
 function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, combi, persona, nombre, central, connected, gpsRole, trazado, messages, onSendText, onSendVoice, onSos, presencia, onPresencia, totalOnRoute, miEstado, onTrafico }) {
   // mapMounted: true la primera vez que el usuario llega a la página del mapa.
@@ -2870,7 +3158,9 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
   }, [dragging, page, dragDx]);
 
   const sun = !HUD.resplandor;   // fondo claro (día o sol extremo)
-  const hud = buildHudModel(tweaks, gapMeta);
+  const ahora = usarAhoraSiEnvejece(gapMeta?.recibido);
+  const comoSeMide = { ahora, fiable: !gpsRole || gpsRole.reporting !== false, conectado: connected };
+  const hud = buildHudModel(tweaks, gapMeta, comoSeMide);
   // Las que están EN LA CADENA, contadas por el servidor (`totalOnRoute`
   // excluye ausentes y «yendo»), el mismo número que Despacho. Antes se
   // contaba `otherUnits + 1` y los dos paneles decían cosas distintas (C17).
@@ -2917,6 +3207,7 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
           <CenterScreen
             tweaks={tweaks}
             gapMeta={gapMeta}
+            comoSeMide={comoSeMide}
             connected={connected}
             unitsOnRoute={unitsOnRoute}
             gpsRole={gpsRole}
@@ -2926,6 +3217,7 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
               if (r && r.ok) { setEmergencyFired(true); setSosFallo(false); }
               else setSosFallo({ en: Date.now(), pos: window.RealtimeClient && window.RealtimeClient.posicionReciente
                 ? window.RealtimeClient.posicionReciente() : null });
+              return !!(r && r.ok);   // el deslizador pinta ✓ sólo con esto en true
             }}
             presencia={presencia}
             onPresencia={onPresencia}
@@ -2958,11 +3250,13 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
         </div>
       )}
 
-      {/* dots de navegación — fuera del área del dato, sin etiqueta apilada */}
+      {/* dots de navegación — fuera del área del dato, sin etiqueta apilada.
+          Zonas de 44×44 (eran 44×36): se tocan con el teléfono en el soporte
+          (auditoría de UI, B11). */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0,
         display: 'flex', justifyContent: 'center', alignItems: 'center',
-        gap: 8, zIndex: 10, height: 36,
+        gap: 8, zIndex: 10, height: 44,
       }}>
         {[0,1,2].map(i => (
           <button key={i} aria-label={['Chat', 'Brechas', 'Mapa'][i]}
@@ -2970,7 +3264,7 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => { e.stopPropagation(); goToPage(i); }}
             style={{
-              width: 44, height: 36,
+              width: 44, height: 44,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: 'transparent', border: 'none',
               cursor: 'pointer', padding: 0,
@@ -2980,7 +3274,7 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
             <div style={{
               width: i === page ? 24 : 10, height: 10, borderRadius: 5,
               background: i === page ? P.bright : HUD.line,
-              transition: 'all 0.3s',
+              transition: 'width .3s ease, background-color .3s ease',
               pointerEvents: 'none',
             }} />
           </button>
@@ -2993,13 +3287,13 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
           deshace con otro. Fondo de tarjeta porque sobre el mapa no hay. */}
       {onModo && (
         <button data-tema={tweaks.mode}
-          aria-label={`Tema: ${ETIQUETA_MODO[tweaks.mode] || 'DÍA'}. Tocá para cambiar`}
+          aria-label={`Tema: ${ETIQUETA_MODO[tweaks.mode] || 'DÍA'}. Toca para cambiar`}
           onClick={(e) => { e.stopPropagation(); onModo(siguienteModo(tweaks.mode)); }}
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
           style={{
             position: 'absolute', top: 0, right: 6, zIndex: 10,
-            height: 36, minWidth: 64, padding: '0 4px',
+            height: 44, minWidth: 64, padding: '0 4px',
             display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
             background: 'transparent', border: 'none', cursor: 'pointer',
             WebkitTapHighlightColor: 'transparent',
@@ -3007,11 +3301,18 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
         >
           <span style={{
             fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-            fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: HUD.dim2,
+            fontSize: 12, fontWeight: 700, letterSpacing: 1.5, color: HUD.dim2,
             background: HUD.tarjeta, border: `1px solid ${HUD.line}`, borderRadius: 6,
             padding: '4px 8px', pointerEvents: 'none',
           }}>{ETIQUETA_MODO[tweaks.mode] || 'DÍA'}</span>
         </button>
+      )}
+      {/* Un ensayo prendido se ve: quien compara tiene que saber cuál mira */}
+      {(tweaks.barraFija || tweaks.rotuloResalta) && (
+        <span data-ensayo style={{
+          position: 'absolute', top: 7, left: 10, zIndex: 10, pointerEvents: 'none',
+          fontFamily: 'system-ui, sans-serif', fontSize: 12, fontWeight: 700, color: HUD.dim2,
+        }}>ENSAYO · {[tweaks.barraFija && 'barra', tweaks.rotuloResalta && 'rótulo'].filter(Boolean).join(' + ')}</span>
       )}
     </div>
   );
@@ -3164,6 +3465,18 @@ function TweaksPanel({ tweaks, setTweaks, visible, onNav, currentScreen }) {
         />
       </TweakRow>
 
+      {/* Los ensayos de la auditoría de UI (H1, H2): lo mismo que ?ensayo= */}
+      <TweakRow label="Barra de arriba (ensayo B4)">
+        <Seg value={tweaks.barraFija ? 'fija' : 'late'} onChange={v => update({ barraFija: v === 'fija' })}
+          options={[{ v: 'late', l: 'Late siempre' }, { v: 'fija', l: 'Fija, avisa al cambiar' }]}
+        />
+      </TweakRow>
+      <TweakRow label="Cambio de lado (ensayo B6)">
+        <Seg value={tweaks.rotuloResalta ? 'si' : 'no'} onChange={v => update({ rotuloResalta: v === 'si' })}
+          options={[{ v: 'no', l: 'Sin señal' }, { v: 'si', l: 'Resaltar el rótulo' }]}
+        />
+      </TweakRow>
+
       <div style={{
         fontFamily: 'ui-monospace, monospace', fontSize: 9, color: '#555', lineHeight: 1.5, marginTop: 8,
       }}>
@@ -3201,6 +3514,14 @@ function Root() {
   }, [tweaks.mode]);
   const tema = temaDe(tweaks.mode, deNoche);
 
+  // Si el chofer cambia la preferencia con la app abierta, se sigue en el acto
+  React.useEffect(() => {
+    let mq; try { mq = window.matchMedia(MENOS_MOVIMIENTO); } catch { return; }
+    const seguir = (e) => setTweaks(t => ({ ...t, microAnims: !e.matches }));
+    if (mq.addEventListener) mq.addEventListener('change', seguir); else mq.addListener(seguir);
+    return () => { if (mq.removeEventListener) mq.removeEventListener('change', seguir); else mq.removeListener(seguir); };
+  }, []);
+
   // Los tokens del tema se aplican ANTES de renderizar los hijos: HUD es un
   // objeto que se muta, así que tiene que estar en su valor final cuando las
   // pantallas lo leen. Es idempotente, no importa que corra en cada render.
@@ -3214,6 +3535,8 @@ function Root() {
     r.setProperty('--pag-fg', HUD.resplandor ? '#eee' : HUD.fg);
     r.setProperty('--pag-dim', HUD.resplandor ? '#888' : HUD.dim2);
     r.setProperty('--pag-dim2', HUD.resplandor ? '#666' : HUD.dim3);
+    r.setProperty('--marca-lado', HUD.burbujaWarn);
+    r.setProperty('--marca-lado-borde', HUD.warnEdge);
   }, [tweaks.mode, tema]);
   const [tweaksVisible, setTweaksVisible] = React.useState(false);
   // En el teléfono no hay marco: los avisos de arriba van pegados al borde
@@ -3239,6 +3562,9 @@ function Root() {
   const [sosPropio, setSosPropio] = React.useState(null);
   // «Despacho vio tu SOS» (31/10): lo primero que quiere saber el que pidió
   // ayuda. Queda hasta que lo toca; los ya cerrados no vuelven al reconectar.
+  // Dice «lo vio» y no «lo marcó atendido»: el botón ATENDIDO de Despacho
+  // garantiza que alguien lo vio, no que la ayuda va en camino, y a quien la
+  // está esperando las dos palabras le prometen cosas distintas (auditoría N9).
   const [sosVisto, setSosVisto] = React.useState(null);
   // El teléfono de la central (PENDIENTES 0.5): el de la sesión guardada —que
   // es lo que hay sin internet— y, si se puede, el de ahora. En su propio
@@ -3302,8 +3628,32 @@ function Root() {
     } catch {}
     if (window.RealtimeClient) window.RealtimeClient.setPresencia(nueva, motivo);
   };
-  // «Saliste a ruta solo»: se ve arriba unos segundos al entrar a la pantalla
+  // «Saliste a ruta solo» / «Volviste a ruta»: se ve arriba unos segundos
   const [avisoSalida, setAvisoSalida] = React.useState(null);
+
+  // El vigía de la ausencia (N8). Mira la última posición del GPS cada 5 s
+  // mientras esté AUSENTE: si se aleja del lugar donde quedó parado, volvió a
+  // manejar y vuelve a ruta solo; si la ausencia pasa las dos horas, ya no es
+  // un almuerzo y sale de ruta. Cada ausencia ancla de nuevo.
+  React.useEffect(() => {
+    if (presencia !== 'ausente' || screen !== 'app' || user?.role === 'collector') return;
+    const vigia = crearVigiaAusencia();
+    let ultima = null;
+    const t = setInterval(() => {
+      const pos = window.RealtimeClient && window.RealtimeClient.posicionReciente();
+      if (!pos || (ultima && pos.t === ultima)) return;   // la misma lectura no cuenta dos veces
+      ultima = pos.t;
+      const accion = vigia.posicion(pos.lat, pos.lng, Date.now());
+      if (accion === 'volver') {
+        declararPresencia('ruta', 'auto');
+        setAvisoSalida({ titulo: 'VOLVISTE A RUTA', texto: 'Te vimos en movimiento estando AUSENTE. Si no estás manejando, toca AUSENTE de nuevo.' });
+      } else if (accion === 'fuera') {
+        declararPresencia('fuera');
+        setScreen('start');
+      }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [presencia, screen, user?.role]);
   React.useEffect(() => {
     if (!avisoSalida) return;
     const t = setTimeout(() => setAvisoSalida(null), 12_000);
@@ -3435,7 +3785,7 @@ function Root() {
       setMessages([]); setSosPropio(null); setSosVisto(null); setPresencia('fuera'); setRutaVigente(null);
       olvidarLoVivo();
       setUser(null);
-      setAuthNotice('Tu sesión expiró. Ingresá de nuevo.');
+      setAuthNotice('Tu sesión expiró. Ingresa de nuevo.');
       setScreen('login');
     });
 
@@ -3488,7 +3838,7 @@ function Root() {
       }
       // ¿El servidor ya me vio sobre el trazado? Es SU palabra, igual que en
       // la app nativa: mientras no, la pantalla dice «yendo a la ruta» en vez
-      // de «sos la única unidad en ruta».
+      // de «eres la única unidad en ruta».
       setMiEstado({
         trafico: !!miUnidad?.trafico, parado: !!miUnidad?.parado,
         confirmada: !!miUnidad && miUnidad.enRuta !== false,
@@ -3501,13 +3851,16 @@ function Root() {
       // en la ruta no tiene brechas y es justo el caso que se inventaba.
       setGapMeta({
         vivo: true,
+        // Cuándo llegó: el HUD mide con esto si la brecha que muestra es de
+        // ahora o de hace un minuto (auditoría UI N1)
+        recibido: Date.now(),
         toAhead: myGaps?.toAhead || null,
         toBehind: myGaps?.toBehind || null,
         aheadUnit: myGaps?.aheadUnit || null,
         behindUnit: myGaps?.behindUnit || null,
         // Hay alguien de ese lado pero dejó de reportar. Es distinto de que
         // no haya nadie, y el chofer tiene que poder distinguirlo: uno
-        // significa "sos el primero", el otro "andá con cuidado".
+        // significa "eres el primero", el otro "ve con cuidado".
         aheadSinSenal: !!myGaps?.aheadSinSenal,
         behindSinSenal: !!myGaps?.behindSinSenal,
         // Y si el vecino está trabado (parada medida o aviso del chofer)
@@ -3608,7 +3961,7 @@ function Root() {
     window.RealtimeClient.on('cupo', (m) => {
       pushMsg({
         from: 'SISTEMA', role: 'admin', tone: 'warn',
-        text: `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, esperá un momento.`,
+        text: `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, espera un momento.`,
         time: nowTime(),
       });
     });
@@ -3666,14 +4019,14 @@ function Root() {
 
   // privado = 'combi' (con Despacho, sobre esta combi), 'persona' (con
   // Despacho, sólo yo) o false (al grupo de la ruta)
+  // Devuelve si salió. Sin conexión el texto NO se pinta como mensaje: queda
+  // en el campo para mandarlo cuando vuelva, como en Despacho. Antes quedaba
+  // una burbuja verde igual a una enviada, con un rótulo chico «NO SALIÓ», y
+  // el borrador se perdía (auditoría de UI, N3).
   const sendText = (text, privado) => {
-    if (connectedRef.current) {
-      window.RealtimeClient.sendChat(text, privado); // el eco del servidor lo agrega al hilo
-    } else {
-      // Sin conexión NO salió, y se dice: se pintaba «Tú ✓✓» y desaparecía
-      // al volver la señal, sin haber salido nunca (barrido del 22/9).
-      pushMsg({ from: 'TÚ', role: 'you', privado: privado || false, text, time: nowTime(), tone: 'normal', noSalio: true });
-    }
+    if (!connectedRef.current) return false;
+    window.RealtimeClient.sendChat(text, privado); // el eco del servidor lo agrega al hilo
+    return true;
   };
 
   // Nota de voz: si hay audio y conexión va al canal elegido (el eco la
@@ -3729,7 +4082,7 @@ function Root() {
       // (y al servidor, para que Despacho lo vea en Actividad)
       onAutoStart={user?.role === 'collector' ? null : () => {
         declararPresencia('ruta', 'auto');
-        setAvisoSalida('Te vimos manejando: saliste a ruta solo');
+        setAvisoSalida({ titulo: 'SALISTE A RUTA SOLO', texto: 'Te vimos manejando sin haber tocado SALIR A RUTA. Despacho lo ve en la actividad.' });
         setScreen('app');
       }}
       onLogout={logout}
@@ -3790,7 +4143,7 @@ function Root() {
           }}>
             <div style={{ color: HUD.red, fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>SIN GPS</div>
             <div style={{ color: HUD.dim2, fontSize: 11, lineHeight: 1.35 }}>
-              {gpsAviso}. Tu combi no está en el mapa: activá la ubicación y dale permiso a esta página.
+              {gpsAviso}. Tu combi no está en el mapa: activa la ubicación y dale permiso a esta página.
             </div>
           </div>
         )}
@@ -3801,10 +4154,8 @@ function Root() {
             background: HUD.surface, border: `2px solid ${HUD.amber}`,
             borderRadius: 12, padding: '10px 12px',
           }}>
-            <div style={{ color: HUD.amber, fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>SALISTE A RUTA SOLO</div>
-            <div style={{ color: HUD.dim2, fontSize: 11, lineHeight: 1.35 }}>
-              Te vimos manejando sin haber tocado SALIR A RUTA. Despacho lo ve en la actividad.
-            </div>
+            <div style={{ color: HUD.amberTexto, fontSize: 14, fontWeight: 900, letterSpacing: 0.5 }}>{avisoSalida.titulo}</div>
+            <div style={{ color: HUD.fg2, fontSize: 14, lineHeight: 1.35 }}>{avisoSalida.texto}</div>
           </div>
         )}
         {screen === 'app' && presencia === 'ausente' && (
@@ -3841,7 +4192,7 @@ function Root() {
                 día da 3,8:1, poco para 13 px */}
             <div style={{ color: HUD.greenInk, fontSize: 13, fontWeight: 900, letterSpacing: 1 }}>DESPACHO VIO TU SOS</div>
             <div style={{ color: HUD.fg, fontSize: 12, lineHeight: 1.35, marginTop: 2 }}>
-              Lo marcó atendido {sosVisto.por || 'Despacho'} a las {nowTime(sosVisto.en)}. Tocá para cerrar.
+              Lo vio {sosVisto.por || 'Despacho'} a las {nowTime(sosVisto.en)}. Toca para cerrar.
             </div>
           </button>
         )}
@@ -3871,7 +4222,7 @@ function Root() {
                   const r = await window.RealtimeClient.sendSosTipo(id, clave);
                   if (r) pushMsg({
                     from: 'SISTEMA', role: 'admin', tone: 'warn',
-                    text: 'SOS ENVIADO. El tipo no salió: decí por acá si es ambulancia o grúa.',
+                    text: 'SOS ENVIADO. El tipo no salió: escribe por acá si es ambulancia o grúa.',
                     time: nowTime(),
                   });
                 }} style={{

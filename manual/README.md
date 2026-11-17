@@ -2,7 +2,8 @@
 
 `manual.pdf` es el manual para quien usa el sistema: el chofer, el cobrador,
 Despacho, la gerencia y la central. Las capturas son del sistema funcionando,
-no maquetas.
+no maquetas; las únicas ilustraciones son las de los ajustes de Android
+(`img/a*.jpg`), y el manual lo dice.
 
 | Archivo | Qué es |
 | --- | --- |
@@ -10,6 +11,7 @@ no maquetas.
 | `manual.tex` | Su fuente, en LaTeX |
 | `img/` | Las capturas que usa (JPEG: con PNG el PDF pesaba diez veces más) |
 | `capturas.js` | Saca las capturas de la app de verdad |
+| `ilustraciones-android.js` | Dibuja las pantallas de **ajustes de Android** (permisos, batería, hora): son ilustraciones, no capturas, porque acá no hay un teléfono ni un emulador. Una captura de verdad con el mismo nombre en `img/` las reemplaza |
 | `demo.js` | La cooperativa inventada de las capturas: gente, combis y dónde arranca cada una |
 | `rutas-demo.json` | Los recorridos de la 18A y la 18B, por calles de Juliaca (sacados de OSM con un ruteador) |
 

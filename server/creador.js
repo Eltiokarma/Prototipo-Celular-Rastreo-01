@@ -190,7 +190,7 @@ function montarPanelDelCreador(app, deps) {
   app.post(BASE + '/login', async (req, res) => {
     const ip = origenDe(req);
     if (ipBloqueada(ip)) {
-      return res.status(429).json({ error: 'Demasiados intentos. Esperá 15 minutos.' });
+      return res.status(429).json({ error: 'Demasiados intentos. Espera 15 minutos.' });
     }
     const vuelo = intentos.get(ip) || { n: 0, hasta: 0, enVuelo: 0 };
     vuelo.enVuelo = (vuelo.enVuelo || 0) + 1;
@@ -675,7 +675,7 @@ function montarPanelDelCreador(app, deps) {
   });
 
   console.log(`Panel del creador montado en ${BASE}` +
-    (totpClave ? ' (con segundo factor)' : ' (sin segundo factor: considerá CREATOR_TOTP_SECRET)'));
+    (totpClave ? ' (con segundo factor)' : ' (sin segundo factor: considera CREATOR_TOTP_SECRET)'));
   return BASE;
 }
 

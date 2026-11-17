@@ -112,6 +112,17 @@ const PARES_PROTO = [
   ['burbuja de aviso',              t => t.burbujaWarnInk,   t => t.burbujaWarn, AA],
   ['burbuja de SOS',                t => t.burbujaSosInk,    t => t.burbujaSos, AA],
   ['insignia de privado / su ámbar', t => t.warnEdgeInk,     t => t.warnEdge, AA],
+  // Los botones del HUD (auditoría UI B3): texto de 16 px, piso AA
+  ['botón ámbar / fondo',           t => t.amberTexto, t => t.bg, AA],
+  ['botón ámbar lleno',             t => t.bg,         t => t.amberTexto, AA],
+  ['botones del turno / fondo',     t => t.fg2,        t => t.bg, AA],
+  ['«¿seguro?» sobre rojo',         t => t.sobreRojo,  t => t.red, AA],
+  // El chat (auditoría UI B9): canal activo, enviar, insignia de Despacho y «Tú»
+  ['acento lleno y su tinta',       t => t.acentoInk,  t => t.acento, AA],
+  ['«Tú» / fondo',                  t => t.greenTexto, t => t.bg, AA],
+  // Lo que el HUD escribía a mano (auditoría UI B12)
+  ['instrucción / fondo',           t => t.ins,        t => t.bg, AA],
+  ['lado secundario / fondo',       t => t.secundario, t => t.bg, AA],
 ];
 const PARES_DESP = [
   ['texto primario / fondo',        t => t.fg,   t => t.bg, AA],
@@ -127,12 +138,60 @@ const PARES_DESP = [
   ['tinta ámbar / su fondo',        t => t.ambarTinta,  t => t.ambarFondo, AA],
   ['tinta ámbar 2 / su fondo',      t => t.ambarTinta2, t => t.ambarFondo, AA],
   ['tinta roja / su fondo',         t => t.rojoTinta,   t => t.rojoFondo, AA],
+  // Las palabras y datos chicos en verde o ámbar van en su tinta, no en el
+  // color de estado (auditoría de UI, C2): sobre el fondo, la tarjeta y la celda
+  ['tinta verde / fondo',           t => t.verdeTinta,  t => t.bg, AA],
+  ['tinta verde / superficie',      t => t.verdeTinta,  t => t.surface, AA],
+  ['tinta verde / celda',           t => t.verdeTinta,  t => t.celda, AA],
+  ['tinta ámbar 2 / fondo',         t => t.ambarTinta2, t => t.bg, AA],
+  ['tinta ámbar 2 / superficie',    t => t.ambarTinta2, t => t.surface, AA],
+  ['tinta ámbar 2 / celda',         t => t.ambarTinta2, t => t.celda, AA],
   ['tinta azul / su fondo',         t => t.azulTinta,   t => t.azulFondo, AA],
   ['clave generada / su fondo',     t => t.okClave, t => t.okFondo, AA],
   ['acento / fondo',                t => t.bright,  t => t.bg, AA],
   ['burbuja de chat',               t => t.burbujaInk,       t => t.burbuja, AA],
   ['burbuja propia',                t => t.burbujaPropiaInk, t => t.burbujaPropia, AA],
   ['burbuja de SOS',                t => t.burbujaSosInk,    t => t.burbujaSos, AA],
+  // La etiqueta de cada combi en el mapa, 12 px (auditoría de UI, C8)
+  ['pin verde',                     t => t.sobrePin, t => t.pinVerde, AA],
+  ['pin ámbar',                     t => t.sobrePin, t => t.pinAmbar, AA],
+  ['pin rojo',                      t => t.sobrePin, t => t.red, AA],
+  ['pin sin brecha',                t => t.sobrePin, t => t.pinGris, AA],
+  ['pin apagado (hueco)',           t => t.fg2,      t => t.surface, AA],
+];
+
+// La APK (app/tema.js). Hasta el 16/11 esta suite medía sólo la web, y la
+// app nativa —la que va de verdad al parabrisas— tenía botones enteros a
+// 3,0:1 de día y 2,4 de noche (auditoría de UI, A2). Los papeles son los de
+// crearEstilos() en app/App.js.
+const BORDE = 3;   // 1.4.11: lo que identifica un control, contra su fondo
+const PARES_APK = [
+  ['texto primario / fondo',        t => t.blanco,     t => t.fondo, AA],
+  ['texto primario / panel',        t => t.blanco,     t => t.panel, AA],
+  ['texto secundario / fondo',      t => t.tenue,      t => t.fondo, AA],
+  ['texto secundario / panel',      t => t.tenue,      t => t.panel, AA],
+  ['rótulos (cielo) / fondo',       t => t.cielo,      t => t.fondo, AA],
+  ['rótulos (cielo) / panel',       t => t.cielo,      t => t.panel, AA],
+  ['acento como texto / panel',     t => t.brillante,  t => t.panel, AA],
+  ['instrucción / fondo',           t => t.ins,        t => t.fondo, AA],
+  ['lado secundario / fondo',       t => t.secundario, t => t.fondo, AA],
+  ['verde de texto / fondo',        t => t.verdeTexto, t => t.fondo, AA],
+  ['ámbar de texto / fondo',        t => t.ambarTexto, t => t.fondo, AA],
+  ['ámbar de texto / panel',        t => t.ambarTexto, t => t.panel, AA],
+  ['rojo de texto / fondo',         t => t.rojoTexto,  t => t.fondo, AA],
+  ['rojo de texto / panel',         t => t.rojoTexto,  t => t.panel, AA],
+  ['sobre el botón principal',      t => t.sobreBrillante, t => t.brillante, AA],
+  ['sobre verde lleno',             t => t.sobreLleno, t => t.llenoVerde, AA],
+  ['sobre ámbar lleno',             t => t.sobreLleno, t => t.llenoAmbar, AA],
+  ['sobre rojo lleno',              t => t.sobreRojo,  t => t.llenoRojo, AA],
+  ['burbuja propia',                t => t.blanco,     t => t.burbujaPropia, AA],
+  ['burbuja de SOS',                t => t.blanco,     t => t.burbujaSos, AA],
+  ['BRECHA verde / fondo',          t => t.verde,      t => t.fondo, GRANDE],
+  ['BRECHA ámbar / fondo',          t => t.ambar,      t => t.fondo, GRANDE],
+  ['BRECHA roja / fondo',           t => t.rojo,       t => t.fondo, GRANDE],
+  ['brecha vieja (tenue) / fondo',  t => t.tenue,      t => t.fondo, GRANDE],
+  ['borde de control / fondo',      t => t.borde,      t => t.fondo, BORDE],
+  ['borde de control / panel',      t => t.borde,      t => t.panel, BORDE],
 ];
 
 const bajoAA = [];   // lo que pasó su piso pero no llega a AA: se informa
@@ -188,6 +247,7 @@ console.log('\nNINGÚN TEMA TIENE HUECOS');
 console.log('\nCONTRASTE, PAR POR PAR');
 medir('chofer', proto.temas, PARES_PROTO);
 medir('despacho', desp.temas, PARES_DESP);
+medir('apk', require(RAIZ + '/app/tema.js').PALETAS, PARES_APK);
 
 {
   console.log('\ncreador · tema único');

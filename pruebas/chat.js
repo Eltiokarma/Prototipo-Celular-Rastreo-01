@@ -28,7 +28,7 @@ console.log('\nQUIÉN HABLÓ');
      otro.propio === false && otro.quien === 'Rufino Quispe' && otro.unidad === 'M-08', otro);
 
   // A quien maneja le importa que le habla la central, no quién está de turno.
-  const desp = aMensaje(crudo({ unitId: 'DESPACHO', role: 'dispatch', driverName: 'Ana', text: 'esperá' }), YO);
+  const desp = aMensaje(crudo({ unitId: 'DESPACHO', role: 'dispatch', driverName: 'Ana', text: 'espera' }), YO);
   ok('Despacho se muestra como DESPACHO, no con el nombre de quien atiende',
      desp.quien === 'DESPACHO' && desp.tono === 'despacho', desp);
 }

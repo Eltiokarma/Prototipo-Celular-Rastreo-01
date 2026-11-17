@@ -33,7 +33,7 @@ function pedirSinEco(pregunta) {
       reject(new Error(
         'esto necesita una terminal de verdad.\n' +
         '  No le pases la clave por tubería ni por archivo: quedaría guardada.\n' +
-        '  Corré `node herramientas/quemar-clave.js` a mano y escribila cuando la pida.'));
+        '  Corre `node herramientas/quemar-clave.js` a mano y escríbela cuando la pida.'));
       return;
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
@@ -56,8 +56,8 @@ function pedirSinEco(pregunta) {
   console.log('');
   console.log('  QUEMAR UNA CLAVE');
   console.log('  ────────────────');
-  console.log('  Escribí la clave que ya NO debe poder usarse más.');
-  console.log('  No se va a ver mientras la escribís, y no se guarda en ningún lado.');
+  console.log('  Escribe la clave que ya NO debe poder usarse más.');
+  console.log('  No se va a ver mientras la escribes, y no se guarda en ningún lado.');
   console.log('');
 
   const clave = await pedirSinEco('  Clave a quemar: ');
@@ -84,13 +84,13 @@ function pedirSinEco(pregunta) {
   console.log('');
   console.log('  Qué hacer con esto:');
   console.log('');
-  console.log('    1. Pegala en la variable CLAVES_QUEMADAS de tu despliegue.');
-  console.log('       Si ya tenía otras, separalas con coma:');
+  console.log('    1. Pégala en la variable CLAVES_QUEMADAS de tu despliegue.');
+  console.log('       Si ya tenía otras, sepáralas con coma:');
   console.log('');
   console.log(`           CLAVES_QUEMADAS=${h}`);
   console.log('');
-  console.log('    2. Asegurate de que la clave NUEVA sea distinta, larga y aleatoria.');
-  console.log('    3. Reiniciá. Si alguien vuelve a poner la vieja, no arranca.');
+  console.log('    2. Asegúrate de que la clave NUEVA sea distinta, larga y aleatoria.');
+  console.log('    3. Reinicia. Si alguien vuelve a poner la vieja, no arranca.');
   console.log('');
   console.log('  La huella se puede guardar y compartir sin riesgo. La clave no.');
   console.log('');

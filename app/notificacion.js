@@ -16,7 +16,7 @@
 // es un lujo; la posición es el producto.
 
 import * as Notifications from 'expo-notifications';
-import { avisoDesdeRespuesta } from './hud.js';
+import { avisoDesdeRespuesta, avisoSinSenal } from './hud.js';
 
 const CANAL = 'brecha';
 const ID = 'brecha-viva';
@@ -31,12 +31,26 @@ Notifications.setNotificationHandler({
   }),
 });
 
-let preparado = false;   // canal creado y permiso preguntado, UNA vez
-let sinPermiso = false;  // dijo que no: no volver a preguntar cada 10 s
+let preparado = false;   // canal creado y permiso dado
+let preguntado = false;  // ya se le PIDIÓ al usuario: no se le vuelve a pedir
+// Cuándo se vio por última vez el permiso negado. Antes era un `sinPermiso`
+// que quedaba en true para siempre: si el chofer lo daba después desde
+// Ajustes, la app no se enteraba hasta reiniciarse, y no salían ni la brecha
+// ni el aviso de GPS detenido (segunda revisión con ChatGPT, 17/11). Ahora
+// se vuelve a MIRAR (sin preguntar) cada minuto, y al volver a primer plano.
+let negadoEn = 0;
+const REMIRAR_MS = 60_000;
 let ultimo = null;       // el último título mostrado — igual no se re-emite
 
 async function preparar() {
-  if (preparado || sinPermiso) return;
+  if (preparado) return;
+  if (negadoEn && Date.now() - negadoEn < REMIRAR_MS) return;
+  let permiso = await Notifications.getPermissionsAsync().catch(() => null);
+  if (permiso && !permiso.granted && permiso.canAskAgain && !preguntado) {
+    preguntado = true;
+    permiso = await Notifications.requestPermissionsAsync().catch(() => null);
+  }
+  if (!permiso || !permiso.granted) { negadoEn = Date.now(); return; }
   // Canal de importancia BAJA: la brecha cambia todo el tiempo y no puede
   // sonar ni vibrar — es información de reojo, no una alerta.
   await Notifications.setNotificationChannelAsync(CANAL, {
@@ -44,19 +58,29 @@ async function preparar() {
     importance: Notifications.AndroidImportance.LOW,
     sound: null, vibrationPattern: null, enableVibrate: false,
   }).catch(() => {});
-  let permiso = await Notifications.getPermissionsAsync().catch(() => null);
-  if (permiso && !permiso.granted && permiso.canAskAgain) {
-    permiso = await Notifications.requestPermissionsAsync().catch(() => null);
-  }
-  if (!permiso || !permiso.granted) { sinPermiso = true; return; }
+  negadoEn = 0;
   preparado = true;
 }
+
+// Al volver a primer plano (por ejemplo, de Ajustes con el permiso recién
+// dado): mirar ya, sin esperar el minuto.
+export function remirarPermiso() { negadoEn = 0; }
 
 // La tarea de fondo llama esto con `cuerpo.brecha` de cada POST que salió
 // bien. Se re-emite solo cuando el TEXTO cambia: la misma brecha cada 10 s
 // no le aporta nada a nadie y desgasta de más.
 export async function notificarBrecha(brecha) {
-  const aviso = avisoDesdeRespuesta(brecha);
+  return mostrar(avisoDesdeRespuesta(brecha));
+}
+
+// Los envíos dejaron de salir: la misma notificación (mismo id, mismo canal
+// bajo) pasa a decir «SIN SEÑAL · hace N min» en vez de la última brecha.
+// El próximo envío que salga la vuelve a la brecha (auditoría de UI, N1).
+export async function notificarSinSenal(ultimoEnvio, ahora = Date.now()) {
+  return mostrar(avisoSinSenal(ultimoEnvio, ahora));
+}
+
+async function mostrar(aviso) {
   if (!aviso || aviso.titulo === ultimo) return;
   await preparar();
   if (!preparado) return;
@@ -192,7 +216,7 @@ export async function vigilarSilencio(ahora = Date.now()) {
       identifier: ID_SILENCIO,
       content: {
         title: 'Tu GPS dejó de funcionar',
-        body: 'Estás en ruta y hace 10 minutos que el GPS no lee tu ubicación: tu combi no está en el mapa. Abrí la app.',
+        body: 'Estás en ruta y hace 10 minutos que el GPS no lee tu ubicación: tu combi no está en el mapa. Abre la app.',
       },
       trigger: { type: tipo, seconds: Math.round(SILENCIO_AVISO_MS / 1000), channelId: CANAL_SILENCIO },
     });

@@ -45,7 +45,7 @@ function motivoRechazo(dataUrl) {
   if (typeof dataUrl !== 'string' || !dataUrl.trim()) return 'Falta la imagen';
   const limpio = dataUrl.trim();
   if (/^data:image\/svg/i.test(limpio)) {
-    return 'Los SVG no se aceptan por seguridad: mandá PNG, JPG o WEBP';
+    return 'Los SVG no se aceptan por seguridad: manda PNG, JPG o WEBP';
   }
   if (!FORMATOS.some(f => limpio.startsWith(f))) {
     return 'El logo tiene que ser una imagen PNG, JPG o WEBP';

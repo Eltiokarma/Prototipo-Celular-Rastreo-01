@@ -7,7 +7,7 @@ description: Invariantes de diseño de las pantallas de COOP-R14. Cargar SIEMPRE
 
 Este es el contrato para tocar cualquiera de las tres pantallas. Viene de
 `PROMPT-DISENO.md` (el encargo original) más lo que está en el código y no en
-el documento. Si algo de acá te parece mal, **escribilo en tu nota en vez de
+el documento. Si algo de acá te parece mal, **escríbelo en tu nota en vez de
 cambiarlo**: la decisión es del dueño del producto.
 
 ## Las tres pantallas y su exigencia física
@@ -26,9 +26,9 @@ cambiarlo**: la decisión es del dueño del producto.
   permitidos: React 18.3.1, Babel standalone 7.29.0, Leaflet 1.9.4, Google
   Fonts (`Archivo Black` + `JetBrains Mono`), tiles de Carto. Cada archivo
   nuevo es costo real en datos móviles.
-- **Trabajá por partes.** Los archivos miden 2600–3300 líneas; no se
+- **Trabaja por partes.** Los archivos miden 2600–3300 líneas; no se
   reescriben de cero.
-- **Si tocás `project/`, subí `CACHE_NAME`** en `project/service-worker.js`
+- **Si tocas `project/`, sube `CACHE_NAME`** en `project/service-worker.js`
   (línea ~9) o los celulares siguen viendo lo viejo. Es un paso de salida
   obligatorio, no opcional.
 
@@ -38,16 +38,16 @@ cambiarlo**: la decisión es del dueño del producto.
 - `despacho.html` (~línea 71): `const TEMAS = { day, night }`.
 - `creador.html` (~línea 22): **NO usa TEMAS** — variables CSS en `:root`, un
   solo tema claro, cuyos valores son una **copia a mano** de `day` de
-  despacho. Si retocás una paleta, retocá la otra: la suite `contraste` las
+  despacho. Si retocas una paleta, retoca la otra: la suite `contraste` las
   compara y falla si se separan.
 - `HUD` **se muta** (`Object.assign`), no se reemplaza (`Prototipo.html:292`,
   `despacho.html:136`). Todo el archivo referencia `HUD.*` directo; cambiar
   eso a props rompe todo.
 - El número héroe de brecha se dibuja con `color` en day/sun y con `ink`
-  cuando `resplandor` es `true` (solo night). Medí el par que el código
+  cuando `resplandor` es `true` (solo night). Mide el par que el código
   compone.
-- Los componentes leen tokens, no colores literales. Si necesitás un color,
-  agregalo como token en TODOS los temas del archivo.
+- Los componentes leen tokens, no colores literales. Si necesitas un color,
+  agrégalo como token en TODOS los temas del archivo.
 
 ## Lo que no se toca
 
@@ -55,12 +55,12 @@ cambiarlo**: la decisión es del dueño del producto.
    elegante es ilegible al mediodía en Juliaca. El night existe y está bien;
    no es el default.
 2. **Nada de bajar contraste ni achicar la tipografía** de los números de
-   brecha. Mejorá composición, no legibilidad. La vara ejecutable:
+   brecha. Mejora composición, no legibilidad. La vara ejecutable:
    `node pruebas/contraste.js` tiene que quedar verde después de tu cambio.
 3. **`#FF2D55` está reservado** a emergencia y brecha crítica (rojo de
    `night`). No lo uses de decorativo en ningún rol ni pantalla.
 4. **El SOS** sigue imposible de confundir y difícil de apretar sin querer.
-   Hoy es un slider ("deslizá para SOS"): no lo conviertas en botón de un tap.
+   Hoy es un slider ("desliza para SOS"): no lo conviertas en botón de un tap.
 5. **Cuatro avisos son de seguridad, no ruido.** Se pueden rediseñar; no se
    pueden suavizar, esconder tras un ícono ni convertir en toast que
    desaparece solo:
@@ -76,7 +76,7 @@ cambiarlo**: la decisión es del dueño del producto.
 7. **Las acciones no cruzan de panel.** La estructura la define el creador;
    la operación del día es de Despacho. La tabla completa de permisos está en
    `PROMPT-DISENO.md` §4. Si algo parece estar en el panel equivocado,
-   decilo, no lo muevas.
+   dilo, no lo muevas.
 8. **El creador es sobrio a propósito** y no guarda nada en el navegador:
    nada de "recordarme", nada de marca, nada vendedor.
 

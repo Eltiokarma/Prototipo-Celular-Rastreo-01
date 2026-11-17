@@ -84,8 +84,35 @@ function armarLado(brechaLado, etiqueta, signo, objetivoMin, ahora) {
   };
 }
 
-// `brecha` es lo que devuelve cliente.miBrecha().
-function construirHud(brecha, ahora = Date.now()) {
+// ─── LA BRECHA VIEJA (auditoría de UI, N1, 16/11) ───────────────────
+// Sin señal la pantalla seguía mostrando la última brecha en su color y con
+// su instrucción: «Mantén el ritmo» sobre un dato de hace minutos. Con el
+// teléfono reportando, el estado llega cada ~3 s (cada posición dispara
+// uno), así que su edad mide la señal mejor que el socket, que tarda en
+// darse cuenta de que murió. Los mismos cortes que la web:
+//   - menos de 10 s: nada cambia;
+//   - desde 10 s: la brecha es VIEJA, va en gris y se dice cuánto hace;
+//   - desde 60 s: está PERDIDA, la pantalla retira el número.
+// El acompañante no reporta (su estado depende de otros teléfonos): ahí
+// manda la conexión.
+const VIEJA_MS = 10_000, PERDIDA_MS = 60_000;
+
+// 75 000 ms → "1:15"
+function duracionLegible(ms) {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// Un lado con número, apagado: el número queda, el color de estado no.
+const apagado = (lado) => (lado.vacio ? lado : { ...lado, estadoReal: lado.estado, estado: 'ninguno' });
+
+// `brecha` es lo que devuelve cliente.miBrecha(). `recibido` es cuándo llegó
+// el estado de donde sale; sin él (la notificación, las pruebas viejas) la
+// brecha se toma como fresca.
+function construirHud(brecha, ahora = Date.now(), { recibido = null, fiable = true, conectado = true } = {}) {
+  const edad = recibido ? Math.max(0, ahora - recibido) : 0;
+  const viejo = !!recibido && (fiable ? edad >= VIEJA_MS : !conectado);
+  const perdido = viejo && edad >= PERDIDA_MS;
   const objetivoMin = brecha?.objetivoMin ?? null;
   const adelante = armarLado(brecha?.adelante, 'ADELANTE', '+1', objetivoMin, ahora);
   const atras    = armarLado(brecha?.atras,    'ATRÁS',    '−1', objetivoMin, ahora);
@@ -102,47 +129,58 @@ function construirHud(brecha, ahora = Date.now()) {
   const principal = heroeEsAtras ? atras : adelante;
   const secundario = heroeEsAtras ? adelante : atras;
 
+  if (viejo) {
+    const hace = duracionLegible(edad);
+    return {
+      objetivoMin, adelante: apagado(adelante), atras: apagado(atras),
+      principal: apagado(principal), secundario: apagado(secundario),
+      instruccion: principal.vacio
+        ? `Sin datos nuevos desde hace ${hace}.`
+        : `Brecha de hace ${hace}. Puede haber cambiado.`,
+      estado: 'ninguno', viejo, perdido, edad, hace,
+    };
+  }
   return {
     objetivoMin, adelante, atras, principal, secundario,
     instruccion: instruccionDe(principal, heroeEsAtras, objetivoMin, adelante, atras),
-    estado: principal.estado,
+    estado: principal.estado, viejo: false, perdido: false, edad, hace: null,
   };
 }
 
 function instruccionDe(principal, esAtras, objetivoMin, adelante, atras) {
   // El de ADELANTE trabado manda sobre todo lo demás. La brecha contra él
-  // crece sola mientras está parado, y la cuenta de siempre diría "apurá":
+  // crece sola mientras está parado, y la cuenta de siempre diría "apura":
   // apurar hacia un embotellamiento es el pelotón que este sistema existe
   // para evitar, y encima con la combi de adelante ya adentro.
   if (adelante.enTrafico) {
     const que = adelante.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada';
-    return `${adelante.unidad} ${que} ${adelante.traficoMin} min. Mantené: no te apures hacia el embotellamiento.`;
+    return `${adelante.unidad} ${que} ${adelante.traficoMin} min. Mantén: no te apures hacia el embotellamiento.`;
   }
-  // El de ATRÁS trabado no es un peligro para vos: se dice, y se pide ritmo
+  // El de ATRÁS trabado no es un peligro para ti: se dice, y se pide ritmo
   // normal — la brecha con él se va a agrandar sola y no es tu culpa.
   if (atras.enTrafico) {
-    return `${atras.unidad} (atrás) ${atras.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${atras.traficoMin} min. Mantené el ritmo.`;
+    return `${atras.unidad} (atrás) ${atras.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${atras.traficoMin} min. Mantén el ritmo.`;
   }
-  // Con alguien sin señal, callarse o decir "sos la única" sería peor que no
+  // Con alguien sin señal, callarse o decir "eres la única" sería peor que no
   // mostrar nada: hay una combi que el chofer no ve, y manejar como si no
   // estuviera es exactamente lo que hay que evitar.
   if (principal.sinSenal) {
-    return `${principal.unidad} se quedó sin señal. Andá con cuidado: sigue en ruta.`;
+    return `${principal.unidad} se quedó sin señal. Ve con cuidado: sigue en ruta.`;
   }
   if (principal.vacio) {
     return (adelante.sinSenal || atras.sinSenal)
       ? 'Sin brecha para medir por ahora.'
-      : 'Sos la única unidad en ruta.';
+      : 'Eres la única unidad en ruta.';
   }
   if (principal.estado === 'verde') {
-    return `Mantené el ritmo. Objetivo ${objetivoLegible(objetivoMin)}.`;
+    return `Mantén el ritmo. Objetivo ${objetivoLegible(objetivoMin)}.`;
   }
   // Con la de ADELANTE, una brecha mayor al objetivo significa que se está
   // escapando: hay que apurar. Con la de ATRÁS es al revés — una brecha
   // chica significa que te vienen pisando y hay que apurar igual.
   const dev = principal.minutos - objetivoMin;
   const apurar = esAtras ? dev < 0 : dev > 0;
-  return `${apurar ? 'Apurá' : 'Aflojá'} un poco. Objetivo ${objetivoLegible(objetivoMin)}.`;
+  return `${apurar ? 'Apura' : 'Afloja'} un poco. Objetivo ${objetivoLegible(objetivoMin)}.`;
 }
 
 // El texto de la notificación permanente. Android la exige para que el GPS
@@ -151,6 +189,7 @@ function instruccionDe(principal, esAtras, objetivoMin, adelante, atras) {
 // desbloquear.
 function textoNotificacion(hud, reportaGps) {
   if (!reportaGps) return 'Modo acompañante · tu GPS no se usa';
+  if (hud.viejo) return `Sin señal hace ${hud.hace} · la brecha puede haber cambiado`;
   const p = hud.principal;
   // El tráfico adelante es lo primero que se lee sin desbloquear
   if (hud.adelante.enTrafico) {
@@ -170,7 +209,7 @@ function textoNotificacion(hud, reportaGps) {
 // la pantalla — la notificación no puede decir una cosa y el HUD otra.
 //
 // Devuelve null cuando no hay nada que decir (sin brecha en la respuesta):
-// null significa "no toques la notificación", no "mostrá vacío".
+// null significa "no toques la notificación", no "muestra vacío".
 function avisoDesdeRespuesta(brecha, ahora = Date.now()) {
   if (!brecha) return null;
   // Los tres estados de un lado, como en cliente.js: nadie / alguien a
@@ -191,8 +230,64 @@ function avisoDesdeRespuesta(brecha, ahora = Date.now()) {
   return { titulo: textoNotificacion(hud, true), detalle: hud.instruccion };
 }
 
+// La notificación cuando los envíos dejan de salir (auditoría de UI, N1 en la
+// APK). Con la pantalla apagada la notificación se actualiza con la respuesta
+// de cada POST /gps; si fallan, seguía mostrando la última brecha como si
+// fuera de ahora. En minutos y no en segundos: la notificación se re-emite
+// sólo cuando cambia el texto, y un intento cada 10 s no tiene que
+// re-emitirla cada 10 s. Devuelve null con el último envío fresco.
+function avisoSinSenal(ultimoEnvio, ahora = Date.now()) {
+  if (!ultimoEnvio || ahora - ultimoEnvio < VIEJA_MS) return null;
+  const min = Math.floor((ahora - ultimoEnvio) / 60_000);
+  return {
+    titulo: `SIN SEÑAL · ${min < 1 ? 'hace menos de 1 min' : `hace ${min} min`}`,
+    detalle: 'La última brecha puede haber cambiado. Ve con cuidado: las otras combis siguen en ruta.',
+  };
+}
+
+// ─── La combi del cobrador ───────────────────────────────────────────
+// El cobrador ve el HUD de su combi, de acompañante: la posición la manda el
+// teléfono del chofer. Pero las brechas sólo dicen algo si esa combi está
+// EN la cadena. Si está ausente, yendo, fuera de ruta o el teléfono del
+// chofer dejó de mandar, el servidor no le calcula brechas, y el HUD decía
+// «Eres la única unidad en ruta» (con otras combis andando) o le atribuía
+// la falta de señal al vecino (revisión del manual con ChatGPT, 17/11).
+//
+// `estado` es el estado de la ruta tal cual llega; `combi`, la del cobrador.
+// Sin estado todavía no se sabe nada: null, y se espera.
+function estadoDeMiCombi(estado, combi) {
+  if (!estado || !combi) return null;
+  const u = (estado.units || []).find(x => x.unitId === combi);
+  if (!u) return { estado: 'fuera', combi };
+  if (u.presencia === 'ausente') return { estado: 'ausente', combi };
+  if (u.presencia === 'ruta' && u.enRuta === false) return { estado: 'yendo', combi };
+  if (u.sinSenal) return { estado: 'sinSenal', combi, desde: u.sinSenalDesde ?? u.timestamp ?? null };
+  return { estado: 'ok', combi };
+}
+
+const hhmm = (ts) => { const d = new Date(ts); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+
+// Lo que se le dice en vez de las brechas. null: la combi está en la cadena
+// y las brechas valen.
+function avisoDeMiCombi(e) {
+  if (!e || e.estado === 'ok') return null;
+  const c = e.combi;
+  switch (e.estado) {
+    case 'fuera': return { titulo: 'TU COMBI NO ESTÁ EN RUTA',
+      texto: `${c} todavía no salió a ruta, o ya terminó. Las brechas aparecen cuando el chofer desliza SALIR A RUTA.` };
+    case 'ausente': return { titulo: 'TU COMBI ESTÁ AUSENTE',
+      texto: `El chofer sacó a ${c} de la cadena (comer, un repuesto): nadie se mide contra ella hasta que vuelva a ruta.` };
+    case 'yendo': return { titulo: 'TU COMBI VA HACIA LA RUTA',
+      texto: `Las brechas de ${c} arrancan cuando pise el trazado.` };
+    case 'sinSenal': return { titulo: 'EL CHOFER NO TIENE SEÑAL',
+      texto: `El teléfono del chofer no manda la posición de ${c}${e.desde ? ` desde las ${hhmm(e.desde)}` : ''}. Las brechas vuelven cuando vuelva su señal.` };
+    default: return null;
+  }
+}
+
 module.exports = {
-  construirHud, textoNotificacion, avisoDesdeRespuesta,
+  construirHud, textoNotificacion, avisoDesdeRespuesta, avisoSinSenal, estadoDeMiCombi, avisoDeMiCombi,
   // Se exportan para las pruebas y para que las pantallas no las repitan
-  aMinutos, estadoDe, objetivoLegible, sinCeroInicial,
+  aMinutos, estadoDe, objetivoLegible, sinCeroInicial, duracionLegible,
+  VIEJA_MS, PERDIDA_MS,
 };

@@ -101,7 +101,7 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   ok('gapMeta lleva el tráfico de los dos lados',
      /aheadTrafico:\s*\{ enTrafico: !!myGaps\?\.aheadEnTrafico/.test(prototipo) && /behindTrafico:\s*\{ enTrafico: !!myGaps\?\.behindEnTrafico/.test(prototipo));
   ok('el modelo del HUD lo calcula por lado (traficoMin, traficoConfirmado)', /traficoMin: Math\.max\(0, Math\.round/.test(prototipo) && /\.\.\.trafico\(t\)/.test(prototipo));
-  ok('la instrucción tiene la rama «mantené» hacia el embotellamiento', /Mantené: no te apures hacia el embotellamiento/.test(prototipo) && /hud\.front\.enTrafico/.test(prototipo));
+  ok('la instrucción tiene la rama «mantén» hacia el embotellamiento', /Mantén: no te apures hacia el embotellamiento/.test(prototipo) && /hud\.front\.enTrafico/.test(prototipo));
   ok('y el rótulo del lado dice «en tráfico N min» / «parada N min»', /'en tráfico' : 'parada'\} \$\{lado\.traficoMin\} min/.test(prototipo));
   ok('realtime.js emite las fotos', /msg\.type === 'photo_msg'/.test(realtime) && /emit\('photo', msg\)/.test(realtime));
   ok('y la web las pone en el hilo (en vivo y del historial)',
@@ -148,12 +148,96 @@ console.log('\nLO QUE SALIÓ DE RECORRER LAS PANTALLAS (28/10)');
   const sueltas = [...new Set([...creador.matchAll(/var\(--([A-Za-z0-9]+)/g)].map(m => m[1]))].filter(v => !definidas.has(v));
   ok('el creador no usa colores sin definir', sueltas.length === 0, sueltas);
   ok('la web del chofer va a pantalla completa en el teléfono', /html\.telefono \.header/.test(prototipo) && /completo=\{telefono\}/.test(prototipo));
-  ok('«Olvidé mi contraseña» dice qué hacer (no es un enlace muerto)', !/href="#"/.test(prototipo) && /Pedile a Despacho/.test(prototipo));
+  ok('«Olvidé mi contraseña» dice qué hacer (no es un enlace muerto)', !/href="#"/.test(prototipo) && /Pídele a Despacho/.test(prototipo));
   ok('nada de pasajeros ni vueltas inventadas en la puerta', !/42 pasajeros/.test(prototipo) && !/RAÚL MAMANI/.test(prototipo));
-  ok('el ausente no lee «sos la única unidad en ruta»', /const ausente = presencia === 'ausente'/.test(prototipo) && /YENDO A LA RUTA/.test(prototipo));
+  ok('el ausente no lee «eres la única unidad en ruta»', /const ausente = presencia === 'ausente'/.test(prototipo) && /YENDO A LA RUTA/.test(prototipo));
   ok('los mensajes viejos del chat llevan el día', /function horaChat/.test(prototipo) && /function horaChat/.test(despacho));
   ok('el login de Despacho no habla de variables de entorno', !/DISPATCH_PASSWORD/.test(despacho.split('function Login(')[1]?.split('\nfunction ')[0] || ''));
   ok('«Dónde se traba» explica las anomalías en pantalla', /QUE_ES_ANOMALIA/.test(despacho) && !/está en <strong>TRUCOS/.test(despacho));
+}
+
+console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 1 (AUDITORIA-UI-2026-11-16.md)');
+{
+  // B1: era la única pantalla sin el apagado de «reducir movimiento»
+  ok('B1 · la web del chofer respeta «reducir movimiento»', /@media \(prefers-reduced-motion: reduce\)/.test(prototipo) && /microAnims: !pideMenosMovimiento\(\)/.test(prototipo));
+  // B2: una brecha crítica es un pelotón, no una emergencia
+  ok('B2 · el SOS no late con la brecha en rojo', !/suggestSos/.test(prototipo) && !/combiRing/.test(prototipo));
+  // B8: el ✓ es una confirmación; antes salía al soltar, sin respuesta
+  ok('B8 · el ✓ del SOS sale sólo con la respuesta', /resultado === 'ok' \? '✓'/.test(prototipo) && !/\{fired \? '✓' : 'SOS'\}/.test(prototipo));
+  // N1: sin señal la brecha vieja se veía como una viva
+  ok('N1 · la brecha de más de 10 s se dice vieja y en gris', /VIEJA_MS = 10_000, PERDIDA_MS = 60_000/.test(prototipo) && /const tono = viejo \? HUD_STATUS\.none/.test(prototipo));
+  ok('N1 · al minuto el número se retira y queda «SIN SEÑAL»', /!ausente && hud\.perdido &&/.test(prototipo) && /!ausente && !hud\.perdido &&/.test(prototipo));
+  ok('N1 · un reloj despierta el HUD aunque no lleguen estados', /function usarAhoraSiEnvejece/.test(prototipo) && /recibido: Date\.now\(\)/.test(prototipo));
+  // N2: el primer toque arma al instante; un rebote del dedo salía de ruta
+  ok('N2 · «¿SEGURO?» acepta el segundo toque recién a los 0,6 s (web y APK)', [prototipo, leer('app/App.js')].every(src => /const ARMA_SALIR_MS = 600;/.test(src) && /Date\.now\(\) - armadoEn\.current < ARMA_SALIR_MS\) return/.test(src)));
+  // C2: el verde y el ámbar de estado no llegan a AA en texto chico
+  ok('C2 · en Despacho, la palabra chica va en su tinta', /const tintaDeTexto = \(c\) => c === HUD\.green \? HUD\.verdeTinta : c === HUD\.amber \? HUD\.ambarTinta2 : c;/.test(despacho) && /color: tintaDeTexto\(tinta\) \|\| HUD\.dim2/.test(despacho) && /color: tintaDeTexto\(color\), marginTop: 1/.test(despacho));
+  // C4: las tarjetas centraban el mapa sólo con el mouse
+  ok('C4 · la tarjeta de unidad se puede usar con el teclado', /<button type="button" data-centrar=\{u\.unitId\}/.test(despacho) && /e\.stopPropagation\(\); focusUnit\(u\);/.test(despacho));
+}
+
+console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 2');
+{
+  // N3: sin señal el mensaje se perdía y quedaba una burbuja como enviada
+  ok('N3 · sin señal el texto del chofer queda en el campo, y se dice', /if \(!connectedRef\.current\) return false;/.test(prototipo) && /if \(onSendText\(text, privadoDelCanal\) === false\) \{ setNoSalio\(true\); return; \}/.test(prototipo) && /data-no-salio/.test(prototipo));
+  ok('N3 · con la brecha vieja el chat tampoco manda (el socket tarda en enterarse)', /if \(hud && hud\.viejo\) \{ setNoSalio\(true\); return; \}/.test(prototipo));
+  ok('N3 · un solo ✓: llegó al servidor, no «leído»', /'Tú ✓'\)/.test(prototipo) && !/Tú ✓✓/.test(prototipo));
+  // B3: AUSENTE descartaba la vuelta con un solo toque
+  ok('B3 · AUSENTE se declara a los 5 s y se puede deshacer', /const DESHACER_AUSENTE_MS = 5000;/.test(prototipo) && /onClick=\{\(\) => setAusenteEn\(Date\.now\(\)\)\}/.test(prototipo) && /onClick=\{\(\) => setAusenteEn\(null\)\}/.test(prototipo) && !/onClick=\{\(\) => onPresencia\('ausente'\)\}/.test(prototipo));
+  // B7: la puerta era la única pantalla con la paleta oscura fija
+  { const puerta = prototipo.split('function StartRouteScreen(')[1].split('\nfunction ')[0];
+    ok('B7 · la puerta «Salir a ruta» sigue el tema (sin la paleta fija P)', !/\bP\.[a-z]/.test(puerta) && /background: HUD\.acento, color: HUD\.acentoInk/.test(puerta)); }
+  // B5: cada dígito saltaba y se atenuaba en cada cambio, todo el turno
+  ok('B5 · los dígitos quietos; el número crece sólo al cambiar de estado', !/function AnimatedDigit/.test(prototipo) && /const cambio = !!enableAnim && previo\.current !== estado;/.test(prototipo) && /estado=\{hero\.status\}/.test(prototipo));
+  // B4 y B6 son hipótesis: apagadas de fábrica, se prenden con ?ensayo=
+  ok('B4/B6 · los ensayos arrancan apagados y se prenden por la dirección', /barraFija: ENSAYOS\.has\('barra'\), rotuloResalta: ENSAYOS\.has\('rotulo'\)/.test(prototipo) && /localStorage\.setItem\('r14_ensayo', v\)/.test(prototipo) && /data-ensayo/.test(prototipo));
+  ok('B4/B6 · la raíz conserva ?ensayo= al pasar a la app', /location\.replace\('Prototipo\.html' \+ location\.search/.test(leer('project/index.html')));
+  // N8: la web no tenía el vigía de la ausencia (la lógica la cubre ausencia.js)
+  ok('N8 · la web vigila la ausencia y vuelve a ruta sola', /const vigia = crearVigiaAusencia\(\);/.test(prototipo) && /titulo: 'VOLVISTE A RUTA'/.test(prototipo) && /t: lastPosition\.timestamp/.test(leer('project/realtime.js')));
+  // N6: un bloqueo de 15 s sin explicación se leía como falla
+  ok('N6 · «Entrar AUSENTE» no queda bloqueado sin decir por qué', !/const \[countdown, setCountdown\]/.test(prototipo) && /Entrar AUSENTE \(comer, un repuesto\)/.test(prototipo));
+  // B13: el ingreso decía «Conectado» antes de hablar con nadie
+  ok('B13 · el ingreso dice «Conectado» sólo si el servidor contestó', /async function alcanzable/.test(leer('project/realtime.js')) && /alcance === 'si' \? 'Conectado'/.test(prototipo) && !/>Conectado<\/span>/.test(prototipo));
+  // B10: coordenadas crudas que el chofer no usa
+  ok('B10 · la tarjeta del mapa no muestra coordenadas; los avisos de GPS quedan', !/realPos\.lat\.toFixed\(4\)/.test(prototipo) && /gpsError \? 'SIN GPS' : 'ESPERANDO GPS…'/.test(prototipo));
+  // B11: zonas de 44 px y nada de `transition: all`
+  ok('B11 · puntos de página, tema y pestañas del chat a 44 px; sin «transition: all»', /width: 44, height: 44,/.test(prototipo) && /height: 44, minWidth: 64/.test(prototipo) && /height: 44, borderRadius: 12, cursor: 'pointer', padding: '0 4px'/.test(prototipo) && !/transition: 'all/.test(prototipo));
+  // B12: colores a mano según `sun`, que esquivaban los tokens y la medición
+  { const hud = prototipo.split('function CenterScreen(')[1].split('\nfunction ')[0];
+    ok('B12 · el HUD no escribe colores a mano', !/'#[0-9A-Fa-f]{6}'/.test(hud) && /color: HUD\.ins/.test(hud) && /color: HUD\.secundario/.test(hud)); }
+}
+
+console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 4');
+{
+  // N9: «atendido» le prometía al chofer más de lo que el botón garantiza
+  ok('N9 · al chofer le llega «Lo vio», no «lo marcó atendido» (web y APK)', [prototipo, leer('app/App.js')].every(src => /Lo vio \{/.test(src) && !/Lo marcó atendido/.test(src)));
+  // C8: la etiqueta apagada iba con opacidad y la de color en blanco sobre neón
+  ok('C8 · las etiquetas del mapa: hueca la apagada, tinta legible la de color', /border:1\.5px dashed \$\{HUD\.dim3\}/.test(despacho) && /color:\$\{HUD\.sobrePin\}/.test(despacho) && !/font-size:11px;color:#fff;background:\$\{colorPin\}/.test(despacho) && !/@keyframes latido/.test(despacho));
+  // C3 y C5: textos de 9 a 11 px y botones de 27 en la pantalla de ocho horas
+  ok('C3 · Despacho no escribe nada bajo 12 px', !/fontSize: (8|9|10|11)\b/.test(despacho) && !/dato\((8|9|10|11)[,)]/.test(despacho) && !/rotulo\(8\)/.test(despacho) && /fontSize: Math\.max\(12, Math\.round\(tam \* 0\.38\)\)/.test(despacho));
+  ok('C5 · botones de fila de 32 px y, en el celular, cabecera y zoom de 44', /const btnChico = \(tinta, borde\) => \(\{\n  minHeight: 32,/.test(despacho) && !/(campo|btnSecundario|btnFantasma)\((2\d|3[01])\)/.test(despacho) && /btnIcono\(false, isMobile \? 44 : 36\)/.test(despacho) && /width: 44px !important; height: 44px !important/.test(despacho));
+  // C6: 5 + 1 en Vueltas y 7 + 5 en Números
+  ok('C6 · las fichas de números van en filas parejas', /className="r14-kpi6"/.test(despacho) && /className="r14-kpi12"/.test(despacho) && !/repeat\(auto-fill, minmax\(150px, 1fr\)\)/.test(despacho));
+  // C7: diez botones de ancho desigual, uno de principal sin motivo
+  ok('C7 · Informes es una lista con lo que trae cada uno y el mismo botón CSV', /data-informe=\{tipo\}/.test(despacho) && /<Icono n="descargar" tam=\{16\} \/>CSV/.test(despacho) && !/principal \? btnPrimario\(40\) : btnSecundario\(40\)/.test(despacho));
+  // N4: «Borrar la ida» vaciaba el tramo sin vuelta
+  ok('N4 · borrar un tramo guarda lo que había y ofrece recuperarlo', /setBorrado\(\{ tramo, puntos \}\); setPuntos\(\[\]\);/.test(despacho) && /data-recuperar onClick=\{\(\) => setTramos\(t => t \? \(\{ \.\.\.t, \[borrado\.tramo\]: borrado\.puntos \}\) : t\)\}/.test(despacho));
+  // N5: a quién va el mensaje sólo lo decía la cabecera
+  ok('N5 · el destino del mensaje va junto al campo y en el botón de enviar', /data-destino=\{privadoCon \? 'privado' : 'ruta'\}/.test(despacho) && /Para: solo \{nombreDe\(privadoCon\)\}/.test(despacho) && /aria-label=\{privadoCon \? `Enviar solo a \$\{nombreDe\(privadoCon\)\}` : 'Enviar a toda la ruta'\}/.test(despacho));
+  // C1 es hipótesis (H3): la lista compacta está construida pero apagada
+  ok('C1 · la lista compacta arranca apagada y se prende con ?ensayo=compacta', /const COMPACTA = ENSAYOS_DESP\.has\('compacta'\);/.test(despacho) && /localStorage\.setItem\('r14_ensayo_despacho', v\)/.test(despacho) && /\{!COMPACTA && <div style=\{\{\n\s+display: 'grid', gridTemplateColumns: '1fr 1fr'/.test(despacho) && /data-brecha=\{lado\}/.test(despacho));
+  // N7: «08:04» de brecha al lado de «desde 08:04» de hora
+  ok('N7 · la brecha se muestra sin cero adelante y con «min»', /function duracion\(gapStr\)/.test(despacho) && /\{duracion\(val\)\}<span/.test(despacho));
+}
+
+console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 5');
+{
+  const landing = leer('server/landing.html');
+  // E1: la página prometía «la brecha en grande» y no la mostraba
+  ok('E1 · la landing muestra la pantalla del conductor, sin imágenes ni JavaScript', /<div class="fono" role="img" aria-label="La pantalla del conductor/.test(landing) && !/<img\b|<script\b/i.test(landing));
+  // X1: el voseo era un chiste interno; el software tutea
+  { const textos = [prototipo, despacho, leer('server/creador.html'), leer('app/App.js'), leer('app/hud.js'), leer('server/index.js')].join('\n');
+    ok('X1 · ninguna pantalla ni mensaje del servidor vosea', !/(?<![\p{L}])(Deslizá|Mantené|Apurá|Aflojá|Tocá|Ingresá|Escribí|Elegí|Probá|Esperá|salís|tenés|podés|querés|vos)(?![\p{L}])/iu.test(textos)); }
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

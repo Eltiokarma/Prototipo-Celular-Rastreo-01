@@ -231,13 +231,13 @@ calle. Suite `renovacion`.
 | `RESPALDO_S3_ENDPOINT` / `_BUCKET` / `_KEY_ID` / `_SECRET` | **La copia afuera**: un almacenamiento compatible con S3 (Cloudflare R2, Backblaze B2, AWS) adonde sube cada respaldo. Van las cuatro juntas. Ver *Copia afuera y cómo volver* |
 | `RESPALDO_S3_REGION` | `auto` (R2) por defecto; en B2 o AWS, la región del bucket |
 | `RESPALDO_S3_PREFIJO` | La «carpeta» adentro del bucket (`respaldos/`) |
-| `RESPALDO_CIFRADO` | **La frase con que se cifra cada copia** (16 caracteres o más). Sin ella no sale nada del servidor. **Guardala en un gestor de contraseñas: sin la frase, las copias no se pueden abrir — ni vos, ni nadie** |
+| `RESPALDO_CIFRADO` | **La frase con que se cifra cada copia** (16 caracteres o más). Sin ella no sale nada del servidor. **Guárdala en un gestor de contraseñas: sin la frase, las copias no se pueden abrir — ni vos, ni nadie** |
 | `RESTAURAR_DESDE` | **Volver a un respaldo** al arrancar: el nombre de una copia afuera (`respaldos/respaldo-…db.gz.enc`) o `local:` + el de uno del volumen. Se pone, se redespliega, se verifica y **se saca** |
 | `OLVIDAR_MS` | A los cuántos ms se la borra de verdad y se descarta su vuelta en curso (180 000). El número bueno sale de la calle: tres minutos aguantan una llamada o un semáforo largo |
 | `APP_VERSION_ACTUAL` | El `versionCode` del APK que se reparte hoy. La app compara el suyo y avisa «hay una versión nueva». Sin poner, no avisa |
 | `APP_VERSION_MIN` | El `versionCode` más viejo que todavía sirve. Por debajo, la app dice en rojo «esta app ya no sirve». Sin poner, no avisa |
 | `APP_URL` | De dónde bajar el APK; va en el aviso. Opcional |
-| `TZ` | **Poné `America/Lima`.** Sin ella el servidor corre en UTC y «hoy», los informes y los días de la tendencia van corridos cinco horas. `/salud` lo avisa |
+| `TZ` | **Pon `America/Lima`.** Sin ella el servidor corre en UTC y «hoy», los informes y los días de la tendencia van corridos cinco horas. `/salud` lo avisa |
 | `ALERTA_URL` | Un webhook al que el servidor avisa **solo** cuando su salud cambia (cae, empeora, vuelve). Sirve un tópico de [ntfy.sh](https://ntfy.sh) (`https://ntfy.sh/un-nombre-largo-y-secreto`, y la app ntfy en el teléfono), o un webhook de Slack o Discord. Ver *Salud y alertas* |
 | `SERVIDOR_NOMBRE` | Cómo se llama este servidor en las alertas (por defecto, el dominio de Railway) |
 | `DISCO_CRITICO_MB` / `DISCO_AVISO_MB` | Con menos de esto libre en el disco de la base, `/salud` da problema (100) o aviso (500) |
@@ -498,7 +498,7 @@ guarda en **dos tramos, IDA y VUELTA**, cada uno con su polilínea
 - **Las brechas son por tramo.** Una combi se mide sólo contra las de su
   mismo tramo: la que está por llegar al terminal no tiene «adelante» a la
   que acaba de salir de vuelta —va para el otro lado—, y la recién salida no
-  recibe «apurá» hacia la que está a 48 minutos por el otro extremo. La ruta
+  recibe «apura» hacia la que está a 48 minutos por el otro extremo. La ruta
   no es un circuito: es una ida y un retorno (decisión del 8/9; suite
   `cadena`). El paradero inicial de cada tramo es su primer punto (**A**) en
   el creador de recorridos, y con eso el tramo se detecta solo.
@@ -880,7 +880,7 @@ Tres detalles que explican los casos raros:
 ## La presencia: salir a ruta, ausente, fuera
 
 La app del chofer ya no emite desde el login. Después de entrar, la pantalla
-del medio es una puerta: **"¿Salís a ruta?"**, con el mismo deslizar del SOS
+del medio es una puerta: **"¿Sales a ruta?"**, con el mismo deslizar del SOS
 — un gesto deliberado, no un toque al pasar. Hasta ahí no se emite señal, el
 mapa está vedado (es el mapa DE LA RUTA) y el chat queda abierto.
 
@@ -1148,8 +1148,8 @@ llegar. Son dos cosas, en tres capas:
    escribirse: "breve" o "largo" lo dice el reloj.
 
 A los demás les llega por la brecha. El de atrás ve `+1 · M-12 · EN TRÁFICO
-6 MIN` y su instrucción pasa a **"mantené"**: la cuenta de siempre le diría
-"apurá", porque la brecha contra una combi parada crece sola, y apurar hacia
+6 MIN` y su instrucción pasa a **"mantén"**: la cuenta de siempre le diría
+"apura", porque la brecha contra una combi parada crece sola, y apurar hacia
 un embotellamiento es exactamente el pelotón que este sistema existe para
 evitar. Despacho ve `EN TRÁFICO · 6 MIN · AVISÓ EL CHOFER` (o `PARADA · 4 MIN`)
 en la fila de la unidad. Cada episodio queda guardado en `paradas` con dónde,

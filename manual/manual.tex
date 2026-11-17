@@ -143,7 +143,7 @@ falta leer el manual entero: cada uno va a su capítulo.
 Chofer & Mirar de reojo, manejando, cuánto le lleva la combi de adelante y la de atrás; avisar tráfico; pedir ayuda; hablar con la ruta y con Despacho. & Capítulos \ref{cap:ideas} y \ref{cap:chofer} \\
 Cobrador & Lo mismo que el chofer, desde su propio celular, sin que su GPS cuente. & Capítulo \ref{cap:cobrador} \\
 Despacho & Operar el día: ver la flota en el mapa, atender emergencias, escribirle a una combi, dar de alta a la gente, sacar informes. & Capítulos \ref{cap:ideas} y \ref{cap:despacho} \\
-Gerencia & Todo lo de Despacho más los números del período, las combis y los datos de la empresa. & Capítulo \ref{cap:gerencia} \\
+Gerencia & Todo lo de Despacho más los números del período y las combis; la de toda la cooperativa, también los datos de la empresa. & Capítulo \ref{cap:gerencia} \\
 Central & Dar de alta cooperativas, dibujar sus recorridos, respaldar la base y mirar la salud del sistema. & Capítulo \ref{cap:central} y el anexo \ref{cap:operacion} \\
 \bottomrule
 \end{tabularx}
@@ -342,9 +342,8 @@ y la ruta, y dos opciones:
 \begin{itemize}
   \item \boton{SALIR A RUTA \flecha} empieza el turno: la combi aparece en el
     mapa y empieza a emitir su posición.
-  \item \boton{Entrar AUSENTE (comer, un repuesto)} entra sin salir a ruta. Se
-    habilita a los 15 segundos, a propósito: es para cuando de verdad se va a
-    estar parado.
+  \item \boton{Entrar AUSENTE (comer, un repuesto)} entra sin salir a ruta:
+    es para cuando de verdad se va a estar parado.
 \end{itemize}
 
 Arriba a la derecha, \boton{Salir} cierra la sesión. Abajo de todo está el
@@ -353,17 +352,17 @@ terminal o la vuelta a la cochera también son momentos de riesgo. En la
 puerta el teléfono no manda su ubicación, así que la alerta sale sin ella; si
 la combi está en el mapa (la maneja otro), va con la posición de la combi.
 
-\subsection{¿En qué combi salís?}
+\subsection{¿En qué combi sales?}
 
 \begin{minipage}[t]{0.64\textwidth}\vspace{0pt}
 Si Despacho te habilitó más de una combi, la puerta pregunta
-\rotulo{¿En qué combi salís?}. Cada una dice si está \emph{libre} o quién
+\rotulo{¿En qué combi sales?}. Cada una dice si está \emph{libre} o quién
 la maneja ahora; la elegida está marcada (\rotulo{ELEGIDA}). Se toca la otra y
 listo: pasa a ser la tuya de hoy, y la ruta va con la combi.
 
 Elegir \textbf{no le saca nada a nadie}: la combi se toma al salir a ruta. Si
-elegís una que está manejando otro, la app lo nombra y pide confirmar:
-\boton{ES UN RELEVO}. Al salir a ruta la tomás vos y al otro le aparece que
+eliges una que está manejando otro, la app lo nombra y pide confirmar:
+\boton{ES UN RELEVO}. Al salir a ruta la tomas tú y al otro le aparece que
 otro chofer tomó la unidad.
 
 Estando en ruta no se cambia de combi: primero \boton{SALIR DE RUTA}.
@@ -377,7 +376,7 @@ combi a nadie: el turno arranca al tocar \boton{SALIR A RUTA} (o
 \boton{Entrar AUSENTE}). Mientras tanto, Despacho ve al chofer en la lista de
 \textbf{los que entraron y no salieron a ruta}.
 
-\subsection{Si arrancás sin salir a ruta}
+\subsection{Si arrancas sin salir a ruta}
 
 \begin{minipage}[t]{0.64\textwidth}\vspace{0pt}
 En la puerta el teléfono no manda la ubicación. Pero con la app abierta la
@@ -387,7 +386,7 @@ GPS no cuentan). Entonces avisa fuerte, con vibración:
 \enambar{¿YA ESTÁS MANEJANDO?}, con una cuenta regresiva.
 
 \begin{itemize}
-  \item Si no tocás nada, \textbf{al minuto sale a ruta sola}, y Despacho lo ve
+  \item Si no tocas nada, \textbf{al minuto sale a ruta sola}, y Despacho lo ve
     en la Actividad.
   \item \boton{SALIR AHORA} (en la web) sale en el acto; en la app Android se
     sigue deslizando.
@@ -397,8 +396,8 @@ GPS no cuentan). Entonces avisa fuerte, con vibración:
 
 Mira sólo con la app abierta y a la vista, y con el permiso de ubicación ya
 dado: no lo pide en la puerta. Y \textbf{no cuenta si tu combi la está
-manejando otro}: ahí vas de pasajero o lo estás por relevar, y eso lo decidís
-vos tocando \boton{SALIR A RUTA}.
+manejando otro}: ahí vas de pasajero o lo estás por relevar, y eso lo decides
+tú tocando \boton{SALIR A RUTA}.
 \end{minipage}\hfill
 \begin{minipage}[t]{0.3\textwidth}\vspace{0pt}\centering
 \cel[1]{c02b-vigia}{¿Ya estás manejando?}
@@ -445,18 +444,29 @@ Lo que puede decir la instrucción:
 \toprule
 \rowcolor{fondo} Mensaje & Qué hacer \\
 \midrule
-Mantené el ritmo. Objetivo 6:00. & Nada: la brecha está en objetivo. \\
-Apurá un poco. Objetivo 6:00. & La de adelante se escapa, o la de atrás te viene pisando. \\
-Aflojá un poco. Objetivo 6:00. & Vas encima de la de adelante, o la de atrás quedó lejos. \\
-M-05 avisa que está en tráfico 4 min. Mantené: no te apures hacia el embotellamiento. & La de adelante está trabada: su brecha crece sola, no la persigas. \\
-M-05 se quedó sin señal. Andá con cuidado: sigue en ruta. & Hay una combi adelante que no se ve en el mapa. \\
-Sos la única unidad en ruta. & No hay con quién medirse. \\
+Mantén el ritmo. Objetivo 6:00. & Nada: la brecha está en objetivo. \\
+Apura un poco. Objetivo 6:00. & La de adelante se escapa, o la de atrás te viene pisando. \\
+Afloja un poco. Objetivo 6:00. & Vas encima de la de adelante, o la de atrás quedó lejos. \\
+M-05 avisa que está en tráfico 4 min. Mantén: no te apures hacia el embotellamiento. & La de adelante está trabada: su brecha crece sola, no la persigas. \\
+M-05 se quedó sin señal. Ve con cuidado: sigue en ruta. & Hay una combi adelante que no se ve en el mapa. \\
+Eres la única unidad en ruta. & No hay con quién medirse. \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
 Deslizando a los costados (o tocando los puntos de arriba) se pasa al
 \textbf{chat} (izquierda) y al \textbf{mapa} (derecha).
+
+\subsection{Sin señal}
+
+Si el teléfono deja de recibir datos, la brecha que se ve ya no es de ahora, y
+la pantalla lo dice. A los 10 segundos, arriba aparece
+\rotulo{SIN SEÑAL · 0:12}, el número se pone gris y la instrucción cambia a
+\emph{Brecha de hace 0:12. Puede haber cambiado.} Al minuto el número se
+retira y queda \emph{No veo a las otras combis desde hace 1:01. Ve con
+cuidado: siguen en ruta.} Todo vuelve solo cuando vuelve la señal. En la app
+Android, con la pantalla apagada, la notificación dice lo mismo:
+\rotulo{SIN SEÑAL · hace 3 min}.
 
 \section{Día, noche o automático}
 
@@ -483,10 +493,10 @@ menos azul.
 \section{Estoy en tráfico}
 
 Un toque en \boton{ESTOY EN TRÁFICO} avisa a la ruta que la combi está
-trabada: a la que viene atrás se le cambia la instrucción a «mantené». El botón
-queda en ámbar, \boton{EN TRÁFICO · TOCÁ PARA QUITAR}, y se apaga solo cuando
+trabada: a la que viene atrás se le cambia la instrucción a «mantén». El botón
+queda en ámbar, \boton{EN TRÁFICO · TOCA PARA QUITAR}, y se apaga solo cuando
 la combi vuelve a andar. Si el sistema nota que la combi lleva un rato casi
-quieta, el botón pregunta \boton{¿ESTÁS EN TRÁFICO? · TOCÁ PARA AVISAR}.
+quieta, el botón pregunta \boton{¿ESTÁS EN TRÁFICO? · TOCA PARA AVISAR}.
 
 \section{Ausente}
 
@@ -494,6 +504,14 @@ quieta, el botón pregunta \boton{¿ESTÁS EN TRÁFICO? · TOCÁ PARA AVISAR}.
 para buscar un repuesto. Arriba queda un cartel ámbar con
 \boton{VOLVER A RUTA}, y la pantalla lo dice claro: nadie se mide contra uno
 y la vuelta que llevaba quedó descartada.
+
+Por si fue sin querer, durante 5 segundos la pantalla dice
+\emph{Pasas a AUSENTE en 5 s} con un botón \boton{DESHACER}: recién al
+terminar la cuenta se le avisa a Despacho.
+
+Si la combi vuelve a andar estando en ausente (se olvidó de tocar
+\boton{VOLVER A RUTA} después de almorzar), vuelve a ruta sola y la pantalla
+lo avisa: \enverde{VOLVISTE A RUTA}.
 
 \begin{center}
 \cel{c06-ausente}{Ausente.}\hfill
@@ -505,7 +523,7 @@ y la vuelta que llevaba quedó descartada.
 
 \boton{SALIR DE RUTA} termina el turno: la combi se va del mapa de todos en el
 acto. Por eso pide \textbf{un segundo toque}: el botón se pone rojo y dice
-\boton{¿SEGURO? TOCÁ DE NUEVO}. Si no se toca en unos segundos, se desarma
+\boton{¿SEGURO? TOCA DE NUEVO}. Si no se toca en unos segundos, se desarma
 solo. Después de salir se vuelve a la puerta.
 
 \subsection{El relevo}
@@ -523,7 +541,7 @@ usuario y clave.
 
 Si Despacho te cambia la combi de hoy mientras estás en ruta en otra (ibas de
 acompañante, o te relevaron), la app vuelve a la puerta: para salir en la
-nueva, tocá \boton{SALIR A RUTA}.
+nueva, toca \boton{SALIR A RUTA}.
 
 \section{SOS}
 \label{sec:sos}
@@ -545,8 +563,10 @@ nada deja la alerta como SOS a secas.
 
 Cuando alguien de Despacho marca la alerta como atendida, al que la pidió (y a
 los que van en su combi) le aparece un cartel verde,
-\enverde{DESPACHO VIO TU SOS}, que queda hasta que se lo toca. Si el teléfono
-estaba sin conexión en ese momento, el cartel aparece al volver.
+\enverde{DESPACHO VIO TU SOS}, que queda hasta que se lo toca. Dice quién lo
+vio y a qué hora (\emph{Lo vio Despacho a las 18:50}): que lo vieron, no que
+la ayuda ya va en camino. Si el teléfono estaba sin conexión en ese momento,
+el cartel aparece al volver, siempre que vuelva dentro de las 2 horas del SOS.
 
 Deslizar dos veces no hace dos alarmas: mientras el SOS anterior siga sin
 atender (hasta 10 minutos), el segundo es el mismo. Atendido el primero, uno
@@ -554,8 +574,10 @@ nuevo es otra emergencia.
 
 \subsection{Si el SOS no sale}
 
-Si el celular no tiene internet, a los pocos segundos la pantalla dice
-\enrojo{SOS NO SALIÓ} y queda un panel, hasta que se lo cierra, con:
+Si no se puede confirmar que la alerta llegó (lo más común: el celular no tiene
+internet; también puede ser que el servidor no respondió), a los pocos
+segundos la pantalla dice \enrojo{SOS NO SALIÓ} y queda un panel, hasta que se
+lo cierra, con:
 
 \begin{itemize}
   \item \boton{LLAMAR A LA CENTRAL}: una llamada común al teléfono de la
@@ -567,14 +589,14 @@ Si el celular no tiene internet, a los pocos segundos la pantalla dice
     (ambulancia) y \textbf{116} Bomberos.
 \end{itemize}
 
-El número de la central lo carga la gerencia (Gestión \flecha Empresa) y el
+El número de la central lo carga la gerencia de la cooperativa (Gestión \flecha Empresa) y el
 teléfono lo guarda al entrar, así sirve sin datos. Si la cooperativa no lo
 cargó, el panel lo dice y quedan los números de emergencia.
 
 \begin{importante}
 El SOS sale aunque el GPS no tenga posición. Si el celular no tiene señal en
 ese momento, la pantalla lo dice: \textbf{no supongas que llegó} si no viste
-\enrojo{ALERTA ENVIADA}. Llamá o mandá el SMS.
+\enrojo{ALERTA ENVIADA}. Llama o manda el SMS.
 \end{importante}
 
 \section{El mapa}
@@ -593,10 +615,10 @@ A la izquierda de la pantalla de brechas está el chat, con tres canales:
     Despacho.
   \item \boton{COMBI M-01}: lo que Despacho habla \textbf{con la combi}. Lo ven
     el chofer y el cobrador que van arriba, y el que la maneje después. Es
-    para lo de la calle: \emph{esperá en el mercado}.
-  \item \boton{PERSONAL}: lo que hablás \textbf{solo vos con Despacho}. Te
+    para lo de la calle: \emph{espera en el mercado}.
+  \item \boton{PERSONAL}: lo que hablas \textbf{solo tú con Despacho}. Te
     sigue aunque cambies de combi, y no lo ve nadie más: ni tu cobrador, ni el
-    que maneje tu combi después. Es para lo tuyo: \emph{pasá por la oficina}.
+    que maneje tu combi después. Es para lo tuyo: \emph{pasa por la oficina}.
 \end{itemize}
 
 Un chofer no puede escribirle en privado a otro chofer. Cada pestaña con
@@ -605,6 +627,10 @@ algo sin leer muestra cuántos.
 Se escribe abajo y se manda con la flecha. El botón del micrófono graba una
 \textbf{nota de voz}: se mantiene apretado mientras se habla y se suelta para
 enviar. Los mensajes de otro día llevan la fecha (\emph{21/10 09:18}).
+
+Sin señal, el mensaje no sale: queda escrito en el campo y la pantalla lo
+dice, para mandarlo cuando vuelva. \emph{Tú \checkmark} junto a un mensaje
+propio quiere decir que llegó al servidor, no que alguien ya lo leyó.
 
 \begin{center}
 \cel{c11-chat-grupo}{El grupo de la ruta.}\hfill
@@ -630,7 +656,13 @@ La app Android tiene las mismas pantallas, y además:
     ubicación por 10 minutos (el teléfono se reinició, Android cerró la app,
     se apagó la ubicación), suena \enambar{Tu GPS dejó de funcionar}: hay
     que abrir la app. Una zona sin señal no lo dispara: ahí el GPS sigue
-    leyendo y manda todo al volver la señal.
+    leyendo y, al volver la señal, manda lo que guardó: las últimas 150
+    posiciones (unos 25 minutos con la pantalla apagada). De un corte más
+    largo queda un hueco en el recorrido.
+  \item \textbf{Si el GPS tiene un problema}, la pantalla de ruta lo dice
+    arriba (el servicio parado, la batería optimizada, posiciones que no
+    salen). Si todo anda, no muestra nada; el detalle completo está siempre en
+    Perfil \flecha \rotulo{EL GPS}.
   \item \textbf{Perfil}: sus vueltas, horas y cumplimiento de 7 o 30 días, sus
     turnos, su alias y su clave. Abajo dice la versión de la app y, si le
     llegó un arreglo sin reinstalar, \rotulo{actualizada 11/11 14:30}: es lo
@@ -642,11 +674,59 @@ La app Android tiene las mismas pantallas, y además:
   \item \textbf{Fotos} en el chat, además de las notas de voz.
 \end{itemize}
 
-\begin{nota}[La batería]
-Para que la app siga mandando la posición con la pantalla apagada, Android
-tiene que dejarla correr sin \emph{optimización de batería}. Si está activada,
-la app lo dice en rojo y tiene un atajo a los ajustes. En algunos teléfonos
-(Xiaomi, Huawei, Oppo) además hay que permitir el \emph{inicio automático}.
+\subsection{Configurar el celular (una sola vez)}
+\label{sec:configurar}
+
+La app manda la posición con la pantalla apagada sólo si Android la deja.
+Al instalarla hay que darle cinco permisos; se hace una vez por teléfono.
+
+\begin{enumerate}
+  \item \textbf{Instalar la APK.} La app la reparte la cooperativa, no viene de
+    Google Play: la primera vez Android pide permiso para \emph{instalar apps
+    desconocidas} desde Archivos o desde el navegador. Se activa
+    \emph{Permitir desde esta fuente}, se instala, y después se puede volver
+    a apagar.
+  \item \textbf{Ubicación.} La primera vez que se desliza \boton{SALIR A RUTA}
+    (o al retomar un turno), la app pide la ubicación en dos pasos: primero
+    \emph{Precisa} y \emph{Mientras la app está en uso}; enseguida lleva a los
+    ajustes, donde hay que marcar \textbf{Permitir todo el tiempo}. Hacen falta
+    los dos: sin cualquiera de ellos la app \textbf{no sale a ruta} y lo dice,
+    \enambar{Falta el permiso de ubicación en segundo plano} (o en primer
+    plano). Si se negó, se arregla en Ajustes \flecha Apps \flecha Control de
+    ruta \flecha Permisos \flecha Ubicación \flecha \emph{Permitir todo el
+    tiempo}, y se vuelve a deslizar. \emph{Usar ubicación precisa} tiene que
+    quedar prendido; sin ella la combi aparece corrida.
+  \item \textbf{Notificaciones: Permitir.} Por ahí llegan la brecha con la
+    pantalla apagada, el aviso de sin señal y el de \enambar{Tu GPS dejó de
+    funcionar}.
+  \item \textbf{Batería: Sin restricciones.} Ajustes \flecha Apps \flecha
+    Control de ruta \flecha Batería. Si está \emph{Optimizado}, Android puede
+    limitar la app con la pantalla apagada (cortarle la red o pararla), y la
+    combi deja de aparecer en el mapa. La app lo avisa en rojo y tiene un
+    atajo. En algunos teléfonos (Xiaomi, Huawei, Oppo) además hay que permitir
+    el \emph{inicio automático}.
+  \item \textbf{La hora automática.} Ajustes \flecha Sistema \flecha Fecha y
+    hora \flecha \emph{Establecer la hora automáticamente}. Con el reloj corrido
+    el servidor tiene que adivinar cuándo se tomó cada posición.
+\end{enumerate}
+
+\begin{center}
+\cel{a06-instalar-apk}{1. Instalar la APK.}\hfill
+\cel{a01-ubicacion}{2. La primera pregunta.}\hfill
+\cel{a02-ubicacion-siempre}{2. Después: todo el tiempo.}
+
+\vspace{8pt}
+\cel{a03-notificaciones}{3. Notificaciones.}\hfill
+\cel{a04-bateria}{4. Batería sin restricciones.}\hfill
+\cel{a05-hora}{5. La hora automática.}
+\end{center}
+
+\begin{nota}[Son ilustraciones]
+Estas seis no son capturas: son dibujos de las pantallas de Android 14, con
+sus textos. En Samsung, Xiaomi o Motorola el camino y los nombres cambian un
+poco (\emph{Configuración} en vez de \emph{Ajustes}, \emph{Aplicaciones} en vez
+de \emph{Apps}), pero las opciones son las mismas. En naranja, lo que hay que
+tocar.
 \end{nota}
 
 % ════════════════════════════════════════════════════════════════════════
@@ -657,6 +737,13 @@ El cobrador entra con \textbf{su propia cuenta} (nunca con la del chofer) y ve
 lo mismo que el chofer de su combi: las brechas, el mapa y el chat del grupo y
 de Despacho. La diferencia está arriba: \rotulo{acompañante}. Su GPS
 \textbf{no} cuenta: la posición de la combi la manda el celular del chofer.
+En la app Android no tiene los botones del turno (\boton{ESTOY EN TRÁFICO},
+\boton{AUSENTE}, \boton{SALIR DE RUTA}): el turno de la combi lo lleva el
+chofer.
+Si su combi no está en la cadena, en vez de las brechas dice qué le pasa:
+\enambar{TU COMBI ESTÁ AUSENTE}, \enambar{TU COMBI VA HACIA LA RUTA},
+\enambar{TU COMBI NO ESTÁ EN RUTA} o \enambar{EL CHOFER NO TIENE SEÑAL}, con
+la hora.
 
 \begin{center}
 \cel[0.36]{c14-cobrador}{El cobrador, en modo acompañante.}
@@ -698,16 +785,23 @@ cuatro partes:
     \textbf{campana tachada} (ver \emph{Cuando llega un SOS}).
   \item[La lista de unidades.] A la izquierda, cada combi con las iniciales
     del que la maneja, su velocidad, chofer, placa, tramo (\rotulo{ida} /
-    \rotulo{vuelta}) y sus dos brechas, con color y palabra. Arriba,
+    \rotulo{vuelta}) y sus dos brechas, con color y palabra, en minutos
+    (\emph{8:04 min} son ocho minutos, no las ocho y cuatro). Arriba,
     \rotulo{8 de 9}: cuántas se ven de cuántas tiene la ruta. Encima de la lista, dos avisos cuando hace falta: las
     combis \textbf{fuera del recorrido} y los choferes que \textbf{entraron y
     no salieron a ruta}, con hace cuánto; a los diez minutos se pone en
     ámbar: es para llamarlo.
   \item[El mapa.] El recorrido (ida llena, retorno punteado), las combis con
     el color de su brecha y la leyenda. Una combi \textbf{fuera del recorrido}
-    lleva un rombo y un círculo ámbar.
+    lleva un rombo y un círculo ámbar. La que \textbf{perdió la señal}, la
+    que está \textbf{ausente} o la que todavía no pisó el recorrido se dibuja
+    \textbf{hueca}, con la etiqueta punteada: su posición no es de ahora o no
+    cuenta en la cadena.
   \item[El canal de la ruta.] A la derecha, el chat del grupo, con los SOS
-    marcados en rojo y, debajo, quién los atendió. Abajo se escribe al canal.
+    marcados en rojo y, debajo, quién los atendió. Abajo se escribe; justo
+    arriba del campo dice \textbf{a quién va}: \rotulo{Para: toda la ruta
+    18A}, o, con un privado abierto, \rotulo{Para: solo M-07 · el resto de la
+    ruta no lo ve}, con la zona de escribir en ámbar.
 \end{description}
 
 \textbf{Sin conexión}, el mapa se pone gris y dice \enambar{Sin conexión: el
@@ -742,7 +836,7 @@ importante:
     \enambar{AHORRO DE BATERÍA ACTIVADO} (Android le puede cortar la señal a
     la app con la pantalla apagada: hay que ponerla «sin restricciones») o
     \enambar{APP VIEJA}. Antes de llamar al chofer porque «no aparece»,
-    mirá esto.
+    mira esto.
 \end{itemize}
 
 Arriba de la lista, un recuadro ámbar avisa las combis \textbf{fuera del
@@ -754,6 +848,15 @@ Arriba a la derecha de cada tarjeta hay dos íconos: el \textbf{globo} es el
 mensaje directo a la combi y la \textbf{persona}, el privado sólo al que la
 maneja (sección siguiente). Al pasar el mouse dicen qué son.
 \end{minipage}
+
+\begin{nota}[La lista compacta, en prueba]
+Hay una versión de la lista con una fila por combi y las brechas en dos
+columnas alineadas: entran todas las combis sin desplazar, y un pelotón se ve
+bajando la vista. Se prende abriendo el panel con
+\texttt{despacho.html?ensayo=compacta} y se apaga con \texttt{?ensayo=}. No
+muestra la velocidad, la placa ni la ida o vuelta (siguen en la lista de
+siempre). Está a prueba: si a Despacho le sirve más, queda de fábrica.
+\end{nota}
 
 \section{Escribirle a una combi o a una persona}
 
@@ -777,8 +880,11 @@ leer}, con el nombre de la combi o de la persona: un toque y se abre.
 
 \subsection*{Fotos, notas de voz y evidencia}
 
-Las fotos y las notas de voz del chat se guardan \textbf{30 días}; después
-queda la burbuja, \emph{ya no disponible}. Si una sirve de prueba (la foto de
+El chat se guarda \textbf{30 días}: después se borra entero, salvo los SOS y
+lo marcado como evidencia. Las fotos y las notas de voz tienen además un tope
+de \textbf{1500 de cada una por cooperativa}: si se pasa antes de los 30
+días, las más viejas pierden el contenido y queda la burbuja, \emph{ya no
+disponible}. Si una sirve de prueba (la foto de
 un choque, un audio de una amenaza), al pasar el mouse por el mensaje aparece
 \boton{Guardar como evidencia}: se escribe el motivo (es obligatorio) y el
 mensaje queda marcado en ámbar, \enambar{EVIDENCIA · quién: motivo}. Lo marcado
@@ -808,7 +914,9 @@ haya ido del mapa). \boton{ATENDIDO} cierra el SOS
 \textbf{en todos los paneles}: el otro Despacho ve en el canal quién lo
 atendió y a qué hora, y queda en la Actividad y en el informe de emergencias
 (con los minutos que tardó). Si llegan dos SOS seguidos, no se pisan; y si el
-panel estaba cerrado o recargando, al entrar el SOS sin atender está ahí. Si
+panel estaba cerrado o recargando, al entrar el SOS sin atender está ahí
+(los de las últimas 24 horas; uno más viejo sin atender queda en el canal y
+en el informe, pero ya no suena). Si
 el chofer eligió qué pasó, la barra y el mensaje lo dicen: \emph{FALLA
 MECÁNICA}, \emph{ACCIDENTE} o \emph{POLICÍA}.
 
@@ -986,7 +1094,8 @@ medias se pierde, su gente pasa con ella y su turno sigue en la ruta nueva.
 \subsection{Turnos}
 
 Quién anduvo en qué combi, cuándo entró y salió, y cuánto tiempo estuvo en
-ruta: \boton{Hoy}, \boton{Ayer} o \boton{Esta semana}. Un turno se abre cuando
+ruta: \boton{Hoy}, \boton{Ayer}, \boton{Esta semana} u \boton{Otro día}, con
+la fecha que se elija. Un turno se abre cuando
 la persona sube a su combi y se cierra cuando se va; un corte de señal corto no
 lo parte en dos.
 
@@ -1001,7 +1110,8 @@ Con las horas se paga, así que se pueden corregir a mano, siempre con un
     teléfono, se cayó el servidor).
 \end{itemize}
 
-Se puede ir hasta 31 días atrás; un turno no puede durar más de 24 horas ni
+Se puede ir hasta 31 días atrás (con \boton{Otro día} se encuentra el turno);
+un turno no puede durar más de 24 horas ni
 pisarse con otro de la misma persona. La fila queda marcada en ámbar,
 \enambar{CORREGIDO A MANO} (o \enambar{AGREGADO A MANO}, \enambar{ANULADO A
 MANO}); al pasar el mouse dice quién y por qué. Está en la Actividad y en el
@@ -1037,6 +1147,10 @@ GPX o GeoJSON, o cargar una \boton{Grabación de la calle}: el recorrido que
 grabó un chofer con la app. Desde ahí mismo se le puede \textbf{pedir} a una
 combi que grabe su próxima vuelta. Nada cambia hasta \boton{Guardar recorrido}.
 
+\boton{Borrar la ida} vacía el tramo de un clic, pero no se pierde: aparece
+\emph{Se borró la ida (131 puntos)} con \boton{Recuperar la ida}, que lo
+trae de vuelta mientras no se haya dibujado nada nuevo en ese tramo.
+
 \pc{d12-trazador}{El trazador de Despacho.}
 
 \begin{importante}
@@ -1069,11 +1183,12 @@ para acusar.
 \subsection{Informes}
 
 Descargas en \textbf{CSV} (se abren en Excel) para un rango de fechas de hasta
-90 días: vueltas y brechas, medias vueltas, turnos por persona (las horas que
-se liquidan), salidas del recorrido, paradas y avisos de tráfico, cortes de
-señal, anomalías, emergencias, el chat y la actividad del panel. Cada archivo
-arranca diciendo el período, con qué se midió y en qué huso horario están las
-horas.
+90 días. Es una lista: cada informe con una línea que dice qué trae, y su
+botón \boton{CSV}. Están las vueltas y brechas, las medias vueltas, los
+turnos por persona (las horas que se liquidan), las salidas del recorrido, las
+paradas y avisos de tráfico, los cortes de señal, las anomalías, las
+emergencias, el chat y la actividad del panel. Cada archivo arranca diciendo
+el período, con qué se midió y en qué huso horario están las horas.
 
 \pc{d15-informes}{Los informes.}
 
@@ -1107,16 +1222,18 @@ La gerencia entra por el \textbf{mismo panel} que Despacho, con su propia
 cuenta (la da de alta la central), y ve todo lo que ve Despacho. Además:
 
 \begin{itemize}
-  \item administra los \textbf{activos}: da de alta las combis con su placa, y
-    corrige los datos y el logo de la empresa;
+  \item administra los \textbf{activos}: da de alta las combis con su placa;
   \item tiene la pestaña \textbf{Números}, con el cumplimiento del período;
-  \item carga el \textbf{teléfono de la central para emergencias};
+  \item si su cuenta es de \textbf{toda la cooperativa}: corrige los datos y
+    el logo de la empresa y carga el \textbf{teléfono de la central para
+    emergencias};
   \item cambia la clave de las cuentas de Despacho (un Despacho no puede
     tocar la de otro).
 \end{itemize}
 
-La cuenta de gerencia puede abarcar toda la cooperativa o una sola ruta.
-Despacho no puede tocarla: buena parte de lo que mira la gerencia es el
+La cuenta de gerencia puede abarcar toda la cooperativa o una sola ruta. La de
+una sola ruta ve la empresa pero no la puede corregir: los datos, el logo y el
+teléfono de emergencias son de la cooperativa entera. Despacho no puede tocarla: buena parte de lo que mira la gerencia es el
 trabajo de Despacho.
 
 \section{Dar de alta una combi}
@@ -1129,7 +1246,7 @@ descripción. \boton{+ Vehículo} la crea en la ruta elegida.
 
 \section{La empresa y su logo}
 
-En \textbf{Empresa}, la gerencia corrige el nombre, el RUC y el contacto, y sube
+En \textbf{Empresa}, la gerencia de toda la cooperativa corrige el nombre, el RUC y el contacto, y sube
 el \textbf{logo} (PNG, JPG o WEBP; se achica solo). También carga el
 \textbf{Teléfono de la central para emergencias}: el número que el chofer
 llama, o al que manda el SMS con su posición, cuando su SOS no sale por
@@ -1151,7 +1268,10 @@ días» son los últimos siete contando hoy.
     cumplimiento de cada día (un día sin vueltas no aparece: no es un cero).
   \item \textbf{Después}, las cifras del período: vueltas, idas, retornos,
     \textbf{cumplimiento} (el porcentaje de vueltas cuya brecha promedio estuvo
-    en objetivo), brecha promedio, horas trabajadas, unidades activas, salidas
+    en objetivo, \textbf{entre las que tienen brecha medida}: una vuelta sin
+    dato no cuenta ni a favor ni en contra, así que un 100\,\% de dos vueltas
+    juzgables no dice lo mismo que uno de cuarenta; al lado están las
+    vueltas), brecha promedio, horas trabajadas, unidades activas, salidas
     del recorrido, cortes de señal, horas sin señal, horas ausente, paradas y
     SOS.
   \item \textbf{Por unidad}: cada combi con sus vueltas, cumplimiento, brecha
@@ -1233,8 +1353,9 @@ se ve una sola vez: hay que anotarla para dictarla.
 
 \subsection{Suspender}
 
-\boton{Suspender} saca de circulación a una cooperativa entera \textbf{en el
-acto}: se cierran todas sus sesiones y nadie de ella puede entrar. La
+\boton{Suspender} saca de circulación a una cooperativa entera: desde ese
+momento nadie de ella puede entrar, y las sesiones que estaban abiertas se
+cierran en menos de un minuto. La
 confirmación dice el nombre de la cooperativa que se va a suspender. Se puede
 reactivar.
 
@@ -1316,7 +1437,7 @@ donde se ven así. Las acciones de la central figuran como \textbf{CREADOR}.
   \item[«Mi combi no aparece en el mapa de Despacho».] Revisar que el
     celular tenga la ubicación activada y el permiso dado (la web lo dice en
     rojo: \enrojo{SIN GPS}). En la app Android, revisar la optimización de
-    batería (sección \ref{sec:android}).
+    batería (sección \ref{sec:configurar}).
   \item[«Dice que otro chofer tomó la unidad».] Dos personas entraron en la
     misma combi: manda el GPS del último que entró. El otro sigue viendo
     todo, pero su posición no se usa.
@@ -1334,13 +1455,14 @@ donde se ven así. Las acciones de la central figuran como \textbf{CREADOR}.
     \boton{SALIR A RUTA}. La vuelta que se llevaba se perdió.
   \item[«Mandé un SOS por error».] Avisar enseguida por el chat a Despacho. En
     Despacho, \boton{ATENDIDO} saca la alerta.
-  \item[«Mi SOS dice NO SALIÓ».] No hay internet. Usar el panel que queda en
+  \item[«Mi SOS dice NO SALIÓ».] No se pudo confirmar que llegó: casi siempre
+    falta internet, a veces el servidor no respondió. Usar el panel que queda en
     pantalla: \boton{LLAMAR A LA CENTRAL}, el SMS con la posición, o el 105,
     106 o 116 (sección \ref{sec:sos}).
   \item[«Me sonó \emph{Tu GPS dejó de funcionar}».] La app dejó de leer la
     ubicación estando en ruta: el teléfono se reinició, Android la cerró o se
     apagó la ubicación. Abrir la app; si vuelve a pasar, revisar la batería
-    (sección \ref{sec:android}).
+    (sección \ref{sec:configurar}).
   \item[«La app me sacó de ruta sola».] Había vuelto a ruta sola desde ausente
     y en 20 minutos no pisó el recorrido: se entiende que el día terminó.
     Para seguir trabajando, \boton{SALIR A RUTA}.

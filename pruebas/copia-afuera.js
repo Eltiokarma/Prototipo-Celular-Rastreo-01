@@ -221,7 +221,7 @@ const hasta = async (fn, ms = 8000) => { for (let t = 0; t < ms; t += 200) { if 
   ok('la base de antes NO se borró: quedó al lado', antes.length === 1, fs.readdirSync(DIR));
   { const d = new Database(path.join(DIR, antes[0]), { readonly: true });
     ok('y tiene a «despues»', !!d.prepare("SELECT 1 FROM users WHERE unitId = 'despues'").get()); d.close(); }
-  ok('el log dice qué hizo y que hay que sacar la variable', /Base restaurada desde .*sacá RESTAURAR_DESDE/s.test(servidor.log));
+  ok('el log dice qué hizo y que hay que sacar la variable', /Base restaurada desde .*saca RESTAURAR_DESDE/s.test(servidor.log));
   const sis = await pedir('/creador/sistema', { headers: await creador() });
   ok('el panel del creador lo muestra', sis.body.restauracion && sis.body.restauracion.pedido === clave, sis.body.restauracion);
   await altaDe('post');

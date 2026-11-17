@@ -29,7 +29,7 @@
   :root {
     --bg: #F7FAFD; --surface: #FFFFFF; --line: #C3D4E4; --divider: #E1E9F2;
     --fg: #0B2239; --fg2: #2A4864; --dim: #41627F; --dim3: #5A7591;
-    --azul: #2580CF; --azulOscuro: #1668C4;
+    --azul: #2580CF; --azulOscuro: #1668C4; --azulHondo: #0F4F9E;
     --verdeFondo: #E9F7EF; --verdeTinta: #0B6B33;
   }
   * { box-sizing: border-box; }
@@ -42,7 +42,7 @@
   header { padding: 26px 0 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
   /* La puerta para el que ya es cliente: la landing también es la entrada */
   .entrar {
-    display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px;
+    display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px;
     border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
     color: var(--fg2); font-weight: 700; font-size: 15px; text-decoration: none;
   }
@@ -64,12 +64,13 @@
   h1 { font-family: "Archivo Black", system-ui, sans-serif; font-size: clamp(30px, 5.5vw, 46px); line-height: 1.12; letter-spacing: -.01em; margin: 0 0 18px; font-weight: 400; }
   h1 em { font-style: normal; color: var(--azul); }
   .bajada { font-size: 19px; color: var(--fg2); max-width: 640px; margin: 0 0 26px; }
+  /* Blanco sobre --azul daba 4,14:1; sobre --azulOscuro, 5,51 (auditoría de UI, E3) */
   .cta {
-    display: inline-block; background: var(--azul); color: #fff;
+    display: inline-block; background: var(--azulOscuro); color: #fff;
     padding: 14px 26px; border-radius: 12px; font-weight: 800;
     text-decoration: none; font-size: 17px;
   }
-  .cta:hover { background: var(--azulOscuro); }
+  .cta:hover { background: var(--azulHondo); }
   .nota-cta { font-size: 14px; color: var(--dim3); margin-top: 10px; }
   h2 { font-family: "Archivo Black", system-ui, sans-serif; font-size: 22px; letter-spacing: -.01em; color: var(--fg); font-weight: 400; margin: 56px 0 6px; }
   .roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 14px; }
@@ -87,6 +88,35 @@
   footer { border-top: 1px solid var(--divider); margin-top: 56px; padding: 26px 0 40px; font-size: 14px; color: var(--dim3); }
   footer a { color: var(--dim); }
   @media (max-width: 640px) { ul.lista { columns: 1; } }
+
+  /* El producto a la vista (auditoría de UI, E1): la página prometía «la
+     brecha en grande» y no la mostraba. El teléfono es HTML y CSS, con los
+     colores y los textos de la pantalla del chofer de verdad: sin imagen,
+     sin JavaScript, ~1 KB. Es decorado para el lector de pantalla
+     (role=img con su descripción). */
+  .hero { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 44px; align-items: center; }
+  .fono {
+    width: 230px; border-radius: 34px; border: 9px solid #0B2239; background: var(--bg);
+    padding: 28px 16px 20px; box-shadow: 0 2px 6px rgba(11,34,57,.08), 0 30px 60px -28px rgba(11,34,57,.45);
+    position: relative; line-height: 1.2;
+  }
+  .fono::before { content: ""; position: absolute; top: 9px; left: 50%; width: 54px; height: 6px; margin-left: -27px; border-radius: 3px; background: #C3D4E4; }
+  .fono .r { font-size: 12px; font-weight: 800; letter-spacing: .04em; color: #3D5C7A; }
+  .fono .r small { font-size: 12px; font-weight: 600; letter-spacing: 0; margin-left: 4px; }
+  .fono .d { font-family: "Archivo Black", system-ui, sans-serif; color: #1F8A4F; font-size: 66px; line-height: 1; margin: 4px 0 6px; letter-spacing: -.02em; }
+  .fono .d2 { font-size: 38px; }
+  .fono .i { font-size: 13px; color: #3D5C7A; }
+  .fono .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+  .fono .top i { width: 22px; height: 22px; border-radius: 6px; background: #1668C4; }
+  .fono .top span { font-size: 12px; font-weight: 800; color: #0B6B33; letter-spacing: .04em; }
+  .fono hr { border: 0; border-top: 1px solid #E1E9F2; margin: 16px 0 12px; }
+  .fono .sos { margin-top: 26px; height: 40px; border-radius: 20px; border: 1px solid #C3D4E4; background: #FFFFFF;
+    display: flex; align-items: center; gap: 10px; padding: 3px; font-size: 12px; font-weight: 800; color: #3D5C7A; white-space: nowrap; }
+  .fono .sos b { width: 46px; height: 32px; border-radius: 16px; background: #C2001D; color: #fff; display: grid; place-items: center; font-size: 12px; }
+  @media (max-width: 720px) {
+    .hero { grid-template-columns: 1fr; gap: 30px; }
+    .fono { margin: 0 auto; }
+  }
 </style>
 </head>
 <body>
@@ -98,6 +128,7 @@
   </header>
 
   <section class="hero">
+   <div>
     <h1>Más pasajeros. Más control. <em>Menos accidentes.</em></h1>
     <p class="bajada">
       Micros Tempo es el control de flota hecho para cooperativas de
@@ -108,6 +139,17 @@
     </p>
     <a class="cta" href="mailto:soporte@microstempo.com?subject=Quiero%20conocer%20Micros%20Tempo">Escríbanos: soporte@microstempo.com</a>
     <div class="nota-cta">Le mostramos el sistema andando con su propia ruta, sin compromiso.</div>
+   </div>
+    <div class="fono" role="img" aria-label="La pantalla del conductor: 6 minutos 15 segundos con la combi de atrás, en verde, y 6 minutos con la de adelante.">
+      <div class="top" aria-hidden="true"><i></i><span>● EN VIVO</span></div>
+      <div class="r">ATRÁS <small>−1 · M-02</small></div>
+      <div class="d">6:15</div>
+      <div class="i">Mantén el ritmo. Objetivo 6:00.</div>
+      <hr>
+      <div class="r">ADELANTE <small>+1 · M-03</small></div>
+      <div class="d d2">6:01</div>
+      <div class="sos"><b>SOS</b>DESLIZA PARA SOS →</div>
+    </div>
   </section>
 
   <h2>Una pantalla para cada uno</h2>
