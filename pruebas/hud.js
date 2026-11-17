@@ -208,8 +208,10 @@ console.log('\nLA COMBI DEL COBRADOR (revisión del manual, 17/11)');
   // en ruta» habiendo otras, y si el que perdía señal era su chofer, se lo
   // atribuía al vecino.
   const ruta = (...units) => ({ units: [{ unitId: 'M-02', presencia: 'ruta', enRuta: true }, ...units] });
-  ok('sin estado todavía, no se afirma nada', estadoDeMiCombi(null, 'M-01') === null);
-  ok('su combi no está: «no está en ruta»', estadoDeMiCombi(ruta(), 'M-01').estado === 'fuera' && /NO ESTÁ EN RUTA/.test(avisoDeMiCombi(estadoDeMiCombi(ruta(), 'M-01')).titulo));
+  ok('sin estado todavía: «esperando», no «eres la única»', estadoDeMiCombi(null, 'M-01').estado === 'esperando' && /ESPERANDO/.test(avisoDeMiCombi(estadoDeMiCombi(null, 'M-01')).titulo));
+  // No aparecer no prueba que terminó: el servidor olvida a los ~3 min de silencio
+  const noEsta = avisoDeMiCombi(estadoDeMiCombi(ruta(), 'M-01'));
+  ok('su combi no aparece: mensaje neutral, sin afirmar que terminó', estadoDeMiCombi(ruta(), 'M-01').estado === 'noAparece' && /NO VEO A TU COMBI/.test(noEsta.titulo) && /no esté mandando su posición/.test(noEsta.texto) && !/ya terminó\./.test(noEsta.texto), noEsta);
   ok('ausente', estadoDeMiCombi(ruta({ unitId: 'M-01', presencia: 'ausente' }), 'M-01').estado === 'ausente');
   ok('yendo a la ruta', estadoDeMiCombi(ruta({ unitId: 'M-01', presencia: 'ruta', enRuta: false }), 'M-01').estado === 'yendo');
   const sin = estadoDeMiCombi(ruta({ unitId: 'M-01', presencia: 'ruta', enRuta: true, sinSenal: true, sinSenalDesde: new Date(2026, 10, 17, 9, 5).getTime() }), 'M-01');

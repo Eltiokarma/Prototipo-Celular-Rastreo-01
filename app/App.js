@@ -1614,7 +1614,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
 
       {/* Un minuto sin datos: el número se retira. Queda la última brecha,
           como dato y no como instrucción (auditoría de UI, N1). */}
-      {acompanante && avisoCombi ? (
+      {acompanante && avisoCombi && !hud.viejo ? (
         <View style={s.centro}>
           <Text style={s.sinSenalTitulo}>{avisoCombi.titulo}</Text>
           <Text style={s.sinSenalTexto}>{avisoCombi.texto}</Text>

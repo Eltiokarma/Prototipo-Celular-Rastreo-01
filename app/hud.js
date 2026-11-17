@@ -254,11 +254,20 @@ function avisoSinSenal(ultimoEnvio, ahora = Date.now()) {
 // la falta de señal al vecino (revisión del manual con ChatGPT, 17/11).
 //
 // `estado` es el estado de la ruta tal cual llega; `combi`, la del cobrador.
-// Sin estado todavía no se sabe nada: null, y se espera.
+//
+// Tres cosas distintas que no se pueden mezclar (tercera revisión, 17/11):
+//   - todavía no llegó ningún estado: se ESPERA, no se afirma nada;
+//   - la combi no aparece: NO prueba que haya terminado. El servidor también
+//     olvida una unidad a los ~3 min de silencio y no lista la que todavía
+//     no mandó ninguna posición. El mensaje es neutral;
+//   - ausente, yendo, sin señal: lo dice el servidor, es el estado.
+// Y si el teléfono del cobrador perdió la conexión, cualquiera de estos es
+// el último que se supo: la pantalla no lo muestra como actual (App.js).
 function estadoDeMiCombi(estado, combi) {
-  if (!estado || !combi) return null;
+  if (!combi) return null;
+  if (!estado) return { estado: 'esperando', combi };
   const u = (estado.units || []).find(x => x.unitId === combi);
-  if (!u) return { estado: 'fuera', combi };
+  if (!u) return { estado: 'noAparece', combi };
   if (u.presencia === 'ausente') return { estado: 'ausente', combi };
   if (u.presencia === 'ruta' && u.enRuta === false) return { estado: 'yendo', combi };
   if (u.sinSenal) return { estado: 'sinSenal', combi, desde: u.sinSenalDesde ?? u.timestamp ?? null };
@@ -273,8 +282,10 @@ function avisoDeMiCombi(e) {
   if (!e || e.estado === 'ok') return null;
   const c = e.combi;
   switch (e.estado) {
-    case 'fuera': return { titulo: 'TU COMBI NO ESTÁ EN RUTA',
-      texto: `${c} todavía no salió a ruta, o ya terminó. Las brechas aparecen cuando el chofer desliza SALIR A RUTA.` };
+    case 'esperando': return { titulo: 'ESPERANDO LA RUTA',
+      texto: 'Todavía no llegan los datos de la ruta. Si tarda, revisa la señal.' };
+    case 'noAparece': return { titulo: 'NO VEO A TU COMBI',
+      texto: `${c} no aparece en la ruta: puede que no haya salido, que haya terminado o que el teléfono del chofer no esté mandando su posición.` };
     case 'ausente': return { titulo: 'TU COMBI ESTÁ AUSENTE',
       texto: `El chofer sacó a ${c} de la cadena (comer, un repuesto): nadie se mide contra ella hasta que vuelva a ruta.` };
     case 'yendo': return { titulo: 'TU COMBI VA HACIA LA RUTA',
