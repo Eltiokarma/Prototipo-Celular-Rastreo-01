@@ -1,6 +1,6 @@
 # Teoría — Todo lo que aprendiste construyendo COOP-R14
 
-Este documento cubre los conceptos que usamos. Podés leerlo solo
+Este documento cubre los conceptos que usamos. Puedes leerlo solo
 o abrirlo con Claude y preguntarle sobre cualquier sección.
 
 ---
@@ -37,7 +37,7 @@ En nuestro proyecto usamos los tres, pero todo inline en un solo archivo HTML.
 
 Antes de React, para cambiar algo en la pantalla tenías que encontrar el elemento en el DOM y modificarlo manualmente. Tedioso y propenso a bugs.
 
-React invierte el modelo: vos describís cómo debe verse la pantalla DADO un estado, y React se encarga de actualizar el DOM automáticamente.
+React invierte el modelo: tú describes cómo debe verse la pantalla DADO un estado, y React se encarga de actualizar el DOM automáticamente.
 
 ```javascript
 // Sin React — manual, frágil
@@ -59,7 +59,7 @@ function MiComponente({ nombre }) {
 }
 ```
 
-**Props** — argumentos que le pasás a un componente (como parámetros de función).
+**Props** — argumentos que le pasas a un componente (como parámetros de función).
 ```javascript
 <MiComponente nombre="Juan" />
 ```
@@ -67,7 +67,7 @@ function MiComponente({ nombre }) {
 **State (useState)** — datos que cuando cambian, actualizan la pantalla.
 ```javascript
 const [conectado, setConectado] = React.useState(false);
-// Cuando llamás setConectado(true), React re-renderiza automáticamente
+// Cuando llamas setConectado(true), React re-renderiza automáticamente
 ```
 
 **Effect (useEffect)** — código que corre cuando el componente aparece o cuando cambian ciertos datos.
@@ -221,7 +221,7 @@ El Service Worker es como un empleado entre la app y el servidor: intercepta cad
 
 ## 7. Git y GitHub — control de versiones
 
-**Git** es un sistema que guarda el historial completo de cambios de tu código. Podés volver a cualquier versión anterior.
+**Git** es un sistema que guarda el historial completo de cambios de tu código. Puedes volver a cualquier versión anterior.
 
 ```bash
 git add archivo.js          # preparar cambio
@@ -236,7 +236,7 @@ El flujo que usamos:
 Editar código → git add → git commit → git push → Vercel detecta el push → despliega automáticamente
 ```
 
-Cada vez que subís código, Vercel reconstruye y publica la app en menos de un minuto.
+Cada vez que subes código, Vercel reconstruye y publica la app en menos de un minuto.
 
 **Pregunta para explorar:** *¿Qué es una "rama" (branch) en Git y para qué se usa?*
 
@@ -253,7 +253,7 @@ Si alguien hackea tu base de datos y las contraseñas están en texto plano, tod
 "miperro123" → bcrypt → "$2b$10$X7kZ..." (60 caracteres)
 ```
 
-No podés ir para atrás. De `"$2b$10$X7kZ..."` no podés recuperar `"miperro123"`.
+No puedes ir para atrás. De `"$2b$10$X7kZ..."` no puedes recuperar `"miperro123"`.
 
 **Cómo funciona el login:**
 ```javascript
@@ -400,7 +400,7 @@ style={{ color: 'red' }} → StyleSheet.create({ color: 'red' })
 
 ## Preguntas para una sesión de estudio con Claude
 
-Podés pegar cualquiera de estas en un chat nuevo:
+Puedes pegar cualquiera de estas en un chat nuevo:
 
 1. *"Explícame el ciclo de vida de un componente React con un ejemplo simple"*
 2. *"¿Qué es el event loop de JavaScript y cómo afecta al código asíncrono?"*

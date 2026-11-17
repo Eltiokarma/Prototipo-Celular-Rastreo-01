@@ -35,7 +35,7 @@ Los navegadores cortan la geolocalización cuando se apaga la pantalla o la app
 pasa a segundo plano. A los 30 segundos sin GPS el servidor saca la unidad del
 mapa. Está medido y es peor de lo que parece: **el de atrás pasa a medirse
 contra la unidad que sigue, ve el doble de brecha, y la pantalla le dice
-"apurá" hacia una combi que tiene justo adelante y que no ve.** El sistema
+"apura" hacia una combi que tiene justo adelante y que no ve.** El sistema
 provoca el pelotón que existe para evitar. Además le borra la vuelta en curso,
 así que el historial nace con agujeros.
 
@@ -57,7 +57,7 @@ Requisitos:
   chat con los dos canales (grupo y privado con Despacho), SOS deslizable.
 - Distribuible como APK sin tienda (EAS Build). Play viene después.
 
-**Lo primero que tenés que leer: `PROTOCOLO.md`.** Está verificado contra una
+**Lo primero que tienes que leer: `PROTOCOLO.md`.** Está verificado contra una
 corrida real. Tres cosas de ahí que si se ignoran cuestan una semana:
 
 1. **`gps_role`** decide si esta conexión reporta GPS. Solo una por vehículo, y
@@ -80,12 +80,12 @@ gigante y el color de estado tiñendo el fondo.
 
 **Mi nivel:** estoy aprendiendo a programar. Entiendo React básico
 (componentes, `useState`, `useEffect`, props). **No tengo experiencia con
-React Native.** Explicame el porqué de cada decisión importante, no solo el
+React Native.** Explícame el porqué de cada decisión importante, no solo el
 código.
 
 **Cómo quiero trabajar:** este repo tiene una cultura de pruebas sin mocks
 —todo corre contra el servidor real— y de comentarios que explican el porqué,
-no el qué. Mantenela. Antes de escribir código, planifiquemos la estructura
+no el qué. Mantenla. Antes de escribir código, planifiquemos la estructura
 del proyecto Expo.
 
 ---

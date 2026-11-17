@@ -64,10 +64,10 @@ function pantallas(nombre, C) {
     F(s.filaPresencia,
       V([s.botonPresencia, { borderColor: C.ambar }], T([s.botonPresenciaTexto, { color: C.ambarTexto }], 'AUSENTE')) +
       V(s.botonPresencia, T(s.botonPresenciaTexto, 'SALIR DE RUTA'))) +
-    `<div style="position:relative;${css(s.sosPista)}">${T([s.sosTexto, { left: 0, right: 0, textAlign: 'center' }], 'DESLIZÁ PARA SOS  →')}${V(s.sosBoton, T(s.sosBotonTexto, 'SOS'))}</div>`;
+    `<div style="position:relative;${css(s.sosPista)}">${T([s.sosTexto, { left: 0, right: 0, textAlign: 'center' }], 'DESLIZA PARA SOS  →')}${V(s.sosBoton, T(s.sosBotonTexto, 'SOS'))}</div>`;
 
   const ingreso = marco('Ingreso',
-    T(s.tituloChico, 'CONTROL DE RUTA') + T(s.subtitulo, 'Ingresá con el usuario que te dio tu cooperativa') +
+    T(s.tituloChico, 'CONTROL DE RUTA') + T(s.subtitulo, 'Ingresa con el usuario que te dio tu cooperativa') +
     T(s.rotulo, 'Usuario') + T(s.campo, 'ch-rufino') +
     T(s.rotulo, 'Contraseña') + F(s.campoConBoton, T([s.campo, s.campoSinBorde, { flex: 1 }], '••••••••') + V(s.ojo, T(s.ojoTexto, 'VER'))) +
     V(s.boton, T(s.botonTexto, 'INGRESAR')) +
@@ -78,7 +78,7 @@ function pantallas(nombre, C) {
     cabecera('● EN VIVO') +
     V(s.centro,
       F(s.filaRotulo, T([s.ladoEtiqueta, { color: color.ambar }], 'ATRÁS') + T(s.ladoUnidad, '−1 · M-02')) +
-      T([s.digitos, { color: color.ambar }], '4:28') + T(s.instruccion, 'Apurá un poco. Objetivo 6:00.') +
+      T([s.digitos, { color: color.ambar }], '4:28') + T(s.instruccion, 'Apura un poco. Objetivo 6:00.') +
       V(s.divisor) +
       F(s.filaRotulo, T(s.ladoEtiquetaSec, 'ADELANTE') + T(s.ladoUnidad, '+1 · M-03')) +
       T([s.digitosSec, { color: color.verde }], '6:01')) +
@@ -90,14 +90,14 @@ function pantallas(nombre, C) {
       F(s.filaRotulo, T([s.ladoEtiqueta, { color: color.ninguno }], 'ATRÁS') + T(s.ladoUnidad, '−1 · M-02')) +
       T([s.digitos, { color: color.ninguno }], '4:28') + T(s.instruccion, 'Brecha de hace 0:12. Puede haber cambiado.') +
       V(s.divisor) +
-      T(s.sinSenalTitulo, 'SIN SEÑAL') + T(s.sinSenalTexto, 'No veo a las otras combis desde hace 1:01. Andá con cuidado: siguen en ruta.')) +
+      T(s.sinSenalTitulo, 'SIN SEÑAL') + T(s.sinSenalTexto, 'No veo a las otras combis desde hace 1:01. Ve con cuidado: siguen en ruta.')) +
     acciones + barra('RUTA'));
 
   const chat = marco('Chat',
     F(s.canales, ['GRUPO', 'COMBI', 'PERSONAL'].map((t, i) => F([s.canal, i === 0 && s.canalActivo], T([s.canalTexto, i === 0 && { color: C.sobreBrillante }], t))).join('')) +
     V({ flex: 1 },
       V(s.burbuja, T(s.burbujaQuien, 'ELMER · M-02') + T(s.burbujaTexto, 'Bloqueo en el óvalo, voy por Lampa')) +
-      V([s.burbuja, s.burbujaDespacho], T(s.burbujaQuien, 'DESPACHO') + T(s.burbujaTexto, 'Rufo, esperá 2 minutos en el mercado.')) +
+      V([s.burbuja, s.burbujaDespacho], T(s.burbujaQuien, 'DESPACHO') + T(s.burbujaTexto, 'Rufo, espera 2 minutos en el mercado.')) +
       V([s.burbuja, s.burbujaSos], T(s.burbujaQuien, 'WILBER · M-04') + T(s.burbujaTexto, 'SOS — pide ayuda')) +
       V([s.burbuja, s.burbujaPropia], T(s.burbujaQuien, 'TÚ') + T(s.burbujaTexto, 'Copiado, salgo ya'))) +
     F(s.escribir, T([s.campoChat, { color: C.tenue }], 'Mensaje…') + V(s.enviar, T(s.enviarTexto, '➤'))) +

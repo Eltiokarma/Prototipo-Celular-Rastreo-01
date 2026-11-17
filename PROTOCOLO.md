@@ -154,7 +154,7 @@ descarta el `gps` de cualquier otra. Las reglas (desde el 30/10, «opción B»):
   con `motivo: "auto"` (el vigía de la puerta) o con `redeclara: true` (la
   conexión que vuelve) encuentra la combi con otro manejando: no la toma.
   Le llega `reporting: false` con *«Juan está manejando esta combi: la app
-  no la toma sola. Si es un relevo, tocá SALIR A RUTA vos.»* (por HTTP,
+  no la toma sola. Si es un relevo, toca tú SALIR A RUTA.»* (por HTTP,
   `ignorada: true`, `gpsRole: false`). Relevo es sólo `ruta` sin esas dos
   marcas: el chofer que tocó SALIR A RUTA.
 - **Dos conexiones de la misma persona** (el teléfono y la web) no se roban
@@ -210,7 +210,7 @@ Lo que hay que tener claro:
   El tercero es una unidad que dejó de reportar. Su última posición es de hace
   minutos, así que medirse contra ella sería inventar; pero tampoco se la saca
   de la fila, porque entonces este lado se mediría contra la que sigue —el
-  doble de lejos— y la pantalla diría *"apurá"* hacia una combi que el chofer
+  doble de lejos— y la pantalla diría *"apura"* hacia una combi que el chofer
   tiene justo adelante. Está medido; ver la sección 5.
 - **La unidad sin señal tampoco tiene brechas propias** (desde el 28/10):
   sus `toAhead` y `toBehind` vienen en `null`, con `aheadUnit`/`behindUnit`
@@ -489,7 +489,7 @@ saltaba entre ambos.
 
 **El reloj adelantado.** Si TODO el lote viene del futuro (más de 2 min), la
 respuesta es `400 { reloj: 'adelantado', adelantoSec }`: la app lo muestra
-(«el reloj del teléfono está N min adelantado: activá la hora automática») y
+(«el reloj del teléfono está N min adelantado: activa la hora automática») y
 no reintenta ese lote. El atrasado se compensa solo (`relojAtrasadoS`), y ese
 sesgo **sobrevive al «fuera»**: es del teléfono, y el teléfono es el mismo en
 el turno siguiente. Olvidarlo ahí hacía que los primeros N segundos del turno
@@ -766,7 +766,7 @@ A los vecinos les llega en `gaps`: `aheadEnTrafico`, `aheadTraficoDesde`,
 `aheadTraficoConfirmado` (y los tres `behind…`). `EnTrafico` es "parado O
 avisó"; `Confirmado` distingue la palabra del chofer del hecho medido. **Al
 de atrás esto le cambia la instrucción**: con el de adelante trabado, el HUD
-dice "mantené" y nunca "apurá" — la brecha crece sola mientras el otro está
+dice "mantén" y nunca "apura" — la brecha crece sola mientras el otro está
 parado, y apurar hacia un embotellamiento es el pelotón que el sistema
 existe para evitar. Los mismos campos vuelven en el `brecha` de la
 respuesta del `POST /gps`, así la notificación con la pantalla apagada lo
@@ -860,7 +860,7 @@ hoy va primero.
 **Elegir no toma nada**: la combi se toma al declarar `ruta` (§3.1), y si
 otro la maneja eso es un relevo —la app pide confirmarlo antes, nombrando a
 quién la tiene—. Una combi que no tiene habilitada (o de otra cooperativa)
-contesta `404`; estando en ruta en la de hoy, `409` («tocá SALIR DE RUTA
+contesta `404`; estando en ruta en la de hoy, `409` («toca SALIR DE RUTA
 antes de cambiar de combi»). Por el socket, a todas las conexiones de la
 persona les llega:
 
@@ -924,7 +924,7 @@ saber dónde está. Con la pantalla apagada lo normal es lo segundo.
 
 Antes se borraba a los 30 s de una sola vez, y eso producía algo peor que un
 fantasma en el mapa: el de atrás pasaba a medirse contra el que sigue, veía
-una brecha del doble y la pantalla le decía *"apurá"* hacia una combi que
+una brecha del doble y la pantalla le decía *"apura"* hacia una combi que
 tenía justo adelante y que ya no veía. Sin haberse movido un metro. Está
 medido y cubierto por la suite `senal`.
 

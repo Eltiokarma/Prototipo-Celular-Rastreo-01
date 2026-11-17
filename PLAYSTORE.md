@@ -22,7 +22,7 @@ Lo que ya está en el repo (no hay que hacerlo de nuevo):
   pendiente**: necesita agregar el paquete `expo-splash-screen`
   (`npx expo install expo-splash-screen` en `app/` cuando compiles); sin
   él, el arranque muestra un fondo plano — feo pero no bloquea nada.
-- **La divulgación destacada de ubicación**: la pantalla «¿Salís a
+- **La divulgación destacada de ubicación**: la pantalla «¿Sales a
   ruta?» dice qué se recopila (ubicación), cuándo (también con la
   pantalla apagada) y para qué (brecha y mapa), y el permiso se pide
   recién al deslizar — el orden que la política de Google exige. No
@@ -49,7 +49,7 @@ cd app
 npx eas build --platform android --profile production
 ```
 
-- EAS genera y guarda la **llave de firma**; en Play activá «Firma de
+- EAS genera y guarda la **llave de firma**; en Play activa «Firma de
   aplicaciones de Google Play» (viene por defecto) y no hay nada que
   custodiar a mano.
 - El paquete quedó decidido con el dominio: **`com.microstempo.chofer`**
@@ -69,11 +69,11 @@ Las que van a mirar con lupa en ésta:
 | Sección | Qué declarar |
 | --- | --- |
 | **Política de privacidad** | `https://app.microstempo.com/privacidad` |
-| **Ubicación en segundo plano** | Formulario de declaración: caso de uso «seguimiento de flota para empleados/operadores», y un **video** (subido a YouTube, puede ser oculto) que muestre: la pantalla «¿Salís a ruta?» con su texto → el deslizar → el diálogo de permiso del sistema → la combi en el mapa. Grabalo del teléfono real |
+| **Ubicación en segundo plano** | Formulario de declaración: caso de uso «seguimiento de flota para empleados/operadores», y un **video** (subido a YouTube, puede ser oculto) que muestre: la pantalla «¿Sales a ruta?» con su texto → el deslizar → el diálogo de permiso del sistema → la combi en el mapa. Grábalo del teléfono real |
 | **Servicio en primer plano** | Declaración APARTE de la de ubicación en segundo plano (Android 14): tipo `location` (`FOREGROUND_SERVICE_LOCATION`), caso de uso «seguimiento de la unidad durante el turno», con el **mismo video**. Sin ésta, el AAB se rechaza aunque la de segundo plano esté aprobada |
 | **Seguridad de los datos** | Ver la tabla de abajo — tiene que decir lo mismo que `/privacidad` |
 | **Público objetivo** | 18+, no dirigida a niños |
-| **Acceso de la app** | La app entera requiere cuenta: cargá un **usuario y clave de demo** para el revisor (creá una cuenta de chofer en una empresa `MODO=demo`) — sin esto rechazan sin mirar |
+| **Acceso de la app** | La app entera requiere cuenta: carga un **usuario y clave de demo** para el revisor (crea una cuenta de chofer en una empresa `MODO=demo`) — sin esto rechazan sin mirar |
 
 **Formulario de seguridad de los datos** (las respuestas, listas para
 copiar):
@@ -118,15 +118,15 @@ sobre el AAB.
 
 ### 4 · Prueba cerrada → producción
 
-1. Subí el AAB a **Prueba cerrada** (pista «alpha» sirve), invitá a los
+1. Sube el AAB a **Prueba cerrada** (pista «alpha» sirve), invita a los
    ≥12 testers por lista de correos o link.
 2. Que la usen los 14 días — el turno normal alcanza de sobra; los
    testers cuentan si la tienen instalada, no hace falta que hagan nada
    especial.
-3. Pedí el acceso a producción desde la consola, contestá el
+3. Pedí el acceso a producción desde la consola, contesta el
    cuestionario (para qué es la app, quiénes son los usuarios), y al
-   aprobarse, **promocioná el mismo AAB** a producción.
-4. Si no querés que aparezca en búsquedas: en producción se puede
+   aprobarse, **promociona el mismo AAB** a producción.
+4. Si no quieres que aparezca en búsquedas: en producción se puede
    publicar como **no listada** dejando la ficha activa solo por link
    directo — instalable desde Play con toda su confianza, invisible para
    el resto. Para cooperativas cliente alcanza y sobra.
@@ -144,9 +144,9 @@ sobre el AAB.
   ruta. Incluye chat con tu central, botón de emergencia deslizable,
   registro de tus horas y vueltas, y perfil con tus números. Requiere
   una cuenta creada por tu cooperativa: si tu empresa todavía no usa el
-  sistema, escribinos.»
+  sistema, escríbenos.»
 - Assets que pide la ficha: ícono 512×512, banner 1024×500, mínimo 2
-  capturas (sacalas del teléfono en la pantalla de brecha, el mapa y la
+  capturas (sácalas del teléfono en la pantalla de brecha, el mapa y la
   puerta de salida a ruta).
 
 ## Qué NO hacer
@@ -157,7 +157,7 @@ sobre el AAB.
   el camino que aprueba.
 - No subir un APK firmado a mano por fuera de EAS: cambiaría la firma y
   los teléfonos con el APK viejo no podrían actualizar.
-- No borrar ni suavizar el texto de la puerta «¿Salís a ruta?» — es la
+- No borrar ni suavizar el texto de la puerta «¿Sales a ruta?» — es la
   divulgación que la revisión busca.
 
 ## Calendario realista

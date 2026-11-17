@@ -81,7 +81,7 @@ async function pedir(ruta, opciones = {}) {
 
 // ─── La geometría ──────────────────────────────────────────────────────────
 // Se le pide AL SERVIDOR el trazado de la ruta y las unidades caminan sobre
-// él. Así la flota falsa recorre el recorrido que vos cargaste con el
+// él. Así la flota falsa recorre el recorrido que tú cargaste con el
 // trazador, y no un círculo inventado que no se parece a nada.
 function aPuntos(tramos) {
   const normal = (pts) => (pts || []).map(p => (Array.isArray(p) ? { lat: p[0], lng: p[1] } : p))
@@ -124,7 +124,7 @@ function puntoA(tramo, d) {
 // ─── Cada unidad ───────────────────────────────────────────────────────────
 //
 // Velocidades DISTINTAS a propósito: con todas iguales las brechas quedan
-// congeladas y no se ve nunca un "apurá" ni un "aguantá", que es justo lo que
+// congeladas y no se ve nunca un "apura" ni un "aguanta", que es justo lo que
 // se viene a mirar.
 //
 // Y PERFILES, porque una flota real no son veinte relojes suizos. Lo que se
@@ -227,7 +227,7 @@ function crearUnidad(i, tramos) {
   if (!/localhost|127\.0\.0\.1|192\.168\./.test(API) && !args.includes('--si-en-serio')) {
     console.log('Ese servidor NO es local. Esto crea usuarios y ensucia la base:');
     console.log('veinte choferes inventados y vueltas falsas en los informes.');
-    console.log('Si de verdad querés, repetí el comando con  --si-en-serio\n');
+    console.log('Si de verdad quieres, repite el comando con  --si-en-serio\n');
     process.exit(1);
   }
 
@@ -236,7 +236,7 @@ function crearUnidad(i, tramos) {
     body: JSON.stringify({ user: 'DESPACHO', password: CLAVE_DESPACHO }),
   });
   if (!entrar.ok) {
-    console.log(`No pude entrar como DESPACHO (${entrar.status}). Probá con --despacho <clave>.`);
+    console.log(`No pude entrar como DESPACHO (${entrar.status}). Prueba con --despacho <clave>.`);
     process.exit(1);
   }
   const H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + entrar.cuerpo.token };
@@ -245,7 +245,7 @@ function crearUnidad(i, tramos) {
   const tramos = aPuntos(geo.cuerpo?.tramos);
   if (tramos.ida.length < 2) {
     console.log(`La ruta ${RUTA} no tiene trazado cargado, así que no hay por dónde manejar.`);
-    console.log('Cargalo con el trazador del panel de Despacho y volvé a correr esto.');
+    console.log('Cárgalo con el trazador del panel de Despacho y vuelve a correr esto.');
     process.exit(1);
   }
   console.log(`Trazado: ida ${tramos.ida.length} puntos, vuelta ${tramos.vuelta.length}.`);
@@ -303,7 +303,7 @@ function crearUnidad(i, tramos) {
   const vivas = unidades.filter(u => u.token);
   console.log(`Entraron ${vivas.length}/${CUANTAS}.  Ctrl+C para parar.\n`);
   if (sinCombi && !HG) {
-    console.log('Las combis no existen y Despacho no las puede crear. Pasá una cuenta de gerencia:');
+    console.log('Las combis no existen y Despacho no las puede crear. Pasa una cuenta de gerencia:');
     console.log('  node herramientas/flota.js --gerencia GERENTE:clave');
     console.log('(se crea en el panel del creador, o con  node server/empresa.js gerencia <EMPRESA> GERENTE <clave>)\n');
   }

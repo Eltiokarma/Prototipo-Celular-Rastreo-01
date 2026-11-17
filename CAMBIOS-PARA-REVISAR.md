@@ -1591,7 +1591,7 @@ y apagada; las medidas de `medir.js` (0 textos bajo 12 px).
 - **`manual.pdf` está viejo**: el `.tex` tutea, pero hace falta LaTeX para
   compilarlo.
 - **La APK** recibe los textos nuevos con el próximo EAS Update.
-- **La documentación interna** (`*.md`, `.claude/skills`) sigue en voseo.
+- **La documentación interna** también tutea desde el 17/11 (salvo las citas del «antes» y `chats/`).
 - «Apurá / Aflojá un poco» quedó «Apura / Afloja un poco» (el prototipo 7
   proponía «Acelera / Baja»): es tuteo y se entiende en Juliaca; si se
   prefiere la otra, es una línea en `app/hud.js` y otra en `Prototipo.html`.

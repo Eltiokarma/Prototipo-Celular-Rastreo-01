@@ -1,7 +1,7 @@
 // Cuánto tarda el servidor en arrancar, y SOBRE TODO en qué se le va el tiempo.
 //
-//   node herramientas/escala.js 5000 --keep     → primero sembrá una base
-//   node herramientas/arranque.js <base.db> …   → después medí el arranque
+//   node herramientas/escala.js 5000 --keep     → primero siembra una base
+//   node herramientas/arranque.js <base.db> …   → después mide el arranque
 //
 // POR QUÉ EXISTE. El arranque es tiempo con el sistema CAÍDO: después de cada
 // despliegue o reinicio, nadie reporta y nadie ve el mapa. Se midió 5 s a 2000

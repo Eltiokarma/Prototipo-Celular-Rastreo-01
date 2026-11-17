@@ -10,8 +10,8 @@ no puede ver. El resultado es un informe con dos secciones separadas — y esa
 separación es la parte importante: una auditoría que mezcla «esto rompe una
 invariante» con «a mí me gustaría otro gris» se vuelve ruido y se ignora.
 
-Las invariantes completas están en el skill `diseno-coop`; cargalo si no lo
-tenés presente.
+Las invariantes completas están en el skill `diseno-coop`; cárgalo si no lo
+tienes presente.
 
 ## 1. Lo medible (script)
 

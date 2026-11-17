@@ -376,9 +376,13 @@ Detalle en `CAMBIOS-PARA-REVISAR.md`, bloque 23.
    el correo como alternativa.
 2. **`manual.pdf`** no se regeneró (no hay LaTeX en el contenedor): el
    `.tex` ya tutea; hay que compilarlo.
-3. **La documentación interna** (`README.md`, `LO-QUE-TENES-QUE-SABER.md`,
-   `legal/LEEME.md`, los `.claude/skills`, los informes) sigue en voseo. No
-   es software, pero si es de la institución, va igual.
+3. ~~La documentación interna, en voseo~~ **Hecho (17/11)**: `README.md`,
+   `legal/`, los `.claude/skills`, los informes, `herramientas/` y los
+   `.bat` tutean; `LO-QUE-TENES-QUE-SABER.md` pasó a
+   `LO-QUE-TIENES-QUE-SABER.md`. Quedan en voseo, a propósito, las citas
+   del texto viejo en este informe, en `CAMBIOS-PARA-REVISAR.md` y en
+   `auditoria-ui/prototipos.html` (son el «antes»), y `chats/` (es una
+   conversación).
 
 Lo que salió al hacerla:
 

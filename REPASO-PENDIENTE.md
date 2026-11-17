@@ -81,10 +81,10 @@ tanda 8.
 4. ~~**Qué se le dice al chofer cuando el tipo de SOS no sale (C8).**~~
    **Repasado, se acortó** y, de paso, se encontró que el aviso casi nunca
    iba a salir: ver tanda 8. El texto pasó a «SOS ENVIADO. El tipo no salió:
-   decí por chat si es ambulancia o grúa» (app y web).
+   di por chat si es ambulancia o grúa» (app y web).
    ~~El~~
    diálogo se cierra igual y el aviso queda arriba. **La duda:** es una
-   emergencia; el texto («Tu SOS salió, pero no pudo decir QUÉ pasó. Avisá
+   emergencia; el texto («Tu SOS salió, pero no pudo decir QUÉ pasó. Avisa
    por el chat…») hay que leerlo de reojo, a 3800 m, con sol. Puede ser
    demasiado largo.
 

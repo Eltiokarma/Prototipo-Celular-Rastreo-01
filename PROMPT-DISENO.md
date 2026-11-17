@@ -24,7 +24,7 @@ lo son.** Un rediseño que las toque no queda feo, queda roto.
 
 ## EL ENCARGO (copiar desde acá)
 
-Rediseñá la interfaz de un sistema de control de flota de combis que ya
+Rediseña la interfaz de un sistema de control de flota de combis que ya
 funciona. El código es correcto y está probado; lo que falta es que se vea
 bien. **No cambies comportamiento, endpoints ni permisos: solo cómo se ve.**
 
@@ -60,12 +60,12 @@ adentro. No hay una página de login aparte.
   `Archivo Black` y `JetBrains Mono`. **No agregues dependencias.** El
   servicio corre en celulares con datos móviles caros y con caché offline:
   cada archivo nuevo es un costo real.
-- **Los tres archivos son grandes** (2500, 2400 y 750 líneas). Trabajá por
+- **Los tres archivos son grandes** (2500, 2400 y 750 líneas). Trabaja por
   partes; no reescribas de cero.
-- Si tocás archivos de `project/`, hay que subir `CACHE_NAME` en
+- Si tocas archivos de `project/`, hay que subir `CACHE_NAME` en
   `project/service-worker.js` o los celulares siguen viendo lo viejo.
 
-### Sistema visual actual (se puede cambiar, pero entendelo antes)
+### Sistema visual actual (se puede cambiar, pero entiéndelo antes)
 
 - Dos tipografías: `Archivo Black` para números y títulos, `JetBrains Mono`
   para etiquetas en mayúscula.
@@ -73,8 +73,8 @@ adentro. No hay una página de login aparte.
   `fg`, `green`, `amber`, `red`, …). La app del chofer tiene **tres** temas
   —`day`, `sun`, `night`— y el panel dos. **El tema día es el de fábrica**,
   no el oscuro.
-- Los componentes leen esos tokens, no colores literales. Si cambiás la
-  paleta, cambiá los tokens.
+- Los componentes leen esos tokens, no colores literales. Si cambias la
+  paleta, cambia los tokens.
 
 ---
 
@@ -89,7 +89,7 @@ directo de altura**, y la mira **de reojo, en movimiento**. Está diseñada
 para leerse en menos de un segundo.
 
 - **Nada de bajar el contraste ni achicar la tipografía** de los números de
-  brecha. Podés mejorar la composición; no la legibilidad.
+  brecha. Puedes mejorar la composición; no la legibilidad.
 - **El tema claro es el de fábrica** y tiene que seguir siéndolo. Un tema
   oscuro elegante es ilegible al mediodía en Juliaca. El tema noche existe y
   está bien, pero no es el default.
@@ -148,7 +148,7 @@ operación del día es de la cooperativa.
 | Actividad de **todas** las cooperativas | — | ✅ |
 
 **No muevas una acción de un panel al otro** aunque quede más prolijo. Si te
-parece que algo está en el panel equivocado, decilo en tu propuesta y que lo
+parece que algo está en el panel equivocado, dilo en tu propuesta y que lo
 decida el dueño del producto — no lo cambies.
 
 ### 5. El panel del creador es sobrio a propósito
@@ -173,10 +173,10 @@ En este orden, que es el de impacto real:
 
 ## QUÉ ENTREGAR
 
-- Los archivos modificados, funcionando (abrilos y comprobalo).
+- Los archivos modificados, funcionando (ábrelos y compruébalo).
 - Una nota corta de qué cambiaste y por qué.
 - Si algo del sistema visual te parece mal pero tocarlo rompería alguna de
-  las reglas de arriba: **escribilo en vez de hacerlo.**
+  las reglas de arriba: **escríbelo en vez de hacerlo.**
 
 ## CÓMO PROBARLO
 

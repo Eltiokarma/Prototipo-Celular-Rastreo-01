@@ -40,7 +40,7 @@ const OUT = path.join(__dirname, 'medidas', 'corte'); fs.mkdirSync(OUT, { recurs
     const txt = document.body.innerText;
     const cab = (txt.match(/EN VIVO[^\n]*|SIMULADO|SIN CONEXIÓN/) || ['?'])[0];
     const digs = [...document.querySelectorAll('div')].filter(d => getComputedStyle(d).fontSize === '118px' && d.children.length && d.children[0].tagName === 'SPAN').map(d => d.innerText.replace(/\s/g, ''));
-    const ins = (txt.match(/(Mantené|Apurá|Aflojá|Sos la única|Sin brecha|YENDO)[^\n]*/) || ['?'])[0];
+    const ins = (txt.match(/(Mantén|Apura|Afloja|Sos la única|Sin brecha|YENDO)[^\n]*/) || ['?'])[0];
     return { cab, heroe: digs[0] || '—', ins };
   });
   console.log('con señal      ', JSON.stringify(await leer()));

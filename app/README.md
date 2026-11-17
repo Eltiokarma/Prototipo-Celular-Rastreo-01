@@ -5,7 +5,7 @@ gerencia y creador— siguen siendo web, y **el servidor no cambia**: esta app
 habla el mismo protocolo, escrito y verificado en `PROTOCOLO.md`.
 
 Existe por una sola razón, medida: los navegadores cortan el GPS al apagar la
-pantalla, y hasta hace poco eso hacía que la de atrás recibiera *"apurá"*
+pantalla, y hasta hace poco eso hacía que la de atrás recibiera *"apura"*
 hacia una combi que tenía justo adelante. Ver `LIMITACIONES.md`.
 
 ## Lo que ya está medido
@@ -64,7 +64,7 @@ npm start               # levanta el servidor de desarrollo
 ```
 
 Se abre la app en el teléfono, se conecta, y a partir de ahí **cada vez que
-guardás un archivo la app se recarga sola**. Igual que la web. El teléfono y
+guardas un archivo la app se recarga sola**. Igual que la web. El teléfono y
 la PC tienen que estar en la misma wifi.
 
 Por defecto la app le pega al **servidor que ya está en la nube**, así que la
@@ -148,7 +148,7 @@ suites de verdad y no hace falta un teléfono para saber si andan. Es donde
 vivieron todos los bugs de esta pantalla —la unidad inventada, el lado vacío,
 el "sin señal" confundido con "no hay nadie", el `02:60`—, y ahora cada uno
 tiene una prueba que lo defiende. Los componentes solo dibujan: si algo se ve
-mal, primero mirá si es `hud.js`.
+mal, primero mira si es `hud.js`.
 
 Corren con el resto: `npm test` desde la raíz.
 
@@ -380,7 +380,7 @@ Se agrega con `npx expo install`, igual que todo lo demás.
 ## Si EAS te pide instalar algo
 
 Al primer `eas build` puede ofrecerte instalar `expo-dev-client` o crear el
-proyecto en tu cuenta: decile que sí a las dos. La segunda escribe un
+proyecto en tu cuenta: dile que sí a las dos. La segunda escribe un
 `projectId` en `app.json` — **conviene commitearlo**, así el próximo clon
 apunta al mismo proyecto en vez de crear otro.
 
@@ -407,7 +407,7 @@ reinstalar en cada teléfono.
   lo vio parado y él no dijo nada (vibra una vez por episodio), y «EN
   TRÁFICO · N MIN · se apaga solo al andar». Lo que el chofer ve del vecino
   trabado lo arma `hud.js`: el rótulo dice `EN TRÁFICO N MIN` o `PARADA N
-  MIN` y la instrucción pasa a «mantené» — nunca «apurá» hacia el
+  MIN` y la instrucción pasa a «mantén» — nunca «apura» hacia el
   embotellamiento. Ver `README.md` de la raíz, «Tráfico».
 - **El SOS se desliza, no se toca.** Un botón de emergencia que se dispara con
   un roce es peor que no tenerlo: el celular va en un soporte, en una combi
@@ -417,7 +417,7 @@ reinstalar en cada teléfono.
 - **Y dice la verdad sobre si salió.** «ENVIANDO…» hasta que el servidor lo
   confirma —el eco por el socket, o la respuesta de `POST /sos` cuando el
   socket está caído, que es justo el caso de la pantalla recién
-  desbloqueada—, «ALERTA ENVIADA» recién ahí, y «NO SALIÓ — REPETÍ» en rojo
+  desbloqueada—, «ALERTA ENVIADA» recién ahí, y «NO SALIÓ — REPITE» en rojo
   con vibración doble si no llegó (vuelve a estar disponible a los 3,5 s).
   Antes decía «enviada» al soltar el dedo, con el socket muerto y la alerta
   en ninguna parte.

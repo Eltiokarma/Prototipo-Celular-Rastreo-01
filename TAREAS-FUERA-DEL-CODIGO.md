@@ -1,7 +1,7 @@
-# Lo que te toca hacer a vos (fuera del código)
+# Lo que te toca hacer a ti (fuera del código)
 
 Todo lo que el código ya no puede hacer solo: cuentas, variables, botones en
-paneles ajenos y simulacros. Está en el orden en que conviene hacerlo. Marcá
+paneles ajenos y simulacros. Está en el orden en que conviene hacerlo. Marca
 cada casilla al terminarla.
 
 Las variables van en **Railway → tu servicio → Variables**. Cambiar una
@@ -36,7 +36,7 @@ se reconectan solas). Conviene hacerlo fuera de hora pico.
       1. En la PC que publica: `cd app` y
          `npx expo-updates codesigning:generate --key-output-directory ../../claves-expo --certificate-output-directory certs --certificate-validity-duration-years 10 --certificate-common-name "Micros Tempo"`.
          La **clave privada queda FUERA del repositorio** (`../../claves-expo`):
-         guardala con los respaldos, si se pierde no se puede publicar más.
+         guárdala con los respaldos, si se pierde no se puede publicar más.
       2. `npx expo-updates codesigning:configure --certificate-input-directory certs --key-input-directory ../../claves-expo`
          (agrega `codeSigningCertificate` y `codeSigningMetadata` a `app.json`).
       3. Commit de `app/certs/certificate.pem` y de `app.json`, y una **APK
@@ -71,14 +71,14 @@ se reconectan solas). Conviene hacerlo fuera de hora pico.
   - Primero la opción **[1] APK de prueba**, la de los choferes.
   - Después la **[3] APK de prueba de actualizaciones**, para **tu**
     teléfono: es la que recibe primero lo que publiques.
-- [ ] **Probar una actualización antes de repartir**: cambiá algo chico
-      (por ejemplo un texto), corré `publicar-arreglo.bat` → **[1] PRUEBA**,
-      y en tu teléfono cerrá la app del todo y abrila dos veces (la primera
+- [ ] **Probar una actualización antes de repartir**: cambia algo chico
+      (por ejemplo un texto), corre `publicar-arreglo.bat` → **[1] PRUEBA**,
+      y en tu teléfono cierra la app del todo y ábrela dos veces (la primera
       la baja, la segunda arranca con ella). En Despacho → Personas, al lado
-      de «app», tiene que aparecer «act.» con la fecha. Si anda, volvé a
+      de «app», tiene que aparecer «act.» con la fecha. Si anda, vuelve a
       publicar con **[2] TODOS**.
-- [ ] **Anotá el número de la de los choferes.** El número interno
-      (`versionCode`) sube solo en cada compilación: anotá el que muestra EAS
+- [ ] **Anota el número de la de los choferes.** El número interno
+      (`versionCode`) sube solo en cada compilación: anota el que muestra EAS
       al terminar la primera (debería ser **6**; la de tu teléfono queda en
       7).
 - [ ] **Subir la APK** donde la descargan los choferes y poner en Railway:
@@ -100,11 +100,11 @@ se reconectan solas). Conviene hacerlo fuera de hora pico.
 ## 3. Que te avisen si el servidor anda mal
 
 - [ ] **Alertas al teléfono con ntfy** (gratis, sin cuenta):
-  1. Instalá la app **ntfy** en tu teléfono.
-  2. Elegí un nombre de tema largo y difícil de adivinar (por ejemplo,
-     `flota-coop-7h3k9x2q`) y suscribite a ese tema en la app.
+  1. Instala la app **ntfy** en tu teléfono.
+  2. Elige un nombre de tema largo y difícil de adivinar (por ejemplo,
+     `flota-coop-7h3k9x2q`) y suscríbete a ese tema en la app.
   3. En Railway: `ALERTA_URL` = `https://ntfy.sh/flota-coop-7h3k9x2q`.
-  4. Opcional: `SERVIDOR_NOMBRE` = cómo querés que se llame en las alertas
+  4. Opcional: `SERVIDOR_NOMBRE` = cómo quieres que se llame en las alertas
      (por ejemplo, `Flota producción`).
 
   El servidor manda un mensaje cuando su salud **cambia**: cae, empeora o
@@ -132,16 +132,16 @@ pesa pocos MB. Backblaze B2 o AWS S3 sirven igual.
      **Object Read & Write** y **sólo ese bucket**. Te muestra un *Access Key
      ID* y un *Secret Access Key*: copiálos ahora, el secreto no se vuelve a
      mostrar.
-  3. Anotá el *endpoint*: `https://<ID de tu cuenta>.r2.cloudflarestorage.com`
+  3. Anota el *endpoint*: `https://<ID de tu cuenta>.r2.cloudflarestorage.com`
      (aparece en la misma pantalla del token).
 - [ ] **Regla para borrar las viejas**: en el bucket → Settings → **Object
       lifecycle rules** → borrar los objetos a los **30 días**. Así no crece
       para siempre; el servidor no borra nada afuera.
 - [ ] **Inventar la frase de cifrado** (`RESPALDO_CIFRADO`): 16 caracteres o
-      más, mejor una frase larga. **Guardala en tu gestor de contraseñas y en
+      más, mejor una frase larga. **Guárdala en tu gestor de contraseñas y en
       un segundo lugar seguro** (un papel en un sobre cerrado, por ejemplo).
-      **Sin esa frase, las copias no se pueden abrir: ni vos, ni Cloudflare,
-      ni nadie.** Si la perdés, las copias que ya están afuera no sirven.
+      **Sin esa frase, las copias no se pueden abrir: ni tú, ni Cloudflare,
+      ni nadie.** Si la pierdes, las copias que ya están afuera no sirven.
 - [ ] **Las variables en Railway**:
   - `RESPALDO_S3_ENDPOINT` = el endpoint del paso anterior
   - `RESPALDO_S3_BUCKET` = `flota-respaldos`
@@ -163,7 +163,7 @@ Un respaldo que nunca se probó no es un respaldo. El simulacro es abrir una
 copia en tu computadora, **sin tocar el servidor**. Hace falta Node (el mismo
 que usa `compilar-app.bat`) y la carpeta del proyecto.
 
-- [ ] En **PowerShell**, dentro de la carpeta del proyecto, cargá las mismas
+- [ ] En **PowerShell**, dentro de la carpeta del proyecto, carga las mismas
       variables que pusiste en Railway, solo para esa ventana:
 
   ```powershell
@@ -174,13 +174,13 @@ que usa `compilar-app.bat`) y la carpeta del proyecto.
   $env:RESPALDO_CIFRADO="<la frase>"
   ```
 
-- [ ] Instalá las dependencias del servidor, si no están (una sola vez):
+- [ ] Instala las dependencias del servidor, si no están (una sola vez):
 
   ```powershell
   cd server; npm install; cd ..
   ```
 
-- [ ] Listá las copias y bajá la más nueva:
+- [ ] Lista las copias y baja la más nueva:
 
   ```powershell
   node server/restaurar.js listar
@@ -190,7 +190,7 @@ que usa `compilar-app.bat`) y la carpeta del proyecto.
   Tiene que decir **«✔ prueba.db (… kB), verificada»**. Si dice que la frase
   no es la de ese respaldo, la frase guardada no es la buena: es justo lo que
   el simulacro sirve para descubrir a tiempo.
-- [ ] Borrá `prueba.db` cuando termines: tiene los datos de todos.
+- [ ] Borra `prueba.db` cuando termines: tiene los datos de todos.
 
 **Para volver a un respaldo de verdad** (la base se dañó, se borró algo por
 error, se perdió el volumen):
@@ -218,7 +218,7 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
 - [ ] **Probarlo una vez** con un teléfono: con los datos móviles apagados (y
       el WiFi también), deslizar el SOS. Tiene que aparecer «SOS NO SALIÓ» con
       LLAMAR y MANDAR SMS; el SMS tiene que llegar al celular de guardia con la
-      combi y un enlace al mapa (avisale antes a quien tenga ese celular).
+      combi y un enlace al mapa (avísale antes a quien tenga ese celular).
 - [ ] Contarles que la tarjeta de cada combi ahora dice **cómo está el
       teléfono** del chofer: antes de llamarlo porque «no aparece», mirar si
       dice «se está por apagar» o «ahorro de batería activado». Con el
@@ -229,7 +229,7 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
       (Excel, Google Sheets, LibreOffice o CSV) con una columna de **Nombre**
       y una de **Combi**; hay una de ejemplo para bajar. Antes, que la
       gerencia dé de alta las combis. Las claves se ven **una sola vez** al
-      crear: bajá el CSV de claves y repartilas en mano.
+      crear: baja el CSV de claves y repártelas en mano.
 - [ ] Contarles que las horas **se pueden corregir** (Gestión → Turnos →
       *Corregir* o *Agregar un turno que faltó*), siempre con un motivo que
       queda registrado. Y decidir dos cosas que el sistema deja abiertas: si
@@ -248,7 +248,7 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
       unidades, unos 150 GB. Ahora que hay copia afuera (punto 4), una
       opción simple es bajar `RESPALDO_CONSERVAR` a 8 (dos días en el
       volumen; la semana entera queda afuera). Otra, que el respaldo local
-      no lleve las fotos — eso es código, pedilo si lo querés. Mientras
+      no lleve las fotos — eso es código, pídelo si lo quieres. Mientras
       tanto, mirar el tamaño del volumen en Railway: `/salud` avisa con
       menos de 500 MB libres.
 - [ ] **Mirar la lista de qué movimiento es de qué tipo** en la auditoría
@@ -289,7 +289,7 @@ antes, guardada al lado). Por eso conviene elegir el más nuevo que esté bien.
       `legal/contrato-encargo.md` (borrador) y el formulario para imprimir en
       `/consentimiento`. Lo tuyo, en orden: (1) una reunión con un abogado
       con esa carpeta; (2) que cada cooperativa inscriba su banco de datos en
-      gob.pe (gratis desde 2025; ofrecé llenarle el formulario); (3) firmar
+      gob.pe (gratis desde 2025; ofrece llenarle el formulario); (3) firmar
       el contrato de encargo con cada una; (4) que cada chofer y cobrador
       firme el consentimiento y Despacho lo anote en Personas; (5) tener
       listo qué hacer si hay una filtración: **48 horas** para avisar a la

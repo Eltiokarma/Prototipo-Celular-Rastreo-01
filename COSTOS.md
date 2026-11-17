@@ -662,7 +662,7 @@ el servidor. Anotado como límite en el banco.
 - Railway — [railway.com/pricing](https://railway.com/pricing): vCPU
   $20/mes, RAM $10/GB/mes, volumen $0,15/GB/mes, **egress $0,05/GB**. (Hay
   fuentes secundarias que citan hasta $0,10/GB; usé el oficial. Si Railway
-  cobrara $0,10, duplicá la línea de egress: el escenario 2000 pasa de $658
+  cobrara $0,10, duplica la línea de egress: el escenario 2000 pasa de $658
   a ~$1 176.)
 - Vercel — [vercel.com/pricing](https://vercel.com/pricing): Pro
   $20/asiento/mes con 1 TB de transferencia incluido. El plan Hobby prohíbe

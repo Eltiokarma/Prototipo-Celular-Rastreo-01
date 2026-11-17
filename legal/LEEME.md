@@ -24,7 +24,7 @@
 |---|---|---|
 | **Titular de los datos** | Cada chofer y cobrador | Son sus datos: su ubicación, su nombre, sus horas |
 | **Responsable** (titular del banco de datos) | **Cada cooperativa** | Ella decide controlar su flota y para qué. Es la que inscribe el banco, la que junta los consentimientos y a la que se le reclama |
-| **Encargado** del tratamiento | **Vos** (el operador del sistema) | Guardás y procesás los datos por cuenta de la cooperativa, según sus instrucciones. Te obliga el contrato de encargo |
+| **Encargado** del tratamiento | **Tú** (el operador del sistema) | Guardas y procesas los datos por cuenta de la cooperativa, según sus instrucciones. Te obliga el contrato de encargo |
 | **Sub-encargados** | Railway (servidor), el almacenamiento de las copias afuera, Geoapify (mapas) | Proveedores que tocan datos para que el sistema funcione |
 
 **[confirmar]** Que el abogado esté de acuerdo con este reparto. Lo que
@@ -37,10 +37,10 @@ contrato lo prohíbe expresamente.
 
 ### 1. El abogado (una sola reunión, con estos papeles)
 
-Llevá esta carpeta y la política de privacidad (`/privacidad` en el
+Lleva esta carpeta y la política de privacidad (`/privacidad` en el
 servidor). Preguntas concretas:
 
-- [ ] ¿Está bien el reparto de arriba (cooperativa responsable, vos encargado)?
+- [ ] ¿Está bien el reparto de arriba (cooperativa responsable, tú encargado)?
 - [ ] La ubicación de un trabajador para controlar su trabajo, ¿necesita
       consentimiento o entra en la excepción de la relación laboral o
       contractual (art. 14 de la ley)? **Aunque no haga falta, conviene
@@ -52,7 +52,7 @@ servidor). Preguntas concretas:
       que la app lo pida al entrar?
 - [ ] Los servidores fuera del Perú: ¿qué hay que declarar y qué garantías
       pedirle a cada proveedor (flujo transfronterizo)?
-- [ ] ¿Tenés que inscribir un banco de datos propio? (Ver el paso 3.)
+- [ ] ¿Tienes que inscribir un banco de datos propio? (Ver el paso 3.)
 - [ ] ¿Te toca designar un oficial de datos personales? (Ver el paso 6.)
 - [ ] Las **marcas automáticas** («GPS sospechoso», «entrada tardía»,
       «salió solo»): ¿entran en el derecho a un tratamiento objetivo y en lo
@@ -81,7 +81,7 @@ el problema termina siendo del sistema.
 - Se obtiene una **constancia** y un **código del banco de datos**.
 - Para llenar el formulario, todo lo que pide (qué datos, para qué, quién
   los procesa, dónde se guardan, cuánto tiempo, medidas de seguridad) ya
-  está escrito en `/privacidad` y en el contrato de encargo. **Ofrecé
+  está escrito en `/privacidad` y en el contrato de encargo. **Ofrece
   llenárselo** con esos textos.
 - Nombre sugerido del banco: «Conductores y cobradores — control de flota».
 - **[confirmar]** Si los servidores fuera del Perú se declaran ahí mismo
@@ -89,15 +89,15 @@ el problema termina siendo del sistema.
 
 ### 3. Tu propio banco de datos
 
-**[confirmar]** Además de lo que guardás por cuenta de las cooperativas,
-vos tenés datos propios: los contactos de cada cooperativa (gerente,
+**[confirmar]** Además de lo que guardas por cuenta de las cooperativas,
+tú tienes datos propios: los contactos de cada cooperativa (gerente,
 teléfono de la central, correo), y los de quien te escribe a soporte.
 Probablemente sea un banco «Clientes» tuyo, chico, que también se inscribe.
 
 ### 4. El contrato de encargo con cada cooperativa
 
 Borrador en **`contrato-encargo.md`**. Va con el contrato comercial (o como
-anexo). Lo que fija: qué datos, para qué, que no los usás para nada más,
+anexo). Lo que fija: qué datos, para qué, que no los usas para nada más,
 la seguridad, los proveedores, el aviso de incidentes y qué pasa al
 terminar.
 
@@ -132,7 +132,7 @@ tratan datos sensibles o *grandes volúmenes*.
 
 **Hay 48 horas** desde que se sabe para avisar a la ANPD y, si los afecta,
 a los titulares. Como la responsable es la cooperativa, el aviso a la ANPD
-lo hace ella: **vos tenés que avisarle a ella antes** (el contrato dice 24
+lo hace ella: **tú tienes que avisarle a ella antes** (el contrato dice 24
 horas), con lo que se sepa hasta ese momento.
 
 Qué tener listo de antemano:
@@ -185,12 +185,12 @@ correo (Hostinger).
 
 ## Los archivos de esta carpeta
 
-Para la reunión con el abogado, llevá impresos (o mandale) los PDF:
+Para la reunión con el abogado, lleva impresos (o mándale) los PDF:
 
 | Archivo | Qué es | Quién lo firma |
 |---|---|---|
 | `para-el-abogado.pdf` | **Empezar por acá.** El sistema explicado sin tecnicismos y las 12 preguntas a contestar | — |
-| `contrato-encargo.pdf` | El contrato de encargo con cada cooperativa (borrador) | La cooperativa y vos |
+| `contrato-encargo.pdf` | El contrato de encargo con cada cooperativa (borrador) | La cooperativa y tú |
 | `consentimiento.pdf` | El formulario de consentimiento, versión 2026-11-11 | Cada chofer y cobrador, y la cooperativa |
 | `politica-privacidad.pdf` | La política de privacidad que publica la app (`/privacidad`) | — |
 | `registro-consentimientos.pdf` | La hoja donde la cooperativa anota quién firmó y quién lo retiró | El responsable de la cooperativa |
