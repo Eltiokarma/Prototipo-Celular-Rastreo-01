@@ -251,6 +251,9 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   // A4: la puerta del cobrador
   ok('el cobrador no tiene el deslizable de salir a ruta', /rol === 'collector' \? \(/.test(app) && /rol: sesion\?\.role/.test(app));
   ok('ni retoma el GPS al abrir', /s\.role === 'collector'\) \{ setPresencia\('fuera'\); return; \}/.test(app));
+  // Y no queda encerrado en la puerta: ve el HUD y el mapa de su combi, de
+  // acompañante, sin los botones del turno (revisión del manual, 17/11)
+  ok('el cobrador ve las brechas y el mapa, sin los botones del turno', /const acompanante = rol === 'collector';\n  if \(presencia === 'fuera' && !acompanante\)/.test(app) && /if \(presencia === 'fuera' && rol !== 'collector'\)/.test(app) && /\{!acompanante && \(<>\n      <Pressable onPress=\{\(\) => onTrafico/.test(app) && /ACOMPAÑANTE · la posición de la combi la manda el teléfono del chofer/.test(app));
 
   // A5: la presencia se puede esperar
   // Y desde la revisión previa a la APK, «ruta» también: con un intento,
@@ -395,7 +398,7 @@ console.log('\nLA APK NO ESCRIBE COLORES A MANO (auditoría de UI, A3)');
   ok('ningún texto de la APK baja de 12 px (A4)', chicos.length === 0, chicos);
   // A5: el diagnóstico del GPS arriba de la ruta, sólo si hay algo que avisar
   const fuente = (app.match(/function hayProblemaDeGps\([\s\S]*?\n\}/) || [''])[0];
-  ok('A5 · el criterio existe y se usa arriba de la ruta', !!fuente && /\{hayProblemaDeGps\(diag\) && <DiagnosticoGps diag=\{diag\} \/>\}/.test(app));
+  ok('A5 · el criterio existe y se usa arriba de la ruta', !!fuente && /\{!acompanante && hayProblemaDeGps\(diag\) && <DiagnosticoGps diag=\{diag\} \/>\}/.test(app));
   const hay = new Function(fuente + '\nreturn hayProblemaDeGps;')();
   const T = 1_700_000_000_000, bien = { servicio: 'corriendo', enEspera: 0, ultimoEnvio: T - 3000 };
   ok('A5 · todo andando: no se muestra nada', hay(bien, T) === false);

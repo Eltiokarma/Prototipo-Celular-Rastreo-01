@@ -1374,7 +1374,15 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
   // ── FUERA: la puerta. Recién entrado (o ya retirado): no se emite señal,
   // el mapa está vedado, el chat queda abierto. Salir a ruta es un gesto
   // deliberado — el mismo deslizar del SOS, para que no pase por accidente.
-  if (presencia === 'fuera') {
+  //
+  // El COBRADOR no pasa por la puerta. Está siempre «fuera» (no emite: la
+  // posición de la combi la manda el chofer), y por eso quedaba encerrado
+  // acá, sin brechas ni mapa, aunque la puerta misma le prometía «el chat,
+  // el mapa y el SOS» y el manual dice que ve lo mismo que su chofer. Ve el
+  // HUD de su combi, de acompañante, sin los botones del turno (revisión
+  // del manual, 17/11).
+  const acompanante = rol === 'collector';
+  if (presencia === 'fuera' && !acompanante) {
     return (
       <View style={[s.pantalla, margen]}>
         <BarraDeEstado />
@@ -1517,9 +1525,14 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
 
       {/* Declarado en ruta pero el GPS todavía no lo vio sobre el trazado:
           se dice, para que "no tengo brecha" no parezca una falla. */}
-      {!confirmada && (
+      {!confirmada && !acompanante && (
         <Text style={[s.avisoBarra, { color: C.ambarTexto }]}>
           YENDO A LA RUTA — tu brecha y tu vuelta arrancan al pisar el trazado
+        </Text>
+      )}
+      {acompanante && (
+        <Text style={[s.diagnostico, { marginTop: 6 }]}>
+          ACOMPAÑANTE · la posición de la combi la manda el teléfono del chofer
         </Text>
       )}
 
@@ -1527,7 +1540,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           (auditoría de UI, A5). Estuvo siempre a la vista «mientras se mide
           en la calle»; con todo andando eran dos renglones de números que el
           chofer no usa. Completo, está en Perfil. */}
-      {hayProblemaDeGps(diag) && <DiagnosticoGps diag={diag} />}
+      {!acompanante && hayProblemaDeGps(diag) && <DiagnosticoGps diag={diag} />}
 
       {/* Un minuto sin datos: el número se retira. Queda la última brecha,
           como dato y no como instrucción (auditoría de UI, N1). */}
@@ -1569,6 +1582,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           parado y pregunta (confirmar), y ya avisé (se apaga solo al andar;
           tocar retira). El de atrás lo ve en su brecha y deja de recibir
           "apura" hacia acá. */}
+      {!acompanante && (<>
       <Pressable onPress={() => onTrafico(!enTrafico)}
         style={[s.botonTrafico,
                 enTrafico && { backgroundColor: C.llenoAmbar, borderColor: C.llenoAmbar },
@@ -1599,6 +1613,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           </Text>
         </Pressable>
       </View>
+      </>)}
 
       {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
 
@@ -2255,7 +2270,7 @@ function Deslizable({ texto, textoBoton, colorListo, onDisparar }) {
 //
 // Qué se dibuja está en `mapa.js`, que es JS puro y se prueba en Node. Acá
 // solo se le pasa el papel.
-function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, onIr }) {
+function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, rol, onIr }) {
   const { s, C, Cmapa, oscuro } = usarTema();
   const margen = margenes(useSafeAreaInsets(), { conBarra: true });
   const web = React.useRef(null);
@@ -2351,8 +2366,9 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
 
   // Fuera de ruta el mapa está vedado: es el mapa DE LA RUTA, de los que
   // están trabajando. Además el WebView ni se monta — sin señal emitida no
-  // hay nada que mirar, y las tiles gastan datos.
-  if (presencia === 'fuera') {
+  // hay nada que mirar, y las tiles gastan datos. El cobrador sí lo ve: va
+  // arriba de una combi que está trabajando (ver la puerta, en Ruta).
+  if (presencia === 'fuera' && rol !== 'collector') {
     return (
       <View style={[s.pantalla, margen]}>
         <StatusBar style="light" />
