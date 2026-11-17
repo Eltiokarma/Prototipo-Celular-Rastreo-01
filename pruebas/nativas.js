@@ -413,5 +413,44 @@ console.log('\nLA APK NO ESCRIBE COLORES A MANO (auditoría de UI, A3)');
   ok('A6 · con «quitar animaciones» el carrusel no se desliza', /AccessibilityInfo\.isReduceMotionEnabled\(\)/.test(app) && /if \(menosRef\.current\) \{ x\.setValue\(destino\); return; \}/.test(app) && !/Animated\.spring\(x, \{\s*toValue: -/.test(app));
 }
 
-console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
-process.exit(fallas ? 1 : 0);
+console.log('\nEL PERMISO DE NOTIFICACIONES, DADO DESPUÉS (segunda revisión, 17/11)');
+const pruebaNotif = (async () => {
+  // notificacion.js de verdad, con un Android simulado: el permiso empieza
+  // negado y después se da desde Ajustes. Antes quedaba `sinPermiso = true`
+  // para siempre y no salía ni la brecha ni el aviso de GPS detenido.
+  const fuente = require('fs').readFileSync(RAIZ + '/app/notificacion.js', 'utf8')
+    .replace(/^import .*$/gm, '')
+    .replace(/^export (async function|function|const)/gm, '$1');
+  const hud = require(RAIZ + '/app/hud.js');
+  let concedido = false, pedidos = 0;
+  const programadas = [];
+  const Notifications = {
+    AndroidImportance: { LOW: 2, HIGH: 4 },
+    setNotificationHandler() {}, setNotificationChannelAsync: async () => {},
+    getPermissionsAsync: async () => ({ granted: concedido, canAskAgain: true }),
+    requestPermissionsAsync: async () => { pedidos++; return { granted: concedido, canAskAgain: true }; },
+    scheduleNotificationAsync: async (n) => { programadas.push(n.identifier); },
+    cancelScheduledNotificationAsync: async () => {}, dismissNotificationAsync: async () => {},
+  };
+  let reloj = 1_700_000_000_000;
+  const DateFalso = class extends Date { static now() { return reloj; } };
+  const m = new Function('Notifications', 'avisoDesdeRespuesta', 'avisoSinSenal', 'Date',
+    fuente + '\nreturn { notificarSinSenal, vigilarSilencio, remirarPermiso };')(Notifications, hud.avisoDesdeRespuesta, hud.avisoSinSenal, DateFalso);
+  await m.notificarSinSenal(reloj - 120_000, reloj);
+  ok('negado: no se programa nada, y se pregunta una sola vez', programadas.length === 0 && pedidos === 1, { programadas, pedidos });
+  concedido = true;                                   // lo da desde Ajustes
+  reloj += 5_000;
+  await m.notificarSinSenal(reloj - 300_000, reloj);
+  ok('dentro del minuto no se vuelve a mirar (no se insiste)', programadas.length === 0);
+  m.remirarPermiso();                                  // la app vuelve a primer plano
+  await m.notificarSinSenal(reloj - 400_000, reloj);
+  ok('al volver a primer plano, ya sale la notificación', programadas.length === 1, programadas);
+  await m.vigilarSilencio(reloj);
+  ok('y el aviso de GPS detenido también se programa', programadas.length === 2, programadas);
+  ok('nunca se le volvió a PEDIR al usuario', pedidos === 1, pedidos);
+})();
+
+pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }).then(() => {
+  console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
+  process.exit(fallas ? 1 : 0);
+});

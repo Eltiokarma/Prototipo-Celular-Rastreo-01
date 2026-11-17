@@ -33,7 +33,7 @@ import * as Updates from 'expo-updates';
 import { crearCliente } from './protocolo/cliente';
 import { cabeceraDeApp, avisoDeApp, actualizacionDe } from './version';
 import { tocaPreguntar, sePuedeAplicar } from './actualizacion';
-import { limpiarNotificacion, limpiarSiSinRol } from './notificacion.js';
+import { limpiarNotificacion, limpiarSiSinRol, remirarPermiso } from './notificacion.js';
 import { construirHud, textoNotificacion, VIEJA_MS, estadoDeMiCombi, avisoDeMiCombi } from './hud';
 import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
 import { margenes, margenBarra } from './margenes';
@@ -494,7 +494,9 @@ function Aplicacion() {
   // para eso haría falta el servicio de fondo, que es emitir.
   const [primerPlano, setPrimerPlano] = React.useState(AppState.currentState === 'active');
   React.useEffect(() => {
-    const sub = AppState.addEventListener('change', (e) => setPrimerPlano(e === 'active'));
+    // Al volver (por ejemplo, de Ajustes con el permiso de notificaciones
+    // recién dado), que el módulo de notificaciones lo mire de nuevo
+    const sub = AppState.addEventListener('change', (e) => { setPrimerPlano(e === 'active'); if (e === 'active') remirarPermiso(); });
     return () => sub.remove();
   }, []);
   const vigiaPuerta = React.useRef(null);
