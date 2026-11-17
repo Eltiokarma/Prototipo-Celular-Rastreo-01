@@ -401,6 +401,11 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     // Rufino también puede manejar M-07 (la de Rosa): habilitada desde acá
     if (D.COMBIS_EXTRA_RUFINO) {
       // Desde el retoque de la UI, «Combis» vive en el menú «⋯» de la fila
+      // Primero la fila al medio de la pantalla: el menú se cierra con
+      // cualquier scroll, y con la fila al borde el clic desplazaba la
+      // página y lo cerraba en el acto.
+      await de.locator(`[data-acciones="${p0.usuario}"]`).evaluate(el => el.scrollIntoView({ block: 'center' }));
+      await de.waitForTimeout(600);
       await clic(de, `[data-acciones="${p0.usuario}"]`, 500);
       await de.locator('[role="menu"] button:has-text("Combis")').click({ timeout: 6000 });
       await de.waitForTimeout(600);
@@ -636,6 +641,8 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
       // El menú «⋯» de una fila de Personas, abierto (desde el retoque, ahí
       // están Clave, Combis, Editar y Baja)
       if (boton === 'Personas') {
+        await de.locator(`[data-acciones="${D.PERSONAS[0].usuario}"]`).evaluate(el => el.scrollIntoView({ block: 'center' }));
+        await de.waitForTimeout(600);
         await clic(de, `[data-acciones="${D.PERSONAS[0].usuario}"]`, 700);
         await foto(de, 'd07b-acciones');
         await de.keyboard.press('Escape'); await de.waitForTimeout(400);
