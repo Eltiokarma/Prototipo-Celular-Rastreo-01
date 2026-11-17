@@ -416,7 +416,9 @@ function Aplicacion() {
     // y la brecha, el chat y el mapa fallan en silencio. Ver `conectar()`.
     cliente.current.conectar(s.token, s);
     cliente.current.pedirMarca(s.token).then(m => {
-      if (!m) return;
+      // La marca (y el teléfono de la central) de una sesión que ya terminó
+      // no se aplica a la siguiente (quinta revisión, 17/11)
+      if (!m || !vigenteSesion()) return;
       setMarca(m);
       // El teléfono de la central viene con la marca (PENDIENTES 0.5): si la
       // gerencia lo cambió, queda en la sesión guardada, que es lo que hay
@@ -648,7 +650,12 @@ function Aplicacion() {
   const enLaPuerta = !!sesion && sesion.role !== 'collector' && presencia === 'fuera' && primerPlano;
   const recargarCombis = React.useCallback(() => {
     if (!cliente.current) return;
+    // La respuesta es de la sesión que preguntó: si salió y entró otra
+    // mientras tanto, no se aplica (le cambiaba la combi y la mandaba a la
+    // puerta al que entró después; quinta revisión, 17/11)
+    const gen = generacion.current;
     cliente.current.misCombis().then(d => {
+      if (generacion.current !== gen || cerrando.current) return;
       setCombis(d.combis || []);
       // La de hoy la decide el servidor: Despacho pudo cambiarla con la app
       // cerrada, y la sesión seguía con la vieja
@@ -665,7 +672,9 @@ function Aplicacion() {
   // Devuelve null si salió, o el motivo
   const elegirCombi = async (vehicleId) => {
     try {
+      const gen = generacion.current;
       const r = await cliente.current.elegirCombi(vehicleId);
+      if (generacion.current !== gen || cerrando.current) return null;
       alCambiarDeCombi.current(r);
       recargarCombis();
       return null;

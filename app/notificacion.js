@@ -86,10 +86,30 @@ export async function notificarSinSenal(ultimoEnvio, ahora = Date.now()) {
   return mostrar(avisoSinSenal(ultimoEnvio, ahora));
 }
 
-async function mostrar(aviso) {
-  if (!aviso || aviso.titulo === ultimo) return;
+// ── La notificación de la brecha (ID), en FILA ─────────────────────
+// Publicar y limpiar escriben el mismo identificador. Sin fila, una
+// publicación que esperaba el permiso o el canal terminaba DESPUÉS de
+// limpiarNotificacion() y la brecha volvía a la bandeja, con su título
+// repuesto en `ultimo` (quinta revisión con ChatGPT, 17/11). Ahora van de a
+// una, y lo pedido antes de una limpieza ya no publica cuando le toca.
+let filaBrecha = Promise.resolve();
+let limpiezas = 0;
+function enFilaBrecha(fn) {
+  const p = filaBrecha.then(fn, fn);
+  filaBrecha = p.catch(() => {});
+  return p;
+}
+
+function mostrar(aviso) {
+  if (!aviso || aviso.titulo === ultimo) return Promise.resolve();
+  const alPedir = limpiezas;
+  return enFilaBrecha(() => mostrarAhora(aviso, alPedir));
+}
+
+async function mostrarAhora(aviso, alPedir) {
+  if (limpiezas !== alPedir || aviso.titulo === ultimo) return;
   await preparar();
-  if (!permitido) return;
+  if (!permitido || limpiezas !== alPedir) return;
   try {
     await Notifications.scheduleNotificationAsync({
       identifier: ID,
@@ -148,11 +168,17 @@ export async function notificarGrabacionPedida() {
 //
 // Va con el MISMO identificador que la brecha, así que la reemplaza en vez de
 // sumar una segunda. Mismo canal de importancia baja: no suena ni salta.
-export async function notificarSinRol(motivo) {
+export function notificarSinRol(motivo) {
   // Relevado, este GPS ya no tiene que mandar: el silencio no es una falla
   apagarVigiaDeSilencio().catch(() => {});
+  const alPedir = limpiezas;
+  return enFilaBrecha(() => notificarSinRolAhora(motivo, alPedir));
+}
+
+async function notificarSinRolAhora(motivo, alPedir) {
+  if (limpiezas !== alPedir) return;
   await preparar();
-  if (!permitido) return;
+  if (!permitido || limpiezas !== alPedir) return;
   const titulo = 'MODO ACOMPAÑANTE';
   if (titulo === ultimo) return;
   try {
@@ -180,8 +206,11 @@ export async function limpiarSiSinRol() {
 }
 
 export async function limpiarNotificacion() {
-  ultimo = null;
-  try { await Notifications.dismissNotificationAsync(ID); } catch {}
+  limpiezas++;
+  await enFilaBrecha(async () => {
+    ultimo = null;
+    try { await Notifications.dismissNotificationAsync(ID); } catch {}
+  });
   await apagarVigiaDeSilencio();
 }
 
@@ -203,17 +232,29 @@ const CANAL_SILENCIO = 'gps-detenido';
 const ID_SILENCIO = 'gps-silencio';
 export const SILENCIO_AVISO_MS = 10 * 60_000;
 let silencioCorridoEn = 0;
-// Cada «apagar» cambia la época del vigía. Una programación que ya había
-// empezado (esperando el canal, o cancelar la anterior) y termina DESPUÉS
-// de apagarlo volvía a programar el aviso: no quedaba incancelable, pero
-// se recreaba tras la cancelación (cuarta revisión con ChatGPT, 17/11).
-// Ahora se mira la época y el permiso después de cada espera.
-let epocaVigia = 0;
+// El vigía también va en FILA. La época de la cuarta revisión evitaba que
+// el aviso viejo sobreviviera al apagado, pero su cancelación tardía usaba
+// el identificador compartido y podía borrar el aviso de una vigilancia
+// NUEVA programada en el medio (quinta revisión con ChatGPT, 17/11). En
+// fila, apagar corre después de lo que ya estaba programándose, y lo que se
+// pide después de apagar corre después de la cancelación.
+let filaVigia = Promise.resolve();
+let apagados = 0;
+function enFilaVigia(fn) {
+  const p = filaVigia.then(fn, fn);
+  filaVigia = p.catch(() => {});
+  return p;
+}
 
-export async function vigilarSilencio(ahora = Date.now()) {
-  if (ahora - silencioCorridoEn < 60_000) return;
-  const mia = epocaVigia;
-  const vigente = () => epocaVigia === mia && permitido;
+export function vigilarSilencio(ahora = Date.now()) {
+  if (ahora - silencioCorridoEn < 60_000) return Promise.resolve();
+  const alPedir = apagados;
+  return enFilaVigia(() => vigilarAhora(ahora, alPedir));
+}
+
+async function vigilarAhora(ahora, alPedir) {
+  const vigente = () => apagados === alPedir && permitido;
+  if (apagados !== alPedir || ahora - silencioCorridoEn < 60_000) return;
   await preparar();
   if (!vigente()) return;
   silencioCorridoEn = ahora;
@@ -236,14 +277,14 @@ export async function vigilarSilencio(ahora = Date.now()) {
       },
       trigger: { type: tipo, seconds: Math.round(SILENCIO_AVISO_MS / 1000), channelId: CANAL_SILENCIO },
     });
-    // Si lo apagaron mientras se programaba, se retira lo recién programado
-    if (!vigente()) await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO).catch(() => {});
   } catch {}
 }
 
-export async function apagarVigiaDeSilencio() {
-  epocaVigia++;
+export function apagarVigiaDeSilencio() {
+  apagados++;
   silencioCorridoEn = 0;
-  try { await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO); } catch {}
-  try { await Notifications.dismissNotificationAsync(ID_SILENCIO); } catch {}
+  return enFilaVigia(async () => {
+    try { await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO); } catch {}
+    try { await Notifications.dismissNotificationAsync(ID_SILENCIO); } catch {}
+  });
 }

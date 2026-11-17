@@ -338,7 +338,7 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
 
   // C22: al chofer relevado no se le borra la notificación y ya: se le dice
   ok('el relevado ve «modo acompañante» en la notificación, no un vacío',
-     /export async function notificarSinRol/.test(notif) && /MODO ACOMPAÑANTE/.test(notif) &&
+     /export function notificarSinRol/.test(notif) && /MODO ACOMPAÑANTE/.test(notif) &&
      /notificarSinRol\(cuerpo\.motivo\)/.test(servicio));
   ok('y la reemplaza, no suma una segunda (mismo identificador y canal)',
      /identifier: ID,[\s\S]{0,400}?MODO ACOMPAÑANTE|MODO ACOMPAÑANTE[\s\S]{0,400}?identifier: ID/.test(notif) ||
@@ -485,11 +485,78 @@ const pruebaVigia = (async () => {
     fuente + '\nreturn { vigilarSilencio, apagarVigiaDeSilencio };')(Notifications, hud.avisoDesdeRespuesta, hud.avisoSinSenal);
   const p = m.vigilarSilencio(Date.now());
   for (let i = 0; i < 10 && !soltarCanal; i++) await new Promise(res => setTimeout(res, 0));
-  await m.apagarVigiaDeSilencio();           // sale de ruta mientras se programaba
-  soltarCanal(); await p;
+  const apagado = m.apagarVigiaDeSilencio(); // sale de ruta mientras se programaba
+  soltarCanal(); await p; await apagado;
   ok('apagado a mitad: el aviso no se vuelve a programar', !vivas.has('gps-silencio'), [...vivas]);
   await m.vigilarSilencio(Date.now() + 120_000);
   ok('y el vigía sigue funcionando después', vivas.has('gps-silencio'), [...vivas]);
+  // Quinta revisión: la limpieza de un vigía viejo borraba el NUEVO
+  { soltarCanal = null; let soltar2 = null;
+    Notifications.setNotificationChannelAsync = (id) => id === 'gps-detenido' && !soltar2 ? new Promise(res => { soltar2 = res; }) : Promise.resolve();
+    await m.apagarVigiaDeSilencio();
+    const vieja = m.vigilarSilencio(Date.now() + 300_000);    // pendiente del canal
+    for (let i = 0; i < 10 && !soltar2; i++) await new Promise(res => setTimeout(res, 0));
+    const apagado2 = m.apagarVigiaDeSilencio();
+    const nueva = m.vigilarSilencio(Date.now() + 400_000);    // vigilancia nueva
+    soltar2(); await vieja; await apagado2; await nueva;
+    ok('la vigilancia vieja no borra el aviso de la nueva', vivas.has('gps-silencio'), [...vivas]); }
+})();
+
+const pruebaBrecha = (async () => {
+  console.log('\nLA BRECHA EN LA BANDEJA, LIMPIADA A MITAD (quinta revisión, 17/11)');
+  const fuente = require('fs').readFileSync(RAIZ + '/app/notificacion.js', 'utf8')
+    .replace(/^import .*$/gm, '').replace(/^export (async function|function|const)/gm, '$1');
+  const hud = require(RAIZ + '/app/hud.js');
+  const vivas = new Set();
+  let soltarPermiso = null;
+  const Notifications = {
+    AndroidImportance: { LOW: 2, HIGH: 4 },
+    setNotificationHandler() {}, setNotificationChannelAsync: async () => {},
+    getPermissionsAsync: () => (soltarPermiso === null ? new Promise(res => { soltarPermiso = () => res({ granted: true, canAskAgain: true }); }) : Promise.resolve({ granted: true, canAskAgain: true })),
+    requestPermissionsAsync: async () => ({ granted: true }),
+    scheduleNotificationAsync: async (n) => { vivas.add(n.identifier + ':' + n.content.title); },
+    cancelScheduledNotificationAsync: async () => {},
+    dismissNotificationAsync: async (id) => { for (const v of [...vivas]) if (v.startsWith(id + ':')) vivas.delete(v); },
+  };
+  const m = new Function('Notifications', 'avisoDesdeRespuesta', 'avisoSinSenal',
+    fuente + '\nreturn { notificarSinSenal, notificarSinRol, limpiarNotificacion };')(Notifications, hud.avisoDesdeRespuesta, hud.avisoSinSenal);
+  const T = Date.now();
+  const p = m.notificarSinSenal(T - 200_000, T);             // espera el permiso…
+  for (let i = 0; i < 10 && !soltarPermiso; i++) await new Promise(res => setTimeout(res, 0));
+  const l = m.limpiarNotificacion();                         // …sale de ruta
+  soltarPermiso(); await p; await l;
+  ok('limpiada a mitad: la brecha vieja no vuelve a la bandeja', ![...vivas].some(v => v.startsWith('brecha-viva:')), [...vivas]);
+  await m.notificarSinSenal(T - 200_000, T);
+  ok('y el título viejo no quedó guardado: la próxima sí sale', [...vivas].some(v => v.startsWith('brecha-viva:SIN SEÑAL')), [...vivas]);
+  const r = m.notificarSinRol('otro chofer'); const l2 = m.limpiarNotificacion();
+  await r; await l2;
+  ok('«modo acompañante» pedido antes de limpiar tampoco reaparece', ![...vivas].some(v => v.includes('MODO ACOMPAÑANTE')), [...vivas]);
+})();
+
+const pruebaCliente = (async () => {
+  console.log('\nEL CLIENTE: UNA RESPUESTA DE LA SESIÓN ANTERIOR (quinta revisión, 17/11)');
+  const { crearCliente } = require(RAIZ + '/app/protocolo/cliente.js');
+  class WsFalso { constructor() { this.readyState = 0; } send() {} close() {} }
+  let soltar = null;
+  const fetchViejo = global.fetch;
+  global.fetch = () => new Promise(res => { soltar = (cuerpo) => res({ ok: true, status: 200, json: async () => cuerpo }); });
+  try {
+    const c = crearCliente({ servidor: 'http://x', WebSocketImpl: WsFalso });
+    c.conectar('tokA', { unitId: 'ana', vehicleId: 'M-01', routeId: 'R-14' });
+    const p = c.elegirCombi('M-07');                         // A elige combi…
+    await new Promise(res => setTimeout(res, 0));
+    c.salir();                                               // …sale…
+    c.conectar('tokB', { unitId: 'beto', vehicleId: 'M-02', routeId: 'R-14' });   // …entra B
+    soltar({ vehicleId: 'M-07', routeId: 'R-14', routeName: '18A' });
+    await p;
+    ok('la combi que eligió A no se le pone a la sesión de B', c.sesion && c.sesion.unitId === 'beto' && c.sesion.vehicleId === 'M-02', c.sesion);
+    c.salir();
+  } finally { global.fetch = fetchViejo; }
+  const appTexto = require('fs').readFileSync(RAIZ + '/app/App.js', 'utf8');
+  ok('y en la pantalla, misCombis, elegirCombi y la marca miran la sesión que preguntó',
+     /if \(generacion\.current !== gen \|\| cerrando\.current\) return;\n      setCombis/.test(appTexto) &&
+     /if \(generacion\.current !== gen \|\| cerrando\.current\) return null;\n      alCambiarDeCombi/.test(appTexto) &&
+     /if \(!m \|\| !vigenteSesion\(\)\) return;/.test(appTexto));
 })();
 
 const pruebaPresencia = (async () => {
@@ -592,7 +659,7 @@ const pruebaFilaGps = (async () => {
     const TaskManager = { isTaskRegisteredAsync: async () => false, unregisterTaskAsync: async () => {} };
     const diagnostico = {};
     const f = new Function('Location', 'TaskManager', 'diagnostico', 'TAREA_GPS', 'CADENCIA_PANTALLA_ENCENDIDA', 'hidratarGrabacionGuardada', 'limpiarNotificacion',
-      bloque + '\nreturn { arrancar, parar, cambiarCadencia };')(Location, TaskManager, diagnostico, 't', 3000, async () => {}, async () => {});
+      bloque + '\nreturn { arrancar, parar, cambiarCadencia, pararDesdeLaTarea };')(Location, TaskManager, diagnostico, 't', 3000, async () => {}, async () => {});
     const vaciar = async () => { for (let i = 0; i < 50; i++) { await new Promise(res => setTimeout(res, 0)); while (r.soltar.length) r.soltar.shift()(); } };
     return { ...f, r, diagnostico, vaciar };
   };
@@ -611,9 +678,20 @@ const pruebaFilaGps = (async () => {
     const c = cambiarCadencia(10000, 'x'); const p = parar();
     await vaciar(); await c; await p;
     ok('una cadencia pedida antes de parar no rearranca el servicio', r.corriendo === false && !r.log.includes('start'), r.log); }
+  // Quinta revisión: las paradas de la TAREA (relevo, sesión rechazada…)
+  // también van por la fila
+  { const { cambiarCadencia, pararDesdeLaTarea, r, diagnostico, vaciar } = armar();
+    r.corriendo = true;
+    const c = cambiarCadencia(10000, 'x');            // espera una respuesta nativa…
+    await new Promise(res => setTimeout(res, 0));
+    const p = pararDesdeLaTarea('detenido: sin rol de GPS');   // …y llega el relevo
+    await vaciar(); await c; await p;
+    ok('relevo con una cadencia en vuelo: queda detenido, con el motivo', r.corriendo === false && diagnostico.servicio === 'detenido: sin rol de GPS', { log: r.log, diag: diagnostico.servicio }); }
+  { const srvTexto = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
+    ok('la tarea ya no detiene el GPS por fuera de la fila', !/try \{ await Location\.stopLocationUpdatesAsync\(TAREA_GPS\); \} catch \{\}/.test(srvTexto) && (srvTexto.match(/await pararDesdeLaTarea\('/g) || []).length === 6); }
 })();
 
-Promise.all([pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }), pruebaPresencia.catch(e => { ok('la prueba de presencia corrió', false, e.stack); }), pruebaFilaGps.catch(e => { ok('la prueba de la fila del GPS corrió', false, e.stack); }), pruebaVigia.catch(e => { ok('la prueba del vigía corrió', false, e.stack); })]).then(() => {
+Promise.all([pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }), pruebaPresencia.catch(e => { ok('la prueba de presencia corrió', false, e.stack); }), pruebaFilaGps.catch(e => { ok('la prueba de la fila del GPS corrió', false, e.stack); }), pruebaVigia.catch(e => { ok('la prueba del vigía corrió', false, e.stack); }), pruebaBrecha.catch(e => { ok('la prueba de la brecha corrió', false, e.stack); }), pruebaCliente.catch(e => { ok('la prueba del cliente corrió', false, e.stack); })]).then(() => {
   console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
   process.exit(fallas ? 1 : 0);
 });

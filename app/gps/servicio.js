@@ -576,7 +576,7 @@ async function subirAhora(nuevas) {
       if (sinSesionSeguidas >= SIN_SESION_TOPE) {
         sinSesionSeguidas = 0;
         diagnostico.servicio = 'detenido: sin sesión';
-        try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        await pararDesdeLaTarea('detenido: sin sesión');
       }
       return;
     }
@@ -617,7 +617,7 @@ async function subirAhora(nuevas) {
           }, control);
         } catch {}
         diagnostico.servicio = 'detenido: ausente mucho tiempo';
-        try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        await pararDesdeLaTarea('detenido: ausente mucho tiempo');
         // Y la brecha vieja no queda colgada en la bandeja
         limpiarNotificacion().catch(() => {});
         // Las posiciones de la casa no se mandan: irse es irse.
@@ -686,7 +686,7 @@ async function subirAhora(nuevas) {
           pendientes = [];
           diagnostico.enEspera = 0;
           limpiarNotificacion().catch(() => {});
-          try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+          await pararDesdeLaTarea('detenido: volvió a ruta solo y nunca pisó el trazado');
           return;
         }
       }
@@ -704,7 +704,7 @@ async function subirAhora(nuevas) {
         // Borrarla dejaba la última brecha vista como lo último que el chofer
         // sabe, sin nada que la desmienta (C22).
         notificarSinRol(cuerpo.motivo).catch(() => {});
-        try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        await pararDesdeLaTarea('detenido: sin rol de GPS');
         return;
       }
 
@@ -762,7 +762,7 @@ async function subirAhora(nuevas) {
           pendientes = [];
           diagnostico.enEspera = 0;
           limpiarNotificacion().catch(() => {});
-          try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+          await pararDesdeLaTarea('detenido: sesión rechazada');
         }
       } else if (r.status === 403 || r.status === 409) {
         if (++sinRolSeguidos >= RECHAZOS_TOPE) {
@@ -772,7 +772,7 @@ async function subirAhora(nuevas) {
           pendientes = [];
           diagnostico.enEspera = 0;
           limpiarNotificacion().catch(() => {});
-          try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+          await pararDesdeLaTarea('detenido: sin rol de GPS');
         }
       } else {
         noAutorizadosSeguidos = 0;
@@ -925,6 +925,23 @@ async function cambiarCadenciaAhora(ms, textoNotificacion) {
 export function parar() {
   pedidosDeParar++;
   return enFila(pararAhora);
+}
+
+// Las paradas que decide la TAREA de fondo (relevo, sesión rechazada,
+// ausente mucho tiempo, sin sesión, volvió solo y no pisó el trazado). Antes
+// llamaban a stopLocationUpdatesAsync directo y se saltaban la fila: un
+// cambiarCadencia que ya esperaba una respuesta nativa terminaba después y
+// volvía a encender el GPS, con el diagnóstico diciendo «detenido» (quinta
+// revisión con ChatGPT, 17/11). Ahora entran a la misma fila, cuentan como
+// pedido de parar, y dejan escrito el motivo.
+function pararDesdeLaTarea(motivo) {
+  pedidosDeParar++;
+  return enFila(async () => {
+    try {
+      if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) await Location.stopLocationUpdatesAsync(TAREA_GPS);
+    } catch {}
+    diagnostico.servicio = motivo;
+  });
 }
 
 async function pararAhora() {

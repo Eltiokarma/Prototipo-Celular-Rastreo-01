@@ -47,6 +47,9 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   let ws = null;
   let token = null;
   let sesion = null;
+  // Cambia cada vez que empieza o termina una sesión: una respuesta que
+  // llega tarde no puede tocar la sesión de otro (quinta revisión, 17/11)
+  let epocaSesion = 0;
   let estado = null;        // último `state` recibido
   let geometria = null;
   let reportaGps = false;   // lo dice el servidor con `gps_role`
@@ -87,6 +90,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
       throw e;
     }
     sesion = cuerpo;
+    epocaSesion++;
     // El token queda desde acá: lo que va por HTTP (SOS, presencia, cerrar
     // sesión) no tiene por qué esperar a que se abra el socket.
     token = cuerpo.token || token;
@@ -118,9 +122,9 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   function conectar(tk, sesionGuardada) {
     token = tk || token;
     if (!token) throw new Error('hace falta un token para conectar');
-    if (sesionGuardada) sesion = sesionGuardada;
+    if (sesionGuardada) { sesion = sesionGuardada; epocaSesion++; }
     else if (!sesion) {
-      console.warn('[protocolo] conectar() sin sesión: la brecha, el chat y el mapa no van a saber quién sos');
+      console.warn('[protocolo] conectar() sin sesión: la brecha, el chat y el mapa no van a saber quién eres');
     }
     cerradoAdrede = false;
     abrir();
@@ -575,8 +579,10 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   }
   const misCombis = () => pedirJson('/mis-combis');
   async function elegirCombi(vehicleId) {
+    const mia = epocaSesion;
     const r = await pedirJson('/combi', { method: 'POST', body: JSON.stringify({ vehicleId }) });
-    if (sesion) sesion = { ...sesion, vehicleId: r.vehicleId, routeId: r.routeId, routeName: r.routeName };
+    // Si mientras tanto salió y entró otro, la respuesta no es de esta sesión
+    if (sesion && epocaSesion === mia) sesion = { ...sesion, vehicleId: r.vehicleId, routeId: r.routeId, routeName: r.routeName };
     return r;
   }
 
@@ -665,6 +671,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   }
 
   function salir() {
+    epocaSesion++;
     cerradoAdrede = true;
     clearTimeout(reintento);
     pararLatido();

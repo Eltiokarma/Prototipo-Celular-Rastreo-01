@@ -1604,6 +1604,31 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 28. La quinta revisión (ChatGPT), sobre `476e0ef` — 17/11
+
+**Qué.** Cuatro carreras más, las cuatro ciertas.
+- **La tarea de fondo se saltaba la fila del GPS**: sus seis paradas
+  (relevo, sesión rechazada, ausente mucho tiempo, sin sesión, volvió solo
+  sin pisar el trazado) llamaban a `stopLocationUpdatesAsync` directo. Un
+  `cambiarCadencia` en vuelo volvía a encender el GPS con el diagnóstico
+  diciendo «detenido». Ahora pasan por `pararDesdeLaTarea(motivo)`, en la
+  misma fila y contando como pedido de parar.
+- **Una respuesta de combis de la sesión anterior tocaba la siguiente**:
+  `misCombis`, `elegirCombi` y `pedirMarca` miran la generación que las
+  originó antes de aplicarse; el cliente tiene su propia época de sesión y
+  `elegirCombi` no reescribe una sesión que ya no es la suya.
+- **La brecha volvía a la bandeja después de limpiarla**: publicar
+  (`notificarBrecha`, `notificarSinSenal`, `notificarSinRol`) y limpiar van
+  en una fila; lo pedido antes de una limpieza ya no publica.
+- **La limpieza de un vigía viejo borraba el nuevo**: el vigía va en fila
+  y ya no cancela tarde por el identificador compartido.
+
+**Pruebas.** `nativas`: cada secuencia del informe con el código real y lo
+nativo diferido, y el `crearCliente` real con un `fetch` diferido (A elige
+combi, sale, entra B). La regresión completa.
+
+---
+
 ## 27. La cuarta revisión (ChatGPT), sobre `af07bce` — 17/11
 
 **Qué.** Cuatro carreras de cancelación, las cuatro ciertas. Un commit,
