@@ -216,6 +216,10 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 4');
   // C3 y C5: textos de 9 a 11 px y botones de 27 en la pantalla de ocho horas
   ok('C3 · Despacho no escribe nada bajo 12 px', !/fontSize: (8|9|10|11)\b/.test(despacho) && !/dato\((8|9|10|11)[,)]/.test(despacho) && !/rotulo\(8\)/.test(despacho) && /fontSize: Math\.max\(12, Math\.round\(tam \* 0\.38\)\)/.test(despacho));
   ok('C5 · botones de fila de 32 px y, en el celular, cabecera y zoom de 44', /const btnChico = \(tinta, borde\) => \(\{\n  minHeight: 32,/.test(despacho) && !/(campo|btnSecundario|btnFantasma)\((2\d|3[01])\)/.test(despacho) && /btnIcono\(false, isMobile \? 44 : 36\)/.test(despacho) && /width: 44px !important; height: 44px !important/.test(despacho));
+  // C6: 5 + 1 en Vueltas y 7 + 5 en Números
+  ok('C6 · las fichas de números van en filas parejas', /className="r14-kpi6"/.test(despacho) && /className="r14-kpi12"/.test(despacho) && !/repeat\(auto-fill, minmax\(150px, 1fr\)\)/.test(despacho));
+  // C7: diez botones de ancho desigual, uno de principal sin motivo
+  ok('C7 · Informes es una lista con lo que trae cada uno y el mismo botón CSV', /data-informe=\{tipo\}/.test(despacho) && /<Icono n="descargar" tam=\{16\} \/>CSV/.test(despacho) && !/principal \? btnPrimario\(40\) : btnSecundario\(40\)/.test(despacho));
   // N7: «08:04» de brecha al lado de «desde 08:04» de hora
   ok('N7 · la brecha se muestra sin cero adelante y con «min»', /function duracion\(gapStr\)/.test(despacho) && /\{duracion\(val\)\}<span/.test(despacho));
 }

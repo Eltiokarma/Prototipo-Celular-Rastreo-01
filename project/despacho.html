@@ -4248,17 +4248,21 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
 
             {/* ─── INFORMES ─────────────────────────────────────── */}
             {tab === 'informes' && (() => {
+              // Una lista, no diez botones de anchos distintos con uno de
+              // principal sin que la tarea lo pida: cada informe con lo que
+              // trae (sus columnas, en palabras) y el mismo botón (auditoría
+              // de UI, C7).
               const informes = [
-                ['vueltas', 'Vueltas y brechas (CSV)', true],
-                ['tramos', 'Medias vueltas: idas y retornos (CSV)', false],
-                ['horas', 'Turnos por persona (CSV)', false],
-                ['desvios', 'Salidas del recorrido (CSV)', false],
-                ['paradas', 'Paradas y avisos de tráfico: dónde y a qué hora se traba la ruta (CSV)', false],
-                ['senal', 'Cortes de señal (CSV)', false],
-                ['anomalias', 'Anomalías: saltos, ausente en marcha, reloj, GPS simulado (CSV)', false],
-                ['sos', 'Emergencias (CSV)', false],
-                ['mensajes', 'Chat, notas de voz y fotos (CSV)', false],
-                ['actividad', 'Actividad de administración (CSV)', false],
+                ['vueltas', 'Vueltas y brechas', 'Cada vuelta: inicio, fin, duración, velocidad media y la brecha contra el objetivo de ese momento.'],
+                ['tramos', 'Medias vueltas: idas y retornos', 'Cada ida y cada retorno por separado, con su duración.'],
+                ['horas', 'Turnos por persona', 'Entradas, salidas y horas de cada chofer y cobrador en el período.'],
+                ['desvios', 'Salidas del recorrido', 'Cuándo salió cada unidad del trazado, por cuánto tiempo y a qué distancia.'],
+                ['paradas', 'Paradas y avisos de tráfico', 'Dónde y a qué hora se traba la ruta, con el punto del circuito.'],
+                ['senal', 'Cortes de señal', 'Cuándo y dónde se cortó y volvió la señal de cada unidad, y cuántos minutos.'],
+                ['anomalias', 'Anomalías', 'Saltos, ausente en marcha, reloj del teléfono corrido y GPS simulado.'],
+                ['sos', 'Emergencias', 'Cada SOS: quién, dónde, quién lo atendió y cuántos minutos tardó.'],
+                ['mensajes', 'Chat, notas de voz y fotos', 'Lo que se escribió y mandó en los canales y privados.'],
+                ['actividad', 'Actividad de administración', 'Quién cambió qué en este panel: altas, bajas, rutas, correcciones.'],
               ];
               const aMs = (iso, fin) => {
                 const d = new Date(iso + (fin ? 'T23:59:59' : 'T00:00:00'));
@@ -4326,19 +4330,24 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       )}
                     </div>
 
-                    <div style={tarjeta(18)}>
-                      <div style={{ ...rotulo(9), marginBottom: 12 }}>Descargar</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
-                        {informes.map(([tipo, etiqueta, principal]) => (
-                          <button key={tipo} onClick={() => bajar(tipo)}
-                            style={{
-                              ...(principal ? btnPrimario(40) : btnSecundario(40)),
-                              // que un rótulo largo baje de renglón y no se salga
-                              height: 'auto', minHeight: 40, padding: '9px 14px',
-                              whiteSpace: 'normal', textAlign: 'left', maxWidth: '100%',
-                            }}>{etiqueta}</button>
-                        ))}
-                      </div>
+                    <div style={{ ...tarjeta(0), gridColumn: '1 / -1' }}>
+                      <div style={{ ...rotulo(9), padding: '14px 18px 4px' }}>Descargar</div>
+                      {informes.map(([tipo, etiqueta, que], i) => (
+                        <div key={tipo} data-informe={tipo} style={{
+                          display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px',
+                          borderTop: i ? `1px solid ${HUD.divider}` : 'none',
+                        }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: HUD.fg }}>{etiqueta}</div>
+                            <div style={{ fontSize: 13, color: HUD.dim2, marginTop: 2, lineHeight: 1.4 }}>{que}</div>
+                          </div>
+                          <button onClick={() => bajar(tipo)} title={`Descargar «${etiqueta}» en CSV`}
+                            style={{ ...btnSecundario(36), flexShrink: 0 }}>
+                            <Icono n="descargar" tam={16} />CSV
+                            <span style={ocultoVisual}>: {etiqueta}</span>
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                   <Pie>
