@@ -161,11 +161,11 @@ console.log('\nLA API QUE SE USA');
   //    Y lo dispara el caso más común de todos: instalar una versión nueva.
   //    O sea que le iba a pasar a cada chofer en cada actualización.
   const servicio = fs.readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
-  const cuerpoArrancar = (servicio.match(/export async function arrancar[\s\S]*?\n}/) || [''])[0];
+  const cuerpoArrancar = (servicio.match(/async function arrancarAhora[\s\S]*?\n}/) || [''])[0];
   ok('arrancar() decide por el SERVICIO, no por el registro de la tarea',
      /hasStartedLocationUpdatesAsync/.test(cuerpoArrancar), cuerpoArrancar.slice(0, 200));
 
-  const cuerpoCadencia = (servicio.match(/export async function cambiarCadencia[\s\S]*?\n}/) || [''])[0];
+  const cuerpoCadencia = (servicio.match(/async function cambiarCadenciaAhora[\s\S]*?\n}/) || [''])[0];
   ok('cambiarCadencia() también', /hasStartedLocationUpdatesAsync/.test(cuerpoCadencia));
 
   // 3) Un servicio sin sesión sostenida se apaga SOLO. Pasó: quedó un
@@ -462,6 +462,36 @@ const pruebaNotif = (async () => {
   ok('y en todo esto se le pidió una sola vez', pedidos === 1, pedidos);
 })();
 
+const pruebaVigia = (async () => {
+  console.log('\nEL AVISO DE GPS DETENIDO, APAGADO A MITAD (cuarta revisión, 17/11)');
+  // vigilarSilencio esperando el canal → se apaga el vigía → termina la
+  // espera vieja: antes volvía a programar «gps-silencio»
+  const fuente = require('fs').readFileSync(RAIZ + '/app/notificacion.js', 'utf8')
+    .replace(/^import .*$/gm, '').replace(/^export (async function|function|const)/gm, '$1');
+  const hud = require(RAIZ + '/app/hud.js');
+  const vivas = new Set();
+  let soltarCanal = null;
+  const Notifications = {
+    AndroidImportance: { LOW: 2, HIGH: 4 },
+    setNotificationHandler() {},
+    setNotificationChannelAsync: (id) => id === 'gps-detenido' && !soltarCanal ? new Promise(res => { soltarCanal = res; }) : Promise.resolve(),
+    getPermissionsAsync: async () => ({ granted: true, canAskAgain: true }),
+    requestPermissionsAsync: async () => ({ granted: true }),
+    scheduleNotificationAsync: async (n) => { vivas.add(n.identifier); },
+    cancelScheduledNotificationAsync: async (id) => { vivas.delete(id); },
+    dismissNotificationAsync: async () => {},
+  };
+  const m = new Function('Notifications', 'avisoDesdeRespuesta', 'avisoSinSenal',
+    fuente + '\nreturn { vigilarSilencio, apagarVigiaDeSilencio };')(Notifications, hud.avisoDesdeRespuesta, hud.avisoSinSenal);
+  const p = m.vigilarSilencio(Date.now());
+  for (let i = 0; i < 10 && !soltarCanal; i++) await new Promise(res => setTimeout(res, 0));
+  await m.apagarVigiaDeSilencio();           // sale de ruta mientras se programaba
+  soltarCanal(); await p;
+  ok('apagado a mitad: el aviso no se vuelve a programar', !vivas.has('gps-silencio'), [...vivas]);
+  await m.vigilarSilencio(Date.now() + 120_000);
+  ok('y el vigía sigue funcionando después', vivas.has('gps-silencio'), [...vivas]);
+})();
+
 const pruebaPresencia = (async () => {
   console.log('\nPRESENCIA, PERMISOS Y CIERRE DE SESIÓN (tercera revisión, 17/11)');
   // El cambiarPresencia de verdad, con todo lo de afuera simulado: el
@@ -484,7 +514,14 @@ const pruebaPresencia = (async () => {
       SecureStore: { setItemAsync: async () => {} }, limpiarNotificacion: async () => {},
       cliente: { current: { marcarPresencia: (v) => r.log.push('declara:' + v) } },
     };
-    const f = new Function(...Object.keys(env), fuente + '\nreturn { cerrando, cambiarPresencia };')(...Object.values(env));
+    const entrar = app.slice(app.indexOf('  const entrarConSesion = async (s) => {'), app.indexOf('  // ── El vigía de la puerta (opción C, 30/10)') > 0 ? app.indexOf('\n  };\n', app.indexOf('  const entrarConSesion = async (s) => {')) + 5 : 0);
+    Object.assign(env, {
+      setSesion: () => {}, guardarCentral: () => {}, SERVIDOR: 'x', setMarca: () => {},
+    });
+    env.SecureStore.getItemAsync = async () => r.guardada || null;
+    env.SecureStore.deleteItemAsync = async () => {};
+    env.cliente.current.conectar = () => {}; env.cliente.current.pedirMarca = () => new Promise(() => {});
+    const f = new Function(...Object.keys(env), fuente + entrar + '\nreturn { cerrando, cambiarPresencia, entrarConSesion, empezarSesion, terminarSesion };')(...Object.values(env));
     return { ...f, r };
   };
   { const { cambiarPresencia, r } = armar(); r.permisoOk = false;
@@ -511,9 +548,72 @@ const pruebaPresencia = (async () => {
     await cambiarPresencia('fuera');                // llega otro cambio antes
     soltar({ ok: true }); await p1;
     ok('un cambio viejo se corta si llegó uno más nuevo', !r.log.includes('declara:ruta') && r.log.includes('declara:fuera'), r.log); }
+  // Cuarta revisión: la sesión tiene GENERACIÓN
+  { const { entrarConSesion, terminarSesion, r } = armar();
+    r.guardada = 'ruta';
+    let soltar; r.esperarPermiso = new Promise(res => { soltar = res; });
+    const p = entrarConSesion({ token: 't', role: 'driver' });   // retoma el turno: espera permisos
+    await new Promise(res => setTimeout(res, 0));
+    terminarSesion();                                              // llega authError
+    soltar({ ok: true }); await p;
+    ok('retomar el turno se corta si la sesión terminó mientras Android preguntaba', !r.log.includes('declara:ruta') && !r.log.includes('arrancar'), r.log); }
+  { const { cambiarPresencia, terminarSesion, empezarSesion, r } = armar();
+    empezarSesion();
+    let soltar; r.esperarPermiso = new Promise(res => { soltar = res; });
+    const p = cambiarPresencia('ruta');                            // pendiente de la sesión vieja
+    await new Promise(res => setTimeout(res, 0));
+    terminarSesion(); empezarSesion();                             // salió y entró otra vez
+    soltar({ ok: true }); await p;
+    ok('algo pendiente de la sesión anterior no vale en la siguiente', !r.log.includes('declara:ruta') && !r.log.includes('arrancar'), r.log); }
+  { const { cambiarPresencia, terminarSesion, r } = armar();
+    terminarSesion();                                              // «Salir» empezó…
+    // …y llega una actualización de la central (antes: efecto [sesion] → cerrando = false)
+    await cambiarPresencia('ausente');
+    ok('una actualización de la sesión no reabre el cierre', r.log.length === 0, r.log); }
 })();
 
-Promise.all([pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }), pruebaPresencia.catch(e => { ok('la prueba de presencia corrió', false, e.stack); })]).then(() => {
+const pruebaFilaGps = (async () => {
+  console.log('\nEL GPS: ARRANCAR Y PARAR EN FILA (cuarta revisión, 17/11)');
+  // La fila real de servicio.js con Location y TaskManager simulados, y las
+  // respuestas nativas DIFERIDAS: un arrancar que ya empezó terminaba
+  // después del parar y dejaba el servicio «corriendo».
+  const srv = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
+  const bloque = srv.slice(srv.indexOf('// ── Arrancar, parar y cambiar la cadencia, en FILA'), srv.indexOf('// Para mirarlo desde la pantalla sin adivinar.'))
+    .replace(/^export /gm, '');
+  const armar = () => {
+    const r = { log: [], corriendo: false, soltar: [] };
+    const diferido = (nombre, efecto) => () => new Promise(res => { r.soltar.push(() => { r.log.push(nombre); if (efecto) efecto(); res(); }); });
+    const Location = {
+      Accuracy: { High: 4 },
+      hasStartedLocationUpdatesAsync: async () => r.corriendo,
+      startLocationUpdatesAsync: diferido('start', () => { r.corriendo = true; }),
+      stopLocationUpdatesAsync: diferido('stop', () => { r.corriendo = false; }),
+    };
+    const TaskManager = { isTaskRegisteredAsync: async () => false, unregisterTaskAsync: async () => {} };
+    const diagnostico = {};
+    const f = new Function('Location', 'TaskManager', 'diagnostico', 'TAREA_GPS', 'CADENCIA_PANTALLA_ENCENDIDA', 'hidratarGrabacionGuardada', 'limpiarNotificacion',
+      bloque + '\nreturn { arrancar, parar, cambiarCadencia };')(Location, TaskManager, diagnostico, 't', 3000, async () => {}, async () => {});
+    const vaciar = async () => { for (let i = 0; i < 50; i++) { await new Promise(res => setTimeout(res, 0)); while (r.soltar.length) r.soltar.shift()(); } };
+    return { ...f, r, diagnostico, vaciar };
+  };
+  { const { arrancar, parar, r, diagnostico, vaciar } = armar();
+    const a = arrancar();                 // empieza a arrancar…
+    await new Promise(res => setTimeout(res, 0));
+    const p = parar();                    // …y le piden parar antes de que termine
+    await vaciar(); await a; await p;
+    ok('arrancar empezado y después parar: queda DETENIDO', r.corriendo === false && diagnostico.servicio === 'detenido', { log: r.log, diag: diagnostico.servicio }); }
+  { const { arrancar, parar, r, vaciar } = armar();
+    const p = parar(); const a = arrancar();          // parar y enseguida arrancar: gana el último
+    await vaciar(); await p; await a;
+    ok('parar y después arrancar: queda corriendo (el último pedido manda)', r.corriendo === true, r.log); }
+  { const { parar, cambiarCadencia, r, vaciar } = armar();
+    r.corriendo = true;
+    const c = cambiarCadencia(10000, 'x'); const p = parar();
+    await vaciar(); await c; await p;
+    ok('una cadencia pedida antes de parar no rearranca el servicio', r.corriendo === false && !r.log.includes('start'), r.log); }
+})();
+
+Promise.all([pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }), pruebaPresencia.catch(e => { ok('la prueba de presencia corrió', false, e.stack); }), pruebaFilaGps.catch(e => { ok('la prueba de la fila del GPS corrió', false, e.stack); }), pruebaVigia.catch(e => { ok('la prueba del vigía corrió', false, e.stack); })]).then(() => {
   console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
   process.exit(fallas ? 1 : 0);
 });

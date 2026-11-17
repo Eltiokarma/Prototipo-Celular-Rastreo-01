@@ -203,11 +203,19 @@ const CANAL_SILENCIO = 'gps-detenido';
 const ID_SILENCIO = 'gps-silencio';
 export const SILENCIO_AVISO_MS = 10 * 60_000;
 let silencioCorridoEn = 0;
+// Cada «apagar» cambia la época del vigía. Una programación que ya había
+// empezado (esperando el canal, o cancelar la anterior) y termina DESPUÉS
+// de apagarlo volvía a programar el aviso: no quedaba incancelable, pero
+// se recreaba tras la cancelación (cuarta revisión con ChatGPT, 17/11).
+// Ahora se mira la época y el permiso después de cada espera.
+let epocaVigia = 0;
 
 export async function vigilarSilencio(ahora = Date.now()) {
   if (ahora - silencioCorridoEn < 60_000) return;
+  const mia = epocaVigia;
+  const vigente = () => epocaVigia === mia && permitido;
   await preparar();
-  if (!permitido) return;
+  if (!vigente()) return;
   silencioCorridoEn = ahora;
   try {
     await Notifications.setNotificationChannelAsync(CANAL_SILENCIO, {
@@ -215,7 +223,9 @@ export async function vigilarSilencio(ahora = Date.now()) {
       // Alta: es la única forma de enterarse, y pasa con la pantalla apagada
       importance: Notifications.AndroidImportance.HIGH,
     }).catch(() => {});
+    if (!vigente()) return;
     await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO).catch(() => {});
+    if (!vigente()) return;
     const tipo = Notifications.SchedulableTriggerInputTypes
       ? Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL : 'timeInterval';
     await Notifications.scheduleNotificationAsync({
@@ -226,10 +236,13 @@ export async function vigilarSilencio(ahora = Date.now()) {
       },
       trigger: { type: tipo, seconds: Math.round(SILENCIO_AVISO_MS / 1000), channelId: CANAL_SILENCIO },
     });
+    // Si lo apagaron mientras se programaba, se retira lo recién programado
+    if (!vigente()) await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO).catch(() => {});
   } catch {}
 }
 
 export async function apagarVigiaDeSilencio() {
+  epocaVigia++;
   silencioCorridoEn = 0;
   try { await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO); } catch {}
   try { await Notifications.dismissNotificationAsync(ID_SILENCIO); } catch {}

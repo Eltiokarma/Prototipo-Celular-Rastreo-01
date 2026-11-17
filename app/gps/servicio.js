@@ -844,7 +844,27 @@ export async function pedirPermisos() {
 //
 // Y el caso que lo dispara es el más común de todos: **instalar una versión
 // nueva**. O sea que le iba a pasar a cada chofer en cada actualización.
-export async function arrancar({ textoNotificacion = 'Turno en curso' } = {}) {
+// ── Arrancar, parar y cambiar la cadencia, en FILA ──────────────────
+// Cada una tiene sus propias esperas nativas. Sin fila se entrelazaban: un
+// `arrancar` que ya había empezado terminaba DESPUÉS de un `parar` y dejaba
+// el GPS corriendo para una sesión cerrada (cuarta revisión con ChatGPT,
+// 17/11). Ahora corren de a una, en el orden en que se pidieron. Y un
+// arranque pedido antes de un `parar` ya no corre cuando le toca: el que
+// pidió parar es el último que habló.
+let fila = Promise.resolve();
+let pedidosDeParar = 0;
+function enFila(fn) {
+  const p = fila.then(fn, fn);
+  fila = p.catch(() => {});
+  return p;
+}
+
+export function arrancar(opciones = {}) {
+  const paradasAlPedir = pedidosDeParar;
+  return enFila(() => (pedidosDeParar !== paradasAlPedir ? undefined : arrancarAhora(opciones)));
+}
+
+async function arrancarAhora({ textoNotificacion = 'Turno en curso' } = {}) {
   hidratarGrabacionGuardada().catch(() => {});
   if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
     diagnostico.servicio = 'corriendo';
@@ -880,7 +900,12 @@ export async function arrancar({ textoNotificacion = 'Turno en curso' } = {}) {
 //
 // Misma pregunta que en `arrancar`, y por el mismo motivo: con el registro
 // como condición, esto reiniciaba una tarea que no estaba corriendo.
-export async function cambiarCadencia(ms, textoNotificacion) {
+export function cambiarCadencia(ms, textoNotificacion) {
+  const paradasAlPedir = pedidosDeParar;
+  return enFila(() => (pedidosDeParar !== paradasAlPedir ? undefined : cambiarCadenciaAhora(ms, textoNotificacion)));
+}
+
+async function cambiarCadenciaAhora(ms, textoNotificacion) {
   if (!(await Location.hasStartedLocationUpdatesAsync(TAREA_GPS))) return;
   await Location.startLocationUpdatesAsync(TAREA_GPS, {
     accuracy: Location.Accuracy.High,
@@ -897,7 +922,12 @@ export async function cambiarCadencia(ms, textoNotificacion) {
   });
 }
 
-export async function parar() {
+export function parar() {
+  pedidosDeParar++;
+  return enFila(pararAhora);
+}
+
+async function pararAhora() {
   if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
     await Location.stopLocationUpdatesAsync(TAREA_GPS);
   } else if (await TaskManager.isTaskRegisteredAsync(TAREA_GPS)) {
