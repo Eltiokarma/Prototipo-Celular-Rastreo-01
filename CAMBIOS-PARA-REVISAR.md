@@ -1604,6 +1604,35 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 32. La APK no compilaba: la imagen de arranque — 17/11
+
+**Qué.** El primer build en dos meses (perfil `prueba`) falló en la nube de
+Expo, en `:app:processReleaseResources`:
+`resource drawable/splashscreen_logo ... not found`. El JavaScript estaba
+bien (Metro armó los 803 módulos dentro del mismo build).
+
+**Por qué.** El 10/9 la cooperativa eligió una pantalla nativa de arranque
+**lisa**, sin ícono, y el plugin `expo-splash-screen` quedó sin `image`.
+Con el SDK 54 el tema nativo apunta **siempre** a `@drawable/splashscreen_logo`,
+y sin imagen ese recurso no se genera. Reproducido aquí con
+`expo prebuild` (sin SDK de Android): `styles.xml` lo nombra y no existe.
+
+**Arreglo.** `app/assets/arranque-vacio.png`, transparente entera, como
+`image` del plugin. `prebuild` genera los cinco `splashscreen_logo.png` y
+todos sus píxeles quedan en `#0A1A2E`, el mismo fondo: la pantalla sigue
+lisa, como se eligió. Es nativo, así que la versión pasa a **0.3.1** y
+`app/nativo.json` se anotó (la guardia de `publicar-arreglo.bat` lo
+exigía, y lo detectó).
+
+**Pruebas.** `nativas`: el plugin tiene `image`, y esa imagen es
+transparente entera (se lee el PNG a mano; con una opaca la prueba falla,
+comprobado). La de «APK de la revisión» acepta 0.3.0 o más. Regresión completa.
+
+**Mirar.** Lo que no se puede ver sin teléfono: que la pantalla de arranque
+se vea lisa en el aparato. Va en la planilla de pruebas.
+
+---
+
 ## 31. La octava revisión (ChatGPT), sobre `bd3498b` — 17/11
 
 **Qué.** Una omisión en `subirAhora`, con dos caminos, los dos ciertos.

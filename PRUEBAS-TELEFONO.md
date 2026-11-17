@@ -1,4 +1,4 @@
-# Pruebas en teléfono — APK de `1bdf57e`
+# Pruebas en teléfono — APK 0.3.1 (con todo hasta `1bdf57e`)
 
 Las ocho revisiones con ChatGPT (bloques 21–31 de CAMBIOS-PARA-REVISAR.md)
 se cerraron con pruebas en Node: el servicio completo con lo nativo
@@ -14,7 +14,8 @@ captura del teléfono y otra de Despacho en ese mismo minuto.
 1. Fusiona a `main` los commits de la rama hasta `1bdf57e`.
    `compilar-app.bat` compila lo que está en `main`.
 2. Corre `compilar-app.bat` y elige **[3] APK de PRUEBA DE ACTUALIZACIONES**.
-   Instálala en los dos teléfonos. Con esa APK, si sale un arreglo, llega con
+   Instálala en los dos teléfonos. Tiene que ser la **0.3.1**: la 0.3.0 no
+   compila (falta la imagen de arranque; CAMBIOS, bloque 32). Con esa APK, si sale un arreglo, llega con
    `publicar-arreglo.bat` → [1] PRUEBA, sin compilar de nuevo.
 3. Usuarios: **chofer A**, **chofer B** y un **cobrador** cargado en la
    **combi X**. Ten Despacho abierto en una PC.
