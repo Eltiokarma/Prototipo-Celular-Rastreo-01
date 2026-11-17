@@ -2532,7 +2532,7 @@ function textoSmsSos({ combi, nombre, pos }) {
   const donde = pos
     ? ` Estoy en ${pos.lat.toFixed(5)},${pos.lng.toFixed(5)} https://maps.google.com/?q=${pos.lat.toFixed(5)},${pos.lng.toFixed(5)}`
     : ' No tengo mi posición.';
-  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet).`;
+  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet o sin respuesta del servidor).`;
 }
 function SosSinRed({ fallo, central, combi, nombre, onCerrar }) {
   const { s } = usarTema();
@@ -2541,7 +2541,7 @@ function SosSinRed({ fallo, central, combi, nombre, onCerrar }) {
     <View style={s.sosSinRed} accessibilityRole="alert">
       <Text style={s.sosSinRedTitulo}>SOS NO SALIÓ</Text>
       <Text style={s.sosSinRedTexto}>
-        Sin internet. Pide ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+        No se pudo confirmar que llegó (sin internet, o el servidor no respondió). Pide ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
       </Text>
       {central ? (
         <>

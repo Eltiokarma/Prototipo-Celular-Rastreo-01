@@ -2160,7 +2160,7 @@ function SosAvisos({ fired, fallo, central, combi, nombre, onCerrarFallo }) {
             fontSize: 28, fontWeight: 900, letterSpacing: 2, textAlign: 'center', lineHeight: 1.15, marginBottom: 6,
           }}>SOS NO SALIÓ</div>
           <div style={{ color: HUD.fg, fontSize: 15, textAlign: 'center', lineHeight: 1.4, marginBottom: 16 }}>
-            Sin internet. Pide ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+            No se pudo confirmar que llegó (sin internet, o el servidor no respondió). Pide ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
           </div>
           {central ? (
             <>
@@ -3043,7 +3043,7 @@ function textoSmsSos({ combi, nombre, pos }) {
   const donde = pos
     ? ` Estoy en ${pos.lat.toFixed(5)},${pos.lng.toFixed(5)} https://maps.google.com/?q=${pos.lat.toFixed(5)},${pos.lng.toFixed(5)}`
     : ' No tengo mi posición.';
-  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet).`;
+  return `SOS ${combi || ''}${nombre ? ' (' + nombre + ')' : ''}: necesito ayuda.${donde} No salió por la app (sin internet o sin respuesta del servidor).`;
 }
 const urlSms = (numero, texto) => `sms:${numero}?body=${encodeURIComponent(texto)}`;
 
