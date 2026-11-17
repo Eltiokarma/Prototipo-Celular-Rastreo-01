@@ -1604,6 +1604,34 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 25. La segunda revisión (ChatGPT), sobre la rama del PR — 17/11
+
+**Qué.** ChatGPT revisó la rama en `a0204d1`: dos fallas de comportamiento
+y cuatro ajustes del manual. Se verificaron contra el código: las seis eran
+ciertas. Además, la de AUSENTE se resolvió en la app y no en el manual.
+- **El cobrador veía brechas que no eran de su combi** (`6b656eb`): con su
+  combi ausente, yendo o fuera de ruta decía «Eres la única unidad en
+  ruta»; con su chofer sin señal, culpaba al vecino. Ahora dice qué le pasa
+  a SU combi (`estadoDeMiCombi` y `avisoDeMiCombi` en `app/hud.js`).
+- **El permiso de notificaciones dado después no se notaba** (`bc0e846`):
+  quedaba «negado» hasta reiniciar la app. Ahora se vuelve a mirar, sin
+  preguntar, cada minuto y al volver a primer plano.
+- **AUSENTE en la APK, con DESHACER de 5 s** (`edd9d54`), como la web.
+- **El manual**: los permisos de ubicación se piden al salir a ruta y hacen
+  falta los dos, con qué hacer si se negaron; la batería «puede limitar» (no
+  «corta a los minutos»); «DESPACHO VIO TU SOS» al volver, dentro de las 2 h
+  del SOS; la frase vieja de «NO SALIÓ» en Problemas frecuentes; lo que ve
+  el cobrador cuando su combi no está en la cadena.
+
+**Mirar.** Nada de esto corrió en un teléfono: cobrador, notificaciones y
+DESHACER de AUSENTE se probaron con la lógica real y Android simulado.
+
+**Pruebas.** `hud` (seis casos de la combi del cobrador), `nativas` (la
+secuencia del permiso con `notificacion.js` ejecutado, el DESHACER), y la
+regresión completa.
+
+---
+
 ## 24. La revisión del manual (ChatGPT), verificada contra el código — 17/11
 
 **Qué.** Una revisión del manual hecha con ChatGPT contra `main` (`1afe6a67`)

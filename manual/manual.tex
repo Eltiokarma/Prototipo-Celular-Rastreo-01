@@ -566,7 +566,7 @@ los que van en su combi) le aparece un cartel verde,
 \enverde{DESPACHO VIO TU SOS}, que queda hasta que se lo toca. Dice quién lo
 vio y a qué hora (\emph{Lo vio Despacho a las 18:50}): que lo vieron, no que
 la ayuda ya va en camino. Si el teléfono estaba sin conexión en ese momento,
-el cartel aparece al volver.
+el cartel aparece al volver, siempre que vuelva dentro de las 2 horas del SOS.
 
 Deslizar dos veces no hace dos alarmas: mientras el SOS anterior siga sin
 atender (hasta 10 minutos), el segundo es el mismo. Atendido el primero, uno
@@ -686,17 +686,23 @@ Al instalarla hay que darle cinco permisos; se hace una vez por teléfono.
     desconocidas} desde Archivos o desde el navegador. Se activa
     \emph{Permitir desde esta fuente}, se instala, y después se puede volver
     a apagar.
-  \item \textbf{Ubicación.} Al abrir la app pregunta por la ubicación: elegir
-    \emph{Precisa} y \emph{Mientras la app está en uso}. Enseguida lleva a los
-    ajustes, donde hay que marcar \textbf{Permitir todo el tiempo}: sin eso, la
-    combi desaparece del mapa al apagar la pantalla. \emph{Usar ubicación
-    precisa} tiene que quedar prendido; sin ella la combi aparece corrida.
+  \item \textbf{Ubicación.} La primera vez que se desliza \boton{SALIR A RUTA}
+    (o al retomar un turno), la app pide la ubicación en dos pasos: primero
+    \emph{Precisa} y \emph{Mientras la app está en uso}; enseguida lleva a los
+    ajustes, donde hay que marcar \textbf{Permitir todo el tiempo}. Hacen falta
+    los dos: sin cualquiera de ellos la app \textbf{no sale a ruta} y lo dice,
+    \enambar{Falta el permiso de ubicación en segundo plano} (o en primer
+    plano). Si se negó, se arregla en Ajustes \flecha Apps \flecha Control de
+    ruta \flecha Permisos \flecha Ubicación \flecha \emph{Permitir todo el
+    tiempo}, y se vuelve a deslizar. \emph{Usar ubicación precisa} tiene que
+    quedar prendido; sin ella la combi aparece corrida.
   \item \textbf{Notificaciones: Permitir.} Por ahí llegan la brecha con la
     pantalla apagada, el aviso de sin señal y el de \enambar{Tu GPS dejó de
     funcionar}.
   \item \textbf{Batería: Sin restricciones.} Ajustes \flecha Apps \flecha
-    Control de ruta \flecha Batería. Si está \emph{Optimizado}, Android corta la
-    app a los minutos de apagar la pantalla. La app lo avisa en rojo y tiene un
+    Control de ruta \flecha Batería. Si está \emph{Optimizado}, Android puede
+    limitar la app con la pantalla apagada (cortarle la red o pararla), y la
+    combi deja de aparecer en el mapa. La app lo avisa en rojo y tiene un
     atajo. En algunos teléfonos (Xiaomi, Huawei, Oppo) además hay que permitir
     el \emph{inicio automático}.
   \item \textbf{La hora automática.} Ajustes \flecha Sistema \flecha Fecha y
@@ -734,6 +740,10 @@ de Despacho. La diferencia está arriba: \rotulo{acompañante}. Su GPS
 En la app Android no tiene los botones del turno (\boton{ESTOY EN TRÁFICO},
 \boton{AUSENTE}, \boton{SALIR DE RUTA}): el turno de la combi lo lleva el
 chofer.
+Si su combi no está en la cadena, en vez de las brechas dice qué le pasa:
+\enambar{TU COMBI ESTÁ AUSENTE}, \enambar{TU COMBI VA HACIA LA RUTA},
+\enambar{TU COMBI NO ESTÁ EN RUTA} o \enambar{EL CHOFER NO TIENE SEÑAL}, con
+la hora.
 
 \begin{center}
 \cel[0.36]{c14-cobrador}{El cobrador, en modo acompañante.}
@@ -1445,7 +1455,8 @@ donde se ven así. Las acciones de la central figuran como \textbf{CREADOR}.
     \boton{SALIR A RUTA}. La vuelta que se llevaba se perdió.
   \item[«Mandé un SOS por error».] Avisar enseguida por el chat a Despacho. En
     Despacho, \boton{ATENDIDO} saca la alerta.
-  \item[«Mi SOS dice NO SALIÓ».] No hay internet. Usar el panel que queda en
+  \item[«Mi SOS dice NO SALIÓ».] No se pudo confirmar que llegó: casi siempre
+    falta internet, a veces el servidor no respondió. Usar el panel que queda en
     pantalla: \boton{LLAMAR A LA CENTRAL}, el SMS con la posición, o el 105,
     106 o 116 (sección \ref{sec:sos}).
   \item[«Me sonó \emph{Tu GPS dejó de funcionar}».] La app dejó de leer la
