@@ -214,6 +214,31 @@ const H = 3600_000;
   await de.waitForTimeout(1200);
   ok('la Actividad dice quién corrigió, agregó y anuló', /corrigió el turno de/.test(await de.evaluate(() => document.body.innerText)) &&
      /anuló un turno de/.test(await de.evaluate(() => document.body.innerText)));
+  // Un turno de hace 20 días se puede encontrar para corregirlo: «Otro día»
+  // en la pantalla, y la lista de un día suelto llega a 31 días atrás (la
+  // abierta sigue en 8). Antes llegaba a una semana y el manual prometía 31
+  // (revisión del manual, 17/11).
+  {
+    const d20 = new Date(); d20.setHours(0, 0, 0, 0); d20.setDate(d20.getDate() - 20);
+    const ini20 = d20.getTime() + 7 * H, fin20 = ini20 + 8 * H;
+    const alta = await post('/admin/shifts', D, { personId: 'ana', startedAt: ini20, endedAt: fin20, motivo: 'Turno viejo para buscarlo por día' });
+    ok('se agrega un turno de hace 20 días', alta.status === 200, alta.body);
+    const dia = await pedir(`/admin/shifts?desde=${d20.getTime()}&hasta=${d20.getTime() + 24 * H}`, D);
+    ok('el día suelto de hace 20 días lo trae', (dia.body.turnos || []).some(t => t.personId === 'ana' && t.startedAt === ini20), dia.body);
+    const abierta = await pedir(`/admin/shifts?desde=${d20.getTime()}`, D);
+    ok('la lista abierta sigue con su tope de 8 días', !(abierta.body.turnos || []).some(t => t.startedAt === ini20));
+    const d40 = d20.getTime() - 20 * 24 * H;
+    const viejo = await pedir(`/admin/shifts?desde=${d40}&hasta=${d40 + 24 * H}`, D);
+    ok('un día de hace 40 días sale vacío, no el último mes', (viejo.body.turnos || []).length === 0, (viejo.body.turnos || []).length);
+    await de.click('button:has-text("Turnos")').catch(() => {});
+    await de.waitForTimeout(1200);
+    await de.click('[data-rango-turnos="dia"]');
+    await de.waitForTimeout(500);
+    const iso = `${d20.getFullYear()}-${String(d20.getMonth() + 1).padStart(2, '0')}-${String(d20.getDate()).padStart(2, '0')}`;
+    await de.fill('[data-dia-turnos]', iso);
+    await de.waitForTimeout(1500);
+    ok('en la pantalla, «Otro día» lo muestra con su botón Corregir', /Ana Ccama/.test(await de.evaluate(() => document.body.innerText)) && await de.locator('button:has-text("Corregir")').count() > 0);
+  }
   ok('la página no tiró errores', errores.length === 0, errores);
 
   await browser.close();

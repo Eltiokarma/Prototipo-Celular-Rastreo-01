@@ -7523,20 +7523,29 @@ app.get('/admin/informe/:tipo.csv', requireDispatch, (req, res) => {
 // tanda 9). La pantalla pide como mucho una semana; lo largo es de los
 // informes, que tienen su propio tope.
 const LISTAS_DIAS_MAX = 8;
-function desdeDeLista(req) {
+function desdeDeLista(req, diasMax = LISTAS_DIAS_MAX) {
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
   const pedido = Number(req.query?.desde);
   const desde = Number.isFinite(pedido) ? pedido : hoy.getTime();
-  return Math.max(desde, hoy.getTime() - LISTAS_DIAS_MAX * 86400_000);
+  return Math.max(desde, hoy.getTime() - diasMax * 86400_000);
 }
 
 app.get('/admin/shifts', requireDispatch, (req, res) => {
-  const inicio = desdeDeLista(req);
+  // Un día suelto (viene con `hasta`) puede ser de hasta CORRECCION_DIAS
+  // atrás: es para encontrar el turno que se va a corregir, y el manual dice
+  // que se corrige hasta 31 días atrás. Antes la lista llegaba a 8 días y la
+  // pantalla a una semana, así que un turno de hace 20 días no se podía
+  // encontrar para corregirlo (revisión del manual, 17/11). Las listas
+  // abiertas siguen con su tope.
+  const diaSuelto = Number.isFinite(Number(req.query?.hasta));
+  const inicio = desdeDeLista(req, diaSuelto ? Math.max(LISTAS_DIAS_MAX, CORRECCION_DIAS) : LISTAS_DIAS_MAX);
 
   // `hasta` opcional: «ayer» termina a la medianoche de hoy. Sin él, el turno
   // de ayer 22:00 a hoy 02:00 sumaba las horas de hoy (barrido del 22/9).
   const hastaPedido = Number(req.query?.hasta);
-  const hasta = Number.isFinite(hastaPedido) && hastaPedido > inicio ? Math.min(hastaPedido, Date.now()) : Date.now();
+  // Un `hasta` anterior al tope (un día de hace más de 31) es una ventana
+  // vacía, no «todo el último mes» como devolvía antes.
+  const hasta = Number.isFinite(hastaPedido) ? Math.min(Math.max(hastaPedido, inicio), Date.now()) : Date.now();
   // SIN tope en la consulta: los totales por persona son lo que se liquida y
   // tienen que salir de TODOS los turnos del rango. El tope de 500 se aplica
   // después, sólo a la lista que se dibuja — antes se aplicaba a las dos, y

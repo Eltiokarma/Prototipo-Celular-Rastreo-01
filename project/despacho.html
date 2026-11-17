@@ -2334,7 +2334,9 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   const [corrForm, setCorrForm] = React.useState({ inicio: '', fin: '', motivo: '', personId: '', vehicleId: '' });
   const [historialTurno, setHistorialTurno] = React.useState(null);
   const [confirmarAnular, setConfirmarAnular] = React.useState(false);
-  const [rangoTurnos, setRangoTurnos] = React.useState('hoy'); // hoy | ayer | semana
+  const [rangoTurnos, setRangoTurnos] = React.useState('hoy'); // hoy | ayer | semana | dia
+  // «Otro día»: hasta 31 días atrás, lo mismo que se puede corregir
+  const [diaTurnos, setDiaTurnos] = React.useState('');
   const [vueltas, setVueltas] = React.useState(null);
   // Alta de persona: cerrada de entrada. Ocho formularios abiertos a la vez
   // era lo que hacía que la pantalla se leyera como un tablero de controles.
@@ -2471,8 +2473,18 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
   // ayer 22:00 a hoy 02:00 sumaba las horas de hoy, y la lista de 500 más
   // nuevas podía dejar afuera los de ayer (barrido del 22/9).
   const inicioDeHoy = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
-  const loadShifts = (rango = rangoTurnos) => {
+  // El comienzo de un día elegido en <input type="date"> («2026-10-28»), en
+  // hora local: new Date('2026-10-28') sería la medianoche UTC.
+  const inicioDelDia = (iso) => { const [a, m, d] = iso.split('-').map(Number); return new Date(a, m - 1, d).getTime(); };
+  const loadShifts = (rango = rangoTurnos, dia = diaTurnos) => {
     const hoy = inicioDeHoy();
+    if (rango === 'dia') {
+      if (!dia) { setShifts(null); return Promise.resolve(); }
+      const desde = inicioDelDia(dia);
+      return api(`/admin/shifts?desde=${desde}&hasta=${desde + 86400e3}`)
+        .then(d => setShifts({ ...d, rango, desde, hasta: desde + 86400e3 }))
+        .catch(e => setError(e.message));
+    }
     const desde = rango === 'hoy' ? hoy : rango === 'ayer' ? hoy - 86400e3 : hoy - 6 * 86400e3;
     return api(`/admin/shifts?desde=${desde}${rango === 'ayer' ? `&hasta=${hoy}` : ''}`)
       .then(d => setShifts({ ...d, rango }))
@@ -3489,8 +3501,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 display: 'inline-flex', background: HUD.hueco, borderRadius: 10,
                 padding: 3, marginBottom: 16,
               }}>
-                {[['hoy', 'Hoy'], ['ayer', 'Ayer'], ['semana', 'Esta semana']].map(([k, l]) => (
-                  <button key={k} onClick={() => { setRangoTurnos(k); setShifts(null); setCorrigiendo(null); loadShifts(k); }}
+                {[['hoy', 'Hoy'], ['ayer', 'Ayer'], ['semana', 'Esta semana'], ['dia', 'Otro día']].map(([k, l]) => (
+                  <button key={k} data-rango-turnos={k} onClick={() => { setRangoTurnos(k); setShifts(null); setCorrigiendo(null); loadShifts(k); }}
                     style={{
                       minHeight: 32, padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
                       fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
@@ -3499,6 +3511,18 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     }}>{l}</button>
                 ))}
               </div>
+              {/* Otro día: para encontrar el turno a corregir, hasta 31 días
+                  atrás (revisión del manual, 17/11) */}
+              {rangoTurnos === 'dia' && (() => {
+                const iso = (ts) => { const d = new Date(ts), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+                return (
+                  <input type="date" data-dia-turnos value={diaTurnos}
+                    min={iso(Date.now() - 31 * 86400e3)} max={iso(Date.now())}
+                    aria-label="Día de los turnos"
+                    onChange={e => { setDiaTurnos(e.target.value); setShifts(null); setCorrigiendo(null); loadShifts('dia', e.target.value); }}
+                    style={{ ...campo(36), fontFamily: mono, fontSize: 13, marginLeft: 12, verticalAlign: 'top' }} />
+                );
+              })()}
               {/* El turno que no se registró (el teléfono se apagó, se cayó
                   el servidor): se agrega a mano, con motivo */}
               <button data-agregar-turno onClick={() => {
@@ -3509,13 +3533,17 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 {corrigiendo === 'nuevo' ? 'Cerrar' : 'Agregar un turno que faltó'}
               </button>
 
-              {!shifts && <Vacio>Cargando…</Vacio>}
+              {!shifts && (rangoTurnos === 'dia' && !diaTurnos
+                ? <Vacio>Elige el día: hasta 31 días atrás.</Vacio>
+                : <Vacio>Cargando…</Vacio>)}
               {shifts && (() => {
                 // "Ayer" se recorta acá: el endpoint toma desde, no hasta.
                 const hoy = inicioDeHoy();
                 const turnos = rangoTurnos === 'ayer'
                   ? shifts.turnos.filter(t => t.startedAt < hoy)
-                  : shifts.turnos;
+                  : rangoTurnos === 'dia' && shifts.hasta
+                    ? shifts.turnos.filter(t => t.startedAt < shifts.hasta)
+                    : shifts.turnos;
                 const vacio = !turnos.length;
                 const horas = (sec) => {
                   // Se redondea a minutos PRIMERO y después se parte en horas:
