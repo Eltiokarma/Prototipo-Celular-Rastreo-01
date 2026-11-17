@@ -482,7 +482,7 @@ encargo en tres puntos, a propósito:
 
 El fuente del flyer está en **VectorCraft**. Se editan ahí, no sobre el PDF.
 Los fuentes de la v14/v15 están en la laptop, en
-`VectorCraft-Prueba\micros-tempo-flyer\` (`Flyer Micros Tempo v15 - frente.vectorcraft`
+`VectorCraft-Prueba\micros-tempo-flyer\` (`Flyer Micros Tempo v16 - frente.vectorcraft`
 y `Flyer Micros Tempo v14 - dorso.vectorcraft`). Allí el texto está en curvas:
 para cambiar una frase se regenera la cara y se vuelve a importar.
 
@@ -498,12 +498,15 @@ para cambiar una frase se regenera la cara y se vuelve a importar.
    ⏳ **QR:** reemplazado por un recuadro ámbar punteado «QR PENDIENTE · no
    imprimir». Va el QR real cuando exista la URL pública.
 
-### 11.2 v15 — `flyer/Flyer_Micros_Tempo_v15.pdf`
+### 11.2 v15 y v16 — `flyer/Flyer_Micros_Tempo_v16.pdf`
 
 - **Sin nevados.** El fondo del paisaje son cerros de ichu: lomas redondeadas
   en ocre oliva, apagadas y desenfocadas por la distancia, para que no se
   confundan con el ladrillo ni con las fachadas. Las nubes quedan igual.
-- El PDF es **A5 exacto (148 × 210 mm), dos caras**: frente v15 + dorso v14.
+- **v16:** los edificios un poco más desenfocados (más lejos, más blandos), y las
+  burbujas de ATRÁS/ADELANTE con borde verde y un brillo suave para que se
+  separen del fondo.
+- El PDF es **A5 exacto (148 × 210 mm), dos caras**: frente v16 + dorso v14.
 - **Sin sangrado.** El §3 pide 3 mm por lado; si la imprenta lo exige, hay que
   extender el fondo antes de mandarlo.
 - Antes de imprimir sigue en pie el §10 (una prueba en papel, al sol) y el QR.
