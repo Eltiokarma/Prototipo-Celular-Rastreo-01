@@ -1604,6 +1604,27 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 31. La octava revisión (ChatGPT), sobre `bd3498b` — 17/11
+
+**Qué.** Una omisión en `subirAhora`, con dos caminos, los dos ciertos.
+- **Éxito**: después de leer la presencia del disco (para decidir si se
+  publica la brecha), no se miraba la generación. Una corrida de A le
+  ponía su brecha en la bandeja a B y atendía un «grabar» de Despacho.
+- **Excepción de red**: `guardarSiSigue` protegía la cola, pero
+  `anotarFallo` y `notificarSinSenal` no: B recibía «sin red» y «SIN
+  SEÑAL» con su GPS andando.
+`mia()` pasó a definirse fuera del `try` y se mira en los dos.
+
+**Pruebas.** `nativas`: **`servicio.js` entero**, con lo de Expo simulado y
+un servidor (XHR) y un disco diferidos; dos controles positivos (sin cambio
+de sesión, sí se publica) y las dos secuencias. Se comprobó que fallan con
+el código de `bd3498b`. La regresión completa.
+
+**Mirar.** ChatGPT y nosotros coincidimos: con esto se cierra el inventario
+y lo que sigue es el teléfono.
+
+---
+
 ## 30. La séptima revisión (ChatGPT), sobre `f599eab` — 17/11
 
 **Qué.** Dos límites de las correcciones anteriores, los dos ciertos (el

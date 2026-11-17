@@ -554,6 +554,9 @@ async function subirAhora(nuevas) {
   // misma sesión: si en el medio se salió, esas posiciones son de nadie.
   const gen = generacion;
   const guardarSiSigue = (p) => { if (gen === generacion) guardar(p); };
+  // ¿Sigue siendo la sesión de esta corrida? Fuera del try: el catch también
+  // la usa (octava revisión con ChatGPT, 17/11).
+  const mia = () => gen === generacion;
   try {
     const [crudo, servidor, presencia, flagGrabando, archivoGrabacion] = await Promise.all([
       SecureStore.getItemAsync(LLAVE_SESION),
@@ -570,7 +573,6 @@ async function subirAhora(nuevas) {
     // vieja le limpiaba las notificaciones, le vaciaba la cola o le borraba
     // la sesión guardada a la que había entrado después (séptima revisión
     // con ChatGPT, 17/11).
-    const mia = () => gen === generacion;
     if (!mia()) return;
     // Si hay archivo y no hay flag, es una grabación parada que la pantalla
     // tiene que poder ver (ver `hidratarGrabacionGuardada`).
@@ -742,6 +744,9 @@ async function subirAhora(nuevas) {
       // ahí todo el almuerzo — lo que App.js dice que evita (22/9).
       if (cuerpo?.brecha) {
         const sigue = await SecureStore.getItemAsync(LLAVE_PRESENCIA).catch(() => null);
+        // Mientras se leía el disco pudo entrar otra sesión: la brecha (y el
+        // pedido de grabación de abajo) son de ESTA corrida
+        if (!mia()) return;
         if (sigue === 'ruta') notificarBrecha(cuerpo.brecha).catch(() => {});
       }
       // Despacho pidió una grabación (4.5). Mejor esfuerzo, como todo lo que
@@ -802,6 +807,9 @@ async function subirAhora(nuevas) {
     // Si lo cortó la tarea, `subir` ya devolvió las posiciones a la cola y
     // las contó: volver a hacerlo acá las mandaría dos veces.
     if (vuelo.cortado) return;
+    // Un envío de la sesión anterior que falla tarde no le anota «sin red» ni
+    // le pone «SIN SEÑAL» en la bandeja a la que entró después
+    if (!mia()) return;
     // Sin datos: en segundo plano es lo normal, Doze le corta la red a la app.
     // NO se pierden — esperan al próximo envío que salga. El envío colgado
     // llega acá por el timeout nativo, con su propio nombre: "sin red" dice
@@ -814,6 +822,7 @@ async function subirAhora(nuevas) {
     // Mejor esfuerzo: si falla, el GPS ni se entera (auditoría de UI, N1).
     try {
       const sigue = await SecureStore.getItemAsync(LLAVE_PRESENCIA).catch(() => null);
+      if (!mia()) return;
       if (sigue === 'ruta') notificarSinSenal(diagnostico.ultimoEnvio).catch(() => {});
     } catch {}
   } finally {

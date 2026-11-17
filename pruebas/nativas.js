@@ -758,7 +758,72 @@ const pruebaFilaGps = (async () => {
     ok('la tarea ya no detiene el GPS por fuera de la fila', !/try \{ await Location\.stopLocationUpdatesAsync\(TAREA_GPS\); \} catch \{\}/.test(srvTexto) && (srvTexto.match(/await pararDesdeLaTarea\('/g) || []).length === 6); }
 })();
 
-Promise.all([pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }), pruebaPresencia.catch(e => { ok('la prueba de presencia corrió', false, e.stack); }), pruebaFilaGps.catch(e => { ok('la prueba de la fila del GPS corrió', false, e.stack); }), pruebaVigia.catch(e => { ok('la prueba del vigía corrió', false, e.stack); }), pruebaBrecha.catch(e => { ok('la prueba de la brecha corrió', false, e.stack); }), pruebaCliente.catch(e => { ok('la prueba del cliente corrió', false, e.stack); })]).then(() => {
+const pruebaTarea = (async () => {
+  console.log('\nLA TAREA DE FONDO DE VERDAD: UNA CORRIDA VIEJA (octava revisión, 17/11)');
+  // servicio.js ENTERO, con lo de Expo simulado y un servidor (XHR) y un
+  // disco diferidos. A espera algo → sale A (limpiarSesion) → termina lo de A.
+  const RA = RAIZ + '/app/';
+  const fuente = require('fs').readFileSync(RA + 'gps/servicio.js', 'utf8')
+    .replace(/^import .*$/gm, '').replace(/^export (async function|function|const|let)/gm, '$1');
+  const armar = () => {
+    const r = { tarea: null, xhr: null, disco: { sesion: JSON.stringify({ token: 'tA' }), servidor: 'http://x', presencia: 'ruta' },
+                lecturaPresencia: null, diferirPresencia: false, brechas: 0, sinSenal: 0, grabaciones: 0 };
+    const SecureStore = {
+      getItemAsync: (k) => (k === 'presencia' && r.diferirPresencia
+        ? new Promise(res => { r.lecturaPresencia = () => res(r.disco[k] ?? null); })
+        : Promise.resolve(r.disco[k] ?? null)),
+      setItemAsync: async (k, v) => { r.disco[k] = v; }, deleteItemAsync: async (k) => { delete r.disco[k]; },
+    };
+    class XHR { open() {} setRequestHeader() {} send() { r.xhr = this; } abort() {} }
+    const env = {
+      Location: { Accuracy: { High: 4 }, hasStartedLocationUpdatesAsync: async () => true, startLocationUpdatesAsync: async () => {}, stopLocationUpdatesAsync: async () => {} },
+      TaskManager: { defineTask: (n, fn) => { r.tarea = fn; }, isTaskRegisteredAsync: async () => true, unregisterTaskAsync: async () => {} },
+      SecureStore,
+      FileSystem: { documentDirectory: 'file:///', getInfoAsync: async () => ({ exists: false }), writeAsStringAsync: async () => {}, readAsStringAsync: async () => '', deleteAsync: async () => {} },
+      Application: { nativeApplicationVersion: '0.3.0', nativeBuildVersion: '6' },
+      Battery: { getBatteryLevelAsync: async () => 0.8, getBatteryStateAsync: async () => 1, isBatteryOptimizationEnabledAsync: async () => false, BatteryState: { CHARGING: 2, FULL: 3 } },
+      crearVigia: require(RA + 'ausencia.js').crearVigia,
+      ...require(RA + 'envio.js'), crearPedidor: require(RA + 'pedido.js').crearPedidor,
+      notificarBrecha: async () => { r.brechas++; }, notificarSinSenal: async () => { r.sinSenal++; },
+      notificarGrabacionPedida: async () => { r.grabaciones++; }, notificarSinRol: async () => {}, limpiarNotificacion: async () => {}, vigilarSilencio: async () => {},
+      crearGrabador: require(RA + 'grabador.js').crearGrabador,
+      ...require(RA + 'version.js'),
+      Updates: { updateId: null, createdAt: null, isEmbeddedLaunch: true },
+      XMLHttpRequest: XHR,
+    };
+    const m = new Function(...Object.keys(env), fuente + '\nreturn { limpiarSesion, diagnostico };')(...Object.values(env));
+    return { ...m, r };
+  };
+  const tic = () => new Promise(res => setTimeout(res, 0));
+  const hasta = async (cond) => { for (let i = 0; i < 200 && !cond(); i++) await tic(); };
+  const pos = () => ({ data: { locations: [{ coords: { latitude: -15.49, longitude: -70.13, speed: 5, accuracy: 8 }, timestamp: Date.now() }] } });
+  const responder = (xhr, cuerpo) => { xhr.status = 200; xhr.responseText = JSON.stringify(cuerpo); xhr.onload(); };
+  const cuerpoOk = { brecha: { toAhead: '05:00', aheadUnit: 'M-02' }, grabar: true };
+  // Control: sin cambio de sesión, la brecha SÍ se publica
+  { const { r } = armar();
+    const corrida = r.tarea(pos()); await hasta(() => r.xhr); responder(r.xhr, cuerpoOk); await corrida; await tic();
+    ok('control: misma sesión, la brecha se publica', r.brechas === 1, r); }
+  // 1 · éxito: A espera leer la presencia → sale A → termina la lectura
+  { const { limpiarSesion, r } = armar();
+    const corrida = r.tarea(pos()); await hasta(() => r.xhr);
+    r.diferirPresencia = true; responder(r.xhr, cuerpoOk);
+    await hasta(() => r.lecturaPresencia);
+    limpiarSesion();                                  // sale A, entra B
+    r.lecturaPresencia(); await corrida; await tic();
+    ok('respuesta vieja: ni brecha ni pedido de grabación para la sesión siguiente', r.brechas === 0 && r.grabaciones === 0, { brechas: r.brechas, grab: r.grabaciones }); }
+  // Control: sin cambio de sesión, la falla de red SÍ pone «SIN SEÑAL»
+  { const { r, diagnostico } = armar();
+    const corrida = r.tarea(pos()); await hasta(() => r.xhr); r.xhr.onerror(); await corrida; await tic();
+    ok('control: misma sesión, sin red se anota y sale «SIN SEÑAL»', r.sinSenal === 1 && diagnostico.ultimoError === 'sin red', { s: r.sinSenal, e: diagnostico.ultimoError }); }
+  // 2 · excepción de red: envío de A pendiente → sale A → falla el envío
+  { const { limpiarSesion, r, diagnostico } = armar();
+    const corrida = r.tarea(pos()); await hasta(() => r.xhr);
+    limpiarSesion();                                  // sale A, entra B
+    r.xhr.onerror(); await corrida; await tic();
+    ok('falla vieja: ni «sin red» en el diagnóstico ni «SIN SEÑAL» en la bandeja de B', r.sinSenal === 0 && diagnostico.ultimoError === null, { s: r.sinSenal, e: diagnostico.ultimoError }); }
+})();
+
+Promise.all([pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }), pruebaPresencia.catch(e => { ok('la prueba de presencia corrió', false, e.stack); }), pruebaFilaGps.catch(e => { ok('la prueba de la fila del GPS corrió', false, e.stack); }), pruebaVigia.catch(e => { ok('la prueba del vigía corrió', false, e.stack); }), pruebaBrecha.catch(e => { ok('la prueba de la brecha corrió', false, e.stack); }), pruebaCliente.catch(e => { ok('la prueba del cliente corrió', false, e.stack); }), pruebaTarea.catch(e => { ok('la prueba de la tarea corrió', false, e.stack); })]).then(() => {
   console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
   process.exit(fallas ? 1 : 0);
 });
