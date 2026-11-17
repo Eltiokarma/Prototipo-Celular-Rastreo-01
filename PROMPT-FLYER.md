@@ -477,3 +477,18 @@ encargo en tres puntos, a propósito:
   así: se reemplaza por el QR de la URL pública cuando exista, o se saca el
   recuadro (ver §8, un QR muerto en la mano del chofer es peor que ninguno).
 
+
+### 11.1 Cambios pedidos para la v14 (pendientes)
+
+El fuente del flyer está en **VectorCraft**. Se editan ahí, no sobre el PDF.
+
+1. **Frase de arriba de la cara 01:** «Para saber los tiempos entre unidades,
+   hay varias formas:» (reemplaza «Para saber cómo van sus combis, hay cuatro
+   formas:»).
+2. **Paso 3, una sola «y»:** «Instala la app, toca **SALIR A RUTA** y
+   **¡listo!**» (hoy dice «Instala la app y toca SALIR A RUTA. ¡Y listo!»).
+3. **Actualizar el flyer con el screenshot** `flyer/v14-referencia-cara01.png`.
+   Falta aclarar con el dueño qué se toma de esa captura.
+4. **Fondo de la cara 01:** unos tonos más celeste. El gris (plomo) sigue
+   siendo el color principal; solo se corre hacia el celeste.
+5. Sigue en pie lo de §11: «Registramos **la** flota» y el QR de relleno.
