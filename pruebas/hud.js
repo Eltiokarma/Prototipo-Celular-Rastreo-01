@@ -5,7 +5,7 @@
 // probar sin un teléfono, y es justo donde estuvieron todos los bugs de esta
 // pantalla. Cada caso de acá corresponde a algo que salió mal de verdad.
 const RAIZ = require('path').join(__dirname, '..');
-const { construirHud, textoNotificacion, avisoDesdeRespuesta, avisoSinSenal } = require(RAIZ + '/app/hud.js');
+const { construirHud, textoNotificacion, avisoDesdeRespuesta, avisoSinSenal, estadoDeMiCombi, avisoDeMiCombi } = require(RAIZ + '/app/hud.js');
 
 let fallas = 0;
 const ok = (n, c, e) => {
@@ -200,6 +200,22 @@ console.log('\nLA NOTIFICACIÓN TAMBIÉN DICE SIN SEÑAL (pantalla apagada)');
   ok('a los 3 min, «hace 3 min»', avisoSinSenal(T - 200_000, T).titulo === 'SIN SEÑAL · hace 3 min');
   ok('el texto cambia por minuto, no por intento', avisoSinSenal(T - 70_000, T).titulo === avisoSinSenal(T - 110_000, T).titulo);
   ok('y avisa que la brecha puede haber cambiado', /puede haber cambiado/.test(avisoSinSenal(T - 30_000, T).detalle));
+}
+
+console.log('\nLA COMBI DEL COBRADOR (revisión del manual, 17/11)');
+{
+  // Antes: con su combi fuera de la cadena el HUD decía «Eres la única unidad
+  // en ruta» habiendo otras, y si el que perdía señal era su chofer, se lo
+  // atribuía al vecino.
+  const ruta = (...units) => ({ units: [{ unitId: 'M-02', presencia: 'ruta', enRuta: true }, ...units] });
+  ok('sin estado todavía, no se afirma nada', estadoDeMiCombi(null, 'M-01') === null);
+  ok('su combi no está: «no está en ruta»', estadoDeMiCombi(ruta(), 'M-01').estado === 'fuera' && /NO ESTÁ EN RUTA/.test(avisoDeMiCombi(estadoDeMiCombi(ruta(), 'M-01')).titulo));
+  ok('ausente', estadoDeMiCombi(ruta({ unitId: 'M-01', presencia: 'ausente' }), 'M-01').estado === 'ausente');
+  ok('yendo a la ruta', estadoDeMiCombi(ruta({ unitId: 'M-01', presencia: 'ruta', enRuta: false }), 'M-01').estado === 'yendo');
+  const sin = estadoDeMiCombi(ruta({ unitId: 'M-01', presencia: 'ruta', enRuta: true, sinSenal: true, sinSenalDesde: new Date(2026, 10, 17, 9, 5).getTime() }), 'M-01');
+  ok('su chofer sin señal: lo dice de SU combi, con la hora', sin.estado === 'sinSenal' && /EL CHOFER NO TIENE SEÑAL/.test(avisoDeMiCombi(sin).titulo) && /M-01 desde las 09:05/.test(avisoDeMiCombi(sin).texto), avisoDeMiCombi(sin));
+  const bien = estadoDeMiCombi(ruta({ unitId: 'M-01', presencia: 'ruta', enRuta: true }), 'M-01');
+  ok('en la cadena: sin aviso, las brechas valen', bien.estado === 'ok' && avisoDeMiCombi(bien) === null);
 }
 
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);

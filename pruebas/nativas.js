@@ -253,6 +253,7 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   ok('ni retoma el GPS al abrir', /s\.role === 'collector'\) \{ setPresencia\('fuera'\); return; \}/.test(app));
   // Y no queda encerrado en la puerta: ve el HUD y el mapa de su combi, de
   // acompañante, sin los botones del turno (revisión del manual, 17/11)
+  ok('y antes de las brechas, lo que le pasa a su combi (fuera, ausente, yendo, sin señal)', /avisoDeMiCombi\(estadoDeMiCombi\(estado, sesion\.vehicleId\)\)/.test(app) && /\{acompanante && avisoCombi \? \(/.test(app));
   ok('el cobrador ve las brechas y el mapa, sin los botones del turno', /const acompanante = rol === 'collector';\n  if \(presencia === 'fuera' && !acompanante\)/.test(app) && /if \(presencia === 'fuera' && rol !== 'collector'\)/.test(app) && /\{!acompanante && \(<>\n      <Pressable onPress=\{\(\) => onTrafico/.test(app) && /ACOMPAÑANTE · la posición de la combi la manda el teléfono del chofer/.test(app));
 
   // A5: la presencia se puede esperar

@@ -245,8 +245,48 @@ function avisoSinSenal(ultimoEnvio, ahora = Date.now()) {
   };
 }
 
+// ─── La combi del cobrador ───────────────────────────────────────────
+// El cobrador ve el HUD de su combi, de acompañante: la posición la manda el
+// teléfono del chofer. Pero las brechas sólo dicen algo si esa combi está
+// EN la cadena. Si está ausente, yendo, fuera de ruta o el teléfono del
+// chofer dejó de mandar, el servidor no le calcula brechas, y el HUD decía
+// «Eres la única unidad en ruta» (con otras combis andando) o le atribuía
+// la falta de señal al vecino (revisión del manual con ChatGPT, 17/11).
+//
+// `estado` es el estado de la ruta tal cual llega; `combi`, la del cobrador.
+// Sin estado todavía no se sabe nada: null, y se espera.
+function estadoDeMiCombi(estado, combi) {
+  if (!estado || !combi) return null;
+  const u = (estado.units || []).find(x => x.unitId === combi);
+  if (!u) return { estado: 'fuera', combi };
+  if (u.presencia === 'ausente') return { estado: 'ausente', combi };
+  if (u.presencia === 'ruta' && u.enRuta === false) return { estado: 'yendo', combi };
+  if (u.sinSenal) return { estado: 'sinSenal', combi, desde: u.sinSenalDesde ?? u.timestamp ?? null };
+  return { estado: 'ok', combi };
+}
+
+const hhmm = (ts) => { const d = new Date(ts); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+
+// Lo que se le dice en vez de las brechas. null: la combi está en la cadena
+// y las brechas valen.
+function avisoDeMiCombi(e) {
+  if (!e || e.estado === 'ok') return null;
+  const c = e.combi;
+  switch (e.estado) {
+    case 'fuera': return { titulo: 'TU COMBI NO ESTÁ EN RUTA',
+      texto: `${c} todavía no salió a ruta, o ya terminó. Las brechas aparecen cuando el chofer desliza SALIR A RUTA.` };
+    case 'ausente': return { titulo: 'TU COMBI ESTÁ AUSENTE',
+      texto: `El chofer sacó a ${c} de la cadena (comer, un repuesto): nadie se mide contra ella hasta que vuelva a ruta.` };
+    case 'yendo': return { titulo: 'TU COMBI VA HACIA LA RUTA',
+      texto: `Las brechas de ${c} arrancan cuando pise el trazado.` };
+    case 'sinSenal': return { titulo: 'EL CHOFER NO TIENE SEÑAL',
+      texto: `El teléfono del chofer no manda la posición de ${c}${e.desde ? ` desde las ${hhmm(e.desde)}` : ''}. Las brechas vuelven cuando vuelva su señal.` };
+    default: return null;
+  }
+}
+
 module.exports = {
-  construirHud, textoNotificacion, avisoDesdeRespuesta, avisoSinSenal,
+  construirHud, textoNotificacion, avisoDesdeRespuesta, avisoSinSenal, estadoDeMiCombi, avisoDeMiCombi,
   // Se exportan para las pruebas y para que las pantallas no las repitan
   aMinutos, estadoDe, objetivoLegible, sinCeroInicial, duracionLegible,
   VIEJA_MS, PERDIDA_MS,

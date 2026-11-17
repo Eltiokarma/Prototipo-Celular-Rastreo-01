@@ -34,7 +34,7 @@ import { crearCliente } from './protocolo/cliente';
 import { cabeceraDeApp, avisoDeApp, actualizacionDe } from './version';
 import { tocaPreguntar, sePuedeAplicar } from './actualizacion';
 import { limpiarNotificacion, limpiarSiSinRol } from './notificacion.js';
-import { construirHud, textoNotificacion, VIEJA_MS } from './hud';
+import { construirHud, textoNotificacion, VIEJA_MS, estadoDeMiCombi, avisoDeMiCombi } from './hud';
 import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
 import { margenes, margenBarra } from './margenes';
 import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL } from './gestos';
@@ -691,6 +691,10 @@ function Aplicacion() {
   const hud = React.useMemo(
     () => construirHud(brecha.datos, ahora, { recibido: brecha.recibido, fiable: reporta, conectado }),
     [brecha, ahora, reporta, conectado]);
+  // El cobrador: qué le pasa a su combi, antes de mostrarle brechas
+  const avisoCombi = React.useMemo(
+    () => (sesion?.role === 'collector' ? avisoDeMiCombi(estadoDeMiCombi(estado, sesion.vehicleId)) : null),
+    [estado, sesion?.role, sesion?.vehicleId]);
   const textoRef = React.useRef('Turno en curso');
   textoRef.current = textoNotificacion(hud, reporta);
 
@@ -956,7 +960,7 @@ function Aplicacion() {
     <Carrusel pantalla={pantalla} onIr={irA}>
       <Mapa {...comun} estado={estado} geometria={geometria}
         yo={cliente.current?.sesion} activo={pantalla === 'mapa'} />
-      <Ruta {...comun} hud={hud} reporta={reporta}
+      <Ruta {...comun} hud={hud} reporta={reporta} avisoCombi={avisoCombi}
         avisoApp={avisoDeApp(sesion && sesion.app, APP)}
         confirmada={enRutaConfirmada}
         onPresencia={cambiarPresencia}
@@ -1323,7 +1327,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
                 sosSinRed, central, onSosSinRedCerrar, miNombre, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
                 tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol,
-                faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi }) {
+                faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi, avisoCombi }) {
   const { s, C } = usarTema();
   // ── Tráfico: lo que el servidor midió de MÍ, y lo que yo dije ───────
   // `yo.parado` es el hecho (N minutos sin avanzar por la ruta, lo mide el
@@ -1544,7 +1548,12 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
 
       {/* Un minuto sin datos: el número se retira. Queda la última brecha,
           como dato y no como instrucción (auditoría de UI, N1). */}
-      {hud.perdido ? (
+      {acompanante && avisoCombi ? (
+        <View style={s.centro}>
+          <Text style={s.sinSenalTitulo}>{avisoCombi.titulo}</Text>
+          <Text style={s.sinSenalTexto}>{avisoCombi.texto}</Text>
+        </View>
+      ) : hud.perdido ? (
         <View style={s.centro}>
           <Text style={s.sinSenalTitulo}>SIN SEÑAL</Text>
           <Text style={s.sinSenalTexto}>
