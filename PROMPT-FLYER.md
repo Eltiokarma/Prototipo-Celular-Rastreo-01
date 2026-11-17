@@ -72,8 +72,10 @@ la app tiene que reconocerla.
 ### La regla del rojo
 
 En la app **el rojo está reservado a la emergencia y a la brecha crítica: nada
-más lo usa.** En el flyer rige igual. El rojo aparece en **un solo lugar**: el
-bloque del SOS. No se usa para titulares, ni para números de accidentes, ni
+más lo usa.** En el flyer rige igual. El rojo aparece **solo donde la app lo
+usa**: en el SOS y en el estado **crítica** de la brecha (te pegaste demasiado
+al de adelante o al de atrás). El ámbar es *al límite*, el paso de antes; no
+es el de pegarse. No se usa para titulares, ni para números de accidentes, ni
 para llamar la atención, ni de fondo decorativo.
 
 Es la regla más fácil de romper en este flyer, porque hay datos de muertos y
@@ -455,3 +457,23 @@ Autocontenido: no supone acceso a este repositorio.
   el verde no se apaga.
 - Releer `VALOR.md` §4: si una frase del flyer no está en la lista de lo que se
   puede afirmar, no va.
+
+---
+
+## 11. La versión impresa — `flyer/Flyer_Micros_Tempo_v13.pdf`
+
+El diseño final salió con la marca **Micros Tempo** y se aparta de este
+encargo en tres puntos, a propósito:
+
+- **El rojo aparece en «CRÍTICA»**, además del SOS. Es correcto: la app pinta
+  así la brecha crítica (§4). Lo que estaba mal era la versión anterior de la
+  regla, que lo dejaba solo en el SOS.
+- **El frente le habla al dueño de la flota** (los tres pasos: registrar la
+  flota, usuario y clave por chofer, instalar). El dorso es el del chofer.
+  El paso 1 dice **«Registramos la flota»**, no «su flota». Corregirlo en el
+  archivo fuente antes de la próxima impresión: el PDF v13 todavía dice
+  «Registramos su flota».
+- **El QR del dorso es de relleno, no lleva a ningún lado.** No se imprime
+  así: se reemplaza por el QR de la URL pública cuando exista, o se saca el
+  recuadro (ver §8, un QR muerto en la mano del chofer es peor que ninguno).
+
