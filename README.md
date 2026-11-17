@@ -120,6 +120,13 @@ PROMPT-REACT-NATIVE.md  Encargo para la app nativa: por qué, qué mantener y
                     qué leer primero
 REPASO-PENDIENTE.md Cola de revisión: lo que ya está hecho, probado y
                     mergeado, y todavía no repasó otro par de ojos
+VALOR.md            Para qué le sirve esto al chofer y al cobrador: la
+                    evidencia con su fuente, el texto del flyer y lo que NO
+                    se puede prometer
+PROMPT-FLYER.md     Encargo del flyer: la maqueta cara por cara, la paleta
+                    (la misma de la app) y el prompt autocontenido para
+                    quien lo diseñe
+flyer/              El flyer final impreso (Micros Tempo, v13, A5 dos caras)
 ```
 
 **Importante:** no hay archivos `.jsx` sueltos ni paso de build — todos los
@@ -179,6 +186,7 @@ Plan de crecimiento a 20+ rutas con números: ver **ESCALABILIDAD.md**.
 Lo que falta construir, ordenado: ver **PENDIENTES.md**. Lo que tiene que hacer a mano el que opera —cuentas,
 variables, simulacros—: **TAREAS-FUERA-DEL-CODIGO.md**. Y los últimos parches, con lo que conviene mirar
 de cada uno para una revisión integral: **CAMBIOS-PARA-REVISAR.md**.
+Qué le sirve de esto al chofer y al cobrador, con evidencia: ver **VALOR.md**.
 
 **Variables de entorno**, todas opcionales salvo donde se aclare:
 
