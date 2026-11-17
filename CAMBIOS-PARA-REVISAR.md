@@ -1604,6 +1604,32 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 27. La cuarta revisión (ChatGPT), sobre `af07bce` — 17/11
+
+**Qué.** Cuatro carreras de cancelación, las cuatro ciertas. Un commit,
+`a095a98`, porque las pruebas cubren las tres piezas a la vez.
+- **Retomar un turno** no se cortaba si la sesión moría mientras Android
+  preguntaba los permisos: ahora mira la generación de sesión después de
+  cada espera.
+- **Generación de sesión** (`empezarSesion`, `terminarSesion`): cambia sólo
+  al empezar y al terminar (Salir, `authError`, sesión rechazada), nunca con
+  las actualizaciones de la sesión (central, combi). Reemplaza al efecto
+  `[sesion]`, que reabría el cierre a mitad de «Salir».
+- **El GPS en fila** (`app/gps/servicio.js`): `arrancar`, `parar` y
+  `cambiarCadencia` corren de a una; un arranque o una cadencia pedidos
+  antes de un `parar` no corren.
+- **El aviso de GPS detenido** tiene época: apagarlo invalida la
+  programación que estaba a mitad.
+
+**Pruebas.** `nativas`: el código real con lo nativo simulado y diferido;
+cada secuencia del informe de ChatGPT, más «parar y después arrancar»
+(manda el último) y «cadencia antes de parar». La regresión completa.
+
+**Mirar.** Lo de siempre: nada corrió en un teléfono, y esta vez lo que se
+tocó es justo lo que sólo se ve en uno (Android con respuestas lentas).
+
+---
+
 ## 26. La tercera revisión (ChatGPT), sobre `cce5614` — 17/11
 
 **Qué.** Cuatro puntos, los cuatro ciertos al verificarlos. Dos tocaban el
