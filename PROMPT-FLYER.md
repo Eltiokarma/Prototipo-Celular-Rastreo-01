@@ -478,17 +478,37 @@ encargo en tres puntos, a propósito:
   recuadro (ver §8, un QR muerto en la mano del chofer es peor que ninguno).
 
 
-### 11.1 Cambios pedidos para la v14 (pendientes)
+### 11.1 Cambios pedidos para la v14 — hechos
 
 El fuente del flyer está en **VectorCraft**. Se editan ahí, no sobre el PDF.
+Los fuentes de la v14/v15 están en la laptop, en
+`VectorCraft-Prueba\micros-tempo-flyer\` (`Flyer Micros Tempo v17 - frente.vectorcraft`
+y `Flyer Micros Tempo v14 - dorso.vectorcraft`). Allí el texto está en curvas:
+para cambiar una frase se regenera la cara y se vuelve a importar.
 
-1. **Frase de arriba de la cara 01:** «Para saber los tiempos entre unidades,
-   hay varias formas:» (reemplaza «Para saber cómo van sus combis, hay cuatro
-   formas:»).
-2. **Paso 3, una sola «y»:** «Instala la app, toca **SALIR A RUTA** y
-   **¡listo!**» (hoy dice «Instala la app y toca SALIR A RUTA. ¡Y listo!»).
-3. **Actualizar el flyer con el screenshot** `flyer/v14-referencia-cara01.png`.
-   Falta aclarar con el dueño qué se toma de esa captura.
-4. **Fondo de la cara 01:** unos tonos más celeste. El gris (plomo) sigue
-   siendo el color principal; solo se corre hacia el celeste.
-5. Sigue en pie lo de §11: «Registramos **la** flota» y el QR de relleno.
+1. ✅ **Frase de arriba de la cara 01:** «Para saber los tiempos entre unidades,
+   hay varias formas:».
+2. ✅ **Paso 3, una sola «y»:** «Instala la app, toca **SALIR A RUTA** y
+   **¡listo!**».
+3. ⏳ **Captura `flyer/v14-referencia-cara01.png`:** se usó solo como guía de
+   qué frase cambiar (muestra la v13). Falta aclarar si había que tomar algo más.
+4. ✅ **Fondo de la cara 01:** #E6EDF3 (opción C de la prueba; la v13 medía
+   ~#ECEEED). El plomo sigue mandando, corrido hacia el celeste.
+5. ✅ «Registramos **la** flota».
+   ⏳ **QR:** reemplazado por un recuadro ámbar punteado «QR PENDIENTE · no
+   imprimir». Va el QR real cuando exista la URL pública.
+
+### 11.2 v15 a v17 — `flyer/Flyer_Micros_Tempo_v17.pdf`
+
+- **Sin nevados.** El fondo del paisaje son cerros de ichu: lomas redondeadas
+  en ocre oliva, apagadas y desenfocadas por la distancia, para que no se
+  confundan con el ladrillo ni con las fachadas. Las nubes quedan igual.
+- **v16:** los edificios un poco más desenfocados (más lejos, más blandos), y las
+  burbujas de ATRÁS/ADELANTE con borde verde y un brillo suave para que se
+  separen del fondo.
+- **v17:** los cuatro cuadrados de las formas (WhatsApp, reloj del poste,
+  suerte, Micros Tempo) un 5 % más chicos.
+- El PDF es **A5 exacto (148 × 210 mm), dos caras**: frente v17 + dorso v14.
+- **Sin sangrado.** El §3 pide 3 mm por lado; si la imprenta lo exige, hay que
+  extender el fondo antes de mandarlo.
+- Antes de imprimir sigue en pie el §10 (una prueba en papel, al sol) y el QR.
