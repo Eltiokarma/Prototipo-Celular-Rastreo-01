@@ -1182,7 +1182,24 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
           Sin conexión: el mensaje no salió. Queda escrito para mandarlo cuando vuelva.
         </div>
       )}
-      <div style={{ padding: '10px 12px', borderTop: `1px solid ${HUD.divider}`, display: 'flex', gap: 8, alignItems: 'center' }}>
+      {/* A quién va, pegado a donde se escribe y también mientras se teclea:
+          antes lo decía sólo la cabecera, y el texto de ayuda del campo se
+          iba con la primera letra. Una orden para toda la ruta que le llega
+          a uno solo, o algo personal que leen todos, no se puede retirar
+          (auditoría de UI, N5). El privado tiñe la zona de ámbar. */}
+      <div data-destino={privadoCon ? 'privado' : 'ruta'} style={{
+        padding: '8px 14px 0', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
+        borderTop: `1px solid ${privadoCon ? HUD.ambarBorde : HUD.divider}`,
+        background: privadoCon ? HUD.ambarFondo : 'transparent',
+        color: privadoCon ? HUD.ambarTinta : HUD.dim2,
+      }}>
+        <Icono n={privadoCon ? 'persona' : 'chat'} tam={15} />
+        {privadoCon
+          ? <span>Para: solo {nombreDe(privadoCon)} · el resto de la ruta no lo ve</span>
+          : <span>Para: toda la ruta{routeId ? ` ${routeId}` : ''}</span>}
+      </div>
+      <div style={{ padding: '8px 12px 10px', display: 'flex', gap: 8, alignItems: 'center',
+        background: privadoCon ? HUD.ambarFondo : 'transparent' }}>
         <input
           value={draft}
           onChange={e => { setDraft(e.target.value); setNoSalio(false); }}
@@ -1190,7 +1207,9 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
           placeholder={privadoCon ? `Mensaje solo para ${nombreDe(privadoCon)}…` : 'Escribí al canal de la ruta…'}
           style={{ ...campo(44), flex: 1, borderRadius: 22, padding: '0 16px' }}
         />
-        <button onClick={send} aria-label="Enviar" title="Enviar" style={{
+        <button onClick={send}
+          aria-label={privadoCon ? `Enviar solo a ${nombreDe(privadoCon)}` : 'Enviar a toda la ruta'}
+          title={privadoCon ? `Enviar solo a ${nombreDe(privadoCon)}` : 'Enviar a toda la ruta'} style={{
           width: 44, height: 44, borderRadius: '50%', border: 'none', flexShrink: 0,
           background: HUD.bright, color: '#fff', cursor: 'pointer',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
