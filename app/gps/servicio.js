@@ -576,7 +576,7 @@ async function subirAhora(nuevas) {
       if (sinSesionSeguidas >= SIN_SESION_TOPE) {
         sinSesionSeguidas = 0;
         diagnostico.servicio = 'detenido: sin sesión';
-        await pararDesdeLaTarea('detenido: sin sesión');
+        await pararDesdeLaTarea('detenido: sin sesión', gen);
       }
       return;
     }
@@ -617,7 +617,7 @@ async function subirAhora(nuevas) {
           }, control);
         } catch {}
         diagnostico.servicio = 'detenido: ausente mucho tiempo';
-        await pararDesdeLaTarea('detenido: ausente mucho tiempo');
+        await pararDesdeLaTarea('detenido: ausente mucho tiempo', gen);
         // Y la brecha vieja no queda colgada en la bandeja
         limpiarNotificacion().catch(() => {});
         // Las posiciones de la casa no se mandan: irse es irse.
@@ -686,7 +686,7 @@ async function subirAhora(nuevas) {
           pendientes = [];
           diagnostico.enEspera = 0;
           limpiarNotificacion().catch(() => {});
-          await pararDesdeLaTarea('detenido: volvió a ruta solo y nunca pisó el trazado');
+          await pararDesdeLaTarea('detenido: volvió a ruta solo y nunca pisó el trazado', gen);
           return;
         }
       }
@@ -704,7 +704,7 @@ async function subirAhora(nuevas) {
         // Borrarla dejaba la última brecha vista como lo último que el chofer
         // sabe, sin nada que la desmienta (C22).
         notificarSinRol(cuerpo.motivo).catch(() => {});
-        await pararDesdeLaTarea('detenido: sin rol de GPS');
+        await pararDesdeLaTarea('detenido: sin rol de GPS', gen);
         return;
       }
 
@@ -762,7 +762,7 @@ async function subirAhora(nuevas) {
           pendientes = [];
           diagnostico.enEspera = 0;
           limpiarNotificacion().catch(() => {});
-          await pararDesdeLaTarea('detenido: sesión rechazada');
+          await pararDesdeLaTarea('detenido: sesión rechazada', gen);
         }
       } else if (r.status === 403 || r.status === 409) {
         if (++sinRolSeguidos >= RECHAZOS_TOPE) {
@@ -772,7 +772,7 @@ async function subirAhora(nuevas) {
           pendientes = [];
           diagnostico.enEspera = 0;
           limpiarNotificacion().catch(() => {});
-          await pararDesdeLaTarea('detenido: sin rol de GPS');
+          await pararDesdeLaTarea('detenido: sin rol de GPS', gen);
         }
       } else {
         noAutorizadosSeguidos = 0;
@@ -934,9 +934,17 @@ export function parar() {
 // volvía a encender el GPS, con el diagnóstico diciendo «detenido» (quinta
 // revisión con ChatGPT, 17/11). Ahora entran a la misma fila, cuentan como
 // pedido de parar, y dejan escrito el motivo.
-function pararDesdeLaTarea(motivo) {
+//
+// Y con DUEÑO (sexta revisión con ChatGPT, 17/11): la tarea decide parar
+// después de esperar al servidor (el POST de la ausencia larga, el de
+// «volvió solo»). Si en esa espera se cerró la sesión y arrancó otra, la
+// orden ya no es de nadie: no se encola. `gen` es la `generacion` de la
+// sesión que mandó (cambia en vaciarCola, que llama limpiarSesion).
+function pararDesdeLaTarea(motivo, gen) {
+  if (gen !== undefined && gen !== generacion) return Promise.resolve();
   pedidosDeParar++;
   return enFila(async () => {
+    if (gen !== undefined && gen !== generacion) return;
     try {
       if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) await Location.stopLocationUpdatesAsync(TAREA_GPS);
     } catch {}

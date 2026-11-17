@@ -1604,6 +1604,32 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 29. La sexta revisión (ChatGPT), sobre `7e000ba` — 17/11
+
+**Qué.** Cinco puntos, los cinco ciertos. El patrón: la fila ordena las
+operaciones, pero también hay que mirar que quien las pidió siga siendo
+dueño de la sesión.
+- **La limpieza del `authError`** mostraba el ingreso antes de terminar de
+  borrar; si entraba otro y salía a ruta, le borraba el token y le paraba
+  el GPS. Ahora mira la generación después de cada espera.
+- **Las paradas de la tarea de fondo** llevan la `generacion` de la sesión
+  que las decidió (la que `subirAhora` ya capturaba): una parada de A que
+  llega después de esperar al servidor no detiene el GPS de B.
+- **El vigilante** vuelve a mirar el relevo (`detenidoPor`) y la sesión
+  rechazada después de preguntar si el GPS corre.
+- **`limpiarNotificacion()`** pide el apagado del vigía antes de su primera
+  espera: una limpieza vieja ya no cancela la vigilancia nueva.
+- **`notificarGrabacionPedida()`**, el único que publicaba por fuera, va por
+  la fila de la bandeja, y la limpieza también retira su aviso.
+
+**Pruebas.** `nativas`: ejecutables (parada vieja, cruce de filas, aviso de
+grabación) y de texto (authError, vigilante). La regresión completa.
+
+**Mirar.** Con esto ChatGPT propone cerrar el inventario de carreras y
+pasar al teléfono. De acuerdo.
+
+---
+
 ## 28. La quinta revisión (ChatGPT), sobre `476e0ef` — 17/11
 
 **Qué.** Cuatro carreras más, las cuatro ciertas.

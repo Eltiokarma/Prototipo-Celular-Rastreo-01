@@ -135,10 +135,19 @@ async function mostrarAhora(aviso, alPedir) {
 // como la brecha: información de reojo, nada que suene ni salte mientras
 // maneja (el mismo criterio que el desvío).
 const CANAL_GRABACION = 'grabacion';
+const ID_GRABACION = 'grabacion-pedida';
 
-export async function notificarGrabacionPedida() {
+// También por la fila de la bandeja: era el único que publicaba por fuera, y
+// aparecía después de limpiar (sexta revisión, 17/11)
+export function notificarGrabacionPedida() {
+  const alPedir = limpiezas;
+  return enFilaBrecha(() => notificarGrabacionAhora(alPedir));
+}
+
+async function notificarGrabacionAhora(alPedir) {
+  if (limpiezas !== alPedir) return;
   await preparar();
-  if (!permitido) return;
+  if (!permitido || limpiezas !== alPedir) return;
   try {
     await Notifications.setNotificationChannelAsync(CANAL_GRABACION, {
       name: 'Grabación de recorrido',
@@ -146,7 +155,7 @@ export async function notificarGrabacionPedida() {
       sound: null, vibrationPattern: null, enableVibrate: false,
     }).catch(() => {});
     await Notifications.scheduleNotificationAsync({
-      identifier: 'grabacion-pedida',
+      identifier: ID_GRABACION,
       content: {
         title: 'Despacho pidió grabar este recorrido',
         body: 'La grabación ya arrancó sola. Se termina y envía desde Perfil.',
@@ -206,12 +215,19 @@ export async function limpiarSiSinRol() {
 }
 
 export async function limpiarNotificacion() {
+  // Las dos órdenes se piden YA, antes de la primera espera: si el apagado
+  // del vigía se pedía después de esperar la fila de la brecha, una
+  // vigilancia NUEVA programada en ese rato quedaba antes en su fila y la
+  // limpieza vieja la cancelaba (sexta revisión con ChatGPT, 17/11).
   limpiezas++;
-  await enFilaBrecha(async () => {
+  const vigia = apagarVigiaDeSilencio();
+  const brecha = enFilaBrecha(async () => {
     ultimo = null;
     try { await Notifications.dismissNotificationAsync(ID); } catch {}
+    try { await Notifications.dismissNotificationAsync(ID_GRABACION); } catch {}
   });
-  await apagarVigiaDeSilencio();
+  await brecha;
+  await vigia;
 }
 
 // ─── EL VIGÍA DEL SILENCIO (auditoría 11/11) ──────────────────────

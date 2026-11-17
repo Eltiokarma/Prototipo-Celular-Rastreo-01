@@ -326,13 +326,21 @@ function Aplicacion() {
       // primero el vigilante, después parar.
       c.on('authError', async (e) => {
         terminarSesion();
+        // La limpieza es de ESTA sesión: muestra el ingreso antes de terminar
+        // de borrar, y si en el medio entra otra persona y sale a ruta, lo
+        // que sigue le borraba el token guardado y le paraba el GPS (sexta
+        // revisión con ChatGPT, 17/11). Después de cada espera, se mira.
+        const gen = generacion.current;
+        const mia = () => generacion.current === gen;
         saliendo.current = true;
         c.salir();
         olvidarDeLaSesion();
         setAviso(e); setSesion(null); setPresencia('fuera');
         gps.limpiarSesion();
         try { await SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA); } catch {}
+        if (!mia()) return;
         try { await SecureStore.deleteItemAsync(gps.LLAVE_SESION); } catch {}
+        if (!mia()) return;
         try { await gps.parar(); } catch {}
       }),
       // El historial llega al identificarse y trae solo lo que a este chofer
@@ -840,6 +848,9 @@ function Aplicacion() {
       }
       const corriendo = await gps.estaCorriendo();
       if (!vivo || saliendo.current) return;
+      // El relevo pudo llegar MIENTRAS se preguntaba: el motivo de parada se
+      // mira de nuevo antes de rearrancar (sexta revisión, 17/11)
+      if (gps.diagnostico.detenidoPor || gps.diagnostico.sesionRechazada) return;
       if (!corriendo) {
         gps.diagnostico.servicio = 'caído, rearrancando';
         gps.arrancar({ textoNotificacion: textoRef.current }).catch(() => {});

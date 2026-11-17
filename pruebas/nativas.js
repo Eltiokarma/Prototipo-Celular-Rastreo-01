@@ -531,6 +531,33 @@ const pruebaBrecha = (async () => {
   const r = m.notificarSinRol('otro chofer'); const l2 = m.limpiarNotificacion();
   await r; await l2;
   ok('«modo acompañante» pedido antes de limpiar tampoco reaparece', ![...vivas].some(v => v.includes('MODO ACOMPAÑANTE')), [...vivas]);
+  // Sexta revisión: una limpieza vieja esperando su fila no apaga la
+  // vigilancia NUEVA, y el aviso de grabación va por la misma fila
+  { const vivas2 = new Set();
+    let soltarDismiss = null, soltarPerm = null;
+    const N2 = {
+      AndroidImportance: { LOW: 2, HIGH: 4 },
+      setNotificationHandler() {}, setNotificationChannelAsync: async () => {},
+      getPermissionsAsync: async () => ({ granted: true, canAskAgain: true }),
+      requestPermissionsAsync: async () => ({ granted: true }),
+      scheduleNotificationAsync: async (n) => { vivas2.add(n.identifier); },
+      cancelScheduledNotificationAsync: async (id) => { vivas2.delete(id); },
+      dismissNotificationAsync: (id) => (id === 'brecha-viva' && !soltarDismiss ? new Promise(res => { soltarDismiss = () => { vivas2.delete(id); res(); }; }) : (vivas2.delete(id), Promise.resolve())),
+    };
+    const m2 = new Function('Notifications', 'avisoDesdeRespuesta', 'avisoSinSenal',
+      fuente + '\nreturn { vigilarSilencio, limpiarNotificacion, notificarGrabacionPedida };')(N2, hud.avisoDesdeRespuesta, hud.avisoSinSenal);
+    const l = m2.limpiarNotificacion();              // limpieza del turno anterior, esperando su fila
+    for (let i = 0; i < 10 && !soltarDismiss; i++) await new Promise(res => setTimeout(res, 0));
+    const v = m2.vigilarSilencio(Date.now() + 900_000);   // vigilancia del turno nuevo
+    soltarDismiss(); await l; await v;
+    ok('una limpieza vieja no apaga la vigilancia nueva', vivas2.has('gps-silencio'), [...vivas2]);
+    N2.getPermissionsAsync = () => new Promise(res => { soltarPerm = () => res({ granted: true, canAskAgain: true }); });
+    const g = m2.notificarGrabacionPedida();         // «Despacho pidió grabar», esperando…
+    const l2 = m2.limpiarNotificacion();             // …y sale de ruta
+    for (let i = 0; i < 10 && !soltarPerm; i++) await new Promise(res => setTimeout(res, 0));
+    if (soltarPerm) soltarPerm();
+    await g; await l2;
+    ok('el aviso de grabación pedido antes de limpiar no aparece después', !vivas2.has('grabacion-pedida'), [...vivas2]); }
 })();
 
 const pruebaCliente = (async () => {
@@ -553,6 +580,11 @@ const pruebaCliente = (async () => {
     c.salir();
   } finally { global.fetch = fetchViejo; }
   const appTexto = require('fs').readFileSync(RAIZ + '/app/App.js', 'utf8');
+  // Sexta revisión: la limpieza del authError y el vigilante
+  ok('la limpieza del authError se corta si entró otra sesión (no le borra el token ni le para el GPS)',
+     /const mia = \(\) => generacion\.current === gen;[\s\S]{0,400}deleteItemAsync\(gps\.LLAVE_PRESENCIA\); \} catch \{\}\n\s*if \(!mia\(\)\) return;\n\s*try \{ await SecureStore\.deleteItemAsync\(gps\.LLAVE_SESION\); \} catch \{\}\n\s*if \(!mia\(\)\) return;\n\s*try \{ await gps\.parar\(\); \} catch \{\}/.test(appTexto));
+  ok('el vigilante mira el relevo DESPUÉS de preguntar si el GPS corre',
+     /const corriendo = await gps\.estaCorriendo\(\);\n\s*if \(!vivo \|\| saliendo\.current\) return;[\s\S]{0,300}if \(gps\.diagnostico\.detenidoPor \|\| gps\.diagnostico\.sesionRechazada\) return;\n\s*if \(!corriendo\)/.test(appTexto));
   ok('y en la pantalla, misCombis, elegirCombi y la marca miran la sesión que preguntó',
      /if \(generacion\.current !== gen \|\| cerrando\.current\) return;\n      setCombis/.test(appTexto) &&
      /if \(generacion\.current !== gen \|\| cerrando\.current\) return null;\n      alCambiarDeCombi/.test(appTexto) &&
@@ -659,7 +691,7 @@ const pruebaFilaGps = (async () => {
     const TaskManager = { isTaskRegisteredAsync: async () => false, unregisterTaskAsync: async () => {} };
     const diagnostico = {};
     const f = new Function('Location', 'TaskManager', 'diagnostico', 'TAREA_GPS', 'CADENCIA_PANTALLA_ENCENDIDA', 'hidratarGrabacionGuardada', 'limpiarNotificacion',
-      bloque + '\nreturn { arrancar, parar, cambiarCadencia, pararDesdeLaTarea };')(Location, TaskManager, diagnostico, 't', 3000, async () => {}, async () => {});
+      'let generacion = 0;\n' + bloque + '\nreturn { arrancar, parar, cambiarCadencia, pararDesdeLaTarea, nuevaSesion: () => { generacion++; } };')(Location, TaskManager, diagnostico, 't', 3000, async () => {}, async () => {});
     const vaciar = async () => { for (let i = 0; i < 50; i++) { await new Promise(res => setTimeout(res, 0)); while (r.soltar.length) r.soltar.shift()(); } };
     return { ...f, r, diagnostico, vaciar };
   };
@@ -687,6 +719,16 @@ const pruebaFilaGps = (async () => {
     const p = pararDesdeLaTarea('detenido: sin rol de GPS');   // …y llega el relevo
     await vaciar(); await c; await p;
     ok('relevo con una cadencia en vuelo: queda detenido, con el motivo', r.corriendo === false && diagnostico.servicio === 'detenido: sin rol de GPS', { log: r.log, diag: diagnostico.servicio }); }
+  // Sexta revisión: una parada decidida DESPUÉS de esperar al servidor, con
+  // la sesión ya cambiada, no es de nadie
+  { const { pararDesdeLaTarea, nuevaSesion, r, vaciar } = armar();
+    r.corriendo = true;                       // el GPS de la sesión NUEVA
+    nuevaSesion();                            // A se cerró, B arrancó…
+    const p = pararDesdeLaTarea('detenido: ausente mucho tiempo', 0);   // …y responde el POST viejo de A
+    await vaciar(); await p;
+    ok('una parada de la sesión anterior no detiene el GPS de la siguiente', r.corriendo === true && !r.log.includes('stop'), r.log); }
+  { const srvTexto = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
+    ok('las seis paradas de la tarea llevan la generación de su sesión', (srvTexto.match(/await pararDesdeLaTarea\('[^']+', gen\);/g) || []).length === 6); }
   { const srvTexto = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
     ok('la tarea ya no detiene el GPS por fuera de la fila', !/try \{ await Location\.stopLocationUpdatesAsync\(TAREA_GPS\); \} catch \{\}/.test(srvTexto) && (srvTexto.match(/await pararDesdeLaTarea\('/g) || []).length === 6); }
 })();
