@@ -319,11 +319,46 @@ Lo que salió al hacerla:
   falso positivo si un hook se define debajo de un componente; los hooks
   nuevos van arriba.
 
-### Fase 4 — Densidad de Despacho (2–3 días)
+### Fase 4 — Densidad de Despacho · **HECHA (17/11)**, falta mirarla con la persona de Despacho
 
-C1 (con la persona de Despacho mirando las dos versiones), C3, C5, C6, C7,
-C8, N4 (deshacer en el trazador), N5 (si la persona de Despacho confirma el
-desliz), N7 y N9. Después, volver a sacar las capturas del manual.
+Un commit por punto, casi todo en `project/despacho.html`. Detalle en
+`CAMBIOS-PARA-REVISAR.md`, bloque 22.
+
+| Punto | Commit | Qué quedó |
+| --- | --- | --- |
+| N9 «visto», no «atendido» | `b0e37ba` | Al chofer le llega «Lo vio Despacho a las…», en la web y en la APK |
+| C8 etiquetas del mapa | `4e49591` | La apagada es hueca (no transparente); las de color, con una tinta que se lee. **Salió algo peor que lo anotado:** de noche las etiquetas eran blanco sobre neón, 1,4:1 |
+| N7 la brecha no parece una hora | `6b13f90` | «8:04 min» en las tarjetas; el servidor sigue mandando «08:04» |
+| C3 y C5 tamaños | `0608883` | Nada bajo 12 px; botones de fila de 32 px; en el celular, cabecera, zoom y evidencia a 44. De paso: el contador de no leídos (4,1:1) y el número de brecha a 19 px |
+| C6 fichas sin huérfanas | `1754a5c` | 3 + 3 en Vueltas; 6 + 6 (o 4, 3, 2) en Números |
+| C7 Informes | `1a05653` | Lista: nombre, una línea con lo que trae y el mismo botón «CSV» |
+| N4 recuperar un tramo | `57bcf3b` | «Borrar la ida» guarda lo que había y ofrece «Recuperar la ida»; separado de «Deshacer» |
+| N5 a quién va el mensaje | `38b849a` | «Para: toda la ruta 18A» / «Para: solo M-07 · el resto de la ruta no lo ve» junto al campo, privado en ámbar |
+| C1 lista compacta | `33523a0` | Construida y **apagada**: `despacho.html?ensayo=compacta` la prende y queda recordada; `?ensayo=` la apaga. Filas de 53 px contra 138: entran las 6 de la demo, hoy 4 |
+
+**Lo que falta, y no es código:**
+
+1. **H3 con la persona de Despacho:** las dos listas con la misma flota, el
+   tiempo hasta señalar dos unidades pegadas. Si la compacta gana, se deja
+   de fábrica; si no, se borra.
+2. **N5 se construyó sin preguntar primero**, al revés de lo que decía H6
+   («nunca le pasó: no se construye»). Es barato y no quita nada, pero si
+   nunca le pasó, se revierte `38b849a`.
+3. **Las capturas del manual** de Despacho cambiaron (mapa, tarjetas,
+   Informes, chat): hay que sacarlas de nuevo.
+
+Lo que salió al hacerla:
+
+- **Las etiquetas del mapa de noche se leían a 1,4:1** (blanco sobre verde y
+  ámbar neón). La auditoría había medido sólo las atenuadas de día.
+- `#FF2D55` reservado: `contraste.js` frenó un token `pinRojo` de noche que
+  lo repetía. Ahora la etiqueta roja usa `red` tal cual.
+- En la lista compacta el nombre se recorta más que en la maqueta: la
+  maqueta no tenía los dos botones de privado, y la fila los necesita.
+  Por eso tampoco entran la velocidad, el ida/vuelta ni la placa.
+- En el celular, los campos de Gestión siguen a 40 px (no 44): Gestión desde
+  el teléfono es lo secundario. Queda anotado.
+- La atribución de Leaflet sigue a 9 px en el celular: es de terceros.
 
 ### Fase 5 — Landing y lenguaje (1–2 días, cuando decidas)
 

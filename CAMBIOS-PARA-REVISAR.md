@@ -1519,7 +1519,61 @@ completa.
 
 ---
 
+## 22. Auditoría de UI del 16/11, fase 4 — `b0e37ba` a `33523a0` (17/11)
+
+**Qué.** La fase 4 del plan: la densidad y los detalles de Despacho, nueve
+commits (más `0ae22c0`, que corrige una prueba de la fase 3).
+- **«Lo vio Despacho»** en vez de «lo marcó atendido» en el cartel del
+  chofer (N9): ATENDIDO garantiza que alguien lo vio, no que la ayuda va.
+- **Las etiquetas del mapa se leen** (C8): de noche eran blanco sobre neón,
+  1,4:1. La apagada (sin señal, ausente, yendo) es hueca, no transparente.
+- **La brecha se escribe «8:04 min»** (N7) y no «08:04», que en la misma
+  tarjeta se confundía con una hora.
+- **Nada bajo 12 px y controles de 32 px** (C3, C5); 44 en el celular para
+  la cabecera, el zoom y «Guardar como evidencia».
+- **Fichas parejas** en Vueltas y Números (C6) e **Informes como lista**
+  con lo que trae cada uno (C7).
+- **«Borrar la ida» se puede recuperar** en el trazador (N4).
+- **A quién va el mensaje**, escrito junto al campo (N5).
+- **La lista compacta, como ensayo apagado** (C1): `?ensayo=compacta`.
+
+**Archivos.** `project/despacho.html`, `project/Prototipo.html` y
+`app/App.js` (sólo N9), `project/service-worker.js` (v119 a v128), y en
+`pruebas/`: `paneles.js` (diez aserciones), `contraste.js` (cinco pares de
+las etiquetas del mapa), `sos-despacho.js` (el texto nuevo de N9),
+`semana.js`.
+
+**Mirar.**
+- **C1 y N5 son hipótesis** (H3 y H6). C1 está apagada. N5 está prendida
+  aunque H6 decía preguntar antes: si a la persona de Despacho nunca le
+  pasó, se revierte `38b849a`.
+- **N9 cambia lo que lee el chofer en la APK**: sale con el próximo EAS
+  Update.
+- **El número de brecha de las tarjetas pasó de 18 a 19 px**: a 18 no
+  contaba como texto grande y el ámbar daba 3,9:1.
+- **En la lista compacta** no van la velocidad, el ida/vuelta ni la placa
+  (siguen en las tarjetas); el renglón gris del teléfono sale sólo si pide
+  algo.
+- La etiqueta ámbar del mapa, de día, es marrón oscuro (`#6B4A00`): se lee,
+  pero se aleja del ámbar del punto. El punto conserva el color de estado.
+
+**Pruebas.** `paneles`, `contraste`, `teclado`, `numeros-ui`, `privado-web`,
+`privado-persona`, `chat`, `evidencia`, `telefono`, `sos-despacho`,
+`combis`, `sintaxis` y la regresión completa. Además, contra el servidor de
+demostración: el mapa de día y de noche, las tarjetas, Vueltas, Números a
+1440 y a 1100, Informes (con dos descargas), el trazador (borrar, recuperar
+y volver a dibujar), el chat de ruta y privado, y la lista compacta prendida
+y apagada; las medidas de `medir.js` (0 textos bajo 12 px).
+**Manual:** no todavía (ver abajo).
+
+---
+
 ## Para el manual
+
+**Del bloque 22 (17/11), pendiente:** «Recuperar la ida» en el trazador, la
+línea «Para:» del chat de Despacho, Informes como lista, y que al chofer le
+llega «Lo vio Despacho». Volver a sacar las capturas de Despacho (mapa,
+tarjetas, Vueltas, Números, Informes, chat) y la del cartel del SOS visto.
 
 **Del bloque 21 (16/11), pendiente:** la app nativa de día es clara; el
 diagnóstico del GPS pasó a Perfil («EL GPS») y en la ruta sólo aparece si
