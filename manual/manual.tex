@@ -741,9 +741,13 @@ En la app Android no tiene los botones del turno (\boton{ESTOY EN TRÁFICO},
 \boton{AUSENTE}, \boton{SALIR DE RUTA}): el turno de la combi lo lleva el
 chofer.
 Si su combi no está en la cadena, en vez de las brechas dice qué le pasa:
-\enambar{TU COMBI ESTÁ AUSENTE}, \enambar{TU COMBI VA HACIA LA RUTA},
-\enambar{TU COMBI NO ESTÁ EN RUTA} o \enambar{EL CHOFER NO TIENE SEÑAL}, con
-la hora.
+\enambar{TU COMBI ESTÁ AUSENTE}, \enambar{TU COMBI VA HACIA LA RUTA} o
+\enambar{EL CHOFER NO TIENE SEÑAL}, con la hora. Si la combi directamente no
+aparece, dice \enambar{NO VEO A TU COMBI}: puede que no haya salido, que haya
+terminado o que el teléfono del chofer no esté mandando; la app no lo sabe y
+no lo afirma. Recién entrado, mientras llegan los datos, dice
+\rotulo{ESPERANDO LA RUTA}. Y si es su teléfono el que se queda sin señal,
+lo que ve es el último dato, en gris y con hace cuánto.
 
 \begin{center}
 \cel[0.36]{c14-cobrador}{El cobrador, en modo acompañante.}

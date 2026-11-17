@@ -1604,6 +1604,39 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 26. La tercera revisión (ChatGPT), sobre `cce5614` — 17/11
+
+**Qué.** Cuatro puntos, los cuatro ciertos al verificarlos. Dos tocaban el
+GPS.
+- **Salir a ruta sin permisos abría el turno** (`7b05dce`): se declaraba
+  «ruta» antes de pedir los permisos, así que el servidor abría el turno y
+  le sacaba el mando al chofer anterior aunque el teléfono no pudiera
+  mandar posición. Ahora los permisos van primero (también al retomar un
+  turno guardado); sin ellos, a la puerta y se dice.
+- **El AUSENTE pendiente arrancaba el GPS al cerrar sesión** (`7b05dce`):
+  vencía mientras «Salir» esperaba al servidor. Ahora «Salir» prende
+  `cerrando` lo primero y cada cambio de presencia lleva su época; uno
+  viejo se corta después de cada espera. Un relevo cancela el pendiente.
+- **El cobrador confundía «no sé» con «no está»** (`4016406`): «ESPERANDO
+  LA RUTA» sin datos todavía; «NO VEO A TU COMBI» neutral cuando no aparece
+  (el servidor la olvida a los ~3 min de silencio, así que no aparecer no
+  prueba que terminó); sin conexión, el último aviso no se muestra como
+  actual.
+- **El permiso de notificaciones revocado no se notaba** (`d2c5113`):
+  `preparado` quedaba en true para siempre. El canal y el permiso son ahora
+  cosas separadas; el permiso se mira cada minuto y al volver a primer
+  plano.
+
+**Pruebas.** `nativas`: el `cambiarPresencia` real con lo de afuera
+simulado (sin permisos no declara; permisos primero; cerrando no hace
+nada; AUSENTE ya empezado no arranca el GPS; uno viejo se corta) y el
+permiso concedido → revocado → concedido. `hud`: esperando y no aparece.
+La regresión completa.
+
+**Mirar.** Lo mismo: nada de esto corrió en un teléfono.
+
+---
+
 ## 25. La segunda revisión (ChatGPT), sobre la rama del PR — 17/11
 
 **Qué.** ChatGPT revisó la rama en `a0204d1`: dos fallas de comportamiento
