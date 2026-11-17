@@ -1604,6 +1604,44 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 24. La revisión del manual (ChatGPT), verificada contra el código — 17/11
+
+**Qué.** Una revisión del manual hecha con ChatGPT contra `main` (`1afe6a67`)
+marcó nueve diferencias entre el manual y el código. Se verificaron una por
+una contra esta rama: las nueve eran ciertas. Tres eran del **código** y se
+arreglaron; las otras, del texto del manual.
+- **La APK encerraba al cobrador en la puerta** (`c05abd3`): está siempre
+  «fuera», así que no veía brechas ni mapa, aunque la puerta le prometía
+  «el chat, el mapa y el SOS». Ahora ve el HUD de su combi, de acompañante,
+  sin los botones del turno.
+- **Un turno de hace 20 días no se podía encontrar para corregirlo**
+  (`c6330a2`): se corrige hasta 31 días atrás, pero la pantalla llegaba a una
+  semana y la lista a 8 días. Ahora «Otro día» elige la fecha; el día suelto
+  llega a 31 días. Un día fuera de la ventana sale vacío (antes devolvía el
+  último mes entero).
+- **«SOS NO SALIÓ» decía «Sin internet»** ante cualquier falla (`f20f91e`):
+  ahora «No se pudo confirmar que llegó (sin internet, o el servidor no
+  respondió)», en la web, la APK y el SMS.
+- **El manual**: el chat y sus fotos (30 días, y un tope de 1500 fotos y
+  1500 notas por cooperativa), las 150 posiciones que guarda la APK sin
+  señal (unos 25 min), «Otro día» en Turnos, qué gerencia corrige la
+  empresa (sólo la de toda la cooperativa), los SOS sin atender que vuelven
+  al reabrir (24 h), el cumplimiento (sobre las vueltas con brecha medida),
+  la suspensión (las sesiones abiertas caen en menos de un minuto) y el
+  cobrador en la APK.
+
+**Mirar.**
+- **El cobrador en la APK** salió de una lectura del código: no corrió en
+  un teléfono. Mirarlo con una cuenta de cobrador antes de repartir.
+- `server/index.js`: `/admin/shifts` con `hasta` acepta 31 días atrás
+  (`CORRECCION_DIAS`); sin `hasta`, sigue el tope de 8.
+
+**Pruebas.** `nativas` (el cobrador), `correccion-horas` (cinco aserciones
+nuevas: el turno de hace 20 días, la lista abierta, el día de hace 40, y la
+pantalla), `sos-sin-red`, `sintaxis` y la regresión completa.
+
+---
+
 ## Para el manual
 
 **Al día el 17/11:** `manual.tex` y `manual.pdf` cubren los bloques 19 a 23

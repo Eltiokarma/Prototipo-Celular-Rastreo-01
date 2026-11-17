@@ -143,7 +143,7 @@ falta leer el manual entero: cada uno va a su capítulo.
 Chofer & Mirar de reojo, manejando, cuánto le lleva la combi de adelante y la de atrás; avisar tráfico; pedir ayuda; hablar con la ruta y con Despacho. & Capítulos \ref{cap:ideas} y \ref{cap:chofer} \\
 Cobrador & Lo mismo que el chofer, desde su propio celular, sin que su GPS cuente. & Capítulo \ref{cap:cobrador} \\
 Despacho & Operar el día: ver la flota en el mapa, atender emergencias, escribirle a una combi, dar de alta a la gente, sacar informes. & Capítulos \ref{cap:ideas} y \ref{cap:despacho} \\
-Gerencia & Todo lo de Despacho más los números del período, las combis y los datos de la empresa. & Capítulo \ref{cap:gerencia} \\
+Gerencia & Todo lo de Despacho más los números del período y las combis; la de toda la cooperativa, también los datos de la empresa. & Capítulo \ref{cap:gerencia} \\
 Central & Dar de alta cooperativas, dibujar sus recorridos, respaldar la base y mirar la salud del sistema. & Capítulo \ref{cap:central} y el anexo \ref{cap:operacion} \\
 \bottomrule
 \end{tabularx}
@@ -574,8 +574,10 @@ nuevo es otra emergencia.
 
 \subsection{Si el SOS no sale}
 
-Si el celular no tiene internet, a los pocos segundos la pantalla dice
-\enrojo{SOS NO SALIÓ} y queda un panel, hasta que se lo cierra, con:
+Si no se puede confirmar que la alerta llegó (lo más común: el celular no tiene
+internet; también puede ser que el servidor no respondió), a los pocos
+segundos la pantalla dice \enrojo{SOS NO SALIÓ} y queda un panel, hasta que se
+lo cierra, con:
 
 \begin{itemize}
   \item \boton{LLAMAR A LA CENTRAL}: una llamada común al teléfono de la
@@ -587,7 +589,7 @@ Si el celular no tiene internet, a los pocos segundos la pantalla dice
     (ambulancia) y \textbf{116} Bomberos.
 \end{itemize}
 
-El número de la central lo carga la gerencia (Gestión \flecha Empresa) y el
+El número de la central lo carga la gerencia de la cooperativa (Gestión \flecha Empresa) y el
 teléfono lo guarda al entrar, así sirve sin datos. Si la cooperativa no lo
 cargó, el panel lo dice y quedan los números de emergencia.
 
@@ -654,7 +656,9 @@ La app Android tiene las mismas pantallas, y además:
     ubicación por 10 minutos (el teléfono se reinició, Android cerró la app,
     se apagó la ubicación), suena \enambar{Tu GPS dejó de funcionar}: hay
     que abrir la app. Una zona sin señal no lo dispara: ahí el GPS sigue
-    leyendo y manda todo al volver la señal.
+    leyendo y, al volver la señal, manda lo que guardó: las últimas 150
+    posiciones (unos 25 minutos con la pantalla apagada). De un corte más
+    largo queda un hueco en el recorrido.
   \item \textbf{Si el GPS tiene un problema}, la pantalla de ruta lo dice
     arriba (el servicio parado, la batería optimizada, posiciones que no
     salen). Si todo anda, no muestra nada; el detalle completo está siempre en
@@ -727,6 +731,9 @@ El cobrador entra con \textbf{su propia cuenta} (nunca con la del chofer) y ve
 lo mismo que el chofer de su combi: las brechas, el mapa y el chat del grupo y
 de Despacho. La diferencia está arriba: \rotulo{acompañante}. Su GPS
 \textbf{no} cuenta: la posición de la combi la manda el celular del chofer.
+En la app Android no tiene los botones del turno (\boton{ESTOY EN TRÁFICO},
+\boton{AUSENTE}, \boton{SALIR DE RUTA}): el turno de la combi lo lleva el
+chofer.
 
 \begin{center}
 \cel[0.36]{c14-cobrador}{El cobrador, en modo acompañante.}
@@ -863,8 +870,11 @@ leer}, con el nombre de la combi o de la persona: un toque y se abre.
 
 \subsection*{Fotos, notas de voz y evidencia}
 
-Las fotos y las notas de voz del chat se guardan \textbf{30 días}; después
-queda la burbuja, \emph{ya no disponible}. Si una sirve de prueba (la foto de
+El chat se guarda \textbf{30 días}: después se borra entero, salvo los SOS y
+lo marcado como evidencia. Las fotos y las notas de voz tienen además un tope
+de \textbf{1500 de cada una por cooperativa}: si se pasa antes de los 30
+días, las más viejas pierden el contenido y queda la burbuja, \emph{ya no
+disponible}. Si una sirve de prueba (la foto de
 un choque, un audio de una amenaza), al pasar el mouse por el mensaje aparece
 \boton{Guardar como evidencia}: se escribe el motivo (es obligatorio) y el
 mensaje queda marcado en ámbar, \enambar{EVIDENCIA · quién: motivo}. Lo marcado
@@ -894,7 +904,9 @@ haya ido del mapa). \boton{ATENDIDO} cierra el SOS
 \textbf{en todos los paneles}: el otro Despacho ve en el canal quién lo
 atendió y a qué hora, y queda en la Actividad y en el informe de emergencias
 (con los minutos que tardó). Si llegan dos SOS seguidos, no se pisan; y si el
-panel estaba cerrado o recargando, al entrar el SOS sin atender está ahí. Si
+panel estaba cerrado o recargando, al entrar el SOS sin atender está ahí
+(los de las últimas 24 horas; uno más viejo sin atender queda en el canal y
+en el informe, pero ya no suena). Si
 el chofer eligió qué pasó, la barra y el mensaje lo dicen: \emph{FALLA
 MECÁNICA}, \emph{ACCIDENTE} o \emph{POLICÍA}.
 
@@ -1072,7 +1084,8 @@ medias se pierde, su gente pasa con ella y su turno sigue en la ruta nueva.
 \subsection{Turnos}
 
 Quién anduvo en qué combi, cuándo entró y salió, y cuánto tiempo estuvo en
-ruta: \boton{Hoy}, \boton{Ayer} o \boton{Esta semana}. Un turno se abre cuando
+ruta: \boton{Hoy}, \boton{Ayer}, \boton{Esta semana} u \boton{Otro día}, con
+la fecha que se elija. Un turno se abre cuando
 la persona sube a su combi y se cierra cuando se va; un corte de señal corto no
 lo parte en dos.
 
@@ -1087,7 +1100,8 @@ Con las horas se paga, así que se pueden corregir a mano, siempre con un
     teléfono, se cayó el servidor).
 \end{itemize}
 
-Se puede ir hasta 31 días atrás; un turno no puede durar más de 24 horas ni
+Se puede ir hasta 31 días atrás (con \boton{Otro día} se encuentra el turno);
+un turno no puede durar más de 24 horas ni
 pisarse con otro de la misma persona. La fila queda marcada en ámbar,
 \enambar{CORREGIDO A MANO} (o \enambar{AGREGADO A MANO}, \enambar{ANULADO A
 MANO}); al pasar el mouse dice quién y por qué. Está en la Actividad y en el
@@ -1198,16 +1212,18 @@ La gerencia entra por el \textbf{mismo panel} que Despacho, con su propia
 cuenta (la da de alta la central), y ve todo lo que ve Despacho. Además:
 
 \begin{itemize}
-  \item administra los \textbf{activos}: da de alta las combis con su placa, y
-    corrige los datos y el logo de la empresa;
+  \item administra los \textbf{activos}: da de alta las combis con su placa;
   \item tiene la pestaña \textbf{Números}, con el cumplimiento del período;
-  \item carga el \textbf{teléfono de la central para emergencias};
+  \item si su cuenta es de \textbf{toda la cooperativa}: corrige los datos y
+    el logo de la empresa y carga el \textbf{teléfono de la central para
+    emergencias};
   \item cambia la clave de las cuentas de Despacho (un Despacho no puede
     tocar la de otro).
 \end{itemize}
 
-La cuenta de gerencia puede abarcar toda la cooperativa o una sola ruta.
-Despacho no puede tocarla: buena parte de lo que mira la gerencia es el
+La cuenta de gerencia puede abarcar toda la cooperativa o una sola ruta. La de
+una sola ruta ve la empresa pero no la puede corregir: los datos, el logo y el
+teléfono de emergencias son de la cooperativa entera. Despacho no puede tocarla: buena parte de lo que mira la gerencia es el
 trabajo de Despacho.
 
 \section{Dar de alta una combi}
@@ -1220,7 +1236,7 @@ descripción. \boton{+ Vehículo} la crea en la ruta elegida.
 
 \section{La empresa y su logo}
 
-En \textbf{Empresa}, la gerencia corrige el nombre, el RUC y el contacto, y sube
+En \textbf{Empresa}, la gerencia de toda la cooperativa corrige el nombre, el RUC y el contacto, y sube
 el \textbf{logo} (PNG, JPG o WEBP; se achica solo). También carga el
 \textbf{Teléfono de la central para emergencias}: el número que el chofer
 llama, o al que manda el SMS con su posición, cuando su SOS no sale por
@@ -1242,7 +1258,10 @@ días» son los últimos siete contando hoy.
     cumplimiento de cada día (un día sin vueltas no aparece: no es un cero).
   \item \textbf{Después}, las cifras del período: vueltas, idas, retornos,
     \textbf{cumplimiento} (el porcentaje de vueltas cuya brecha promedio estuvo
-    en objetivo), brecha promedio, horas trabajadas, unidades activas, salidas
+    en objetivo, \textbf{entre las que tienen brecha medida}: una vuelta sin
+    dato no cuenta ni a favor ni en contra, así que un 100\,\% de dos vueltas
+    juzgables no dice lo mismo que uno de cuarenta; al lado están las
+    vueltas), brecha promedio, horas trabajadas, unidades activas, salidas
     del recorrido, cortes de señal, horas sin señal, horas ausente, paradas y
     SOS.
   \item \textbf{Por unidad}: cada combi con sus vueltas, cumplimiento, brecha
@@ -1324,8 +1343,9 @@ se ve una sola vez: hay que anotarla para dictarla.
 
 \subsection{Suspender}
 
-\boton{Suspender} saca de circulación a una cooperativa entera \textbf{en el
-acto}: se cierran todas sus sesiones y nadie de ella puede entrar. La
+\boton{Suspender} saca de circulación a una cooperativa entera: desde ese
+momento nadie de ella puede entrar, y las sesiones que estaban abiertas se
+cierran en menos de un minuto. La
 confirmación dice el nombre de la cooperativa que se va a suspender. Se puede
 reactivar.
 
