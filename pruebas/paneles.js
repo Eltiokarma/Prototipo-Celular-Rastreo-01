@@ -230,5 +230,15 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 4');
   ok('N7 · la brecha se muestra sin cero adelante y con «min»', /function duracion\(gapStr\)/.test(despacho) && /\{duracion\(val\)\}<span/.test(despacho));
 }
 
+console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 5');
+{
+  const landing = leer('server/landing.html');
+  // E1: la página prometía «la brecha en grande» y no la mostraba
+  ok('E1 · la landing muestra la pantalla del conductor, sin imágenes ni JavaScript', /<div class="fono" role="img" aria-label="La pantalla del conductor/.test(landing) && !/<img\b|<script\b/i.test(landing));
+  // X1: el voseo era un chiste interno; el software tutea
+  { const textos = [prototipo, despacho, leer('server/creador.html'), leer('app/App.js'), leer('app/hud.js'), leer('server/index.js')].join('\n');
+    ok('X1 · ninguna pantalla ni mensaje del servidor vosea', !/(?<![\p{L}])(Deslizá|Mantené|Apurá|Aflojá|Tocá|Ingresá|Escribí|Elegí|Probá|Esperá|salís|tenés|podés|querés|vos)(?![\p{L}])/iu.test(textos)); }
+}
+
 console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
 process.exit(fallas ? 1 : 0);
