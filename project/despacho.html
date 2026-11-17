@@ -101,6 +101,16 @@ if (typeof L === 'undefined') {
   .r14-msg:hover .r14-evid, .r14-msg:focus-within .r14-evid { opacity: 1; }
   @media (hover: none) { .r14-msg .r14-evid { opacity: 1; min-height: 44px; } }
 
+  /* Las fichas de números en filas parejas (auditoría de UI, C6). Con
+     auto-fill quedaban 5 + 1 en Vueltas y 7 + 5 en Números: la huérfana se
+     lee como un dato aparte. Seis fichas van de a 3 (o de a 2 en el
+     celular); doce, de a 6, 4, 3 o 2 según el ancho. */
+  .r14-kpi6  { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .r14-kpi12 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  @media (max-width: 1279px) { .r14-kpi12 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 899px)  { .r14-kpi12 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 599px)  { .r14-kpi6, .r14-kpi12 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
   /* Leaflet con el mismo vocabulario que el panel */
   .leaflet-container { font-family: inherit; background: var(--hueco); }
   .leaflet-bar { border: none !important; border-radius: 12px !important; overflow: hidden;
@@ -3680,10 +3690,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 const cols = '110px 130px 130px 1fr 120px';
                 return (
                   <div>
-                    <div style={{
-                      display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                      gap: 12, marginBottom: 18,
-                    }}>
+                    <div className="r14-kpi6" style={{ gap: 12, marginBottom: 18 }}>
                       {kpis.map(([et, val, nota]) => (
                         <div key={et} style={{ ...tarjeta(14), background: HUD.bg }}>
                           <div style={rotulo(9)}>{et}</div>
@@ -4581,10 +4588,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                     </div>
                   );
                 })()}
-                <div style={{
-                  display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-                  gap: 8, marginBottom: 20,
-                }}>
+                <div className="r14-kpi12" style={{ gap: 8, marginBottom: 20 }}>
                   {[
                     ['Vueltas', resumenGer.totales.vueltas],
                     // Idas y retornos del período. La resta entre las dos es
