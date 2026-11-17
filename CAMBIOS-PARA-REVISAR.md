@@ -1606,6 +1606,17 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ## Para el manual
 
+**Al día el 17/11:** `manual.tex` y `manual.pdf` cubren los bloques 19 a 23
+(sin señal, DESHACER de AUSENTE, el chat sin señal, «Lo vio Despacho», la
+línea «Para:», Informes como lista, «Recuperar la ida», la lista compacta en
+prueba, el diagnóstico del GPS en Perfil). Las 54 capturas se sacaron de
+nuevo, con el mapa propio. Nueva: **«Configurar el celular»**, con seis
+ilustraciones de los ajustes de Android (`manual/ilustraciones-android.js`):
+son dibujos, no capturas, y el manual lo dice. Lo que sigue pendiente de
+abajo: las capturas de la **APK** (las del chofer son de la web), cuando se
+haya probado en la calle; y cambiar las ilustraciones por capturas de un
+teléfono de verdad cuando las haya.
+
 **Del bloque 23 (17/11), pendiente:** compilar `manual.pdf` (el `.tex` ya
 tutea) y volver a sacar las capturas donde se lee texto de la app.
 
