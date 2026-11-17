@@ -325,13 +325,22 @@ function Aplicacion() {
       // fallar (REVISION-2026-09-08.md, A2). El orden es el de `onSalir`:
       // primero el vigilante, después parar.
       c.on('authError', async (e) => {
+        terminarSesion();
+        // La limpieza es de ESTA sesión: muestra el ingreso antes de terminar
+        // de borrar, y si en el medio entra otra persona y sale a ruta, lo
+        // que sigue le borraba el token guardado y le paraba el GPS (sexta
+        // revisión con ChatGPT, 17/11). Después de cada espera, se mira.
+        const gen = generacion.current;
+        const mia = () => generacion.current === gen;
         saliendo.current = true;
         c.salir();
         olvidarDeLaSesion();
         setAviso(e); setSesion(null); setPresencia('fuera');
         gps.limpiarSesion();
-        try { await SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA); } catch {}
-        try { await SecureStore.deleteItemAsync(gps.LLAVE_SESION); } catch {}
+        try { await guardarClave(gps.LLAVE_PRESENCIA, null); } catch {}
+        if (!mia()) return;
+        try { await guardarClave(gps.LLAVE_SESION, null); } catch {}
+        if (!mia()) return;
         try { await gps.parar(); } catch {}
       }),
       // El historial llega al identificarse y trae solo lo que a este chofer
@@ -401,18 +410,23 @@ function Aplicacion() {
     SecureStore.setItemAsync(gps.LLAVE_CENTRAL, String(c)).catch(() => {});
   };
 
-  const entrarConSesion = async (s) => {
+  const entrarConSesion = async (s, genDada) => {
+    const gen = genDada ?? empezarSesion();
+    const vigenteSesion = () => !cerrando.current && generacion.current === gen;
     saliendo.current = false;
     setSesion(s);
     if (s && s.central) guardarCentral(s.central);
     // El servidor va al disco junto con la sesión porque la tarea de fondo
     // los lee de ahí: cuando Android la revive, no queda nada en memoria.
     await SecureStore.setItemAsync(gps.LLAVE_SERVIDOR, SERVIDOR);
+    if (!vigenteSesion()) return;
     // La sesión va JUNTO con el token: sin ella el cliente no sabe quién soy,
     // y la brecha, el chat y el mapa fallan en silencio. Ver `conectar()`.
     cliente.current.conectar(s.token, s);
     cliente.current.pedirMarca(s.token).then(m => {
-      if (!m) return;
+      // La marca (y el teléfono de la central) de una sesión que ya terminó
+      // no se aplica a la siguiente (quinta revisión, 17/11)
+      if (!m || !vigenteSesion()) return;
       setMarca(m);
       // El teléfono de la central viene con la marca (PENDIENTES 0.5): si la
       // gerencia lo cambió, queda en la sesión guardada, que es lo que hay
@@ -422,7 +436,7 @@ function Aplicacion() {
         setSesion(prev => {
           if (!prev) return prev;
           const nueva = { ...prev, central: m.central };
-          SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
+          guardarClave(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
           return nueva;
         });
       }
@@ -431,16 +445,31 @@ function Aplicacion() {
     // app murió a mitad de turno (Android la mató, el chofer la reabrió),
     // la presencia guardada retoma sola: nadie vuelve a marcar nada.
     const previa = await SecureStore.getItemAsync(gps.LLAVE_PRESENCIA).catch(() => null);
+    if (!vigenteSesion()) return;
     if (previa !== 'ruta' && previa !== 'ausente') setPresencia('fuera');
     // El cobrador no emite: la unidad la lleva el chofer. Su «en ruta»
     // guardado de un APK viejo no arranca nada.
     if (s.role === 'collector') { setPresencia('fuera'); return; }
     if (previa === 'ruta' || previa === 'ausente') {
+      // Los permisos ANTES de retomar: sin ellos el teléfono no puede
+      // mandar la posición, y declarar «en ruta» le abría el turno y le
+      // sacaba el mando al chofer que estuviera manejando (tercera revisión
+      // con ChatGPT, 17/11). Sin permisos vuelve a la puerta, y se dice.
+      const permisos = await gps.pedirPermisos();
+      // Mientras Android preguntaba, la sesión pudo terminar (un token
+      // vencido, una cuenta suspendida): nada de lo que sigue es de ella
+      if (!vigenteSesion()) return;
+      if (!permisos.ok) {
+        setPresencia('fuera');
+        guardarClave(gps.LLAVE_PRESENCIA, null).catch(() => {});
+        cliente.current.marcarPresencia('fuera');
+        setAviso(`Falta el permiso de ubicación en ${permisos.cual}`);
+        return;
+      }
       setPresencia(previa);
       cliente.current.marcarPresencia(previa, null, { retomada: true });
-      const permisos = await gps.pedirPermisos();
-      if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
       setAviso(null);   // el aviso de permisos viejo no sobrevive al permiso dado
+      if (!vigenteSesion()) return;
       await gps.arrancar({ textoNotificacion: 'Turno en curso' });
     }
   };
@@ -448,9 +477,54 @@ function Aplicacion() {
   // Cambiar de presencia es UNA función porque toca tres mundos a la vez y
   // el orden importa: el disco (para la tarea de fondo y para retomar), el
   // servidor (la declaración), y el servicio de GPS (que emite o calla).
+  // Cerrando la sesión no se declara nada más: el AUSENTE con DESHACER que
+  // vencía mientras «Salir» esperaba al servidor ponía `saliendo` en false,
+  // pedía permisos y arrancaba el GPS de una sesión que se estaba cerrando.
+  // Y cada cambio lleva su «época»: uno viejo que ya empezó se corta después
+  // de cada espera si llegó otro, o si se empezó a cerrar la sesión (tercera
+  // revisión con ChatGPT, 17/11). Limpiar un temporizador no frena lo que
+  // ya arrancó.
+  //
+  // La GENERACIÓN de sesión cambia sólo al empezar y al terminar una sesión
+  // —nunca cuando la sesión se actualiza (el teléfono de la central, la
+  // combi de hoy)—. Antes `cerrando` se apagaba con cualquier cambio del
+  // objeto `sesion`, y una actualización a mitad de «Salir» lo reabría; y
+  // cerrar y volver a entrar no cambiaba la época, así que algo pendiente
+  // de la sesión anterior podía volver a valer (cuarta revisión, 17/11).
+  const cerrando = React.useRef(false);
+  const generacion = React.useRef(0);
+  const epocaPresencia = React.useRef(0);
+  const empezarSesion = () => { cerrando.current = false; return ++generacion.current; };
+  // La sesión y la presencia GUARDADAS se escriben y se borran en FILA, en
+  // el orden en que se pidieron. Un borrado de la sesión anterior que ya
+  // había empezado termina antes que el guardado de la siguiente (séptima
+  // revisión con ChatGPT, 17/11: B aparecía conectado sin sesión guardada).
+  const filaClaves = React.useRef(Promise.resolve());
+  const guardarClave = (llave, valor) => {
+    const p = filaClaves.current.then(() => (valor == null
+      ? SecureStore.deleteItemAsync(llave) : SecureStore.setItemAsync(llave, valor)));
+    filaClaves.current = p.catch(() => {});
+    return p;
+  };
+  const terminarSesion = () => { cerrando.current = true; generacion.current++; };
   const cambiarPresencia = async (nueva, motivo) => {
+    if (cerrando.current) return;
+    const mia = ++epocaPresencia.current;
+    const gen = generacion.current;
+    const vigente = () => !cerrando.current && epocaPresencia.current === mia && generacion.current === gen;
+    // Salir a ruta pide los permisos ANTES de declarar: sin ellos el
+    // teléfono no puede mandar la posición, y declarar «en ruta» abría el
+    // turno en el servidor y le sacaba el mando al chofer anterior. Sin
+    // permisos se queda en la puerta, y se dice.
+    if (nueva === 'ruta') {
+      const permisos = await gps.pedirPermisos();
+      if (!vigente()) return;
+      if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
+      setAviso(null);
+    }
     setPresencia(nueva);
-    try { await SecureStore.setItemAsync(gps.LLAVE_PRESENCIA, nueva); } catch {}
+    try { await guardarClave(gps.LLAVE_PRESENCIA, nueva); } catch {}
+    if (!vigente()) return;
     cliente.current.marcarPresencia(nueva, motivo);
     if (nueva === 'fuera') {
       // Primero se le avisa al vigilante, DESPUÉS se para: la misma carrera
@@ -471,13 +545,19 @@ function Aplicacion() {
       // servicio que esta salida acaba de pedir (revisión previa a la APK).
       // Si el otro sigue manejando, el servidor lo vuelve a decir.
       gps.diagnostico.detenidoPor = null;
-      const permisos = await gps.pedirPermisos();
-      if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
-      setAviso(null);   // ídem: al dar el permiso, el cartel viejo se va
+      // A ruta ya se pidieron arriba; AUSENTE se declara igual (es salir de
+      // la cadena) y el GPS sigue sólo si hay permiso
+      if (nueva === 'ausente') {
+        const permisos = await gps.pedirPermisos();
+        if (!vigente()) return;
+        if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
+        setAviso(null);   // ídem: al dar el permiso, el cartel viejo se va
+      }
       // Recién salido todavía no hay rol: `reporta` es el de antes (o el
       // inicial), y la notificación arrancaba diciendo «Modo acompañante» al
       // que sale a manejar. Si de verdad lo es, el servicio la reemplaza
       // con la primera respuesta del servidor.
+      if (!vigente()) return;
       await gps.arrancar({ textoNotificacion: reporta ? textoRef.current : 'Turno en curso' });
     }
   };
@@ -589,7 +669,12 @@ function Aplicacion() {
   const enLaPuerta = !!sesion && sesion.role !== 'collector' && presencia === 'fuera' && primerPlano;
   const recargarCombis = React.useCallback(() => {
     if (!cliente.current) return;
+    // La respuesta es de la sesión que preguntó: si salió y entró otra
+    // mientras tanto, no se aplica (le cambiaba la combi y la mandaba a la
+    // puerta al que entró después; quinta revisión, 17/11)
+    const gen = generacion.current;
     cliente.current.misCombis().then(d => {
+      if (generacion.current !== gen || cerrando.current) return;
       setCombis(d.combis || []);
       // La de hoy la decide el servidor: Despacho pudo cambiarla con la app
       // cerrada, y la sesión seguía con la vieja
@@ -606,7 +691,9 @@ function Aplicacion() {
   // Devuelve null si salió, o el motivo
   const elegirCombi = async (vehicleId) => {
     try {
+      const gen = generacion.current;
       const r = await cliente.current.elegirCombi(vehicleId);
+      if (generacion.current !== gen || cerrando.current) return null;
       alCambiarDeCombi.current(r);
       recargarCombis();
       return null;
@@ -628,7 +715,7 @@ function Aplicacion() {
     setSesion(prev => {
       if (!prev) return prev;
       const nueva = { ...prev, vehicleId: m.vehicleId, routeId: m.routeId || prev.routeId, routeName: m.routeName || prev.routeName };
-      SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
+      guardarClave(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
       return nueva;
     });
     if (otraCombi && presencia !== 'fuera' && sesion.role !== 'collector') {
@@ -744,6 +831,7 @@ function Aplicacion() {
       // disco: acá se cierra la pantalla, igual que con `auth_error`.
       if (gps.diagnostico.sesionRechazada) {
         gps.diagnostico.sesionRechazada = false;
+        terminarSesion();
         saliendo.current = true;
         // El socket de la sesión rechazada se cierra, y con él lo que el
         // cliente recordaba de ella (barrido del 22/9).
@@ -771,6 +859,9 @@ function Aplicacion() {
       }
       const corriendo = await gps.estaCorriendo();
       if (!vivo || saliendo.current) return;
+      // El relevo pudo llegar MIENTRAS se preguntaba: el motivo de parada se
+      // mira de nuevo antes de rearrancar (sexta revisión, 17/11)
+      if (gps.diagnostico.detenidoPor || gps.diagnostico.sesionRechazada) return;
       if (!corriendo) {
         gps.diagnostico.servicio = 'caído, rearrancando';
         gps.arrancar({ textoNotificacion: textoRef.current }).catch(() => {});
@@ -898,8 +989,12 @@ function Aplicacion() {
   if (!sesion) return (
     <>
       <Entrar servidor={SERVIDOR} aviso={aviso} central={centralGuardada} onEntrar={async (s) => {
-        await SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(s));
-        entrarConSesion(s);
+        // La sesión nueva es dueña ANTES de guardarse: una limpieza de la
+        // anterior que todavía corre ve la generación cambiada y se frena
+        const gen = empezarSesion();
+        await guardarClave(gps.LLAVE_SESION, JSON.stringify(s)).catch(() => {});
+        if (generacion.current !== gen) return;
+        entrarConSesion(s, gen);
       }} clienteRef={cliente} />
       {presentacion}
     </>
@@ -929,6 +1024,9 @@ function Aplicacion() {
     rol: sesion?.role || 'driver',
     onIr: irA,
     onSalir: async () => {
+      // Lo primero: nada que esté por declararse (el AUSENTE con DESHACER)
+      // puede tocar la presencia ni el GPS mientras se cierra la sesión
+      terminarSesion();
       // El orden importa: primero se le avisa al vigilante, DESPUÉS se para
       // el servicio. Al revés, un tick del vigilante en medio lo rearrancaba.
       saliendo.current = true;
@@ -936,9 +1034,9 @@ function Aplicacion() {
       // Se ESPERA (con reintento por HTTP): sin señal en ese instante el
       // «fuera» se perdía y la combi quedaba en el mapa hasta el olvido.
       try { await cliente.current.marcarPresencia('fuera'); } catch {}
-      try { await SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA); } catch {}
+      try { await guardarClave(gps.LLAVE_PRESENCIA, null); } catch {}
       setPresencia('fuera');
-      await SecureStore.deleteItemAsync(gps.LLAVE_SESION);
+      await guardarClave(gps.LLAVE_SESION, null).catch(() => {});
       await gps.parar();
       // Nada de esta sesión sobrevive: ni la cola de posiciones (el relevo
       // con el mismo teléfono las mandaba con el token del siguiente), ni el
@@ -1377,6 +1475,9 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
     return () => { clearInterval(reloj); clearTimeout(t); };
   }, [ausenteEn]);
   React.useEffect(() => { if (presencia !== 'ruta') setAusenteEn(null); }, [presencia]);
+  // Un relevo (otro chofer tomó la unidad) cambia el rol y no la presencia:
+  // el AUSENTE pendiente también se cancela
+  React.useEffect(() => { if (reporta === false) setAusenteEn(null); }, [reporta]);
   const faltaAusente = ausenteEn ? Math.max(1, Math.ceil((DESHACER_AUSENTE_MS - (Date.now() - ausenteEn)) / 1000)) : 0;
   // Y el segundo toque cuenta recién a los 0,6 s: el primero arma al
   // instante y el botón cambia de función en el mismo lugar, así que un
@@ -1568,7 +1669,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
 
       {/* Un minuto sin datos: el número se retira. Queda la última brecha,
           como dato y no como instrucción (auditoría de UI, N1). */}
-      {acompanante && avisoCombi ? (
+      {acompanante && avisoCombi && !hud.viejo ? (
         <View style={s.centro}>
           <Text style={s.sinSenalTitulo}>{avisoCombi.titulo}</Text>
           <Text style={s.sinSenalTexto}>{avisoCombi.texto}</Text>

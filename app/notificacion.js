@@ -31,26 +31,33 @@ Notifications.setNotificationHandler({
   }),
 });
 
-let preparado = false;   // canal creado y permiso dado
-let preguntado = false;  // ya se le PIDIÓ al usuario: no se le vuelve a pedir
-// Cuándo se vio por última vez el permiso negado. Antes era un `sinPermiso`
-// que quedaba en true para siempre: si el chofer lo daba después desde
-// Ajustes, la app no se enteraba hasta reiniciarse, y no salían ni la brecha
-// ni el aviso de GPS detenido (segunda revisión con ChatGPT, 17/11). Ahora
-// se vuelve a MIRAR (sin preguntar) cada minuto, y al volver a primer plano.
-let negadoEn = 0;
+// Dos cosas distintas que antes eran una (tercera revisión con ChatGPT,
+// 17/11): el CANAL, que se crea una vez, y el PERMISO, que el chofer puede
+// dar o quitar desde Ajustes con la app viva. Antes un `preparado = true`
+// quedaba para siempre: revocado el permiso, la app no se enteraba; y antes
+// todavía, un `sinPermiso = true` igual de pegado en el otro sentido. Ahora
+// el permiso se vuelve a MIRAR (sin pedirlo) como mucho una vez por minuto
+// y al volver a primer plano; al usuario se le PIDE una sola vez.
+let canalCreado = false;
+let permitido = false;   // lo que dijo el sistema la última vez que se miró
+let miradoEn = 0;        // cuándo se miró
+let preguntado = false;  // ya se le pidió al usuario: no se le vuelve a pedir
 const REMIRAR_MS = 60_000;
 let ultimo = null;       // el último título mostrado — igual no se re-emite
 
 async function preparar() {
-  if (preparado) return;
-  if (negadoEn && Date.now() - negadoEn < REMIRAR_MS) return;
+  if (miradoEn && Date.now() - miradoEn < REMIRAR_MS) return;
+  miradoEn = Date.now();
   let permiso = await Notifications.getPermissionsAsync().catch(() => null);
   if (permiso && !permiso.granted && permiso.canAskAgain && !preguntado) {
     preguntado = true;
     permiso = await Notifications.requestPermissionsAsync().catch(() => null);
   }
-  if (!permiso || !permiso.granted) { negadoEn = Date.now(); return; }
+  const antes = permitido;
+  permitido = !!(permiso && permiso.granted);
+  // Si cambió, lo último mostrado ya no vale: que la próxima se emita
+  if (permitido !== antes) ultimo = null;
+  if (!permitido || canalCreado) return;
   // Canal de importancia BAJA: la brecha cambia todo el tiempo y no puede
   // sonar ni vibrar — es información de reojo, no una alerta.
   await Notifications.setNotificationChannelAsync(CANAL, {
@@ -58,13 +65,12 @@ async function preparar() {
     importance: Notifications.AndroidImportance.LOW,
     sound: null, vibrationPattern: null, enableVibrate: false,
   }).catch(() => {});
-  negadoEn = 0;
-  preparado = true;
+  canalCreado = true;
 }
 
 // Al volver a primer plano (por ejemplo, de Ajustes con el permiso recién
-// dado): mirar ya, sin esperar el minuto.
-export function remirarPermiso() { negadoEn = 0; }
+// dado o quitado): mirar ya, sin esperar el minuto.
+export function remirarPermiso() { miradoEn = 0; }
 
 // La tarea de fondo llama esto con `cuerpo.brecha` de cada POST que salió
 // bien. Se re-emite solo cuando el TEXTO cambia: la misma brecha cada 10 s
@@ -80,10 +86,30 @@ export async function notificarSinSenal(ultimoEnvio, ahora = Date.now()) {
   return mostrar(avisoSinSenal(ultimoEnvio, ahora));
 }
 
-async function mostrar(aviso) {
-  if (!aviso || aviso.titulo === ultimo) return;
+// ── La notificación de la brecha (ID), en FILA ─────────────────────
+// Publicar y limpiar escriben el mismo identificador. Sin fila, una
+// publicación que esperaba el permiso o el canal terminaba DESPUÉS de
+// limpiarNotificacion() y la brecha volvía a la bandeja, con su título
+// repuesto en `ultimo` (quinta revisión con ChatGPT, 17/11). Ahora van de a
+// una, y lo pedido antes de una limpieza ya no publica cuando le toca.
+let filaBrecha = Promise.resolve();
+let limpiezas = 0;
+function enFilaBrecha(fn) {
+  const p = filaBrecha.then(fn, fn);
+  filaBrecha = p.catch(() => {});
+  return p;
+}
+
+function mostrar(aviso) {
+  if (!aviso || aviso.titulo === ultimo) return Promise.resolve();
+  const alPedir = limpiezas;
+  return enFilaBrecha(() => mostrarAhora(aviso, alPedir));
+}
+
+async function mostrarAhora(aviso, alPedir) {
+  if (limpiezas !== alPedir || aviso.titulo === ultimo) return;
   await preparar();
-  if (!preparado) return;
+  if (!permitido || limpiezas !== alPedir) return;
   try {
     await Notifications.scheduleNotificationAsync({
       identifier: ID,
@@ -109,10 +135,19 @@ async function mostrar(aviso) {
 // como la brecha: información de reojo, nada que suene ni salte mientras
 // maneja (el mismo criterio que el desvío).
 const CANAL_GRABACION = 'grabacion';
+const ID_GRABACION = 'grabacion-pedida';
 
-export async function notificarGrabacionPedida() {
+// También por la fila de la bandeja: era el único que publicaba por fuera, y
+// aparecía después de limpiar (sexta revisión, 17/11)
+export function notificarGrabacionPedida() {
+  const alPedir = limpiezas;
+  return enFilaBrecha(() => notificarGrabacionAhora(alPedir));
+}
+
+async function notificarGrabacionAhora(alPedir) {
+  if (limpiezas !== alPedir) return;
   await preparar();
-  if (!preparado) return;
+  if (!permitido || limpiezas !== alPedir) return;
   try {
     await Notifications.setNotificationChannelAsync(CANAL_GRABACION, {
       name: 'Grabación de recorrido',
@@ -120,7 +155,7 @@ export async function notificarGrabacionPedida() {
       sound: null, vibrationPattern: null, enableVibrate: false,
     }).catch(() => {});
     await Notifications.scheduleNotificationAsync({
-      identifier: 'grabacion-pedida',
+      identifier: ID_GRABACION,
       content: {
         title: 'Despacho pidió grabar este recorrido',
         body: 'La grabación ya arrancó sola. Se termina y envía desde Perfil.',
@@ -142,11 +177,17 @@ export async function notificarGrabacionPedida() {
 //
 // Va con el MISMO identificador que la brecha, así que la reemplaza en vez de
 // sumar una segunda. Mismo canal de importancia baja: no suena ni salta.
-export async function notificarSinRol(motivo) {
+export function notificarSinRol(motivo) {
   // Relevado, este GPS ya no tiene que mandar: el silencio no es una falla
   apagarVigiaDeSilencio().catch(() => {});
+  const alPedir = limpiezas;
+  return enFilaBrecha(() => notificarSinRolAhora(motivo, alPedir));
+}
+
+async function notificarSinRolAhora(motivo, alPedir) {
+  if (limpiezas !== alPedir) return;
   await preparar();
-  if (!preparado) return;
+  if (!permitido || limpiezas !== alPedir) return;
   const titulo = 'MODO ACOMPAÑANTE';
   if (titulo === ultimo) return;
   try {
@@ -174,9 +215,19 @@ export async function limpiarSiSinRol() {
 }
 
 export async function limpiarNotificacion() {
-  ultimo = null;
-  try { await Notifications.dismissNotificationAsync(ID); } catch {}
-  await apagarVigiaDeSilencio();
+  // Las dos órdenes se piden YA, antes de la primera espera: si el apagado
+  // del vigía se pedía después de esperar la fila de la brecha, una
+  // vigilancia NUEVA programada en ese rato quedaba antes en su fila y la
+  // limpieza vieja la cancelaba (sexta revisión con ChatGPT, 17/11).
+  limpiezas++;
+  const vigia = apagarVigiaDeSilencio();
+  const brecha = enFilaBrecha(async () => {
+    ultimo = null;
+    try { await Notifications.dismissNotificationAsync(ID); } catch {}
+    try { await Notifications.dismissNotificationAsync(ID_GRABACION); } catch {}
+  });
+  await brecha;
+  await vigia;
 }
 
 // ─── EL VIGÍA DEL SILENCIO (auditoría 11/11) ──────────────────────
@@ -197,11 +248,31 @@ const CANAL_SILENCIO = 'gps-detenido';
 const ID_SILENCIO = 'gps-silencio';
 export const SILENCIO_AVISO_MS = 10 * 60_000;
 let silencioCorridoEn = 0;
+// El vigía también va en FILA. La época de la cuarta revisión evitaba que
+// el aviso viejo sobreviviera al apagado, pero su cancelación tardía usaba
+// el identificador compartido y podía borrar el aviso de una vigilancia
+// NUEVA programada en el medio (quinta revisión con ChatGPT, 17/11). En
+// fila, apagar corre después de lo que ya estaba programándose, y lo que se
+// pide después de apagar corre después de la cancelación.
+let filaVigia = Promise.resolve();
+let apagados = 0;
+function enFilaVigia(fn) {
+  const p = filaVigia.then(fn, fn);
+  filaVigia = p.catch(() => {});
+  return p;
+}
 
-export async function vigilarSilencio(ahora = Date.now()) {
-  if (ahora - silencioCorridoEn < 60_000) return;
+export function vigilarSilencio(ahora = Date.now()) {
+  if (ahora - silencioCorridoEn < 60_000) return Promise.resolve();
+  const alPedir = apagados;
+  return enFilaVigia(() => vigilarAhora(ahora, alPedir));
+}
+
+async function vigilarAhora(ahora, alPedir) {
+  const vigente = () => apagados === alPedir && permitido;
+  if (apagados !== alPedir || ahora - silencioCorridoEn < 60_000) return;
   await preparar();
-  if (!preparado) return;
+  if (!vigente()) return;
   silencioCorridoEn = ahora;
   try {
     await Notifications.setNotificationChannelAsync(CANAL_SILENCIO, {
@@ -209,7 +280,9 @@ export async function vigilarSilencio(ahora = Date.now()) {
       // Alta: es la única forma de enterarse, y pasa con la pantalla apagada
       importance: Notifications.AndroidImportance.HIGH,
     }).catch(() => {});
+    if (!vigente()) return;
     await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO).catch(() => {});
+    if (!vigente()) return;
     const tipo = Notifications.SchedulableTriggerInputTypes
       ? Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL : 'timeInterval';
     await Notifications.scheduleNotificationAsync({
@@ -223,8 +296,11 @@ export async function vigilarSilencio(ahora = Date.now()) {
   } catch {}
 }
 
-export async function apagarVigiaDeSilencio() {
+export function apagarVigiaDeSilencio() {
+  apagados++;
   silencioCorridoEn = 0;
-  try { await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO); } catch {}
-  try { await Notifications.dismissNotificationAsync(ID_SILENCIO); } catch {}
+  return enFilaVigia(async () => {
+    try { await Notifications.cancelScheduledNotificationAsync(ID_SILENCIO); } catch {}
+    try { await Notifications.dismissNotificationAsync(ID_SILENCIO); } catch {}
+  });
 }

@@ -1604,6 +1604,160 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 31. La octava revisión (ChatGPT), sobre `bd3498b` — 17/11
+
+**Qué.** Una omisión en `subirAhora`, con dos caminos, los dos ciertos.
+- **Éxito**: después de leer la presencia del disco (para decidir si se
+  publica la brecha), no se miraba la generación. Una corrida de A le
+  ponía su brecha en la bandeja a B y atendía un «grabar» de Despacho.
+- **Excepción de red**: `guardarSiSigue` protegía la cola, pero
+  `anotarFallo` y `notificarSinSenal` no: B recibía «sin red» y «SIN
+  SEÑAL» con su GPS andando.
+`mia()` pasó a definirse fuera del `try` y se mira en los dos.
+
+**Pruebas.** `nativas`: **`servicio.js` entero**, con lo de Expo simulado y
+un servidor (XHR) y un disco diferidos; dos controles positivos (sin cambio
+de sesión, sí se publica) y las dos secuencias. Se comprobó que fallan con
+el código de `bd3498b`. La regresión completa.
+
+**Mirar.** ChatGPT y nosotros coincidimos: con esto se cierra el inventario
+y lo que sigue es el teléfono.
+
+---
+
+## 30. La séptima revisión (ChatGPT), sobre `f599eab` — 17/11
+
+**Qué.** Dos límites de las correcciones anteriores, los dos ciertos (el
+segundo, más amplio de lo que decía el informe).
+- **B podía perder su sesión guardada durante la limpieza de A**: B
+  guardaba su sesión y recién después empezaba su generación, así que la
+  limpieza de A todavía se creía dueña. Ahora el ingreso llama a
+  `empezarSesion()` ANTES de guardar, y todas las escrituras de la sesión y
+  la presencia guardadas van por `guardarClave` (una fila): un borrado de A
+  que ya empezó termina antes del guardado de B.
+- **Una corrida vieja de la tarea borraba la bandeja de B**: después del
+  POST de la ausencia larga y del de «volvió solo» se escribía el
+  diagnóstico, se vaciaba la cola y se limpiaban las notificaciones sin
+  mirar la generación. Ahora `subirAhora` mira `mia()` después de cada
+  espera, también en la rama de error del POST /gps (la del 401, que borra
+  la sesión guardada) y al leer el disco.
+
+**Pruebas.** `nativas`: la fila de claves ejecutada con el disco diferido;
+de texto, el orden del ingreso y los chequeos después de cada espera en la
+tarea. La regresión completa.
+
+---
+
+## 29. La sexta revisión (ChatGPT), sobre `7e000ba` — 17/11
+
+**Qué.** Cinco puntos, los cinco ciertos. El patrón: la fila ordena las
+operaciones, pero también hay que mirar que quien las pidió siga siendo
+dueño de la sesión.
+- **La limpieza del `authError`** mostraba el ingreso antes de terminar de
+  borrar; si entraba otro y salía a ruta, le borraba el token y le paraba
+  el GPS. Ahora mira la generación después de cada espera.
+- **Las paradas de la tarea de fondo** llevan la `generacion` de la sesión
+  que las decidió (la que `subirAhora` ya capturaba): una parada de A que
+  llega después de esperar al servidor no detiene el GPS de B.
+- **El vigilante** vuelve a mirar el relevo (`detenidoPor`) y la sesión
+  rechazada después de preguntar si el GPS corre.
+- **`limpiarNotificacion()`** pide el apagado del vigía antes de su primera
+  espera: una limpieza vieja ya no cancela la vigilancia nueva.
+- **`notificarGrabacionPedida()`**, el único que publicaba por fuera, va por
+  la fila de la bandeja, y la limpieza también retira su aviso.
+
+**Pruebas.** `nativas`: ejecutables (parada vieja, cruce de filas, aviso de
+grabación) y de texto (authError, vigilante). La regresión completa.
+
+**Mirar.** Con esto ChatGPT propone cerrar el inventario de carreras y
+pasar al teléfono. De acuerdo.
+
+---
+
+## 28. La quinta revisión (ChatGPT), sobre `476e0ef` — 17/11
+
+**Qué.** Cuatro carreras más, las cuatro ciertas.
+- **La tarea de fondo se saltaba la fila del GPS**: sus seis paradas
+  (relevo, sesión rechazada, ausente mucho tiempo, sin sesión, volvió solo
+  sin pisar el trazado) llamaban a `stopLocationUpdatesAsync` directo. Un
+  `cambiarCadencia` en vuelo volvía a encender el GPS con el diagnóstico
+  diciendo «detenido». Ahora pasan por `pararDesdeLaTarea(motivo)`, en la
+  misma fila y contando como pedido de parar.
+- **Una respuesta de combis de la sesión anterior tocaba la siguiente**:
+  `misCombis`, `elegirCombi` y `pedirMarca` miran la generación que las
+  originó antes de aplicarse; el cliente tiene su propia época de sesión y
+  `elegirCombi` no reescribe una sesión que ya no es la suya.
+- **La brecha volvía a la bandeja después de limpiarla**: publicar
+  (`notificarBrecha`, `notificarSinSenal`, `notificarSinRol`) y limpiar van
+  en una fila; lo pedido antes de una limpieza ya no publica.
+- **La limpieza de un vigía viejo borraba el nuevo**: el vigía va en fila
+  y ya no cancela tarde por el identificador compartido.
+
+**Pruebas.** `nativas`: cada secuencia del informe con el código real y lo
+nativo diferido, y el `crearCliente` real con un `fetch` diferido (A elige
+combi, sale, entra B). La regresión completa.
+
+---
+
+## 27. La cuarta revisión (ChatGPT), sobre `af07bce` — 17/11
+
+**Qué.** Cuatro carreras de cancelación, las cuatro ciertas. Un commit,
+`a095a98`, porque las pruebas cubren las tres piezas a la vez.
+- **Retomar un turno** no se cortaba si la sesión moría mientras Android
+  preguntaba los permisos: ahora mira la generación de sesión después de
+  cada espera.
+- **Generación de sesión** (`empezarSesion`, `terminarSesion`): cambia sólo
+  al empezar y al terminar (Salir, `authError`, sesión rechazada), nunca con
+  las actualizaciones de la sesión (central, combi). Reemplaza al efecto
+  `[sesion]`, que reabría el cierre a mitad de «Salir».
+- **El GPS en fila** (`app/gps/servicio.js`): `arrancar`, `parar` y
+  `cambiarCadencia` corren de a una; un arranque o una cadencia pedidos
+  antes de un `parar` no corren.
+- **El aviso de GPS detenido** tiene época: apagarlo invalida la
+  programación que estaba a mitad.
+
+**Pruebas.** `nativas`: el código real con lo nativo simulado y diferido;
+cada secuencia del informe de ChatGPT, más «parar y después arrancar»
+(manda el último) y «cadencia antes de parar». La regresión completa.
+
+**Mirar.** Lo de siempre: nada corrió en un teléfono, y esta vez lo que se
+tocó es justo lo que sólo se ve en uno (Android con respuestas lentas).
+
+---
+
+## 26. La tercera revisión (ChatGPT), sobre `cce5614` — 17/11
+
+**Qué.** Cuatro puntos, los cuatro ciertos al verificarlos. Dos tocaban el
+GPS.
+- **Salir a ruta sin permisos abría el turno** (`7b05dce`): se declaraba
+  «ruta» antes de pedir los permisos, así que el servidor abría el turno y
+  le sacaba el mando al chofer anterior aunque el teléfono no pudiera
+  mandar posición. Ahora los permisos van primero (también al retomar un
+  turno guardado); sin ellos, a la puerta y se dice.
+- **El AUSENTE pendiente arrancaba el GPS al cerrar sesión** (`7b05dce`):
+  vencía mientras «Salir» esperaba al servidor. Ahora «Salir» prende
+  `cerrando` lo primero y cada cambio de presencia lleva su época; uno
+  viejo se corta después de cada espera. Un relevo cancela el pendiente.
+- **El cobrador confundía «no sé» con «no está»** (`4016406`): «ESPERANDO
+  LA RUTA» sin datos todavía; «NO VEO A TU COMBI» neutral cuando no aparece
+  (el servidor la olvida a los ~3 min de silencio, así que no aparecer no
+  prueba que terminó); sin conexión, el último aviso no se muestra como
+  actual.
+- **El permiso de notificaciones revocado no se notaba** (`d2c5113`):
+  `preparado` quedaba en true para siempre. El canal y el permiso son ahora
+  cosas separadas; el permiso se mira cada minuto y al volver a primer
+  plano.
+
+**Pruebas.** `nativas`: el `cambiarPresencia` real con lo de afuera
+simulado (sin permisos no declara; permisos primero; cerrando no hace
+nada; AUSENTE ya empezado no arranca el GPS; uno viejo se corta) y el
+permiso concedido → revocado → concedido. `hud`: esperando y no aparece.
+La regresión completa.
+
+**Mirar.** Lo mismo: nada de esto corrió en un teléfono.
+
+---
+
 ## 25. La segunda revisión (ChatGPT), sobre la rama del PR — 17/11
 
 **Qué.** ChatGPT revisó la rama en `a0204d1`: dos fallas de comportamiento

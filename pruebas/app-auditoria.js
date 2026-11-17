@@ -49,7 +49,7 @@ let servidor = null;
   ok('la vuelta automática del vigía queda anotada',
     /presenciaEfectiva = 'ruta';[\s\S]{0,200}LLAVE_VOLVIO_SOLO, String\(Date\.now\(\)\)/.test(servicio));
   ok('y si toca salir, avisa al servidor y apaga el GPS',
-    /decidirVueltaSola\(volvio, cuerpo\.enRuta, Date\.now\(\)\) === 'fuera'[\s\S]{0,1500}\/presencia[\s\S]{0,1200}stopLocationUpdatesAsync/.test(servicio));
+    /decidirVueltaSola\(volvio, cuerpo\.enRuta, Date\.now\(\)\) === 'fuera'[\s\S]{0,1500}\/presencia[\s\S]{0,1200}pararDesdeLaTarea\(/.test(servicio));
 
   // El servidor dice `enRuta` en cada POST /gps
   borrarBase();
@@ -83,12 +83,12 @@ let servidor = null;
     /SILENCIO_AVISO_MS = 10 \* 60_000/.test(notif) && /importance: Notifications\.AndroidImportance\.HIGH/.test(notif) &&
     /identifier: ID_SILENCIO[\s\S]{0,400}seconds: Math\.round\(SILENCIO_AVISO_MS \/ 1000\)/.test(notif));
   ok('cada vez, el anterior se cancela (se corre, no se suma)', /cancelScheduledNotificationAsync\(ID_SILENCIO\)[\s\S]{0,300}scheduleNotificationAsync/.test(notif));
-  ok('a lo sumo una vez por minuto', /if \(ahora - silencioCorridoEn < 60_000\) return;/.test(notif));
+  ok('a lo sumo una vez por minuto', /if \(ahora - silencioCorridoEn < 60_000\) return Promise\.resolve\(\);/.test(notif) && /ahora - silencioCorridoEn < 60_000\) return;/.test(notif));
   ok('cada lectura del GPS en ruta o ausente lo corre (antes del envío: una zona sin señal no es falsa alarma)',
     /if \(presenciaEfectiva === 'ruta' \|\| presenciaEfectiva === 'ausente'\) vigilarSilencio\(\)[\s\S]{0,40}const r = await pedirConCorte\(servidor \+ '\/gps'/.test(servicio));
   ok('salir de ruta, cerrar sesión o el relevo lo apagan',
-    /export async function limpiarNotificacion\(\) \{[\s\S]{0,200}apagarVigiaDeSilencio\(\)/.test(notif) &&
-    /export async function notificarSinRol\(motivo\) \{\s*\/\/[^\n]*\n\s*apagarVigiaDeSilencio\(\)/.test(notif));
+    /export async function limpiarNotificacion\(\) \{[\s\S]{0,400}apagarVigiaDeSilencio\(\)/.test(notif) &&
+    /export function notificarSinRol\(motivo\) \{\s*\/\/[^\n]*\n\s*apagarVigiaDeSilencio\(\)/.test(notif));
 
   console.log('\nC. PLAY STORE: LA GALERÍA SIN PERMISO');
   // `blockedPermissions` es nativo: va con la próxima APK (PLAYSTORE.md §3),

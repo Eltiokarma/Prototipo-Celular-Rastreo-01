@@ -554,6 +554,9 @@ async function subirAhora(nuevas) {
   // misma sesión: si en el medio se salió, esas posiciones son de nadie.
   const gen = generacion;
   const guardarSiSigue = (p) => { if (gen === generacion) guardar(p); };
+  // ¿Sigue siendo la sesión de esta corrida? Fuera del try: el catch también
+  // la usa (octava revisión con ChatGPT, 17/11).
+  const mia = () => gen === generacion;
   try {
     const [crudo, servidor, presencia, flagGrabando, archivoGrabacion] = await Promise.all([
       SecureStore.getItemAsync(LLAVE_SESION),
@@ -564,6 +567,13 @@ async function subirAhora(nuevas) {
       // Ver abajo por qué importa.
       FileSystem.getInfoAsync(ARCHIVO_GRABACION()).catch(() => null),
     ]);
+    // De acá en adelante, después de CADA espera: si la sesión ya no es la
+    // de esta corrida, ningún efecto (ni diagnóstico, ni bandeja, ni disco,
+    // ni la cola). Antes sólo se protegía la parada del GPS, y una corrida
+    // vieja le limpiaba las notificaciones, le vaciaba la cola o le borraba
+    // la sesión guardada a la que había entrado después (séptima revisión
+    // con ChatGPT, 17/11).
+    if (!mia()) return;
     // Si hay archivo y no hay flag, es una grabación parada que la pantalla
     // tiene que poder ver (ver `hidratarGrabacionGuardada`).
     if (archivoGrabacion?.exists && flagGrabando !== '1') hidratarGrabacionGuardada().catch(() => {});
@@ -576,7 +586,7 @@ async function subirAhora(nuevas) {
       if (sinSesionSeguidas >= SIN_SESION_TOPE) {
         sinSesionSeguidas = 0;
         diagnostico.servicio = 'detenido: sin sesión';
-        try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        await pararDesdeLaTarea('detenido: sin sesión', gen);
       }
       return;
     }
@@ -597,11 +607,14 @@ async function subirAhora(nuevas) {
         vigia = null;
         presenciaEfectiva = 'ruta';
         await SecureStore.setItemAsync(LLAVE_PRESENCIA, 'ruta');
+        if (!mia()) return;
         await SecureStore.setItemAsync(LLAVE_VOLVIO_SOLO, String(Date.now())).catch(() => {});
+        if (!mia()) return;
         diagnostico.presenciaAuto = 'ruta';
       } else if (accion === 'fuera') {
         vigia = null;
         await SecureStore.setItemAsync(LLAVE_PRESENCIA, 'fuera');
+        if (!mia()) return;
         // El flag va ANTES de parar el servicio: así la vigilancia de la
         // pantalla nunca ve "servicio caído" sin saber por qué (y no lo
         // rearranca).
@@ -616,8 +629,9 @@ async function subirAhora(nuevas) {
             body: JSON.stringify({ estado: 'fuera' }),
           }, control);
         } catch {}
+        if (!mia()) return;
         diagnostico.servicio = 'detenido: ausente mucho tiempo';
-        try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        await pararDesdeLaTarea('detenido: ausente mucho tiempo', gen);
         // Y la brecha vieja no queda colgada en la bandeja
         limpiarNotificacion().catch(() => {});
         // Las posiciones de la casa no se mandan: irse es irse.
@@ -669,11 +683,13 @@ async function subirAhora(nuevas) {
       // ¿Volvió a ruta solo y nunca pisó el trazado? (ver VOLVIO_SOLO_MAX_MS)
       if (presenciaEfectiva === 'ruta' && typeof cuerpo.enRuta === 'boolean') {
         const volvio = Number(await SecureStore.getItemAsync(LLAVE_VOLVIO_SOLO).catch(() => null)) || 0;
+        if (!mia()) return;
         if (volvio && cuerpo.enRuta) {
           SecureStore.deleteItemAsync(LLAVE_VOLVIO_SOLO).catch(() => {});
         } else if (volvio && decidirVueltaSola(volvio, cuerpo.enRuta, Date.now()) === 'fuera') {
           SecureStore.deleteItemAsync(LLAVE_VOLVIO_SOLO).catch(() => {});
           await SecureStore.setItemAsync(LLAVE_PRESENCIA, 'fuera').catch(() => {});
+          if (!mia()) return;
           diagnostico.presenciaAuto = 'fuera';
           try {
             await pedirConCorte(servidor + '/presencia', {
@@ -682,11 +698,12 @@ async function subirAhora(nuevas) {
               body: JSON.stringify({ estado: 'fuera' }),
             }, control);
           } catch {}
+          if (!mia()) return;
           diagnostico.servicio = 'detenido: volvió a ruta solo y nunca pisó el trazado';
           pendientes = [];
           diagnostico.enEspera = 0;
           limpiarNotificacion().catch(() => {});
-          try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+          await pararDesdeLaTarea('detenido: volvió a ruta solo y nunca pisó el trazado', gen);
           return;
         }
       }
@@ -704,7 +721,7 @@ async function subirAhora(nuevas) {
         // Borrarla dejaba la última brecha vista como lo último que el chofer
         // sabe, sin nada que la desmienta (C22).
         notificarSinRol(cuerpo.motivo).catch(() => {});
-        try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+        await pararDesdeLaTarea('detenido: sin rol de GPS', gen);
         return;
       }
 
@@ -727,6 +744,9 @@ async function subirAhora(nuevas) {
       // ahí todo el almuerzo — lo que App.js dice que evita (22/9).
       if (cuerpo?.brecha) {
         const sigue = await SecureStore.getItemAsync(LLAVE_PRESENCIA).catch(() => null);
+        // Mientras se leía el disco pudo entrar otra sesión: la brecha (y el
+        // pedido de grabación de abajo) son de ESTA corrida
+        if (!mia()) return;
         if (sigue === 'ruta') notificarBrecha(cuerpo.brecha).catch(() => {});
       }
       // Despacho pidió una grabación (4.5). Mejor esfuerzo, como todo lo que
@@ -734,6 +754,8 @@ async function subirAhora(nuevas) {
       // servidor y el próximo POST lo vuelve a traer.
       if (cuerpo?.grabar === true) atenderPedidoGrabacion().catch(() => {});
     } else {
+      // Lo mismo que con el 200: la respuesta de otra sesión no se aplica
+      if (!mia()) return;
       // El cuerpo del error dice bastante más que el número: 403 del cobrador,
       // 409 del relevo y 400 del reloj mal puesto se ven igual desde afuera.
       const cuerpo = r.json() || {};
@@ -758,11 +780,13 @@ async function subirAhora(nuevas) {
           diagnostico.sesionRechazada = true;
           diagnostico.servicio = 'detenido: sesión rechazada';
           try { await SecureStore.deleteItemAsync(LLAVE_SESION); } catch {}
+          if (!mia()) return;
           try { await SecureStore.deleteItemAsync(LLAVE_PRESENCIA); } catch {}
+          if (!mia()) return;
           pendientes = [];
           diagnostico.enEspera = 0;
           limpiarNotificacion().catch(() => {});
-          try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+          await pararDesdeLaTarea('detenido: sesión rechazada', gen);
         }
       } else if (r.status === 403 || r.status === 409) {
         if (++sinRolSeguidos >= RECHAZOS_TOPE) {
@@ -772,7 +796,7 @@ async function subirAhora(nuevas) {
           pendientes = [];
           diagnostico.enEspera = 0;
           limpiarNotificacion().catch(() => {});
-          try { await Location.stopLocationUpdatesAsync(TAREA_GPS); } catch {}
+          await pararDesdeLaTarea('detenido: sin rol de GPS', gen);
         }
       } else {
         noAutorizadosSeguidos = 0;
@@ -783,6 +807,9 @@ async function subirAhora(nuevas) {
     // Si lo cortó la tarea, `subir` ya devolvió las posiciones a la cola y
     // las contó: volver a hacerlo acá las mandaría dos veces.
     if (vuelo.cortado) return;
+    // Un envío de la sesión anterior que falla tarde no le anota «sin red» ni
+    // le pone «SIN SEÑAL» en la bandeja a la que entró después
+    if (!mia()) return;
     // Sin datos: en segundo plano es lo normal, Doze le corta la red a la app.
     // NO se pierden — esperan al próximo envío que salga. El envío colgado
     // llega acá por el timeout nativo, con su propio nombre: "sin red" dice
@@ -795,6 +822,7 @@ async function subirAhora(nuevas) {
     // Mejor esfuerzo: si falla, el GPS ni se entera (auditoría de UI, N1).
     try {
       const sigue = await SecureStore.getItemAsync(LLAVE_PRESENCIA).catch(() => null);
+      if (!mia()) return;
       if (sigue === 'ruta') notificarSinSenal(diagnostico.ultimoEnvio).catch(() => {});
     } catch {}
   } finally {
@@ -844,7 +872,27 @@ export async function pedirPermisos() {
 //
 // Y el caso que lo dispara es el más común de todos: **instalar una versión
 // nueva**. O sea que le iba a pasar a cada chofer en cada actualización.
-export async function arrancar({ textoNotificacion = 'Turno en curso' } = {}) {
+// ── Arrancar, parar y cambiar la cadencia, en FILA ──────────────────
+// Cada una tiene sus propias esperas nativas. Sin fila se entrelazaban: un
+// `arrancar` que ya había empezado terminaba DESPUÉS de un `parar` y dejaba
+// el GPS corriendo para una sesión cerrada (cuarta revisión con ChatGPT,
+// 17/11). Ahora corren de a una, en el orden en que se pidieron. Y un
+// arranque pedido antes de un `parar` ya no corre cuando le toca: el que
+// pidió parar es el último que habló.
+let fila = Promise.resolve();
+let pedidosDeParar = 0;
+function enFila(fn) {
+  const p = fila.then(fn, fn);
+  fila = p.catch(() => {});
+  return p;
+}
+
+export function arrancar(opciones = {}) {
+  const paradasAlPedir = pedidosDeParar;
+  return enFila(() => (pedidosDeParar !== paradasAlPedir ? undefined : arrancarAhora(opciones)));
+}
+
+async function arrancarAhora({ textoNotificacion = 'Turno en curso' } = {}) {
   hidratarGrabacionGuardada().catch(() => {});
   if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
     diagnostico.servicio = 'corriendo';
@@ -880,7 +928,12 @@ export async function arrancar({ textoNotificacion = 'Turno en curso' } = {}) {
 //
 // Misma pregunta que en `arrancar`, y por el mismo motivo: con el registro
 // como condición, esto reiniciaba una tarea que no estaba corriendo.
-export async function cambiarCadencia(ms, textoNotificacion) {
+export function cambiarCadencia(ms, textoNotificacion) {
+  const paradasAlPedir = pedidosDeParar;
+  return enFila(() => (pedidosDeParar !== paradasAlPedir ? undefined : cambiarCadenciaAhora(ms, textoNotificacion)));
+}
+
+async function cambiarCadenciaAhora(ms, textoNotificacion) {
   if (!(await Location.hasStartedLocationUpdatesAsync(TAREA_GPS))) return;
   await Location.startLocationUpdatesAsync(TAREA_GPS, {
     accuracy: Location.Accuracy.High,
@@ -897,7 +950,37 @@ export async function cambiarCadencia(ms, textoNotificacion) {
   });
 }
 
-export async function parar() {
+export function parar() {
+  pedidosDeParar++;
+  return enFila(pararAhora);
+}
+
+// Las paradas que decide la TAREA de fondo (relevo, sesión rechazada,
+// ausente mucho tiempo, sin sesión, volvió solo y no pisó el trazado). Antes
+// llamaban a stopLocationUpdatesAsync directo y se saltaban la fila: un
+// cambiarCadencia que ya esperaba una respuesta nativa terminaba después y
+// volvía a encender el GPS, con el diagnóstico diciendo «detenido» (quinta
+// revisión con ChatGPT, 17/11). Ahora entran a la misma fila, cuentan como
+// pedido de parar, y dejan escrito el motivo.
+//
+// Y con DUEÑO (sexta revisión con ChatGPT, 17/11): la tarea decide parar
+// después de esperar al servidor (el POST de la ausencia larga, el de
+// «volvió solo»). Si en esa espera se cerró la sesión y arrancó otra, la
+// orden ya no es de nadie: no se encola. `gen` es la `generacion` de la
+// sesión que mandó (cambia en vaciarCola, que llama limpiarSesion).
+function pararDesdeLaTarea(motivo, gen) {
+  if (gen !== undefined && gen !== generacion) return Promise.resolve();
+  pedidosDeParar++;
+  return enFila(async () => {
+    if (gen !== undefined && gen !== generacion) return;
+    try {
+      if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) await Location.stopLocationUpdatesAsync(TAREA_GPS);
+    } catch {}
+    diagnostico.servicio = motivo;
+  });
+}
+
+async function pararAhora() {
   if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
     await Location.stopLocationUpdatesAsync(TAREA_GPS);
   } else if (await TaskManager.isTaskRegisteredAsync(TAREA_GPS)) {
