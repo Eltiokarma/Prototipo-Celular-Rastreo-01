@@ -451,7 +451,58 @@ const pruebaNotif = (async () => {
   ok('nunca se le volvió a PEDIR al usuario', pedidos === 1, pedidos);
 })();
 
-pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }).then(() => {
+const pruebaPresencia = (async () => {
+  console.log('\nPRESENCIA, PERMISOS Y CIERRE DE SESIÓN (tercera revisión, 17/11)');
+  // El cambiarPresencia de verdad, con todo lo de afuera simulado: el
+  // AUSENTE que vencía mientras «Salir» esperaba al servidor arrancaba el
+  // GPS de una sesión que se cerraba, y salir a ruta declaraba «ruta» antes
+  // de saber si había permisos.
+  const app = require('fs').readFileSync(RAIZ + '/app/App.js', 'utf8');
+  const fuente = app.slice(app.indexOf('  const cerrando = React.useRef(false);'), app.indexOf("  // ── El vigía de la puerta (opción C, 30/10)"));
+  const armar = () => {
+    const r = { log: [], permisoOk: true, esperarPermiso: null };
+    const React = { useRef: (v) => ({ current: v }), useEffect: () => {} };
+    const gps = {
+      LLAVE_PRESENCIA: 'p', diagnostico: {},
+      pedirPermisos: () => { r.log.push('permisos'); return r.esperarPermiso ? r.esperarPermiso : Promise.resolve(r.permisoOk ? { ok: true } : { ok: false, cual: 'segundo plano' }); },
+      arrancar: async () => { r.log.push('arrancar'); }, parar: async () => { r.log.push('parar'); }, vaciarCola: () => {},
+    };
+    const env = {
+      React, gps, sesion: { unitId: 'pedro' }, reporta: true, textoRef: { current: '' }, saliendo: { current: false },
+      setPresencia: (v) => r.log.push('presencia:' + v), setAviso: (v) => r.log.push('aviso:' + (v ? 'si' : 'no')),
+      SecureStore: { setItemAsync: async () => {} }, limpiarNotificacion: async () => {},
+      cliente: { current: { marcarPresencia: (v) => r.log.push('declara:' + v) } },
+    };
+    const f = new Function(...Object.keys(env), fuente + '\nreturn { cerrando, cambiarPresencia };')(...Object.values(env));
+    return { ...f, r };
+  };
+  { const { cambiarPresencia, r } = armar(); r.permisoOk = false;
+    await cambiarPresencia('ruta');
+    ok('sin permisos no se declara «ruta» ni se cambia la pantalla', !r.log.some(x => x.startsWith('declara') || x.startsWith('presencia')) && r.log.includes('aviso:si'), r.log); }
+  { const { cambiarPresencia, r } = armar();
+    await cambiarPresencia('ruta');
+    ok('con permisos: primero los permisos, después declarar y arrancar', r.log.join(',') === 'permisos,aviso:no,presencia:ruta,declara:ruta,arrancar', r.log); }
+  { const { cambiarPresencia, cerrando, r } = armar();
+    cerrando.current = true;   // «Salir» ya empezó
+    await cambiarPresencia('ausente');
+    ok('con la sesión cerrándose, AUSENTE no hace nada', r.log.length === 0, r.log); }
+  { const { cambiarPresencia, cerrando, r } = armar();
+    let soltar; r.esperarPermiso = new Promise(res => { soltar = res; });
+    const p = cambiarPresencia('ausente');          // vence AUSENTE: se declara y pide permisos
+    await new Promise(res => setTimeout(res, 0));
+    cerrando.current = true;                        // mientras, «Salir»
+    soltar({ ok: true }); await p;
+    ok('AUSENTE ya empezado no arranca el GPS si la sesión se cerró en el medio', !r.log.includes('arrancar'), r.log); }
+  { const { cambiarPresencia, r } = armar();
+    let soltar; r.esperarPermiso = new Promise(res => { soltar = res; });
+    const p1 = cambiarPresencia('ruta');
+    r.esperarPermiso = null;
+    await cambiarPresencia('fuera');                // llega otro cambio antes
+    soltar({ ok: true }); await p1;
+    ok('un cambio viejo se corta si llegó uno más nuevo', !r.log.includes('declara:ruta') && r.log.includes('declara:fuera'), r.log); }
+})();
+
+Promise.all([pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }), pruebaPresencia.catch(e => { ok('la prueba de presencia corrió', false, e.stack); })]).then(() => {
   console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
   process.exit(fallas ? 1 : 0);
 });

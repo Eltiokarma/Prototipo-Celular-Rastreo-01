@@ -436,10 +436,20 @@ function Aplicacion() {
     // guardado de un APK viejo no arranca nada.
     if (s.role === 'collector') { setPresencia('fuera'); return; }
     if (previa === 'ruta' || previa === 'ausente') {
+      // Los permisos ANTES de retomar: sin ellos el teléfono no puede
+      // mandar la posición, y declarar «en ruta» le abría el turno y le
+      // sacaba el mando al chofer que estuviera manejando (tercera revisión
+      // con ChatGPT, 17/11). Sin permisos vuelve a la puerta, y se dice.
+      const permisos = await gps.pedirPermisos();
+      if (!permisos.ok) {
+        setPresencia('fuera');
+        SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA).catch(() => {});
+        cliente.current.marcarPresencia('fuera');
+        setAviso(`Falta el permiso de ubicación en ${permisos.cual}`);
+        return;
+      }
       setPresencia(previa);
       cliente.current.marcarPresencia(previa, null, { retomada: true });
-      const permisos = await gps.pedirPermisos();
-      if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
       setAviso(null);   // el aviso de permisos viejo no sobrevive al permiso dado
       await gps.arrancar({ textoNotificacion: 'Turno en curso' });
     }
@@ -448,9 +458,33 @@ function Aplicacion() {
   // Cambiar de presencia es UNA función porque toca tres mundos a la vez y
   // el orden importa: el disco (para la tarea de fondo y para retomar), el
   // servidor (la declaración), y el servicio de GPS (que emite o calla).
+  // Cerrando la sesión no se declara nada más: el AUSENTE con DESHACER que
+  // vencía mientras «Salir» esperaba al servidor ponía `saliendo` en false,
+  // pedía permisos y arrancaba el GPS de una sesión que se estaba cerrando.
+  // Y cada cambio lleva su «época»: uno viejo que ya empezó se corta después
+  // de cada espera si llegó otro, o si se empezó a cerrar la sesión (tercera
+  // revisión con ChatGPT, 17/11). Limpiar un temporizador no frena lo que
+  // ya arrancó.
+  const cerrando = React.useRef(false);
+  const epocaPresencia = React.useRef(0);
+  React.useEffect(() => { if (sesion) cerrando.current = false; }, [sesion]);
   const cambiarPresencia = async (nueva, motivo) => {
+    if (cerrando.current) return;
+    const mia = ++epocaPresencia.current;
+    const vigente = () => !cerrando.current && epocaPresencia.current === mia;
+    // Salir a ruta pide los permisos ANTES de declarar: sin ellos el
+    // teléfono no puede mandar la posición, y declarar «en ruta» abría el
+    // turno en el servidor y le sacaba el mando al chofer anterior. Sin
+    // permisos se queda en la puerta, y se dice.
+    if (nueva === 'ruta') {
+      const permisos = await gps.pedirPermisos();
+      if (!vigente()) return;
+      if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
+      setAviso(null);
+    }
     setPresencia(nueva);
     try { await SecureStore.setItemAsync(gps.LLAVE_PRESENCIA, nueva); } catch {}
+    if (!vigente()) return;
     cliente.current.marcarPresencia(nueva, motivo);
     if (nueva === 'fuera') {
       // Primero se le avisa al vigilante, DESPUÉS se para: la misma carrera
@@ -471,13 +505,19 @@ function Aplicacion() {
       // servicio que esta salida acaba de pedir (revisión previa a la APK).
       // Si el otro sigue manejando, el servidor lo vuelve a decir.
       gps.diagnostico.detenidoPor = null;
-      const permisos = await gps.pedirPermisos();
-      if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
-      setAviso(null);   // ídem: al dar el permiso, el cartel viejo se va
+      // A ruta ya se pidieron arriba; AUSENTE se declara igual (es salir de
+      // la cadena) y el GPS sigue sólo si hay permiso
+      if (nueva === 'ausente') {
+        const permisos = await gps.pedirPermisos();
+        if (!vigente()) return;
+        if (!permisos.ok) { setAviso(`Falta el permiso de ubicación en ${permisos.cual}`); return; }
+        setAviso(null);   // ídem: al dar el permiso, el cartel viejo se va
+      }
       // Recién salido todavía no hay rol: `reporta` es el de antes (o el
       // inicial), y la notificación arrancaba diciendo «Modo acompañante» al
       // que sale a manejar. Si de verdad lo es, el servicio la reemplaza
       // con la primera respuesta del servidor.
+      if (!vigente()) return;
       await gps.arrancar({ textoNotificacion: reporta ? textoRef.current : 'Turno en curso' });
     }
   };
@@ -929,6 +969,9 @@ function Aplicacion() {
     rol: sesion?.role || 'driver',
     onIr: irA,
     onSalir: async () => {
+      // Lo primero: nada que esté por declararse (el AUSENTE con DESHACER)
+      // puede tocar la presencia ni el GPS mientras se cierra la sesión
+      cerrando.current = true;
       // El orden importa: primero se le avisa al vigilante, DESPUÉS se para
       // el servicio. Al revés, un tick del vigilante en medio lo rearrancaba.
       saliendo.current = true;
@@ -1377,6 +1420,9 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
     return () => { clearInterval(reloj); clearTimeout(t); };
   }, [ausenteEn]);
   React.useEffect(() => { if (presencia !== 'ruta') setAusenteEn(null); }, [presencia]);
+  // Un relevo (otro chofer tomó la unidad) cambia el rol y no la presencia:
+  // el AUSENTE pendiente también se cancela
+  React.useEffect(() => { if (reporta === false) setAusenteEn(null); }, [reporta]);
   const faltaAusente = ausenteEn ? Math.max(1, Math.ceil((DESHACER_AUSENTE_MS - (Date.now() - ausenteEn)) / 1000)) : 0;
   // Y el segundo toque cuenta recién a los 0,6 s: el primero arma al
   // instante y el botón cambia de función en el mismo lugar, así que un
