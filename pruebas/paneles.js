@@ -224,6 +224,8 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 4');
   ok('N4 · borrar un tramo guarda lo que había y ofrece recuperarlo', /setBorrado\(\{ tramo, puntos \}\); setPuntos\(\[\]\);/.test(despacho) && /data-recuperar onClick=\{\(\) => setTramos\(t => t \? \(\{ \.\.\.t, \[borrado\.tramo\]: borrado\.puntos \}\) : t\)\}/.test(despacho));
   // N5: a quién va el mensaje sólo lo decía la cabecera
   ok('N5 · el destino del mensaje va junto al campo y en el botón de enviar', /data-destino=\{privadoCon \? 'privado' : 'ruta'\}/.test(despacho) && /Para: solo \{nombreDe\(privadoCon\)\}/.test(despacho) && /aria-label=\{privadoCon \? `Enviar solo a \$\{nombreDe\(privadoCon\)\}` : 'Enviar a toda la ruta'\}/.test(despacho));
+  // C1 es hipótesis (H3): la lista compacta está construida pero apagada
+  ok('C1 · la lista compacta arranca apagada y se prende con ?ensayo=compacta', /const COMPACTA = ENSAYOS_DESP\.has\('compacta'\);/.test(despacho) && /localStorage\.setItem\('r14_ensayo_despacho', v\)/.test(despacho) && /\{!COMPACTA && <div style=\{\{\n\s+display: 'grid', gridTemplateColumns: '1fr 1fr'/.test(despacho) && /data-brecha=\{lado\}/.test(despacho));
   // N7: «08:04» de brecha al lado de «desde 08:04» de hora
   ok('N7 · la brecha se muestra sin cero adelante y con «min»', /function duracion\(gapStr\)/.test(despacho) && /\{duracion\(val\)\}<span/.test(despacho));
 }
