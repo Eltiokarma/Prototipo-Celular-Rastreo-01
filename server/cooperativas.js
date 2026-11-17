@@ -445,7 +445,7 @@ function bajaVariante(db, { variantId } = {}) {
   // Dos negativas, y las dos son para no dejar una ruta sin con qué medir:
   // borrar la que está midiendo, o borrar la última que queda.
   if (v.activa) {
-    return { error: 'Esa es la variante con la que se está midiendo. Activá otra y después borrala.' };
+    return { error: 'Esa es la variante con la que se está midiendo. Activa otra y después bórrala.' };
   }
   // En la práctica no se llega acá: la única variante de una ruta siempre
   // está activa, así que la corta el chequeo de arriba. Queda igual como red

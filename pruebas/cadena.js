@@ -3,7 +3,7 @@
 // Lo que se defiende (decisión del 8/9, REVISION-2026-09-08.md, L1): una
 // combi se mide sólo contra las de SU tramo. La que está por llegar al
 // terminal no tiene «adelante» a la que acaba de salir de vuelta —va para el
-// otro lado—, y la recién salida no recibe «apurá» hacia la que está a 48
+// otro lado—, y la recién salida no recibe «apura» hacia la que está a 48
 // minutos por el otro extremo del circuito. La vuelta entera sigue siendo
 // una métrica (`laps`); lo que no existe es la brecha a través del terminal.
 const RAIZ = require('path').join(__dirname, '..');

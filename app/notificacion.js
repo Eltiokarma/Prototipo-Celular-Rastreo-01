@@ -202,7 +202,7 @@ export async function vigilarSilencio(ahora = Date.now()) {
       identifier: ID_SILENCIO,
       content: {
         title: 'Tu GPS dejó de funcionar',
-        body: 'Estás en ruta y hace 10 minutos que el GPS no lee tu ubicación: tu combi no está en el mapa. Abrí la app.',
+        body: 'Estás en ruta y hace 10 minutos que el GPS no lee tu ubicación: tu combi no está en el mapa. Abre la app.',
       },
       trigger: { type: tipo, seconds: Math.round(SILENCIO_AVISO_MS / 1000), channelId: CANAL_SILENCIO },
     });

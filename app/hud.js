@@ -86,7 +86,7 @@ function armarLado(brechaLado, etiqueta, signo, objetivoMin, ahora) {
 
 // ─── LA BRECHA VIEJA (auditoría de UI, N1, 16/11) ───────────────────
 // Sin señal la pantalla seguía mostrando la última brecha en su color y con
-// su instrucción: «Mantené el ritmo» sobre un dato de hace minutos. Con el
+// su instrucción: «Mantén el ritmo» sobre un dato de hace minutos. Con el
 // teléfono reportando, el estado llega cada ~3 s (cada posición dispara
 // uno), así que su edad mide la señal mejor que el socket, que tarda en
 // darse cuenta de que murió. Los mismos cortes que la web:
@@ -149,38 +149,38 @@ function construirHud(brecha, ahora = Date.now(), { recibido = null, fiable = tr
 
 function instruccionDe(principal, esAtras, objetivoMin, adelante, atras) {
   // El de ADELANTE trabado manda sobre todo lo demás. La brecha contra él
-  // crece sola mientras está parado, y la cuenta de siempre diría "apurá":
+  // crece sola mientras está parado, y la cuenta de siempre diría "apura":
   // apurar hacia un embotellamiento es el pelotón que este sistema existe
   // para evitar, y encima con la combi de adelante ya adentro.
   if (adelante.enTrafico) {
     const que = adelante.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada';
-    return `${adelante.unidad} ${que} ${adelante.traficoMin} min. Mantené: no te apures hacia el embotellamiento.`;
+    return `${adelante.unidad} ${que} ${adelante.traficoMin} min. Mantén: no te apures hacia el embotellamiento.`;
   }
-  // El de ATRÁS trabado no es un peligro para vos: se dice, y se pide ritmo
+  // El de ATRÁS trabado no es un peligro para ti: se dice, y se pide ritmo
   // normal — la brecha con él se va a agrandar sola y no es tu culpa.
   if (atras.enTrafico) {
-    return `${atras.unidad} (atrás) ${atras.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${atras.traficoMin} min. Mantené el ritmo.`;
+    return `${atras.unidad} (atrás) ${atras.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${atras.traficoMin} min. Mantén el ritmo.`;
   }
-  // Con alguien sin señal, callarse o decir "sos la única" sería peor que no
+  // Con alguien sin señal, callarse o decir "eres la única" sería peor que no
   // mostrar nada: hay una combi que el chofer no ve, y manejar como si no
   // estuviera es exactamente lo que hay que evitar.
   if (principal.sinSenal) {
-    return `${principal.unidad} se quedó sin señal. Andá con cuidado: sigue en ruta.`;
+    return `${principal.unidad} se quedó sin señal. Ve con cuidado: sigue en ruta.`;
   }
   if (principal.vacio) {
     return (adelante.sinSenal || atras.sinSenal)
       ? 'Sin brecha para medir por ahora.'
-      : 'Sos la única unidad en ruta.';
+      : 'Eres la única unidad en ruta.';
   }
   if (principal.estado === 'verde') {
-    return `Mantené el ritmo. Objetivo ${objetivoLegible(objetivoMin)}.`;
+    return `Mantén el ritmo. Objetivo ${objetivoLegible(objetivoMin)}.`;
   }
   // Con la de ADELANTE, una brecha mayor al objetivo significa que se está
   // escapando: hay que apurar. Con la de ATRÁS es al revés — una brecha
   // chica significa que te vienen pisando y hay que apurar igual.
   const dev = principal.minutos - objetivoMin;
   const apurar = esAtras ? dev < 0 : dev > 0;
-  return `${apurar ? 'Apurá' : 'Aflojá'} un poco. Objetivo ${objetivoLegible(objetivoMin)}.`;
+  return `${apurar ? 'Apura' : 'Afloja'} un poco. Objetivo ${objetivoLegible(objetivoMin)}.`;
 }
 
 // El texto de la notificación permanente. Android la exige para que el GPS
@@ -209,7 +209,7 @@ function textoNotificacion(hud, reportaGps) {
 // la pantalla — la notificación no puede decir una cosa y el HUD otra.
 //
 // Devuelve null cuando no hay nada que decir (sin brecha en la respuesta):
-// null significa "no toques la notificación", no "mostrá vacío".
+// null significa "no toques la notificación", no "muestra vacío".
 function avisoDesdeRespuesta(brecha, ahora = Date.now()) {
   if (!brecha) return null;
   // Los tres estados de un lado, como en cliente.js: nadie / alguien a
@@ -241,7 +241,7 @@ function avisoSinSenal(ultimoEnvio, ahora = Date.now()) {
   const min = Math.floor((ahora - ultimoEnvio) / 60_000);
   return {
     titulo: `SIN SEÑAL · ${min < 1 ? 'hace menos de 1 min' : `hace ${min} min`}`,
-    detalle: 'La última brecha puede haber cambiado. Andá con cuidado: las otras combis siguen en ruta.',
+    detalle: 'La última brecha puede haber cambiado. Ve con cuidado: las otras combis siguen en ruta.',
   };
 }
 

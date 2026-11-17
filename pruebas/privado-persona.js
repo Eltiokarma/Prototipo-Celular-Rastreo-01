@@ -96,20 +96,20 @@ const AUDIO = 'data:audio/webm;base64,' + Buffer.alloc(300, 1).toString('base64'
   const d18 = await conectar(await entrar('DESP-18B', 'despacho18'));
 
   console.log('\nEL PRIVADO DE LA COMBI, COMO SIEMPRE');
-  decir(desp, { text: 'M-01: esperá 2 min en el mercado', to: 'M-01' });
+  decir(desp, { text: 'M-01: espera 2 min en el mercado', to: 'M-01' });
   await sleep(300);
-  ok('lo reciben el chofer y el cobrador de M-01', recibio(pedro, 'M-01: esperá 2 min en el mercado') && recibio(rosa, 'M-01: esperá 2 min en el mercado'));
-  ok('y no otra combi', !recibio(juan, 'M-01: esperá 2 min en el mercado'));
+  ok('lo reciben el chofer y el cobrador de M-01', recibio(pedro, 'M-01: espera 2 min en el mercado') && recibio(rosa, 'M-01: espera 2 min en el mercado'));
+  ok('y no otra combi', !recibio(juan, 'M-01: espera 2 min en el mercado'));
 
   console.log('\nEL PRIVADO PERSONAL');
-  decir(desp, { text: 'Pedro, pasá por la oficina', toPerson: 'pedro' });
+  decir(desp, { text: 'Pedro, pasa por la oficina', toPerson: 'pedro' });
   await sleep(300);
-  const llego = pedro.msgs.find(m => m.text === 'Pedro, pasá por la oficina');
+  const llego = pedro.msgs.find(m => m.text === 'Pedro, pasa por la oficina');
   ok('lo recibe Pedro', !!llego);
   ok('marcado como personal (toPersonId, sin combi)', llego?.toPersonId === 'pedro' && !llego?.toVehicleId, llego);
-  ok('NO lo recibe su cobradora, que va en la misma combi', !recibio(rosa, 'Pedro, pasá por la oficina'));
-  ok('ni otro chofer', !recibio(juan, 'Pedro, pasá por la oficina'));
-  ok('Despacho ve su propio mensaje (el eco)', recibio(desp, 'Pedro, pasá por la oficina'));
+  ok('NO lo recibe su cobradora, que va en la misma combi', !recibio(rosa, 'Pedro, pasa por la oficina'));
+  ok('ni otro chofer', !recibio(juan, 'Pedro, pasa por la oficina'));
+  ok('Despacho ve su propio mensaje (el eco)', recibio(desp, 'Pedro, pasa por la oficina'));
   decir(pedro, { text: 'Voy a las 18', personal: true });
   await sleep(300);
   const resp = desp.msgs.find(m => m.text === 'Voy a las 18');
@@ -150,8 +150,8 @@ const AUDIO = 'data:audio/webm;base64,' + Buffer.alloc(300, 1).toString('base64'
   ok('y no a Juan, que también tiene M-05 de combi', !recibio(juan, 'Pedro, ¿cómo va M-05?'));
   const hPedro = pedro.historial.map(m => m.text);
   ok('su historial trae el personal de cuando estaba en M-01',
-     ['Pedro, pasá por la oficina', 'Voy a las 18'].every(t => hPedro.includes(t)), hPedro);
-  ok('y ya NO el privado de M-01 (es de la combi, no suyo)', !hPedro.includes('M-01: esperá 2 min en el mercado'));
+     ['Pedro, pasa por la oficina', 'Voy a las 18'].every(t => hPedro.includes(t)), hPedro);
+  ok('y ya NO el privado de M-01 (es de la combi, no suyo)', !hPedro.includes('M-01: espera 2 min en el mercado'));
   juan.close();
   const juan2 = await conectar(await entrar('juan'));
   const hJuan = juan2.historial.map(m => m.text);
@@ -160,14 +160,14 @@ const AUDIO = 'data:audio/webm;base64,' + Buffer.alloc(300, 1).toString('base64'
   const rosa2 = await conectar(await entrar('rosa'));
   const hRosa = rosa2.historial.map(m => m.text);
   ok('el de Rosa trae el privado de M-01 y el suyo, no el de Pedro',
-     hRosa.includes('M-01: esperá 2 min en el mercado') && hRosa.includes('Soy Rosa, en personal') && !hRosa.includes('Pedro, pasá por la oficina'), hRosa);
+     hRosa.includes('M-01: espera 2 min en el mercado') && hRosa.includes('Soy Rosa, en personal') && !hRosa.includes('Pedro, pasa por la oficina'), hRosa);
 
   console.log('\nY A OTRA RUTA');
   pedro.close();
   r = await post('/combi', tPedro, { vehicleId: 'M-21' });
   ok('Pedro pasa a M-21, en la 18B', r.status === 200 && r.body.routeId === 'R-18B', r.body);
   pedro = await conectar(tPedro);
-  ok('su historial en la 18B sigue trayendo su personal', pedro.historial.some(m => m.text === 'Pedro, pasá por la oficina'));
+  ok('su historial en la 18B sigue trayendo su personal', pedro.historial.some(m => m.text === 'Pedro, pasa por la oficina'));
   decir(d18, { text: 'Bienvenido a la 18B', toPerson: 'pedro' });
   await sleep(300);
   ok('ahora sí le escribe el Despacho de la 18B', recibio(pedro, 'Bienvenido a la 18B'));

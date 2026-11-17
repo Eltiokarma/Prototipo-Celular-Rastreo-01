@@ -101,7 +101,7 @@ console.log('\nA7. LA WEB DEL CHOFER VE EL TRÁFICO (Y LAS FOTOS)');
   ok('gapMeta lleva el tráfico de los dos lados',
      /aheadTrafico:\s*\{ enTrafico: !!myGaps\?\.aheadEnTrafico/.test(prototipo) && /behindTrafico:\s*\{ enTrafico: !!myGaps\?\.behindEnTrafico/.test(prototipo));
   ok('el modelo del HUD lo calcula por lado (traficoMin, traficoConfirmado)', /traficoMin: Math\.max\(0, Math\.round/.test(prototipo) && /\.\.\.trafico\(t\)/.test(prototipo));
-  ok('la instrucción tiene la rama «mantené» hacia el embotellamiento', /Mantené: no te apures hacia el embotellamiento/.test(prototipo) && /hud\.front\.enTrafico/.test(prototipo));
+  ok('la instrucción tiene la rama «mantén» hacia el embotellamiento', /Mantén: no te apures hacia el embotellamiento/.test(prototipo) && /hud\.front\.enTrafico/.test(prototipo));
   ok('y el rótulo del lado dice «en tráfico N min» / «parada N min»', /'en tráfico' : 'parada'\} \$\{lado\.traficoMin\} min/.test(prototipo));
   ok('realtime.js emite las fotos', /msg\.type === 'photo_msg'/.test(realtime) && /emit\('photo', msg\)/.test(realtime));
   ok('y la web las pone en el hilo (en vivo y del historial)',
@@ -148,9 +148,9 @@ console.log('\nLO QUE SALIÓ DE RECORRER LAS PANTALLAS (28/10)');
   const sueltas = [...new Set([...creador.matchAll(/var\(--([A-Za-z0-9]+)/g)].map(m => m[1]))].filter(v => !definidas.has(v));
   ok('el creador no usa colores sin definir', sueltas.length === 0, sueltas);
   ok('la web del chofer va a pantalla completa en el teléfono', /html\.telefono \.header/.test(prototipo) && /completo=\{telefono\}/.test(prototipo));
-  ok('«Olvidé mi contraseña» dice qué hacer (no es un enlace muerto)', !/href="#"/.test(prototipo) && /Pedile a Despacho/.test(prototipo));
+  ok('«Olvidé mi contraseña» dice qué hacer (no es un enlace muerto)', !/href="#"/.test(prototipo) && /Pídele a Despacho/.test(prototipo));
   ok('nada de pasajeros ni vueltas inventadas en la puerta', !/42 pasajeros/.test(prototipo) && !/RAÚL MAMANI/.test(prototipo));
-  ok('el ausente no lee «sos la única unidad en ruta»', /const ausente = presencia === 'ausente'/.test(prototipo) && /YENDO A LA RUTA/.test(prototipo));
+  ok('el ausente no lee «eres la única unidad en ruta»', /const ausente = presencia === 'ausente'/.test(prototipo) && /YENDO A LA RUTA/.test(prototipo));
   ok('los mensajes viejos del chat llevan el día', /function horaChat/.test(prototipo) && /function horaChat/.test(despacho));
   ok('el login de Despacho no habla de variables de entorno', !/DISPATCH_PASSWORD/.test(despacho.split('function Login(')[1]?.split('\nfunction ')[0] || ''));
   ok('«Dónde se traba» explica las anomalías en pantalla', /QUE_ES_ANOMALIA/.test(despacho) && !/está en <strong>TRUCOS/.test(despacho));

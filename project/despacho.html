@@ -163,7 +163,7 @@ setTimeout(function () {
       'border-radius:14px;color:#5C0010;">' +
       '<strong>El panel no pudo cargar.</strong><br>' +
       'Sus librerías no llegaron desde internet (unpkg.com). Suele ser un corte ' +
-      'de un momento: recargá con Ctrl+Shift+R. Mientras tanto <strong>no ves ' +
+      'de un momento: recarga con Ctrl+Shift+R. Mientras tanto <strong>no ves ' +
       'el mapa ni los SOS</strong>: si hay una emergencia, la central atiende por teléfono.' +
       '<br><button onclick="location.reload()" style="margin-top:12px;padding:10px 18px;' +
       'font-size:14px;background:#C2001D;color:#fff;border:none;border-radius:9px;cursor:pointer">' +
@@ -391,7 +391,7 @@ function notificarSos(s) {
   try {
     const n = new Notification(`SOS · ${(s.vehicleId || s.unitId || 'Unidad').toUpperCase()}`, {
       body: `${s.driverName || s.unitId || 'Un chofer'} pide ayuda` +
-        (s.routeId ? ` · ruta ${s.routeId}` : '') + '. Abrí el panel y marcá ATENDIDO.',
+        (s.routeId ? ` · ruta ${s.routeId}` : '') + '. Abre el panel y marca ATENDIDO.',
       tag: 'sos-' + (s.sosId ?? s.timestamp), requireInteraction: true,
     });
     n.onclick = () => { try { window.focus(); } catch {} n.close(); };
@@ -845,7 +845,7 @@ function Login({ onSuccess, notice }) {
 
   const submit = async () => {
     if (!user.trim() || pass.length < 4) {
-      setError('Completá usuario y contraseña (mínimo 4 caracteres)');
+      setError('Completa usuario y contraseña (mínimo 4 caracteres)');
       return;
     }
     setLoading(true);
@@ -910,7 +910,7 @@ function Login({ onSuccess, notice }) {
         }}>
           <div style={{ fontFamily: black, fontSize: 26, letterSpacing: -0.3, lineHeight: 1.15 }}>{saludo}</div>
           <div style={{ fontSize: 14, color: HUD.dim2, lineHeight: 1.5, margin: '6px 0 22px' }}>
-            Entrá con tu usuario para ver la flota en vivo.
+            Entra con tu usuario para ver la flota en vivo.
           </div>
 
           <label htmlFor="r14-usuario" style={etiqueta}>Usuario</label>
@@ -1225,7 +1225,7 @@ function ChatColumn({ messages, onSend, routeId, privadoCon, onCerrarPrivado, no
           value={draft}
           onChange={e => { setDraft(e.target.value); setNoSalio(false); }}
           onKeyDown={e => { if (e.key === 'Enter') send(); }}
-          placeholder={privadoCon ? `Mensaje solo para ${nombreDe(privadoCon)}…` : 'Escribí al canal de la ruta…'}
+          placeholder={privadoCon ? `Mensaje solo para ${nombreDe(privadoCon)}…` : 'Escribe al canal de la ruta…'}
           style={{ ...campo(44), flex: 1, borderRadius: 22, padding: '0 16px' }}
         />
         <button onClick={send}
@@ -1444,7 +1444,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
         ida: (d.tramos?.ida || []).map(p => [p.lat, p.lng]),
         vuelta: (d.tramos?.vuelta || []).map(p => [p.lat, p.lng]),
       }); })
-      .catch(e => { if (vigente) setError(`No se pudo cargar el recorrido: ${e.message}. Cerrá y volvé a abrir antes de dibujar.`); });
+      .catch(e => { if (vigente) setError(`No se pudo cargar el recorrido: ${e.message}. Cierra y vuelve a abrir antes de dibujar.`); });
     return () => { vigente = false; };
   }, [routeId, variantId]);
 
@@ -1862,7 +1862,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                         .then(geo => { importar(JSON.stringify(geo)); setVerGrabaciones(false); })
                         .catch(e => setError(e.message));
                     }} style={{ ...btnChico(HUD.fg2), flexShrink: 0 }}
-                      title={`Cargar estos puntos como la ${tramo} (después ajustás y guardás como siempre)`}>
+                      title={`Cargar estos puntos como la ${tramo} (después ajustas y guardas como siempre)`}>
                       Usar en la {tramo}
                     </button>
                   </div>
@@ -1913,12 +1913,12 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
           </div>
 
           <div style={{ fontSize: 12, color: HUD.dim3, lineHeight: 1.55 }}>
-            Marcá el recorrido tocando el mapa en el orden en que se maneja: el
+            Marca el recorrido tocando el mapa en el orden en que se maneja: el
             primer punto es la salida (<strong>A</strong>) y el último el final
             (<strong>B</strong>).
             {puntos && puntos.length > TOPE_ARRASTRABLES
-              ? ` Con más de ${TOPE_ARRASTRABLES} puntos no se pueden arrastrar (serían miles de marcadores): usá Deshacer.`
-              : ' Arrastrá un punto para corregirlo, tocalo para borrarlo.'}
+              ? ` Con más de ${TOPE_ARRASTRABLES} puntos no se pueden arrastrar (serían miles de marcadores): usa Deshacer.`
+              : ' Arrastra un punto para corregirlo, tócalo para borrarlo.'}
             {' '}El tramo que no estás editando queda punteado de fondo.
           </div>
         </div>
@@ -2258,9 +2258,9 @@ function CargaMasiva({ api, onListo }) {
     }}>
       <div style={{ ...rotulo(9), marginBottom: 8 }}>Cargar muchas personas desde una planilla</div>
       <div style={{ fontSize: 13, color: HUD.fg2, lineHeight: 1.55, marginBottom: 10 }}>
-        Excel (.xlsx), LibreOffice o Google Sheets (.ods), CSV, o copiá las celdas y pegalas abajo.
+        Excel (.xlsx), LibreOffice o Google Sheets (.ods), CSV, o copia las celdas y pégalas abajo.
         La primera fila tiene que decir qué es cada columna: <b>Nombre</b> y <b>Combi</b> (obligatorias, la
-        combi tiene que existir), y si querés <b>Usuario</b>, <b>Rol</b> (chofer o cobrador), <b>Clave</b>, <b>Alias</b>, <b>Ruta</b>.
+        combi tiene que existir), y si quieres <b>Usuario</b>, <b>Rol</b> (chofer o cobrador), <b>Clave</b>, <b>Alias</b>, <b>Ruta</b>.
         Sin usuario se arma uno con el nombre; sin clave, se genera una.
         {' '}<a href="planilla-alta-ejemplo.xlsx" download style={{ color: HUD.bright, fontWeight: 700 }}>Bajar una planilla de ejemplo</a>
       </div>
@@ -2269,7 +2269,7 @@ function CargaMasiva({ api, onListo }) {
           onChange={elegir} style={{ fontSize: 13 }} />
       </div>
       <textarea data-planilla-texto value={texto} rows={3}
-        placeholder="…o pegá acá las celdas copiadas de Excel o Google Sheets (con la fila de títulos)"
+        placeholder="…o pega acá las celdas copiadas de Excel o Google Sheets (con la fila de títulos)"
         onChange={e => { setTexto(e.target.value); setRevision(null); setHecho(null); }}
         style={{ ...campo(80), width: '100%', boxSizing: 'border-box', fontFamily: mono, fontSize: 12, padding: 8, resize: 'vertical' }} />
       {error && <div role="alert" style={{ marginTop: 8, fontSize: 13, color: HUD.ambarTinta, background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`, borderRadius: 8, padding: '8px 10px' }}>{error}</div>}
@@ -2300,7 +2300,7 @@ function CargaMasiva({ api, onListo }) {
             borderRadius: 8, padding: '8px 10px', lineHeight: 1.5,
           }}>
             Se crearon {hecho.buenas} persona{hecho.buenas === 1 ? '' : 's'}{hecho.conError ? ` (${hecho.conError} se saltaron)` : ''}.
-            {' '}<b>Las claves se ven ahora y no se vuelven a mostrar:</b> bajalas para repartirlas.
+            {' '}<b>Las claves se ven ahora y no se vuelven a mostrar:</b> descárgalas para repartirlas.
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button data-planilla-claves onClick={bajarClaves} style={btnPrimario(36)}>Bajar las claves (CSV)</button>
@@ -2581,7 +2581,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
     const v = (ruta.variantes || []).find(x => x.variantId === variantId);
     if (!v || v.activa) return;
     if (!v.puntos) {
-      setError(`"${v.name}" todavía no tiene recorrido dibujado. Cargalo antes de activarla.`);
+      setError(`"${v.name}" todavía no tiene recorrido dibujado. Cárgalo antes de activarla.`);
       return;
     }
     setConfirmVar({ ruta, v, actual: (ruta.variantes || []).find(x => x.activa) || null });
@@ -2956,8 +2956,8 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                       // gerencia. A Despacho el servidor le contesta 403, y
                       // el texto le prometía lo contrario (recorrido del 28/10).
                       ? (esGerente
-                        ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no elegís vehículo, se crea uno con el mismo código del usuario.'
-                        : 'El chofer maneja: su celular es el que reporta la posición de la unidad. Elegí la combi en la que va: las combis las da de alta la cuenta de gerencia.')
+                        ? 'El chofer maneja: su celular es el que reporta la posición de la unidad. Si no eliges vehículo, se crea uno con el mismo código del usuario.'
+                        : 'El chofer maneja: su celular es el que reporta la posición de la unidad. Elige la combi en la que va: las combis las da de alta la cuenta de gerencia.')
                       : 'El cobrador necesita un vehículo ya creado. Ve brechas, mapa y chat, pero su GPS no se usa.'}
                   </div>
                 </div>
@@ -2976,7 +2976,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                           credential.vehicleId ? ' en ' + credential.vehicleId : ''}${
                           credential.routeId ? ' · ruta ' + credential.routeId : ''}`
                       : '✓ Contraseña reseteada — su sesión fue cerrada'}
-                    {' '}· anotá o dictá estos datos ahora
+                    {' '}· anota o dicta estos datos ahora
                   </div>
                   {credential.isNew && credential.name && (
                     <div style={{ fontSize: 14, color: HUD.fg2, marginBottom: 10 }}>
@@ -3142,7 +3142,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                                 return (
                                   <button key={v.vehicleId} data-habilitar={v.vehicleId} aria-pressed={marcada}
                                     disabled={hoy}
-                                    title={hoy ? 'Es la de hoy: para sacarla, elegí otra como la de hoy' : (v.label || undefined)}
+                                    title={hoy ? 'Es la de hoy: para sacarla, elige otra como la de hoy' : (v.label || undefined)}
                                     onClick={() => setCombisForm(f => ({
                                       ...f,
                                       combis: marcada ? f.combis.filter(c => c !== v.vehicleId) : [...f.combis, v.vehicleId],
@@ -3229,7 +3229,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             borderBottom: `1px solid ${HUD.hueco}`,
                           }}>
                             <span style={rotulo(9)}>Nueva clave de {u.unitId}</span>
-                            <input autoFocus placeholder="Dejala vacía y se genera una" value={resetPass}
+                            <input autoFocus placeholder="Déjala vacía y se genera una" value={resetPass}
                               onChange={e => setResetPass(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') resetPassword(u.unitId); }}
                               style={{ ...campo(36), flex: '1 1 200px' }} />
@@ -3361,7 +3361,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                 posición</strong>: así la unidad no salta entre dos celulares.
                 {esSupervisor && routeList.length > 1 && (
                   <> Para pasar una combi a otra ruta de la cooperativa —la que rota
-                  entre la A y la B—, cambiá su ruta en la columna Ruta: va con su gente.</>
+                  entre la A y la B—, cambia su ruta en la columna Ruta: va con su gente.</>
                 )}
               </Pie>
             </div>)}
@@ -3613,7 +3613,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
                             <select data-turno-persona value={corrForm.personId}
                               onChange={e => setCorrForm(f => ({ ...f, personId: e.target.value }))}
                               style={{ ...campo(36), minWidth: 200 }}>
-                              <option value="">Elegí…</option>
+                              <option value="">Elige…</option>
                               {personas.map(u => <option key={u.unitId} value={u.unitId}>{u.alias || u.name || u.unitId} ({u.unitId})</option>)}
                             </select>
                           </label>
@@ -4340,7 +4340,7 @@ function AdminModal({ session, onClose, onAuthError, routes, currentRoute, marca
               const dias = desde && hasta ? Math.max(1, Math.round((hasta - desde) / 86400e3)) : null;
               const bajar = (tipo) => {
                 if (!desde || !hasta || hasta < desde) {
-                  setError('Revisá las fechas: la de fin tiene que ser posterior a la de inicio');
+                  setError('Revisa las fechas: la de fin tiene que ser posterior a la de inicio');
                   return;
                 }
                 // El navegador no manda el token en una descarga normal, así que
@@ -5460,7 +5460,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
     const ws = wsRef.current;
     if (s.sosId == null) { setSosLista(l => l.filter(x => x !== s)); return; }
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      setSosError('Sin conexión: ATENDIDO no salió. Probá de nuevo.');
+      setSosError('Sin conexión: ATENDIDO no salió. Prueba de nuevo.');
       return;
     }
     // Se saca de la lista recién cuando el servidor lo confirma (el
@@ -5474,7 +5474,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
       setSosLista(l => {
         const sigue = l.find(x => x.sosId === s.sosId && x.atendiendo);
         if (!sigue) return l;
-        setSosError('ATENDIDO no se confirmó: la conexión está fallando. Probá de nuevo.');
+        setSosError('ATENDIDO no se confirmó: la conexión está fallando. Prueba de nuevo.');
         return l.map(x => x.sosId === s.sosId ? { ...x, atendiendo: null } : x);
       });
     }, 8000);
@@ -6227,7 +6227,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
             lugar más visible y se leía como una alerta permanente. */}
         {faltaAlarma && !isMobile && (
           <button data-activar-alarma onClick={activarAlarma}
-            title="La alarma de SOS está muda en esta pestaña. Tocá para que suene y avise aunque el panel esté tapado por otra ventana."
+            title="La alarma de SOS está muda en esta pestaña. Toca para que suene y avise aunque el panel esté tapado por otra ventana."
             style={{ ...btnIcono(false, isMobile ? 44 : 36), background: HUD.ambarFondo, color: HUD.ambarTinta }}>
             <Icono n="campanaNo" tam={18} />
             <span style={ocultoVisual}>Activar alarma de SOS</span>
@@ -6522,7 +6522,7 @@ function Panel({ session, onLogout, onAuthError, modo, onAlternarModo }) {
                       {noLeidos[u.unitId] > 0 && <Insignia n={noLeidos[u.unitId]} />}
                     </button>
                     {/* Y el privado PERSONAL con el que la maneja: lo que es de él
-                        y no de la combi (sus horas, «pasá por la oficina»). No lo
+                        y no de la combi (sus horas, «pasa por la oficina»). No lo
                         ve su cobrador ni el que maneje la combi después. */}
                     {u.choferId && (() => {
                       const clave = 'p:' + u.choferId;
@@ -6928,7 +6928,7 @@ function Root() {
     onAuthError={(motivo) => {
       try { localStorage.removeItem('r14_dispatch_session'); } catch {}
       setSession(null);
-      setNotice(motivo && !/expirad|inválid/i.test(motivo) ? `${motivo} Ingresá de nuevo.` : 'Tu sesión expiró. Ingresá de nuevo.');
+      setNotice(motivo && !/expirad|inválid/i.test(motivo) ? `${motivo} Ingresa de nuevo.` : 'Tu sesión expiró. Ingresa de nuevo.');
     }}
   />;
 }
@@ -6981,9 +6981,9 @@ class Muro extends React.Component {
         <div>
           Es un error del programa, no tuyo.{' '}
           {this.props.recargaSola
-            ? (sinRecarga ? 'Recargá la página.' : `La página se recarga sola en ${falta} s.`)
-            : 'El mapa y los SOS siguen funcionando: volvé al mapa.'}
-          {' '}Si vuelve a pasar, mandanos una captura de este cartel: el renglón de abajo dice qué se rompió.
+            ? (sinRecarga ? 'Recarga la página.' : `La página se recarga sola en ${falta} s.`)
+            : 'El mapa y los SOS siguen funcionando: vuelve al mapa.'}
+          {' '}Si vuelve a pasar, envíanos una captura de este cartel: el renglón de abajo dice qué se rompió.
         </div>
         <code style={{
           display: 'block', marginTop: 12, padding: '10px 12px',

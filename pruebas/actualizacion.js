@@ -49,16 +49,16 @@ const NATIVO = RAIZ + '/app/nativo.json';
 if (process.argv.includes('--guardia')) {
   const anotado = fs.existsSync(NATIVO) ? JSON.parse(fs.readFileSync(NATIVO, 'utf8')) : null;
   const ahora = fotoNativa();
-  if (!anotado) { console.log('Falta app/nativo.json: corré «node pruebas/actualizacion.js --anotar» después de compilar la APK.'); process.exit(1); }
+  if (!anotado) { console.log('Falta app/nativo.json: corre «node pruebas/actualizacion.js --anotar» después de compilar la APK.'); process.exit(1); }
   if (anotado.version !== ahora.version) {
-    console.log(`La versión es ${ahora.version} pero lo nativo anotado es de la ${anotado.version}: compilá la APK nueva y anotá (node pruebas/actualizacion.js --anotar).`);
+    console.log(`La versión es ${ahora.version} pero lo nativo anotado es de la ${anotado.version}: compila la APK nueva y anota (node pruebas/actualizacion.js --anotar).`);
     process.exit(1);
   }
   const cambio = Object.keys(ahora).filter(k => JSON.stringify(ahora[k]) !== JSON.stringify(anotado[k]));
   if (cambio.length) {
     console.log(`Cambió algo NATIVO (${cambio.join(', ')}) y la versión sigue en ${ahora.version}.`);
     console.log('Un arreglo publicado así caería en teléfonos que no tienen esa parte y la app se rompería.');
-    console.log('Subí "version" en app/app.json, compilá una APK nueva con compilar-app.bat y anotá lo nativo.');
+    console.log('Sube "version" en app/app.json, compila una APK nueva con compilar-app.bat y anota lo nativo.');
     process.exit(1);
   }
   console.log(`Lo nativo no cambió desde la versión ${ahora.version}: se puede publicar.`);
@@ -128,11 +128,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const mismoNativo = anotado && JSON.stringify({ ...anotado, version: null }) === JSON.stringify({ ...ahora, version: null });
   ok('hay una foto de lo nativo', !!anotado);
   if (anotado && anotado.version === ahora.version) {
-    ok(`lo nativo no cambió desde la versión ${ahora.version} (si cambió: subí "version" en app/app.json, compilá una APK y anotá)`,
+    ok(`lo nativo no cambió desde la versión ${ahora.version} (si cambió: sube "version" en app/app.json, compila una APK y anota)`,
        mismoNativo,
        mismoNativo ? undefined : Object.keys(ahora).filter(k => JSON.stringify(ahora[k]) !== JSON.stringify(anotado[k])));
   } else if (anotado) {
-    ok(`la versión pasó de ${anotado.version} a ${ahora.version}: anotá lo nativo nuevo con «node pruebas/actualizacion.js --anotar»`, false);
+    ok(`la versión pasó de ${anotado.version} a ${ahora.version}: anota lo nativo nuevo con «node pruebas/actualizacion.js --anotar»`, false);
   }
 
   console.log('\nEL SERVIDOR Y DESPACHO');

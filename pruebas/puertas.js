@@ -408,7 +408,7 @@ const entrar = (api, user, password, cab = {}) =>
     ok('dice por qué es peligrosa, no sólo que lo es',
        /otra cooperativa|cooperativa/i.test(r.salida));
     ok('y dice cómo desactivarla',
-       /sacá OPEN_REGISTRATION/i.test(r.salida) && /MODO=demo/.test(r.salida));
+       /saca OPEN_REGISTRATION/i.test(r.salida) && /MODO=demo/.test(r.salida));
 
     // Que un valor cualquiera no valga como declaración de demo
     r = await intentar({ OPEN_REGISTRATION: '1', MODO: 'produccion' });

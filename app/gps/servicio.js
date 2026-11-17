@@ -651,7 +651,7 @@ async function subirAhora(nuevas) {
         // el siguiente `POST /gps` mandaba `grabando: false`, el servidor
         // daba el pedido por cumplido y borraba la fila: Despacho veía el
         // pedido cumplido y no llegaba nada nunca, mientras la app decía «la
-        // grabación quedó guardada, probá ENVIAR de nuevo» (revisión del
+        // grabación quedó guardada, prueba ENVIAR de nuevo» (revisión del
         // 10/9, C21). El pedido se levanta cuando la grabación LLEGA o
         // cuando el chofer la descarta, no cuando se aprieta parar.
         grabando: flagGrabando === '1' || archivoGrabacion?.exists === true,
@@ -876,7 +876,7 @@ export async function arrancar({ textoNotificacion = 'Turno en curso' } = {}) {
 }
 
 // Cambiar la cadencia es volver a arrancar con otro intervalo: expo-location
-// no expone un "cambiá el intervalo" sobre una tarea ya corriendo.
+// no expone un "cambia el intervalo" sobre una tarea ya corriendo.
 //
 // Misma pregunta que en `arrancar`, y por el mismo motivo: con el registro
 // como condición, esto reiniciaba una tarea que no estaba corriendo.

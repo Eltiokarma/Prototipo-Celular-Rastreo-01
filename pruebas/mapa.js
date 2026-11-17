@@ -75,7 +75,7 @@ console.log('\nSOLO SE ROTULAN LAS QUE IMPORTAN');
   ok('las demás no tienen rol', ms.find(m => m.id === 'M-31')?.rol === null);
 
   // El mapa y el número grande salen de la MISMA brecha: si se separaran,
-  // el chofer vería un "apurá" contra una combi que el mapa no destaca.
+  // el chofer vería un "apura" contra una combi que el mapa no destaca.
   ok('sale de gaps, que es de donde sale el HUD',
      marcadores({ units: estado.units }, YO).filter(m => m.fija).length === 1);
 }

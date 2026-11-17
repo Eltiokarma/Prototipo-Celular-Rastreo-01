@@ -43,13 +43,13 @@ function avisoDeApp(app, mia) {
   if (app.versionCodeMin && mia.versionCode < app.versionCodeMin) {
     return {
       grave: true,
-      texto: `ESTA APP (versión ${mia.versionCode}) YA NO SIRVE: pedile la nueva a Despacho${donde}`,
+      texto: `ESTA APP (versión ${mia.versionCode}) YA NO SIRVE: pídele la nueva a Despacho${donde}`,
     };
   }
   if (app.versionCodeActual && mia.versionCode < app.versionCodeActual) {
     return {
       grave: false,
-      texto: `Hay una versión nueva de la app (${app.versionCodeActual}); tenés la ${mia.versionCode}${donde}`,
+      texto: `Hay una versión nueva de la app (${app.versionCodeActual}); tienes la ${mia.versionCode}${donde}`,
     };
   }
   return null;

@@ -224,7 +224,7 @@ let servidor = null;
     const msg = w4.prepare(`INSERT INTO messages (kind, unitId, driverName, routeId, vehicleId, toVehicleId, text, duration, data, timestamp)
                             VALUES (?, 'M-01', 'Chofer M-01', 'R-14', 'M-01', ?, ?, ?, ?, ?)`);
     msg.run('chat', null, 'bloqueo en el óvalo', null, null, hoy(9));
-    msg.run('chat', 'M-01', 'volvé al terminal', null, null, hoy(10));
+    msg.run('chat', 'M-01', 'vuelve al terminal', null, null, hoy(10));
     msg.run('voice', null, null, 12, 'data:audio/mp4;base64,AAAA', hoy(11));
     msg.run('voice', null, null, 40, null, hoy(12));            // podada: sin audio
     msg.run('photo', null, 'el choque', null, 'data:image/jpeg;base64,AAAA', hoy(13));

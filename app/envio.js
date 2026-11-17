@@ -58,8 +58,8 @@ function crearVigiaDeEnvio({ corteMs = CORTE_MS, ahora = () => Date.now() } = {}
 
     // Llega una tanda nueva. Decide qué hacer con la que está en vuelo:
     //
-    //   { accion: 'libre' }             no hay nada en vuelo: mandá
-    //   { accion: 'esperar' }           hay uno y es reciente: guardá y andate
+    //   { accion: 'libre' }             no hay nada en vuelo: manda
+    //   { accion: 'esperar' }           hay uno y es reciente: guarda y vete
     //   { accion: 'cortado', vuelo }    había uno colgado: se lo abortó, y
     //                                   sus posiciones van de vuelta a la cola
     revisar() {

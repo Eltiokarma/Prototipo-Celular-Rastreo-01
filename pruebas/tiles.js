@@ -186,7 +186,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
     // La tile suelta (/tiles/xyz/...): lo que piden las pantallas. El
     // fixture tiene tiles reales SOLO en z14-16: z17 da 404 y ese 404 es el
-    // contrato con la cascada del cliente — "probá con el proveedor".
+    // contrato con la cascada del cliente — "prueba con el proveedor".
     const t15 = await fetch(API + '/tiles/xyz/juliaca/claro/15/10000/17812.png');
     ok('una tile que existe llega como PNG', t15.status === 200 &&
        (t15.headers.get('content-type') || '').includes('image/png'), t15.status);

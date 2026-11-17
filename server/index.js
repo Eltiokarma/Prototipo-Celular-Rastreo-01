@@ -219,7 +219,7 @@ if (String(process.env.RESTAURAR_DESDE || '').trim()) {
       { stdio: 'inherit', env: process.env });
   } catch {
     console.error('✖ No se pudo restaurar (el motivo está arriba). La base actual NO se tocó.');
-    console.error('  Corregí RESTAURAR_DESDE o sacala de las variables, y redesplegá.');
+    console.error('  Corrige RESTAURAR_DESDE o sácala de las variables, y vuelve a desplegar.');
     process.exit(1);
   }
 }
@@ -250,7 +250,7 @@ const db = openDatabase(Database, { crearCarpeta: !EN_PRODUCCION });
 if (String(process.env.MODO || '').trim().toLowerCase() !== 'demo' && process.env.DB_FILE &&
     (!db || path.resolve(db.name) !== path.resolve(process.env.DB_FILE))) {
   console.error(`✖ No se pudo abrir la base configurada (DB_FILE=${process.env.DB_FILE}).`);
-  console.error('  En producción no se arranca con otra: revisá que el volumen esté montado.');
+  console.error('  En producción no se arranca con otra: revisa que el volumen esté montado.');
   process.exit(1);
 }
 // La memoria caliente de la vez anterior (PENDIENTES 0.12): las vueltas en
@@ -892,7 +892,7 @@ addColumnIfMissing('messages', 'toVehicleId', 'TEXT');
 // Y el privado con una PERSONA (31/10), además del de la combi. Con varias
 // combis por persona (habilitaciones) el privado de combi quedó de los dos
 // lados del borde: el de hoy en M-05 ve lo que Despacho le escribió al de
-// ayer, y lo que es de Pedro —sus horas, «pasá por la oficina»— lo leía su
+// ayer, y lo que es de Pedro —sus horas, «pasa por la oficina»— lo leía su
 // cobrador y el que manejara M-05 después. Ahora hay dos:
 //   toVehicleId  Despacho ↔ esa combi: lo ven los que van arriba hoy y los
 //                que la manejen después. Lo de la calle.
@@ -1195,7 +1195,7 @@ addColumnIfMissing('users', 'lastLogin', 'INTEGER');
 // app al entrar (`app: { version, versionCode }` en el cuerpo del login) y
 // en cada pedido con la cabecera `X-App-Version: 0.2.3/5`. Sin esto, cuando
 // un APK cambia lo que manda (`simulado`, `precision`) no hay forma de saber
-// quién tiene cuál, y Despacho no puede decirle a nadie «actualizá».
+// quién tiene cuál, y Despacho no puede decirle a nadie «actualiza».
 addColumnIfMissing('users', 'appVersion', 'TEXT');
 addColumnIfMissing('users', 'appVersionCode', 'INTEGER');
 // Y desde 0.11, la actualización que corre sobre esa APK: cuándo se publicó
@@ -1485,7 +1485,7 @@ setInterval(() => {
     if (fila) { renovarSesion(token, fila.expiresAt, ahora); continue; }
     cerrados++;
     try {
-      ws.send(JSON.stringify({ type: 'auth_error', error: 'Tu sesión terminó. Volvé a entrar.' }));
+      ws.send(JSON.stringify({ type: 'auth_error', error: 'Tu sesión terminó. Vuelve a entrar.' }));
       ws.close();
     } catch {}
     // El `close` del socket limpia los mapas; esto es por si nunca llega.
@@ -1527,7 +1527,7 @@ if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
   // El login exige 4 caracteres: con una clave más corta la cuenta quedaría
   // creada pero imposible de usar. Mejor avisar y no tocar la que había.
   console.error('DISPATCH_PASSWORD tiene menos de 4 caracteres: el login la va a ' +
-    'rechazar siempre. La cuenta DESPACHO queda como estaba — poné una clave más larga.');
+    'rechazar siempre. La cuenta DESPACHO queda como estaba — pon una clave más larga.');
 } else if (process.env.DISPATCH_PASSWORD) {
   // El aviso de clave corta va ADENTRO de la rama que la aplica: estaba como
   // un `else if` aparte, así que decía «funciona» y no la aplicaba — la
@@ -1548,7 +1548,7 @@ if (process.env.DISPATCH_PASSWORD && process.env.DISPATCH_PASSWORD.length < 4) {
     const cambió = !verifyPassword(process.env.DISPATCH_PASSWORD, exists.passHash);
     db.prepare("UPDATE users SET passHash = ?, role = 'dispatch' WHERE unitId = ?").run(hash, DISPATCH_ID);
     if (cambió) {
-      kickUnit(DISPATCH_ID, 'La contraseña de Despacho cambió. Ingresá con la nueva.');
+      kickUnit(DISPATCH_ID, 'La contraseña de Despacho cambió. Ingresa con la nueva.');
       console.log('DISPATCH_PASSWORD cambió: sesiones anteriores de DESPACHO revocadas');
     }
   } else {
@@ -1611,8 +1611,8 @@ if (REGISTRO_ABIERTO && !ES_DEMO) {
   console.error('');
   console.error('  Cómo se arregla, según lo que quieras:');
   console.error('');
-  console.error('    · Es un servidor de verdad  →  sacá OPEN_REGISTRATION.');
-  console.error('    · Es una demo descartable   →  agregá MODO=demo. La demo sigue');
+  console.error('    · Es un servidor de verdad  →  saca OPEN_REGISTRATION.');
+  console.error('    · Es una demo descartable   →  agrega MODO=demo. La demo sigue');
   console.error('      funcionando igual; sólo hay que declarar que es una demo.');
   console.error('');
   console.error('  Esto era un cartel en el log y ahora frena el arranque: un cartel');
@@ -1687,7 +1687,7 @@ if (!ES_DEMO) {
     console.error('  huellas, que van en un solo sentido. Ver server/claves.js.');
     console.error('');
     console.error('  Si esto es una demo descartable y no un servidor de verdad,');
-    console.error('  agregá MODO=demo y estas revisiones no corren.');
+    console.error('  agrega MODO=demo y estas revisiones no corren.');
     console.error('');
     process.exit(1);
   }
@@ -1937,7 +1937,7 @@ function olvidarDesvio(vehicleId, cierre, cuando = Date.now()) {
 //
 // A los demás les llega por las brechas (`aheadEnTrafico`, `behindEnTrafico`)
 // y por el estado de la unidad; al de atrás, además, se le deja de decir
-// "apurá" hacia el embotellamiento — el pelotón que el sistema existe para
+// "apura" hacia el embotellamiento — el pelotón que el sistema existe para
 // evitar. Cada episodio queda en `paradas`: es el dato con el que, con
 // meses de historial, se puede decir dónde y a qué hora se traba cada ruta.
 db.exec(`
@@ -2649,7 +2649,7 @@ function esRelevado(vehicleId, personId) {
   borrarRelevado(personId);
   return false;
 }
-const MOTIVO_RELEVADO = 'Otro chofer tomó la unidad. Seguís viendo todo, pero tu GPS ya no se usa. ' +
+const MOTIVO_RELEVADO = 'Otro chofer tomó la unidad. Sigues viendo todo, pero tu GPS ya no se usa. ' +
   'Para volver a manejarla: SALIR DE RUTA y después SALIR A RUTA.';
 // La salida automática (el vigía de la puerta) o la re-declaración de una
 // reconexión que encuentran la combi con otro manejando: no es un relevo.
@@ -2661,7 +2661,7 @@ function quienManeja(vehicleId) {
   return u ? displayName(u) : d.personId;
 }
 const MOTIVO_OCUPADA = (quien) => `${quien || 'Otro chofer'} está manejando esta combi: la app no la toma sola. ` +
-  'Si es un relevo, tocá SALIR A RUTA vos.';
+  'Si es un relevo, toca tú SALIR A RUTA.';
 // A quién no se le volvió a decir que su GPS no se usa: el que manda
 // posiciones sin el mando recibe el aviso una vez por conexión, no cada 3 s.
 const avisadoSinMando = new WeakSet();
@@ -3874,20 +3874,20 @@ async function login(req, res) {
   const unitId = idLimpio(req.body?.user);
   const password = String(req.body?.password || '');
   if (!unitId || password.length < 4 || password.length > 64) {
-    return res.status(400).json({ error: 'Completá usuario y contraseña (mínimo 4 caracteres)' });
+    return res.status(400).json({ error: 'Completa usuario y contraseña (mínimo 4 caracteres)' });
   }
 
   const ip = origenDe(req);
   if (ipBloqueada(ip)) {
-    return res.status(429).json({ error: 'Demasiados intentos desde este dispositivo. Esperá 10 minutos.' });
+    return res.status(429).json({ error: 'Demasiados intentos desde este dispositivo. Espera 10 minutos.' });
   }
 
   const a = loginAttempts.get(claveIntento(unitId, ip));
   if (a && a.until > Date.now()) {
-    return res.status(429).json({ error: 'Demasiados intentos. Esperá 5 minutos.' });
+    return res.status(429).json({ error: 'Demasiados intentos. Espera 5 minutos.' });
   }
   if (cuentaBloqueada(unitId)) {
-    return res.status(429).json({ error: 'Demasiados intentos contra esta cuenta. Esperá 15 minutos.' });
+    return res.status(429).json({ error: 'Demasiados intentos contra esta cuenta. Espera 15 minutos.' });
   }
 
   let user = db.prepare('SELECT * FROM users WHERE unitId = ?').get(unitId);
@@ -3931,7 +3931,7 @@ async function login(req, res) {
         return fallaLogin(res, unitId, null, ip);
       }
       console.warn(`BOOTSTRAP: se creó ${DISPATCH_ID} desde un login porque no había ninguna ` +
-        'cuenta de administración en el sistema. Poné DISPATCH_PASSWORD para que no dependa de esto.');
+        'cuenta de administración en el sistema. Pon DISPATCH_PASSWORD para que no dependa de esto.');
     }
 
     // El auto-registro de la demo tampoco da de alta los nombres de la
@@ -4269,10 +4269,10 @@ app.post('/combi', (req, res) => {
   // Una que no tiene habilitada se contesta igual que una que no existe: la
   // puerta no es un buscador de la flota
   if (!vehicleId || !combisHabilitadas(u).some(v => v.vehicleId === vehicleId)) {
-    return res.status(404).json({ error: 'No tenés esa combi habilitada. Pedíselo a Despacho.' });
+    return res.status(404).json({ error: 'No tienes esa combi habilitada. Pídeselo a Despacho.' });
   }
   if (vehicleId !== u.vehicleId && enRutaEn(u)) {
-    return res.status(409).json({ error: `Estás en ruta en ${u.vehicleId}: tocá SALIR DE RUTA antes de cambiar de combi.` });
+    return res.status(409).json({ error: `Estás en ruta en ${u.vehicleId}: toca SALIR DE RUTA antes de cambiar de combi.` });
   }
   const nuevo = cambiarCombiDe(u.unitId, vehicleId, u.unitId) || u;
   const ruta = routeOf(nuevo.routeId);
@@ -4634,8 +4634,8 @@ app.post('/perfil/alias', (req, res) => {
     if (porAlias || porNombre) {
       return res.status(409).json({
         error: porAlias
-          ? 'Ese apodo ya lo usa alguien en tu ruta: elegí otro'
-          : 'Alguien en tu ruta se llama así de nombre: elegí otro apodo',
+          ? 'Ese apodo ya lo usa alguien en tu ruta: elige otro'
+          : 'Alguien en tu ruta se llama así de nombre: elige otro apodo',
         choca: porAlias ? 'alias' : 'nombre',
       });
     }
@@ -4689,7 +4689,7 @@ app.post('/perfil/clave', (req, res) => {
   const ipClave = origenDe(req);
   const freno = intentosClavePropia.get(user.unitId);
   if (ipBloqueada(ipClave) || (freno && freno.n >= 5 && Date.now() - freno.desde < 15 * 60_000)) {
-    return res.status(429).json({ error: 'Demasiados intentos con la contraseña actual. Esperá 15 minutos.' });
+    return res.status(429).json({ error: 'Demasiados intentos con la contraseña actual. Espera 15 minutos.' });
   }
   const fila = db.prepare('SELECT passHash FROM users WHERE unitId = ?').get(user.unitId);
   if (!fila || !verifyPassword(actual, fila.passHash)) {
@@ -4904,7 +4904,7 @@ app.post('/perfil/cobradores/:unitId/clave', (req, res) => {
   // chofer, descargos—, que es justo lo que ese canal promete que no ve
   // nadie más (auditoría 11/11, probado). Despacho lo sigue teniendo.
   db.prepare('UPDATE users SET passHash = ?, privadoDesde = ? WHERE unitId = ?').run(hashPassword(nueva), Date.now(), c.unitId);
-  kickUnit(c.unitId, 'Tu chofer cambió tu contraseña. Ingresá con la nueva.');
+  kickUnit(c.unitId, 'Tu chofer cambió tu contraseña. Ingresa con la nueva.');
   // Queda QUE la cambió, nunca cuál: el mismo criterio que la clave propia.
   audit(user.unitId, 'clave_cobrador', c.unitId, null, user.routeId);
   console.log(`Clave de cobrador cambiada por su chofer: ${c.unitId}`);
@@ -5005,7 +5005,7 @@ app.post('/grabacion', (req, res) => {
   const hoyGrab = db.prepare('SELECT COUNT(*) AS c FROM recordings WHERE personId = ? AND createdAt > ?')
     .get(user.unitId, Date.now() - 86400_000).c;
   if (hoyGrab >= GRABACIONES_POR_DIA) {
-    return res.status(429).json({ error: `Ya mandaste ${hoyGrab} grabaciones hoy: esperá a mañana o pedile a Despacho que borre alguna` });
+    return res.status(429).json({ error: `Ya mandaste ${hoyGrab} grabaciones hoy: espera a mañana o pídele a Despacho que borre alguna` });
   }
   db.prepare(`INSERT INTO recordings (personId, companyId, routeId, nombre, puntos, cantidad, largoM, createdAt)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -5107,7 +5107,7 @@ app.post('/admin/grabaciones/pedir', requireDispatch, (req, res) => {
   const previo = pedidoVigente(vehicleId);
   if (previo && previo.estado === 'grabando') {
     // La app ya está grabando: repetir el pedido no la degrada a 'pedida' —
-    // eso volvería a mandarle "arrancá" a una grabación en curso.
+    // eso volvería a mandarle "arranca" a una grabación en curso.
     return res.json({ ok: true, estado: 'grabando' });
   }
   db.prepare(`INSERT INTO recording_requests (vehicleId, routeId, companyId, pedidaPor, pedidaEn, estado)
@@ -5212,7 +5212,7 @@ app.post('/gps', (req, res) => {
   const esperar = cupoGpsHttpExcedido(user.unitId, crudas.length);
   if (esperar) {
     res.set('Retry-After', String(esperar));
-    return res.status(429).json({ error: `Demasiadas posiciones por minuto: esperá ${esperar} s`, reintentarEnSec: esperar });
+    return res.status(429).json({ error: `Demasiadas posiciones por minuto: espera ${esperar} s`, reintentarEnSec: esperar });
   }
 
   // Se ordenan por hora y se descartan las imposibles. Un reloj adelantado
@@ -5787,7 +5787,7 @@ function activarVariante(routeId, variantId, quien, motivo) {
     .get(variantId, routeId);
   if (!v) return { error: 404, msg: 'Esa variante no existe' };
   // La pausa se anota aunque la variante ya esté activa: reactivar la que
-  // está es la forma de decir "quedate con ésta hoy".
+  // está es la forma de decir "quédate con ésta hoy".
   if (quien !== 'sistema') vigenciaEnPausa.set(routeId, finDeDiaLocal());
   const anterior = varianteActiva(routeId);
   if (anterior.variantId === v.variantId) return { ok: true, variante: v, sinCambios: true };
@@ -5816,7 +5816,7 @@ let avisoHusoDado = false;
 // cortan con la hora LOCAL del servidor. En UTC, el día del gerente empieza
 // a las 19:00 de Perú (REVISION-2026-09-10.md, E14). No frena nada.
 if (new Date().getTimezoneOffset() === 0) {
-  console.warn('TZ: el servidor corre en UTC. Poné TZ=America/Lima en las variables del despliegue: ' +
+  console.warn('TZ: el servidor corre en UTC. Pon TZ=America/Lima en las variables del despliegue: ' +
     'sin eso «hoy», los días de la tendencia y las horas de los CSV van con cinco horas de corrimiento.');
 }
 function revisarVigencias() {
@@ -5832,7 +5832,7 @@ function revisarVigencias() {
     console.warn('──────────────────────────────────────────────────────────');
     console.warn('Hay variantes con vigencia SEMANAL y el servidor corre en UTC:');
     console.warn('"domingo" va a empezar el sábado a las 19:00 hora de Perú.');
-    console.warn('Poné TZ=America/Lima en las variables del despliegue.');
+    console.warn('Pon TZ=America/Lima en las variables del despliegue.');
     console.warn('──────────────────────────────────────────────────────────');
   }
   // Fechas y días COMPONEN, no compiten: con días, la variante rige esos
@@ -6309,7 +6309,7 @@ function altaDePersona(req, body, { silencioso = false, passHash = null } = {}) 
   }
   if (usuarioConHistoria(unitId, req.empresa)) {
     return { status: 409, error: `Ese usuario lo usó otra persona, que ya no está: sus horas siguen a ese nombre. ` +
-      `Elegí otro (por ejemplo ${unitId}b, o el nombre y apellido)` };
+      `Elige otro (por ejemplo ${unitId}b, o el nombre y apellido)` };
   }
   // El vehículo tiene que existir; si no se indica y es chofer, se crea uno
   // con su mismo código (el caso habitual: el chofer y su combi).
@@ -6355,7 +6355,7 @@ function altaDePersona(req, body, { silencioso = false, passHash = null } = {}) 
       if (!req.esGerente) {
         return {
           status: 403,
-          error: `No existe el vehículo ${vehiculoFinal}. Los vehículos (con su placa) los da de alta la cuenta de gerencia; elegí uno existente o pedile el alta.`,
+          error: `No existe el vehículo ${vehiculoFinal}. Los vehículos (con su placa) los da de alta la cuenta de gerencia; elige uno existente o pídele el alta.`,
         };
       }
       db.prepare('INSERT INTO vehicles (vehicleId, label, routeId, companyId, createdAt) VALUES (?, ?, ?, ?, ?)')
@@ -6468,10 +6468,10 @@ async function importarPersonas(req, res) {
       filas = await planilla.leerPlanillaAislada({ texto: req.body.texto });
     } else if (typeof req.body?.archivo === 'string' && req.body.archivo) {
       const bytes = Buffer.from(req.body.archivo.replace(/^data:[^,]*,/, ''), 'base64');
-      if (bytes.length > 700 * 1024) return res.status(413).json({ error: 'La planilla pesa más de 700 kB: partila en varias' });
+      if (bytes.length > 700 * 1024) return res.status(413).json({ error: 'La planilla pesa más de 700 kB: pártela en varias' });
       filas = await planilla.leerPlanillaAislada({ bytes, nombre: String(req.body?.nombre || '') });
     } else {
-      return res.status(400).json({ error: 'Subí una planilla o pegá las celdas' });
+      return res.status(400).json({ error: 'Sube una planilla o pega las celdas' });
     }
   } catch (e) {
     return res.status(400).json({ error: e.message });
@@ -6481,7 +6481,7 @@ async function importarPersonas(req, res) {
   // La fila de títulos: la primera donde se reconoce una columna de nombre
   const iTitulos = filas.findIndex(f => f.some(c => COLUMNAS_ALTA.nombre.includes(tituloNormal(c))));
   if (iTitulos < 0 || iTitulos > 10) {
-    return res.status(400).json({ error: 'No encontré la fila de títulos. La primera fila tiene que decir qué es cada columna: por lo menos «Nombre» (y si querés «Usuario», «Rol», «Combi», «Clave», «Alias»)' });
+    return res.status(400).json({ error: 'No encontré la fila de títulos. La primera fila tiene que decir qué es cada columna: por lo menos «Nombre» (y si quieres «Usuario», «Rol», «Combi», «Clave», «Alias»)' });
   }
   const titulos = filas[iTitulos];
   const indice = {};
@@ -6493,7 +6493,7 @@ async function importarPersonas(req, res) {
     else if (t) ignoradas.push(t);
   });
   const datos = filas.slice(iTitulos + 1);
-  if (datos.length > 500) return res.status(400).json({ error: `Son ${datos.length} personas: el tope por planilla es 500. Partila en varias` });
+  if (datos.length > 500) return res.status(400).json({ error: `Son ${datos.length} personas: el tope por planilla es 500. Pártela en varias` });
 
   const confirmar = req.body?.confirmar === true;
   const tomados = new Set();
@@ -6523,7 +6523,7 @@ async function importarPersonas(req, res) {
       // un usuario.
       if (generadoUsuario && nombre) {
         const igual = db.prepare(`SELECT unitId FROM users WHERE companyId = ? AND lower(name) = lower(?)`).get(req.empresa, nombre);
-        if (igual) { resultado.push({ ...fila, ok: false, motivo: `Ya hay alguien con ese nombre (usuario ${igual.unitId}). Si es otra persona, ponele un usuario en la planilla` }); return; }
+        if (igual) { resultado.push({ ...fila, ok: false, motivo: `Ya hay alguien con ese nombre (usuario ${igual.unitId}). Si es otra persona, ponle un usuario en la planilla` }); return; }
       }
       if (usuario && tomados.has(usuario.toUpperCase())) {
         resultado.push({ ...fila, ok: false, motivo: `El usuario ${usuario} ya está más arriba en la planilla` }); return;
@@ -6626,7 +6626,7 @@ app.post('/admin/users/:unitId/consentimiento', requireDispatch, (req, res) => {
     const h = new Date();
     const hoy = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}-${String(h.getDate()).padStart(2, '0')}`;
     if (!d || d.getMonth() !== Number(m[2]) - 1 || d.getFullYear() < 2024 || fecha > hoy) {
-      return res.status(400).json({ error: 'Poné la fecha en que firmó el papel: una fecha real y que no sea futura' });
+      return res.status(400).json({ error: 'Pon la fecha en que firmó el papel: una fecha real y que no sea futura' });
     }
     // Una versión anterior a la vigente vale (un papel viejo que recién se
     // anota); una posterior no existe
@@ -6637,7 +6637,7 @@ app.post('/admin/users/:unitId/consentimiento', requireDispatch, (req, res) => {
     audit(req.dispatchUser.unitId, 'consentimiento_firmado', unitId, `firmado el ${fecha} · versión ${version}`, routeId);
   } else {
     const motivo = String(req.body?.motivo ?? '').trim().replace(/\s+/g, ' ').slice(0, 200);
-    if (motivo.length < 5) return res.status(400).json({ error: 'Escribí por qué (al menos 5 letras): queda registrado' });
+    if (motivo.length < 5) return res.status(400).json({ error: 'Escribe por qué (al menos 5 letras): queda registrado' });
     db.prepare('UPDATE users SET consentimientoFecha = NULL, consentimientoVersion = NULL, consentimientoPor = NULL WHERE unitId = ?').run(unitId);
     audit(req.dispatchUser.unitId, 'consentimiento_retirado', unitId, motivo, routeId);
   }
@@ -6826,7 +6826,7 @@ app.get('/admin/users/:unitId/datos.zip', requireDispatch, (req, res) => {
   // una persona real está muy lejos de los dos.
   const pesa = archivos.reduce((t, a) => t + (Buffer.isBuffer(a.datos) ? a.datos.length : Buffer.byteLength(String(a.datos))), 0);
   if (archivos.length > 20_000 || pesa > 500 * 1024 * 1024) {
-    return res.status(413).json({ error: `Son demasiados datos para un solo archivo (${archivos.length} archivos, ${Math.round(pesa / 1048576)} MB). Pedilo al soporte del sistema` });
+    return res.status(413).json({ error: `Son demasiados datos para un solo archivo (${archivos.length} archivos, ${Math.round(pesa / 1048576)} MB). Pídelo al soporte del sistema` });
   }
   const zip = crearZip(archivos);
   audit(req.dispatchUser.unitId, 'datos_exportados', chequeo.user.unitId,
@@ -6935,7 +6935,7 @@ app.post('/admin/users/:unitId/password', requireDispatch, (req, res) => {
   if (chequeo.error) return res.status(chequeo.error).json({ error: chequeo.msg });
   db.prepare('UPDATE users SET passHash = ? WHERE unitId = ?').run(hashPassword(password), unitId);
   // Las sesiones viejas dejan de valer y la unidad conectada vuelve al login
-  kickUnit(unitId, 'Despacho reseteó tu contraseña. Ingresá con la nueva.');
+  kickUnit(unitId, 'Despacho reseteó tu contraseña. Ingresa con la nueva.');
   audit(req.dispatchUser.unitId, 'reset_clave', unitId, null, chequeo.user.routeId);
   console.log(`Contraseña reseteada por Despacho: ${unitId}`);
   res.json({ ok: true });
@@ -7625,7 +7625,7 @@ const CORRECCION_DIAS = Number(process.env.CORRECCION_DIAS || 31);
 const TURNO_MAX_MS = 24 * 60 * 60_000;
 function motivoValido(m) {
   const t = String(m ?? '').trim().replace(/\s+/g, ' ');
-  if (t.length < 5) return { error: 'Escribí el motivo de la corrección (al menos 5 letras): queda registrado' };
+  if (t.length < 5) return { error: 'Escribe el motivo de la corrección (al menos 5 letras): queda registrado' };
   return { motivo: t.slice(0, 200) };
 }
 // Valida entrada y salida nuevas. `anular`: duración cero permitida.
@@ -8635,7 +8635,7 @@ app.get('/gerencia/informe/:tipo.csv', requireManager, (req, res) => {
 });
 
 // ─── RUTA DE SALUD ───────────────────────────────────────────
-// Si hacés GET /ping y responde "pong", el servidor está vivo.
+// Si haces GET /ping y responde "pong", el servidor está vivo.
 app.get('/ping', (req, res) => {
   // Sólo "está vivo" y la hora. Cuántas unidades y conexiones hay es la
   // foto de la operación de la cooperativa y no tiene por qué ser pública
@@ -8963,7 +8963,7 @@ app.get('/tiles/:archivo', (req, res) => {
 // pmtiles.js) tiene el índice en memoria; encontrar una tile no toca la red.
 //
 // 404 cuando la tile no está (fuera del bbox, zoom fuera de rango, archivo
-// todavía no descargado): la cascada del cliente lo toma como "probá con el
+// todavía no descargado): la cascada del cliente lo toma como "prueba con el
 // proveedor".
 //
 // Hay DOS formas de la misma URL, y la diferencia es cuánto dura la copia
@@ -9137,10 +9137,10 @@ if (PROJECT_DIR) {
      <code>server/</code> en vez de la raíz del repositorio.</p>
   <p><strong>Cómo arreglarlo en Railway:</strong></p>
   <ol>
-    <li>Abrí el servicio → pestaña <strong>Settings</strong>.</li>
-    <li>En <strong>Source</strong>, dejá <strong>Root Directory</strong> vacío.</li>
-    <li>Borrá cualquier <em>Custom Start Command</em> escrito a mano.</li>
-    <li>Volvé a desplegar (<strong>Redeploy</strong>).</li>
+    <li>Abre el servicio → pestaña <strong>Settings</strong>.</li>
+    <li>En <strong>Source</strong>, deja <strong>Root Directory</strong> vacío.</li>
+    <li>Borra cualquier <em>Custom Start Command</em> escrito a mano.</li>
+    <li>Vuelve a desplegar (<strong>Redeploy</strong>).</li>
   </ol>
   <p class="sub">Verificación rápida: <code>/ping</code> responde ahora mismo;
      cuando esto quede bien, <code>/</code> mostrará el login del chofer y
@@ -9964,7 +9964,7 @@ wss.on('connection', (ws) => {
     // abierta y muda.
     //
     // Borrar acá era lo que dejaba sin efecto todo el mecanismo: la de atrás
-    // pasaba a medirse contra la que sigue y recibía "apurá" hacia una combi
+    // pasaba a medirse contra la que sigue y recibía "apura" hacia una combi
     // que tenía justo adelante.
     //
     // El precio es que un chofer que termina el turno queda tres minutos en
@@ -10171,13 +10171,13 @@ app.post('/admin/mensajes/:id/evidencia', requireDispatch, (req, res) => {
   const marcar = req.body?.marcar !== false;
   const motivo = String(req.body?.motivo ?? '').trim().replace(/\s+/g, ' ').slice(0, 200);
   if (marcar) {
-    if (motivo.length < 5) return res.status(400).json({ error: 'Escribí por qué es evidencia (al menos 5 letras): queda registrado' });
+    if (motivo.length < 5) return res.status(400).json({ error: 'Escribe por qué es evidencia (al menos 5 letras): queda registrado' });
     if ((m.kind === 'voice' || m.kind === 'photo') && !m.data) {
       return res.status(409).json({ error: `Esa ${m.kind === 'photo' ? 'foto' : 'nota de voz'} ya expiró: no queda qué guardar` });
     }
     if (!m.evidencia) {
       const ya = db.prepare(`SELECT COUNT(*) n FROM messages WHERE evidencia = 1 AND routeId IN (SELECT routeId FROM routes WHERE companyId = ?)`).get(req.empresa).n;
-      if (ya >= EVIDENCIA_MAX) return res.status(409).json({ error: `La cooperativa ya tiene ${ya} mensajes guardados como evidencia (el tope es ${EVIDENCIA_MAX}). Desmarcá los que ya no hagan falta` });
+      if (ya >= EVIDENCIA_MAX) return res.status(409).json({ error: `La cooperativa ya tiene ${ya} mensajes guardados como evidencia (el tope es ${EVIDENCIA_MAX}). Desmarca los que ya no hagan falta` });
     }
     db.prepare('UPDATE messages SET evidencia = 1, evidenciaPor = ?, evidenciaEn = ?, evidenciaMotivo = ? WHERE id = ?')
       .run(req.dispatchUser.unitId, Date.now(), motivo, m.id);
@@ -11146,7 +11146,7 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
 // quedan contiguas; el vecino de otro tramo no es un vecino. Sin esto, la
 // última de la ida se medía contra la primera de la vuelta —que va para el
 // otro lado— y la recién salida contra la que está por llegar al terminal
-// (48 min de «apurá» con 12 unidades en la calle). La vuelta entera sigue
+// (48 min de «apura» con 12 unidades en la calle). La vuelta entera sigue
 // existiendo como métrica (`laps`, objetivo automático); lo que no existe es
 // la brecha a través del terminal. Decisión del 8/9, REVISION-2026-09-08.md,
 // L1. Una ruta sin trazado no tiene tramos y sigue siendo una sola fila.
@@ -11168,7 +11168,7 @@ function calculateGaps(sortedUnits, durationMin, anotar) {
     // posición es vieja y no se puede medir contra ella. Las dos cosas
     // importan y por eso no alcanza con sacarla del arreglo:
     //   - si se la saca, el de atrás se mide contra la que sigue, ve el
-    //     doble de brecha y recibe "apurá" hacia una combi que no ve;
+    //     doble de brecha y recibe "apura" hacia una combi que no ve;
     //   - si se la mide igual, el número es de hace minutos y miente.
     // Queda `aheadUnit` con nombre y `toAhead` en null: hay alguien
     // adelante, no sabemos a cuánto. Es un estado distinto de "no hay nadie",
@@ -11320,7 +11320,7 @@ function scheduleStateBroadcast(routeId, immediate = false) {
 // Antes esto era una sola cosa: a los 30 segundos sin GPS, borrar. Se midió
 // lo que provocaba y era peor que un fantasma en el mapa. Con la unidad
 // borrada, la de atrás pasa a medirse contra la que sigue —el doble de
-// lejos—, ve una brecha enorme y la pantalla le dice "apurá" hacia una combi
+// lejos—, ve una brecha enorme y la pantalla le dice "apura" hacia una combi
 // que tiene justo adelante y que ya no ve. El sistema producía el pelotón
 // que existe para evitar.
 //

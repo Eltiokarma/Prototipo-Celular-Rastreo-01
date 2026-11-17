@@ -91,7 +91,7 @@ let servidor = null;
   msj.run('chat', 'pedro', 'Peter', 'M-01', null, 'Llegando al paradero de la UANCV', null, null, ahora - 4 * H);
   const idFoto = msj.run('photo', 'pedro', 'Peter', 'M-01', null, 'Llanta baja', null, 'data:image/jpeg;base64,' + FOTO.toString('base64'), ahora - 4 * H).lastInsertRowid;
   msj.run('voice', 'pedro', 'Peter', 'M-01', null, null, 4, null, ahora - 4 * H);           // ya expiró
-  msj.run('chat', 'DESPACHO', 'Despacho', null, 'pedro', 'Pedro, pasá por la oficina', null, null, ahora - 3.5 * H);
+  msj.run('chat', 'DESPACHO', 'Despacho', null, 'pedro', 'Pedro, pasa por la oficina', null, null, ahora - 3.5 * H);
   msj.run('chat', 'juan', 'Juan Apaza', 'M-02', null, 'Mensaje de Juan en el grupo', null, null, ahora - 2 * H);
   msj.run('chat', 'DESPACHO', 'Despacho', null, 'juan', 'Privado para Juan', null, null, ahora - 2 * H);
   base.prepare(`INSERT INTO recordings (personId, companyId, routeId, nombre, puntos, cantidad, largoM, createdAt)
@@ -115,7 +115,7 @@ let servidor = null;
   const desvios = z.texto('desvios.csv');
   ok('lo mismo con los desvíos', /;420;300;regreso/.test(desvios) && !/999/.test(desvios));
   const mensajes = z.texto('mensajes.csv');
-  ok('sus mensajes, y el privado que le mandó Despacho', /UANCV/.test(mensajes) && /pasá por la oficina/.test(mensajes));
+  ok('sus mensajes, y el privado que le mandó Despacho', /UANCV/.test(mensajes) && /pasa por la oficina/.test(mensajes));
   ok('lo de Juan, no: ni lo del grupo ni su privado', !/Mensaje de Juan/.test(mensajes) && !/Privado para Juan/.test(mensajes));
   const nombreFoto = z.nombres.find(n => n.startsWith('fotos/'));
   ok('su foto, idéntica byte por byte', !!nombreFoto && nombreFoto.endsWith(`-${idFoto}.jpg`) && z.bytes(nombreFoto).equals(FOTO), nombreFoto);

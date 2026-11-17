@@ -181,7 +181,7 @@ const enEstado = (c, ruta, veh) => !!(ultimoEstado(c, ruta)?.units || []).find(u
   }
 
   // La web del chofer guarda la sesión con la ruta del ingreso, y la puerta
-  // («¿salís a ruta?») la muestra desde ahí: sin corregirla, el cobrador
+  // («¿sales a ruta?») la muestra desde ahí: sin corregirla, el cobrador
   // vería la 18B al día siguiente de que su combi volvió a la 14.
   console.log('\nLA WEB DEL COBRADOR SE ENTERA');
   {

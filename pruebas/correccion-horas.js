@@ -179,7 +179,7 @@ const H = 3600_000;
   await de.click(`[data-editor-turno="${s2}"] [data-turno-guardar]`);
   await de.waitForTimeout(800);
   const txtError = await de.evaluate(() => document.body.innerText);
-  ok('sin motivo, la pantalla dice por qué no', /Escribí el motivo/.test(txtError));
+  ok('sin motivo, la pantalla dice por qué no', /Escribe el motivo/.test(txtError));
   await de.fill(`[data-editor-turno="${s2}"] [data-turno-motivo]`, 'Dejó la combi en el paradero antes de lo que marcó');
   await de.click(`[data-editor-turno="${s2}"] [data-turno-guardar]`);
   await de.waitForSelector(`[data-corregido="${s2}"]`, { timeout: 8000 }).catch(() => {});

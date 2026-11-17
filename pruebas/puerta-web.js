@@ -121,7 +121,7 @@ const LAT = -15.4900, LNG = -70.1330, M = 1 / 111320;
   ok('avisa', !!aviso);
   ok('antes de los dos minutos de andar', paso * 5 <= 120, paso * 5);
   const texto = aviso ? await aviso.innerText() : '';
-  ok('dice qué pasa y cuánto falta', /¿Ya estás manejando\?/.test(texto) && /Salís a ruta solo en \d+ s/.test(texto), texto);
+  ok('dice qué pasa y cuánto falta', /¿Ya estás manejando\?/.test(texto) && /Sales a ruta solo en \d+ s/.test(texto), texto);
 
   // «No estoy manejando»
   await ch.click('button:has-text("No estoy manejando")');

@@ -66,7 +66,7 @@ async function restaurarAlArrancar({ dbFile, pedido, env = process.env, fetchImp
   const previa = marcaDe(dbFile);
   if (previa && previa.pedido === pedido) {
     log(`RESTAURAR_DESDE=${pedido} ya se restauró el ${new Date(previa.en).toLocaleString('es-PE')}: no se repite. ` +
-        'Sacá la variable de Railway.');
+        'Saca la variable de Railway.');
     return { repetido: true, marca: previa };
   }
   const Database = cargarDatabase();
@@ -105,7 +105,7 @@ async function restaurarAlArrancar({ dbFile, pedido, env = process.env, fetchImp
   const marca = { pedido, en: Date.now(), bytes, anterior: anterior ? path.basename(anterior) : null };
   fs.writeFileSync(path.join(path.dirname(dbFile), MARCA), JSON.stringify(marca, null, 2));
   log(`✔ Base restaurada desde ${pedido}. La anterior quedó como ${marca.anterior || '(no había)'}. ` +
-      'Cuando confirmes que está bien, sacá RESTAURAR_DESDE de las variables.');
+      'Cuando confirmes que está bien, saca RESTAURAR_DESDE de las variables.');
   return { repetido: false, marca };
 }
 

@@ -525,7 +525,7 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
       .filter({ has: de.locator('button:has-text("Mensaje directo")') }).last();
     await tarjeta.locator('button:has-text("Mensaje directo")').click({ timeout: 6000 }); await de.waitForTimeout(1000);
     const entrada = de.locator('input[placeholder^="Mensaje solo para"], textarea[placeholder^="Mensaje solo para"]').last();
-    await entrada.fill('Rufo, en el paradero del mercado esperá 2 minutos: viene pegado M-02.');
+    await entrada.fill('Rufo, en el paradero del mercado espera 2 minutos: viene pegado M-02.');
     await entrada.press('Enter');
     await de.waitForTimeout(1500);
     await foto(de, 'd04-mensaje-directo');
@@ -535,7 +535,7 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     const personal = tarjeta.locator('button:has-text("Solo a")');
     await personal.click({ timeout: 6000 }); await de.waitForTimeout(800);
     const aEl = de.locator('input[placeholder^="Mensaje solo para"]').last();
-    await aEl.fill('Rufo, al terminar el turno pasá por la oficina a firmar.');
+    await aEl.fill('Rufo, al terminar el turno pasa por la oficina a firmar.');
     await aEl.press('Enter');
     await de.waitForTimeout(1500);
     await foto(de, 'd04b-mensaje-personal');
@@ -565,7 +565,7 @@ const clic = (p, sel, ms = 1200) => p.click(sel, { timeout: 6000 }).then(() => p
     await clic(ch, 'button:has-text("EN TRÁFICO")', 1500);
   });
   await paso('chofer: SOS', async () => {
-    const perilla = await ch.locator('text=DESLIZÁ PARA SOS').boundingBox();
+    const perilla = await ch.locator('text=DESLIZA PARA SOS').boundingBox();
     const sos = await ch.locator('div:text-is("SOS")').last().boundingBox();
     const desde = sos || { x: perilla.x - 80, y: perilla.y, width: 60, height: perilla.height };
     const y = desde.y + desde.height / 2;

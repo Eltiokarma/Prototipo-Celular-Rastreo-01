@@ -21,7 +21,7 @@
 //      README. Es la que más riesgo tiene de terminar en un despliegue de
 //      verdad, porque copiar la configuración de las pruebas es exactamente
 //      lo que uno hace cuando tiene apuro.
-//   2. LAS OBVIAS. `password`, `123456`, `admin`, `cambiame`. No hace falta
+//   2. LAS OBVIAS. `password`, `123456`, `admin`, `cámbiame`. No hace falta
 //      que se hayan filtrado: son las primeras que prueba cualquiera.
 //   3. LAS QUE QUEMÓ EL DUEÑO. Las que pasaron por un chat, un correo o una
 //      captura de pantalla. Ésas NO están acá y no pueden estarlo: nosotros no
@@ -78,7 +78,7 @@ const QUEMADAS = new Map([
   [huella('12345678'), 'es una de las primeras que prueba cualquiera'],
   [huella('admin'), 'es una de las primeras que prueba cualquiera'],
   [huella('administrador'), 'es una de las primeras que prueba cualquiera'],
-  [huella('cambiame'), 'es una clave de relleno, no una clave'],
+  [huella('cámbiame'), 'es una clave de relleno, no una clave'],
   [huella('changeme'), 'es una clave de relleno, no una clave'],
   [huella('contraseña'), 'es una clave de relleno, no una clave'],
   [huella('despacho'), 'es el nombre de la cuenta, no una clave'],
@@ -137,14 +137,14 @@ function revisarClaves(env = process.env, opciones = {}) {
       porque: 'sin ella la cuenta DESPACHO no se crea al arrancar, y hasta que exista ' +
         'alguna cuenta de administración el primer login que use el nombre DESPACHO se ' +
         'la queda, con la clave que quiera y viendo todas las rutas.',
-      como: 'poné DISPATCH_PASSWORD con una clave larga y nueva.',
+      como: 'pon DISPATCH_PASSWORD con una clave larga y nueva.',
     });
   } else if (despacho.length < claveMinimaDespacho) {
     problemas.push({
       variable: 'DISPATCH_PASSWORD',
       que: `tiene menos de ${claveMinimaDespacho} caracteres`,
       porque: 'es la cuenta que administra a todos los choferes de la cooperativa.',
-      como: `poné una de ${claveMinimaDespacho} caracteres o más.`,
+      como: `pon una de ${claveMinimaDespacho} caracteres o más.`,
     });
   } else {
     const motivo = motivoQuemada(despacho);
@@ -154,7 +154,7 @@ function revisarClaves(env = process.env, opciones = {}) {
         que: 'ya no es secreta',
         porque: `${motivo}. Cualquiera que la escriba entra como Despacho y administra ` +
           'a todos los choferes de la cooperativa.',
-        como: 'poné una clave nueva, que no haya estado en ningún chat ni en ningún archivo.',
+        como: 'pon una clave nueva, que no haya estado en ningún chat ni en ningún archivo.',
       });
     }
   }
@@ -179,7 +179,7 @@ function revisarClaves(env = process.env, opciones = {}) {
         porque: `${motivo}. Es la ÚNICA llave que abre TODAS las cooperativas del ` +
           'servidor: quien entra puede crear una cooperativa, crearse un supervisor ' +
           'adentro y mirar lo que quiera de cualquiera de ellas.',
-        como: 'poné una clave nueva, larga y aleatoria. Después agregá la huella de la ' +
+        como: 'pon una clave nueva, larga y aleatoria. Después agrega la huella de la ' +
           'vieja a CLAVES_QUEMADAS con `node herramientas/quemar-clave.js`, para que ' +
           'nadie pueda volver a ponerla por distracción.',
       });
@@ -195,7 +195,7 @@ function revisarClaves(env = process.env, opciones = {}) {
       que: 'es igual a DISPATCH_PASSWORD',
       porque: 'son dos niveles distintos y tienen que ser dos secretos distintos. Así ' +
         'como está, quien consigue la clave de una cooperativa consigue la de todas.',
-      como: 'poné una clave distinta en cada una.',
+      como: 'pon una clave distinta en cada una.',
     });
   }
 

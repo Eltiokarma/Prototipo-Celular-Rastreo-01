@@ -78,7 +78,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
         body: JSON.stringify({ user: usuario, password, ...(app ? { app } : {}) }),
       });
     } catch (e) {
-      throw new Error(e?.name === 'AbortError' ? 'El servidor no contesta: probá de nuevo' : 'Sin conexión con el servidor');
+      throw new Error(e?.name === 'AbortError' ? 'El servidor no contesta: prueba de nuevo' : 'Sin conexión con el servidor');
     } finally { clearTimeout(corte); }
     const cuerpo = await r.json().catch(() => ({}));
     if (!r.ok) {
@@ -356,7 +356,7 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
   // El tercero es una unidad que dejó de reportar. Su última posición es de
   // hace minutos: medirse contra ella sería inventar. Pero tampoco se la
   // saca de la fila, porque entonces este lado pasaría a medirse contra la
-  // que sigue —el doble de lejos— y la pantalla diría "apurá" hacia una
+  // que sigue —el doble de lejos— y la pantalla diría "apura" hacia una
   // combi que el chofer tiene justo adelante. Está medido; ver PROTOCOLO.md.
   //
   // Y a cualquiera de los tres se le puede sumar el tráfico: el vecino lleva
@@ -565,8 +565,8 @@ function crearCliente({ servidor, WebSocketImpl, ahora = () => Date.now(), latid
       } catch (e) {
         // Sin red, fetch tira «Network request failed», en inglés
         throw new Error(e && e.name === 'AbortError'
-          ? 'El servidor no contesta. Probá de nuevo.'
-          : 'Sin conexión con el servidor. Probá de nuevo.');
+          ? 'El servidor no contesta. Prueba de nuevo.'
+          : 'Sin conexión con el servidor. Prueba de nuevo.');
       }
       const datos = await r.json().catch(() => ({}));
       if (!r.ok) { const e = new Error(datos.error || 'No se pudo'); e.status = r.status; throw e; }

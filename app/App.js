@@ -363,7 +363,7 @@ function Aplicacion() {
       // y antes se descartaba sin decir nada: la burbuja no aparecía y no
       // había explicación en ninguna pantalla (C10).
       c.on('cupo', (m) => setAviso(
-        `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, esperá un momento`)),
+        `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, espera un momento`)),
     ];
     return () => off.forEach(f => f());
   }, []);
@@ -577,7 +577,7 @@ function Aplicacion() {
     return () => clearTimeout(t);
   }, [avisoSalida]);
 
-  // ── ¿En qué combi salís? (habilitaciones, 30/10) ────────────
+  // ── ¿En qué combi sales? (habilitaciones, 30/10) ────────────
   // En la puerta, la lista de las que puede elegir con su estado —libre, o
   // quién la maneja—, refrescada cada 20 s. Elegir no toma nada: la combi se
   // toma al deslizar SALIR A RUTA, y si otro la maneja eso es un relevo.
@@ -631,7 +631,7 @@ function Aplicacion() {
     });
     if (otraCombi && presencia !== 'fuera' && sesion.role !== 'collector') {
       cambiarPresencia('fuera');
-      setAviso(`Despacho te pasó a ${m.vehicleId}. Para salir en ella, deslizá SALIR A RUTA.`);
+      setAviso(`Despacho te pasó a ${m.vehicleId}. Para salir en ella, desliza SALIR A RUTA.`);
     }
   };
 
@@ -744,7 +744,7 @@ function Aplicacion() {
         if (cliente.current) cliente.current.salir();
         olvidarDeLaSesion();
         gps.limpiarSesion();
-        setAviso('Tu sesión ya no vale: entrá de nuevo');
+        setAviso('Tu sesión ya no vale: entra de nuevo');
         setSesion(null); setPresencia('fuera');
         return;
       }
@@ -761,7 +761,7 @@ function Aplicacion() {
       // le decía por qué (REVISION-2026-09-10.md, C5).
       if (gps.diagnostico.relojAdelantadoSec) {
         setAviso(`El reloj del teléfono está ${Math.max(1, Math.round(gps.diagnostico.relojAdelantadoSec / 60))} min adelantado: ` +
-          'el servidor no puede usar tus posiciones. Activá la fecha y hora automáticas en Ajustes.');
+          'el servidor no puede usar tus posiciones. Activa la fecha y hora automáticas en Ajustes.');
       }
       const corriendo = await gps.estaCorriendo();
       if (!vivo || saliendo.current) return;
@@ -995,7 +995,7 @@ function Aplicacion() {
           if (!tipo) return;
           const r = await cliente.current.marcarTipoSos(tipo);
           if (r === 'sin-sos') setAviso('No hay ninguna emergencia tuya abierta para calificar');
-          else if (r) setAviso('SOS ENVIADO. El tipo no salió: decí por chat si es ambulancia o grúa');
+          else if (r) setAviso('SOS ENVIADO. El tipo no salió: escribe por el chat si es ambulancia o grúa');
         }}
         onPerfil={() => setVerPerfil(true)} />
       <Chat {...comun}
@@ -1007,7 +1007,7 @@ function Aplicacion() {
           // sin socket no pasa NADA: ni burbuja, ni error. Antes el retorno
           // se descartaba (C10).
           if (!cliente.current.mandarChat(texto, { privado: canal === 'directo', personal: canal === 'personal' })) {
-            setAviso('Sin conexión: el mensaje no salió, probá de nuevo');
+            setAviso('Sin conexión: el mensaje no salió, prueba de nuevo');
             return false;
           }
           return true;
@@ -1016,8 +1016,8 @@ function Aplicacion() {
           // Ídem la nota de voz, que es peor: el chofer graba cuarenta
           // segundos, suelta, y no pasa nada.
           const r = cliente.current.mandarVoz({ data, duration, privado: canal === 'directo', personal: canal === 'personal' });
-          if (r === 'muy-larga') setAviso('La nota es muy larga y no salió: grabá una más corta');
-          else if (r === 'sin-conexion') setAviso('Sin conexión: la nota no salió, probá de nuevo');
+          if (r === 'muy-larga') setAviso('La nota es muy larga y no salió: graba una más corta');
+          else if (r === 'sin-conexion') setAviso('Sin conexión: la nota no salió, prueba de nuevo');
           else if (r) setAviso('Eso no es una nota de voz');
           // Y se devuelve: `Grabar` y `Camara` lo muestran al lado del botón,
           // que es donde está mirando el que mandó (barrido del 22/9).
@@ -1027,8 +1027,8 @@ function Aplicacion() {
           // Si no salió, se dice por qué. Antes la pantalla ignoraba el
           // retorno y una foto pesada o sin conexión se perdía en silencio.
           const r = cliente.current.mandarFoto({ data, privado: canal === 'directo', personal: canal === 'personal' });
-          if (r === 'muy-pesada') setAviso('La foto pesa demasiado y no salió: sacala de más lejos');
-          else if (r === 'sin-conexion') setAviso('Sin conexión: la foto no salió, probá de nuevo');
+          if (r === 'muy-pesada') setAviso('La foto pesa demasiado y no salió: sácala de más lejos');
+          else if (r === 'sin-conexion') setAviso('Sin conexión: la foto no salió, prueba de nuevo');
           else if (r) setAviso('Eso no es una foto');
           return r;
         }} />
@@ -1145,7 +1145,7 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
     <View style={[s.pantalla, margen]}>
       <BarraDeEstado />
       <Text style={s.tituloChico}>CONTROL DE RUTA</Text>
-      <Text style={s.subtitulo}>Ingresá con el usuario que te dio tu cooperativa</Text>
+      <Text style={s.subtitulo}>Ingresa con el usuario que te dio tu cooperativa</Text>
 
       <Text style={s.rotulo}>USUARIO</Text>
       <TextInput style={s.campo} value={usuario} onChangeText={setUsuario}
@@ -1225,7 +1225,7 @@ function DiagnosticoGps({ diag }) {
     {diag.bateriaOptimizada === true && (
       <Pressable onPress={abrirOptimizacionDeBateria}>
         <Text style={[s.diagnostico, { color: C.rojoTexto }]}>
-          BATERÍA: optimización ACTIVA — Android corta la red con la pantalla apagada. Tocá acá y poné esta app en «Sin restricciones»
+          BATERÍA: optimización ACTIVA — Android corta la red con la pantalla apagada. Toca acá y pon esta app en «Sin restricciones»
         </Text>
       </Pressable>
     )}
@@ -1274,7 +1274,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
   };
   return (
     <View style={{ marginBottom: 12 }}>
-      <Text style={s.combiRotulo}>¿EN QUÉ COMBI SALÍS?</Text>
+      <Text style={s.combiRotulo}>¿EN QUÉ COMBI SALES?</Text>
       {/* Con alto máximo: con cinco o seis combis la lista empujaba el
           deslizador de SALIR A RUTA fuera de la pantalla */}
       <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
@@ -1287,7 +1287,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
             <View style={{ flex: 1 }}>
               {!!c.label && <Text style={s.combiPlaca}>{c.label}</Text>}
               <Text style={[s.combiEstado, c.estado === 'ocupada' && { color: C.ambarTexto }]}>
-                {c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}
+                {c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tienes tú' : 'libre'}
               </Text>
             </View>
             {elegida && <Text style={s.combiElegida}>ELEGIDA</Text>}
@@ -1299,7 +1299,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
         <View style={s.combiConfirmar}>
           <Text style={s.combiConfirmarTexto}>
             {confirmar.vehicleId} la está manejando {confirmar.quien}. Si es un relevo, al salir a
-            ruta la tomás vos y a {confirmar.quien} se le avisa.
+            ruta la tomas tú y a {confirmar.quien} se le avisa.
           </Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             <Pressable onPress={() => elegir(confirmar, true)} style={s.combiRelevo} disabled={eligiendo}>
@@ -1316,7 +1316,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
   );
 }
 
-// Cuánto espera «¿SEGURO? TOCÁ DE NUEVO» antes de aceptar el segundo toque
+// Cuánto espera «¿SEGURO? TOCA DE NUEVO» antes de aceptar el segundo toque
 const ARMA_SALIR_MS = 600;
 
 function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, sosVisto, onSosVistoCerrar,
@@ -1380,7 +1380,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
         <BarraDeEstado />
         {cabecera}
         <View style={s.centro}>
-          <Text style={[s.ladoEtiqueta, { color: C.brillante }]}>¿SALÍS A RUTA?</Text>
+          <Text style={[s.ladoEtiqueta, { color: C.brillante }]}>¿SALES A RUTA?</Text>
           {/* Esta pantalla es además la "divulgación destacada" que Google
               Play exige ANTES de pedir el permiso de ubicación en segundo
               plano: dice QUÉ se recopila (tu ubicación), CUÁNDO (también
@@ -1404,7 +1404,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           {/* «Te sacamos de ruta» cae justo en esta pantalla, y no se veía */}
           {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
-        {/* ¿En qué combi salís? Con más de una habilitada. Elegir una que
+        {/* ¿En qué combi sales? Con más de una habilitada. Elegir una que
             maneja otro pide confirmar, nombrándolo: es un relevo, y se hace
             a propósito, no por un dedo que se corrió. */}
         {/* Mientras cuenta el vigía, no: con varias combis el aviso quedaba
@@ -1419,7 +1419,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           <View style={s.vigiaPuerta}>
             <Text style={s.vigiaTitulo}>¿YA ESTÁS MANEJANDO?</Text>
             <Text style={s.vigiaTexto}>
-              Tu combi no está en el mapa. Salís a ruta solo en {Math.ceil(faltaPuerta / 1000)} s.
+              Tu combi no está en el mapa. Sales a ruta solo en {Math.ceil(faltaPuerta / 1000)} s.
             </Text>
             <Pressable onPress={onNoManejo} style={s.vigiaBoton} hitSlop={8}>
               <Text style={s.vigiaBotonTexto}>NO ESTOY MANEJANDO</Text>
@@ -1431,11 +1431,11 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
             quedaba con el GPS alto y un 403 cada 3 s todo el turno (A4). */}
         {rol === 'collector' ? (
           <Text style={[s.diagnostico, { marginBottom: 12 }]}>
-            La ubicación la emite el teléfono del chofer. Vos tenés el chat, el
+            La ubicación la emite el teléfono del chofer. Tú tienes el chat, el
             mapa y el SOS.
           </Text>
         ) : (
-          <Deslizable texto="DESLIZÁ PARA SALIR A RUTA  →" textoBoton="IR"
+          <Deslizable texto="DESLIZA PARA SALIR A RUTA  →" textoBoton="IR"
             colorListo={C.verde} onDisparar={() => onPresencia('ruta')} />
         )}
         {/* El SOS tiene que ESTAR en la puerta, para el cobrador y para el
@@ -1465,16 +1465,16 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
         <View style={s.centro}>
           <Text style={[s.ladoEtiqueta, { color: C.ambarTexto }]}>AUSENTE</Text>
           <Text style={[s.instruccion, { marginTop: 14 }]}>
-            Estás fuera de la cadena: nadie se mide contra vos y tu vuelta
+            Estás fuera de la cadena: nadie se mide contra ti y tu vuelta
             quedó descartada. Despacho te sigue viendo en el mapa, quieto.
-            Si arrancás de nuevo, volvés a ruta solo. Pasadas 2 horas, te
+            Si arrancas de nuevo, vuelves a ruta solo. Pasadas 2 horas, te
             sacamos de ruta.
           </Text>
           <Pressable onPress={() => onPresencia('ruta')} style={[s.botonAncho, { backgroundColor: C.llenoVerde }]}>
             <Text style={s.botonAnchoTexto}>VOLVER A RUTA</Text>
           </Pressable>
           <Text style={s.diagnostico}>
-            Al volver, entrás a la cadena cuando el GPS te vea sobre el trazado.
+            Al volver, entras a la cadena cuando el GPS te vea sobre el trazado.
           </Text>
           {aviso && <Text style={s.avisoBarra}>{aviso}</Text>}
         </View>
@@ -1504,7 +1504,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
         <Pressable onPress={onAvisoSalidaVisto} style={s.vigiaPuerta}>
           <Text style={s.vigiaTitulo}>SALISTE A RUTA SOLO</Text>
           <Text style={s.vigiaTexto}>
-            Te vimos manejando sin haber deslizado SALIR A RUTA. Despacho lo ve en la actividad. Tocá para cerrar.
+            Te vimos manejando sin haber deslizado SALIR A RUTA. Despacho lo ve en la actividad. Toca para cerrar.
           </Text>
         </Pressable>
       )}
@@ -1535,7 +1535,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
         <View style={s.centro}>
           <Text style={s.sinSenalTitulo}>SIN SEÑAL</Text>
           <Text style={s.sinSenalTexto}>
-            No veo a las otras combis desde hace {hud.hace}. Andá con cuidado: siguen en ruta.
+            No veo a las otras combis desde hace {hud.hace}. Ve con cuidado: siguen en ruta.
           </Text>
           <View style={s.divisor} />
           <Text style={s.ladoUnidad}>
@@ -1568,7 +1568,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
       {/* Tráfico, de un toque. Tres caras: nada (avisar), el servidor me vio
           parado y pregunta (confirmar), y ya avisé (se apaga solo al andar;
           tocar retira). El de atrás lo ve en su brecha y deja de recibir
-          "apurá" hacia acá. */}
+          "apura" hacia acá. */}
       <Pressable onPress={() => onTrafico(!enTrafico)}
         style={[s.botonTrafico,
                 enTrafico && { backgroundColor: C.llenoAmbar, borderColor: C.llenoAmbar },
@@ -1577,7 +1577,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           {enTrafico
             ? `EN TRÁFICO · ${minTrabado} MIN · se apaga solo al andar`
             : parado
-              ? `¿ESTÁS EN TRÁFICO? · parado hace ${minTrabado} min · tocá para avisar`
+              ? `¿ESTÁS EN TRÁFICO? · parado hace ${minTrabado} min · toca para avisar`
               : 'ESTOY EN TRÁFICO'}
         </Text>
       </Pressable>
@@ -1595,7 +1595,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           onPresencia('fuera');
         }} style={[s.botonPresencia, confirmarSalida && { backgroundColor: C.llenoRojo, borderColor: C.llenoRojo }]}>
           <Text style={[s.botonPresenciaTexto, confirmarSalida && { color: C.sobreRojo }]}>
-            {confirmarSalida ? '¿SEGURO? TOCÁ DE NUEVO' : 'SALIR DE RUTA'}
+            {confirmarSalida ? '¿SEGURO? TOCA DE NUEVO' : 'SALIR DE RUTA'}
           </Text>
         </Pressable>
       </View>
@@ -1696,7 +1696,7 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
       }
       setAviso(hecho);
       return true;
-    } catch { setAviso('Sin conexión — probá de nuevo'); return false; }
+    } catch { setAviso('Sin conexión — prueba de nuevo'); return false; }
   };
 
   const borrar = async (ruta, hecho) => {
@@ -1710,7 +1710,7 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
       if (!r.ok) { setAviso(cuerpo.error || 'No se pudo'); return false; }
       setAviso(hecho);
       return true;
-    } catch { setAviso('Sin conexión — probá de nuevo'); return false; }
+    } catch { setAviso('Sin conexión — prueba de nuevo'); return false; }
   };
 
   // ── Los cobradores de la combi ──────────────────────────────
@@ -1764,8 +1764,8 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
       if (fue) await gps.descartarGrabacion();
       // Si el servidor la RECHAZÓ (demasiado grande, cupo del día) ya dijo
       // por qué, y reintentar daría lo mismo: no se le pide que reintente
-      // (barrido del 22/9). Sólo la falla de red dice «probá de nuevo».
-      else if (!fueRechazo.current) setAviso('No salió — la grabación quedó guardada. Probá ENVIAR de nuevo con señal.');
+      // (barrido del 22/9). Sólo la falla de red dice «prueba de nuevo».
+      else if (!fueRechazo.current) setAviso('No salió — la grabación quedó guardada. Prueba ENVIAR de nuevo con señal.');
     } finally { setMandandoGrabacion(false); }
   };
 
@@ -1774,7 +1774,7 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
   const combi = datos?.vehiculo?.vehicleId || 'LA COMBI';
   const tarjetas = m ? [
     // Las vueltas son de la COMBI, la maneje quien la maneje; las «tuyas»
-    // son las que se cerraron con vos arriba, con la misma regla que usa el
+    // son las que se cerraron contigo arriba, con la misma regla que usa el
     // gerente. Antes decía «vueltas» a secas, y el que tomó la combi
     // anteayer veía siete días de vueltas de otro al lado de SUS horas (P2).
     [`VUELTAS DE ${combi}`, String(m.vueltas)],
@@ -1801,7 +1801,7 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
   // la persona (vueltas, salidas de ruta en su turno, SOS, grabaciones).
   const sn = datos?.combi?.senal, dv = datos?.combi?.desvios, pr = datos?.propios;
   const miSemana = sn && dv && pr ? [
-    ['Vueltas con vos arriba', String(pr.vueltas)],
+    ['Vueltas contigo arriba', String(pr.vueltas)],
     ['Salidas de ruta de la combi', `${dv.veces}${dv.veces ? ` · la más lejos, ${dv.maxM} m` : ''}`],
     ['   de ésas, en tu turno', String(pr.desvios)],
     ['Cortes de señal', `${sn.cortes}${sn.cortes ? ` · el más largo ${mmss(sn.corteMaxSec)}` : ''}`],
@@ -1837,11 +1837,11 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
             <View style={s.divisor} />
             <Text style={s.perfilSeccion}>GRABADOR DE RECORRIDO</Text>
             <Text style={s.diagnostico}>
-              Con la salida a ruta activa, manejá la vuelta entera: se guarda
+              Con la salida a ruta activa, maneja la vuelta entera: se guarda
               un punto cada 30 metros (parar en un semáforo no ensucia). Al
               terminar se envía, y Despacho lo importa desde su trazador.
               {'\n'}Hasta que se envía vive SOLO en este teléfono: si
-              desinstalás la app, se pierde.
+              desinstalas la app, se pierde.
             </Text>
             {!grabacion && (
               <Pressable style={[s.botonAncho, {
@@ -1957,7 +1957,7 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
             {m && m.vueltasPropias != null && m.vueltas !== m.vueltasPropias && (
               <Text style={s.diagnostico}>
                 Las vueltas son de {combi}, la maneje quien la maneje. «Tuyas» son las
-                {datos.persona.role === 'collector' ? ' que se cerraron con vos arriba' : ' que se cerraron con vos al volante'}:
+                {datos.persona.role === 'collector' ? ' que se cerraron contigo arriba' : ' que se cerraron contigo al volante'}:
                 las otras {m.vueltas - m.vueltasPropias} son de otro turno.
               </Text>
             )}
@@ -1995,7 +1995,7 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
               <Text style={s.perfilSeccion}>{dias === 7 ? 'MI SEMANA' : `MIS ${dias} DÍAS`}</Text>
               <Text style={s.diagnostico}>
                 Lo que Despacho ve de {combi} en estos {dias} días, con la misma cuenta.
-                Lo de la combi es de la combi; «en tu turno» y «tuyos» son de vos.
+                Lo de la combi es de la combi; lo que dice «en tu turno» o «tuyos» es solo tuyo.
               </Text>
               {miSemana.map(([etiqueta, valor]) => (
                 <View key={etiqueta} style={s.semanaFila}>
@@ -2062,8 +2062,8 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
             {datos.puedeGestionar && (
               <Text style={s.diagnostico}>
                 Cada uno entra con SU usuario: así las horas de cada uno son
-                suyas. Podés cambiarles la clave y sacarlos de tu combi.
-                Para AGREGAR uno nuevo, pedíselo a Despacho o a la gerencia:
+                suyas. Puedes cambiarles la clave y sacarlos de tu combi.
+                Para AGREGAR uno nuevo, pídeselo a Despacho o a la gerencia:
                 el alta lleva el nombre real con el que se liquidan las horas.
               </Text>
             )}
@@ -2104,7 +2104,7 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
                                          `${c.alias || c.name} ya no va en tu combi`)) cargar();
                       }}>
                       <Text style={[s.cobradorBotonTexto, { color: C.rojoTexto }]}>
-                        {confirmarBaja === c.unitId ? '¿SEGURO? TOCÁ DE NUEVO' : 'DAR DE BAJA'}
+                        {confirmarBaja === c.unitId ? '¿SEGURO? TOCA DE NUEVO' : 'DAR DE BAJA'}
                       </Text>
                     </Pressable>
                   </View>
@@ -2166,7 +2166,7 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
             }}>
               <Text style={[s.botonAnchoTexto, { color: confirmarCerrarTodo ? C.rojo : C.tenue }]}>
                 {confirmarCerrarTodo
-                  ? '¿SEGURO? TAMBIÉN CIERRA ESTA — TOCÁ DE NUEVO'
+                  ? '¿SEGURO? TAMBIÉN CIERRA ESTA — TOCA DE NUEVO'
                   : 'CERRAR TODAS MIS SESIONES'}
               </Text>
             </Pressable>
@@ -2359,7 +2359,7 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
         <View style={s.centro}>
           <Text style={s.ladoEtiquetaSec}>EL MAPA ES DE LA RUTA</Text>
           <Text style={[s.instruccion, { marginTop: 12 }]}>
-            Salí a ruta para verlo. Desde acá podés chatear con el grupo y
+            Sal a ruta para verlo. Desde acá puedes chatear con el grupo y
             con Despacho mientras tanto.
           </Text>
         </View>
@@ -2411,7 +2411,7 @@ function Mapa({ estado, geometria, yo, activo, pantalla, noLeidos, presencia, on
         {!suelto && (
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setSuelto(true)}>
             <View style={s.pistaMapa} pointerEvents="none">
-              <Text style={s.pistaMapaTexto}>TOCÁ PARA MOVER EL MAPA</Text>
+              <Text style={s.pistaMapaTexto}>TOCA PARA MOVER EL MAPA</Text>
             </View>
           </Pressable>
         )}
@@ -2501,7 +2501,7 @@ function SosVisto({ visto, onCerrar }) {
     <Pressable onPress={onCerrar} style={s.sosVisto} accessibilityRole="button">
       <Text style={s.vigiaTitulo}>DESPACHO VIO TU SOS</Text>
       <Text style={s.vigiaTexto}>
-        Lo vio {visto.por || 'Despacho'} a las {hora}. Tocá para cerrar.
+        Lo vio {visto.por || 'Despacho'} a las {hora}. Toca para cerrar.
       </Text>
     </Pressable>
   );
@@ -2525,7 +2525,7 @@ function SosSinRed({ fallo, central, combi, nombre, onCerrar }) {
     <View style={s.sosSinRed} accessibilityRole="alert">
       <Text style={s.sosSinRedTitulo}>SOS NO SALIÓ</Text>
       <Text style={s.sosSinRedTexto}>
-        Sin internet. Pedí ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+        Sin internet. Pide ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
       </Text>
       {central ? (
         <>
@@ -2616,7 +2616,7 @@ function SosDeslizable({ onDisparar }) {
         {fase === 'enviando' ? 'ENVIANDO…'
           : fase === 'enviada' ? 'ALERTA ENVIADA'
           : fase === 'fallo' ? 'NO SALIÓ — REPETÍ'
-          : 'DESLIZÁ PARA SOS  →'}
+          : 'DESLIZA PARA SOS  →'}
       </Text>
       <Animated.View {...pan.panHandlers}
         style={[s.sosBoton, { transform: [{ translateX: x }] },
@@ -2704,7 +2704,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
               ? 'Todavía no hay mensajes en el canal de la ruta.'
               : canal === 'directo'
                 ? 'Acá va lo que Despacho habla con tu combi: lo ven el chofer y el cobrador que van arriba, y el que la maneje después.'
-                : 'Acá hablás solo vos con Despacho. Te sigue aunque cambies de combi, y no lo ve nadie más.'}
+                : 'Acá hablas solo tú con Despacho. Te sigue aunque cambies de combi, y no lo ve nadie más.'}
           </Text>
         }
         renderItem={({ item: m }) => (
@@ -2765,7 +2765,7 @@ function Chat({ mensajes, canal, noLeidos, conectado, pantalla, aviso, onCanal, 
              onRequestClose={() => setVerFoto(null)}>
         <Pressable style={s.visor} onPress={() => setVerFoto(null)}>
           {verFoto && <Image source={{ uri: verFoto }} style={s.visorFoto} resizeMode="contain" />}
-          <Text style={s.visorPie}>Tocá para cerrar</Text>
+          <Text style={s.visorPie}>Toca para cerrar</Text>
         </Pressable>
       </Modal>
     </View>
@@ -2907,7 +2907,7 @@ function Grabar({ onListo, habilitado }) {
     <View>
       {(grabando || error) && (
         <Text style={s.grabandoAviso}>
-          {error || `● Grabando ${segundos}s — soltá para enviar`}
+          {error || `● Grabando ${segundos}s — suelta para enviar`}
         </Text>
       )}
       <Pressable
@@ -2993,7 +2993,7 @@ function crearEstilos(C) { return StyleSheet.create({
     paddingVertical: 11, alignItems: 'center',
   },
   vigiaBotonTexto: { color: C.sobreLleno, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
-  // ¿En qué combi salís?
+  // ¿En qué combi sales?
   combiRotulo: { color: C.cielo, fontSize: 13, fontWeight: '700', letterSpacing: 0.3, marginBottom: 8 },
   combiFila: {
     flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8,

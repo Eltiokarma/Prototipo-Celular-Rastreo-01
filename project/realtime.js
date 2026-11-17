@@ -700,7 +700,7 @@
       });
     } catch {
       // Sin red el navegador dice «Failed to fetch», en inglés
-      const e = new Error('Sin conexión con el servidor. Probá de nuevo.'); e.status = 0; throw e;
+      const e = new Error('Sin conexión con el servidor. Prueba de nuevo.'); e.status = 0; throw e;
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { const e = new Error(data.error || 'No se pudo'); e.status = res.status; throw e; }

@@ -38,9 +38,9 @@ const conectar = async (user, clave = 'clave1234') => {
   const otro = await conectar('M-08');
 
   // 1. Despacho le escribe SOLO a la unidad raul
-  despacho.ws.send(JSON.stringify({ type: 'chat', to: 'raul', text: 'volvé al terminal', timestamp: Date.now() }));
+  despacho.ws.send(JSON.stringify({ type: 'chat', to: 'raul', text: 'vuelve al terminal', timestamp: Date.now() }));
   await sleep(1200);
-  const lo = (c) => c.rec.chats.filter(m => m.text === 'volvé al terminal');
+  const lo = (c) => c.rec.chats.filter(m => m.text === 'vuelve al terminal');
   ok('1. Le llega al chofer de esa unidad', lo(chofer).length === 1, lo(chofer)[0] && 'para ' + lo(chofer)[0].toVehicleId);
   ok('2. Le llega también a su cobrador', lo(cobrador).length === 1);
   ok('3. NO le llega a otra unidad de la misma ruta', lo(otro).length === 0);
@@ -55,9 +55,9 @@ const conectar = async (user, clave = 'clave1234') => {
   ok('7. NO la ve la otra unidad', resp(otro).length === 0);
 
   // 3. Un chofer NO puede escribirle en privado a otra unidad
-  chofer.ws.send(JSON.stringify({ type: 'chat', to: 'M-08', text: 'che M-08, apurate', timestamp: Date.now() }));
+  chofer.ws.send(JSON.stringify({ type: 'chat', to: 'M-08', text: 'oye M-08, apúrate', timestamp: Date.now() }));
   await sleep(1200);
-  const intento = (c) => c.rec.chats.filter(m => m.text === 'che M-08, apurate');
+  const intento = (c) => c.rec.chats.filter(m => m.text === 'oye M-08, apúrate');
   ok('8. Un chofer no puede mandarle un privado a otro chofer',
      intento(otro).length === 0,
      'terminó en la conversación de ' + ((intento(despacho)[0] || {}).toVehicleId || 'nadie'));
@@ -72,16 +72,16 @@ const conectar = async (user, clave = 'clave1234') => {
   const nuevoOtro = await conectar('M-08');
   const textos = (c) => (c.rec.historial || []).map(i => i.text);
   ok('10. La otra unidad NO ve el privado en el historial',
-     !textos(nuevoOtro).includes('volvé al terminal') && textos(nuevoOtro).includes('hay bloqueo en la avenida'),
+     !textos(nuevoOtro).includes('vuelve al terminal') && textos(nuevoOtro).includes('hay bloqueo en la avenida'),
      JSON.stringify(textos(nuevoOtro)));
   const nuevoChofer = await conectar('raul');
   ok('11. La unidad destinataria SÍ lo ve al reconectar',
-     textos(nuevoChofer).includes('volvé al terminal') && textos(nuevoChofer).includes('estoy en Huancané'));
+     textos(nuevoChofer).includes('vuelve al terminal') && textos(nuevoChofer).includes('estoy en Huancané'));
   const nuevoCobrador = await conectar('maria');
-  ok('12. Su cobrador también', textos(nuevoCobrador).includes('volvé al terminal'));
+  ok('12. Su cobrador también', textos(nuevoCobrador).includes('vuelve al terminal'));
   const nuevoDespacho = await conectar('DESPACHO', 'despacho99');
   ok('13. Despacho ve todas las conversaciones de su ruta',
-     textos(nuevoDespacho).includes('volvé al terminal') && textos(nuevoDespacho).includes('estoy en Huancané'));
+     textos(nuevoDespacho).includes('vuelve al terminal') && textos(nuevoDespacho).includes('estoy en Huancané'));
 
   // 6. Despacho no puede escribirle a una unidad que no existe
   despacho.ws.send(JSON.stringify({ type: 'chat', to: 'NO-EXISTE', text: 'hola?', timestamp: Date.now() }));
@@ -105,21 +105,21 @@ const conectar = async (user, clave = 'clave1234') => {
     await alta({ unitId: 'V-30', name: 'Chofer de al lado', personRole: 'driver', routeId: 'R-30', password: 'clave1234' });
     const vecino = await conectar('V-30');
     vecinos.push(vecino);
-    despacho.ws.send(JSON.stringify({ type: 'chat', to: 'V-30', text: 'pasá por el taller', timestamp: Date.now() }));
+    despacho.ws.send(JSON.stringify({ type: 'chat', to: 'V-30', text: 'pasa por el taller', timestamp: Date.now() }));
     await sleep(1200);
-    const suyo = vecino.rec.chats.filter(m => m.text === 'pasá por el taller');
+    const suyo = vecino.rec.chats.filter(m => m.text === 'pasa por el taller');
     ok('15. El privado a una combi de otra ruta le llega en vivo', suyo.length === 1,
        suyo[0] && 'con ruta ' + suyo[0].routeId);
     ok('16. Y va con la ruta de ESA combi, no con la que Despacho mira',
        suyo.length === 1 && suyo[0].routeId === 'R-30', suyo[0] && suyo[0].routeId);
     ok('17. Despacho ve su propio mensaje igual, aunque esté mirando otra ruta',
-       despacho.rec.chats.filter(m => m.text === 'pasá por el taller').length === 1);
+       despacho.rec.chats.filter(m => m.text === 'pasa por el taller').length === 1);
     ok('18. Y no se le filtra a la otra unidad de la ruta del emisor',
-       otro.rec.chats.filter(m => m.text === 'pasá por el taller').length === 0);
+       otro.rec.chats.filter(m => m.text === 'pasa por el taller').length === 0);
     const devuelta = await conectar('V-30');
     vecinos.push(devuelta);
     ok('19. Y al reconectar sigue estando en su historial — que es lo que se perdía',
-       (devuelta.rec.historial || []).map(i => i.text).includes('pasá por el taller'),
+       (devuelta.rec.historial || []).map(i => i.text).includes('pasa por el taller'),
        JSON.stringify((devuelta.rec.historial || []).map(i => i.text)));
   }
 

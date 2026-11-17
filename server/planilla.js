@@ -54,7 +54,7 @@ function leerZip(buf) {
       const datos = buf.subarray(inicio, inicio + e.comprimido);
       if (e.metodo === 0) return datos.toString('utf8');
       if (e.metodo === 8) return zlib.inflateRawSync(datos, { maxOutputLength: MAX_DESCOMPRIMIDO }).toString('utf8');
-      throw new Error('La planilla usa una compresión que no se puede leer: guardala de nuevo como .xlsx o CSV');
+      throw new Error('La planilla usa una compresión que no se puede leer: guárdala de nuevo como .xlsx o CSV');
     },
   };
 }
@@ -213,7 +213,7 @@ function leerPlanilla({ bytes = null, nombre = '', texto = null } = {}) {
     if (bytes.readUInt32BE(0) === 0xD0CF11E0) {
       // Es un contenedor OLE2: el .xls viejo, o un .xlsx protegido con
       // contraseña (Excel los cifra adentro de uno de éstos)
-      throw new Error('Ese es el formato viejo de Excel (.xls), o una planilla protegida con contraseña. Abrila en Excel, sacale la contraseña si tiene, y guardala como «Libro de Excel (.xlsx)» o como CSV');
+      throw new Error('Ese es el formato viejo de Excel (.xls), o una planilla protegida con contraseña. Ábrela en Excel, sácale la contraseña si tiene, y guárdala como «Libro de Excel (.xlsx)» o como CSV');
     }
     if (bytes.readUInt32LE(0) === 0x04034b50) {
       const zip = leerZip(bytes);
@@ -222,14 +222,14 @@ function leerPlanilla({ bytes = null, nombre = '', texto = null } = {}) {
       else if (nombres.includes('content.xml')) filas = leerOds(bytes);
       else throw new Error('Ese archivo comprimido no es una planilla (.xlsx u .ods)');
     } else if (['numbers', 'pdf', 'doc', 'docx'].includes(ext)) {
-      throw new Error('Ese formato no es una planilla que se pueda leer. Guardala como .xlsx, .ods o CSV');
+      throw new Error('Ese formato no es una planilla que se pueda leer. Guárdala como .xlsx, .ods o CSV');
     } else {
       filas = leerTexto(decodificar(bytes));
     }
   }
   // Sin filas vacías y con los espacios recortados
   filas = filas.map(f => f.map(c => String(c ?? '').trim())).filter(f => f.some(c => c !== ''));
-  if (filas.length > MAX_FILAS) throw new Error(`La planilla tiene más de ${MAX_FILAS} filas: partila en varias`);
+  if (filas.length > MAX_FILAS) throw new Error(`La planilla tiene más de ${MAX_FILAS} filas: pártela en varias`);
   return filas;
 }
 
@@ -253,11 +253,11 @@ function leerPlanillaAislada(entrada) {
     const fin = (f, x) => { if (listo) return; listo = true; clearTimeout(reloj); f(x); };
     const reloj = setTimeout(() => {
       w.terminate();
-      fin(rechazar, new Error('La planilla tardó demasiado en leerse: puede estar dañada. Guardala de nuevo como .xlsx o CSV'));
+      fin(rechazar, new Error('La planilla tardó demasiado en leerse: puede estar dañada. Guárdala de nuevo como .xlsx o CSV'));
     }, LECTOR_TIEMPO_MS);
     w.on('message', (m) => m.error ? fin(rechazar, new Error(m.error)) : fin(resolver, m.filas));
     w.on('error', (e) => fin(rechazar, new Error(e && e.code === 'ERR_WORKER_OUT_OF_MEMORY'
-      ? 'La planilla es demasiado grande o está dañada. Guardala de nuevo como .xlsx o CSV'
+      ? 'La planilla es demasiado grande o está dañada. Guárdala de nuevo como .xlsx o CSV'
       : 'No se pudo leer la planilla: ' + (e && e.message))));
     w.on('exit', (codigo) => fin(rechazar, new Error('No se pudo leer la planilla (el lector se cerró: ' + codigo + ')')));
   });

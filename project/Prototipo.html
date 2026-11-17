@@ -229,7 +229,7 @@ const P = PALETTE;
 // Esto queda solo para la primerísima pantalla, antes del primer ingreso.
 const COOP = {
   name:  'CONTROL DE RUTA',
-  full:  'Ingresá con el usuario que te dio tu cooperativa',
+  full:  'Ingresa con el usuario que te dio tu cooperativa',
 };
 
 // El nombre de la cooperativa sobrevive al cierre de sesión: si no, el
@@ -549,7 +549,7 @@ function fmtTarget(min) {
 // justo lo que necesita saber.
 // ─── LA BRECHA VIEJA (auditoría UI N1, 16/11) ─────────────────────
 // Sin señal, el HUD seguía mostrando la última brecha en su color y con su
-// instrucción: medido, a los 90 s sin red decía 5:12 en verde y «Mantené el
+// instrucción: medido, a los 90 s sin red decía 5:12 en verde y «Mantén el
 // ritmo», y el rótulo de arriba tardaba entre 30 y 60 s en cambiar (y
 // cambiaba a «SIMULADO»). El chofer podía estar corrigiendo contra una combi
 // que ya no estaba ahí.
@@ -573,7 +573,7 @@ function buildHudModel(tweaks, gapMeta, { ahora = Date.now(), fiable = true, con
   // Y a cualquiera de los tres estados se le puede sumar el tráfico del
   // vecino: N minutos sin avanzar (lo midió el servidor) o avisó que está
   // trabado (lo dijo él). Lo mismo que muestra la app nativa; antes la web
-  // no lo veía y le decía «Apurá» al que iba detrás de un embotellamiento
+  // no lo veía y le decía «Apura» al que iba detrás de un embotellamiento
   // (REVISION-2026-09-08.md, A7).
   const trafico = (t) => {
     if (!t || !t.enTrafico) return { enTrafico: false, traficoMin: 0, traficoConfirmado: false };
@@ -599,7 +599,7 @@ function buildHudModel(tweaks, gapMeta, { ahora = Date.now(), fiable = true, con
     }
     const status = sideStatus(value, target);
     // Vieja: el número sigue, pero en gris. El color afirmaba «vas bien» (o
-    // «apurá») sobre un dato que ya no se sabe si vale.
+    // «apura») sobre un dato que ya no se sabe si vale.
     const tono = viejo ? HUD_STATUS.none : HUD_STATUS[status];
     return {
       value, label, sign, unit, sinSenal: false,
@@ -1235,7 +1235,7 @@ function ChatMsg({ msg }) {
             // y blanco sobre el celeste fijo, 2,84 (auditoría UI B9)
             color: msg.privado ? HUD.warnEdgeInk : HUD.acentoInk,
             padding: '2px 6px', borderRadius: 4, letterSpacing: 0.5,
-          }}>{msg.privado === 'persona' ? 'DESPACHO · SOLO PARA VOS'
+          }}>{msg.privado === 'persona' ? 'DESPACHO · SOLO PARA TI'
             : msg.privado ? 'DESPACHO · PARA TU COMBI' : 'DESPACHO'}</span>
         )}
         <span style={{
@@ -1438,7 +1438,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
             color: canal !== 'grupo' ? HUD.warnEdge : (connected ? HUD.dim2 : HUD.amber),
             fontFamily: 'system-ui, sans-serif',
           }}>{canal === 'despacho' ? 'con Despacho · lo ve tu combi'
-            : canal === 'personal' ? 'con Despacho · solo vos'
+            : canal === 'personal' ? 'con Despacho · solo tú'
             : (connected ? `${online} en línea` : 'sin conexión')}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -1507,7 +1507,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
         )}
         {canal === 'personal' && !messages.some(m => m.privado === 'persona') && (
           <div style={{ fontSize: 15, color: HUD.dim2, lineHeight: 1.5, padding: '4px 2px' }}>
-            Acá va lo que hablás <strong>solo vos con Despacho</strong>. Te sigue
+            Acá va lo que hablas <strong>solo tú con Despacho</strong>. Te sigue
             aunque cambies de combi, y no lo ve nadie más: ni tu cobrador, ni el
             que maneje tu combi después.
           </div>
@@ -1522,7 +1522,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
           fontSize: 15, fontWeight: 600, lineHeight: 1.35, fontFamily: 'system-ui, sans-serif',
         }}>
           {connected && !(hud && hud.viejo)
-            ? 'Volvió la señal: tocá enviar.'
+            ? 'Volvió la señal: toca enviar.'
             : 'Sin señal: el mensaje no salió. Queda escrito para mandarlo cuando vuelva.'}
         </div>
       )}
@@ -1552,7 +1552,7 @@ function ChatScreen({ messages, hud, online, connected, routeId, combi, persona,
               fontSize: 16, fontWeight: 700, color: HUD.dim2,
               fontFamily: 'system-ui, sans-serif',
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}>Grabando… soltá para enviar</span>
+            }}>Grabando… suelta para enviar</span>
           </div>
         ) : (
           <input
@@ -1633,7 +1633,7 @@ function SosSlider({ onFire }) {
       setDragging(false);
       // Disparado hasta que el envío TERMINA, y no un tiempo fijo: el envío
       // puede tardar diez segundos (HTTP y después el socket) y el deslizador
-      // volvía a «DESLIZÁ PARA SOS» a los 2,2 s sin ningún resultado a la
+      // volvía a «DESLIZA PARA SOS» a los 2,2 s sin ningún resultado a la
       // vista — y un segundo deslizamiento duplicaba la alerta (22/9).
       const t0 = Date.now();
       setResultado(null);
@@ -1707,7 +1707,7 @@ function SosSlider({ onFire }) {
       }}>
         {fired
           ? (resultado === 'ok' ? 'ENVIADA' : resultado === 'fallo' ? 'NO SALIÓ' : 'ENVIANDO…')
-          : progress > 0.5 ? 'SUELTA PARA SOS' : 'DESLIZÁ PARA SOS →'}
+          : progress > 0.5 ? 'SUELTA PARA SOS' : 'DESLIZA PARA SOS →'}
       </div>
       {/* thumb arrastrable */}
       <div
@@ -1826,7 +1826,7 @@ function LoginScreen({ onSuccess, notice }) {
   // esa contraseña queda registrada (después Despacho administrará altas).
   const submit = async () => {
     if (!user.trim() || pass.length < 4) {
-      setError('Completá usuario y contraseña (mínimo 4 caracteres)');
+      setError('Completa usuario y contraseña (mínimo 4 caracteres)');
       return;
     }
     setLoading(true);
@@ -1950,8 +1950,8 @@ function LoginScreen({ onSuccess, notice }) {
         }}>Olvidé mi contraseña</button>
         {olvido && (
           <div style={{ marginTop: 4, lineHeight: 1.5, color: HUD.fg2 }}>
-            Pedile a Despacho de tu cooperativa que te ponga una clave nueva.
-            Si sos cobrador, también te la puede cambiar el chofer de tu combi.
+            Pídele a Despacho de tu cooperativa que te ponga una clave nueva.
+            Si eres cobrador, también te la puede cambiar el chofer de tu combi.
           </div>
         )}
       </div>
@@ -2101,7 +2101,7 @@ function usarVigiaPuerta(activo, onSalir) {
   return { falta, callar };
 }
 
-// ¿En qué combi salís? (habilitaciones, 30/10). La lista y su estado —libre,
+// ¿En qué combi sales? (habilitaciones, 30/10). La lista y su estado —libre,
 // o quién la maneja— se refrescan cada 20 s: en la puerta de un relevo, el
 // otro puede estar llegando o yéndose.
 function usarCombis(token, actual) {
@@ -2160,7 +2160,7 @@ function SosAvisos({ fired, fallo, central, combi, nombre, onCerrarFallo }) {
             fontSize: 28, fontWeight: 900, letterSpacing: 2, textAlign: 'center', lineHeight: 1.15, marginBottom: 6,
           }}>SOS NO SALIÓ</div>
           <div style={{ color: HUD.fg, fontSize: 15, textAlign: 'center', lineHeight: 1.4, marginBottom: 16 }}>
-            Sin internet. Pedí ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
+            Sin internet. Pide ayuda por teléfono: una llamada o un SMS salen aunque no haya datos.
           </div>
           {central ? (
             <>
@@ -2327,7 +2327,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
         }}>
           <div style={{ fontFamily: black, fontSize: 19, lineHeight: 1.15, marginBottom: 4 }}>¿Ya estás manejando?</div>
           <div style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.35, marginBottom: 10 }}>
-            Tu combi no está en el mapa. Salís a ruta solo en{' '}
+            Tu combi no está en el mapa. Sales a ruta solo en{' '}
             <strong style={{ fontFamily: mono, whiteSpace: 'nowrap' }}>{Math.ceil(falta / 1000)} s</strong>.
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -2393,7 +2393,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
 
       {combis.length > 1 && (
         <div data-combis style={{ marginBottom: 14 }}>
-          <div style={{ ...rotuloPuerta, marginBottom: 8 }}>¿En qué combi salís?</div>
+          <div style={{ ...rotuloPuerta, marginBottom: 8 }}>¿En qué combi sales?</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {combis.map(c => {
               const elegida = c.vehicleId === unidad;
@@ -2414,7 +2414,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
                     <span style={{
                       display: 'block', fontFamily: sans, fontSize: 14, fontWeight: 700,
                       color: c.estado === 'ocupada' ? HUD.amberTexto : HUD.fg2,
-                    }}>{c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tenés vos' : 'libre'}</span>
+                    }}>{c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tienes tú' : 'libre'}</span>
                   </span>
                   {elegida && (
                     <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 800, letterSpacing: 0.5, color: HUD.acentoTexto }}>✓ ELEGIDA</span>
@@ -2431,7 +2431,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
             }}>
               <div style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.35, color: HUD.burbujaWarnInk, marginBottom: 10 }}>
                 {confirmar.vehicleId} la está manejando <strong>{confirmar.quien}</strong>. Si es un relevo, al
-                salir a ruta la tomás vos y a {confirmar.quien} se le avisa.
+                salir a ruta la tomas tú y a {confirmar.quien} se le avisa.
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => elegir(confirmar, true)} disabled={eligiendo} style={{
@@ -2633,7 +2633,7 @@ function HudDigits({ value, fontSize, color, glow, letterSpacing, enableAnim, es
 // Pantalla RUTA — propuesta 2a "Temporizador".
 // Un solo dato dominante: la unidad más desviada del objetivo. El color de
 // estado tiñe el halo, la barra superior y el lavado de fondo.
-// Cuánto espera «¿SEGURO? TOCÁ DE NUEVO» antes de aceptar el segundo toque
+// Cuánto espera «¿SEGURO? TOCA DE NUEVO» antes de aceptar el segundo toque
 const ARMA_SALIR_MS = 600;
 // AUSENTE saca de la cadena y descarta la vuelta en curso: un toque sin
 // querer costaba la vuelta. Se avisa al servidor recién pasados estos
@@ -2709,17 +2709,17 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
   const speedUp = heroIsBack ? dev < 0 : dev > 0;
   // Sin contra qué medirse no se da una instrucción, pero el motivo cambia
   // todo lo que hay que decir. Con una unidad sin señal, callarse o decir
-  // "sos la única" sería peor que no mostrar nada: hay una combi adelante
+  // "eres la única" sería peor que no mostrar nada: hay una combi adelante
   // que el chofer no ve en el mapa, y manejar como si no estuviera es
   // exactamente lo que hay que evitar.
   const sinSenalCerca = hud.front.sinSenal || hud.back.sinSenal;
   // El de ADELANTE trabado manda sobre todo lo demás: la brecha contra él
-  // crece sola mientras está parado y la cuenta de siempre diría «apurá» —
+  // crece sola mientras está parado y la cuenta de siempre diría «apura» —
   // apurar hacia un embotellamiento es el pelotón que este sistema existe
   // para evitar. El de ATRÁS trabado no es un peligro: se dice, ritmo normal.
   // Mismas frases que `instruccionDe` en app/hud.js.
   // AUSENTE y YENDO, como en la app nativa. Sin esto el ausente leía
-  // «Sos la única unidad en ruta» (está fuera de la cadena: nadie se mide
+  // «Eres la única unidad en ruta» (está fuera de la cadena: nadie se mide
   // contra él), y el que acaba de salir y todavía no pisó el trazado, lo
   // mismo — que se lee como una falla del sistema.
   const ausente = presencia === 'ausente';
@@ -2729,16 +2729,16 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
     : yendo
     ? 'YENDO A LA RUTA: tu brecha y tu vuelta arrancan al pisar el trazado.'
     : hud.front.enTrafico
-    ? `${hud.front.unit} ${hud.front.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada'} ${hud.front.traficoMin} min. Mantené: no te apures hacia el embotellamiento.`
+    ? `${hud.front.unit} ${hud.front.traficoConfirmado ? 'avisa que está en tráfico' : 'lleva parada'} ${hud.front.traficoMin} min. Mantén: no te apures hacia el embotellamiento.`
     : hud.back.enTrafico
-      ? `${hud.back.unit} (atrás) ${hud.back.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${hud.back.traficoMin} min. Mantené el ritmo.`
+      ? `${hud.back.unit} (atrás) ${hud.back.traficoConfirmado ? 'está en tráfico' : 'lleva parada'} ${hud.back.traficoMin} min. Mantén el ritmo.`
     : hero.sinSenal
-    ? `${hero.unit} se quedó sin señal. Andá con cuidado: sigue en ruta.`
+    ? `${hero.unit} se quedó sin señal. Ve con cuidado: sigue en ruta.`
     : hero.vacio
-      ? (sinSenalCerca ? 'Sin brecha para medir por ahora.' : 'Sos la única unidad en ruta.')
+      ? (sinSenalCerca ? 'Sin brecha para medir por ahora.' : 'Eres la única unidad en ruta.')
       : hero.status === 'green'
-        ? `Mantené el ritmo. Objetivo ${fmtTarget(target)}.`
-        : `${speedUp ? 'Apurá' : 'Aflojá'} un poco. Objetivo ${fmtTarget(target)}.`;
+        ? `Mantén el ritmo. Objetivo ${fmtTarget(target)}.`
+        : `${speedUp ? 'Apura' : 'Afloja'} un poco. Objetivo ${fmtTarget(target)}.`;
 
   return (
     <div style={{
@@ -2804,7 +2804,7 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
       </div>
 
       {/* AUSENTE: fuera de la cadena. No hay brecha que mostrar y decir
-          «sin nadie» sería mentir: hay gente, sólo que no se mide contra vos. */}
+          «sin nadie» sería mentir: hay gente, sólo que no se mide contra ti. */}
       {ausente && (
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
@@ -2818,8 +2818,8 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
             fontSize: 16, lineHeight: 1.5, color: HUD.ins,
             marginTop: 10, fontFamily: 'system-ui, sans-serif',
           }}>
-            Estás fuera de la cadena: nadie se mide contra vos y tu vuelta quedó
-            descartada. Despacho te sigue viendo en el mapa. Para volver, tocá
+            Estás fuera de la cadena: nadie se mide contra ti y tu vuelta quedó
+            descartada. Despacho te sigue viendo en el mapa. Para volver, toca
             VOLVER A RUTA arriba.
           </div>
         </div>
@@ -2841,7 +2841,7 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
             marginTop: 10, fontFamily: 'system-ui, sans-serif',
           }}>
             No veo a las otras combis desde hace <strong>{haceCuanto}</strong>.
-            Andá con cuidado: siguen en ruta.
+            Ve con cuidado: siguen en ruta.
           </div>
           <div style={{
             marginTop: 18, paddingTop: 14, borderTop: `1px solid ${HUD.divider}`,
@@ -2970,7 +2970,7 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
           acto — y por eso pide un segundo toque: apretarlo sin querer a
           mitad de vuelta te saca del mapa de todos. */}
       {/* «Estoy en tráfico», de un toque, como en la app nativa: al de atrás
-          le cambia la instrucción a «mantené». Si el servidor ya vio la
+          le cambia la instrucción a «mantén». Si el servidor ya vio la
           parada, el botón pregunta. Se apaga solo al andar (C16). */}
       {onTrafico && !ausente && (
         <div style={{ padding: '0 18px 8px' }}>
@@ -2978,7 +2978,7 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
             ...botonHud, border: `2px solid ${HUD.amber}`,
             background: miEstado?.trafico ? HUD.amberTexto : 'transparent',
             color: miEstado?.trafico ? HUD.bg : HUD.amberTexto,
-          }}>{miEstado?.trafico ? 'EN TRÁFICO · TOCÁ PARA QUITAR' : miEstado?.parado ? '¿ESTÁS EN TRÁFICO? · TOCÁ PARA AVISAR' : 'ESTOY EN TRÁFICO'}</button>
+          }}>{miEstado?.trafico ? 'EN TRÁFICO · TOCA PARA QUITAR' : miEstado?.parado ? '¿ESTÁS EN TRÁFICO? · TOCA PARA AVISAR' : 'ESTOY EN TRÁFICO'}</button>
         </div>
       )}
       {/* Pasando a AUSENTE: se puede deshacer hasta que se avisa */}
@@ -2994,7 +2994,7 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
               transformOrigin: 'left', animation: `vaciar ${DESHACER_AUSENTE_MS}ms linear forwards`,
             }} />
             <span role="status" style={{ flex: 1, position: 'relative', color: HUD.burbujaWarnInk, fontSize: 15, fontWeight: 700, letterSpacing: 0 }}>
-              Pasás a AUSENTE en {faltaAusente} s
+              Pasas a AUSENTE en {faltaAusente} s
             </span>
             <button data-noswipe="presencia" onClick={() => setAusenteEn(null)} style={{
               position: 'relative', height: 'calc(100% - 8px)', padding: '0 16px', borderRadius: 10, border: 'none',
@@ -3020,7 +3020,7 @@ function CenterScreen({ tweaks, gapMeta, comoSeMide, connected, unitsOnRoute, gp
             border: `2px solid ${confirmarSalida ? HUD.red : HUD.dim3}`,
             background: confirmarSalida ? HUD.red : 'transparent',
             color: confirmarSalida ? HUD.sobreRojo : HUD.fg2,
-          }}>{confirmarSalida ? '¿SEGURO? TOCÁ DE NUEVO' : 'SALIR DE RUTA'}</button>
+          }}>{confirmarSalida ? '¿SEGURO? TOCA DE NUEVO' : 'SALIR DE RUTA'}</button>
         </div>
       )}
 
@@ -3287,7 +3287,7 @@ function Carousel({ tweaks, tema, onModo, otherUnits = [], gapMeta, routeId, com
           deshace con otro. Fondo de tarjeta porque sobre el mapa no hay. */}
       {onModo && (
         <button data-tema={tweaks.mode}
-          aria-label={`Tema: ${ETIQUETA_MODO[tweaks.mode] || 'DÍA'}. Tocá para cambiar`}
+          aria-label={`Tema: ${ETIQUETA_MODO[tweaks.mode] || 'DÍA'}. Toca para cambiar`}
           onClick={(e) => { e.stopPropagation(); onModo(siguienteModo(tweaks.mode)); }}
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
@@ -3646,7 +3646,7 @@ function Root() {
       const accion = vigia.posicion(pos.lat, pos.lng, Date.now());
       if (accion === 'volver') {
         declararPresencia('ruta', 'auto');
-        setAvisoSalida({ titulo: 'VOLVISTE A RUTA', texto: 'Te vimos en movimiento estando AUSENTE. Si no estás manejando, tocá AUSENTE de nuevo.' });
+        setAvisoSalida({ titulo: 'VOLVISTE A RUTA', texto: 'Te vimos en movimiento estando AUSENTE. Si no estás manejando, toca AUSENTE de nuevo.' });
       } else if (accion === 'fuera') {
         declararPresencia('fuera');
         setScreen('start');
@@ -3785,7 +3785,7 @@ function Root() {
       setMessages([]); setSosPropio(null); setSosVisto(null); setPresencia('fuera'); setRutaVigente(null);
       olvidarLoVivo();
       setUser(null);
-      setAuthNotice('Tu sesión expiró. Ingresá de nuevo.');
+      setAuthNotice('Tu sesión expiró. Ingresa de nuevo.');
       setScreen('login');
     });
 
@@ -3838,7 +3838,7 @@ function Root() {
       }
       // ¿El servidor ya me vio sobre el trazado? Es SU palabra, igual que en
       // la app nativa: mientras no, la pantalla dice «yendo a la ruta» en vez
-      // de «sos la única unidad en ruta».
+      // de «eres la única unidad en ruta».
       setMiEstado({
         trafico: !!miUnidad?.trafico, parado: !!miUnidad?.parado,
         confirmada: !!miUnidad && miUnidad.enRuta !== false,
@@ -3860,7 +3860,7 @@ function Root() {
         behindUnit: myGaps?.behindUnit || null,
         // Hay alguien de ese lado pero dejó de reportar. Es distinto de que
         // no haya nadie, y el chofer tiene que poder distinguirlo: uno
-        // significa "sos el primero", el otro "andá con cuidado".
+        // significa "eres el primero", el otro "ve con cuidado".
         aheadSinSenal: !!myGaps?.aheadSinSenal,
         behindSinSenal: !!myGaps?.behindSinSenal,
         // Y si el vecino está trabado (parada medida o aviso del chofer)
@@ -3961,7 +3961,7 @@ function Root() {
     window.RealtimeClient.on('cupo', (m) => {
       pushMsg({
         from: 'SISTEMA', role: 'admin', tone: 'warn',
-        text: `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, esperá un momento.`,
+        text: `${CUPO_ES[m.que] || 'Mensajes'}: máximo ${m.max} por minuto. Lo último no salió, espera un momento.`,
         time: nowTime(),
       });
     });
@@ -4143,7 +4143,7 @@ function Root() {
           }}>
             <div style={{ color: HUD.red, fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>SIN GPS</div>
             <div style={{ color: HUD.dim2, fontSize: 11, lineHeight: 1.35 }}>
-              {gpsAviso}. Tu combi no está en el mapa: activá la ubicación y dale permiso a esta página.
+              {gpsAviso}. Tu combi no está en el mapa: activa la ubicación y dale permiso a esta página.
             </div>
           </div>
         )}
@@ -4192,7 +4192,7 @@ function Root() {
                 día da 3,8:1, poco para 13 px */}
             <div style={{ color: HUD.greenInk, fontSize: 13, fontWeight: 900, letterSpacing: 1 }}>DESPACHO VIO TU SOS</div>
             <div style={{ color: HUD.fg, fontSize: 12, lineHeight: 1.35, marginTop: 2 }}>
-              Lo vio {sosVisto.por || 'Despacho'} a las {nowTime(sosVisto.en)}. Tocá para cerrar.
+              Lo vio {sosVisto.por || 'Despacho'} a las {nowTime(sosVisto.en)}. Toca para cerrar.
             </div>
           </button>
         )}
@@ -4222,7 +4222,7 @@ function Root() {
                   const r = await window.RealtimeClient.sendSosTipo(id, clave);
                   if (r) pushMsg({
                     from: 'SISTEMA', role: 'admin', tone: 'warn',
-                    text: 'SOS ENVIADO. El tipo no salió: decí por acá si es ambulancia o grúa.',
+                    text: 'SOS ENVIADO. El tipo no salió: escribe por acá si es ambulancia o grúa.',
                     time: nowTime(),
                   });
                 }} style={{

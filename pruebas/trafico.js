@@ -3,7 +3,7 @@
 // Lo que se defiende: que una combi que lleva N minutos sin avanzar por la
 // ruta quede marcada sola (`parado`), que el chofer pueda decirlo antes de
 // un toque (`trafico`) por WebSocket y por HTTP, que las dos cosas lleguen
-// al de atrás en su brecha —para que deje de recibir "apurá" hacia el
+// al de atrás en su brecha —para que deje de recibir "apura" hacia el
 // embotellamiento—, que se apaguen solas al volver a andar, que el terminal
 // no cuente, y que cada episodio quede guardado con dónde y cuánto.
 //

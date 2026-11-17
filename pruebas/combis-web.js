@@ -116,7 +116,7 @@ const pedir = (ruta, o = {}) => fetch(`http://localhost:${P}${ruta}`,
   await ch.click('button:has-text("INGRESAR")');
   await ch.waitForSelector('[data-combis]', { timeout: 15000 });
   const lista = await ch.$eval('[data-combis]', d => d.innerText);
-  ok('la puerta pregunta en qué combi sale', /¿En qué combi salís\?/i.test(lista), lista);
+  ok('la puerta pregunta en qué combi sale', /¿En qué combi sales\?/i.test(lista), lista);
   ok('M-05 elegida y libre', /M-05[\s\S]*libre[\s\S]*ELEGIDA/.test(lista), lista);
   ok('M-01: la maneja Juan', /M-01[\s\S]*la maneja Juan Quispe/.test(lista), lista);
 

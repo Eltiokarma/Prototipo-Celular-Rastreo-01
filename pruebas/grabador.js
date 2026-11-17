@@ -241,7 +241,7 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
     ok('y lo sigue trayendo mientras la app no confirme', r.body.grabar === true, r.body);
 
     r = await gps({ grabando: true });
-    ok('la app confirma con grabando: true y el "arrancá" se apaga',
+    ok('la app confirma con grabando: true y el "arranca" se apaga',
        r.status === 200 && r.body.grabar === undefined, r.body);
     r = await pedir('/admin/grabaciones', d.token);
     ok('el panel ve el pedido GRABANDO',
@@ -270,7 +270,7 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
     r = await pedir('/admin/grabaciones/pedir/M-01', d.token, { method: 'DELETE' });
     ok('Despacho cancela el pedido', r.status === 200, r.status);
     r = await gps();
-    ok('y a la app ya no le llega ningún "arrancá"', r.body.grabar === undefined, r.body);
+    ok('y a la app ya no le llega ningún "arranca"', r.body.grabar === undefined, r.body);
 
     // Repetir el pedido sobre una grabación en curso no la reinicia
     await pedir('/admin/grabaciones/pedir', d.token, { method: 'POST',
@@ -281,7 +281,7 @@ const pedir = (ruta, token, opts = {}) => fetch(API + ruta, {
     ok('pedir de nuevo mientras graba responde "grabando", no degrada el estado',
        r.status === 200 && r.body.estado === 'grabando', r.body);
     r = await gps({ grabando: true });
-    ok('y la app no recibe otro "arrancá" arriba de la grabación en curso',
+    ok('y la app no recibe otro "arranca" arriba de la grabación en curso',
        r.body.grabar === undefined, r.body);
     await gps({ grabando: false });   // deja la mesa limpia para lo que sigue
   }

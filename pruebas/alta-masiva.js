@@ -136,7 +136,7 @@ const importar = (token, archivo, confirmar = false, extra = {}) => post('/admin
 
   console.log('\nLO QUE NO SE PUEDE LEER');
   r = await post('/admin/users/importar', D, { archivo: fs.readFileSync(PL('choferes.xls')).toString('base64'), nombre: 'choferes.xls' });
-  ok('el .xls viejo: 400 con cómo guardarlo', r.status === 400 && /guardala como/.test(r.body.error), r.body);
+  ok('el .xls viejo: 400 con cómo guardarlo', r.status === 400 && /guárdala como/.test(r.body.error), r.body);
   r = await pegado('pedro\tchofer\tM-01');
   ok('sin fila de títulos, se dice qué poner', r.status === 400 && /primera fila tiene que decir/.test(r.body.error), r.body);
   r = await pegado('Nombre\n' + Array.from({ length: 501 }, (_, i) => 'Persona ' + i).join('\n'));
