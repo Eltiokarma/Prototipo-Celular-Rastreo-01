@@ -1568,7 +1568,46 @@ y apagada; las medidas de `medir.js` (0 textos bajo 12 px).
 
 ---
 
+## 23. Auditoría de UI del 16/11, fase 5 — `df91524` y `10f840d` (17/11)
+
+**Qué.**
+- **Todo el software tutea** (X1). Las pantallas le hablaban de «vos» al
+  chofer, a Despacho y al creador: «Deslizá para SOS» → «Desliza para SOS»,
+  «Mantené el ritmo» → «Mantén el ritmo», «¿En qué combi salís?» → «¿En qué
+  combi sales?», «la tenés vos» → «la tienes tú». También los mensajes del
+  servidor (errores, avisos, consola), las notificaciones de la APK, los
+  comentarios del código, las pruebas y `manual/manual.tex`. La landing
+  sigue de «usted».
+- **La landing muestra el producto** (E1): un teléfono en HTML y CSS junto
+  al titular, con la brecha en grande, la instrucción y el SOS.
+
+**Archivos.** 51 archivos en X1 (`project/`, `server/`, `app/`,
+`manual/manual.tex`, `manual/capturas.js`, `manual/demo.js`, `pruebas/`);
+`server/landing.html` en E1; `project/service-worker.js` (v129);
+`pruebas/paneles.js` (E1 y una guarda contra el voseo).
+
+**Mirar.**
+- **E2 (WhatsApp) no se hizo**: falta el número institucional.
+- **`manual.pdf` está viejo**: el `.tex` tutea, pero hace falta LaTeX para
+  compilarlo.
+- **La APK** recibe los textos nuevos con el próximo EAS Update.
+- **La documentación interna** (`*.md`, `.claude/skills`) sigue en voseo.
+- «Apurá / Aflojá un poco» quedó «Apura / Afloja un poco» (el prototipo 7
+  proponía «Acelera / Baja»): es tuteo y se entiende en Juliaca; si se
+  prefiere la otra, es una línea en `app/hud.js` y otra en `Prototipo.html`.
+
+**Pruebas.** `paneles` (dos aserciones nuevas), `hud`, `nativas`, `tema`,
+las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
+`alta-masiva`, `datos-persona`, `grabador`, `cadena`, `trafico`,
+`sintaxis` y la regresión completa. La landing, mirada a 1280 y a 390 px.
+**Manual:** el `.tex` al día; falta compilar el PDF.
+
+---
+
 ## Para el manual
+
+**Del bloque 23 (17/11), pendiente:** compilar `manual.pdf` (el `.tex` ya
+tutea) y volver a sacar las capturas donde se lee texto de la app.
 
 **Del bloque 22 (17/11), pendiente:** «Recuperar la ida» en el trazador, la
 línea «Para:» del chat de Despacho, Informes como lista, y que al chofer le

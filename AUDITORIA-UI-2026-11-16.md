@@ -360,9 +360,35 @@ Lo que salió al hacerla:
   el teléfono es lo secundario. Queda anotado.
 - La atribución de Leaflet sigue a 9 px en el celular: es de terceros.
 
-### Fase 5 — Landing y lenguaje (1–2 días, cuando decidas)
+### Fase 5 — Landing y lenguaje · **HECHA (17/11)**, menos E2
 
-E1, E2 (con el número de WhatsApp) y X1 (si se aprueba).
+Detalle en `CAMBIOS-PARA-REVISAR.md`, bloque 23.
+
+| Punto | Commit | Qué quedó |
+| --- | --- | --- |
+| X1 fuera el voseo | `df91524` | Aprobado por Karma: «fue un meme entre yo y la IA… somos una institución». Todo el software tutea: pantallas, mensajes del servidor, notificaciones de la APK, comentarios del código, pruebas y `manual.tex`. La landing sigue de «usted»: le habla a la cooperativa |
+| E1 el producto a la vista | `10f840d` | Un teléfono en HTML y CSS junto al titular, con la pantalla del chofer; sin imágenes ni JavaScript |
+| E2 WhatsApp | — | **No se hizo:** falta el número institucional. El contacto sigue siendo el correo |
+
+**Lo que falta:**
+
+1. **E2**, cuando esté el número: `https://wa.me/51…` como botón principal y
+   el correo como alternativa.
+2. **`manual.pdf`** no se regeneró (no hay LaTeX en el contenedor): el
+   `.tex` ya tutea; hay que compilarlo.
+3. **La documentación interna** (`README.md`, `LO-QUE-TENES-QUE-SABER.md`,
+   `legal/LEEME.md`, los `.claude/skills`, los informes) sigue en voseo. No
+   es software, pero si es de la institución, va igual.
+
+Lo que salió al hacerla:
+
+- Las formas en -í son ambiguas («elegí», «escribí», «abrí», «salí» son
+  también pasado) y «sos» es también SOS: se revisaron una por una. Quedan
+  en pasado, a propósito, «recibí una copia» (consentimiento) y «Salí de
+  ruta sin querer» (manual, lo dice el chofer).
+- «Decí por chat si es ambulancia» pasó a «escribe por el chat…»: «di por
+  chat» se leía mal.
+- `paneles.js` falla si una pantalla o el servidor vuelve a vosear.
 
 ### Lo que no entra
 
