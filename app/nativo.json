@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
+  "version": "0.3.1",
   "dependencias": {
     "expo": "~54.0.36",
     "expo-application": "~7.0.8",
@@ -26,7 +26,9 @@
     [
       "expo-splash-screen",
       {
-        "backgroundColor": "#0A1A2E"
+        "backgroundColor": "#0A1A2E",
+        "image": "./assets/arranque-vacio.png",
+        "imageWidth": 200
       }
     ],
     [

@@ -279,9 +279,35 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   // `image`): con el ícono encima se veían dos —el cuadrado azul con el logo
   // y después la presentación con el nombre—, y la cooperativa eligió la
   // segunda. Y el flag de GPS simulado de Android viaja en cada posición.
+  //
+  // Pero «sin `image`» ya no compila (17/11): con el SDK 54 el tema nativo
+  // apunta SIEMPRE a @drawable/splashscreen_logo, y sin imagen ese recurso no
+  // se genera → «Android resource linking failed» en processReleaseResources,
+  // ya en la nube de Expo y a los 6 minutos. Se le da una imagen TRANSPARENTE:
+  // el recurso existe y la pantalla sigue siendo sólo el fondo.
   const splash = (config.expo.plugins || []).find(p => Array.isArray(p) && p[0] === 'expo-splash-screen');
-  ok('la pantalla nativa de arranque es sólo el fondo, sin ícono',
-     !!splash && !splash[1].image && splash[1].backgroundColor === '#0A1A2E', splash && splash[1]);
+  ok('la pantalla nativa de arranque es sólo el fondo #0A1A2E',
+     !!splash && splash[1].backgroundColor === '#0A1A2E', splash && splash[1]);
+  ok('…y tiene `image` (sin ella el build de Android no encuentra splashscreen_logo)',
+     !!splash && typeof splash[1].image === 'string', splash && splash[1]);
+  // La imagen tiene que ser transparente entera, si no aparece el ícono que la
+  // cooperativa no quiso. Se lee el PNG a mano: sin filtros ni colores, con
+  // todo en cero, los datos descomprimidos son todos ceros.
+  const transparente = (() => {
+    try {
+      const png = fs.readFileSync(path.join(RAIZ, 'app', splash[1].image));
+      const tipoColor = png[25];
+      const idat = [];
+      for (let i = 8; i < png.length;) {
+        const largo = png.readUInt32BE(i), tipo = png.toString('ascii', i + 4, i + 8);
+        if (tipo === 'IDAT') idat.push(png.subarray(i + 8, i + 8 + largo));
+        i += 12 + largo;
+      }
+      const datos = require('zlib').inflateSync(Buffer.concat(idat));
+      return tipoColor === 6 && datos.length > 0 && datos.every(b => b === 0);
+    } catch { return false; }
+  })();
+  ok('…y esa imagen es transparente entera (la pantalla sigue sin ícono)', transparente);
   ok('la presentación sigue con el nombre y «Control de ruta»', /MICROS TEMPO/.test(app) && /Control de ruta/.test(app));
   ok('otro APK más: versionCode 4 o más', config.expo.android.versionCode >= 4, config.expo.android.versionCode);
   ok('la tarea manda `simulado: true` cuando Android marca la posición como falsa', /l\.mocked === true \? \{ simulado: true \}/.test(servicio));
@@ -299,7 +325,11 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   // dos APK salían con el mismo número y el aviso de «hay una nueva» no
   // podía distinguirlas.
   const eas = JSON.parse(fs.readFileSync(RAIZ + '/app/eas.json', 'utf8'));
-  ok('la APK de la revisión: 0.3.0 / 6', config.expo.version === '0.3.0' && config.expo.android.versionCode >= 6, [config.expo.version, config.expo.android.versionCode]);
+  // 0.3.0 o más: la 0.3.1 (17/11) es la misma APK con la imagen de arranque
+  // transparente que el SDK 54 exige para compilar.
+  const vNum = String(config.expo.version).split('.').map(Number);
+  const desde030 = vNum[0] > 0 || vNum[1] > 3 || (vNum[1] === 3 && vNum[2] >= 0);
+  ok('la APK de la revisión: 0.3.0 o más / 6 o más', desde030 && config.expo.android.versionCode >= 6, [config.expo.version, config.expo.android.versionCode]);
   ok('y el perfil apk sube el código solo', eas.build.apk.autoIncrement === true);
   // «Despacho vio tu SOS» (31/10): el cliente lo emite y la pantalla de ruta
   // lo muestra en las tres vistas (puerta, ruta y ausente), hasta tocarlo
