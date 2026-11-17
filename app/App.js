@@ -1324,6 +1324,11 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
 
 // Cuánto espera «¿SEGURO? TOCA DE NUEVO» antes de aceptar el segundo toque
 const ARMA_SALIR_MS = 600;
+// AUSENTE espera 5 s con DESHACER antes de avisar, como en la web (auditoría
+// de UI, B3). En la APK se declaraba en el acto: un toque sin querer sacaba
+// a la combi de la cadena y descartaba la vuelta (segunda revisión con
+// ChatGPT, 17/11).
+const DESHACER_AUSENTE_MS = 5000;
 
 function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto, sosVisto, onSosVistoCerrar,
                 sosSinRed, central, onSosSinRedCerrar, miNombre, avisoApp, diag, pantalla, noLeidos, marca,
@@ -1360,6 +1365,19 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
     const t = setTimeout(() => setConfirmarSalida(false), 4000);
     return () => clearTimeout(t);
   }, [confirmarSalida]);
+  // `ausenteEn`: cuándo se tocó AUSENTE. A los 5 s se declara; DESHACER lo
+  // cancela sin mandarle nada al servidor. Salir de la pantalla lo cancela.
+  const [ausenteEn, setAusenteEn] = React.useState(null);
+  const [, setTicAusente] = React.useState(0);
+  React.useEffect(() => {
+    if (!ausenteEn) return;
+    const reloj = setInterval(() => setTicAusente(n => n + 1), 250);
+    const t = setTimeout(() => { setAusenteEn(null); onPresencia('ausente'); },
+      Math.max(0, DESHACER_AUSENTE_MS - (Date.now() - ausenteEn)));
+    return () => { clearInterval(reloj); clearTimeout(t); };
+  }, [ausenteEn]);
+  React.useEffect(() => { if (presencia !== 'ruta') setAusenteEn(null); }, [presencia]);
+  const faltaAusente = ausenteEn ? Math.max(1, Math.ceil((DESHACER_AUSENTE_MS - (Date.now() - ausenteEn)) / 1000)) : 0;
   // Y el segundo toque cuenta recién a los 0,6 s: el primero arma al
   // instante y el botón cambia de función en el mismo lugar, así que un
   // rebote del dedo con la combi en marcha alcanzaba para salir. Despacho ya
@@ -1609,8 +1627,16 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
 
       {/* Los dos movimientos del turno, a un toque del pulgar: pausar
           (ausente) y terminar (salir de ruta, con confirmación de 2 toques). */}
+      {ausenteEn ? (
+        <View style={[s.filaPresencia, s.deshacerAusente]} accessibilityLiveRegion="polite">
+          <Text style={s.deshacerAusenteTexto}>Pasas a AUSENTE en {faltaAusente} s</Text>
+          <Pressable onPress={() => setAusenteEn(null)} style={s.deshacerAusenteBoton} hitSlop={6}>
+            <Text style={s.deshacerAusenteBotonTexto}>DESHACER</Text>
+          </Pressable>
+        </View>
+      ) : (
       <View style={s.filaPresencia}>
-        <Pressable onPress={() => onPresencia('ausente')} style={[s.botonPresencia, { borderColor: C.ambar }]}>
+        <Pressable onPress={() => setAusenteEn(Date.now())} style={[s.botonPresencia, { borderColor: C.ambar }]}>
           <Text style={[s.botonPresenciaTexto, { color: C.ambarTexto }]}>AUSENTE</Text>
         </Pressable>
         <Pressable onPress={() => {
@@ -1624,6 +1650,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           </Text>
         </Pressable>
       </View>
+      )}
       </>)}
 
       {sosSinRed && <SosSinRed fallo={sosSinRed} central={central} combi={miCombi} nombre={miNombre} onCerrar={onSosSinRedCerrar} />}
@@ -3121,6 +3148,13 @@ function crearEstilos(C) { return StyleSheet.create({
 
   // ── Presencia ────────────────────────────────────────────────
   filaPresencia: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  deshacerAusente: {
+    height: 46, borderRadius: 12, borderWidth: 2, borderColor: C.ambar, backgroundColor: C.panel,
+    alignItems: 'center', paddingLeft: 14, paddingRight: 4,
+  },
+  deshacerAusenteTexto: { flex: 1, color: C.ambarTexto, fontSize: 15, fontWeight: '700' },
+  deshacerAusenteBoton: { height: 36, borderRadius: 10, backgroundColor: C.llenoAmbar, paddingHorizontal: 16, justifyContent: 'center' },
+  deshacerAusenteBotonTexto: { color: C.sobreLleno, fontSize: 15, fontWeight: '800', letterSpacing: 0.5 },
   botonTrafico: {
     height: 46, borderRadius: 12, borderWidth: 1, borderColor: C.borde,
     backgroundColor: C.panel, alignItems: 'center', justifyContent: 'center',
