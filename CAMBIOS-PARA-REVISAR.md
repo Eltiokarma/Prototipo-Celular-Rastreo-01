@@ -1604,6 +1604,29 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 30. La séptima revisión (ChatGPT), sobre `f599eab` — 17/11
+
+**Qué.** Dos límites de las correcciones anteriores, los dos ciertos (el
+segundo, más amplio de lo que decía el informe).
+- **B podía perder su sesión guardada durante la limpieza de A**: B
+  guardaba su sesión y recién después empezaba su generación, así que la
+  limpieza de A todavía se creía dueña. Ahora el ingreso llama a
+  `empezarSesion()` ANTES de guardar, y todas las escrituras de la sesión y
+  la presencia guardadas van por `guardarClave` (una fila): un borrado de A
+  que ya empezó termina antes del guardado de B.
+- **Una corrida vieja de la tarea borraba la bandeja de B**: después del
+  POST de la ausencia larga y del de «volvió solo» se escribía el
+  diagnóstico, se vaciaba la cola y se limpiaban las notificaciones sin
+  mirar la generación. Ahora `subirAhora` mira `mia()` después de cada
+  espera, también en la rama de error del POST /gps (la del 401, que borra
+  la sesión guardada) y al leer el disco.
+
+**Pruebas.** `nativas`: la fila de claves ejecutada con el disco diferido;
+de texto, el orden del ingreso y los chequeos después de cada espera en la
+tarea. La regresión completa.
+
+---
+
 ## 29. La sexta revisión (ChatGPT), sobre `7e000ba` — 17/11
 
 **Qué.** Cinco puntos, los cinco ciertos. El patrón: la fila ordena las

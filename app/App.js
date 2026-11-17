@@ -337,9 +337,9 @@ function Aplicacion() {
         olvidarDeLaSesion();
         setAviso(e); setSesion(null); setPresencia('fuera');
         gps.limpiarSesion();
-        try { await SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA); } catch {}
+        try { await guardarClave(gps.LLAVE_PRESENCIA, null); } catch {}
         if (!mia()) return;
-        try { await SecureStore.deleteItemAsync(gps.LLAVE_SESION); } catch {}
+        try { await guardarClave(gps.LLAVE_SESION, null); } catch {}
         if (!mia()) return;
         try { await gps.parar(); } catch {}
       }),
@@ -410,8 +410,8 @@ function Aplicacion() {
     SecureStore.setItemAsync(gps.LLAVE_CENTRAL, String(c)).catch(() => {});
   };
 
-  const entrarConSesion = async (s) => {
-    const gen = empezarSesion();
+  const entrarConSesion = async (s, genDada) => {
+    const gen = genDada ?? empezarSesion();
     const vigenteSesion = () => !cerrando.current && generacion.current === gen;
     saliendo.current = false;
     setSesion(s);
@@ -436,7 +436,7 @@ function Aplicacion() {
         setSesion(prev => {
           if (!prev) return prev;
           const nueva = { ...prev, central: m.central };
-          SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
+          guardarClave(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
           return nueva;
         });
       }
@@ -461,7 +461,7 @@ function Aplicacion() {
       if (!vigenteSesion()) return;
       if (!permisos.ok) {
         setPresencia('fuera');
-        SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA).catch(() => {});
+        guardarClave(gps.LLAVE_PRESENCIA, null).catch(() => {});
         cliente.current.marcarPresencia('fuera');
         setAviso(`Falta el permiso de ubicación en ${permisos.cual}`);
         return;
@@ -495,6 +495,17 @@ function Aplicacion() {
   const generacion = React.useRef(0);
   const epocaPresencia = React.useRef(0);
   const empezarSesion = () => { cerrando.current = false; return ++generacion.current; };
+  // La sesión y la presencia GUARDADAS se escriben y se borran en FILA, en
+  // el orden en que se pidieron. Un borrado de la sesión anterior que ya
+  // había empezado termina antes que el guardado de la siguiente (séptima
+  // revisión con ChatGPT, 17/11: B aparecía conectado sin sesión guardada).
+  const filaClaves = React.useRef(Promise.resolve());
+  const guardarClave = (llave, valor) => {
+    const p = filaClaves.current.then(() => (valor == null
+      ? SecureStore.deleteItemAsync(llave) : SecureStore.setItemAsync(llave, valor)));
+    filaClaves.current = p.catch(() => {});
+    return p;
+  };
   const terminarSesion = () => { cerrando.current = true; generacion.current++; };
   const cambiarPresencia = async (nueva, motivo) => {
     if (cerrando.current) return;
@@ -512,7 +523,7 @@ function Aplicacion() {
       setAviso(null);
     }
     setPresencia(nueva);
-    try { await SecureStore.setItemAsync(gps.LLAVE_PRESENCIA, nueva); } catch {}
+    try { await guardarClave(gps.LLAVE_PRESENCIA, nueva); } catch {}
     if (!vigente()) return;
     cliente.current.marcarPresencia(nueva, motivo);
     if (nueva === 'fuera') {
@@ -704,7 +715,7 @@ function Aplicacion() {
     setSesion(prev => {
       if (!prev) return prev;
       const nueva = { ...prev, vehicleId: m.vehicleId, routeId: m.routeId || prev.routeId, routeName: m.routeName || prev.routeName };
-      SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
+      guardarClave(gps.LLAVE_SESION, JSON.stringify(nueva)).catch(() => {});
       return nueva;
     });
     if (otraCombi && presencia !== 'fuera' && sesion.role !== 'collector') {
@@ -978,8 +989,12 @@ function Aplicacion() {
   if (!sesion) return (
     <>
       <Entrar servidor={SERVIDOR} aviso={aviso} central={centralGuardada} onEntrar={async (s) => {
-        await SecureStore.setItemAsync(gps.LLAVE_SESION, JSON.stringify(s));
-        entrarConSesion(s);
+        // La sesión nueva es dueña ANTES de guardarse: una limpieza de la
+        // anterior que todavía corre ve la generación cambiada y se frena
+        const gen = empezarSesion();
+        await guardarClave(gps.LLAVE_SESION, JSON.stringify(s)).catch(() => {});
+        if (generacion.current !== gen) return;
+        entrarConSesion(s, gen);
       }} clienteRef={cliente} />
       {presentacion}
     </>
@@ -1019,9 +1034,9 @@ function Aplicacion() {
       // Se ESPERA (con reintento por HTTP): sin señal en ese instante el
       // «fuera» se perdía y la combi quedaba en el mapa hasta el olvido.
       try { await cliente.current.marcarPresencia('fuera'); } catch {}
-      try { await SecureStore.deleteItemAsync(gps.LLAVE_PRESENCIA); } catch {}
+      try { await guardarClave(gps.LLAVE_PRESENCIA, null); } catch {}
       setPresencia('fuera');
-      await SecureStore.deleteItemAsync(gps.LLAVE_SESION);
+      await guardarClave(gps.LLAVE_SESION, null).catch(() => {});
       await gps.parar();
       // Nada de esta sesión sobrevive: ni la cola de posiciones (el relevo
       // con el mismo teléfono las mandaba con el token del siguiente), ni el

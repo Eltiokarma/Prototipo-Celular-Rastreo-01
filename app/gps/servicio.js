@@ -564,6 +564,14 @@ async function subirAhora(nuevas) {
       // Ver abajo por qué importa.
       FileSystem.getInfoAsync(ARCHIVO_GRABACION()).catch(() => null),
     ]);
+    // De acá en adelante, después de CADA espera: si la sesión ya no es la
+    // de esta corrida, ningún efecto (ni diagnóstico, ni bandeja, ni disco,
+    // ni la cola). Antes sólo se protegía la parada del GPS, y una corrida
+    // vieja le limpiaba las notificaciones, le vaciaba la cola o le borraba
+    // la sesión guardada a la que había entrado después (séptima revisión
+    // con ChatGPT, 17/11).
+    const mia = () => gen === generacion;
+    if (!mia()) return;
     // Si hay archivo y no hay flag, es una grabación parada que la pantalla
     // tiene que poder ver (ver `hidratarGrabacionGuardada`).
     if (archivoGrabacion?.exists && flagGrabando !== '1') hidratarGrabacionGuardada().catch(() => {});
@@ -597,11 +605,14 @@ async function subirAhora(nuevas) {
         vigia = null;
         presenciaEfectiva = 'ruta';
         await SecureStore.setItemAsync(LLAVE_PRESENCIA, 'ruta');
+        if (!mia()) return;
         await SecureStore.setItemAsync(LLAVE_VOLVIO_SOLO, String(Date.now())).catch(() => {});
+        if (!mia()) return;
         diagnostico.presenciaAuto = 'ruta';
       } else if (accion === 'fuera') {
         vigia = null;
         await SecureStore.setItemAsync(LLAVE_PRESENCIA, 'fuera');
+        if (!mia()) return;
         // El flag va ANTES de parar el servicio: así la vigilancia de la
         // pantalla nunca ve "servicio caído" sin saber por qué (y no lo
         // rearranca).
@@ -616,6 +627,7 @@ async function subirAhora(nuevas) {
             body: JSON.stringify({ estado: 'fuera' }),
           }, control);
         } catch {}
+        if (!mia()) return;
         diagnostico.servicio = 'detenido: ausente mucho tiempo';
         await pararDesdeLaTarea('detenido: ausente mucho tiempo', gen);
         // Y la brecha vieja no queda colgada en la bandeja
@@ -669,11 +681,13 @@ async function subirAhora(nuevas) {
       // ¿Volvió a ruta solo y nunca pisó el trazado? (ver VOLVIO_SOLO_MAX_MS)
       if (presenciaEfectiva === 'ruta' && typeof cuerpo.enRuta === 'boolean') {
         const volvio = Number(await SecureStore.getItemAsync(LLAVE_VOLVIO_SOLO).catch(() => null)) || 0;
+        if (!mia()) return;
         if (volvio && cuerpo.enRuta) {
           SecureStore.deleteItemAsync(LLAVE_VOLVIO_SOLO).catch(() => {});
         } else if (volvio && decidirVueltaSola(volvio, cuerpo.enRuta, Date.now()) === 'fuera') {
           SecureStore.deleteItemAsync(LLAVE_VOLVIO_SOLO).catch(() => {});
           await SecureStore.setItemAsync(LLAVE_PRESENCIA, 'fuera').catch(() => {});
+          if (!mia()) return;
           diagnostico.presenciaAuto = 'fuera';
           try {
             await pedirConCorte(servidor + '/presencia', {
@@ -682,6 +696,7 @@ async function subirAhora(nuevas) {
               body: JSON.stringify({ estado: 'fuera' }),
             }, control);
           } catch {}
+          if (!mia()) return;
           diagnostico.servicio = 'detenido: volvió a ruta solo y nunca pisó el trazado';
           pendientes = [];
           diagnostico.enEspera = 0;
@@ -734,6 +749,8 @@ async function subirAhora(nuevas) {
       // servidor y el próximo POST lo vuelve a traer.
       if (cuerpo?.grabar === true) atenderPedidoGrabacion().catch(() => {});
     } else {
+      // Lo mismo que con el 200: la respuesta de otra sesión no se aplica
+      if (!mia()) return;
       // El cuerpo del error dice bastante más que el número: 403 del cobrador,
       // 409 del relevo y 400 del reloj mal puesto se ven igual desde afuera.
       const cuerpo = r.json() || {};
@@ -758,7 +775,9 @@ async function subirAhora(nuevas) {
           diagnostico.sesionRechazada = true;
           diagnostico.servicio = 'detenido: sesión rechazada';
           try { await SecureStore.deleteItemAsync(LLAVE_SESION); } catch {}
+          if (!mia()) return;
           try { await SecureStore.deleteItemAsync(LLAVE_PRESENCIA); } catch {}
+          if (!mia()) return;
           pendientes = [];
           diagnostico.enEspera = 0;
           limpiarNotificacion().catch(() => {});

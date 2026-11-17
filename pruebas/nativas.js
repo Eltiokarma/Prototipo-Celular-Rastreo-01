@@ -239,7 +239,7 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
      /cerrarSesion\(\)/.test(onSalir));
   const authErr = (app.match(/c\.on\('authError', async \(e\) => \{([\s\S]*?)\}\),/) || ['', ''])[1];
   ok('auth_error para el GPS, limpia y borra la sesión del disco',
-     /gps\.limpiarSesion\(\)/.test(authErr) && /deleteItemAsync\(gps\.LLAVE_SESION\)/.test(authErr) && /gps\.parar\(\)/.test(authErr));
+     /gps\.limpiarSesion\(\)/.test(authErr) && /guardarClave\(gps\.LLAVE_SESION, null\)/.test(authErr) && /gps\.parar\(\)/.test(authErr));
   ok('la tarea se apaga sola con 401 sostenidos y borra la sesión',
      /RECHAZOS_TOPE/.test(servicio) && /sesionRechazada = true/.test(servicio) && /detenido: sesión rechazada/.test(servicio));
   ok('y con 403/409 sostenidos, sin borrarla', /detenidoPor = cuerpo\.error/.test(servicio) && /detenido: sin rol de GPS/.test(servicio));
@@ -582,7 +582,7 @@ const pruebaCliente = (async () => {
   const appTexto = require('fs').readFileSync(RAIZ + '/app/App.js', 'utf8');
   // Sexta revisión: la limpieza del authError y el vigilante
   ok('la limpieza del authError se corta si entró otra sesión (no le borra el token ni le para el GPS)',
-     /const mia = \(\) => generacion\.current === gen;[\s\S]{0,400}deleteItemAsync\(gps\.LLAVE_PRESENCIA\); \} catch \{\}\n\s*if \(!mia\(\)\) return;\n\s*try \{ await SecureStore\.deleteItemAsync\(gps\.LLAVE_SESION\); \} catch \{\}\n\s*if \(!mia\(\)\) return;\n\s*try \{ await gps\.parar\(\); \} catch \{\}/.test(appTexto));
+     /const mia = \(\) => generacion\.current === gen;[\s\S]{0,400}guardarClave\(gps\.LLAVE_PRESENCIA, null\); \} catch \{\}\n\s*if \(!mia\(\)\) return;\n\s*try \{ await guardarClave\(gps\.LLAVE_SESION, null\); \} catch \{\}\n\s*if \(!mia\(\)\) return;\n\s*try \{ await gps\.parar\(\); \} catch \{\}/.test(appTexto));
   ok('el vigilante mira el relevo DESPUÉS de preguntar si el GPS corre',
      /const corriendo = await gps\.estaCorriendo\(\);\n\s*if \(!vivo \|\| saliendo\.current\) return;[\s\S]{0,300}if \(gps\.diagnostico\.detenidoPor \|\| gps\.diagnostico\.sesionRechazada\) return;\n\s*if \(!corriendo\)/.test(appTexto));
   ok('y en la pantalla, misCombis, elegirCombi y la marca miran la sesión que preguntó',
@@ -613,14 +613,14 @@ const pruebaPresencia = (async () => {
       SecureStore: { setItemAsync: async () => {} }, limpiarNotificacion: async () => {},
       cliente: { current: { marcarPresencia: (v) => r.log.push('declara:' + v) } },
     };
-    const entrar = app.slice(app.indexOf('  const entrarConSesion = async (s) => {'), app.indexOf('  // ── El vigía de la puerta (opción C, 30/10)') > 0 ? app.indexOf('\n  };\n', app.indexOf('  const entrarConSesion = async (s) => {')) + 5 : 0);
+    const entrar = app.slice(app.indexOf('  const entrarConSesion = async (s, genDada) => {'), app.indexOf('  // ── El vigía de la puerta (opción C, 30/10)') > 0 ? app.indexOf('\n  };\n', app.indexOf('  const entrarConSesion = async (s, genDada) => {')) + 5 : 0);
     Object.assign(env, {
       setSesion: () => {}, guardarCentral: () => {}, SERVIDOR: 'x', setMarca: () => {},
     });
     env.SecureStore.getItemAsync = async () => r.guardada || null;
     env.SecureStore.deleteItemAsync = async () => {};
     env.cliente.current.conectar = () => {}; env.cliente.current.pedirMarca = () => new Promise(() => {});
-    const f = new Function(...Object.keys(env), fuente + entrar + '\nreturn { cerrando, cambiarPresencia, entrarConSesion, empezarSesion, terminarSesion };')(...Object.values(env));
+    const f = new Function(...Object.keys(env), fuente + entrar + '\nreturn { cerrando, cambiarPresencia, entrarConSesion, empezarSesion, terminarSesion, guardarClave };')(...Object.values(env));
     return { ...f, r };
   };
   { const { cambiarPresencia, r } = armar(); r.permisoOk = false;
@@ -669,6 +669,27 @@ const pruebaPresencia = (async () => {
     // …y llega una actualización de la central (antes: efecto [sesion] → cerrando = false)
     await cambiarPresencia('ausente');
     ok('una actualización de la sesión no reabre el cierre', r.log.length === 0, r.log); }
+  // Séptima revisión: la sesión guardada se escribe en FILA
+  { const { guardarClave } = armar();
+    const disco = {}; const soltar = [];
+    // El disco simulado, con la PRIMERA operación diferida (el borrado de A ya empezado)
+    let primera = true;
+    const SecureStoreLento = {
+      setItemAsync: (k, v) => new Promise(res => { const f = () => { disco[k] = v; res(); }; if (primera) { primera = false; soltar.push(f); } else f(); }),
+      deleteItemAsync: (k) => new Promise(res => { const f = () => { delete disco[k]; res(); }; if (primera) { primera = false; soltar.push(f); } else f(); }),
+    };
+    const fuenteFila = app.slice(app.indexOf('  const filaClaves = React.useRef(Promise.resolve());'), app.indexOf('  const cambiarPresencia = async (nueva, motivo) => {'));
+    const g = new Function('React', 'SecureStore', fuenteFila + '\nreturn guardarClave;')({ useRef: (v) => ({ current: v }) }, SecureStoreLento);
+    const borradoA = g('sesion', null);                       // A empezó a borrar (y tarda)
+    await new Promise(res => setTimeout(res, 0));
+    const guardadoB = g('sesion', '{"usuario":"beto"}');      // B entra y guarda
+    await new Promise(res => setTimeout(res, 0));
+    soltar.forEach(f => f()); await borradoA; await guardadoB;
+    ok('el borrado de A que ya empezó no se lleva la sesión guardada de B', disco.sesion === '{"usuario":"beto"}', disco); }
+  ok('al entrar, la sesión es dueña ANTES de guardarse',
+     /onEntrar=\{async \(s\) => \{[\s\S]{0,300}const gen = empezarSesion\(\);\n\s*await guardarClave\(gps\.LLAVE_SESION/.test(app) && /entrarConSesion\(s, gen\)/.test(app) && /const gen = genDada \?\? empezarSesion\(\);/.test(app));
+  ok('ninguna escritura de la sesión o la presencia guardadas por fuera de la fila',
+     !/SecureStore\.(setItemAsync|deleteItemAsync)\(gps\.LLAVE_(SESION|PRESENCIA)/.test(app));
 })();
 
 const pruebaFilaGps = (async () => {
@@ -728,7 +749,11 @@ const pruebaFilaGps = (async () => {
     await vaciar(); await p;
     ok('una parada de la sesión anterior no detiene el GPS de la siguiente', r.corriendo === true && !r.log.includes('stop'), r.log); }
   { const srvTexto = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
-    ok('las seis paradas de la tarea llevan la generación de su sesión', (srvTexto.match(/await pararDesdeLaTarea\('[^']+', gen\);/g) || []).length === 6); }
+    ok('las seis paradas de la tarea llevan la generación de su sesión', (srvTexto.match(/await pararDesdeLaTarea\('[^']+', gen\);/g) || []).length === 6);
+    // Séptima revisión: después de CADA espera, ningún efecto si la sesión cambió
+    ok('ausente mucho tiempo: después del POST, nada si la sesión cambió', /body: JSON\.stringify\(\{ estado: 'fuera' \}\),\n\s*\}, control\);\n\s*\} catch \{\}\n\s*if \(!mia\(\)\) return;\n\s*diagnostico\.servicio = 'detenido: ausente mucho tiempo';/.test(srvTexto));
+    ok('volvió solo: después del POST, nada si la sesión cambió', /\} catch \{\}\n\s*if \(!mia\(\)\) return;\n\s*diagnostico\.servicio = 'detenido: volvió a ruta solo y nunca pisó el trazado';/.test(srvTexto));
+    ok('la respuesta de error de otra sesión tampoco se aplica (ni borra la sesión guardada)', /\} else \{\n\s*\/\/ Lo mismo que con el 200: la respuesta de otra sesión no se aplica\n\s*if \(!mia\(\)\) return;/.test(srvTexto)); }
   { const srvTexto = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
     ok('la tarea ya no detiene el GPS por fuera de la fila', !/try \{ await Location\.stopLocationUpdatesAsync\(TAREA_GPS\); \} catch \{\}/.test(srvTexto) && (srvTexto.match(/await pararDesdeLaTarea\('/g) || []).length === 6); }
 })();
