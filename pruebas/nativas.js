@@ -449,6 +449,17 @@ const pruebaNotif = (async () => {
   await m.vigilarSilencio(reloj);
   ok('y el aviso de GPS detenido también se programa', programadas.length === 2, programadas);
   ok('nunca se le volvió a PEDIR al usuario', pedidos === 1, pedidos);
+  // Concedido → revocado → concedido, con la app viva (tercera revisión)
+  concedido = false; m.remirarPermiso();          // lo quita desde Ajustes y vuelve
+  const antes = programadas.length;
+  reloj += 61_000;
+  await m.notificarSinSenal(reloj - 600_000, reloj);
+  ok('revocado: deja de programar (ya no queda «preparado» para siempre)', programadas.length === antes, programadas);
+  concedido = true; m.remirarPermiso();           // lo vuelve a dar
+  reloj += 1_000;
+  await m.notificarSinSenal(reloj - 600_000, reloj);
+  ok('concedido otra vez: vuelve a salir', programadas.length === antes + 1, programadas);
+  ok('y en todo esto se le pidió una sola vez', pedidos === 1, pedidos);
 })();
 
 const pruebaPresencia = (async () => {

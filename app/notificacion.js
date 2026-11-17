@@ -31,26 +31,33 @@ Notifications.setNotificationHandler({
   }),
 });
 
-let preparado = false;   // canal creado y permiso dado
-let preguntado = false;  // ya se le PIDIÓ al usuario: no se le vuelve a pedir
-// Cuándo se vio por última vez el permiso negado. Antes era un `sinPermiso`
-// que quedaba en true para siempre: si el chofer lo daba después desde
-// Ajustes, la app no se enteraba hasta reiniciarse, y no salían ni la brecha
-// ni el aviso de GPS detenido (segunda revisión con ChatGPT, 17/11). Ahora
-// se vuelve a MIRAR (sin preguntar) cada minuto, y al volver a primer plano.
-let negadoEn = 0;
+// Dos cosas distintas que antes eran una (tercera revisión con ChatGPT,
+// 17/11): el CANAL, que se crea una vez, y el PERMISO, que el chofer puede
+// dar o quitar desde Ajustes con la app viva. Antes un `preparado = true`
+// quedaba para siempre: revocado el permiso, la app no se enteraba; y antes
+// todavía, un `sinPermiso = true` igual de pegado en el otro sentido. Ahora
+// el permiso se vuelve a MIRAR (sin pedirlo) como mucho una vez por minuto
+// y al volver a primer plano; al usuario se le PIDE una sola vez.
+let canalCreado = false;
+let permitido = false;   // lo que dijo el sistema la última vez que se miró
+let miradoEn = 0;        // cuándo se miró
+let preguntado = false;  // ya se le pidió al usuario: no se le vuelve a pedir
 const REMIRAR_MS = 60_000;
 let ultimo = null;       // el último título mostrado — igual no se re-emite
 
 async function preparar() {
-  if (preparado) return;
-  if (negadoEn && Date.now() - negadoEn < REMIRAR_MS) return;
+  if (miradoEn && Date.now() - miradoEn < REMIRAR_MS) return;
+  miradoEn = Date.now();
   let permiso = await Notifications.getPermissionsAsync().catch(() => null);
   if (permiso && !permiso.granted && permiso.canAskAgain && !preguntado) {
     preguntado = true;
     permiso = await Notifications.requestPermissionsAsync().catch(() => null);
   }
-  if (!permiso || !permiso.granted) { negadoEn = Date.now(); return; }
+  const antes = permitido;
+  permitido = !!(permiso && permiso.granted);
+  // Si cambió, lo último mostrado ya no vale: que la próxima se emita
+  if (permitido !== antes) ultimo = null;
+  if (!permitido || canalCreado) return;
   // Canal de importancia BAJA: la brecha cambia todo el tiempo y no puede
   // sonar ni vibrar — es información de reojo, no una alerta.
   await Notifications.setNotificationChannelAsync(CANAL, {
@@ -58,13 +65,12 @@ async function preparar() {
     importance: Notifications.AndroidImportance.LOW,
     sound: null, vibrationPattern: null, enableVibrate: false,
   }).catch(() => {});
-  negadoEn = 0;
-  preparado = true;
+  canalCreado = true;
 }
 
 // Al volver a primer plano (por ejemplo, de Ajustes con el permiso recién
-// dado): mirar ya, sin esperar el minuto.
-export function remirarPermiso() { negadoEn = 0; }
+// dado o quitado): mirar ya, sin esperar el minuto.
+export function remirarPermiso() { miradoEn = 0; }
 
 // La tarea de fondo llama esto con `cuerpo.brecha` de cada POST que salió
 // bien. Se re-emite solo cuando el TEXTO cambia: la misma brecha cada 10 s
@@ -83,7 +89,7 @@ export async function notificarSinSenal(ultimoEnvio, ahora = Date.now()) {
 async function mostrar(aviso) {
   if (!aviso || aviso.titulo === ultimo) return;
   await preparar();
-  if (!preparado) return;
+  if (!permitido) return;
   try {
     await Notifications.scheduleNotificationAsync({
       identifier: ID,
@@ -112,7 +118,7 @@ const CANAL_GRABACION = 'grabacion';
 
 export async function notificarGrabacionPedida() {
   await preparar();
-  if (!preparado) return;
+  if (!permitido) return;
   try {
     await Notifications.setNotificationChannelAsync(CANAL_GRABACION, {
       name: 'Grabación de recorrido',
@@ -146,7 +152,7 @@ export async function notificarSinRol(motivo) {
   // Relevado, este GPS ya no tiene que mandar: el silencio no es una falla
   apagarVigiaDeSilencio().catch(() => {});
   await preparar();
-  if (!preparado) return;
+  if (!permitido) return;
   const titulo = 'MODO ACOMPAÑANTE';
   if (titulo === ultimo) return;
   try {
@@ -201,7 +207,7 @@ let silencioCorridoEn = 0;
 export async function vigilarSilencio(ahora = Date.now()) {
   if (ahora - silencioCorridoEn < 60_000) return;
   await preparar();
-  if (!preparado) return;
+  if (!permitido) return;
   silencioCorridoEn = ahora;
   try {
     await Notifications.setNotificationChannelAsync(CANAL_SILENCIO, {
