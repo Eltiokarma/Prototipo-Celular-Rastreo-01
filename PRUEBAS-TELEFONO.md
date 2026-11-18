@@ -31,6 +31,31 @@ captura del teléfono y otra de Despacho en ese mismo minuto.
 | `X-App-Version` que muestra Despacho en Personas | | |
 | Fecha de la prueba | | |
 
+## En qué orden
+
+Los casos están numerados por tema, pero **se hacen en este orden**:
+
+| Orden | Caso | Por qué ahí |
+|---|---|---|
+| 1.º | **0. Comprobación inicial** (abajo) | Si falla, no tiene sentido seguir. |
+| 2.º | **2. Permisos** | Recién instalada, la app todavía no tiene permisos. |
+| 3.º | **3. AUSENTE y DESHACER** | Un teléfono, rápido. |
+| 4.º | **1. Cobrador** | Los dos teléfonos y salir a la calle (lejos del trazado y después llegar a él). |
+| 5.º | **4. Cerrar sesión con un envío pendiente** | Tiene la pantalla apagada 5 min: ahí se ve si Android mata la app. |
+| 6.º | **6. Relevo** | Los dos teléfonos. |
+| 7.º | **5. Sesión revocada** | Al final: «CERRAR TODAS MIS SESIONES» saca al chofer A de todos lados. |
+
+Cuando me mandes un resultado, nómbralo por el **número de caso** y el paso
+(por ejemplo, «caso 4, paso 3: FALLA»), no por el orden.
+
+## 0. Comprobación inicial
+
+| Paso | Qué tiene que verse | Resultado |
+|---|---|---|
+| Abre la app en cada teléfono. | La pantalla de arranque es **lisa, azul oscuro, sin ícono**. Después, la presentación con «MICROS TEMPO» y «Control de ruta». | |
+| Entra con un usuario. En Despacho → Personas, mira su `X-App-Version`. | Empieza con **0.3.1/**. Anótala en la tabla de arriba. | |
+| Revisa la batería de la app (Ajustes → Apps → Control de ruta → Batería). | **Sin restricciones** en los dos teléfonos. Si no, los casos con pantalla apagada fallan por Android y no por la app. | |
+
 ---
 
 ## 1. Cobrador cuando su combi no está en ruta
