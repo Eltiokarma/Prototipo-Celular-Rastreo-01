@@ -116,13 +116,17 @@ Todo en **T1**.
 | Paso | Qué tiene que verse | Resultado |
 |---|---|---|
 | **T1:** chofer A en la puerta. Cierra la app (sácala de recientes). | — | |
-| **T2:** entra como chofer A. Perfil → **CERRAR TODAS MIS SESIONES** (dos toques). | T2 vuelve al ingreso. | |
+| **T2:** entra como chofer A. Toca **Perfil** (arriba), espera a que cargue y baja **hasta el final**, debajo de CAMBIAR CONTRASEÑA: **CERRAR TODAS MIS SESIONES** (dos toques). | T2 vuelve al ingreso. | |
 | **T1:** abre la app. | «Tu sesión ya no vale: entra de nuevo» y la pantalla de ingreso. No queda notificación del GPS. No sale a ruta solo. | |
 | Variante: lo mismo, pero con **T1 en ruta y la pantalla apagada** al revocar. Espera 2 min y prende. | El GPS de T1 se cortó (Despacho deja de recibirlo en ~1 min). Al volver, el ingreso y la bandeja limpia. | |
 
 ## 6. Relevo de chofer en la misma combi
 
-**T1:** chofer A en ruta con la combi X. **T2:** chofer B.
+**T1:** chofer A en ruta con la combi X. **T2:** chofer B, otro usuario.
+
+**Antes:** en Despacho → Gestión → Personas, habilita a B **dos combis**: la X
+y otra. La lista «¿EN QUÉ COMBI SALES?», que es donde aparece «ES UN RELEVO»,
+solo se muestra cuando el chofer tiene más de una combi habilitada.
 
 | Paso | Qué tiene que verse | Resultado |
 |---|---|---|
