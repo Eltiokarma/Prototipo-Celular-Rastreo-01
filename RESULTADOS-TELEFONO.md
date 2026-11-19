@@ -45,6 +45,27 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 | Ya en ruta, apaga las notificaciones de la app | **FALLA** | **Redmi, primera vez:** la app se cerró sola (crash) y desapareció de Despacho. **Redmi, segunda vez, y Poco:** la app se reinicia, vuelve a pedir el permiso de notificaciones y el chofer **desaparece de Despacho**. El SOS y el chat sí siguen llegando a la central. Ver H7 y H8. |
 | Prende las notificaciones y vuelve a la app | **FALLA** | La app vuelve, pero **Despacho no lo ve**. Cerrar la app sola no basta, y salir de la cuenta y entrar enseguida tampoco. Vuelve a aparecer de dos maneras: (a) cierra la app (quitarla de recientes) **y** sale de la cuenta; (b) sale de la cuenta **sin cerrar la app** y deja la pantalla bloqueada (apagada) unos **2 min**. Ver H9. |
 
+## Caso 3. AUSENTE, DESHACER y salir de sesión
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| Toca AUSENTE | OK | En los dos teléfonos. |
+| DESHACER antes de 0 | OK | En los dos teléfonos. |
+| AUSENTE y deja pasar los 5 s | OK | En los dos teléfonos. |
+| Vuelve a ruta, AUSENTE y, antes de los 5 s, sale de la sesión | **FALLA en Despacho** | En el teléfono sale limpio. En Despacho sigue apareciendo unos segundos y después queda en **SIN SEÑAL**: no se actualizó al salir. Nota del probador: «recién al entrar en la app se pone en ausente». Ver H11 y H12. |
+| Vuelve a entrar con chofer A | **FALLA** | En Despacho **arrastra el SIN SEÑAL** hasta que sale a ruta. Ver H11. |
+
+## Caso 4. Cerrar sesión con un envío pendiente y entrar con otro chofer
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| Chofer A en ruta, modo avión ~1 min | OK | En la app: «GPS fallidos 16, esperando 16» (hay captura). En Despacho: SIN SEÑAL. |
+| Quita el modo avión e inmediatamente sale de la sesión | OK | **Primer intento:** en vez de cerrar sesión se tocó el botón de inicio de Android (la app quedó de fondo); Despacho lo volvió a ver, que es lo esperado en ese caso porque salieron las posiciones guardadas. **Segundo intento:** quitó el modo avión y salió; sale limpio. |
+| Entra con chofer B y sale a ruta con otra combi | OK | Limpio. También se intercambiaron las cuentas entre los dos celulares, sin problemas. |
+| Mira Despacho | OK | Todo limpio. |
+| Con B en ruta, pantalla apagada 5 min | OK | Todo normal. No apareció «oído hace», que es lo esperado: ese rótulo solo sale cuando el teléfono está SIN SEÑAL. |
+| Prende la pantalla y vuelve a la app | OK | Todo normal. |
+
 ---
 
 ## Hallazgos (pendientes de analizar)
@@ -61,13 +82,20 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 | H8 | Al quitar las notificaciones en ruta, la app se reinicia y el chofer **desaparece de Despacho**, aunque el SOS y el chat siguen llegando. Hay que ver si es Android cerrando la app al quitarle un permiso y por qué la ruta no se retoma después. | Falla | Caso 2, los dos teléfonos |
 | H9 | Con las notificaciones devueltas, el chofer **no vuelve a Despacho** hasta que sale de la cuenta y además cierra la app o deja la pantalla bloqueada unos 2 min. | Falla | Caso 2, los dos teléfonos |
 | H10 | No se puede salir a ruta sin la **ubicación precisa**. Hay que confirmar si es lo que se busca y si la app lo explica. | Observación | Caso 2 |
+| H11 | Cerrar sesión en ruta **no saca al chofer de Despacho**: queda en SIN SEÑAL, y al volver a entrar lo arrastra hasta salir a ruta. | Falla | Caso 3 |
+| H12 | Un AUSENTE tocado y cortado por el cierre de sesión parece aplicarse **al volver a entrar** («recién al entrar en la app se pone en ausente»). | Falla probable | Caso 3 |
+| H13 | Crear el perfil **Dueño** en gerencia: el dueño de la combi. Puede ser el chofer, el cobrador o alguien de afuera que solo quiere ver su unidad desde lejos. | Pedido | Durante el caso 3 |
 
 ## Por aclarar con el probador
 
 - Caso 2, primer paso: el texto exacto del aviso de permisos en la app.
+- Caso 3, H12: ¿dónde se pone en AUSENTE al volver a entrar, en Despacho o en
+  el teléfono? ¿Y sin haber tocado AUSENTE en esa entrada?
+- Caso 4, segundo intento: ¿se salió con el botón **Salir** de la app (cerrar
+  sesión) o quitándola de recientes?
 
 ## Lo que falta
 
 - Caso 1: repetir «sale a ruta lejos del trazado» a varias cuadras, y anotar
   el último paso (quitar el modo avión).
-- Casos 3, 4, 5 y 6.
+- Casos 5 y 6.

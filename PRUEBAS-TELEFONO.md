@@ -108,7 +108,7 @@ Todo en **T1**.
 | Quita el modo avión e **inmediatamente** sal de la sesión. | Sale. | |
 | Entra con **chofer B** y sal a ruta con otra combi. | La bandeja de B **no** muestra brecha ni «SIN SEÑAL» de A. El diagnóstico de B no dice «sin red». | |
 | Mira Despacho. | Las posiciones de A **no** aparecen como de B. La combi de B arranca desde donde está. | |
-| Con B en ruta, **apaga la pantalla 5 min**. | Despacho sigue recibiendo a B (la hora de «oído hace» no pasa de ~1 min). | |
+| Con B en ruta, **apaga la pantalla 5 min**. | Despacho sigue mostrando a B **EN VIVO**, sin SIN SEÑAL. («Oído hace» solo aparece cuando el teléfono está sin señal: si no sale, está bien). | |
 | Prende la pantalla y vuelve a la app. | El HUD se pone al día solo. Nada de A reaparece. | |
 
 ## 5. Sesión revocada mientras la app estaba cerrada
