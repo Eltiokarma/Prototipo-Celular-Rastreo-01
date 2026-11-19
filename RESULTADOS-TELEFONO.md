@@ -68,6 +68,27 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 
 ---
 
+## Caso 5. Sesión revocada mientras la app estaba cerrada
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| T1: chofer A en la puerta, cierra la app | OK | Sin nada que observar. |
+| T2: entra como chofer A y toca CERRAR TODAS MIS SESIONES | **FALLA** (por confirmar) | «Eso no ocurre»: T2 no vuelve al ingreso. |
+| T1: abre la app | **FALLA** | No sale «Tu sesión ya no vale». **Las dos sesiones del mismo chofer quedan abiertas a la vez.** En uno de los teléfonos no hay mapa: parece que solo uno tiene todo el funcionamiento. Después salió a ruta con el otro, sin problema. El chat funcionó en los dos. Ver H14 y H15. |
+| Variante con T1 en ruta y la pantalla apagada | No se hizo | |
+
+## Caso 6. Relevo de chofer en la misma combi
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| En T2, B elige la combi X | **FALLA** | No sale «ES UN RELEVO». En el teléfono de A sale una notificación: «tu sesión siguió en otro dispositivo o ha dejado de reportar» (texto aproximado). En el mapa de Despacho **no aparece nada**. En la actividad de gestión sí aparece que se conectó el otro usuario, con la hora. Ver H16 y H17. |
+| Toca ES UN RELEVO y sale a ruta | **NO SE PUDO** | El botón no aparece. |
+| Mira T1 | Pendiente | El probador va a mandar capturas. |
+| Mira Despacho | — | Ver el primer paso: no aparece nada de la doble conexión. |
+| Repite con la pantalla de T1 apagada | **FALLA** | Con la pantalla apagada, T1 «ni se enteró». El SOS funcionó **en los dos teléfonos a la vez**, y AUSENTE también. Al mandar la app al fondo (botón de inicio de Android) y volver, sí sale «tu sesión siguió en otro dispositivo», pero **solo al refrescar la app**. Ver H16. |
+
+---
+
 ## Hallazgos (pendientes de analizar)
 
 | # | Qué | Tipo | Dónde se vio |
@@ -85,6 +106,10 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 | H11 | Cerrar sesión en ruta **no saca al chofer de Despacho**: queda en SIN SEÑAL, y al volver a entrar lo arrastra hasta salir a ruta. | Falla | Caso 3 |
 | H12 | Un AUSENTE tocado y cortado por el cierre de sesión parece aplicarse **al volver a entrar** («recién al entrar en la app se pone en ausente»). | Falla probable | Caso 3 |
 | H13 | Crear el perfil **Dueño** en gerencia: el dueño de la combi. Puede ser el chofer, el cobrador o alguien de afuera que solo quiere ver su unidad desde lejos. | Pedido | Durante el caso 3 |
+| H14 | CERRAR TODAS MIS SESIONES no cierra las sesiones: el teléfono que lo toca no vuelve al ingreso, y el otro no recibe «Tu sesión ya no vale». | Falla (por confirmar) | Caso 5 |
+| H15 | El **mismo chofer puede tener dos sesiones abiertas a la vez** en dos teléfonos. En uno no aparece el mapa. Despacho no lo marca. | Falla | Caso 5 |
+| H16 | El **relevo no funciona**: no sale «ES UN RELEVO», y los **dos teléfonos siguen activos** para la misma combi (SOS y AUSENTE andan en los dos). El de A solo se entera («tu sesión siguió en otro dispositivo») al volver al frente; con la pantalla apagada, nunca. | Falla | Caso 6 |
+| H17 | Despacho **no muestra** la doble conexión ni el relevo en el mapa. Solo aparece en la actividad de gestión. | Falla | Caso 6 |
 
 ## Por aclarar con el probador
 
@@ -93,9 +118,15 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
   el teléfono? ¿Y sin haber tocado AUSENTE en esa entrada?
 - Caso 4, segundo intento: ¿se salió con el botón **Salir** de la app (cerrar
   sesión) o quitándola de recientes?
+- Caso 5, paso B: ¿se encontró y se tocó **dos veces** CERRAR TODAS MIS
+  SESIONES (en Perfil)? ¿Qué hizo T2 después?
+- Caso 6: ¿el chofer B era **otro usuario**, distinto de A? ¿Eligió la combi
+  X de una lista, o entró directo con su combi asignada?
+- Caso 6: el texto exacto de la notificación en el teléfono de A, y las
+  capturas del paso «Mira T1».
 
 ## Lo que falta
 
 - Caso 1: repetir «sale a ruta lejos del trazado» a varias cuadras, y anotar
   el último paso (quitar el modo avión).
-- Casos 5 y 6.
+- Caso 5: la variante con T1 en ruta y la pantalla apagada.
