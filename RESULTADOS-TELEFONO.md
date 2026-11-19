@@ -106,7 +106,7 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 | H11 | Cerrar sesión en ruta **no saca al chofer de Despacho**: queda en SIN SEÑAL, y al volver a entrar lo arrastra hasta salir a ruta. | Falla | Caso 3 |
 | H12 | Un AUSENTE tocado y cortado por el cierre de sesión parece aplicarse **al volver a entrar** («recién al entrar en la app se pone en ausente»). | Falla probable | Caso 3 |
 | H13 | Crear el perfil **Dueño** en gerencia: el dueño de la combi. Puede ser el chofer, el cobrador o alguien de afuera que solo quiere ver su unidad desde lejos. | Pedido | Durante el caso 3 |
-| H14 | El botón CERRAR TODAS MIS SESIONES **no apareció** en Perfil. Puede ser que Perfil no cargó (el botón depende de eso) o que está muy abajo. Si es lo primero, el botón de emergencia para un teléfono perdido depende de que cargue la semana del chofer. | Falla (por confirmar) | Caso 5 |
+| H14 | El botón CERRAR TODAS MIS SESIONES **no se vio** en Perfil, aunque Perfil cargó bien (semana, cobradores, sin error). El botón **sí viene en la app 0.3.1** (comprobado en el paquete armado): va al final, debajo del botón CAMBIAR de la contraseña, como un recuadro de borde fino con letra gris. O pasa desapercibido, o no se dibuja en el teléfono. Falta una captura del final de Perfil. | Falla (por confirmar) | Caso 5 |
 | H15 | El **mismo chofer puede tener dos sesiones abiertas a la vez** en dos teléfonos. En uno no aparece el mapa. Despacho no lo marca. | Falla | Caso 5 |
 | H16 | El **relevo no funciona**: un chofer con la misma combi asignada la toma **sin confirmación**, y los **dos teléfonos siguen activos** para la misma combi (SOS y AUSENTE andan en los dos). El de A solo se entera («tu sesión siguió en otro dispositivo») al volver al frente; con la pantalla apagada, nunca. | Falla | Caso 6 |
 | H17 | Despacho **no muestra** la doble conexión ni el relevo en el mapa. Solo aparece en la actividad de gestión. | Falla | Caso 6 |
@@ -118,8 +118,7 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
   el teléfono? ¿Y sin haber tocado AUSENTE en esa entrada?
 - Caso 4, segundo intento: ¿se salió con el botón **Salir** de la app (cerrar
   sesión) o quitándola de recientes?
-- Caso 5: al abrir Perfil, ¿cargó (se ve la semana, los cobradores y
-  CAMBIAR CONTRASEÑA) o salió un error? ¿Se bajó hasta el final?
+- Caso 5: una captura del **final** de Perfil, bajando todo lo que se pueda.
 - Caso 6: el texto exacto de la notificación en el teléfono de A, y las
   capturas del paso «Mira T1».
 
