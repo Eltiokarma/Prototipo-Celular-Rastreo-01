@@ -43,7 +43,7 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 | Niega la ubicación al deslizar «Salir a ruta» | OK | Sale el diálogo de Android (permitir / permitir todo el tiempo). Despacho **no** lo muestra en ruta. En la app parece salir el aviso de que falta la ubicación (sin confirmar el texto). No deja salir a ruta sin la **ubicación precisa**. Ver H10. |
 | En Ajustes, «Permitir todo el tiempo», vuelve y desliza | OK | El cartel de permisos desaparece y Despacho lo empieza a ver. |
 | Ya en ruta, apaga las notificaciones de la app | **FALLA** | **Redmi, primera vez:** la app se cerró sola (crash) y desapareció de Despacho. **Redmi, segunda vez, y Poco:** la app se reinicia, vuelve a pedir el permiso de notificaciones y el chofer **desaparece de Despacho**. El SOS y el chat sí siguen llegando a la central. Ver H7 y H8. |
-| Prende las notificaciones y vuelve a la app | **FALLA** | La app vuelve, pero **Despacho no lo ve**. Solo vuelve a aparecer si cierra la app (quitarla de recientes) **y además** sale de la cuenta. Hacer solo una de las dos no basta. Ver H9. |
+| Prende las notificaciones y vuelve a la app | **FALLA** | La app vuelve, pero **Despacho no lo ve**. Cerrar la app sola no basta, y salir de la cuenta y entrar enseguida tampoco. Vuelve a aparecer de dos maneras: (a) cierra la app (quitarla de recientes) **y** sale de la cuenta; (b) sale de la cuenta **sin cerrar la app** y deja la pantalla bloqueada (apagada) unos **2 min**. Ver H9. |
 
 ---
 
@@ -59,15 +59,11 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 | H6 | Cuando el chofer se queda sin señal, el teléfono del cobrador podría **ofrecer usar su propia posición** para la combi. | Idea | Caso 1 |
 | H7 | En el Redmi, la primera vez que se quitaron las notificaciones con el chofer en ruta, **la app se cerró sola**. El probador sospecha la RAM. | Falla | Caso 2, Redmi |
 | H8 | Al quitar las notificaciones en ruta, la app se reinicia y el chofer **desaparece de Despacho**, aunque el SOS y el chat siguen llegando. Hay que ver si es Android cerrando la app al quitarle un permiso y por qué la ruta no se retoma después. | Falla | Caso 2, los dos teléfonos |
-| H9 | Con las notificaciones devueltas, el chofer **no vuelve a Despacho** hasta que cierra la app **y** sale de la cuenta. | Falla | Caso 2, los dos teléfonos |
+| H9 | Con las notificaciones devueltas, el chofer **no vuelve a Despacho** hasta que sale de la cuenta y además cierra la app o deja la pantalla bloqueada unos 2 min. | Falla | Caso 2, los dos teléfonos |
 | H10 | No se puede salir a ruta sin la **ubicación precisa**. Hay que confirmar si es lo que se busca y si la app lo explica. | Observación | Caso 2 |
 
 ## Por aclarar con el probador
 
-- Caso 2, último paso: el dictado termina con «aparezco en el despacho
-  cuando salgo del login sin cerrar la app, solo bloquean…», y queda cortado.
-  Contradice «hacer solo una de las dos no basta»: falta saber cuál de las dos
-  versiones es la correcta.
 - Caso 2, primer paso: el texto exacto del aviso de permisos en la app.
 
 ## Lo que falta
