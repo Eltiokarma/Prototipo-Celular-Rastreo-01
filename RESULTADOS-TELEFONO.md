@@ -123,6 +123,9 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 
 ## Lo que falta
 
+Todo lo de abajo está paso a paso en `PRUEBAS-TELEFONO-RONDA-2.md`.
+
+
 - Caso 1: repetir «sale a ruta lejos del trazado» a varias cuadras, y anotar
   el último paso (quitar el modo avión).
 - Caso 5: repetirlo entero, con el botón del final de Perfil.
