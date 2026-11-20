@@ -1663,7 +1663,7 @@ la web, y que el deslizador (APK y web) pasa por ella. `nativas`: el orden
 GPS → «fuera» al salir de ruta y al cerrar sesión (las dos fallan con el
 código anterior), el GPS mudo en siete casos, el texto único de sesión.
 `presencia`: cerrar la última sesión baja la combi, cerrar una de dos no
-(falla con el servidor anterior). Regresión completa: corriendo al anotar esto.
+(falla con el servidor anterior). Regresión completa en verde: las 102 suites.
 
 ---
 
