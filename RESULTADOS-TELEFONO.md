@@ -102,8 +102,8 @@ de 6:37 a 7:36 más o menos. Los pasos van con el número de la planilla.
 - **Chofer A:** «El Gordo». **Chofer B:** «Karma» (así salen en las capturas).
 - **Capturas recibidas:** las de Despacho de los pasos 3.3 (dos) y 6.10, en el
   documento «SS de Pruebas Android v2 - 01», y cuatro del Poco X7 (T1): 7:09
-  (paso 4.3), 7:15 (paso 5.8), 7:24 y 7:26 (paso 6.7). **Falta una del Redmi
-  15C** (ver «Lo que falta»).
+  (paso 4.3), 7:15 (paso 5.8), 7:24 y 7:26 (paso 6.7), y una del Redmi 15C
+  (T2) a las 7:36 (paso 6.15).
 
 De 50 pasos: 42 OK, 1 FALLA (6.13), 1 que falló una vez de dos (3.3) y 6 sin
 hacer (todo el caso 1).
@@ -119,7 +119,7 @@ hacer (todo el caso 1).
 | Paso | Resultado | Lo que se vio |
 |---|---|---|
 | 2.1 Quita el permiso de ubicación | OK | |
-| 2.2 Desliza y toca «No permitir» | OK, **sin el texto** | Nota del probador: «Todo Ok». En el recuadro para copiar el aviso quedó «¿Permite que Control de ruta acceda a la ubicación de este dispositivo?», que es la pregunta **de Android**, no el aviso de la app («Falta el permiso de ubicación en …»). El texto de la app sigue sin confirmar. |
+| 2.2 Desliza y toca «No permitir» | OK | Primero sale la pregunta de Android («¿Permite que Control de ruta acceda a la ubicación de este dispositivo?»). Si se sigue sin dar el permiso, sale el aviso de la app. El texto del aviso de la app no se copió. |
 | 2.3 Devuelve el permiso | OK | |
 
 ## Caso 1. El cobrador cuando su combi va hacia la ruta
@@ -174,9 +174,9 @@ hacer (todo el caso 1).
 | 6.10 Despacho, la X en el mapa | OK | Captura de las 7:29: la M11111 con Karma (B), un solo punto, «1 en ruta». |
 | 6.11 T1 sale de ruta, T2 con la pantalla apagada | OK | |
 | 6.12 A queda con dos combis | OK | |
-| 6.13 T1 toca la X → ES UN RELEVO | **FALLA** | Nota del probador: «Seguí el paso 6.11 en T1, así que mi pantalla estaba en RUTA para ese paso. Luego salí y volví a entrar para intentar que me salga ES UN RELEVO, pero no, todas las combis están libres. T2 siguió con la pantalla apagada». Es decir: la lista de T1 mostró la X como **libre** mientras B seguía en ruta con ella, y la confirmación de relevo no salió. Sin hora ni capturas. Ver H18. |
+| 6.13 T1 toca la X → ES UN RELEVO | **FALLA** | Nota del probador: «Seguí el paso 6.11 en T1, así que mi pantalla estaba en RUTA para ese paso. Luego salí y volví a entrar para intentar que me salga ES UN RELEVO, pero no, todas las combis están libres. T2 siguió con la pantalla apagada». Aclarado después: T2 llevaba **entre 2 y 5 minutos** con la pantalla apagada, en la lista de T1 **no aparecía el otro chofer**, y T1 **salió a ruta con la X sin la confirmación**. Sin hora exacta ni capturas de ese momento. Ver H18. |
 | 6.14 Espera 2 minutos y mira Despacho | OK | La X con A, un solo punto. |
-| 6.15 T2 prende la pantalla | OK | Captura del Redmi 15C a las 7:36. **Pendiente de recibir.** |
+| 6.15 T2 prende la pantalla | OK | Captura del Redmi 15C a las 7:36: el mismo aviso del 6.7, ahora para B, con «Servicio de GPS: detenido: sin rol de GPS» y «GPS enviadas 137 · fallidas 0 · 1 no usadas · último hace 287s». Batería en 14 %. Ese «hace 287s» importa para H18. |
 
 ---
 
@@ -201,7 +201,7 @@ hacer (todo el caso 1).
 | H15 | El **mismo chofer puede tener dos sesiones abiertas a la vez** en dos teléfonos. En uno no aparece el mapa. Despacho no lo marca. | Falla | Caso 5 |
 | H16 | El **relevo no funciona**: un chofer con la misma combi asignada la toma **sin confirmación**, y los **dos teléfonos siguen activos** para la misma combi (SOS y AUSENTE andan en los dos). El de A solo se entera («tu sesión siguió en otro dispositivo») al volver al frente; con la pantalla apagada, nunca. | Falla | Caso 6 |
 | H17 | Despacho **no muestra** la doble conexión ni el relevo en el mapa. Solo aparece en la actividad de gestión. | Falla | Caso 6 |
-| H18 | En el relevo de vuelta, con el teléfono del que maneja **con la pantalla apagada**, la lista «¿EN QUÉ COMBI SALES?» del otro chofer muestra esa combi como **libre**. No sale «la maneja …» ni ES UN RELEVO, ni saliendo de la cuenta y volviendo a entrar. Después el relevo sí se hizo (pasos 6.14 y 6.15 OK), pero sin la confirmación. | Falla | Ronda 2, paso 6.13 |
+| H18 | En el relevo de vuelta, con el teléfono del que maneja (T2, el Redmi) **con la pantalla apagada**, la lista «¿EN QUÉ COMBI SALES?» del otro chofer muestra esa combi como **libre**. No sale «la maneja …» ni ES UN RELEVO, ni saliendo de la cuenta y volviendo a entrar, y el chofer la toma sin confirmación. **Pista de la captura del 6.15:** el último envío de GPS que el servidor le aceptó a T2 fue 287 s antes de las 7:36, o sea entre las 7:31 y las 7:32, uno o dos minutos después de apagarle la pantalla. El servidor da una combi por libre cuando lleva **3 minutos** sin oír al que la maneja. En un servidor local, repitiendo los pasos 6.1 a 6.13, la lista dice «la maneja …» mientras el teléfono del otro siga mandando: no se reprodujo. Lo más probable, sin confirmar, es que **el Redmi dejó de mandar con la pantalla apagada** (estaba en 14 % de batería) y la lista estaba bien para lo que el servidor sabía. Se confirma en Despacho → Gestión → Actividad del 20/11 entre las 7:31 y las 7:36: si figura «tomó la combi que manejaba», el Redmi seguía vivo y la falla es de la lista; si no figura, el Redmi se había callado. | Falla, **causa por confirmar** | Ronda 2, pasos 6.13 y 6.15 |
 | H19 | Cuando la sesión se cierra desde otro teléfono, el aviso del ingreso no es «Tu sesión ya no vale: entra de nuevo». Sale **«Sesión inválida o expirada»** con la app cerrada y **«Sesión cerrada»** con la app en ruta. Son los textos que manda el servidor; el de la app solo sale por otro camino. Funciona, pero el chofer lee tres textos distintos para lo mismo. | Observación | Ronda 2, pasos 5.8 y 5.12 |
 | H20 | En el paso 3.3 de la segunda ronda, lo mismo falló una vez y anduvo la siguiente: el arreglo de H11 y H12, sea cual sea, tiene que cubrir un caso que **no pasa siempre**. | Observación | Ronda 2, paso 3.3 |
 | H21 | En «la maneja …» de la lista de combis, el **nombre del chofer en negrita**. | Pedido | Ronda 2, paso 6.2 |
@@ -221,31 +221,32 @@ hacer (todo el caso 1).
 
 ## Por aclarar con el probador
 
-- Paso 2.2: el texto exacto del aviso **de la app** («Falta el permiso de
-  ubicación en …»). Lo que se copió es la pregunta de Android.
-- Paso 6.13: ¿a qué hora fue, y cuánto llevaba apagada la pantalla de T2? ¿T1
-  terminó saliendo a ruta con la X tocándola en la lista, **sin** que saliera
-  la confirmación? En la captura de las 7:29 el Redmi (T2) tenía la batería en
-  14 %: ¿estaba con el ahorro de batería prendido?
+- **H18, paso 6.13:** en Despacho → Gestión → Actividad, el 20/11 entre las
+  7:31 y las 7:36, ¿hay una línea de «tomó la combi que manejaba» para la
+  M11111? ¿Y el Redmi tenía prendido el ahorro de batería (estaba en 14 %)?
+  ¿Despacho llegó a mostrar la M11111 en SIN SEÑAL antes de que T1 la tomara?
 - De la primera ronda sigue sin respuesta: en el caso 6, el texto exacto de la
   notificación en el teléfono de A cuando otro chofer tomó su combi **sin**
   pasar por la lista («tu sesión siguió en otro dispositivo…»).
 
 Ya aclarado en la segunda ronda: dónde aparece el AUSENTE de H12 (en
 Despacho), con qué botón se cierra la sesión en el caso 4 (con **Salir**,
-pasos 4.2 a 4.4 OK) y de qué paso era la nota del 4.2 (del 4.3).
+pasos 4.2 a 4.4 OK), de qué paso era la nota del 4.2 (del 4.3), qué aviso
+sale en el 2.2 (primero el de Android, después el de la app) y cómo terminó
+el 6.13 (T1 salió sin la confirmación).
 
 ## Lo que falta
 
-- **Una captura del Redmi 15C:** la de las 7:36 (paso 6.15). Y, si se
-  sacaron, las del paso 2.2 (el aviso de permisos) y las del 6.13.
 - **Caso 1, pasos 1.1 a 1.6:** sin hacer en las dos rondas. Con el radio de
   entrada en 20 m alcanza con empezar a una cuadra del trazado, pero **primero
   hay que publicar el cambio del servidor**: mientras no esté en producción,
   el servidor sigue contando 300 m.
-- **Paso 6.13:** repetirlo anotando la hora, con captura de la lista de T1 y
-  de Despacho en ese minuto.
+- **Paso 6.13:** repetirlo con el Redmi **cargado** (más de 20 %), anotando la
+  hora en que se le apaga la pantalla y mirando en Despacho si la combi pasa
+  a SIN SEÑAL. Con captura de la lista de T1 y de Despacho en ese minuto.
 - **H16 con una sola combi:** repetir lo de la primera ronda (B con la misma
   combi asignada que A, sin lista), que no entró en la segunda.
 - **Último paso de la planilla:** quitarles a A y a B las combis extra de P.4
   y 6.12. No quedó anotado si se hizo.
+- **Capturas:** ya están todas las que pedía la planilla. Opcional: el texto
+  del aviso de la app del paso 2.2.
