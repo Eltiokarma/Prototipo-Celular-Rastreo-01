@@ -47,7 +47,8 @@ import { tomarFoto, elegirFoto, comoTexto } from './foto';
 import { WebView } from 'react-native-webview';
 import * as gps from './gps/servicio';
 import * as Location from 'expo-location';
-import { crearVigiaPuerta, CALLADO_MS } from './puerta';
+import { crearVigiaPuerta, CALLADO_MS, relevoPorConfirmar } from './puerta';
+import { servicioMudo } from './vigilante';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
 // un teléfono no depende de la red de casa. Para pegarle a un servidor local
@@ -335,7 +336,7 @@ function Aplicacion() {
         saliendo.current = true;
         c.salir();
         olvidarDeLaSesion();
-        setAviso(e); setSesion(null); setPresencia('fuera');
+        setAviso(avisoDeSesionCerrada(e)); setSesion(null); setPresencia('fuera');
         gps.limpiarSesion();
         try { await guardarClave(gps.LLAVE_PRESENCIA, null); } catch {}
         if (!mia()) return;
@@ -525,15 +526,25 @@ function Aplicacion() {
     setPresencia(nueva);
     try { await guardarClave(gps.LLAVE_PRESENCIA, nueva); } catch {}
     if (!vigente()) return;
-    cliente.current.marcarPresencia(nueva, motivo);
     if (nueva === 'fuera') {
       // Primero se le avisa al vigilante, DESPUÉS se para: la misma carrera
       // que ya nos costó un servicio huérfano en `onSalir`.
       saliendo.current = true;
+      // Y el GPS se para ANTES de declarar «fuera», no después. Al revés, la
+      // tarea de fondo seguía mandando unos segundos, y un lote tomado
+      // DESPUÉS del «fuera» (con «ruta» o «ausente» pegado) volvía a poner
+      // la combi en el mapa: el servidor sólo descarta lo tomado antes. Al
+      // pararse el GPS quedaba en SIN SEÑAL, o AUSENTE, sin nadie atrás
+      // (pruebas en teléfono, RESULTADOS-TELEFONO.md, H11 y H12: una vez de
+      // dos, según cayera o no un envío en ese hueco). Lo que estaba en
+      // vuelo al parar es de antes del «fuera», y eso el servidor lo ignora.
       await gps.parar();
       // Lo que quedó esperando red es de antes del «fuera»: no se manda
       gps.vaciarCola();
+      if (!vigente()) return;
+      cliente.current.marcarPresencia(nueva, motivo);
     } else {
+      cliente.current.marcarPresencia(nueva, motivo);
       // AUSENTE sale de la cadena: el servidor deja de contestar brecha y
       // la notificación viva no se actualiza más — sin esto, la bandeja
       // mostraba una brecha de hace una hora como si fuera de ahora,
@@ -688,19 +699,58 @@ function Aplicacion() {
     const t = setInterval(recargarCombis, 20_000);
     return () => clearInterval(t);
   }, [enLaPuerta, sesion?.vehicleId, recargarCombis]);
-  // Devuelve null si salió, o el motivo
-  const elegirCombi = async (vehicleId) => {
+  // Devuelve null si salió, o el motivo. `relevo`: la combi elegida con
+  // ES UN RELEVO ({ vehicleId, quien }), para no preguntarlo otra vez al
+  // deslizar.
+  const elegirCombi = async (vehicleId, relevo = null) => {
     try {
       const gen = generacion.current;
       const r = await cliente.current.elegirCombi(vehicleId);
       if (generacion.current !== gen || cerrando.current) return null;
       alCambiarDeCombi.current(r);
+      relevoConfirmado.current = relevo;
       recargarCombis();
       return null;
     } catch (e) {
       recargarCombis();   // la lista puede estar vieja: otro la tomó
       return e.message || 'No se pudo';
     }
+  };
+  // ── SALIR A RUTA: si la combi la maneja otro, es un relevo ─────
+  // (`relevoPorConfirmar`, en puerta.js). La lista se pide de nuevo al
+  // deslizar: la de la pantalla puede tener 20 s, y en 20 s el otro pudo
+  // salir o entrar. Sin red (o si tarda más de 4 s) se sale como antes: no
+  // se sabe, y quedarse en la puerta por eso dejaría al chofer sin poder
+  // trabajar.
+  const relevoConfirmado = React.useRef(null);
+  const [pedirRelevo, setPedirRelevo] = React.useState(null);
+  React.useEffect(() => { if (!enLaPuerta) setPedirRelevo(null); }, [enLaPuerta]);
+  const salirARuta = async () => {
+    if (cerrando.current || !sesion || !cliente.current) return;
+    const gen = generacion.current;
+    let lista = combis || [];
+    try {
+      const d = await Promise.race([
+        cliente.current.misCombis(),
+        new Promise((_, no) => setTimeout(() => no(new Error('tarde')), 4000)),
+      ]);
+      if (generacion.current !== gen || cerrando.current) return;
+      lista = d.combis || lista;
+      setCombis(lista);
+    } catch {
+      if (generacion.current !== gen || cerrando.current) return;
+    }
+    const otro = relevoPorConfirmar(lista, sesion.vehicleId, relevoConfirmado.current);
+    if (otro) { setPedirRelevo(otro); return; }
+    relevoConfirmado.current = null;
+    setPedirRelevo(null);
+    cambiarPresencia('ruta');
+  };
+  const confirmarRelevo = () => {
+    if (!pedirRelevo) return;
+    relevoConfirmado.current = null;
+    setPedirRelevo(null);
+    cambiarPresencia('ruta');
   };
   // La combi de hoy cambió: la eligió acá, la cambió Despacho, o llegó con
   // la conexión. La sesión y la guardada; si es la misma, nada. Y si cambió
@@ -742,6 +792,9 @@ function Aplicacion() {
   // se olvida al salir: el siguiente en este teléfono mandaba la del
   // anterior (barrido del 22/9).
   const ultimaPos = React.useRef({ lat: null, lng: null, t: 0 });
+  // Cuándo LLEGÓ la última lectura, con la hora de este teléfono: es lo que
+  // mira el vigilante para darse cuenta de un servicio mudo (`vigilante.js`)
+  const ultimaLectura = React.useRef(0);
   React.useEffect(() => {
     // `t` es la hora de la LECTURA del GPS, no la de llegada: Android a veces
     // entrega tarde una lectura vieja, y medida por la llegada salía como
@@ -749,6 +802,7 @@ function Aplicacion() {
     // (auditoría 11/11).
     gps.cuandoLlegueUnaPosicion((p) => {
       const leida = Number(p.timestamp);
+      ultimaLectura.current = Date.now();
       ultimaPos.current = { lat: p.lat, lng: p.lng, t: Number.isFinite(leida) ? Math.min(leida, Date.now()) : Date.now() };
     });
   }, []);
@@ -806,11 +860,13 @@ function Aplicacion() {
   // booleano en un ref le gana a la carrera porque se lee en el momento, no
   // al armar el efecto.
   const saliendo = React.useRef(false);
+  const ultimoRearranque = React.useRef(0);
   React.useEffect(() => {
     // Fuera de ruta no hay nada que vigilar: el servicio está parado a
     // propósito y rearrancarlo sería emitir señal de alguien que no salió.
     if (!sesion || presencia === 'fuera') return;
     let vivo = true;
+    const desde = Date.now();
     const mirar = async () => {
       // PRIMERO el cambio automático de presencia, antes de mirar el
       // servicio: si el vigía de la ausencia lo apagó ('fuera'), hay que
@@ -838,7 +894,7 @@ function Aplicacion() {
         if (cliente.current) cliente.current.salir();
         olvidarDeLaSesion();
         gps.limpiarSesion();
-        setAviso('Tu sesión ya no vale: entra de nuevo');
+        setAviso(SESION_YA_NO_VALE);
         setSesion(null); setPresencia('fuera');
         return;
       }
@@ -865,6 +921,17 @@ function Aplicacion() {
       if (!corriendo) {
         gps.diagnostico.servicio = 'caído, rearrancando';
         gps.arrancar({ textoNotificacion: textoRef.current }).catch(() => {});
+      } else if (servicioMudo({ ahora: Date.now(), corriendo, primerPlano: AppState.currentState === 'active',
+                                ultimaLectura: ultimaLectura.current, desde, ultimoRearranque: ultimoRearranque.current })) {
+        // Android dice que corre, pero hace un minuto que no da ni una
+        // lectura: el registro sobrevivió y el servicio no (H8 y H9). Se
+        // para y se arranca de nuevo.
+        ultimoRearranque.current = Date.now();
+        gps.diagnostico.servicio = 'mudo, rearrancando';
+        gps.parar().catch(() => {}).then(() => {
+          if (!vivo || saliendo.current || gps.diagnostico.detenidoPor) return;
+          return gps.arrancar({ textoNotificacion: textoRef.current });
+        }).catch(() => {});
       } else if (gps.diagnostico.servicio !== 'corriendo') {
         gps.diagnostico.servicio = 'corriendo';
       }
@@ -1030,14 +1097,18 @@ function Aplicacion() {
       // El orden importa: primero se le avisa al vigilante, DESPUÉS se para
       // el servicio. Al revés, un tick del vigilante en medio lo rearrancaba.
       saliendo.current = true;
+      // El GPS se para ANTES del «fuera» (ver `cambiarPresencia`, H11 y
+      // H12): si no, un lote de la tarea de fondo tomado mientras se
+      // esperaba al servidor devolvía la combi al mapa, en ruta o AUSENTE, y
+      // quedaba ahí en SIN SEÑAL con la sesión ya cerrada.
+      try { await guardarClave(gps.LLAVE_PRESENCIA, null); } catch {}
+      await gps.parar();
       // Que la unidad se vaya del mapa en el acto, no a los 3 min del olvido.
       // Se ESPERA (con reintento por HTTP): sin señal en ese instante el
       // «fuera» se perdía y la combi quedaba en el mapa hasta el olvido.
       try { await cliente.current.marcarPresencia('fuera'); } catch {}
-      try { await guardarClave(gps.LLAVE_PRESENCIA, null); } catch {}
       setPresencia('fuera');
       await guardarClave(gps.LLAVE_SESION, null).catch(() => {});
-      await gps.parar();
       // Nada de esta sesión sobrevive: ni la cola de posiciones (el relevo
       // con el mismo teléfono las mandaba con el token del siguiente), ni el
       // flag de grabación, ni el diagnóstico.
@@ -1074,6 +1145,10 @@ function Aplicacion() {
         miCombi={sesion?.vehicleId || null}
         miNombre={sesion?.driverName || null}
         onElegirCombi={elegirCombi}
+        onSalirARuta={salirARuta}
+        pedirRelevo={pedirRelevo}
+        onConfirmarRelevo={confirmarRelevo}
+        onCancelarRelevo={() => setPedirRelevo(null)}
         yo={cliente.current?.miUnidad ? cliente.current.miUnidad() : null}
         onTrafico={(activo) => cliente.current.marcarTrafico(activo)}
         onSos={async () => {
@@ -1363,6 +1438,19 @@ function abrirOptimizacionDeBateria() {
     .catch(() => Linking.openSettings().catch(() => {}));
 }
 
+// La sesión que dejó de valer: la cerraron desde otro teléfono, cambió la
+// contraseña, la reseteó Despacho o vencieron los 30 días. El servidor lo
+// dice con tres textos según por dónde se enteró la app («Sesión inválida o
+// expirada», «Sesión cerrada», «Tu sesión terminó…»), y en el teléfono
+// salían los tres, crudos, para lo mismo (pruebas en teléfono, H19 y H24).
+// Para el chofer es una sola cosa y se dice una sola vez. Lo que no habla de
+// la sesión (la cooperativa sin ruta cargada) pasa como viene.
+const SESION_YA_NO_VALE = 'Tu sesión ya no vale: entra de nuevo';
+function avisoDeSesionCerrada(e) {
+  const texto = String(e || '');
+  return !texto || /sesi[oó]n/i.test(texto) ? SESION_YA_NO_VALE : texto;
+}
+
 function ElegirCombi({ combis, miCombi, onElegir }) {
   const { s, C } = usarTema();
   const [confirmar, setConfirmar] = React.useState(null);
@@ -1372,7 +1460,7 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
     if (c.vehicleId === miCombi || eligiendo) return;
     if (c.estado === 'ocupada' && !confirmado) { setConfirmar(c); return; }
     setEligiendo(true); setError(null);
-    const motivo = await onElegir(c.vehicleId);
+    const motivo = await onElegir(c.vehicleId, confirmado ? { vehicleId: c.vehicleId, quien: c.quien } : null);
     setEligiendo(false);
     if (motivo) setError(motivo); else setConfirmar(null);
   };
@@ -1391,7 +1479,11 @@ function ElegirCombi({ combis, miCombi, onElegir }) {
             <View style={{ flex: 1 }}>
               {!!c.label && <Text style={s.combiPlaca}>{c.label}</Text>}
               <Text style={[s.combiEstado, c.estado === 'ocupada' && { color: C.ambarTexto }]}>
-                {c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tienes tú' : 'libre'}
+                {/* El nombre, más fuerte que el resto: es lo que se busca
+                    con la vista (pedido del probador, H21) */}
+                {c.estado === 'ocupada'
+                  ? <>la maneja <Text style={s.combiQuien}>{c.quien}</Text></>
+                  : c.estado === 'tuya' ? 'la tienes tú' : 'libre'}
               </Text>
             </View>
             {elegida && <Text style={s.combiElegida}>ELEGIDA</Text>}
@@ -1432,7 +1524,8 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
                 sosSinRed, central, onSosSinRedCerrar, miNombre, avisoApp, diag, pantalla, noLeidos, marca,
                 presencia, confirmada, onPresencia, onIr, onSalir, onSos,
                 tipificarSos, onTipoSos, onPerfil, yo, onTrafico, rol,
-                faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi, avisoCombi }) {
+                faltaPuerta, onNoManejo, combis, miCombi, onElegirCombi, avisoCombi,
+                onSalirARuta, pedirRelevo, onConfirmarRelevo, onCancelarRelevo }) {
   const { s, C } = usarTema();
   // ── Tráfico: lo que el servidor midió de MÍ, y lo que yo dije ───────
   // `yo.parado` es el hecho (N minutos sin avanzar por la ruta, lo mide el
@@ -1542,8 +1635,36 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
             a propósito, no por un dedo que se corrió. */}
         {/* Mientras cuenta el vigía, no: con varias combis el aviso quedaba
             debajo de la lista, fuera de la pantalla de un teléfono chico. */}
-        {(combis || []).length > 1 && faltaPuerta == null && (
+        {(combis || []).length > 1 && faltaPuerta == null && !pedirRelevo && (
           <ElegirCombi combis={combis} miCombi={miCombi} onElegir={onElegirCombi} />
+        )}
+        {/* Con UNA sola combi no hay lista, pero si la maneja otro hay que
+            decirlo antes de deslizar: salir en ella es un relevo (H16). */}
+        {(combis || []).length <= 1 && faltaPuerta == null && !pedirRelevo && (() => {
+          const mia = (combis || []).find(c => c.vehicleId === miCombi);
+          return mia && mia.estado === 'ocupada' ? (
+            <Text style={[s.combiEstado, { color: C.ambarTexto, marginBottom: 12 }]}>
+              {mia.vehicleId}: la maneja <Text style={s.combiQuien}>{mia.quien}</Text>
+            </Text>
+          ) : null;
+        })()}
+        {/* Deslizó en una combi que maneja otro: se confirma acá, nombrándolo,
+            con o sin lista. Cancelar lo deja en la puerta. */}
+        {pedirRelevo && rol !== 'collector' && (
+          <View style={[s.combiConfirmar, { marginBottom: 12 }]}>
+            <Text style={s.combiConfirmarTexto}>
+              {pedirRelevo.vehicleId} la está manejando <Text style={s.combiQuien}>{pedirRelevo.quien}</Text>. Si
+              es un relevo, la tomas tú y a {pedirRelevo.quien} se le avisa.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+              <Pressable onPress={onConfirmarRelevo} style={s.combiRelevo}>
+                <Text style={s.combiRelevoTexto}>ES UN RELEVO</Text>
+              </Pressable>
+              <Pressable onPress={onCancelarRelevo} style={s.combiCancelar}>
+                <Text style={s.combiCancelarTexto}>Cancelar</Text>
+              </Pressable>
+            </View>
+          </View>
         )}
         {/* ¿Ya estás manejando? (el vigía de la puerta). Fuerte y arriba del
             deslizador que se olvidó: no es un aviso que se vaya solo — se va
@@ -1569,7 +1690,7 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
           </Text>
         ) : (
           <Deslizable texto="DESLIZA PARA SALIR A RUTA  →" textoBoton="IR"
-            colorListo={C.verde} onDisparar={() => onPresencia('ruta')} />
+            colorListo={C.verde} onDisparar={onSalirARuta} />
         )}
         {/* El SOS tiene que ESTAR en la puerta, para el cobrador y para el
             chofer. El cobrador siempre está «fuera» (barrido del 22/9), y el
@@ -3159,6 +3280,7 @@ function crearEstilos(C) { return StyleSheet.create({
   combiCodigo: { color: C.blanco, fontSize: 20, fontWeight: '900' },
   combiPlaca: { color: C.cielo, fontSize: 12, letterSpacing: 0.5, fontFamily: 'monospace' },
   combiEstado: { color: C.tenue, fontSize: 13, fontWeight: '700' },
+  combiQuien: { fontSize: 14, fontWeight: '900' },
   combiElegida: { color: C.cielo, fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
   combiConfirmar: { backgroundColor: C.panel, borderWidth: 2, borderColor: C.ambar, borderRadius: 12, padding: 12 },
   combiConfirmarTexto: { color: C.blanco, fontSize: 14, lineHeight: 19 },

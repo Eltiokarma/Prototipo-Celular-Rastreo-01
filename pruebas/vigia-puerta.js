@@ -142,5 +142,45 @@ if (web) {
   }
 }
 
+console.log('\n¿ES UN RELEVO? (H16: salir en la combi que maneja otro)');
+{
+  const { relevoPorConfirmar: r } = nativa;
+  const ocupada = { vehicleId: 'M11111', estado: 'ocupada', quien: 'Karma' };
+  const libre = { vehicleId: 'M12345', estado: 'libre', quien: null };
+  // El caso del 20/11, 7:31: UNA sola combi, la de hoy, y la maneja otro
+  ok('una sola combi y la maneja otro: se pregunta', r([ocupada], 'M11111') === ocupada);
+  ok('varias, y la de HOY la maneja otro: se pregunta', r([ocupada, libre], 'M11111') === ocupada);
+  ok('la de hoy libre: no se pregunta', r([ocupada, libre], 'M12345') === null);
+  ok('la de hoy es mía: no se pregunta', r([{ vehicleId: 'M1', estado: 'tuya', quien: null }], 'M1') === null);
+  ok('sin lista (sin red): no se pregunta', r(null, 'M11111') === null && r([], 'M11111') === null);
+  ok('ya confirmado en la lista: no se pregunta dos veces',
+     r([ocupada], 'M11111', { vehicleId: 'M11111', quien: 'Karma' }) === null);
+  ok('confirmado con otro chofer: se pregunta de nuevo, con el nombre nuevo',
+     r([{ ...ocupada, quien: 'Pedro' }], 'M11111', { vehicleId: 'M11111', quien: 'Karma' })?.quien === 'Pedro');
+  ok('confirmado para otra combi: se pregunta',
+     r([ocupada], 'M11111', { vehicleId: 'M12345', quien: 'Karma' }) === ocupada);
+
+  // La copia de la web, con los mismos casos
+  const html = fs.readFileSync(RAIZ + '/project/Prototipo.html', 'utf8');
+  const i = html.indexOf('// ── ¿ES UN RELEVO?'), j = html.indexOf('// ── FIN DE ¿ES UN RELEVO?');
+  const w = i >= 0 && j > i ? new Function(html.slice(i, j) + '\nreturn relevoPorConfirmar;')() : null;
+  ok('la web tiene la misma regla', !!w);
+  if (w) {
+    const casos = [[[ocupada], 'M11111', null], [[ocupada, libre], 'M12345', null], [null, 'M11111', null],
+      [[ocupada], 'M11111', { vehicleId: 'M11111', quien: 'Karma' }], [[{ ...ocupada, quien: 'Pedro' }], 'M11111', { vehicleId: 'M11111', quien: 'Karma' }]];
+    ok('y da lo mismo que la nativa en todos los casos',
+       casos.every(([c, m, k]) => JSON.stringify(w(c, m, k)) === JSON.stringify(r(c, m, k))));
+    ok('la web también pregunta al tocar SALIR A RUTA',
+       /<button onClick=\{salirARuta\}/.test(html) && /const salirARuta = async[\s\S]*?relevoPorConfirmar\(/.test(html));
+  }
+
+  // Y la app lo usa al DESLIZAR, no sólo en la lista
+  const app = fs.readFileSync(RAIZ + '/app/App.js', 'utf8');
+  ok('el deslizador de SALIR A RUTA pasa por la confirmación',
+     /DESLIZA PARA SALIR A RUTA[\s\S]{0,200}onDisparar=\{onSalirARuta\}/.test(app));
+  ok('salirARuta pregunta con relevoPorConfirmar antes de declarar',
+     /const salirARuta = async[\s\S]*?relevoPorConfirmar\([\s\S]*?cambiarPresencia\('ruta'\)/.test(app));
+}
+
 console.log(fallas ? `\n${fallas} FALLAS` : '\nTODO EN ORDEN');
 process.exit(fallas ? 1 : 0);

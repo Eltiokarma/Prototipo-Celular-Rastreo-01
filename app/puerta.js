@@ -104,7 +104,28 @@ function crearVigiaPuerta({ radioM = RADIO_M, marchaKmh = MARCHA_KMH, ventanaMs 
   };
 }
 
+// ── ¿ES UN RELEVO? ─────────────────────────────────────────────
+// SALIR A RUTA en una combi que está manejando otro le saca la combi: es un
+// relevo, y un relevo se confirma nombrando al otro. La confirmación vivía
+// sólo en la lista «¿EN QUÉ COMBI SALES?», al tocar una combi que NO era la
+// de hoy. Así, el que tenía UNA sola combi (no hay lista) y el que salía en
+// la de hoy mientras otro la manejaba la tomaban sin que nada preguntara:
+// probado en el teléfono dos veces (RESULTADOS-TELEFONO.md, H16; la
+// Actividad del 20/11 lo anotó como «tomó la combi que manejaba»).
+//
+// Ahora se pregunta al deslizar, con la lista recién pedida. Devuelve la
+// combi por confirmar, o null si se puede salir sin preguntar. Ya
+// confirmado en la lista (ES UN RELEVO) no se pregunta dos veces, pero sólo
+// si sigue siendo la misma combi y el mismo chofer: si mientras tanto la
+// tomó un tercero, se pregunta de nuevo con su nombre.
+function relevoPorConfirmar(combis, miCombi, confirmado = null) {
+  const mia = (combis || []).find(c => c && c.vehicleId === miCombi);
+  if (!mia || mia.estado !== 'ocupada') return null;
+  if (confirmado && confirmado.vehicleId === mia.vehicleId && confirmado.quien === mia.quien) return null;
+  return mia;
+}
+
 module.exports = {
-  crearVigiaPuerta, metrosEntre,
+  crearVigiaPuerta, metrosEntre, relevoPorConfirmar,
   RADIO_M, MARCHA_KMH, VENTANA_MS, SEGUIDAS, AVISO_MS, CALLADO_MS, PRECISION_MAX_M,
 };

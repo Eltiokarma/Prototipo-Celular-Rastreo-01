@@ -2873,6 +2873,22 @@ function vencerPuerta(ahora = Date.now()) {
   }
 }
 
+// Cerrar la última sesión es bajarse de la combi: si el mando es suyo (o la
+// combi quedó en el mapa a su nombre sin mando), «fuera», como SALIR DE
+// RUTA. Si la maneja otro (lo relevaron), no se toca nada de la combi.
+function bajarDeSuCombi(personId) {
+  const u = db.prepare('SELECT unitId, role, vehicleId, routeId FROM users WHERE unitId = ?').get(personId);
+  if (!u || u.role !== 'driver') return;
+  const vehicleId = u.vehicleId || u.unitId;
+  const dueno = duenoDe.get(vehicleId);
+  const suya = dueno ? dueno.personId === personId : units.get(vehicleId)?.choferId === personId;
+  if (!suya) return;
+  soltarMando(vehicleId, personId);
+  if (presencias.has(vehicleId) || units.has(vehicleId)) {
+    fijarPresencia(vehicleId, rutaDeLaCombi(vehicleId, u.routeId), 'fuera');
+  }
+}
+
 // Salir de ruta suelta el mando Y el socket de GPS. Sólo el dueño: si no,
 // el socket quedaba apuntado como el que reporta, y al cerrarse otra conexión
 // de la misma persona se lo heredaba —con la combi «ocupada» por alguien que
@@ -4753,6 +4769,17 @@ app.post('/auth/logout', (req, res) => {
   // acuerde de reiniciar el servidor (REVISION-2026-09-10.md, L1).
   cerrarTurno(sesion.unitId);
   quitarDeLaPuerta(sesion.unitId);
+  // Y se baja de la combi, si es la suya y no le queda otra sesión abierta.
+  // La app manda «fuera» antes de cerrar sesión, pero un lote de la tarea de
+  // fondo tomado DESPUÉS de ese «fuera» la volvía a poner en el mapa (en
+  // ruta o AUSENTE), y como la sesión ya no existía nada la sacaba: quedaba
+  // en SIN SEÑAL hasta el olvido (pruebas en teléfono, H11 y H12). La APK
+  // nueva para el GPS antes; esto cubre a las que ya están repartidas y al
+  // «fuera» que se perdió por falta de red. Con otra sesión abierta no se
+  // toca: el otro teléfono puede ser el que está manejando.
+  if (!db.prepare('SELECT 1 FROM sessions WHERE unitId = ? LIMIT 1').get(sesion.unitId)) {
+    bajarDeSuCombi(sesion.unitId);
+  }
   if (todas) {
     // Los WebSocket abiertos con esos tokens también: si no, la pantalla del
     // que se llevó el teléfono sigue recibiendo el mapa y el chat en vivo.

@@ -271,6 +271,46 @@ let servidor = null;
     ok('y M-01 sigue donde estaba', st.units.some(u => u.unitId === 'M-01'), st.units.map(u => u.unitId));
   }
 
+  console.log('\nCERRAR SESIÓN BAJA DE LA COMBI (H11 y H12)');
+  {
+    // El caso del 20/11, paso 3.3: AUSENTE, «Salir», y un lote de la tarea
+    // de fondo tomado DESPUÉS del «fuera» la devolvía al mapa como AUSENTE,
+    // donde se quedaba en SIN SEÑAL con la sesión ya cerrada.
+    await pedir('/admin/users', { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: 'M-05', name: 'El Gordo', password: 'chofer1234' }) });
+    const s5 = await login('M-05', 'chofer1234');
+    await presencia(s5, 'ruta');
+    await gps(s5, -15.4900, -70.1300);
+    await presencia(s5, 'ausente');
+    await presencia(s5, 'fuera');
+    await sleep(50);
+    await gps(s5, -15.4900, -70.1300, { presencia: 'ausente' });   // el lote atrasado de la tarea
+    let st = await estado();
+    ok('el lote de después del «fuera» la devuelve al mapa (lo que pasaba)',
+       st.units.some(u => u.unitId === 'M-05' && u.presencia === 'ausente'), st.units.map(u => [u.unitId, u.presencia]));
+    const r = await pedir('/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + s5.token }, body: '{}' });
+    st = await estado();
+    ok('al cerrar la sesión se va del mapa', r.status === 200 && !st.units.some(u => u.unitId === 'M-05'),
+       st.units.map(u => [u.unitId, u.presencia]));
+
+    // Con OTRA sesión abierta del mismo chofer no se toca: el otro teléfono
+    // puede ser el que maneja
+    const s5a = await login('M-05', 'chofer1234');
+    const s5b = await login('M-05', 'chofer1234');
+    await presencia(s5a, 'ruta');
+    await gps(s5a, -15.4900, -70.1300);
+    await pedir('/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + s5b.token }, body: '{}' });
+    st = await estado();
+    ok('cerrar UNA de dos sesiones no la saca del mapa', st.units.some(u => u.unitId === 'M-05'),
+       st.units.map(u => u.unitId));
+    await pedir('/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + s5a.token }, body: '{}' });
+    st = await estado();
+    ok('cerrar la última, sí', !st.units.some(u => u.unitId === 'M-05'), st.units.map(u => u.unitId));
+
+    // Y a las combis de los demás no las toca
+    ok('las demás siguen', st.units.some(u => u.unitId === 'M-01'), st.units.map(u => u.unitId));
+  }
+
   console.log('\nEL OLVIDO BORRA LA CONFIRMACIÓN');
   {
     // El caso de la mañana siguiente: mató la app sin "salir de ruta", el

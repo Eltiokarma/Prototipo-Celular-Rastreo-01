@@ -13,6 +13,7 @@ const zonaMuerta = require('./zona-muerta');
 const RAIZ = path.join(__dirname, '..');
 const ARCHIVOS = process.argv.slice(2).length ? process.argv.slice(2) : [
   'app/App.js',
+  'app/vigilante.js',
   'app/index.js',
   'app/hud.js',
   'app/chat.js',
