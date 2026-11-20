@@ -6,7 +6,8 @@ de esto se corrige hasta terminar los casos que faltan. Al cerrar, pasa a
 CAMBIOS-PARA-REVISAR.md como un bloque.
 
 La única excepción es H22, que el probador pidió cambiar ya porque sin eso
-el caso 1 no se puede hacer.
+el caso 1 no se puede hacer. Y al cerrar la segunda ronda, el probador pidió
+arreglar antes de seguir probando: ver «Arreglado el 20/11» al final.
 
 ## Teléfonos
 
@@ -237,20 +238,37 @@ el 6.13 (la Actividad: A tomó la combi antes del paso 6.12), que el cambio de
 contraseña de las 7:14 fue a propósito y que la M-00 se la habilitó el
 probador.
 
+## Arreglado el 20/11, sin probar todavía en teléfono
+
+Todo esto se comprueba con `PRUEBAS-TELEFONO-RONDA-3.md`. Es JavaScript de la
+app y código del servidor: llega con `publicar-arreglo.bat` y el despliegue,
+sin APK nueva. Bloques 33 y 34 de CAMBIOS-PARA-REVISAR.md.
+
+| # | Qué se hizo | Seguro de la causa |
+|---|---|---|
+| H16 (y H18) | Deslizar SALIR A RUTA en la combi de hoy mientras otro la maneja pide confirmar el relevo, con una combi o con varias. Con una sola, la puerta dice «X: la maneja …». En la APK y en la web del chofer. | Sí: el código sólo preguntaba al tocar **otra** combi en la lista. |
+| H11 y H12 (y H20) | La app para el GPS **antes** de declarar «fuera» (al salir de ruta y al cerrar sesión). Y el servidor baja la combi al cerrarse la última sesión de su chofer. | Sí: reproducido en un servidor local, un lote tomado después del «fuera» la devolvía al mapa como AUSENTE. |
+| H8 y H9 | Si Android da el GPS por corriendo y en un minuto no llega ninguna lectura con la app adelante, se para y se arranca de nuevo. | **No.** Es la causa más probable, pero no se pudo comprobar sin el teléfono. La ronda 3 pide la captura de Perfil si vuelve a pasar. |
+| H19 y H24 | Un solo texto cuando la sesión dejó de valer: «Tu sesión ya no vale: entra de nuevo». | Sí. |
+| H21 | El nombre del que maneja, más fuerte en la lista (APK y web). | — |
+| H22 | El radio de entrada a la ruta, 20 m (bloque 33). | — |
+
+**Sin tocar, a propósito:**
+- H1, H3 y H4 (la pantalla de arranque, el logo y el nombre de la app): son
+  nativos, piden APK nueva. Conviene juntarlos con lo que salga de la ronda 3.
+- H23 (el SOS del chofer relevado nombra la combi que ya no maneja): hay que
+  decidir qué debe decir antes de cambiarlo.
+- H5 (Despacho no puede escribirle al chofer que está en la puerta), H15 (dos
+  sesiones del mismo chofer a la vez) y H17 (Despacho no muestra la doble
+  conexión): quedan para la próxima tanda.
+- H14 (el botón CERRAR TODAS MIS SESIONES se encuentra mal), H6 y H13: son de
+  diseño o pedidos nuevos.
+
 ## Lo que falta
 
-- **Caso 1, pasos 1.1 a 1.6:** sin hacer en las dos rondas. Con el radio de
-  entrada en 20 m alcanza con empezar a una cuadra del trazado, pero **primero
-  hay que publicar el cambio del servidor**: mientras no esté en producción,
-  el servidor sigue contando 300 m.
-- **Paso 6.13 en el orden de la planilla:** primero el 6.12 (Despacho le
-  habilita a A la segunda combi), **después** deslizar en T1. Ahí sí tiene que
-  salir «la maneja Karma» y ES UN RELEVO.
-- **H16:** ya no hace falta repetirlo; está confirmado. Falta decidir el
-  arreglo: que el chofer con una sola combi también vea la confirmación
-  cuando otro la está manejando.
-- **Combis extra:** A quedó con tres (M11111, M-00 y M12345) y B con dos.
-  Se quitan cuando ya no hagan falta para las pruebas; la del paso 6.13 las
-  necesita.
-- **Capturas:** ya están todas. Opcional: el texto del aviso de la app del
-  paso 2.2.
+Todo lo que queda por probar está en `PRUEBAS-TELEFONO-RONDA-3.md`: el caso 1
+(nunca se pudo hacer), y la comprobación de cada arreglo de arriba.
+
+- **Combis extra:** al empezar la ronda 3, A con una sola combi (la X) y B
+  con dos (la X y la Y). Al terminar, quitarles lo que sobre.
+- **Opcional:** el texto del aviso de la app del paso 2.2 de la ronda 2.
