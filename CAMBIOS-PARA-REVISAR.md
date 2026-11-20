@@ -1604,6 +1604,49 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 33. Entrar a la ruta a 20 m, no a 300 — `4c4d971` (20/11)
+
+**Qué.** La combi que declaró «en ruta» entra a la cadena de brechas cuando
+una posición cae a **20 m** o menos del trazado (`ENTRADA_M`). Antes entraba
+con el umbral del desvío de la ruta, 300 m.
+
+**Por qué.** Pruebas en teléfono (`RESULTADOS-TELEFONO.md`, H22): el chofer
+salió a ruta a una cuadra del paradero inicial y entró a la cadena de
+frente, con brecha, sin haberse movido. «TU COMBI VA HACIA LA RUTA» no llegó
+a verse, y para probarlo había que alejarse cinco cuadras. Lo pidió el
+probador: «50 metros es mucho, 300 metros es demasiado».
+
+**Lo que no cambia.** El aviso de **fuera de ruta** sigue en 300 m por ruta y
+sostenido: es lo que dicen el manual y `VALOR.md`, y bajarlo a 20 m marcaría
+cada cambio de carril. Tampoco cambia «ausente en marcha», que sigue con el
+umbral del desvío. Y una vez adentro la combi se queda: el radio corto
+decide cuándo entra, no la saca.
+
+**Archivos.** `server/index.js` (la constante y la confirmación de
+presencia), `README.md` y `PROTOCOLO.md` (ya no dicen «el umbral del
+desvío»), `PRUEBAS-TELEFONO-RONDA-2.md` (el caso 1 pide una cuadra, no
+cinco). Es sólo del servidor: no hace falta APK nueva.
+
+**Qué mirar.**
+- **El trazado tiene que estar bien dibujado.** Con 300 m daba igual; con
+  20 m, un tramo cargado a 30 m de la calle real deja a todas las combis en
+  «YENDO A LA RUTA» en ese tramo hasta que pisen otro que sí coincida.
+- **El GPS de un teléfono barato** puede dar 20 o 30 m de error entre
+  edificios. Alcanza con **una** posición adentro y llegan cada 3 s, así que
+  en la práctica entra, pero puede tardar unos segundos más que antes. Si en
+  la calle tarda, `ENTRADA_M` se sube sin tocar el código (variable de
+  entorno).
+- No se probó en la calle todavía: es el caso 1 de la planilla.
+
+**Manual.** No decía la distancia; no cambia.
+
+**Pruebas.** `presencia`: a 100 m y a 40 m del trazado sigue yendo, sin
+brecha y sin quedar marcado fuera de ruta; sobre el trazado entra. Con
+`ENTRADA_M=300` esas tres comprobaciones fallan (comprobado). La regresión
+completa **todavía no terminó** al anotar esto: falta el veredicto.
+
+---
+
 ## 32. La APK no compilaba: la imagen de arranque — 17/11
 
 **Qué.** El primer build en dos meses (perfil `prueba`) falló en la nube de
