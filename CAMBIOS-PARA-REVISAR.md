@@ -1642,8 +1642,8 @@ cinco). Es sólo del servidor: no hace falta APK nueva.
 
 **Pruebas.** `presencia`: a 100 m y a 40 m del trazado sigue yendo, sin
 brecha y sin quedar marcado fuera de ruta; sobre el trazado entra. Con
-`ENTRADA_M=300` esas tres comprobaciones fallan (comprobado). La regresión
-completa **todavía no terminó** al anotar esto: falta el veredicto.
+`ENTRADA_M=300` esas tres comprobaciones fallan (comprobado). Regresión
+completa en verde: las 102 suites.
 
 ---
 
