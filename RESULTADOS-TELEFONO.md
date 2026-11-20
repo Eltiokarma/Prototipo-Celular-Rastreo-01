@@ -1,6 +1,7 @@
 # Resultados de las pruebas en teléfono — APK 0.3.1
 
-Lo que se va viendo al seguir `PRUEBAS-TELEFONO.md`. **Solo se anota**: nada
+Lo que se va viendo al seguir `PRUEBAS-TELEFONO.md` (primera ronda, 18/11) y
+`PRUEBAS-TELEFONO-RONDA-2.md` (segunda ronda, 20/11). **Solo se anota**: nada
 de esto se corrige hasta terminar los casos que faltan. Al cerrar, pasa a
 CAMBIOS-PARA-REVISAR.md como un bloque.
 
@@ -12,7 +13,7 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 | Android | 15 (compilación AP3A.240905.015.A2) | 15 (compilación AP3A.240905.015.A2) |
 | Capa de la marca | HyperOS 2.0.208.0 | HyperOS 2.0.217.0 |
 | `X-App-Version` en Despacho | 0.3.1 | 0.3.1 |
-| Fecha de la prueba | 18/11/2026 | 18/11/2026 |
+| Fecha de la prueba | 18/11/2026 y 20/11/2026 | 18/11/2026 y 20/11/2026 |
 
 ---
 
@@ -89,6 +90,92 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 
 ---
 
+# Segunda ronda — 20/11/2026
+
+Sigue `PRUEBAS-TELEFONO-RONDA-2.md`, con la misma APK 0.3.1. Probó Gerson,
+de 6:37 a 7:36 más o menos. Los pasos van con el número de la planilla.
+
+- **Combi X:** M11111. **Combi Y:** M12345.
+- **Chofer A:** «El Gordo». **Chofer B:** «Karma» (así salen en las capturas).
+- **Capturas recibidas:** las de Despacho de los pasos 3.3 (dos) y 6.10, en el
+  documento «SS de Pruebas Android v2 - 01». **Faltan las de los dos
+  teléfonos** (ver «Lo que falta»).
+
+De 50 pasos: 42 OK, 1 FALLA (6.13), 1 que falló una vez de dos (3.3) y 6 sin
+hacer (todo el caso 1).
+
+## Preparación
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| P.1 a P.5 | OK | Empezó a las 6:37. B quedó con las dos combis a las 6:41. |
+
+## Caso 2. El texto del aviso de permisos
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 2.1 Quita el permiso de ubicación | OK | |
+| 2.2 Desliza y toca «No permitir» | OK, **sin el texto** | Nota del probador: «Todo Ok». En el recuadro para copiar el aviso quedó «¿Permite que Control de ruta acceda a la ubicación de este dispositivo?», que es la pregunta **de Android**, no el aviso de la app («Falta el permiso de ubicación en …»). El texto de la app sigue sin confirmar. |
+| 2.3 Devuelve el permiso | OK | |
+
+## Caso 1. El cobrador cuando su combi va hacia la ruta
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 1.1 a 1.6 | **Sin hacer** | Los seis pasos quedaron en blanco, sin nota. Ver H22: el probador dejó una observación sobre la distancia al paradero. |
+
+## Caso 3. AUSENTE cortado por el cierre de sesión
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 3.1 T1 en ruta | OK | Despacho lo muestra en ruta. |
+| 3.2 AUSENTE y enseguida Salir | OK | T1 en el ingreso. |
+| 3.3 Mira Despacho 2 minutos | **FALLA la primera vez, OK la segunda** | En la planilla quedó marcado NO SE PUDO, con la nota «falló la primera vez y después funcionó». **Primera vez** (captura): la tarjeta de M11111 sigue en la lista, con «Sin señal desde 06:53», «Sin noticias del teléfono hace 124 s» y «Ausente — fuera de la cadena»; arriba dice «0 en ruta · 1 ausente» y el mapa la rotula «M11111 · AUSENTE». **Segunda vez** (captura): «Todavía no hay combis en ruta», que es lo esperado. Ver H11 y H12. |
+| 3.4 Entra otra vez con A | OK | La puerta, sin AUSENTE. |
+| 3.5 Mira Despacho | OK | Ni AUSENTE ni SIN SEÑAL. |
+
+## Caso 4. Cerrar sesión con el botón Salir
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 4.1 Modo avión 1 minuto | OK | «En Despacho apareció la notificación a los 30 segundos, con el tiempo correcto». |
+| 4.2 Quita el modo avión y toca Salir | OK | Nota del probador: «Soy la única unidad en la Ruta, desde el loggeo ya me aparecía la combi X disponible». |
+| 4.3 Entra con B y sale con la Y | OK | |
+| 4.4 Con B en ruta, toca Salir | OK | |
+
+## Caso 5. Cerrar todas las sesiones
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 5.1 a 5.7 | OK | Esta vez el botón se encontró: recuadro al final de Perfil, se pone rojo al primer toque y al segundo T2 vuelve al ingreso. |
+| 5.8 T1 abre la app | OK, **con otro texto** | Vuelve al ingreso, pero el aviso dice **«Sesión inválida o expirada»**, en rojo, no «Tu sesión ya no vale: entra de nuevo». Ver H19. |
+| 5.9 T1 en ruta, pantalla apagada | OK | |
+| 5.10 T2 cierra todas las sesiones | OK | |
+| 5.11 Mira Despacho 2 minutos | OK | «Diría que después de un minuto, pero el reloj decía 30 segundos, no problema». |
+| 5.12 T1 prende la pantalla | OK, **con otro texto** | El ingreso, con **«Sesión cerrada»** nada más. Ver H19. |
+
+## Caso 6. Relevo de chofer en la misma combi
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 6.1 T1 sale a ruta con la X | OK | |
+| 6.2 T2 entra con B y mira la lista | OK | Sale «la maneja el gordo». Pedido: el nombre, en negrita. Ver H21. |
+| 6.3 Toca la fila de la X | OK | |
+| 6.4 Cancelar | OK | |
+| 6.5 ES UN RELEVO | OK | «Sale sombreada, no es una x, me gusta como está». |
+| 6.6 T2 sale a ruta | OK | |
+| 6.7 Mira T1 | OK | Capturas de T1 a las 7:24 (antes de que B saliera a ruta) y a las 7:26. **Pendientes de recibir.** |
+| 6.8 Barra de notificaciones de T1 | OK | Queda una notificación que dice «MODO ACOMPAÑANTE», otro chofer tomó la unidad. Es la que pone la app al perder el mando, en lugar de la del GPS: la planilla no lo decía. |
+| 6.9 SOS desde T1 | OK | Sin nota. En la captura de Despacho del paso 6.10 se ve que el SOS salió a las 7:27. Ver H23. |
+| 6.10 Despacho, la X en el mapa | OK | Captura de las 7:29: la M11111 con Karma (B), un solo punto, «1 en ruta». |
+| 6.11 T1 sale de ruta, T2 con la pantalla apagada | OK | |
+| 6.12 A queda con dos combis | OK | |
+| 6.13 T1 toca la X → ES UN RELEVO | **FALLA** | Nota del probador: «Seguí el paso 6.11 en T1, así que mi pantalla estaba en RUTA para ese paso. Luego salí y volví a entrar para intentar que me salga ES UN RELEVO, pero no, todas las combis están libres. T2 siguió con la pantalla apagada». Es decir: la lista de T1 mostró la X como **libre** mientras B seguía en ruta con ella, y la confirmación de relevo no salió. Sin hora ni capturas. Ver H18. |
+| 6.14 Espera 2 minutos y mira Despacho | OK | La X con A, un solo punto. |
+| 6.15 T2 prende la pantalla | OK | Captura del Redmi a las 7:36. **Pendiente de recibir.** |
+
+---
+
 ## Hallazgos (pendientes de analizar)
 
 | # | Qué | Tipo | Dónde se vio |
@@ -110,24 +197,53 @@ CAMBIOS-PARA-REVISAR.md como un bloque.
 | H15 | El **mismo chofer puede tener dos sesiones abiertas a la vez** en dos teléfonos. En uno no aparece el mapa. Despacho no lo marca. | Falla | Caso 5 |
 | H16 | El **relevo no funciona**: un chofer con la misma combi asignada la toma **sin confirmación**, y los **dos teléfonos siguen activos** para la misma combi (SOS y AUSENTE andan en los dos). El de A solo se entera («tu sesión siguió en otro dispositivo») al volver al frente; con la pantalla apagada, nunca. | Falla | Caso 6 |
 | H17 | Despacho **no muestra** la doble conexión ni el relevo en el mapa. Solo aparece en la actividad de gestión. | Falla | Caso 6 |
+| H18 | En el relevo de vuelta, con el teléfono del que maneja **con la pantalla apagada**, la lista «¿EN QUÉ COMBI SALES?» del otro chofer muestra esa combi como **libre**. No sale «la maneja …» ni ES UN RELEVO, ni saliendo de la cuenta y volviendo a entrar. Después el relevo sí se hizo (pasos 6.14 y 6.15 OK), pero sin la confirmación. | Falla | Ronda 2, paso 6.13 |
+| H19 | Cuando la sesión se cierra desde otro teléfono, el aviso del ingreso no es «Tu sesión ya no vale: entra de nuevo». Sale **«Sesión inválida o expirada»** con la app cerrada y **«Sesión cerrada»** con la app en ruta. Son los textos que manda el servidor; el de la app solo sale por otro camino. Funciona, pero el chofer lee tres textos distintos para lo mismo. | Observación | Ronda 2, pasos 5.8 y 5.12 |
+| H20 | En el paso 3.3 de la segunda ronda, lo mismo falló una vez y anduvo la siguiente: el arreglo de H11 y H12, sea cual sea, tiene que cubrir un caso que **no pasa siempre**. | Observación | Ronda 2, paso 3.3 |
+| H21 | En «la maneja …» de la lista de combis, el **nombre del chofer en negrita**. | Pedido | Ronda 2, paso 6.2 |
+| H22 | El radio en el que una combi cuenta como **en el paradero inicial** debe ser de **20 m**: «después de eso, ya no están ahí. 50 metros es mucho, 300 metros es demasiado». Lo que hoy decide si una combi está «en el recorrido» es el umbral de desvío de la ruta: 300 m si no se cambia, y Despacho no deja bajarlo de 50 m. Falta revisar si el paradero tiene un radio aparte. | Pedido | Ronda 2, observaciones generales |
+| H23 | El SOS del chofer **relevado** sale con la combi que ya no maneja: «EL GORDO · M11111 pide ayuda», y Despacho pinta en rojo la tarjeta y el punto de la M11111, que en ese momento lleva Karma. Hay que decidir si el SOS de un relevado nombra la combi y qué posición usa. | Observación (de la captura) | Ronda 2, pasos 6.9 y 6.10 |
+
+### Cómo quedan los hallazgos de la primera ronda después de la segunda
+
+| # | Cómo queda |
+|---|---|
+| H11 | **Se repite, pero no siempre**: una vez de dos (paso 3.3). Al volver a entrar ya no arrastra el SIN SEÑAL (pasos 3.4 y 3.5 OK). |
+| H12 | **Confirmado y aclarado**: el AUSENTE cortado por el cierre de sesión sí se aplica, y se ve **en Despacho**, sin haber vuelto a entrar. Una vez de dos. |
+| H14 | Sigue siendo de diseño. Con la planilla diciendo dónde está, el botón se encontró y funcionó (pasos 5.4 a 5.8). |
+| H15 | Sin repetir. |
+| H16 | Con B habilitado en **dos** combis, el relevo funciona completo: confirmación, aviso al relevado y un solo teléfono mandando (pasos 6.2 a 6.10). Lo que se vio en la primera ronda, un chofer con **una sola** combi que la toma sin confirmación, no se repitió y sigue abierto. |
+| H17 | Con el relevo hecho por la lista, Despacho muestra la combi con el chofer nuevo y un solo punto (paso 6.10). |
 
 ## Por aclarar con el probador
 
-- Caso 2, primer paso: el texto exacto del aviso de permisos en la app.
-- Caso 3, H12: ¿dónde se pone en AUSENTE al volver a entrar, en Despacho o en
-  el teléfono? ¿Y sin haber tocado AUSENTE en esa entrada?
-- Caso 4, segundo intento: ¿se salió con el botón **Salir** de la app (cerrar
-  sesión) o quitándola de recientes?
-- Caso 6: el texto exacto de la notificación en el teléfono de A, y las
-  capturas del paso «Mira T1».
+- Paso 2.2: el texto exacto del aviso **de la app** («Falta el permiso de
+  ubicación en …»). Lo que se copió es la pregunta de Android.
+- Paso 4.2: qué quiso decir la nota («desde el loggeo ya me aparecía la combi
+  X disponible»): ¿es una observación o algo que no debía pasar?
+- Paso 6.13: ¿a qué hora fue, y cuánto llevaba apagada la pantalla de T2? ¿T1
+  terminó saliendo a ruta con la X tocándola en la lista, **sin** que saliera
+  la confirmación? En la captura de las 7:29 el Redmi (T2) tenía la batería en
+  14 %: ¿estaba con el ahorro de batería prendido?
+- Caso 1: ¿por qué no se hizo?
+- De la primera ronda sigue sin respuesta: en el caso 6, el texto exacto de la
+  notificación en el teléfono de A cuando otro chofer tomó su combi **sin**
+  pasar por la lista («tu sesión siguió en otro dispositivo…»).
+
+Ya aclarado en la segunda ronda: dónde aparece el AUSENTE de H12 (en
+Despacho) y con qué botón se cierra la sesión en el caso 4 (con **Salir**,
+pasos 4.2 a 4.4 OK).
 
 ## Lo que falta
 
-Todo lo de abajo está paso a paso en `PRUEBAS-TELEFONO-RONDA-2.md`.
-
-
-- Caso 1: repetir «sale a ruta lejos del trazado» a varias cuadras, y anotar
-  el último paso (quitar el modo avión).
-- Caso 5: repetirlo entero, con el botón del final de Perfil.
-- Caso 6: repetirlo con B habilitado en **dos** combis (la X y otra), para
-  que salga la lista y se vea la confirmación de relevo.
+- **Las capturas de los dos teléfonos:** T1 a las 7:24 y a las 7:26 (paso
+  6.7) y el Redmi a las 7:36 (paso 6.15). Y, si se sacaron, las del paso 2.2
+  (el aviso de permisos) y las del 6.13.
+- **Caso 1, pasos 1.1 a 1.6:** sin hacer en las dos rondas. Hay que estar a
+  cinco cuadras o más del trazado.
+- **Paso 6.13:** repetirlo anotando la hora, con captura de la lista de T1 y
+  de Despacho en ese minuto.
+- **H16 con una sola combi:** repetir lo de la primera ronda (B con la misma
+  combi asignada que A, sin lista), que no entró en la segunda.
+- **Último paso de la planilla:** quitarles a A y a B las combis extra de P.4
+  y 6.12. No quedó anotado si se hizo.
