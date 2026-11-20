@@ -1836,6 +1836,20 @@ addColumnIfMissing('routes', 'desvioMudoHasta', 'INTEGER');
   if (r.changes) console.log(`Umbral de desvío actualizado a ${DESVIO_DEFECTO_M} m en ${r.changes} ruta(s)`);
 }
 
+// PISAR EL TRAZADO es otra cuenta, y otro radio. Hasta el 20/11 la entrada a
+// la cadena usaba el mismo umbral que el desvío, y tres cuadras, que para
+// tolerar un desvío están bien, para decir «ya está en la ruta» son
+// demasiado: en la prueba en teléfono el chofer salió a ruta a una cuadra del
+// paradero inicial y entró a la cadena de frente, con brecha y todo, sin
+// haberse movido (RESULTADOS-TELEFONO.md, H22). El que está a una cuadra no
+// llegó: va hacia la ruta.
+//
+// Son dos preguntas distintas. «¿Llegó?» se contesta con 20 m, el ancho de la
+// calle. «¿Se fue?» sigue en 300 m y sostenido, que es lo que se le prometió
+// al chofer. Una vez adentro se queda, así que el radio corto no saca a
+// nadie de la cadena: sólo decide cuándo entra.
+const ENTRADA_M = Number(process.env.ENTRADA_M || 20);
+
 // Cuántas posiciones seguidas hacen falta. Llegan cada 3 s, así que 10 son
 // unos 30 segundos afuera: un salto de GPS no llega, doblar en la esquina
 // equivocada sí.
@@ -10851,15 +10865,14 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   const progreso = proy ? proy.progreso : (pos.routeProgress || 0);
 
   // La confirmación de presencia: declaró "en ruta" y esta posición cayó
-  // SOBRE el trazado (mismo umbral que el desvío) → entra a la cadena.
-  // Una vez adentro se queda: el desvío sostenido ya tiene su propia
+  // SOBRE el trazado (a `ENTRADA_M`, no al umbral del desvío) → entra a la
+  // cadena. Una vez adentro se queda: el desvío sostenido ya tiene su propia
   // alarma, y desconfirmar por cada semáforo haría bailar las brechas.
   const decl = presencias.get(vehicleId) || null;
   let enRuta = decl ? decl.enRuta : true;
   if (decl && decl.estado === 'ruta' && !enRuta) {
-    const umbral = (routeOf(routeId) || {}).desvioMaxM || DESVIO_DEFECTO_M;
     // Sin geometría cargada no hay contra qué confirmar: vale la palabra.
-    if (!proy || proy.desvioM <= umbral) {
+    if (!proy || proy.desvioM <= ENTRADA_M) {
       enRuta = true;
       decl.enRuta = true;
       decl.tocadaEn = Date.now();

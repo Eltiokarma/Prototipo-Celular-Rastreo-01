@@ -46,15 +46,19 @@ Solo para leer el aviso. **T1** (Poco X7).
 ## Caso 1, pasos que faltan: el cobrador cuando su combi va hacia la ruta
 
 **T1:** chofer A con la combi X. **T2:** el cobrador de la combi X.
-Necesitas estar **lejos del recorrido**: la app considera «en el recorrido»
-hasta unos **300 m** (tres cuadras). Ponte a **cinco cuadras o más** del
-trazado de la ruta, no del paradero.
+Necesitas empezar **fuera del recorrido**: la combi entra a la ruta cuando
+está a **20 m** o menos del trazado, el ancho de la calle. Ponte a **una
+cuadra o más** del trazado de la ruta, no del paradero.
+
+Hasta el 20/11 eran 300 m (tres cuadras), y por eso este caso no se pudo
+hacer en la primera ronda. Los 20 m valen recién cuando el servidor tenga el
+cambio publicado: antes de eso, este caso sigue sin poder hacerse.
 
 | Paso | Qué haces | Qué tiene que verse | Resultado |
 |---|---|---|---|
-| 1.1 | Con T1 a cinco cuadras o más del recorrido, entra con chofer A y desliza **DESLIZA PARA SALIR A RUTA →**. | En T2: **TU COMBI VA HACIA LA RUTA**, y **se queda** (no aparece y desaparece). | |
+| 1.1 | Con T1 a una cuadra o más del recorrido, entra con chofer A y desliza **DESLIZA PARA SALIR A RUTA →**. | En T2: **TU COMBI VA HACIA LA RUTA**, y **se queda** (no aparece y desaparece). | |
 | 1.2 | Espera **2 minutos** sin moverte. | En T2 sigue **TU COMBI VA HACIA LA RUTA**. Si se va y vuelve, es FALLA: anota cada cuántos segundos. | |
-| 1.3 | Camina o maneja hasta el recorrido. | En T2 el aviso se va y aparecen las brechas de X. | |
+| 1.3 | Camina o maneja hasta pisar la calle del recorrido. | En T2 el aviso se va y aparecen las brechas de X. | |
 | 1.4 | En T1 pon el **modo avión** 2 minutos. | En T2: **EL CHOFER NO TIENE SEÑAL** «desde las HH:MM». | |
 | 1.5 | En T1 **quita** el modo avión. No toques nada en T2. | En T2 el aviso se va solo en menos de un minuto. | |
 | 1.6 | En T1, mantén apretado **SALIR DE RUTA** hasta que salga (más de medio segundo). | En T2: **NO VEO A TU COMBI**. | |

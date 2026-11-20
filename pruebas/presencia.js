@@ -136,6 +136,29 @@ let servidor = null;
        !(act.body.events || []).some(e => e.action === 'desvio' && e.target === 'M-03'));
   }
 
+  console.log('\nA UNA CUADRA DEL TRAZADO TODAVÍA NO LLEGÓ');
+  {
+    // Hasta el 20/11 la entrada usaba el umbral del desvío (300 m): en la
+    // prueba en teléfono, el chofer que salió a ruta a una cuadra del
+    // paradero entró a la cadena de frente, con brecha, sin haberse movido
+    // (RESULTADOS-TELEFONO.md, H22). Entrar es otra cuenta: 20 m.
+    await gps(s3, -15.48163, -70.12033);   // a ~100 m del trazado: una cuadra
+    await sleep(700);
+    let st = await estado();
+    let el = st.units.find(u => u.unitId === 'M-03');
+    ok('a una cuadra sigue yendo', !!el && el.enRuta === false, el && { enRuta: el.enRuta, desvioM: el.desvioM });
+    ok('y sin brecha', !st.gaps['M-03'] && st.totalOnRoute === 2 && st.yendo === 1,
+       { gaps: Object.keys(st.gaps || {}), total: st.totalOnRoute, yendo: st.yendo });
+    await gps(s3, -15.48125, -70.12073);   // a ~40 m: media cuadra
+    await sleep(700);
+    st = await estado();
+    el = st.units.find(u => u.unitId === 'M-03');
+    ok('a 40 m tampoco entró', !!el && el.enRuta === false && !st.gaps['M-03'],
+       el && { enRuta: el.enRuta, desvioM: el.desvioM });
+    // Y acercarse no lo acusa de nada: no estaba en la cadena
+    ok('ni queda marcado fuera de ruta', el.fueraDeRuta === false, el.fueraDeRuta);
+  }
+
   console.log('\nPISA EL TRAZADO Y RECIÉN AHÍ ENTRA');
   {
     await gps(s3, -15.4802, -70.1202);   // llegó: sobre la punta de la ida
