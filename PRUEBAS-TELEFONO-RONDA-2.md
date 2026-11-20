@@ -102,7 +102,7 @@ Solo para confirmar el segundo intento de la primera ronda. **T1**.
 | 5.1 | **T1:** entra con chofer A. Quédate en la puerta (no salgas a ruta). | T1 en la puerta. | |
 | 5.2 | **T1:** sácala de recientes (botón de recientes de Android → desliza la app hacia arriba). | La app cerrada. | |
 | 5.3 | **T2:** entra con chofer A. Toca **Perfil** (arriba a la derecha, al lado de Salir). | Se abre Perfil: la semana, los cobradores, etc. | |
-| 5.4 | **T2:** baja **hasta el final**, pasando **CAMBIAR CONTRASEÑA** y su botón **CAMBIAR**. | Debajo hay un recuadro de borde fino y letra gris: **CERRAR TODAS MIS SESIONES**. | |
+| 5.4 | **T2:** baja **hasta el final**, pasando la sección «Cambiar contraseña». **No cambies la contraseña**: eso también cierra las otras sesiones, y el caso deja de probar el botón. | Debajo hay un recuadro de borde fino y letra gris: **CERRAR TODAS MIS SESIONES**. | |
 | 5.5 | **T2:** tócalo **una vez**. | Cambia a rojo: **¿SEGURO? TAMBIÉN CIERRA ESTA — TOCA DE NUEVO**. | |
 | 5.6 | **T2:** tócalo **otra vez**. | T2 vuelve a la pantalla de ingreso. | |
 | 5.7 | **Espera 1 minuto.** El servidor tarda hasta un minuto en cortar las sesiones. | — | |

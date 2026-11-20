@@ -154,7 +154,7 @@ hacer (todo el caso 1).
 
 | Paso | Resultado | Lo que se vio |
 |---|---|---|
-| 5.1 a 5.7 | OK | Esta vez el botón se encontró: recuadro al final de Perfil, se pone rojo al primer toque y al segundo T2 vuelve al ingreso. En la Actividad, a las 7:14 A **cambió su propia contraseña** («1 sesión(es) cerradas») y en el mismo minuto **cerró todas sus sesiones** («1 sesión(es)»). Cambiar la contraseña ya cierra las otras sesiones: la de T1 se cerró ahí, y CERRAR TODAS MIS SESIONES sólo encontró la de T2. El resultado en T1 es el mismo, pero el camino probado fue el de la contraseña. |
+| 5.1 a 5.7 | OK | Esta vez el botón se encontró: recuadro al final de Perfil, se pone rojo al primer toque y al segundo T2 vuelve al ingreso. En la Actividad, a las 7:14 A **cambió su propia contraseña** («1 sesión(es) cerradas») y en el mismo minuto **cerró todas sus sesiones** («1 sesión(es)»). Cambiar la contraseña ya cierra las otras sesiones: la de T1 se cerró ahí, y CERRAR TODAS MIS SESIONES sólo encontró la de T2. El resultado en T1 es el mismo, pero el camino probado fue el de la contraseña. El cambio fue a propósito, y **lo indujo la planilla**: el paso 5.4 nombraba el botón **CAMBIAR**, y en el PDF iba en azul, que según la propia planilla es «lo que tocas». Corregido en `PRUEBAS-TELEFONO-RONDA-2.md`. |
 | 5.8 T1 abre la app | OK, **con otro texto** | Vuelve al ingreso, pero el aviso dice **«Sesión inválida o expirada»**, en rojo, no «Tu sesión ya no vale: entra de nuevo». Captura de T1 a las 7:15, con «app 0.3.1 (4)» al pie. Ver H19. |
 | 5.9 T1 en ruta, pantalla apagada | OK | |
 | 5.10 T2 cierra todas las sesiones | OK | En la Actividad, 7:18: «cerró todas sus sesiones · 2 sesión(es)». Esta vez sí por el botón. |
@@ -205,7 +205,7 @@ hacer (todo el caso 1).
 | H16 | El **relevo no funciona**: un chofer con la misma combi asignada la toma **sin confirmación**, y los **dos teléfonos siguen activos** para la misma combi (SOS y AUSENTE andan en los dos). El de A solo se entera («tu sesión siguió en otro dispositivo») al volver al frente; con la pantalla apagada, nunca. | Falla | Caso 6 |
 | H17 | Despacho **no muestra** la doble conexión ni el relevo en el mapa. Solo aparece en la actividad de gestión. | Falla | Caso 6 |
 | H18 | El paso 6.13 falló, pero **no por la lista**. La Actividad muestra que A tomó la combi a las 7:31, un minuto **antes** de que Despacho le habilitara la segunda combi (7:32). Con una sola combi la app no muestra la lista ni la confirmación: es **H16**, ahora con registro. El Redmi estaba vivo (el servidor lo anotó como relevo, cosa que sólo hace si el otro todavía mandaba) y se apagó por el relevo, no por la batería. La lista de las 7:33 decía «libre» con razón: B ya estaba relevado. Queda por probar el 6.13 en el orden de la planilla, con la segunda combi habilitada **antes** de deslizar. | Resuelto: **es H16** | Ronda 2, pasos 6.13 y 6.15, y la Actividad |
-| H24 | Cambiar la propia contraseña **cierra las otras sesiones** del chofer (Actividad, 7:14). Está bien que lo haga, pero el teléfono que queda afuera no sabe por qué: le sale «Sesión inválida o expirada», igual que en H19. | Observación | Ronda 2, caso 5 |
+| H24 | Cambiar la propia contraseña **cierra las otras sesiones** del chofer (Actividad, 7:14). Está bien que lo haga, pero el teléfono que queda afuera no sabe por qué: le sale «Sesión inválida o expirada», igual que en H19. De paso quedó probado: funciona. | Observación | Ronda 2, caso 5 |
 | H19 | Cuando la sesión se cierra desde otro teléfono, el aviso del ingreso no es «Tu sesión ya no vale: entra de nuevo». Sale **«Sesión inválida o expirada»** con la app cerrada y **«Sesión cerrada»** con la app en ruta. Son los textos que manda el servidor; el de la app solo sale por otro camino. Funciona, pero el chofer lee tres textos distintos para lo mismo. | Observación | Ronda 2, pasos 5.8 y 5.12 |
 | H20 | En el paso 3.3 de la segunda ronda, lo mismo falló una vez y anduvo la siguiente: el arreglo de H11 y H12, sea cual sea, tiene que cubrir un caso que **no pasa siempre**. | Observación | Ronda 2, paso 3.3 |
 | H21 | En «la maneja …» de la lista de combis, el **nombre del chofer en negrita**. | Pedido | Ronda 2, paso 6.2 |
@@ -225,8 +225,6 @@ hacer (todo el caso 1).
 
 ## Por aclarar con el probador
 
-- Caso 5, 7:14: ¿el cambio de contraseña de A fue a propósito? Es lo que cerró
-  la sesión de T1 en el paso 5.8 (ver H24).
 - De la primera ronda sigue sin respuesta: en el caso 6, el texto exacto de la
   notificación en el teléfono de A cuando otro chofer tomó su combi **sin**
   pasar por la lista («tu sesión siguió en otro dispositivo…»).
@@ -234,8 +232,10 @@ hacer (todo el caso 1).
 Ya aclarado en la segunda ronda: dónde aparece el AUSENTE de H12 (en
 Despacho), con qué botón se cierra la sesión en el caso 4 (con **Salir**,
 pasos 4.2 a 4.4 OK), de qué paso era la nota del 4.2 (del 4.3), qué aviso
-sale en el 2.2 (primero el de Android, después el de la app) y por qué falló
-el 6.13 (la Actividad: A tomó la combi antes del paso 6.12).
+sale en el 2.2 (primero el de Android, después el de la app), por qué falló
+el 6.13 (la Actividad: A tomó la combi antes del paso 6.12), que el cambio de
+contraseña de las 7:14 fue a propósito y que la M-00 se la habilitó el
+probador.
 
 ## Lo que falta
 
@@ -249,8 +249,8 @@ el 6.13 (la Actividad: A tomó la combi antes del paso 6.12).
 - **H16:** ya no hace falta repetirlo; está confirmado. Falta decidir el
   arreglo: que el chofer con una sola combi también vea la confirmación
   cuando otro la está manejando.
-- **Último paso de la planilla:** quitarles a A y a B las combis extra de P.4
-  y 6.12. A A se le habilitaron tres a las 7:32: M11111, **M-00** y M12345.
-  No quedó anotado si se hizo.
+- **Combis extra:** A quedó con tres (M11111, M-00 y M12345) y B con dos.
+  Se quitan cuando ya no hagan falta para las pruebas; la del paso 6.13 las
+  necesita.
 - **Capturas:** ya están todas. Opcional: el texto del aviso de la app del
   paso 2.2.
