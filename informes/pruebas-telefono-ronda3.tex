@@ -130,7 +130,7 @@
 
 \section{Para qué es esta ronda}
 
-Esta ronda comprueba en los dos teléfonos los arreglos que se hicieron después de la segunda ronda, y hace por fin el caso del cobrador, que no se pudo hacer en ninguna de las dos anteriores. No hace falta instalar otra APK, porque los arreglos les llegan por sí solos a los teléfonos cuando se publican; la preparación dice cómo comprobar que llegaron.
+Esta ronda comprueba en los dos teléfonos los arreglos que se hicieron después de la segunda ronda, y hace por fin el caso del cobrador, que no se pudo hacer en ninguna de las dos anteriores. No hace falta instalar otra APK, porque el arreglo les llega por sí solo a los teléfonos cuando se publica; la preparación dice cómo comprobar que llegó.
 
 Cada caso repite lo que antes falló o no se pudo hacer, y cada paso dice qué haces y qué tiene que verse, en el teléfono y en Despacho. Los casos van en el orden en que conviene hacerlos, que no es el de sus números: el número es el mismo de las rondas anteriores, para que se puedan comparar.
 
@@ -171,7 +171,7 @@ La combi entra a la ruta cuando el GPS la ve a 20 metros o menos del trazado, m�
 Se hace una sola vez, antes de empezar, y deja listos el servidor, los teléfonos y las combis de cada chofer.
 
 \begin{pasos}
-\paso{P.1}{P-1}{En la PC, abre Railway y mira el último despliegue del servidor.}{El último despliegue terminó bien y empezó después de que se fusionó el arreglo del 20 de noviembre, que entró a \texttt{main} el 21.}
+\paso{P.1}{P-1}{En la PC, abre Railway y mira el último despliegue del servidor.}{El último despliegue terminó bien y empezó después del 21 de noviembre, cuando el arreglo del 20 entró a \texttt{main}.}
 \paso{P.2}{P-2}{En la PC, corre \toca{publicar-arreglo.bat} y elige \toca{[1] PRUEBA}.}{El programa termina sin ningún mensaje que empiece con \pantalla{[ERROR]}.}
 \paso{P.3}{P-3}{En cada teléfono, abre la app y espera un minuto en la pantalla de ingreso, sin entrar. Después toca el botón de recientes de Android, desliza la app hacia arriba para cerrarla y ábrela otra vez.}{\nada}
 \paso{P.4}{P-4}{En cada teléfono, entra con cualquier usuario, toca \toca{Perfil}, arriba a la derecha, y baja hasta la sección «LA APP».}{Dice \pantalla{Versión 0.3.1 (4) · actualizada} con la fecha y la hora en que publicaste el arreglo. Si no dice \pantalla{actualizada}, el arreglo todavía no llegó: repite el paso P.3.}
@@ -189,7 +189,7 @@ T1 lleva al chofer A con la combi X, y T2 lleva al cobrador de la combi X. Este 
 \paso{1.1}{1-1}{En T2, entra con el cobrador.}{En T2 aparece \pantalla{ESPERANDO LA RUTA} unos segundos y después \pantalla{NO VEO A TU COMBI}, porque A todavía no salió.}
 \paso{1.2}{1-2}{Con T1 a una cuadra o más del recorrido, entra con el chofer A y desliza \toca{DESLIZA PARA SALIR A RUTA →}.}{En T2 aparece \pantalla{TU COMBI VA HACIA LA RUTA}, y se queda fijo: no se va y vuelve.}
 \paso{1.3}{1-3}{Espera dos minutos sin moverte.}{En T2 sigue \pantalla{TU COMBI VA HACIA LA RUTA}. Si el aviso se va y vuelve, es FALLA: anota cada cuántos segundos pasa.}
-\paso{1.4}{1-4}{Camina o maneja con T1 hasta pisar la calle del recorrido. En la nota, escribe a cuántos metros de la calle estabas cuando cambió T2, más o menos.}{En T2 el aviso se va y aparecen las brechas de la combi X.}
+\paso{1.4}{1-4}{Camina o maneja con T1 hasta pisar la calle del recorrido. En la nota, escribe a cuántos metros de la calle estabas cuando cambió la pantalla de T2, más o menos.}{En T2 el aviso se va y aparecen las brechas de la combi X.}
 \paso{1.5}{1-5}{Pon T1 en modo avión durante dos minutos.}{En T2 aparece \pantalla{EL CHOFER NO TIENE SEÑAL}, con la hora desde la que no tiene señal.}
 \paso{1.6}{1-6}{Quita el modo avión de T1 y no toques nada en T2.}{En T2, el aviso se va solo en menos de un minuto.}
 \paso{1.7}{1-7}{En T1, toca \toca{SALIR DE RUTA} y, cuando diga \pantalla{¿SEGURO? TOCA DE NUEVO}, tócalo otra vez.}{En T2 aparece \pantalla{NO VEO A TU COMBI}.}
@@ -232,7 +232,7 @@ Se hace después de los pasos 5.1 a 5.7, y comprueba que el teléfono que estaba
 \begin{pasos}
 \paso{5.8}{5-8}{En T1, entra con el chofer A, desliza \toca{DESLIZA PARA SALIR A RUTA →} y apaga la pantalla con el botón de encendido.}{Despacho muestra la combi de A en el mapa.}
 \paso{5.9}{5-9}{En T2, entra con el chofer A, abre \toca{Perfil}, baja hasta el final y toca dos veces \toca{CERRAR TODAS MIS SESIONES}.}{T2 vuelve a la pantalla de ingreso.}
-\paso{5.10}{5-10}{Mira Despacho durante dos minutos y anota a qué hora deja de verse la combi de A.}{La combi de A se va del mapa en pocos segundos, porque cerrar todas las sesiones también la baja de su combi, y no vuelve aunque T1 siga con la pantalla apagada.}
+\paso{5.10}{5-10}{Mira Despacho durante dos minutos y anota a qué hora deja de verse la combi de A.}{La combi de A se va del mapa en pocos segundos y no vuelve, aunque T1 siga en ruta con la pantalla apagada: cerrar todas las sesiones también baja al chofer A de su combi en el servidor.}
 \paso{5.11}{5-11}{En T1, prende la pantalla y abre la app.}{Aparece la pantalla de ingreso, con el aviso \pantalla{Tu sesión ya no vale: entra de nuevo}. En la barra de notificaciones ya no está la del GPS.}
 \end{pasos}
 
@@ -262,7 +262,7 @@ Se hace después de los pasos 6.1 a 6.11 y repite el paso que falló en la segun
 \begin{pasos}
 \paso{6.12}{6-12}{En T1, toca \toca{SALIR DE RUTA} dos veces.}{T1 vuelve a la puerta.}
 \paso{6.13}{6-13}{Apaga la pantalla de T2, que sigue en ruta con la X, y anota la hora. Espera dos minutos.}{\nada}
-\paso{6.14}{6-14}{En T1, mira la puerta, encima del botón para salir a ruta.}{Sigue diciendo \pantalla{X: la maneja B}. Si dice otra cosa, anota la hora y mira en Despacho si la X aparece como SIN SEÑAL.}
+\paso{6.14}{6-14}{En T1, mira la puerta, encima del botón para salir a ruta.}{Sigue diciendo \pantalla{X: la maneja B}. Si dice otra cosa, anota la hora y mira en Despacho si la X aparece como \pantalla{SIN SEÑAL}.}
 \paso{6.15}{6-15}{En T1, desliza \toca{DESLIZA PARA SALIR A RUTA →} y, en el recuadro, toca \toca{ES UN RELEVO}.}{T1 queda en ruta con la X. Despacho muestra la X con A, en un solo punto.}
 \paso{6.16}{6-16}{En T2, prende la pantalla, abre la app y saca una captura.}{En T2 aparece otra vez el aviso del paso 6.7, para B. En Despacho, la X sigue con A y no vuelve a saltar hacia B.}
 \paso{6.17}{6-17}{En los dos teléfonos, sal de ruta con dos toques y toca \toca{Salir}.}{Los dos teléfonos muestran la pantalla de ingreso.}
@@ -271,7 +271,7 @@ Se hace después de los pasos 6.1 a 6.11 y repite el paso que falló en la segun
 % ═══════════════════════════════════════════════════════════════════
 \section{Caso 2: las notificaciones quitadas en ruta}
 
-Este caso se hace en T1, con el chofer A, y va al final porque Android puede cerrar la app a la fuerza. En la segunda ronda, al quitar las notificaciones en ruta, el chofer desapareció de Despacho y no volvió aunque se volvieron a prender las notificaciones. El arreglo ataca la causa más probable, que no se pudo confirmar sin el teléfono; si vuelve a fallar, lo que más sirve es la captura del paso 2.5.
+Este caso se hace en T1, con el chofer A, y va al final porque Android puede cerrar la app a la fuerza. En la segunda ronda, al quitar las notificaciones en ruta, el chofer desapareció de Despacho y no volvió aunque se prendieron otra vez las notificaciones. El arreglo ataca la causa más probable, que no se pudo confirmar sin el teléfono; si vuelve a fallar, lo que más sirve es la captura del paso 2.5.
 
 \begin{pasos}
 \paso{2.1}{2-1}{En T1, entra con el chofer A y sal a ruta.}{Despacho muestra la combi de A en el mapa.}
