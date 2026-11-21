@@ -547,8 +547,8 @@ El chofer declara su estado: `'ruta'`, `'ausente'` o `'fuera'`.
   estado sobreviva a un reinicio del servidor.
 
 **Declarar `ruta` NO mete a la unidad en la cadena de brechas.** Eso lo
-confirma el servidor cuando una posición cae sobre el trazado (el umbral del
-desvío). Hasta entonces la unidad viaja en el estado con `presencia: 'ruta'`
+confirma el servidor cuando una posición cae sobre el trazado (a 20 m o menos,
+`ENTRADA_M`; no es el umbral del desvío). Hasta entonces la unidad viaja en el estado con `presencia: 'ruta'`
 y `enRuta: false`, sin entrada en `gaps`. `ausente` la saca de la cadena sin
 sacarla de `units`; `fuera` la borra en el acto (llega `unit_left`). El
 cliente debe RE-DECLARAR su presencia al reconectar el WebSocket: el

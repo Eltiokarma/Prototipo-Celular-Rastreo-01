@@ -31,6 +31,31 @@ captura del teléfono y otra de Despacho en ese mismo minuto.
 | `X-App-Version` que muestra Despacho en Personas | | |
 | Fecha de la prueba | | |
 
+## En qué orden
+
+Los casos están numerados por tema, pero **se hacen en este orden**:
+
+| Orden | Caso | Por qué ahí |
+|---|---|---|
+| 1.º | **0. Comprobación inicial** (abajo) | Si falla, no tiene sentido seguir. |
+| 2.º | **2. Permisos** | Recién instalada, la app todavía no tiene permisos. |
+| 3.º | **3. AUSENTE y DESHACER** | Un teléfono, rápido. |
+| 4.º | **1. Cobrador** | Los dos teléfonos y salir a la calle (lejos del trazado y después llegar a él). |
+| 5.º | **4. Cerrar sesión con un envío pendiente** | Tiene la pantalla apagada 5 min: ahí se ve si Android mata la app. |
+| 6.º | **6. Relevo** | Los dos teléfonos. |
+| 7.º | **5. Sesión revocada** | Al final: «CERRAR TODAS MIS SESIONES» saca al chofer A de todos lados. |
+
+Cuando me mandes un resultado, nómbralo por el **número de caso** y el paso
+(por ejemplo, «caso 4, paso 3: FALLA»), no por el orden.
+
+## 0. Comprobación inicial
+
+| Paso | Qué tiene que verse | Resultado |
+|---|---|---|
+| Abre la app en cada teléfono. | La pantalla de arranque es **lisa, azul oscuro, sin ícono**. Después, la presentación con «MICROS TEMPO» y «Control de ruta». | |
+| Entra con un usuario. En Despacho → Personas, mira su `X-App-Version`. | Empieza con **0.3.1/**. Anótala en la tabla de arriba. | |
+| Revisa la batería de la app (Ajustes → Apps → Control de ruta → Batería). | **Sin restricciones** en los dos teléfonos. Si no, los casos con pantalla apagada fallan por Android y no por la app. | |
+
 ---
 
 ## 1. Cobrador cuando su combi no está en ruta
@@ -83,7 +108,7 @@ Todo en **T1**.
 | Quita el modo avión e **inmediatamente** sal de la sesión. | Sale. | |
 | Entra con **chofer B** y sal a ruta con otra combi. | La bandeja de B **no** muestra brecha ni «SIN SEÑAL» de A. El diagnóstico de B no dice «sin red». | |
 | Mira Despacho. | Las posiciones de A **no** aparecen como de B. La combi de B arranca desde donde está. | |
-| Con B en ruta, **apaga la pantalla 5 min**. | Despacho sigue recibiendo a B (la hora de «oído hace» no pasa de ~1 min). | |
+| Con B en ruta, **apaga la pantalla 5 min**. | Despacho sigue mostrando a B **EN VIVO**, sin SIN SEÑAL. («Oído hace» solo aparece cuando el teléfono está sin señal: si no sale, está bien). | |
 | Prende la pantalla y vuelve a la app. | El HUD se pone al día solo. Nada de A reaparece. | |
 
 ## 5. Sesión revocada mientras la app estaba cerrada
@@ -91,13 +116,17 @@ Todo en **T1**.
 | Paso | Qué tiene que verse | Resultado |
 |---|---|---|
 | **T1:** chofer A en la puerta. Cierra la app (sácala de recientes). | — | |
-| **T2:** entra como chofer A. Perfil → **CERRAR TODAS MIS SESIONES** (dos toques). | T2 vuelve al ingreso. | |
+| **T2:** entra como chofer A. Toca **Perfil** (arriba), espera a que cargue y baja **hasta el final**, debajo de CAMBIAR CONTRASEÑA: **CERRAR TODAS MIS SESIONES** (dos toques). | T2 vuelve al ingreso. | |
 | **T1:** abre la app. | «Tu sesión ya no vale: entra de nuevo» y la pantalla de ingreso. No queda notificación del GPS. No sale a ruta solo. | |
 | Variante: lo mismo, pero con **T1 en ruta y la pantalla apagada** al revocar. Espera 2 min y prende. | El GPS de T1 se cortó (Despacho deja de recibirlo en ~1 min). Al volver, el ingreso y la bandeja limpia. | |
 
 ## 6. Relevo de chofer en la misma combi
 
-**T1:** chofer A en ruta con la combi X. **T2:** chofer B.
+**T1:** chofer A en ruta con la combi X. **T2:** chofer B, otro usuario.
+
+**Antes:** en Despacho → Gestión → Personas, habilita a B **dos combis**: la X
+y otra. La lista «¿EN QUÉ COMBI SALES?», que es donde aparece «ES UN RELEVO»,
+solo se muestra cuando el chofer tiene más de una combi habilitada.
 
 | Paso | Qué tiene que verse | Resultado |
 |---|---|---|

@@ -2118,6 +2118,19 @@ function usarCombis(token, actual) {
   return [datos, cargar];
 }
 
+// ── ¿ES UN RELEVO?
+// La misma regla que `app/puerta.js` (relevoPorConfirmar), copiada porque
+// esta página no tiene build; la suite `vigia-puerta` corre los mismos casos
+// contra las dos. SALIR A RUTA en la combi de hoy mientras otro la maneja es
+// un relevo y se confirma, con o sin lista (pruebas en teléfono, H16).
+function relevoPorConfirmar(combis, miCombi, confirmado) {
+  const mia = (combis || []).find(c => c && c.vehicleId === miCombi);
+  if (!mia || mia.estado !== 'ocupada') return null;
+  if (confirmado && confirmado.vehicleId === mia.vehicleId && confirmado.quien === mia.quien) return null;
+  return mia;
+}
+// ── FIN DE ¿ES UN RELEVO?
+
 // Lo que el SOS le contesta al chofer: el cartel rojo «ALERTA ENVIADA»
 // cuando LLEGÓ, y el panel para pedir ayuda por teléfono cuando NO salió.
 // Uno solo para el HUD y para la puerta (auditoría del 11/11: en la puerta
@@ -2246,6 +2259,9 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
   const [confirmar, setConfirmar] = React.useState(null);
   const [errorCombi, setErrorCombi] = React.useState(null);
   const [eligiendo, setEligiendo] = React.useState(false);
+  // El relevo ya confirmado en la lista, para no preguntarlo otra vez al salir
+  const relevoConfirmado = React.useRef(null);
+  const [pedirRelevo, setPedirRelevo] = React.useState(null);
   const elegir = async (c, confirmado = false) => {
     if (c.vehicleId === unidad || eligiendo) return;
     if (c.estado === 'ocupada' && !confirmado) { setConfirmar(c); return; }
@@ -2253,6 +2269,7 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
     try {
       const r = await window.RealtimeClient.elegirCombi(token, c.vehicleId);
       setConfirmar(null);
+      relevoConfirmado.current = confirmado ? { vehicleId: c.vehicleId, quien: c.quien } : null;
       if (onCombi) onCombi(r);
       recargarCombis();
     } catch (e) {
@@ -2261,7 +2278,25 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
       recargarCombis();
     }
     setEligiendo(false);
+  };  // SALIR A RUTA: con la lista recién pedida (la de la pantalla puede tener
+  // 20 s), si la combi de hoy la maneja otro se confirma antes. Sin red, o si
+  // tarda más de 4 s, se sale como antes.
+  const salirARuta = async () => {
+    let lista = combis;
+    try {
+      const d = await Promise.race([
+        window.RealtimeClient.misCombis(token),
+        new Promise((_, no) => setTimeout(() => no(new Error('tarde')), 4000)),
+      ]);
+      lista = (d && d.combis) || lista;
+    } catch {}
+    const otro = relevoPorConfirmar(lista, unidad, relevoConfirmado.current);
+    if (otro) { setPedirRelevo(otro); recargarCombis(); return; }
+    relevoConfirmado.current = null;
+    setPedirRelevo(null);
+    onStart();
   };
+
   // «Entrar AUSENTE» esperaba 15 s bloqueado («· en 12s») sin decir por qué
   // (auditoría de UI, N6). Venía de la maqueta del 6/8 («Descansar 10 min ·
   // disponible en 15s») y nada en el repo explica para qué: se sacó. Entrar
@@ -2414,7 +2449,9 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
                     <span style={{
                       display: 'block', fontFamily: sans, fontSize: 14, fontWeight: 700,
                       color: c.estado === 'ocupada' ? HUD.amberTexto : HUD.fg2,
-                    }}>{c.estado === 'ocupada' ? `la maneja ${c.quien}` : c.estado === 'tuya' ? 'la tienes tú' : 'libre'}</span>
+                    }}>{c.estado === 'ocupada'
+                      ? <>la maneja <strong style={{ fontWeight: 900 }}>{c.quien}</strong></>
+                      : c.estado === 'tuya' ? 'la tienes tú' : 'libre'}</span>
                   </span>
                   {elegida && (
                     <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 800, letterSpacing: 0.5, color: HUD.acentoTexto }}>✓ ELEGIDA</span>
@@ -2453,7 +2490,38 @@ function StartRouteScreen({ user, unidad, ruta, rutaId, lapNumber, onStart, onRe
         </div>
       )}
 
-      <button onClick={onStart} style={{
+      {/* Con UNA sola combi no hay lista: si la maneja otro, se dice igual */}
+      {combis.length <= 1 && ocupada && !pedirRelevo && (
+        <div style={{ marginBottom: 10, fontFamily: sans, fontSize: 15, fontWeight: 700, color: HUD.amberTexto }}>
+          {deHoy.vehicleId}: la maneja <strong style={{ fontWeight: 900 }}>{deHoy.quien}</strong>
+        </div>
+      )}
+      {/* Salir en la combi que maneja otro es un relevo: se confirma
+          nombrándolo, con o sin lista (H16) */}
+      {pedirRelevo && (
+        <div role="alert" style={{
+          marginBottom: 10, background: HUD.burbujaWarn, border: `2px solid ${HUD.amber}`, borderRadius: 12, padding: 12,
+        }}>
+          <div style={{ fontFamily: sans, fontSize: 15, lineHeight: 1.35, color: HUD.burbujaWarnInk, marginBottom: 10 }}>
+            {pedirRelevo.vehicleId} la está manejando <strong>{pedirRelevo.quien}</strong>. Si es un relevo, la
+            tomas tú y a {pedirRelevo.quien} se le avisa.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => { relevoConfirmado.current = null; setPedirRelevo(null); onStart(); }} style={{
+              flex: 1, minHeight: 48, padding: '10px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              background: HUD.amberTexto, color: HUD.bg,
+              fontFamily: black, fontSize: 14, letterSpacing: 0.5,
+            }}>ES UN RELEVO</button>
+            <button onClick={() => setPedirRelevo(null)} style={{
+              flex: 1, minHeight: 48, padding: '10px 8px', borderRadius: 10, cursor: 'pointer',
+              background: 'transparent', color: HUD.fg2, border: `1px solid ${HUD.dim3}`,
+              fontFamily: sans, fontSize: 15, fontWeight: 700,
+            }}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      <button onClick={salirARuta} style={{
         width: '100%', padding: '22px',
         fontSize: 24, fontWeight: 900, letterSpacing: 2.5,
         fontFamily: black,

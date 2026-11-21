@@ -677,6 +677,42 @@ const pruebaPresencia = (async () => {
     await cambiarPresencia('fuera');                // llega otro cambio antes
     soltar({ ok: true }); await p1;
     ok('un cambio viejo se corta si llegó uno más nuevo', !r.log.includes('declara:ruta') && r.log.includes('declara:fuera'), r.log); }
+  // H11 y H12 (pruebas en teléfono): el GPS se para ANTES de declarar
+  // «fuera». Al revés, un lote de la tarea de fondo tomado en ese hueco
+  // devolvía la combi al mapa con la sesión ya cerrada.
+  { const { cambiarPresencia, r } = armar();
+    await cambiarPresencia('fuera');
+    ok('SALIR DE RUTA: primero se para el GPS, después se declara «fuera»',
+       r.log.indexOf('parar') >= 0 && r.log.indexOf('parar') < r.log.indexOf('declara:fuera'), r.log); }
+  { // H8 y H9: el servicio que Android da por corriendo y no da lecturas
+    const { servicioMudo: m, MUDO_MS, REARRANQUE_CADA_MS } = require(RAIZ + '/app/vigilante.js');
+    const base = { corriendo: true, primerPlano: true, desde: 0 };
+    const t = 10 * 60_000;
+    ok('un minuto sin lecturas, con la app adelante: mudo', m({ ...base, ahora: t, ultimaLectura: t - MUDO_MS }) === true);
+    ok('con una lectura reciente: no', m({ ...base, ahora: t, ultimaLectura: t - 5000 }) === false);
+    ok('recién empezada la salida (sin lecturas todavía): no', m({ ...base, ahora: t, desde: t - 20_000 }) === false);
+    ok('con la app atrás no se juzga (Android espacia las lecturas)', m({ ...base, primerPlano: false, ahora: t, ultimaLectura: 0 }) === false);
+    ok('si Android dice que NO corre, es el otro camino (rearrancar sin parar)', m({ ...base, corriendo: false, ahora: t }) === false);
+    ok('rearrancado hace poco: no se insiste', m({ ...base, ahora: t, ultimaLectura: 0, ultimoRearranque: t - REARRANQUE_CADA_MS + 1000 }) === false);
+    ok('y pasado el plazo, si sigue mudo, otra vez', m({ ...base, ahora: t, ultimaLectura: 0, ultimoRearranque: t - REARRANQUE_CADA_MS }) === true);
+    ok('el vigilante lo usa: para y arranca de nuevo el servicio mudo',
+       /servicioMudo\(\{[\s\S]{0,300}\}\)\) \{[\s\S]{0,500}gps\.parar\(\)[\s\S]{0,200}gps\.arrancar\(/.test(app));
+    ok('y cada lectura que llega lo anota', /cuandoLlegueUnaPosicion\(\(p\) => \{[\s\S]{0,120}ultimaLectura\.current = Date\.now\(\);/.test(app));
+  }
+  { // H19 y H24: un solo texto para la sesión que dejó de valer
+    const i = app.indexOf("const SESION_YA_NO_VALE");
+    const f = new Function(app.slice(i, app.indexOf('\nfunction ElegirCombi', i)) + '\nreturn { avisoDeSesionCerrada, SESION_YA_NO_VALE };')();
+    const iguales = ['Sesión inválida o expirada', 'Sesión cerrada', 'Tu sesión terminó. Vuelve a entrar.', '', null]
+      .map(f.avisoDeSesionCerrada);
+    ok('los textos del servidor para la sesión cerrada salen como uno solo',
+       iguales.every(t => t === f.SESION_YA_NO_VALE), iguales);
+    ok('lo que no es de la sesión pasa como viene',
+       f.avisoDeSesionCerrada('Tu cooperativa todavía no tiene ninguna ruta cargada') === 'Tu cooperativa todavía no tiene ninguna ruta cargada');
+    ok('el authError usa ese texto', /setAviso\(avisoDeSesionCerrada\(e\)\)/.test(app));
+  }
+  ok('Salir (cerrar sesión): el GPS se para antes del «fuera»',
+     /onSalir: async \(\) => \{[\s\S]*?await gps\.parar\(\);[\s\S]*?marcarPresencia\('fuera'\)/.test(app) &&
+     !/onSalir: async \(\) => \{[\s\S]*?marcarPresencia\('fuera'\)[\s\S]*?await gps\.parar\(\);[\s\S]*?\n    \},/.test(app));
   // Cuarta revisión: la sesión tiene GENERACIÓN
   { const { entrarConSesion, terminarSesion, r } = armar();
     r.guardada = 'ruta';

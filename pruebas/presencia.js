@@ -136,6 +136,29 @@ let servidor = null;
        !(act.body.events || []).some(e => e.action === 'desvio' && e.target === 'M-03'));
   }
 
+  console.log('\nA UNA CUADRA DEL TRAZADO TODAVÍA NO LLEGÓ');
+  {
+    // Hasta el 20/11 la entrada usaba el umbral del desvío (300 m): en la
+    // prueba en teléfono, el chofer que salió a ruta a una cuadra del
+    // paradero entró a la cadena de frente, con brecha, sin haberse movido
+    // (RESULTADOS-TELEFONO.md, H22). Entrar es otra cuenta: 20 m.
+    await gps(s3, -15.48163, -70.12033);   // a ~100 m del trazado: una cuadra
+    await sleep(700);
+    let st = await estado();
+    let el = st.units.find(u => u.unitId === 'M-03');
+    ok('a una cuadra sigue yendo', !!el && el.enRuta === false, el && { enRuta: el.enRuta, desvioM: el.desvioM });
+    ok('y sin brecha', !st.gaps['M-03'] && st.totalOnRoute === 2 && st.yendo === 1,
+       { gaps: Object.keys(st.gaps || {}), total: st.totalOnRoute, yendo: st.yendo });
+    await gps(s3, -15.48125, -70.12073);   // a ~40 m: media cuadra
+    await sleep(700);
+    st = await estado();
+    el = st.units.find(u => u.unitId === 'M-03');
+    ok('a 40 m tampoco entró', !!el && el.enRuta === false && !st.gaps['M-03'],
+       el && { enRuta: el.enRuta, desvioM: el.desvioM });
+    // Y acercarse no lo acusa de nada: no estaba en la cadena
+    ok('ni queda marcado fuera de ruta', el.fueraDeRuta === false, el.fueraDeRuta);
+  }
+
   console.log('\nPISA EL TRAZADO Y RECIÉN AHÍ ENTRA');
   {
     await gps(s3, -15.4802, -70.1202);   // llegó: sobre la punta de la ida
@@ -246,6 +269,46 @@ let servidor = null;
     ok('el cobrador no puede sacar la combi del mapa', delCobrador.status === 403, delCobrador.status);
     const st = await estado();
     ok('y M-01 sigue donde estaba', st.units.some(u => u.unitId === 'M-01'), st.units.map(u => u.unitId));
+  }
+
+  console.log('\nCERRAR SESIÓN BAJA DE LA COMBI (H11 y H12)');
+  {
+    // El caso del 20/11, paso 3.3: AUSENTE, «Salir», y un lote de la tarea
+    // de fondo tomado DESPUÉS del «fuera» la devolvía al mapa como AUSENTE,
+    // donde se quedaba en SIN SEÑAL con la sesión ya cerrada.
+    await pedir('/admin/users', { method: 'POST', headers: HG,
+      body: JSON.stringify({ unitId: 'M-05', name: 'El Gordo', password: 'chofer1234' }) });
+    const s5 = await login('M-05', 'chofer1234');
+    await presencia(s5, 'ruta');
+    await gps(s5, -15.4900, -70.1300);
+    await presencia(s5, 'ausente');
+    await presencia(s5, 'fuera');
+    await sleep(50);
+    await gps(s5, -15.4900, -70.1300, { presencia: 'ausente' });   // el lote atrasado de la tarea
+    let st = await estado();
+    ok('el lote de después del «fuera» la devuelve al mapa (lo que pasaba)',
+       st.units.some(u => u.unitId === 'M-05' && u.presencia === 'ausente'), st.units.map(u => [u.unitId, u.presencia]));
+    const r = await pedir('/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + s5.token }, body: '{}' });
+    st = await estado();
+    ok('al cerrar la sesión se va del mapa', r.status === 200 && !st.units.some(u => u.unitId === 'M-05'),
+       st.units.map(u => [u.unitId, u.presencia]));
+
+    // Con OTRA sesión abierta del mismo chofer no se toca: el otro teléfono
+    // puede ser el que maneja
+    const s5a = await login('M-05', 'chofer1234');
+    const s5b = await login('M-05', 'chofer1234');
+    await presencia(s5a, 'ruta');
+    await gps(s5a, -15.4900, -70.1300);
+    await pedir('/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + s5b.token }, body: '{}' });
+    st = await estado();
+    ok('cerrar UNA de dos sesiones no la saca del mapa', st.units.some(u => u.unitId === 'M-05'),
+       st.units.map(u => u.unitId));
+    await pedir('/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + s5a.token }, body: '{}' });
+    st = await estado();
+    ok('cerrar la última, sí', !st.units.some(u => u.unitId === 'M-05'), st.units.map(u => u.unitId));
+
+    // Y a las combis de los demás no las toca
+    ok('las demás siguen', st.units.some(u => u.unitId === 'M-01'), st.units.map(u => u.unitId));
   }
 
   console.log('\nEL OLVIDO BORRA LA CONFIRMACIÓN');

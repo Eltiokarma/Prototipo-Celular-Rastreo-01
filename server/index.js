@@ -1836,6 +1836,20 @@ addColumnIfMissing('routes', 'desvioMudoHasta', 'INTEGER');
   if (r.changes) console.log(`Umbral de desvío actualizado a ${DESVIO_DEFECTO_M} m en ${r.changes} ruta(s)`);
 }
 
+// PISAR EL TRAZADO es otra cuenta, y otro radio. Hasta el 20/11 la entrada a
+// la cadena usaba el mismo umbral que el desvío, y tres cuadras, que para
+// tolerar un desvío están bien, para decir «ya está en la ruta» son
+// demasiado: en la prueba en teléfono el chofer salió a ruta a una cuadra del
+// paradero inicial y entró a la cadena de frente, con brecha y todo, sin
+// haberse movido (RESULTADOS-TELEFONO.md, H22). El que está a una cuadra no
+// llegó: va hacia la ruta.
+//
+// Son dos preguntas distintas. «¿Llegó?» se contesta con 20 m, el ancho de la
+// calle. «¿Se fue?» sigue en 300 m y sostenido, que es lo que se le prometió
+// al chofer. Una vez adentro se queda, así que el radio corto no saca a
+// nadie de la cadena: sólo decide cuándo entra.
+const ENTRADA_M = Number(process.env.ENTRADA_M || 20);
+
 // Cuántas posiciones seguidas hacen falta. Llegan cada 3 s, así que 10 son
 // unos 30 segundos afuera: un salto de GPS no llega, doblar en la esquina
 // equivocada sí.
@@ -2856,6 +2870,22 @@ function vencerPuerta(ahora = Date.now()) {
       enLaPuerta.delete(e.personId);
       avisarPuerta(e.routeId);
     }
+  }
+}
+
+// Cerrar la última sesión es bajarse de la combi: si el mando es suyo (o la
+// combi quedó en el mapa a su nombre sin mando), «fuera», como SALIR DE
+// RUTA. Si la maneja otro (lo relevaron), no se toca nada de la combi.
+function bajarDeSuCombi(personId) {
+  const u = db.prepare('SELECT unitId, role, vehicleId, routeId FROM users WHERE unitId = ?').get(personId);
+  if (!u || u.role !== 'driver') return;
+  const vehicleId = u.vehicleId || u.unitId;
+  const dueno = duenoDe.get(vehicleId);
+  const suya = dueno ? dueno.personId === personId : units.get(vehicleId)?.choferId === personId;
+  if (!suya) return;
+  soltarMando(vehicleId, personId);
+  if (presencias.has(vehicleId) || units.has(vehicleId)) {
+    fijarPresencia(vehicleId, rutaDeLaCombi(vehicleId, u.routeId), 'fuera');
   }
 }
 
@@ -4739,6 +4769,17 @@ app.post('/auth/logout', (req, res) => {
   // acuerde de reiniciar el servidor (REVISION-2026-09-10.md, L1).
   cerrarTurno(sesion.unitId);
   quitarDeLaPuerta(sesion.unitId);
+  // Y se baja de la combi, si es la suya y no le queda otra sesión abierta.
+  // La app manda «fuera» antes de cerrar sesión, pero un lote de la tarea de
+  // fondo tomado DESPUÉS de ese «fuera» la volvía a poner en el mapa (en
+  // ruta o AUSENTE), y como la sesión ya no existía nada la sacaba: quedaba
+  // en SIN SEÑAL hasta el olvido (pruebas en teléfono, H11 y H12). La APK
+  // nueva para el GPS antes; esto cubre a las que ya están repartidas y al
+  // «fuera» que se perdió por falta de red. Con otra sesión abierta no se
+  // toca: el otro teléfono puede ser el que está manejando.
+  if (!db.prepare('SELECT 1 FROM sessions WHERE unitId = ? LIMIT 1').get(sesion.unitId)) {
+    bajarDeSuCombi(sesion.unitId);
+  }
   if (todas) {
     // Los WebSocket abiertos con esos tokens también: si no, la pantalla del
     // que se llevó el teléfono sigue recibiendo el mapa y el chat en vivo.
@@ -10851,15 +10892,14 @@ function anotarPosicion(vehicleId, personId, prof, pos, cuando = Date.now()) {
   const progreso = proy ? proy.progreso : (pos.routeProgress || 0);
 
   // La confirmación de presencia: declaró "en ruta" y esta posición cayó
-  // SOBRE el trazado (mismo umbral que el desvío) → entra a la cadena.
-  // Una vez adentro se queda: el desvío sostenido ya tiene su propia
+  // SOBRE el trazado (a `ENTRADA_M`, no al umbral del desvío) → entra a la
+  // cadena. Una vez adentro se queda: el desvío sostenido ya tiene su propia
   // alarma, y desconfirmar por cada semáforo haría bailar las brechas.
   const decl = presencias.get(vehicleId) || null;
   let enRuta = decl ? decl.enRuta : true;
   if (decl && decl.estado === 'ruta' && !enRuta) {
-    const umbral = (routeOf(routeId) || {}).desvioMaxM || DESVIO_DEFECTO_M;
     // Sin geometría cargada no hay contra qué confirmar: vale la palabra.
-    if (!proy || proy.desvioM <= umbral) {
+    if (!proy || proy.desvioM <= ENTRADA_M) {
       enRuta = true;
       decl.enRuta = true;
       decl.tocadaEn = Date.now();

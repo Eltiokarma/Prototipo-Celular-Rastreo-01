@@ -233,6 +233,7 @@ calle. Suite `renovacion`.
 | `RESPALDO_S3_PREFIJO` | La «carpeta» adentro del bucket (`respaldos/`) |
 | `RESPALDO_CIFRADO` | **La frase con que se cifra cada copia** (16 caracteres o más). Sin ella no sale nada del servidor. **Guárdala en un gestor de contraseñas: sin la frase, las copias no se pueden abrir — ni vos, ni nadie** |
 | `RESTAURAR_DESDE` | **Volver a un respaldo** al arrancar: el nombre de una copia afuera (`respaldos/respaldo-…db.gz.enc`) o `local:` + el de uno del volumen. Se pone, se redespliega, se verifica y **se saca** |
+| `ENTRADA_M` | A cuántos metros del trazado una combi que declaró «en ruta» **entra a la cadena de brechas** (20: el ancho de la calle). Es otra cuenta que el umbral del desvío, que sigue siendo por ruta y de 300 m. Una vez adentro, este radio no la saca |
 | `OLVIDAR_MS` | A los cuántos ms se la borra de verdad y se descarta su vuelta en curso (180 000). El número bueno sale de la calle: tres minutos aguantan una llamada o un semáforo largo |
 | `APP_VERSION_ACTUAL` | El `versionCode` del APK que se reparte hoy. La app compara el suyo y avisa «hay una versión nueva». Sin poner, no avisa |
 | `APP_VERSION_MIN` | El `versionCode` más viejo que todavía sirve. Por debajo, la app dice en rojo «esta app ya no sirve». Sin poner, no avisa |
@@ -888,7 +889,7 @@ Tres estados, declarados desde la app:
 
 | Estado | Qué pasa |
 | --- | --- |
-| **En ruta** | Se emite posición. Pero declarar NO mete a la unidad en la cadena de brechas: eso lo **confirma el servidor** cuando el GPS la ve sobre el trazado (mismo umbral que el desvío). Hasta entonces está "yendo": visible para Despacho, invisible para las brechas — Ignacio marcando desde su casa a las 5:30 no le mueve la brecha a nadie que pase cerca |
+| **En ruta** | Se emite posición. Pero declarar NO mete a la unidad en la cadena de brechas: eso lo **confirma el servidor** cuando el GPS la ve sobre el trazado: a **20 m** o menos (`ENTRADA_M`), no a los 300 m del desvío. Hasta entonces está "yendo": visible para Despacho, invisible para las brechas — Ignacio marcando desde su casa a las 5:30 no le mueve la brecha a nadie que pase cerca |
 | **Ausente** | Comer, un repuesto, un descanso. Se sigue emitiendo (Despacho ve dónde está la combi, apagada en el mapa) pero fuera de la cadena: nadie se mide contra ella, su vuelta a medias se descarta, y los vecinos se recomponen. Volver exige reconfirmar sobre el trazado. Y los dos olvidos humanos se resuelven solos (`app/ausencia.js`, en la tarea de fondo): si el GPS lo ve **alejarse** del lugar donde se quedó, vuelve a ruta solo; si la ausencia pasa las **2 horas**, ya no es un almuerzo y pasa a fuera — sin emitir la ubicación de la casa toda la noche |
 | **Fuera** | Terminó. Deja de emitir y se va del mapa EN EL ACTO, sin esperar al olvido de 3 minutos. La app sigue sirviendo para chatear |
 
