@@ -1,0 +1,303 @@
+% Pruebas en teléfono, tercera ronda: la guía con formulario para llenar.
+% Se compila con:   cd informes && pdflatex pruebas-telefono-ronda3.tex   (dos veces)
+% y después:        python3 -I formulario-radios.py pruebas-telefono-ronda3.pdf pruebas-telefono-ronda3.pdf
+% (sin el segundo paso, en algunos visores marcar FALLA no desmarca OK).
+% Los campos se leen después con pypdf: resultado-<caso>-<paso> vale ok,
+% falla o nopudo; hora-* y nota-* son texto.
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[scaled=0.92]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage[spanish,es-noshorthands]{babel}
+\usepackage[a4paper,top=2.2cm,bottom=2.2cm,left=1.9cm,right=1.9cm,headsep=0.8cm]{geometry}
+\usepackage{microtype}
+\usepackage[table]{xcolor}
+\usepackage{array,longtable}
+\usepackage{enumitem}
+\setlist{itemsep=0.25em, topsep=0.4em, leftmargin=1.2em}
+\usepackage{titlesec}
+\usepackage{newunicodechar}
+\newunicodechar{→}{\ensuremath{\rightarrow}}
+\newunicodechar{⋯}{\ensuremath{\cdots}}
+\usepackage[most]{tcolorbox}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage[pdfencoding=pdfdoc,hidelinks]{hyperref}
+\hypersetup{pdftitle={Pruebas en teléfono: tercera ronda}, pdfauthor={Micros Tempo}}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.45em}
+\renewcommand{\arraystretch}{1.25}
+\setlength{\emergencystretch}{2em}
+
+% ── Colores: azul es lo que tocas; marrón, lo que muestra la pantalla ──
+\definecolor{azul}{RGB}{28,72,136}
+\definecolor{marron}{RGB}{138,78,8}
+\definecolor{tenue}{RGB}{105,112,122}
+\definecolor{cabecera}{RGB}{233,238,245}
+\definecolor{fondoCampo}{RGB}{246,249,253}
+\newcommand{\toca}[1]{\textcolor{azul}{\textbf{#1}}}
+\newcommand{\pantalla}[1]{\textcolor{marron}{\textbf{#1}}}
+\newcommand{\nada}{\textcolor{tenue}{En este paso no hay nada que comprobar.}}
+
+\titleformat{\section}{\large\bfseries\color{azul}}{}{0em}{}
+\titlespacing*{\section}{0pt}{1.3em}{0.4em}
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+\titlespacing*{\subsection}{0pt}{0.9em}{0.2em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{tenue}Pruebas en teléfono, tercera ronda · APK 0.3.1 con el arreglo del 20 de noviembre}
+\fancyfoot[R]{\small\color{tenue}Página \thepage{} de \pageref{LastPage}}
+\renewcommand{\headrulewidth}{0pt}
+
+\newtcolorbox{alto}{colback=red!4, colframe=red!45!black, boxrule=0.5pt, arc=1.5mm,
+  left=2.5mm, right=2.5mm, top=1.5mm, bottom=1.5mm, before skip=0.6em, after skip=0.6em}
+\newtcolorbox{nota}{colback=azul!4, colframe=azul!55, boxrule=0.5pt, arc=1.5mm,
+  left=2.5mm, right=2.5mm, top=1.5mm, bottom=1.5mm, before skip=0.6em, after skip=0.6em}
+
+% ── Los campos del formulario ──────────────────────────────────────
+% pdfTeX le da a cada campo el alto de la caja que lo encierra, no el que se
+% le pide: sin esta caja, en una fila de la tabla todos medían la fila entera.
+\newcommand{\caja}[2]{\hbox{\vrule height #1 depth 0pt width 0pt #2}}
+\newcommand{\campo}[3]{% nombre, ancho, alto
+  \raisebox{-0.35\height}{\caja{#3}{\TextField[name=#1, width=#2, height=#3, charsize=8pt, bordercolor={0.55 0.6 0.68},
+    backgroundcolor={0.965 0.976 0.992}, multiline=true]{}}}}
+\newcommand{\dato}[3]{% rótulo, nombre, ancho
+  \mbox{#1~\TextField[name=#2, width=#3, height=13pt, charsize=9pt, bordercolor={0.55 0.6 0.68},
+    backgroundcolor={0.965 0.976 0.992}]{}}}
+\newcommand{\resultado}[1]{%
+  \caja{9pt}{\ChoiceMenu[radio, name=resultado-#1, width=9pt, height=9pt, radiosymbol=l,
+    bordercolor={0.35 0.38 0.45}, default=]{}{OK=ok,FALLA=falla,NO SE PUDO=nopudo}}}
+
+% Los botones de opción de hyperref ponen la palabra antes del botón, pegada,
+% y no declaran su estado inicial (/AS), que algunos visores exigen. Esta copia
+% de \@@Radio (hpdftex.def) pone el botón primero, la palabra después con aire,
+% y cada botón empieza apagado.
+\makeatletter
+\def\@@Radio#1{%
+  \Fld@listcount=0 %
+  \EdefEscapeName\Fld@default{\Fld@default}%
+  \@for\@curropt:=#1\do{%
+    \expandafter\Fld@checkequals\@curropt==\\%
+    \EdefEscapeName\@currValue{\@currValue}%
+    \Hy@StepCount\Fld@listcount
+    \leavevmode
+    \HyAnn@AbsPageLabel
+    \Hy@escapeform\PDFForm@Radio
+    \pdfstartlink user {%
+      \PDFForm@Radio
+      /AS/Off
+      /AP<</N<</\@currValue\space \DingObject>>>>%
+    }%
+    \relax
+    \MakeRadioField{\Fld@width}{\Fld@height}\pdfendlink
+    \ifnum\Fld@listcount=1 \HyField@AddToFields\fi
+    \hspace{0.3em}\@currDisplay\hspace{1.1em}%
+  }%
+}
+\makeatother
+
+% Un paso: número visible, número para los campos, qué haces, qué tiene que verse
+\newcommand{\paso}[4]{%
+  \textbf{#1} & #3 & #4 \\*
+  \multicolumn{3}{@{\hspace{6pt}}l@{}}{\rule{0pt}{15pt}\small
+    \resultado{#2}\hspace{0.4em}Hora:~\campo{hora-#2}{1.7cm}{13pt}\hspace{1.2em}Nota:~\campo{nota-#2}{8.3cm}{22pt}}\\[3pt]
+  \hline
+}
+\newenvironment{pasos}{%
+  \begin{longtable}{@{\hspace{6pt}}>{\raggedright\arraybackslash}p{0.9cm}>{\raggedright\arraybackslash}p{7.9cm}>{\raggedright\arraybackslash}p{7.3cm}@{}}
+  \rowcolor{cabecera}\textbf{Paso} & \textbf{Qué haces} & \textbf{Qué tiene que verse} \\ \hline
+  \endhead
+}{\end{longtable}\vspace{-0.6em}}
+
+\begin{document}
+\begin{Form}
+
+{\LARGE\bfseries\color{azul} Pruebas en teléfono: tercera ronda}\par
+\vspace{0.2em}
+{\color{tenue} APK 0.3.1 con el arreglo del 20 de noviembre de 2026}\par
+\vspace{0.6em}
+
+\begin{tabular}{@{}ll@{}}
+\dato{Quién prueba:}{tester}{5.6cm} & \dato{Fecha:}{fecha}{3.4cm} \\[4pt]
+\dato{Modelo de T1:}{modelo-t1}{5.3cm} & \dato{Modelo de T2:}{modelo-t2}{4.0cm} \\[4pt]
+\dato{Chofer A:}{chofer-a}{6.0cm} & \dato{Chofer B:}{chofer-b}{4.6cm} \\[4pt]
+\dato{Cobrador de la X:}{cobrador}{4.9cm} & \dato{Combi X:}{combi-x}{2.2cm}\quad\dato{Combi Y:}{combi-y}{2.2cm} \\
+\end{tabular}
+
+\section{Para qué es esta ronda}
+
+Esta ronda comprueba en los dos teléfonos los arreglos que se hicieron después de la segunda ronda, y hace por fin el caso del cobrador, que no se pudo hacer en ninguna de las dos anteriores. No hace falta instalar otra APK, porque el arreglo llega solo a los teléfonos cuando se publica; la preparación dice cómo comprobar que llegó.
+
+Cada caso repite lo que antes falló, y cada paso dice qué haces y qué tiene que verse, en el teléfono y en Despacho. Los casos van en el orden en que conviene hacerlos, que no es el de sus números: el número es el mismo de las rondas anteriores, para que se puedan comparar.
+
+\section{Cómo se anota}
+
+En cada paso marca una de las tres opciones, escribe la hora si algo salió distinto y, si hace falta, una nota corta.
+
+\begin{itemize}
+  \item \textbf{OK}: se vio exactamente lo que dice la columna «Qué tiene que verse».
+  \item \textbf{FALLA}: se vio otra cosa. Anota la hora exacta y saca dos capturas en ese mismo minuto, una del teléfono y otra de Despacho.
+  \item \textbf{NO SE PUDO}: el paso no se llegó a hacer. En la nota, escribe por qué.
+\end{itemize}
+
+\begin{alto}
+\textbf{Si un paso no coincide con lo que ves en la pantalla}, por ejemplo un botón que no está o un texto distinto, detente ahí y anótalo. Desde ese punto, el resto del caso ya no sirve como prueba, aunque después todo parezca andar.
+\end{alto}
+
+Para pasarme los resultados, basta con devolverme este PDF lleno. Si me los escribes, usa el número de paso, por ejemplo: «paso 6.4: FALLA, 10:42».
+
+\subsection{Quién es quién}
+
+\begin{itemize}
+  \item \textbf{Despacho} es el sistema que se usa en la PC, abierto en el navegador.
+  \item \textbf{T1} es el Poco X7 y \textbf{T2} es el Redmi 15C, salvo que anotes otra cosa arriba.
+  \item \textbf{El chofer A, el chofer B y el cobrador} son tres usuarios distintos. El cobrador es el que está cargado en la combi X. En la segunda ronda, A era El Gordo, B era Karma, la X era la M11111 y la Y era la M12345.
+  \item En las tablas, \toca{lo que está en azul} es lo que tocas o eliges, y \pantalla{lo que está en marrón} es lo que muestra la pantalla. Lo que solo sirve para ubicarte va entre comillas y en negro: eso no se toca.
+\end{itemize}
+
+\subsection{Dos cosas que conviene saber antes de empezar}
+
+Para salir de ruta, la app pide dos toques: tocas \toca{SALIR DE RUTA}, el botón cambia a \pantalla{¿SEGURO? TOCA DE NUEVO} y lo tocas otra vez. La segunda ronda decía que había que mantenerlo apretado, y eso no era exacto, aunque igual funcionaba.
+
+La combi entra a la ruta cuando el GPS la ve a 20 metros o menos del trazado, más o menos el ancho de la calle. Antes eran 300 metros, unas tres cuadras, y por eso el caso del cobrador no se podía probar sin alejarse cinco cuadras.
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Preparación}
+
+Se hace una sola vez, antes de empezar, y deja listos el servidor, los teléfonos y las combis de cada chofer.
+
+\begin{pasos}
+\paso{P.1}{P-1}{En la PC, abre Railway y mira el último despliegue del servidor.}{El último despliegue terminó bien y empezó después de que se fusionó el arreglo, el 21 de noviembre.}
+\paso{P.2}{P-2}{En la PC, corre \toca{publicar-arreglo.bat} y elige \toca{[1] PRUEBA}.}{El programa termina sin ningún mensaje que empiece con \pantalla{[ERROR]}.}
+\paso{P.3}{P-3}{En cada teléfono, abre la app y espera un minuto en la pantalla de ingreso, sin entrar. Después ciérrala desde recientes y ábrela otra vez.}{\nada}
+\paso{P.4}{P-4}{En cada teléfono, entra con cualquier usuario, toca \toca{Perfil}, arriba a la derecha, y baja hasta la sección «LA APP».}{Dice \pantalla{Versión 0.3.1 (4) · actualizada} con la fecha y la hora en que publicaste el arreglo. Si no dice «actualizada», el arreglo todavía no llegó: repite el paso P.3.}
+\paso{P.5}{P-5}{En Despacho, entra en \toca{Gestión → Personas}, busca la fila del chofer A y toca \toca{⋯} y luego \toca{Combis}. Deja marcada solo la combi X y toca \toca{Guardar}.}{A queda con una sola combi, la X. Hay que quitarle la Y y la M-00, que se le habilitaron en la segunda ronda.}
+\paso{P.6}{P-6}{Haz lo mismo con el chofer B, pero deja marcadas dos combis: la X y la Y.}{B queda con dos combis habilitadas.}
+\paso{P.7}{P-7}{Deja Despacho abierto en \toca{Mapa} durante toda la prueba. Si algún teléfono tiene una sesión abierta, toca \toca{Salir}, arriba a la derecha.}{Los dos teléfonos muestran la pantalla de ingreso.}
+\end{pasos}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Caso 1: el cobrador cuando su combi va hacia la ruta}
+
+T1 lleva al chofer A con la combi X, y T2 lleva al cobrador de la combi X. Este caso se hace en la calle: empiezas a una cuadra o más de la calle por donde pasa el recorrido, y después caminas o manejas hasta pisarla.
+
+\begin{pasos}
+\paso{1.1}{1-1}{En T2, entra con el cobrador.}{En T2 aparece \pantalla{ESPERANDO LA RUTA} unos segundos y después \pantalla{NO VEO A TU COMBI}, porque A todavía no salió.}
+\paso{1.2}{1-2}{Con T1 a una cuadra o más del recorrido, entra con el chofer A y desliza \toca{DESLIZA PARA SALIR A RUTA →}.}{En T2 aparece \pantalla{TU COMBI VA HACIA LA RUTA}, y se queda: no aparece y desaparece.}
+\paso{1.3}{1-3}{Espera dos minutos sin moverte.}{En T2 sigue \pantalla{TU COMBI VA HACIA LA RUTA}. Si el aviso se va y vuelve, es FALLA: anota cada cuántos segundos pasa.}
+\paso{1.4}{1-4}{Camina o maneja con T1 hasta pisar la calle del recorrido.}{En T2 el aviso se va y aparecen las brechas de la combi X. En la nota, escribe a cuántos metros de la calle estabas cuando cambió, más o menos.}
+\paso{1.5}{1-5}{Pon T1 en modo avión durante dos minutos.}{En T2 aparece \pantalla{EL CHOFER NO TIENE SEÑAL}, con la hora desde la que no tiene señal.}
+\paso{1.6}{1-6}{Quita el modo avión de T1 y no toques nada en T2.}{En T2, el aviso se va solo en menos de un minuto.}
+\paso{1.7}{1-7}{En T1, toca \toca{SALIR DE RUTA} y, cuando diga \pantalla{¿SEGURO? TOCA DE NUEVO}, tócalo otra vez.}{En T2 aparece \pantalla{NO VEO A TU COMBI}.}
+\paso{1.8}{1-8}{En los dos teléfonos, toca \toca{Salir}, arriba a la derecha.}{Los dos teléfonos muestran la pantalla de ingreso.}
+\end{pasos}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Caso 3: AUSENTE cortado por el cierre de sesión}
+
+Este caso se hace en T1, con el chofer A, mirando a la vez el teléfono y Despacho. En la segunda ronda falló una vez de dos: la combi quedaba en el mapa de Despacho como AUSENTE, sin señal, con la sesión ya cerrada. Por eso ahora se hace tres veces, y cada vez se anota aparte.
+
+\begin{pasos}
+\paso{3.1}{3-1}{En T1, entra con el chofer A y desliza \toca{DESLIZA PARA SALIR A RUTA →}.}{Despacho muestra la combi de A en el mapa.}
+\paso{3.2}{3-2}{Toca \toca{AUSENTE} y, apenas aparezca \pantalla{Pasas a AUSENTE en 5 s}, toca \toca{Salir}, arriba a la derecha.}{T1 muestra la pantalla de ingreso.}
+\paso{3.3}{3-3}{Mira Despacho durante dos minutos, sin tocar nada.}{La combi de A se va del mapa y no vuelve. No debe quedar como AUSENTE ni como SIN SEÑAL. Si vuelve, anota a qué hora.}
+\paso{3.4}{3-4}{Repite los pasos 3.1, 3.2 y 3.3 por segunda vez.}{Lo mismo que en el paso 3.3: la combi se va del mapa y no vuelve.}
+\paso{3.5}{3-5}{Repite los pasos 3.1, 3.2 y 3.3 por tercera vez.}{Lo mismo que en el paso 3.3: la combi se va del mapa y no vuelve.}
+\paso{3.6}{3-6}{Entra otra vez con A, sal a ruta y toca \toca{Salir} directamente, sin pasar por AUSENTE. Mira Despacho dos minutos.}{La combi se va del mapa y no vuelve.}
+\end{pasos}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Caso 5: cerrar todas las sesiones}
+
+T1 y T2 entran los dos con el chofer A. En este caso no cambies la contraseña: cambiarla también cierra las otras sesiones, y entonces no se prueba el botón.
+
+\begin{pasos}
+\paso{5.1}{5-1}{En T1, entra con el chofer A y quédate en la puerta, sin salir a ruta.}{T1 muestra la puerta, con \pantalla{DESLIZA PARA SALIR A RUTA →}.}
+\paso{5.2}{5-2}{Cierra la app de T1 desde recientes: toca el botón de recientes de Android y desliza la app hacia arriba.}{La app queda cerrada.}
+\paso{5.3}{5-3}{En T2, entra con el chofer A, toca \toca{Perfil} y baja hasta el final. Pasa de largo la sección «CAMBIAR CONTRASEÑA» y su botón «CAMBIAR», sin tocarlos.}{Al final hay un recuadro de borde fino y letra gris que dice \pantalla{CERRAR TODAS MIS SESIONES}.}
+\paso{5.4}{5-4}{En T2, toca ese recuadro una vez.}{El recuadro se pone rojo y dice \pantalla{¿SEGURO? TAMBIÉN CIERRA ESTA — TOCA DE NUEVO}.}
+\paso{5.5}{5-5}{En T2, tócalo otra vez.}{T2 vuelve a la pantalla de ingreso.}
+\paso{5.6}{5-6}{En Despacho, entra en \toca{Gestión → Actividad} y mira la primera línea.}{Dice \pantalla{cerró todas sus sesiones} con el usuario de A, y al lado \pantalla{2 sesión(es)}. Si dice 1, anótalo: quiere decir que una de las dos sesiones ya estaba cerrada.}
+\paso{5.7}{5-7}{Espera un minuto, porque el servidor tarda hasta un minuto en cortar las sesiones. Después abre la app en T1.}{Aparece la pantalla de ingreso con el aviso \pantalla{Tu sesión ya no vale: entra de nuevo}. Antes salía «Sesión inválida o expirada».}
+\end{pasos}
+
+\subsection{Variante con la ruta empezada}
+
+Se hace después de los pasos 5.1 a 5.7, y comprueba que el teléfono que estaba en ruta deja de mandar su posición.
+
+\begin{pasos}
+\paso{5.8}{5-8}{En T1, entra con el chofer A, desliza \toca{DESLIZA PARA SALIR A RUTA →} y apaga la pantalla con el botón de encendido.}{Despacho muestra la combi de A en el mapa.}
+\paso{5.9}{5-9}{En T2, entra con el chofer A, abre \toca{Perfil}, baja hasta el final y toca dos veces \toca{CERRAR TODAS MIS SESIONES}.}{T2 vuelve a la pantalla de ingreso.}
+\paso{5.10}{5-10}{Mira Despacho durante dos minutos y anota a qué hora deja de verse la combi de A.}{La combi de A se va del mapa en pocos segundos y no vuelve, aunque T1 siga con el GPS prendido y la pantalla apagada.}
+\paso{5.11}{5-11}{En T1, prende la pantalla y abre la app.}{La pantalla de ingreso, con el aviso \pantalla{Tu sesión ya no vale: entra de nuevo}. En la barra de notificaciones ya no está la del GPS.}
+\end{pasos}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Caso 6: el relevo de chofer en la misma combi}
+
+Este caso necesita la preparación P.5 y P.6: el chofer A tiene una sola combi, la X, y el chofer B tiene dos, la X y la Y. T1 lleva al chofer A y T2 al chofer B. En la segunda ronda, A tomó la combi que manejaba B sin que la app le preguntara nada, porque con una sola combi no aparece la lista; ahora la app tiene que preguntar al deslizar.
+
+\begin{pasos}
+\paso{6.1}{6-1}{En T2, entra con el chofer B. En la lista \pantalla{¿EN QUÉ COMBI SALES?}, toca la combi X.}{Las dos combis dicen \pantalla{libre}. La X queda marcada como \pantalla{ELEGIDA}, sin pedir confirmación, porque nadie la maneja.}
+\paso{6.2}{6-2}{En T2, desliza \toca{DESLIZA PARA SALIR A RUTA →}.}{T2 queda en ruta. Despacho muestra la combi X con el nombre de B.}
+\paso{6.3}{6-3}{En T1, entra con el chofer A y mira la puerta, encima del botón para salir a ruta.}{No hay lista, porque A tiene una sola combi. Encima del botón dice \pantalla{X: la maneja B}, con el código de la X y el nombre de B más grueso que el resto.}
+\paso{6.4}{6-4}{En T1, desliza \toca{DESLIZA PARA SALIR A RUTA →}.}{T1 todavía no sale a ruta. Aparece un recuadro que dice \pantalla{X la está manejando B. Si es un relevo, la tomas tú y a B se le avisa.}, con los botones \pantalla{ES UN RELEVO} y \pantalla{Cancelar}.}
+\paso{6.5}{6-5}{En T1, toca \toca{Cancelar}.}{El recuadro se cierra y T1 sigue en la puerta. Despacho sigue mostrando la X con B.}
+\paso{6.6}{6-6}{En T1, desliza otra vez y, en el recuadro, toca \toca{ES UN RELEVO}.}{T1 queda en ruta con la combi X.}
+\paso{6.7}{6-7}{Mira la pantalla de T2 sin tocar nada y saca una captura.}{Aparece el aviso \pantalla{El GPS se apagó: Otro chofer tomó la unidad. Sigues viendo todo, pero tu GPS ya no se usa. Para volver a manejarla: SALIR DE RUTA y después SALIR A RUTA.}}
+\paso{6.8}{6-8}{En Despacho, mira la combi X en el mapa y saca una captura. Después entra en \toca{Gestión → Actividad}.}{La X aparece con A, en un solo punto y sin saltos. En la Actividad hay una línea que dice \pantalla{tomó la combi que manejaba}.}
+\paso{6.9}{6-9}{En T2, toca \toca{SALIR DE RUTA} dos veces, como en el paso 1.7, y mira la lista de combis de B.}{En la fila de la X dice \pantalla{la maneja A}, con el nombre de A más grueso que el resto.}
+\paso{6.10}{6-10}{En T2, toca la fila de la X y, en el recuadro, toca \toca{ES UN RELEVO}.}{La X queda marcada como \pantalla{ELEGIDA} para B.}
+\paso{6.11}{6-11}{En T2, desliza \toca{DESLIZA PARA SALIR A RUTA →}.}{T2 sale a ruta sin preguntar otra vez, porque el relevo ya se confirmó en la lista. En T1 aparece el aviso del paso 6.7, ahora para A, y Despacho muestra la X con B.}
+\end{pasos}
+
+\subsection{Variante con la pantalla apagada}
+
+Se hace después de los pasos 6.1 a 6.11. Ahora B maneja la X con la pantalla apagada, y A le hace el relevo. En la segunda ronda este fue el paso que falló.
+
+\begin{pasos}
+\paso{6.12}{6-12}{En T1, toca \toca{SALIR DE RUTA} dos veces.}{T1 vuelve a la puerta.}
+\paso{6.13}{6-13}{Apaga la pantalla de T2, que sigue en ruta con la X, y anota la hora. Espera dos minutos.}{\nada}
+\paso{6.14}{6-14}{En T1, mira la puerta, encima del botón para salir a ruta.}{Sigue diciendo \pantalla{X: la maneja B}. Si dice otra cosa, anota la hora y mira en Despacho si la X aparece como SIN SEÑAL.}
+\paso{6.15}{6-15}{En T1, desliza \toca{DESLIZA PARA SALIR A RUTA →} y, en el recuadro, toca \toca{ES UN RELEVO}.}{T1 queda en ruta con la X. Despacho muestra la X con A, en un solo punto.}
+\paso{6.16}{6-16}{En T2, prende la pantalla, abre la app y saca una captura.}{Aparece el mismo aviso del paso 6.7, ahora para B. En Despacho, la X sigue con A y no vuelve a saltar hacia B.}
+\paso{6.17}{6-17}{En los dos teléfonos, sal de ruta con dos toques y toca \toca{Salir}.}{Los dos teléfonos muestran la pantalla de ingreso.}
+\end{pasos}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Caso 2: las notificaciones quitadas en ruta}
+
+Este caso se hace en T1, con el chofer A, y va al final porque Android puede cerrar la app a la fuerza. En la segunda ronda, al quitar las notificaciones en ruta, el chofer desapareció de Despacho y no volvió aunque se devolvieran. El arreglo ataca la causa más probable, que no se pudo confirmar sin el teléfono; si vuelve a fallar, lo que más sirve es la captura del paso 2.5.
+
+\begin{pasos}
+\paso{2.1}{2-1}{En T1, entra con el chofer A y sal a ruta.}{Despacho muestra la combi de A en el mapa.}
+\paso{2.2}{2-2}{En los ajustes de Android, entra en las aplicaciones, busca \toca{Control de ruta}, abre \toca{Notificaciones} y apágalas.}{\nada}
+\paso{2.3}{2-3}{Vuelve a la app. Si Android la reinició, entra otra vez con A.}{En la nota, escribe si la app se reinició sola y si volvió a pedir el permiso de notificaciones.}
+\paso{2.4}{2-4}{Deja la app abierta y en primer plano durante dos minutos, y mira Despacho.}{Despacho vuelve a mostrar la combi de A en el mapa y la sigue recibiendo. La app vuelve a encender el GPS sola si en un minuto no le llega ninguna posición.}
+\paso{2.5}{2-5}{Solo si en el paso 2.4 la combi no volvió: toca \toca{Perfil}, baja hasta la sección «EL GPS» y saca una captura.}{La captura muestra qué le pasa al GPS. Si todo salió bien en el paso 2.4, marca NO SE PUDO y escribe «no hizo falta».}
+\paso{2.6}{2-6}{En los ajustes de Android, prende otra vez las notificaciones de \toca{Control de ruta} y vuelve a la app sin cerrarla.}{En menos de un minuto vuelve la notificación de la brecha, y Despacho sigue mostrando la combi de A.}
+\paso{2.7}{2-7}{Toca \toca{SALIR DE RUTA} dos veces y después \toca{Salir}.}{T1 muestra la pantalla de ingreso, y la combi de A se va del mapa de Despacho.}
+\end{pasos}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Al terminar}
+
+Devuélveme este PDF lleno, junto con las capturas de los pasos 6.7, 6.8 y 6.16, las de cada FALLA y, si hizo falta, la del paso 2.5. Yo paso los resultados a \texttt{RESULTADOS-TELEFONO.md}.
+
+\begin{nota}
+\textbf{Último paso:} en Despacho, quítale al chofer B la combi X, que le habilitaste en el paso P.6 solo para esta prueba.
+\end{nota}
+
+\subsection{Observaciones generales}
+
+Anota aquí lo que no cupo en las notas de cada paso.
+
+\TextField[name=observaciones, width=\linewidth, height=6cm, charsize=9pt, multiline=true,
+  bordercolor={0.55 0.6 0.68}, backgroundcolor={0.965 0.976 0.992}]{}
+
+\end{Form}
+\end{document}
