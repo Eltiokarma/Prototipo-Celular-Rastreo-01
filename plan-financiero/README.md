@@ -5,10 +5,13 @@ Esta carpeta guarda el Plan del Primer Año de COOP-R14, versión alfa, y el sim
 | Archivo | Qué es |
 | --- | --- |
 | `plan-primer-anio-alfa.pdf` | El plan, con el resumen ejecutivo, las funciones del equipo, los estados de resultados de cada mes, el flujo de caja y el análisis de sensibilidad. |
+| `latex/plan.plantilla.tex` | El texto del plan en LaTeX. Las cifras, las tablas y los datos de los gráficos van entre comillas angulares y los pone el script. |
+| `latex/plan-primer-anio-alfa.tex` | El LaTeX ya completo, generado: no se edita a mano. |
+| `latex/preambulo.tex` | El estilo común del plan y del manual del equipo (`equipo/`), con la paleta del producto. |
 | `simulador.html` | El simulador. Se abre con doble clic en cualquier navegador y no necesita internet. |
 | `modelo/modelo.js` | El modelo financiero. Todo supuesto que cambia el resultado está en `SUPUESTOS`. |
 | `modelo/modelo.test.js` | Las pruebas que fijan los números del plan alfa. |
-| `generar-plan.js` | Rehace el HTML y el PDF del plan a partir del modelo. |
+| `generar-plan.js` | Completa la plantilla con las cifras del modelo y compila el PDF con `latexmk`. |
 | `generar-simulador.js` | Mete el modelo dentro de `simulador.src.html` y produce `simulador.html`. |
 
 ## Cómo se rehace
@@ -27,7 +30,7 @@ node plan-financiero/generar-plan.js
 node plan-financiero/generar-simulador.js
 ```
 
-El PDF se imprime con el Chromium de Playwright y usa las fuentes Inter e Inter Display, que tienen que estar instaladas en la máquina.
+Para compilar el PDF hace falta TeX Live con `latex-extra`, `pictures` (pgfplots) y el paquete de español de babel, igual que para `manual/manual.tex`. El texto del plan se corrige en `latex/plan.plantilla.tex`, nunca en el archivo generado.
 
 ## Cómo se usa el simulador
 

@@ -1,0 +1,548 @@
+% Plan del primer año, versión alfa, de COOP-R14 (Micros Tempo).
+%
+% NO SE EDITA A MANO plan-primer-anio-alfa.tex: sale de esta plantilla con
+%   node plan-financiero/generar-plan.js
+% que pone las cifras del modelo (modelo/modelo.js) entre comillas angulares y
+% compila el PDF. El texto se corrige aquí.
+\documentclass[10.5pt,a4paper]{article}
+\input{preambulo}
+\documento{Micros Tempo · Plan del primer año, versión alfa · «fecha»}
+
+\begin{document}
+
+% ─── Portada ─────────────────────────────────────────────────────────────
+\begin{titlepage}
+\thispagestyle{empty}
+\vspace*{1.2cm}
+{\small\bfseries\color{marca}\MakeUppercase{Micros Tempo · COOP-R14}}\par\vspace{14pt}
+{\fontsize{34}{38}\selectfont\bfseries Plan del primer año}\par\vspace{6pt}
+{\fontsize{20}{24}\selectfont\color{tinta2} versión alfa}\par\vspace{18pt}
+\begin{minipage}{0.82\linewidth}\large\color{tinta2}
+Plan financiero y de equipo de diciembre de 2026 a marzo de 2028, con los estados de resultados de cada mes, el flujo de caja, las funciones de cada persona y el análisis de sensibilidad.
+\end{minipage}
+
+\vfill
+\begin{aviso}
+\textbf{Este es un plan teórico:} casi todos sus números salen de supuestos que todavía no se probaron en la calle, así que el plan se corrige cada mes con lo que pase en el mercado. Para eso existe el simulador que acompaña a este documento.
+\end{aviso}
+\vspace{10pt}
+{\color{linea}\rule{\linewidth}{0.8pt}}\par\vspace{4pt}
+\begin{tabularx}{\linewidth}{@{}XXX@{}}
+{\footnotesize\bfseries Fecha} & {\footnotesize\bfseries Empresa} & {\footnotesize\bfseries Mercado inicial}\\
+{\footnotesize\color{tinta2}«fecha»} & {\footnotesize\color{tinta2}EIRL en el Régimen MYPE Tributario} & {\footnotesize\color{tinta2}Juliaca y Puno; después, Arequipa o Cusco}
+\end{tabularx}
+\end{titlepage}
+
+{\setcounter{tocdepth}{1}\tableofcontents}
+\vspace{12pt}
+\begin{nota}
+\textbf{Cómo leer este plan.} Las cifras en soles sin IGV son las del estado de resultados; las cifras con IGV son las de la caja, porque es el dinero que entra y sale de verdad. Los meses se escriben abreviados en las tablas: «abr-27» es abril de 2027.
+\end{nota}
+\newpage
+
+% ─── 1 ───────────────────────────────────────────────────────────────────
+\section{Resumen ejecutivo}
+
+Micros Tempo cobra S/~0,50 por unidad por día a las empresas de transporte, con el IGV incluido. Con «unidades» unidades por ruta, cada ruta factura unos S/~600 al mes y deja «ventaRutaMes» sin IGV, mientras que el servidor que la atiende cuesta unos «servidorPorRuta». Como atender una ruta más cuesta menos del 10\,\% de lo que esa ruta deja, la utilidad crece con cada ruta que se firma, y el límite real del negocio es la velocidad de venta.
+
+\noindent
+\begin{minipage}[t]{0.32\linewidth}\cifra[rojo]{«cajaMin»}{Punto más bajo de la caja, en «mesCajaMin». Es el capital mínimo que se necesita.}\end{minipage}\hfill
+\begin{minipage}[t]{0.32\linewidth}\cifra[verde]{«util27»}{Utilidad operativa de 2027, sobre «ventas27» de ventas sin IGV.}\end{minipage}\hfill
+\begin{minipage}[t]{0.32\linewidth}\cifra[verde]{«cajaFinal»}{Caja a marzo de 2028, sin contar el aporte de capital y con la renta de 2027 ya pagada.}\end{minipage}
+
+\vspace{4pt}\noindent
+\begin{minipage}[t]{0.32\linewidth}\cifra{Mayo de 2027}{Desde ese mes, el negocio gana todos los meses del período.}\end{minipage}\hfill
+\begin{minipage}[t]{0.32\linewidth}\cifra{60 → «rutasFinal» rutas}{Rutas en julio de 2027 y en marzo de 2028, con una pausa de cuatro meses entre ambas fechas.}\end{minipage}\hfill
+\begin{minipage}[t]{0.32\linewidth}\cifra{S/~50\,000}{Capital recomendado: cubre el punto más bajo de la caja y deja un colchón de «colchon».}\end{minipage}
+
+\subsection{Cómo crece}
+
+La venta tiene un ritmo medido: una persona a tiempo completo firma una ruta por semana, porque cada ruta exige conversar con la empresa y conseguir que sus choferes instalen la app. Gerson vende de diciembre a febrero, y desde marzo un vendedor a tiempo completo toma su lugar para que él se dedique al sistema. Con tres vendedores, el equipo firma 10 rutas por mes desde abril y llena Juliaca y Puno, unas 60 rutas en total, en «lleno».
+
+De agosto a noviembre de 2027 no se firman rutas nuevas, porque esos cuatro meses se usan para preparar la entrada a Arequipa o Cusco. Desde diciembre se vuelven a firmar 10 rutas por mes en la ciudad grande, y el plan cierra marzo de 2028 con «rutasFinal» rutas y «unidadesFinal» unidades.
+
+\subsection{Qué tiene que salir bien}
+
+\begin{itemize}
+\item \textbf{La productividad de venta.} Si cada persona que vende, Gerson incluido, trae la mitad de lo previsto, 2027 deja «utilMitad» en vez de «util27Mil», y Juliaca y Puno recién se llenan en enero de 2028.
+\item \textbf{El tamaño del mercado.} El plan supone que todas las rutas de Juliaca y Puno, unas 60, aceptan el sistema, así que en julio de 2027 ya no queda a quién venderle en esas dos ciudades.
+\item \textbf{El sistema a cargo de una sola persona.} Desde marzo, Gerson es el único responsable técnico de un servicio que en marzo de 2028 atiende «unidadesFinal» combis.
+\end{itemize}
+
+\subsection{Las tres decisiones que más mueven el resultado}
+
+\begin{enumerate}
+\item \textbf{Facturar a inicio de mes.} Baja el capital necesario de «capitalMil» a «capitalAdelantado» sin cambiar nada más.
+\item \textbf{Acortar la pausa.} Con dos meses de pausa en vez de cuatro, 2027 deja «utilPausa2»; sin pausa, «utilSinPausa».
+\item \textbf{Revisar el precio.} Con S/~0,60 por unidad por día, 2027 deja «utilPrecio60»; con S/~0,50 más IGV, «utilMasIGV».
+\end{enumerate}
+
+% ─── 2 ───────────────────────────────────────────────────────────────────
+\section{El negocio visto desde una ruta}
+
+Una ruta tiene «unidades» unidades y cada unidad paga S/~0,50 por día, así que una ruta factura S/~600 en un mes de 30 días y S/~620 en uno de 31. De esos S/~600, unos S/~92 son el IGV del 18\,\% sobre el valor del servicio y se le pagan a SUNAT, de modo que a la empresa le quedan «ventaRutaMes» por ruta y por mes.
+
+\begin{center}
+\begin{tabularx}{0.86\linewidth}{@{}Xr@{}}
+\toprule
+Lo que paga una ruta en un mes de 30 días & S/~600 con IGV\\
+Lo que le queda a Micros Tempo sin IGV & «ventaRutaMes»\\
+Lo que cuesta el servidor de esa ruta, con colchón & «servidorPorRuta»\\
+Lo que cuesta firmarla una sola vez (comisión, cargas y kit) & «costoEntrada»\\
+Lo que le queda sin IGV en su primer mes, que paga a medias & «primerMes»\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+La ruta que firma un vendedor cuesta unos «costoEntrada» una sola vez y recupera ese costo en su segundo mes. Desde entonces, cada ruta deja unos S/~460 al mes para cubrir los gastos fijos, que con el equipo completo y sin crecer suman «fijoMensual» al mes. Por eso el negocio se sostiene por sí mismo desde unas «equilibrio50» rutas.
+
+\begin{nota}
+\textbf{Lo que entra por unidad y por día:} S/~0,4237, que es el precio de S/~0,50 sin el IGV. A ese monto no se le resta el 10\,\% de renta, porque la renta del Régimen MYPE Tributario se paga sobre la utilidad anual y no sobre lo que se factura: cada mes se adelanta solo el 1\,\% de las ventas, y la renta se ajusta en marzo del año siguiente.
+\end{nota}
+
+\subsection{Rutas necesarias para cubrir los gastos fijos}
+
+La tabla supone el equipo completo, con el sueldo de Gerson, y ningún mes con rutas nuevas, de modo que no hay comisiones ni kits que pagar.
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Precio por unidad y por día & Rutas & Unidades & Pago por micro al mes\\
+\midrule
+«tablaEquilibrio»
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ─── 3 ───────────────────────────────────────────────────────────────────
+\section{Supuestos}
+
+Cada supuesto de esta tabla se puede cambiar en el simulador. Los que más pesan en el resultado son la productividad de venta, la duración de la pausa y el precio.
+
+{\small
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{3.3cm}X@{}}
+\toprule
+Precio & S/~0,50 por unidad por día, con el IGV incluido, cobrado todos los días del mes.\\
+Tamaño de una ruta & 40 unidades por ruta, y cada empresa tiene una sola ruta.\\
+Prueba & Las 2 rutas de diciembre de 2026 no pagan. En enero de 2027 todas las rutas pagan el mes completo, y desde febrero una ruta nueva paga la mitad de su primer mes.\\
+Capacidad de venta & Una ruta por semana por jornada completa. Gerson trae 4 rutas por mes en enero y febrero. Un vendedor a tiempo completo trae 1 ruta su primer mes y 4 desde el segundo; uno a medio tiempo, 1 y después 2.\\
+Mercado & Juliaca y Puno suman unas 60 rutas. Desde la ruta 26 se vende también en Puno, con S/~500 al mes de viajes.\\
+Pausa & Al llegar a 60 rutas se dejan de firmar rutas durante 4 meses para preparar Arequipa o Cusco, y después se vende allá. La ciudad grande cuesta S/~1500 al mes en viajes y estadía desde que empieza la pausa.\\
+Cobranza & Se factura a fin de mes. El 95\,\% se cobra al mes siguiente, el 3\,\% a los dos meses y el 2\,\% no se cobra.\\
+Sueldos & S/~1400 por jornada completa y S/~700 por medio tiempo, más S/~200 por cada ruta que firma un vendedor. Gerson no cobra hasta junio de 2027 y desde julio cobra S/~2000 como programador.\\
+Cargas laborales & Microempresa inscrita en el REMYPE: sin CTS ni gratificaciones, con EsSalud del 9\,\% y Vida Ley del 1\,\%.\\
+Oficina & Prestada en diciembre de 2026. Desde enero de 2027, alquiler de S/~500 con una garantía de S/~1000, internet de S/~120 y servicios que suben con el número de personas.\\
+Equipo de trabajo & Por cada persona contratada, un celular de S/~700 con un plan de S/~50, una laptop de S/~2200 y un escritorio con silla de S/~650. Gerson usa su propia laptop y su propio celular.\\
+Tecnología & Suscripción de IA de S/~400 al mes y S/~25 por persona en licencias. El costo del servidor sale de las pruebas de carga del sistema (\texttt{modelo-costos.js}), a S/~3,75 por dólar y con un colchón del 25\,\%.\\
+Otros gastos & Contador externo de S/~350 al mes, que sube a S/~500 en junio de 2027. Marketing de S/~300 al mes y un kit de S/~150 por ruta nueva. Movilidad de S/~150 al mes por persona contratada, acondicionamiento de la oficina por S/~1500 en enero de 2027, y útiles y gastos bancarios. Constitución de la EIRL y abogado por S/~1600, licencia municipal e ITSE por S/~400 y un 5\,\% de imprevistos.\\
+\bottomrule
+\end{tabularx}}
+
+% ─── 4 ───────────────────────────────────────────────────────────────────
+\section{Plan de crecimiento}
+
+Las rutas salen de la capacidad de cada persona del equipo. El gráfico muestra cuántas rutas nuevas trae cada una cada mes, y una ruta nueva entra a la cuenta de las rutas activas el mismo mes en que se firma.
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, height=5.6cm, ybar stacked, bar width=10pt, ymin=0, ymax=13, ytick={0,2,...,12},
+  symbolic x coords={«xMeses»}, xtick=data, x tick label style={rotate=0,font=\tiny\color{tenue}}, enlarge x limits=0.04,
+  ylabel={Rutas nuevas en el mes}]
+\addplot[fill=tenue!55, draw=white] coordinates {«serPrueba»}; \addlegendentry{Prueba}
+\addplot[fill=tinta, draw=white] coordinates {«serGerson»}; \addlegendentry{Gerson}
+\addplot[fill=marca, draw=white] coordinates {«serA»}; \addlegendentry{Vendedor A}
+\addplot[fill=marca!45, draw=white] coordinates {«serB»}; \addlegendentry{Vendedor B}
+\addplot[fill=verde, draw=white] coordinates {«serD»}; \addlegendentry{Vendedor D}
+\end{axis}
+\end{tikzpicture}
+\caption{De agosto a noviembre de 2027 no hay barras: es la pausa para preparar la ciudad grande.}
+\end{figure}
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, height=5cm, ymin=0, ymax=110, ytick={0,20,...,100},
+  xmin=0, xmax=15, xtick={0,...,15}, xticklabels={«xMeses»}, x tick label style={font=\tiny\color{tenue}},
+  ylabel={Rutas activas}, nodes near coords, every node near coord/.append style={yshift=1pt}]
+\addplot[name path=r, very thick, color=marca, mark=*, mark size=1.4pt] coordinates {«serActivas»};
+\path[name path=eje] (axis cs:0,0) -- (axis cs:15,0);
+\addplot[marca!12] fill between[of=r and eje];
+\draw[dashed, color=ambar] (axis cs:0,60) -- (axis cs:15,60) node[pos=0.02, above right, font=\tiny\color{ambar}] {Tope de Juliaca y Puno: 60 rutas};
+\end{axis}
+\end{tikzpicture}
+\caption{Rutas activas al cierre de cada mes.}
+\end{figure}
+
+\begin{landscape}
+\subsection{Quién trae cada ruta, mes a mes}
+{\scriptsize\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}l*{16}{Q}@{}}
+\toprule
+«tablaRutas»
+\bottomrule
+\end{tabular}}
+
+\subsection{El equipo, mes a mes}
+Los vendedores se cuentan en jornadas: ½ es medio tiempo, y 2 ½ son dos vendedores a tiempo completo y uno a medio tiempo.
+
+{\scriptsize\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}l*{16}{Q}@{}}
+\toprule
+«tablaEquipo»
+\bottomrule
+\end{tabular}}
+\end{landscape}
+
+% ─── 5 ───────────────────────────────────────────────────────────────────
+\section{El equipo y sus funciones}
+
+El primer nivel de soporte no lo da Micros Tempo: lo da el despacho de cada empresa desde su panel, y el chofer administra a sus propios cobradores desde la app. Por eso el equipo es pequeño y casi todo su tiempo se va en vender, instalar y cobrar. El manual del equipo desarrolla cada puesto con su porqué, su rutina y sus metas.
+
+\begin{rol}{Gerson · titular gerente y programador}
+{\small\color{tenue}Desde diciembre de 2026 · sin sueldo hasta junio de 2027 y S/~2000 desde julio · trae 4 rutas por mes en enero y febrero}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Vende en diciembre, enero y febrero: cierra las 2 rutas de prueba y 8 rutas más.
+\item Desde marzo se dedica al sistema: servidor, seguridad, respaldos y actualizaciones de la app.
+\item Prepara el servidor antes de las 5000 unidades, el tamaño hasta el que se midieron las consultas, aunque esa prueba se hizo con 12 choferes reportando y no con la flota entera.
+\item Firma los contratos, aprueba los pagos y decide cuándo empieza y termina la pausa.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Cómo se mide}
+\begin{itemize}
+\item Horas al mes con el servicio caído y tiempo de respuesta ante una falla.
+\item Respaldos probados una vez al mes con una restauración completa.
+\item Caja disponible frente al plan, revisada en la primera semana de cada mes.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\begin{rol}{Vendedor A · tiempo completo}
+{\small\color{tenue}Medio tiempo en diciembre de 2026 (S/~700) y tiempo completo desde enero de 2027 (S/~1400) · S/~200 por ruta firmada · meta: 1 ruta en enero y 4 por mes desde febrero}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Acompaña las 2 rutas de prueba de diciembre y anota lo que piden los choferes y el despacho.
+\item Busca empresas, presenta el sistema a la gerencia y, cuando hace falta, a la asamblea de socios.
+\item Instala la app en los teléfonos de choferes y cobradores, y deja capacitado al despacho.
+\item Acompaña a cada ruta nueva durante su primer mes, hasta que paga su primera factura completa.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Cómo se mide}
+\begin{itemize}
+\item Rutas firmadas en el mes, contra una meta de 4.
+\item Teléfonos con la app activa una semana después de la firma.
+\item Rutas que pagan su segunda factura a tiempo.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\begin{rol}{Vendedor B · medio tiempo}
+{\small\color{tenue}Desde febrero de 2027 · S/~700 · S/~200 por ruta firmada · meta: 1 ruta en febrero y 2 por mes desde marzo}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Vende a empresas pequeñas y hace el seguimiento de las que dijeron que lo pensarían.
+\item Apoya las instalaciones de los vendedores a tiempo completo cuando una ruta tiene muchos choferes.
+\item Visita a las rutas activas que dejan de usar la app, antes de que pidan dar de baja el servicio.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Cómo se mide}
+\begin{itemize}
+\item Rutas firmadas en el mes, contra una meta de 2.
+\item Rutas activas con menos del 80\,\% de sus unidades reportando, y cuántas se recuperan.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\begin{rol}{Vendedor D · tiempo completo, reemplaza a Gerson en ventas}
+{\small\color{tenue}Desde marzo de 2027 · S/~1400 · S/~200 por ruta firmada · meta: 1 ruta en marzo y 4 por mes desde abril}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Recibe la cartera y los contactos de Gerson, que lo acompaña a sus reuniones durante su primer mes.
+\item Abre Puno desde abril, cuando se llega a la ruta 26.
+\item Lidera la preparación de la ciudad grande durante la pausa y su primera venta en diciembre.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Cómo se mide}
+\begin{itemize}
+\item Rutas firmadas en el mes, contra una meta de 4.
+\item Durante la pausa, reuniones agendadas en la ciudad grande y contratos listos para firmar en diciembre.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\begin{rol}{Asistente de oficina · medio tiempo}
+{\small\color{tenue}Desde abril de 2027 · S/~700 · no vende}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Emite las facturas electrónicas, hace la cobranza y avisa a quien tiene un pago atrasado.
+\item Atiende las llamadas de las empresas y deriva al despacho lo que el despacho puede resolver.
+\item Archiva los contratos y los consentimientos firmados de choferes y cobradores.
+\item Prepara para el contador la información de la planilla, las compras y las ventas del mes.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Cómo se mide}
+\begin{itemize}
+\item Facturas emitidas en los tres primeros días del mes.
+\item Porcentaje cobrado al día 15 del mes siguiente, contra una meta del 95\,\%.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\begin{rol}{Contador externo}
+{\small\color{tenue}Desde diciembre de 2026 · S/~350 al mes y S/~500 desde junio de 2027 · con recibo por honorarios}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Inscribe a la EIRL en el REMYPE y en el Régimen MYPE Tributario.
+\item Presenta cada mes la declaración del IGV y la renta (formulario 621) y la planilla electrónica.
+\item Lleva los libros electrónicos y prepara la declaración anual de marzo.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Qué confirma primero}
+\begin{itemize}
+\item Si el servicio entra en el sistema de detracciones del 12\,\%.
+\item La UIT y la remuneración mínima de 2027, y cómo se paga el sueldo de Gerson.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\subsection{Metas de la pausa, de agosto a noviembre de 2027}
+
+Durante la pausa, la planilla de ventas sigue costando unos S/~4300 al mes sin rutas nuevas. Por eso cada vendedor recibe metas propias para esos cuatro meses: proponerle a Gerson en agosto la ciudad grande, conseguir 30 reuniones con gerencias en septiembre y octubre, y dejar 10 contratos listos para firmar en diciembre. Mientras tanto, la cobranza de Juliaca y Puno tiene que mantenerse al día.
+
+% ─── 6 ───────────────────────────────────────────────────────────────────
+\newpage
+\section{Estados de resultados mensuales}
+
+Las cifras están en soles y sin IGV, y las filas en gris muestran de qué está hecho cada gasto. La primera tabla va de diciembre de 2026 a julio de 2027.
+
+{\scriptsize\setlength{\tabcolsep}{2.6pt}\renewcommand{\arraystretch}{0.95}
+\begin{tabular}{@{}l*{8}{R}@{}}
+\toprule
+«tablaResultados1»
+\bottomrule
+\end{tabular}}
+
+\newpage
+\subsection{De agosto de 2027 a marzo de 2028}
+
+Las tres últimas columnas suman diciembre de 2026, todo 2027 y el primer trimestre de 2028.
+
+{\scriptsize\setlength{\tabcolsep}{2.2pt}\renewcommand{\arraystretch}{0.95}
+\begin{tabular}{@{}l*{11}{Q}@{}}
+\toprule
+«tablaResultados2»
+\bottomrule
+\end{tabular}}
+
+\newpage
+\subsection{Ingreso neto y gastos de cada mes}
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, height=6.4cm, ymin=0, ymax=55, ytick={0,10,...,50},
+  yticklabel={\pgfmathprintnumber{\tick}~mil},
+  xmin=0, xmax=15, xtick={0,...,15}, xticklabels={«xMeses»}, x tick label style={font=\tiny\color{tenue}}]
+\addplot[name path=ing, very thick, color=marca, mark=*, mark size=1.3pt] coordinates {«serIngreso»}; \addlegendentry{Ingreso neto}
+\addplot[name path=gas, very thick, color=naranja, mark=square*, mark size=1.2pt] coordinates {«serGastos»}; \addlegendentry{Gastos y depreciación}
+\addplot[verde!18, forget plot] fill between[of=ing and gas, soft clip={domain=4.2:15}];
+\addplot[rojo!12, forget plot] fill between[of=ing and gas, soft clip={domain=0:4.2}];
+\node[font=\tiny\color{verde}, anchor=south] at (axis cs:10,23) {Utilidad};
+\node[font=\tiny\color{rojo}, anchor=south] at (axis cs:1.6,8.5) {Pérdida};
+\end{axis}
+\end{tikzpicture}
+\caption{Las dos líneas se cruzan entre abril y mayo de 2027. El salto de diciembre de 2027 en los gastos se debe a las comisiones y los kits de las primeras rutas de la ciudad grande.}
+\end{figure}
+
+\subsection{En qué se van los gastos de 2027}
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, xbar, scale only axis, width=0.58\linewidth, height=6.4cm, bar width=7pt, xmin=0, xmajorgrids, ymajorgrids=false,
+  «ticksGrupos», y tick label style={font=\scriptsize\color{tinta2}},
+  xticklabel={\pgfmathprintnumber{\tick}~mil},
+  nodes near coords, nodes near coords align={horizontal}, ymin=-0.7, ymax=«nGruposMax», enlarge x limits={upper,value=0.16},
+  point meta=explicit symbolic]
+\addplot[fill=marca, draw=none] coordinates {«serGrupos»};
+\end{axis}
+\end{tikzpicture}
+\caption{Gastos de 2027 sin IGV, en soles. Los sueldos y sus cargas son «pctPlanilla» del gasto total.}
+\end{figure}
+
+\subsection{Lo que dicen los resultados}
+
+El negocio pierde de diciembre a abril, aunque cada vez menos, porque todavía hay pocas rutas que paguen el mes completo, las rutas nuevas pagan medio mes y las comisiones se pagan al firmar. En marzo pierde «marzo27Abs» porque las «completasMarzo» rutas que ya pagan el mes completo todavía no cubren los gastos, que suben con el sueldo del vendedor D. En abril pierde «abril27Abs» porque entra el asistente de oficina con su equipo; sin ese gasto, abril ya ganaría unos «abrilSinOficina».
+
+Desde mayo de 2027 el negocio gana todos los meses, y durante la pausa la utilidad se estabiliza en unos S/~15\,000 al mes. En esos meses ya no se pagan comisiones ni kits, aunque sí se paga la preparación de la ciudad grande. En diciembre de 2027 la utilidad baja a «utilDic» porque se vuelve a firmar, y en marzo de 2028 llega a «utilMar28».
+
+% ─── 7 ───────────────────────────────────────────────────────────────────
+\begin{landscape}
+\section{Flujo de caja}
+Las cifras están con IGV, porque es el dinero que entra y sale de verdad. El IGV y el adelanto de renta de un mes se pagan a SUNAT el mes siguiente.
+
+{\scriptsize\setlength{\tabcolsep}{2.4pt}\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}l*{19}{Q}@{}}
+\toprule
+«tablaCaja»
+\bottomrule
+\end{tabular}}
+\end{landscape}
+
+\subsection{La caja, mes a mes}
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, height=6.4cm, ybar=0pt, bar width=14pt, ymin=-55, ymax=100, ytick={-50,-25,...,100},
+  yticklabel={\pgfmathprintnumber{\tick}~mil},
+  xmin=-0.6, xmax=15.6, xtick={0,...,15}, xticklabels={«xMeses»}, x tick label style={font=\tiny\color{tenue}},
+  extra y ticks={0}, extra y tick style={grid style={draw=tinta2, thick}}]
+\addplot[fill=rojosuave, draw=none, bar shift=0pt] coordinates {«serCajaNeg»}; \addlegendentry{Caja negativa}
+\addplot[fill=verde!80, draw=none, bar shift=0pt] coordinates {«serCajaPos»}; \addlegendentry{Caja positiva}
+\addplot[sharp plot, dashed, thick, color=ambar, mark=none, forget plot] coordinates {(-0.6,-50) (15.6,-50)};
+\node[font=\tiny\color{tinta}, anchor=north] at (axis cs:«idxMin»,«cajaMinNum») {«cajaMin»};
+\node[font=\tiny\color{ambar}, anchor=south west] at (axis cs:-0.5,-50) {Aporte recomendado: S/~50\,000};
+\end{axis}
+\end{tikzpicture}
+\caption{Caja acumulada sin aporte de capital. Toca fondo en abril de 2027, vuelve a positivo en septiembre y nunca baja del aporte recomendado.}
+\end{figure}
+
+% ─── 8 ───────────────────────────────────────────────────────────────────
+\section{Capital, impuestos y cierre del período}
+
+\subsection{Cuánto capital se necesita}
+
+Sin aporte, la caja baja hasta «cajaMin» en «mesCajaMin». Hasta marzo de 2027 la caja ya acumula un déficit de «gastadoMarzo», y el punto más bajo llega en abril, cuando entra el asistente de oficina con su equipo. Con un aporte de S/~50\,000, la caja nunca baja de «colchon», un colchón menor que la cobranza de un solo mes: en abril de 2027 se cobran «cobroAbril». Si se quiere cubrir también un mes de cobranza atrasada, el aporte sube a unos «aporteCubre». Si se factura a inicio de mes, el hueco baja a «capitalAdelantado» y alcanzan unos S/~35\,000.
+
+\subsection{Posición al 31 de marzo de 2028}
+
+\begin{center}
+\begin{tabularx}{0.8\linewidth}{@{}Xr@{}}
+\toprule
+Caja acumulada, sin aporte de capital & «cajaFinal»\\
+Facturación por cobrar, que entra en abril y mayo & «porCobrar»\\
+IGV de marzo, que se paga en abril & «igvPorPagar»\\
+Ventas sin IGV del primer trimestre de 2028 & «ventasT1»\\
+Utilidad operativa del primer trimestre de 2028 & «utilT1»\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Impuestos}
+
+\begin{itemize}
+\item \textbf{IGV del 18\,\%.} Se debe cuando se emite la factura, aunque el cliente todavía no haya pagado. Como microempresa, Micros Tempo puede acogerse al IGV Justo (Ley 30524) y postergar ese pago tres meses.
+\item \textbf{Renta en el Régimen MYPE Tributario.} Cada mes se adelanta el 1\,\% de las ventas sin IGV. La renta anual es del 10\,\% sobre los primeros 15 UIT de utilidad, que son S/~82\,500, y del 29,5\,\% sobre el resto. La utilidad de 2027 menos la pérdida de diciembre de 2026 deja una renta de «renta27»; los adelantos cubren «adelantos» y el saldo de «saldoRenta» se paga en marzo de 2028.
+\item \textbf{Detracción del 12\,\%.} Se aplica a los servicios facturados por más de S/~700. Con el precio base, una ruta factura entre S/~560 y S/~620 al mes y queda por debajo; con S/~0,50 más IGV, la factura de un mes de 30 días sube a S/~708 y sí tendría detracción, igual que una empresa de la ciudad grande con varias rutas en una sola factura.
+\item \textbf{Régimen laboral de microempresa.} Vale mientras las ventas anuales no pasen de 150 UIT, que son S/~825\,000. En 2027 se venden «ventas27», y en marzo de 2028 el ritmo anual ronda los «ritmoAnual».
+\item \textbf{Gerson en planilla.} Desde julio de 2027 cobra S/~2000 en planilla con EsSalud, y la utilidad que quede en la EIRL se puede retirar como dividendos con una retención del 5\,\%.
+\end{itemize}
+
+% ─── 9 ───────────────────────────────────────────────────────────────────
+\section{Análisis de sensibilidad}
+
+Cada escenario cambia un solo supuesto del plan base y deja todo lo demás igual. Los dos gráficos ordenan los escenarios por su efecto: el primero muestra la utilidad de 2027 y el segundo, el capital mínimo que necesitaría cada uno.
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, xbar, scale only axis, width=0.55\linewidth, height=7.2cm, bar width=6.5pt, xmajorgrids, ymajorgrids=false,
+  «ticksEscUtil», y tick label style={font=\scriptsize\color{tinta2}},
+  xticklabel={\pgfmathprintnumber{\tick}~mil},
+  nodes near coords, nodes near coords align={horizontal}, point meta=explicit symbolic, ymin=-0.7, ymax=«nEscMax», enlarge x limits={upper,value=0.2}, xmin=0]
+\addplot[fill=marca, draw=none] coordinates {«serEscUtil»};
+\draw[dashed, color=ambar, thick] (axis cs:«util27Num»,-0.7) -- (axis cs:«util27Num»,«nEscMax»);
+\end{axis}
+\end{tikzpicture}
+\caption{Utilidad operativa de 2027 en cada escenario. La línea punteada es el plan base.}
+\end{figure}
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, xbar, scale only axis, width=0.55\linewidth, height=7.2cm, bar width=6.5pt, xmajorgrids, ymajorgrids=false,
+  «ticksEscCaja», y tick label style={font=\scriptsize\color{tinta2}},
+  xticklabel={\pgfmathprintnumber{\tick}~mil},
+  nodes near coords, nodes near coords align={horizontal}, point meta=explicit symbolic, ymin=-0.7, ymax=«nEscMax», enlarge x limits={upper,value=0.2}, xmin=0]
+\addplot[fill=rojosuave, draw=none] coordinates {«serEscCaja»};
+\draw[dashed, color=ambar, thick] (axis cs:«capitalNum»,-0.7) -- (axis cs:«capitalNum»,«nEscMax»);
+\end{axis}
+\end{tikzpicture}
+\caption{Capital mínimo que necesita cada escenario. La línea punteada es el plan base.}
+\end{figure}
+
+\subsection{La tabla completa}
+
+{\small
+\begin{tabularx}{\linewidth}{@{}Xrrrr@{}}
+\toprule
+Escenario & Gana desde & Utilidad 2027 & Caja mínima & Caja mar-28\\
+\midrule
+«tablaEscenarios»
+\bottomrule
+\end{tabularx}}
+
+\subsection{Lo que muestran los escenarios}
+
+\textbf{El riesgo más grande es vender menos de lo previsto.} Si cada persona que vende trae la mitad, el capital necesario sube a «capitalMitad» y la caja de marzo de 2028 queda en «cajaMitad». La señal llega pronto: si a fines de marzo de 2027 no hay unas 20 rutas activas, el plan se tiene que corregir.
+
+\textbf{La pausa reduce el crecimiento, pero no cambia el capital necesario.} Con cuatro meses de pausa, 2027 deja «util27Mil»; sin pausa, «utilSinPausa». El capital necesario es el mismo en los dos casos, porque el punto más bajo de la caja llega antes de la pausa.
+
+\textbf{Hasta marzo de 2028, quedarse en Juliaca y Puno deja un poco más.} En ese escenario, 2027 cierra con «utilSoloJP» y la caja de marzo de 2028 llega a «cajaSoloJP», porque no se paga la preparación de la ciudad grande. Desde enero de 2028 el plan base ya gana más cada mes, y la diferencia crece con cada ruta nueva.
+
+\textbf{Que Gerson deje de vender cuesta «costoDejarVender» de utilidad en 2027.} Es el precio de tener a una persona dedicada al sistema cuando el servicio pasa de unas pocas rutas a miles de combis.
+
+% ─── 10 ──────────────────────────────────────────────────────────────────
+\section{Riesgos y cómo vigilarlos}
+
+{\small
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{3.4cm}XX@{}}
+\toprule
+\normalfont Riesgo & Señal temprana & Qué hacer\\
+\midrule
+Se vende menos de lo previsto & Menos de 20 rutas activas a fines de marzo de 2027. & Revisar el argumento de venta con las empresas que dijeron que no, antes de contratar más vendedores.\\
+Las rutas firmadas no usan la app & Menos del 80\,\% de las unidades reportando una semana después de la firma. & Volver a instalar y capacitar al despacho, porque una ruta que no usa la app deja de pagar.\\
+La cobranza se atrasa & Menos del 95\,\% cobrado al día 15 del mes siguiente. & Facturar a inicio de mes y suspender el servicio, con un aviso claro, al segundo mes impago.\\
+El servidor no aguanta la escala & Pasar de 3500 unidades sin haber revisado el servidor. & Preparar el servidor antes de las 5000 unidades, porque las pruebas de carga muestran que a ese tamaño un informe largo frena el GPS de toda la flota.\\
+El sistema depende de una sola persona & Una falla que nadie más puede atender. & Documentar los despliegues y tener un programador de confianza al que se le pague por horas.\\
+La ciudad grande tarda en arrancar & Menos de 10 contratos listos a fines de noviembre de 2027. & Alargar la pausa un mes o volver a buscar rutas en Juliaca y Puno.\\
+\bottomrule
+\end{tabularx}}
+
+% ─── 11 ──────────────────────────────────────────────────────────────────
+\section{Recomendaciones}
+
+\begin{enumerate}
+\item \textbf{Tener S/~50\,000 disponibles antes de diciembre de 2026,} o S/~35\,000 si se factura a inicio de mes. No hace falta tenerlos todos desde el primer mes, porque hasta marzo de 2027 la caja acumula un déficit de unos «gastadoMarzoMil».
+\item \textbf{Facturar a inicio de mes,} porque es la medida más barata del plan y la que más baja el capital necesario.
+\item \textbf{Pasarle la cartera de Gerson al vendedor D en su primera semana de marzo,} con Gerson a su lado en las reuniones, para que D no empiece de cero.
+\item \textbf{Medir la meta cada semana:} quién firmó qué ruta y cuántos teléfonos quedaron con la app activa.
+\item \textbf{Planificar la pausa desde mayo,} para que en agosto ya esté elegida la ciudad grande y armado el trabajo de los cuatro meses.
+\item \textbf{Probar S/~0,50 más IGV,} que significa un 18\,\% más de ingreso si las empresas aceptan el precio, aunque la factura de una ruta pasaría a S/~708 en un mes de 30 días y entraría en la detracción del 12\,\%.
+\item \textbf{Firmar contratos por unidad inscrita,} con un mínimo de 40 unidades por ruta y un plazo de 12 meses.
+\item \textbf{Apartar cada mes un 10\,\% de la utilidad} para la renta que se paga en marzo, y un 29,5\,\% de la que pase de S/~82\,500 en el año. En 2028 ese tope se alcanza pronto, porque solo el primer trimestre deja «utilT1».
+\item \textbf{Separar las cuentas:} la EIRL con su propia cuenta bancaria, y los retiros de Gerson con un monto y una fecha fijos.
+\end{enumerate}
+
+\subsection{Qué evitar}
+
+\begin{itemize}
+\item \textbf{Dar pruebas gratis sin fecha de fin,} porque cada mes gratis de una ruta cuesta unos S/~500 y acostumbra al cliente a no pagar.
+\item \textbf{Partir la factura de una empresa con varias rutas para esquivar la detracción,} porque SUNAT mira la operación y no el papel.
+\item \textbf{Que Gerson vuelva a vender cuando falte una ruta,} porque desde marzo su trabajo es el sistema.
+\item \textbf{Pagar a los vendedores durante la pausa sin metas propias,} porque son unos S/~17\,000 en cuatro meses.
+\item \textbf{Regalar celulares, soportes o datos a los choferes,} porque S/~15 por chofer equivalen al ingreso de un mes entero de su unidad, y en una ruta de 40 unidades suman S/~600, todo lo que la ruta paga en un mes.
+\end{itemize}
+
+% ─── 12 ──────────────────────────────────────────────────────────────────
+\section{Calendario de decisiones}
+
+{\small
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{3.2cm}XX@{}}
+\toprule
+\normalfont Mes & Qué pasa & Qué se decide\\
+\midrule
+Diciembre de 2026 & Dos rutas de prueba, oficina prestada y un vendedor a medio tiempo. & Constituir la EIRL, inscribirla en el REMYPE y abrir la cuenta bancaria.\\
+Enero de 2027 & Empieza el cobro y se alquila la oficina. & Confirmar con el contador la detracción y el pago a Gerson.\\
+Febrero de 2027 & Entra el vendedor B, y Gerson vende su último mes. & Preparar la cartera de Gerson para entregársela al vendedor D en marzo.\\
+Marzo de 2027 & Entra el vendedor D y Gerson pasa al sistema. & Comparar las rutas activas con el plan, que espera 23.\\
+Abril de 2027 & Entra el asistente de oficina y la caja toca fondo. & Revisar el capital disponible frente a lo gastado.\\
+Mayo de 2027 & El negocio empieza a ganar todos los meses. & Armar el plan de la pausa y la lista de ciudades posibles.\\
+Julio de 2027 & Se llega a 60 rutas y Gerson empieza a cobrar. & Confirmar que Juliaca y Puno están llenas o seguir vendiendo allí.\\
+Agosto a noviembre de 2027 & Pausa para preparar la ciudad grande. & Elegir entre Arequipa y Cusco en agosto y dejar 10 contratos listos.\\
+Diciembre de 2027 & Primeras rutas en la ciudad grande. & Decidir si hace falta un cuarto vendedor para 2028.\\
+Marzo de 2028 & Se paga la renta de 2027 y cierra el período del plan. & Escribir el plan del segundo año con los números reales.\\
+\bottomrule
+\end{tabularx}}
+
+\section*{Anexo: método y cifras por confirmar}
+\addcontentsline{toc}{section}{Anexo: método y cifras por confirmar}
+
+Los números salen del archivo \texttt{plan-financiero/modelo/modelo.js} del repositorio, y una prueba automática fija los resultados de este documento. El costo del servidor sale de las pruebas de carga del sistema (\texttt{modelo-costos.js}), ajustadas a 40 unidades por ruta. El simulador usa el mismo modelo, de modo que lo que se cambie allí se puede comparar con este plan.
+
+Las cifras tributarias y laborales son de noviembre de 2026 y salen de memoria, así que el contador debe confirmarlas antes de usarlas. La UIT de 2027 se tomó como S/~5500 y la remuneración mínima, como S/~1130. Falta confirmar si el servicio entra en el sistema de detracciones, qué requisitos pide el IGV Justo y cómo se declaran los medios tiempos. También hay que confirmar si los trabajadores de una microempresa van a EsSalud o al SIS semicontributivo: el plan supone EsSalud del 9\,\%, que es la opción más cara.
+
+\end{document}
