@@ -195,8 +195,11 @@ la captura de Despacho del paso 3.3 lo muestra en la tarjeta de la combi
 - **Combis:** X, M11111; Y, M12345.
 - **Horas:** el caso 3 se hizo hacia las 18:57 y el caso 6 hacia las 20:45.
 - **Capturas recibidas:** la de Despacho del paso 3.3 (18:59), en el documento
-  «SS de Pruebas Android v2 - 01». La del paso 2.5 llegó **descrita en texto**.
-  **Faltan** las de los pasos 6.7, 6.8 y 6.16.
+  «SS de Pruebas Android v2 - 01», y dos del Redmi 15C (T2, con el tema
+  oscuro): 20:35 (paso 6.7) y 20:46 (paso 6.16). La del paso 2.5 llegó
+  **descrita en texto**. **Falta** la del paso 6.8 (Despacho: el mapa y la
+  Actividad). Con ellas llegaron otra vez tres del Poco X7 (7:09, 7:15 y
+  7:24), pero son las de la segunda ronda, del 20/11: ya están anotadas allá.
 
 De 56 pasos: 50 OK, 4 FALLA (2.5, 2.6, 3.3 y 3.4), 1 NO SE PUDO (2.4) y 1 sin
 marcar (6.12).
@@ -235,9 +238,10 @@ marcar (6.12).
 | Paso | Resultado | Lo que se vio |
 |---|---|---|
 | 6.1 a 6.11 | OK | El relevo pide confirmación también con **una sola** combi (6.3 a 6.6) y no la pide dos veces si ya se confirmó en la lista (6.10 y 6.11). H16 arreglado. |
+| 6.7 | OK | Captura de T2 a las 20:35: el aviso «El GPS se apagó: Otro chofer tomó la unidad…», palabra por palabra, con «Servicio de GPS: detenido: sin rol de GPS» y «GPS enviadas 4782 · fallidas 13 · último hace 15s · sin red ×13». |
 | 6.5 | OK, con un detalle | «El botón de deslizamiento Deslizar para salir a Ruta se quedó pegado en IR y a la derecha, no es problema, regresó al tocarlo.» Ver H27. |
 | 6.12 | Sin marcar | Sin nota. Los pasos siguientes salieron bien, así que se hizo. |
-| 6.13 a 6.17 | OK | Con la pantalla de T2 apagada (20:45), la lista de T1 sigue diciendo **la maneja Karma** y el relevo pide confirmación. Captura de T2 a las 20:46, **pendiente de recibir**. |
+| 6.13 a 6.17 | OK | Con la pantalla de T2 apagada (20:45), la lista de T1 sigue diciendo **la maneja Karma** y el relevo pide confirmación. Captura de T2 a las 20:46 (paso 6.16): el mismo aviso, «detenido: sin rol de GPS» y «enviadas 4846 · 1 no usadas · último hace 17s». Al prender la pantalla, T2 mandó lo que tenía guardado, el servidor le contestó que ya no tiene el mando y el servicio se apagó: es lo esperado, y Despacho siguió con la X en A. |
 
 ## Caso 2. Las notificaciones quitadas en ruta
 
@@ -349,8 +353,8 @@ sin APK nueva. Bloques 33 y 34 de CAMBIOS-PARA-REVISAR.md.
 
 ## Lo que falta
 
-- **Capturas de la ronda 3:** las de los pasos 6.7, 6.8 (el mapa y la
-  Actividad) y 6.16.
+- **Captura de la ronda 3:** la del paso 6.8 (Despacho: el mapa y la
+  Actividad). Opcional: el paso salió OK sin ella.
 - **H8 y H9:** sigue abierto. Antes de otro arreglo a ciegas conviene que la
   app diga en Perfil qué le pasa al servicio (cuántas lecturas recibe la
   tarea, si parar o arrancar dieron error, cuántas veces se rearrancó) y
