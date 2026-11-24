@@ -73,7 +73,7 @@ function tablaMeses(desde, hasta, totales, tipo) {
   const linea = (nombre, fn, estilo = '') => {
     const hijo = estilo === 'hijo';
     const celdas = fs_.map(f => num(fn(f), hijo)).concat(totales ? [2026, 2027, 2028].map(a => num(tot(fn, a), hijo)) : []);
-    const et = hijo ? `\\hijo{${nombre}}` : nombre;
+    const et = hijo ? `\\hijo{${nombre.replace('Tú (programación)', 'Gerson (programación)')}}` : nombre;
     if (estilo === 'sub') return `\\rowcolor{verdefondo}\\textbf{${et}} & ${celdas.map(c => c ? `\\textbf{${c}}` : '').join(' & ')} \\\\\n`;
     if (estilo === 'fuerte' || estilo === 'total') return (estilo === 'total' ? '\\midrule\n' : '') + `\\textbf{${et}} & ${celdas.map(c => c ? `\\textbf{${c}}` : '').join(' & ')} \\\\\n`;
     if (hijo) return `${et} & ${celdas.map(c => c ? `{\\color{tenue}${c}}` : '').join(' & ')} \\\\\n`;
@@ -172,9 +172,16 @@ const V = {
   utilPrecio60: mil(esc('Precio de S/ 0,60').utilidad2027), utilMasIGV: mil(esc('Precio de S/ 0,50 más IGV').utilidad2027),
   utilSoloJP: mil(esc('Solo Juliaca y Puno').utilidad2027), cajaSoloJP: mil(esc('Solo Juliaca y Puno').cajaFinal),
   costoDejarVender: mil(esc('Gerson sigue vendiendo').utilidad2027 - R.utilidad2027),
+  ...(() => { // A1: el mes en que un atraso de cobranza más hunde la caja
+    let peor = F[0]; for (const f of F.slice(0, 15)) if (f.cobros - f.caja > peor.cobros - peor.caja) peor = f;
+    return { mesAtraso: mesLargo(peor.mes), cajaAtraso: soles(peor.caja), cobroAtraso: soles(peor.cobros), aporteCubre: 'S/~' + entero(Math.ceil((peor.cobros - peor.caja) / 1000) * 1000) };
+  })(),
+  marzoSinD: 'S/~' + entero(Math.round(simular({ vendedorD_desde: 99 }).filas[3].utilOper / 100) * 100),
+  costoPausaMes: soles(Math.round((2 * S.sueldoTiempoCompleto + S.sueldoMedioTiempo) * (1 + S.cargasSociales) + 3 * S.movilidadPorPersona)),
+  costoPausa: soles(Math.round(((2 * S.sueldoTiempoCompleto + S.sueldoMedioTiempo) * (1 + S.cargasSociales) + 3 * S.movilidadPorPersona) * 4 / 100) * 100),
   marzo27Abs: soles(Math.abs(F[3].utilOper)), abril27Abs: soles(Math.abs(F[4].utilOper)), completasMarzo: F[3].rutasCompletas,
   abrilSinOficina: 'S/~' + entero(Math.round(simular({ oficina_desde: 99 }).filas[4].utilOper / 100) * 100),
-  cobroAbril: soles(F[4].cobros), aporteCubre: 'S/~' + entero(Math.ceil((-R.cajaMinima + F[4].cobros) / 1000) * 1000),
+  cobroAbril: soles(F[4].cobros),
   marzo27: soles(F[3].utilOper), abril27: soles(F[4].utilOper), utilDic: soles(F[12].utilOper), utilMar28: soles(F[15].utilOper),
   gastadoMarzo: soles(-F[3].caja), gastadoMarzoMil: mil(-F[3].caja),
   porCobrar: soles(R.porCobrar), igvPorPagar: soles(R.igvPorPagar),

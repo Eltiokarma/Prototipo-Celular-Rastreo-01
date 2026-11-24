@@ -184,11 +184,11 @@
       const sDueno = equipo.dueno ? P.sueldoDueno : 0;
       const comision = P.comisionPorRuta * (i === 0 ? nuevas : Math.max(0, nuevas - ap.tu));
       add('Sueldos y comisiones', sVend, false, 'Vendedores');
-      add('Sueldos y comisiones', sOfi, false, 'Medio tiempo de oficina');
+      add('Sueldos y comisiones', sOfi, false, 'Asistente de oficina');
       add('Sueldos y comisiones', sDueno, false, 'Tú (programación)');
       add('Sueldos y comisiones', comision, false, 'Comisiones por ruta firmada');
       add('Cargas sociales', sVend * P.cargasSociales, false, 'Vendedores');
-      add('Cargas sociales', sOfi * P.cargasSociales, false, 'Medio tiempo de oficina');
+      add('Cargas sociales', sOfi * P.cargasSociales, false, 'Asistente de oficina');
       add('Cargas sociales', sDueno ? Math.max(sDueno, 1130) * 0.09 + sDueno * 0.01 : 0, false, 'Tú (programación)');
       add('Cargas sociales', comision * P.cargasSociales, false, 'Sobre las comisiones');
       const infra = infraestructuraUSD(R) * P.tipoCambio;
@@ -203,10 +203,10 @@
       add('Servicios de oficina', enLocal ? 40 + 10 * enOficina : 0, true, 'Mantenimiento y limpieza');
       add('Planes de datos', P.planDatos * contratados, true, 'Celulares del personal contratado');
       add('Movilidad y viajes', P.movilidadPorPersona * personasVenta, false, 'Movilidad de vendedores');
-      add('Movilidad y viajes', equipo.oficina ? P.movilidadPorPersona : 0, false, 'Movilidad del medio tiempo de oficina');
+      add('Movilidad y viajes', equipo.oficina ? P.movilidadPorPersona : 0, false, 'Movilidad del asistente de oficina');
       add('Movilidad y viajes', R >= P.rutasParaPuno ? P.viajesPuno : 0, false, 'Viajes a Puno');
       const enCiudadGrande = P.ciudadGrande && pausaDesde !== null && i >= pausaDesde;
-      add('Ciudad grande', enCiudadGrande ? P.costoCiudadGrande : 0, false, i < pausaHasta ? 'Preparación de Arequipa o Cusco' : 'Ventas en Arequipa o Cusco');
+      add('Ciudad grande', enCiudadGrande ? P.costoCiudadGrande : 0, false, i < pausaHasta ? 'Preparación de Arequipa o Cusco' : 'Viajes para vender en Arequipa o Cusco');
       add('Marketing y rutas nuevas', P.marketingFijo, true, 'Material y publicidad');
       add('Marketing y rutas nuevas', P.kitPorRuta * nuevas, true, 'Kits de entrada');
       add('Contador externo', i < 6 ? P.contador : P.contadorDesdeMes6, false);
@@ -266,7 +266,7 @@
 
       filas.push({
         i, mes, dias, anio, rutas: R, nuevas, aportes: ap, unidades: R * P.unidadesPorRuta,
-        ciudades: (R >= P.rutasParaPuno ? 2 : 1) + (enCiudadGrande ? 1 : 0), enPausa: !!ap.pausa, equipo,
+        ciudades: (R >= P.rutasParaPuno ? 2 : 1) + (P.ciudadGrande && pausaHasta !== null && i >= pausaHasta ? 1 : 0), enPausa: !!ap.pausa, equipo,
         rutasCompletas: completas, rutasMedias: medias, ventaCompletas: completas * porRuta / (1 + IGV), ventaMedias: medias * porRuta / (1 + IGV),
         ventaConIGV, venta, incobrable, gastos: L, desglose: D, totalGastos: gastos, ebitda, depreciacion, utilOper, renta, utilNeta: utilOper - renta,
         cobro1, cobro2, cobros: cobro1 + cobro2, pagosOperativos, igvCompras, pagaIGV, pagaAdelanto, pagaRentaAnual,
