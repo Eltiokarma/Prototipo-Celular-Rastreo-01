@@ -4,10 +4,13 @@
   "description": "Suites de regresión de COOP-R14. Aparte del servidor a propósito: nada de esto se despliega.",
   "scripts": {
     "test": "node regresion.js",
-    "sintaxis": "node chk-html.js ../project/despacho.html ../project/Prototipo.html ../server/creador.html && node chk-rn.js"
+    "sintaxis": "node chk-html.js ../project/despacho.html ../project/Prototipo.html ../server/creador.html && node chk-rn.js",
+    "trazador-ui": "node trazador-ui.js"
   },
   "devDependencies": {
     "@babel/standalone": "^7.29.0",
-    "playwright-core": "^1.49.0"
+    "playwright-core": "^1.49.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   }
 }

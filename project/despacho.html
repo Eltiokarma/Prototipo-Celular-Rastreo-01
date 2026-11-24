@@ -1338,8 +1338,8 @@ function leerRecorrido(texto) {
   return puntos;
 }
 
-// Arriba de este tope los puntos dejan de ser arrastrables (miles de
-// marcadores hacen inusable el mapa): se ve la línea y se puede deshacer.
+// Tope de marcadores visibles: en rutas densas, acercar revela los puntos
+// de la zona sin bloquear la edición del recorrido completo.
 const TOPE_ARRASTRABLES = 200;
 
 function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
@@ -1358,6 +1358,19 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   const [error, setError] = React.useState(null);
   const [aviso, setAviso] = React.useState(null);
   const [guardando, setGuardando] = React.useState(false);
+  const [confirmarGuardar, setConfirmarGuardar] = React.useState(false);
+  const [modo, setModo] = React.useState('editar');
+  const [extenderDesde, setExtenderDesde] = React.useState('final');
+  const [seleccion, setSeleccion] = React.useState(null);
+  const [desvio, setDesvio] = React.useState(null); // extremos + borrador, sin tocar la ruta
+  const [historial, setHistorial] = React.useState({ antes: [], despues: [] });
+  const [salidaPendiente, setSalidaPendiente] = React.useState(null);
+  const [cambioEditorPendiente, setCambioEditorPendiente] = React.useState(null);
+  const [revisionMapa, setRevisionMapa] = React.useState(0);
+  const editorRef = React.useRef({});
+  const originalRef = React.useRef(null);
+  const generacionRef = React.useRef(0);
+  const ocupadoRef = React.useRef(false);
   // Las grabaciones de la calle (3.4): null = todavía no se pidieron
   const [grabaciones, setGrabaciones] = React.useState(null);
   const [verGrabaciones, setVerGrabaciones] = React.useState(false);
@@ -1413,19 +1426,128 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   const puntos = tramos ? tramos[tramo] : null;
   // Sin tramos cargados no se dibuja: tocar el mapa mientras carga (o tras
   // cambiar de variante) tiraba un TypeError y dejaba la pantalla en blanco.
-  const setPuntos = (fn) => setTramos(t => t ? ({ ...t, [tramoRef.current]:
-    typeof fn === 'function' ? fn(t[tramoRef.current]) : fn }) : t);
-  // «Borrar la ida» vaciaba el tramo de un clic y «Deshacer último punto»
-  // no lo traía de vuelta: la única salida era cancelar y perder lo demás
-  // (auditoría de UI, N4). Sin «¿Seguro?»: borrar sigue siendo un clic, pero
-  // guarda lo que había y lo ofrece recuperar. La copia vive hasta que ese
-  // tramo vuelve a tener puntos (se dibuja de nuevo, se importa o se
-  // recupera); nada de esto toca el servidor hasta «Guardar».
-  const [borrado, setBorrado] = React.useState(null);   // { tramo, puntos }
+  const setPuntos = (fn, destino = tramoRef.current) => {
+    const actual = editorRef.current;
+    if (!actual.tramos || ocupadoRef.current) return false;
+    const previos = actual.tramos[destino];
+    const nuevos = typeof fn === 'function' ? fn(previos) : fn;
+    if (JSON.stringify(previos) === JSON.stringify(nuevos)) return true;
+    if (nuevos.length > 2000) { setError('Máximo 2000 puntos por dirección. Elimina puntos antes de añadir más.'); return false; }
+    const siguiente = { ...actual.tramos, [destino]: nuevos };
+    const historia = { antes: [...actual.historial.antes.slice(-59), { tramos: actual.tramos, tramo: destino }], despues: [] };
+    setHistorial(historia);
+    editorRef.current = { ...actual, tramos: siguiente, historial: historia };
+    setTramos(siguiente);
+    setAviso(null);
+    setError(null);
+    return true;
+  };
+  const cambiarModo = (nuevo) => { setModo(nuevo); setDesvio(null); setSeleccion(null); };
+  const cambiarTramo = (nuevo) => {
+    tramoRef.current = nuevo;
+    setTramo(nuevo); cambiarModo(editorRef.current.tramos?.[nuevo]?.length ? 'editar' : 'prolongar');
+  };
+  const elegirHerramienta = (tipo, valor) => {
+    if ((tipo === 'modo' ? modo : tramo) === valor) return;
+    if (desvio?.puntos.length) setCambioEditorPendiente({ tipo, valor });
+    else if (tipo === 'modo') cambiarModo(valor);
+    else cambiarTramo(valor);
+  };
+  const recorrerHistorial = (rehacer = false) => {
+    if (ocupadoRef.current) return;
+    const actual = editorRef.current, h = actual.historial;
+    if (actual.desvio) {
+      if (!rehacer) setDesvio(d => d.puntos.length ? { ...d, puntos: d.puntos.slice(0, -1) } : null);
+      return;
+    }
+    const origen = rehacer ? h.despues : h.antes;
+    if (!origen.length || !actual.tramos) return;
+    const destino = origen[origen.length - 1];
+    const presente = { tramos: actual.tramos, tramo: destino.tramo };
+    const siguiente = rehacer
+      ? { antes: [...h.antes, presente], despues: h.despues.slice(0, -1) }
+      : { antes: h.antes.slice(0, -1), despues: [...h.despues, presente] };
+    editorRef.current = { ...actual, tramos: destino.tramos, historial: siguiente };
+    setHistorial(siguiente); setTramos(destino.tramos); cambiarTramo(destino.tramo);
+    setError(null);
+    setAviso(rehacer ? 'Cambio rehecho.' : 'Cambio deshecho.');
+  };
+  const hayCambios = tramos && originalRef.current !== JSON.stringify(tramos);
+  const tieneBorrador = !!desvio;
+  const solicitarSalida = (destino) => {
+    if (ocupadoRef.current) return;
+    if (hayCambios || tieneBorrador) setSalidaPendiente(destino);
+    else if (destino.tipo === 'cerrar') onClose();
+    else setVariantId(destino.id);
+  };
+  const encuadrar = () => {
+    const ps = editorRef.current.tramos?.[tramoRef.current] || [];
+    if (ps.length) mapRef.current?.fitBounds(L.latLngBounds(ps).pad(.15), { maxZoom: 18 });
+  };
+  const seleccionarPunto = (i) => {
+    const actual = editorRef.current;
+    if (ocupadoRef.current) return;
+    if (actual.modo === 'desviar' && actual.desvio?.fin != null) {
+      if (i !== actual.desvio.inicio && i !== actual.desvio.fin) {
+        const p = actual.tramos[tramoRef.current][i];
+        setDesvio(d => ({ ...d, puntos: [...d.puntos, p] }));
+      }
+      return;
+    }
+    setSeleccion(i);
+    if (actual.modo !== 'desviar') return;
+    if (!actual.desvio) setDesvio({ inicio: i, fin: null, puntos: [] });
+    else if (i !== actual.desvio.inicio) {
+      setDesvio({ inicio: Math.min(i, actual.desvio.inicio), fin: Math.max(i, actual.desvio.inicio), puntos: [] });
+    }
+  };
+  const clicMapa = (e, sobreLinea = false) => {
+    const actual = editorRef.current;
+    if (!actual.tramos || ocupadoRef.current) return;
+    const p = [e.latlng.lat, e.latlng.lng], ps = actual.tramos[tramoRef.current];
+    if (actual.modo === 'desviar') {
+      if (actual.desvio?.fin != null) setDesvio(d => ({ ...d, puntos: [...d.puntos, p] }));
+      return;
+    }
+    if (actual.modo === 'prolongar') {
+      setPuntos(q => actual.extenderDesde === 'inicio' ? [p, ...q] : [...q, p]);
+      setSeleccion(null); return;
+    }
+    if (!sobreLinea) { setSeleccion(null); return; }
+    // La distancia se mide en píxeles del mapa: la zona de clic no cambia con el zoom.
+    const clic = mapRef.current.latLngToLayerPoint(e.latlng);
+    let mejor = -1, distancia = Infinity;
+    for (let i = 0; i < ps.length - 1; i++) {
+      const a = mapRef.current.latLngToLayerPoint(ps[i]);
+      const b = mapRef.current.latLngToLayerPoint(ps[i + 1]);
+      const d = L.LineUtil.pointToSegmentDistance(clic, a, b);
+      if (d < distancia) { mejor = i; distancia = d; }
+    }
+    if (mejor >= 0) {
+      if (setPuntos(q => [...q.slice(0, mejor + 1), p, ...q.slice(mejor + 1)])) setSeleccion(mejor + 1);
+    }
+  };
+  const aplicarDesvio = () => {
+    if (desvio?.fin == null) return;
+    if (!setPuntos(ps => [...ps.slice(0, desvio.inicio + 1), ...desvio.puntos, ...ps.slice(desvio.fin)])) return;
+    cambiarModo('editar'); setAviso('Tramo reemplazado. Puedes deshacer el cambio.');
+  };
+  editorRef.current = { tramos, historial, modo, extenderDesde, desvio, clicMapa, seleccionarPunto, setPuntos, recorrerHistorial };
   React.useEffect(() => {
-    if (borrado && tramos && (tramos[borrado.tramo] || []).length) setBorrado(null);
-  }, [tramos]);
-
+    const teclado = (e) => {
+      if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.target.isContentEditable || ocupadoRef.current || confirmarGuardar || salidaPendiente || cambioEditorPendiente) return;
+      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+        e.preventDefault(); editorRef.current.recorrerHistorial(e.shiftKey || e.key.toLowerCase() === 'y');
+      } else if (e.key === 'Escape') elegirHerramienta('modo', 'editar');
+    };
+    window.addEventListener('keydown', teclado);
+    return () => window.removeEventListener('keydown', teclado);
+  }, [confirmarGuardar, salidaPendiente, cambioEditorPendiente, desvio, modo, tramo]);
+  React.useEffect(() => {
+    const prevenir = e => { e.preventDefault(); e.returnValue = ''; };
+    if (hayCambios || tieneBorrador) window.addEventListener('beforeunload', prevenir);
+    return () => window.removeEventListener('beforeunload', prevenir);
+  }, [hayCambios, tieneBorrador]);
   // El recorrido que ya tenía esa variante. Se recarga al cambiar de una a
   // otra: cada una tiene su propio dibujo.
   //
@@ -1436,16 +1558,27 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   // dibujo de A dentro de B.
   React.useEffect(() => {
     let vigente = true;
+    generacionRef.current++;
+    editorRef.current.tramos = null;
+    originalRef.current = null;
+    encuadradoRef.current = false;
+    setHistorial({ antes: [], despues: [] });
+    cambiarModo('editar'); setError(null); setAviso(null);
     setTramos(null);
     capaRef.current && capaRef.current.clearLayers();
     const q = variantId ? `?variantId=${variantId}` : '';
     api(`/admin/routes/${encodeURIComponent(routeId)}/points${q}`)
-      .then(d => { if (vigente) setTramos({
-        ida: (d.tramos?.ida || []).map(p => [p.lat, p.lng]),
-        vuelta: (d.tramos?.vuelta || []).map(p => [p.lat, p.lng]),
-      }); })
+      .then(d => { if (vigente) {
+        const cargados = {
+          ida: (d.tramos?.ida || []).map(p => [p.lat, p.lng]),
+          vuelta: (d.tramos?.vuelta || []).map(p => [p.lat, p.lng]),
+        };
+        originalRef.current = JSON.stringify(cargados);
+        setTramos(cargados);
+        if (!cargados[tramoRef.current].length) setModo('prolongar');
+      } })
       .catch(e => { if (vigente) setError(`No se pudo cargar el recorrido: ${e.message}. Cierra y vuelve a abrir antes de dibujar.`); });
-    return () => { vigente = false; };
+    return () => { vigente = false; generacionRef.current++; };
   }, [routeId, variantId]);
 
   // El mapa se libera al cerrar: Leaflet deja colgado su listener de resize
@@ -1458,11 +1591,10 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     map.attributionControl.setPrefix(false);
     L.tileLayer(HUD.tiles, { maxZoom: 19, attribution: TILES_ATRIB }).addTo(map);
     capaRef.current = L.layerGroup().addTo(map);
-    // Tocar el mapa agrega un punto al final del tramo que se esté dibujando
-    map.on('click', (e) => {
-      setPuntos(p => [...(p || []), [e.latlng.lat, e.latlng.lng]]);
-      setAviso(null);
-    });
+    // Los eventos leen el modo vigente sin reconstruir el mapa.
+    map.doubleClickZoom.disable();
+    map.on('click', e => editorRef.current.clicMapa(e));
+    map.on('moveend zoomend', () => setRevisionMapa(n => n + 1));
     mapRef.current = map;
     setTimeout(() => map.invalidateSize(), 80);
     setTimeout(() => map.invalidateSize(), 400);
@@ -1479,7 +1611,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     const otro = tramo === 'ida' ? 'vuelta' : 'ida';
     if (tramos[otro].length > 1) {
       L.polyline(tramos[otro], {
-        color: HUD.dim3, weight: 4, opacity: 0.55, dashArray: '6 6',
+        color: HUD.dim3, weight: 4, opacity: 0.55, dashArray: '6 6', interactive: false,
       }).addTo(capa);
     }
 
@@ -1487,42 +1619,53 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     // color que la franja de aviso de arriba.
     const tinta = variante && !variante.activa ? HUD.amber : HUD.bright;
     const activos = tramos[tramo];
+    let linea = null;
     if (activos.length > 1) {
-      L.polyline(activos, { color: tinta, weight: 5, opacity: 0.9 }).addTo(capa);
+      linea = L.polyline(activos, { color: tinta, weight: 5, opacity: 0.9, interactive: false }).addTo(capa);
+      L.polyline(activos, { color: tinta, weight: 24, opacity: 0, bubblingMouseEvents: false })
+        .addTo(capa).on('click', e => editorRef.current.clicMapa(e, true));
     }
-
-    const arrastrables = activos.length <= TOPE_ARRASTRABLES;
+    // En rutas densas se editan los puntos visibles. Acercar descubre el resto.
+    const visibles = activos.map((p, i) => map.getBounds().contains(p) ? i : -1).filter(i => i >= 0);
+    const paso = Math.max(1, Math.ceil(visibles.length / TOPE_ARRASTRABLES));
+    const editables = new Set(visibles.filter((_, i) => i % paso === 0));
+    [0, activos.length - 1, seleccion, desvio?.inicio, desvio?.fin].forEach(i => { if (i != null) editables.add(i); });
     activos.forEach((p, i) => {
       const extremo = i === 0 || i === activos.length - 1;
-      if (!arrastrables) {
-        L.circleMarker(p, { radius: 4, color: tinta, weight: 2, fillColor: '#fff', fillOpacity: 1 }).addTo(capa);
-        return;
-      }
-      // A y B se quedan: son lo único que dice en qué sentido se maneja.
+      if (activos.length > TOPE_ARRASTRABLES && !editables.has(i)) return;
+      const elegido = seleccion === i || desvio?.inicio === i || desvio?.fin === i;
       const etiqueta = i === 0 ? 'A' : i === activos.length - 1 ? 'B' : '';
       const marcador = L.marker(p, {
-        draggable: true,
+        draggable: !guardando && modo === 'editar',
+        bubblingMouseEvents: false,
+        title: `Punto ${i + 1}${etiqueta ? ` · ${etiqueta === 'A' ? 'Inicio A' : 'Final B'}` : ''}. Arrastra para mover; toca para seleccionar.`,
+        alt: `Punto ${i + 1}${etiqueta ? ` (${etiqueta})` : ''}`,
+        zIndexOffset: elegido ? 1000 : extremo ? 500 : 0,
         icon: L.divIcon({
-          className: '',
-          iconSize: [extremo ? 22 : 12, extremo ? 22 : 12],
-          iconAnchor: [extremo ? 11 : 6, extremo ? 11 : 6],
-          html: `<div style="width:100%;height:100%;border-radius:50%;
-            background:#fff; border:2px solid ${tinta}; color:${tinta};
-            box-sizing:border-box;
-            display:flex;align-items:center;justify-content:center;
-            font:700 11px/1 system-ui,sans-serif;">${etiqueta}</div>`,
+          className: 'trazador-punto', iconSize: [30, 30], iconAnchor: [15, 15],
+          html: `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;cursor:${modo === 'editar' ? 'grab' : 'pointer'}"><div style="width:${extremo || elegido ? 24 : 14}px;height:${extremo || elegido ? 24 : 14}px;border-radius:50%;background:${elegido ? tinta : HUD.surface};border:2px solid ${tinta};color:${elegido ? HUD.surface : tinta};box-sizing:border-box;box-shadow:${elegido ? `0 0 0 4px ${HUD.line}` : 'none'};display:flex;align-items:center;justify-content:center;font:700 12px/1 system-ui,sans-serif;">${etiqueta || (elegido ? i + 1 : '')}</div></div>`,
         }),
       }).addTo(capa);
-      marcador.on('dragend', (e) => {
+      marcador.on('drag', e => {
         const { lat, lng } = e.target.getLatLng();
-        setPuntos(ps => ps.map((q, j) => (j === i ? [lat, lng] : q)));
+        linea?.setLatLngs(activos.map((q, j) => j === i ? [lat, lng] : q));
       });
-      // Tocar un punto lo borra (arrastrar no dispara click en Leaflet)
-      marcador.on('click', (e) => {
-        L.DomEvent.stopPropagation(e);
-        setPuntos(ps => ps.filter((_, j) => j !== i));
+      marcador.on('dragend', e => {
+        const { lat, lng } = e.target.getLatLng();
+        editorRef.current.setPuntos(ps => ps.map((q, j) => j === i ? [lat, lng] : q));
+        setSeleccion(i);
       });
+      marcador.on('click', () => editorRef.current.seleccionarPunto(i));
     });
+    if (desvio?.fin != null) {
+      L.polyline(activos.slice(desvio.inicio, desvio.fin + 1), {
+        color: HUD.amber, weight: 7, opacity: .65, dashArray: '5 7', interactive: false,
+      }).addTo(capa);
+      L.polyline([activos[desvio.inicio], ...desvio.puntos, activos[desvio.fin]], {
+        color: HUD.bright, weight: 5, dashArray: '10 6', interactive: false,
+      }).addTo(capa);
+      desvio.puntos.forEach(p => L.circleMarker(p, { radius: 5, color: HUD.bright, fillColor: HUD.surface, fillOpacity: 1, interactive: false }).addTo(capa));
+    }
 
     // Encuadrar una sola vez, cuando llega el recorrido que ya existía
     const todos = [...tramos.ida, ...tramos.vuelta];
@@ -1530,18 +1673,23 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
       map.fitBounds(L.latLngBounds(todos).pad(0.15));
       encuadradoRef.current = true;
     }
-  }, [tramos, tramo, variante]);
+  }, [tramos, tramo, variante, seleccion, modo, desvio, guardando, revisionMapa]);
 
-  const importar = (texto) => {
+  const importar = (texto, destino = tramoRef.current, generacion = generacionRef.current) => {
+    if (generacion !== generacionRef.current || ocupadoRef.current || !editorRef.current.tramos) return;
     try {
       const crudos = leerRecorrido(texto);
+      if (crudos.length < 2 || crudos.some(p => !Number.isFinite(p[0]) || !Number.isFinite(p[1]) || Math.abs(p[0]) > 90 || Math.abs(p[1]) > 180)) {
+        throw new Error('El recorrido debe tener al menos dos coordenadas válidas');
+      }
       const simple = simplificar(crudos, 10);
-      const final = simple.slice(0, 2000);
-      setPuntos(final);
+      if (simple.length > 2000) throw new Error('El recorrido supera los 2000 puntos. Reduce los puntos del archivo antes de importarlo');
+      const final = simple;
+      setPuntos(final, destino);
+      cambiarTramo(destino);
       encuadradoRef.current = false;
       setError(null);
-      setAviso(`Importados ${crudos.length} puntos a la ${tramo}, simplificados a ${final.length} sin cambiar la forma` +
-        (simple.length > 2000 ? ' (recortado al tope de 2000)' : ''));
+      setAviso(`Importados ${crudos.length} puntos a la ${destino}, simplificados a ${final.length} con tolerancia de 10 m. Revisa las esquinas antes de guardar.`);
     } catch (e) {
       setError('No se pudo leer el archivo: ' + e.message);
     }
@@ -1551,7 +1699,6 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   // que se mide la ruta: el servidor descarta las vueltas en curso. Eso se
   // confirma nombrando qué pasa, igual que el cambio de variante; y guardar
   // un recorrido vacío es borrarlo, que también (barrido del 22/9).
-  const [confirmarGuardar, setConfirmarGuardar] = React.useState(false);
   const midiendoEsta = !variantId || !!(variante && variante.activa);
   const pedirGuardar = () => {
     const vacio = tramos && !tramos.ida.length && !tramos.vuelta.length;
@@ -1559,6 +1706,8 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     else guardar();
   };
   const guardar = async () => {
+    if (ocupadoRef.current || !editorRef.current.tramos) return;
+    ocupadoRef.current = true;
     setConfirmarGuardar(false);
     setGuardando(true); setError(null);
     try {
@@ -1574,6 +1723,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
       onClose();
     } catch (e) { setError(e.message); }
     setGuardando(false);
+    ocupadoRef.current = false;
   };
 
   // La franja de aviso y los mensajes le cambian el alto al mapa; Leaflet
@@ -1588,7 +1738,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
   const vueltaIncompleta = tramos && tramos.vuelta.length === 1;
   const idaIncompleta = tramos && tramos.ida.length === 1;
   const sinIda = tramos && !tramos.ida.length && tramos.vuelta.length > 0;
-  const trabado = guardando || !tramos || vueltaIncompleta || idaIncompleta || sinIda;
+  const trabado = guardando || !tramos || !hayCambios || tieneBorrador || vueltaIncompleta || idaIncompleta || sinIda;
   const midiendo = lista.find(v => v.activa) || null;
   const desalineado = !!(variante && !variante.activa);
 
@@ -1601,11 +1751,11 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
     }}>
       {/* cabecera */}
       <div style={{
-        height: 60, flexShrink: 0, padding: '0 18px', background: HUD.surface,
+        minHeight: 60, flexShrink: 0, flexWrap: 'wrap', padding: '8px 18px', background: HUD.surface,
         borderBottom: `1px solid ${HUD.divider}`,
         display: 'flex', alignItems: 'center', gap: 12,
       }}>
-        <span style={{ fontFamily: black, fontSize: 17 }}>Trazador</span>
+        <span style={{ fontFamily: black, fontSize: 17 }}>Editor de ruta</span>
         <span style={{
           ...rotulo(10, HUD.dim2), minWidth: 0,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -1617,12 +1767,27 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
               : `La ${idaIncompleta ? 'ida' : 'vuelta'} tiene un solo punto`}
           </span>
         )}
-        <button onClick={onClose} style={btnSecundario(36)}>Cancelar</button>
+        <span style={{ fontSize: 11, color: hayCambios || tieneBorrador ? HUD.ambarTinta2 : HUD.dim2 }} role="status">{hayCambios || tieneBorrador ? 'Cambios sin guardar' : 'Sin cambios'}</span>
+        <button disabled={guardando} onClick={() => solicitarSalida({ tipo: 'cerrar' })} style={btnSecundario(36)}>Cerrar</button>
         <button onClick={pedirGuardar} disabled={trabado}
           style={{ ...btnPrimario(36), opacity: trabado ? .5 : 1, cursor: trabado ? 'not-allowed' : 'pointer' }}>
           {guardando ? 'Guardando…' : 'Guardar recorrido'}
         </button>
       </div>
+
+      {cambioEditorPendiente && <Confirmacion kicker="Tramo en dibujo" tono="amber"
+        titulo="¿Descartar el tramo que estás dibujando?"
+        cuerpo="Los cambios ya aplicados se conservan. Solo se descartarán los puntos nuevos de este tramo."
+        aceptar="Descartar tramo" onCancelar={() => setCambioEditorPendiente(null)}
+        onAceptar={() => { const destino = cambioEditorPendiente; setCambioEditorPendiente(null);
+          if (destino.tipo === 'modo') cambiarModo(destino.valor); else cambiarTramo(destino.valor); }} />}
+
+      {salidaPendiente && <Confirmacion kicker="Cambios sin guardar" tono="amber"
+        titulo="¿Descartar los cambios de esta ruta?"
+        cuerpo="El recorrido guardado se mantiene. Se perderán las modificaciones y el tramo que estás dibujando."
+        aceptar="Sí, descartar cambios" onCancelar={() => setSalidaPendiente(null)}
+        onAceptar={() => { const destino = salidaPendiente; setSalidaPendiente(null);
+          if (destino.tipo === 'cerrar') onClose(); else setVariantId(destino.id); }} />}
 
       {confirmarGuardar && tramos && (
         <Confirmacion
@@ -1685,7 +1850,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
       }}>
         {/* panel */}
         <div style={{
-          flexShrink: 0, width: angosto ? 'auto' : 300, background: HUD.bg,
+          flexShrink: 0, width: angosto ? 'auto' : 320, maxHeight: angosto ? '42%' : 'none', background: HUD.bg,
           borderRight: angosto ? 'none' : `1px solid ${HUD.divider}`,
           borderBottom: angosto ? `1px solid ${HUD.divider}` : 'none',
           padding: 16, overflowY: 'auto',
@@ -1706,7 +1871,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                   }}>{variante ? variante.name : '—'}</span>
                   <span style={{ fontSize: 12, color: HUD.dim3 }}>▾</span>
                 </span>
-                <select value={variantId || ''} onChange={e => setVariantId(Number(e.target.value))}
+                <select disabled={guardando} value={variantId || ''} onChange={e => solicitarSalida({ tipo: 'variante', id: Number(e.target.value) })}
                   title="Sobre cuál de los trazados de esta ruta estás dibujando"
                   style={{ position: 'absolute', inset: 0, width: '100%', opacity: 0, cursor: 'pointer' }}>
                   {lista.map(v => (
@@ -1740,7 +1905,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
               {[['ida', 'Ida'], ['vuelta', 'Vuelta']].map(([k, etiqueta]) => {
                 const activo = tramo === k;
                 return (
-                  <button key={k} onClick={() => setTramo(k)} style={{
+                  <button key={k} disabled={guardando} aria-pressed={tramo === k} onClick={() => elegirHerramienta('tramo', k)} style={{
                     flex: 1, height: 34, borderRadius: 8, cursor: 'pointer',
                     fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
                     background: activo ? HUD.surface : 'transparent',
@@ -1749,6 +1914,69 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                   }}>{etiqueta}</button>
                 );
               })}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={rotulo(9)}>Editar recorrido</div>
+            {[['editar', 'Editar puntos', 'Arrastra para mover · toca la línea para insertar'],
+              ['prolongar', 'Agregar tramo', 'Continúa desde el inicio A o el final B'],
+              ['desviar', 'Redibujar un tramo', 'Elige dos puntos y dibuja otro camino']].map(([id, titulo, detalle]) => (
+              <button key={id} disabled={!tramos || guardando || (id === 'desviar' && puntos.length < 2)}
+                aria-pressed={modo === id} onClick={() => elegirHerramienta('modo', id)} style={{
+                  ...btnSecundario(48), height: 'auto', minHeight: 48, padding: '9px 12px', textAlign: 'left',
+                  flexDirection: 'column', alignItems: 'flex-start', whiteSpace: 'normal',
+                  background: modo === id ? HUD.hueco : HUD.surface,
+                  borderColor: modo === id ? HUD.bright : HUD.line,
+                  boxShadow: modo === id ? `inset 3px 0 ${HUD.bright}` : 'none',
+                }}>
+                <span style={{ display: 'block', fontSize: 13 }}>{titulo}</span>
+                <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: HUD.dim2, marginTop: 3 }}>{detalle}</span>
+              </button>
+            ))}
+            {modo === 'prolongar' && (
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[['inicio', 'Desde A · inicio'], ['final', 'Desde B · final']].map(([id, texto]) => (
+                  <button key={id} disabled={guardando} aria-pressed={extenderDesde === id}
+                    onClick={() => setExtenderDesde(id)} style={{ ...btnSecundario(36), flex: 1, padding: '0 6px', fontSize: 12,
+                      borderColor: extenderDesde === id ? HUD.bright : HUD.line,
+                      background: extenderDesde === id ? HUD.hueco : HUD.surface }}>{texto}</button>
+                ))}
+              </div>
+            )}
+            {modo === 'editar' && seleccion != null && puntos?.[seleccion] && (
+              <div style={{ ...tarjeta('10px 12px'), borderColor: HUD.bright }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>Punto {seleccion + 1} de {puntos.length}
+                  {seleccion === 0 ? ' · Inicio A' : seleccion === puntos.length - 1 ? ' · Final B' : ''}</div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <button disabled={guardando} onClick={() => {
+                    setPuntos(ps => ps.filter((_, i) => i !== seleccion)); setSeleccion(null);
+                  }} style={{ ...btnSecundario(34), color: HUD.red, borderColor: HUD.rojoBorde, flex: 1 }}>Eliminar punto</button>
+                  <button onClick={() => setSeleccion(null)} style={btnSecundario(34)}>Listo</button>
+                </div>
+              </div>
+            )}
+            {modo === 'desviar' && (
+              <div style={{ ...tarjeta('10px 12px'), fontSize: 12, lineHeight: 1.5 }}>
+                {!desvio ? '1. Toca el punto donde empieza el tramo que quieres cambiar.'
+                  : desvio.fin == null ? '2. Toca el punto donde termina ese tramo.'
+                  : `3. Marca el nuevo camino del punto ${desvio.inicio + 1} al ${desvio.fin + 1}. Los extremos se conservan.`}
+                {desvio?.fin != null && <>
+                  <div style={{ color: HUD.dim2, marginTop: 5 }}>{desvio.puntos.length} puntos nuevos · {desvio.fin - desvio.inicio - 1} puntos por reemplazar</div>
+                  {!desvio.puntos.length && <div style={{ color: HUD.ambarTinta2 }}>Sin puntos nuevos, los extremos se unirán en línea recta.</div>}
+                  <button disabled={guardando} onClick={aplicarDesvio} style={{ ...btnPrimario(36), marginTop: 8, width: '100%' }}>Aplicar tramo</button>
+                  <button disabled={guardando || !desvio.puntos.length} onClick={() => setDesvio(d => ({ ...d, puntos: d.puntos.slice(0, -1) }))}
+                    style={{ ...btnSecundario(34), marginTop: 6, width: '100%' }}>Quitar último punto nuevo</button>
+                </>}
+                <button disabled={guardando} onClick={() => cambiarModo('editar')}
+                  style={{ ...btnSecundario(34), width: '100%', marginTop: 6 }}>Cancelar tramo</button>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button disabled={guardando || (!historial.antes.length && !tieneBorrador)} onClick={() => recorrerHistorial()}
+                title="Deshacer (Ctrl+Z)" style={{ ...btnSecundario(36), flex: 1, opacity: historial.antes.length || tieneBorrador ? 1 : .45 }}>↶ Deshacer</button>
+              <button disabled={guardando || tieneBorrador || !historial.despues.length} onClick={() => recorrerHistorial(true)}
+                title="Rehacer (Ctrl+Mayús+Z)" style={{ ...btnSecundario(36), flex: 1, opacity: historial.despues.length ? 1 : .45 }}>↷ Rehacer</button>
             </div>
           </div>
 
@@ -1769,7 +1997,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button onClick={importarArchivo}
+            <button disabled={!tramos || guardando || tieneBorrador} onClick={importarArchivo}
               title={`Un GPX o GeoJSON para la ${tramo}, por ejemplo de esa mitad grabada manejando`}
               style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2 }}>
               Importar GPX o GeoJSON
@@ -1857,9 +2085,10 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                         · {new Date(g.createdAt).toLocaleDateString()}
                       </div>
                     </div>
-                    <button onClick={() => {
+                    <button disabled={!tramos || guardando || tieneBorrador} onClick={() => {
+                      const destino = tramoRef.current, generacion = generacionRef.current;
                       api(`/admin/grabaciones/${g.id}.geojson`)
-                        .then(geo => { importar(JSON.stringify(geo)); setVerGrabaciones(false); })
+                        .then(geo => { importar(JSON.stringify(geo), destino, generacion); setVerGrabaciones(false); })
                         .catch(e => setError(e.message));
                     }} style={{ ...btnChico(HUD.fg2), flexShrink: 0 }}
                       title={`Cargar estos puntos como la ${tramo} (después ajustas y guardas como siempre)`}>
@@ -1869,34 +2098,10 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                 ))}
               </div>
             )}
-            <button onClick={() => setPuntos(p => p.slice(0, -1))}
-              disabled={!puntos || !puntos.length}
-              style={{ ...btnSecundario(38), width: '100%', color: HUD.fg2, opacity: puntos && puntos.length ? 1 : .5 }}>
-              Deshacer último punto
-            </button>
-            {borrado && borrado.tramo === tramo && (
-              <div data-borrado style={{
-                display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px',
-                borderRadius: 10, background: HUD.ambarFondo, border: `1px solid ${HUD.ambarBorde}`,
-                fontSize: 13, color: HUD.ambarTinta,
-              }}>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  Se borró la {borrado.tramo} ({borrado.puntos.length} punto{borrado.puntos.length === 1 ? '' : 's'}).
-                </span>
-                <button data-recuperar onClick={() => setTramos(t => t ? ({ ...t, [borrado.tramo]: borrado.puntos }) : t)}
-                  style={btnChico(HUD.ambarTinta, HUD.ambarBorde)}>
-                  Recuperar la {borrado.tramo}
-                </button>
-              </div>
-            )}
-            {/* Separado de «Deshacer»: eran vecinos del mismo tamaño a 8 px,
-                y un clic desviado caía en el de abajo. */}
-            <button onClick={() => { setBorrado({ tramo, puntos }); setPuntos([]); setAviso(null); }}
-              disabled={!puntos || !puntos.length}
-              style={{
-                ...btnSecundario(38), width: '100%', color: HUD.red, marginTop: 10,
-                borderColor: HUD.rojoBorde, opacity: puntos && puntos.length ? 1 : .5,
-              }}>
+            <button onClick={() => { setPuntos([]); cambiarModo('prolongar'); setAviso('Recorrido vaciado. Deshacer lo recupera completo.'); }}
+              disabled={guardando || !puntos?.length || tieneBorrador}
+              style={{ ...btnSecundario(38), width: '100%', color: HUD.red, marginTop: 10,
+                borderColor: HUD.rojoBorde, opacity: puntos?.length ? 1 : .5 }}>
               Borrar la {tramo}
             </button>
             <input ref={archivoRef} type="file" accept=".gpx,.geojson,.json,.xml,text/*"
@@ -1904,28 +2109,35 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (!f) return;
+                const destino = tramoRef.current, generacion = generacionRef.current;
                 const fr = new FileReader();
-                fr.onload = () => importar(String(fr.result));
+                fr.onload = () => importar(String(fr.result), destino, generacion);
                 fr.onerror = () => setError('No se pudo abrir el archivo');
                 fr.readAsText(f);
                 e.target.value = '';
               }} />
           </div>
 
-          <div style={{ fontSize: 12, color: HUD.dim3, lineHeight: 1.55 }}>
-            Marca el recorrido tocando el mapa en el orden en que se maneja: el
-            primer punto es la salida (<strong>A</strong>) y el último el final
-            (<strong>B</strong>).
-            {puntos && puntos.length > TOPE_ARRASTRABLES
-              ? ` Con más de ${TOPE_ARRASTRABLES} puntos no se pueden arrastrar (serían miles de marcadores): usa Deshacer.`
-              : ' Arrastra un punto para corregirlo, tócalo para borrarlo.'}
-            {' '}El tramo que no estás editando queda punteado de fondo.
+          <div style={{ fontSize: 12, color: HUD.dim2, lineHeight: 1.55 }}>
+            A es el inicio y B el final, en el sentido de conducción. La otra dirección queda punteada.
+            {puntos?.length > TOPE_ARRASTRABLES && ' Acerca el mapa para editar todos los puntos de una zona.'}
+            {' '}Los cambios se aplican a la ruta al guardar.
           </div>
         </div>
 
         {/* mapa */}
-        <div style={{ flex: 1, minHeight: angosto ? 320 : 0, position: 'relative' }}>
-          <div ref={initMap} style={{ position: 'absolute', inset: 0, cursor: 'crosshair' }} />
+        <div style={{ flex: 1, minHeight: angosto ? 220 : 0, position: 'relative' }}>
+          <div ref={initMap} data-mapa-trazador style={{ position: 'absolute', inset: 0, cursor: modo === 'editar' ? 'grab' : 'crosshair' }} />
+          <button disabled={!puntos?.length} onClick={encuadrar} style={{ ...btnSecundario(38), position: 'absolute', top: 12, right: 12, zIndex: 500, boxShadow: HUD.sombra }}>Ver recorrido</button>
+          <div role="status" style={{ position: 'absolute', bottom: 28, left: 12, right: 12, zIndex: 500,
+            pointerEvents: 'none', background: HUD.surface, color: HUD.fg, border: `1px solid ${HUD.line}`,
+            borderRadius: 10, padding: '10px 14px', fontSize: 13, boxShadow: HUD.sombra }}>
+            {!tramos ? 'Cargando recorrido…' : modo === 'editar'
+              ? 'Arrastra un punto para moverlo. Toca la línea para añadir un punto entre dos existentes.'
+              : modo === 'prolongar' ? `Toca el mapa para continuar desde ${extenderDesde === 'inicio' ? 'A (inicio)' : 'B (final)'}. Al terminar, vuelve a Editar puntos.`
+              : !desvio ? 'Toca el primer extremo del tramo que quieres cambiar.'
+              : desvio.fin == null ? 'Ahora toca el segundo extremo.' : 'Dibuja el nuevo camino y pulsa Aplicar tramo.'}
+          </div>
         </div>
       </div>
     </div>
@@ -7053,3 +7265,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Muro recargaSola><R
 </script>
 </body>
 </html>
+
