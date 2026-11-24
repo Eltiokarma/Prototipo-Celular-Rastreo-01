@@ -351,16 +351,25 @@ sin APK nueva. Bloques 33 y 34 de CAMBIOS-PARA-REVISAR.md.
 | H22 | **Comprobado**: el caso 1 salió entero por primera vez. |
 | H8 y H9 | **No se arregló.** El rearranque del GPS mudo no alcanzó. El diagnóstico del 2.5 dice «corriendo» con nada enviado desde hace 412 s: el servicio está anotado como corriendo, pero no da posiciones. Dos caminos del código dejan pasar ese estado sin rearrancar nada: `arrancar` vuelve enseguida si Android dice que el servicio corre, y el rearranque del vigilante sigue de largo si parar falla. Es una hipótesis, no está comprobada. Lo que sí está comprobado es lo que lo arregla: que Android mate el proceso de la app (salir y dejar la pantalla apagada un minuto). Salir de la cuenta y volver a entrar no alcanza. |
 
+## Arreglado el 24/11, sin probar todavía en teléfono
+
+Se comprueba con `informes/pruebas-telefono-ronda4.pdf`. Bloque 35 de
+CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
+`publicar-arreglo.bat`.
+
+| # | Qué se hizo | Seguro de la causa |
+|---|---|---|
+| H8 y H9 | El GPS mudo se rearranca **a la fuerza** (sin preguntarle a Android si ya corre), la fila de arrancar y parar tiene un plazo de 20 s, y Perfil muestra las lecturas que entrega Android, los rearranques y el último error. Si sigue mudo, la app le dice al chofer que cierre la app y apague la pantalla un minuto. | **No.** Ataca las dos explicaciones que encajan con lo visto. La captura de Perfil de la ronda 4 dirá cuál era. |
+| H25 | Salir pide dos toques («¿SALIR?»). | — |
+| H26 | Perfil y Salir con margen para el dedo y más claros al apretarlos. | Probable: Perfil ya se abría al instante, lo que fallaba era acertarle a la palabra. |
+| H27 | El botón para salir a ruta vuelve solo al inicio un segundo después de disparar. | Sí. |
+
 ## Lo que falta
 
 - **Captura de la ronda 3:** la del paso 6.8 (Despacho: el mapa y la
   Actividad). Opcional: el paso salió OK sin ella.
-- **H8 y H9:** sigue abierto. Antes de otro arreglo a ciegas conviene que la
-  app diga en Perfil qué le pasa al servicio (cuántas lecturas recibe la
-  tarea, si parar o arrancar dieron error, cuántas veces se rearrancó) y
-  repetir el caso 2 con una captura de Perfil.
-- **Pedidos de la ronda 3:** H25 (confirmar Salir), H26 (que Perfil responda
-  al toque) y H27 (el deslizador pegado después de Cancelar).
+- **Ronda 4** (`informes/pruebas-telefono-ronda4.pdf`): el caso 2 con
+  capturas de Perfil, y H25, H26 y H27.
 - **Sin tocar desde antes:** H1, H3 y H4 (piden APK nueva), H5, H15, H17 y
   H23 (decidir qué dice el SOS del chofer relevado).
 - **Opcional:** a cuántos metros de la calle cambió T2 en el paso 1.4.

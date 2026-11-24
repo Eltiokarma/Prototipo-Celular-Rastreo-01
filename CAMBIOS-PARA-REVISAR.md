@@ -1604,6 +1604,64 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 35. Lo que dejó la tercera ronda en teléfono — `02c31c0` (24/11)
+
+**Qué.** La tercera ronda (23/11) comprobó en el teléfono los arreglos del
+bloque 34, salvo uno: el GPS mudo después de quitar las notificaciones
+(H8, H9). El diagnóstico copiado del paso 2.5 decía «Servicio de GPS:
+corriendo», con nada enviado hace 412 s.
+
+1. **Rearrancar a la fuerza.** El rearranque del bloque 34 paraba y
+   arrancaba preguntándole antes a Android si el servicio ya corría, y
+   Android contesta por el registro de la tarea: decía que sí y no se hacía
+   nada. `rearrancar` para, borra el registro y arranca de cero, anotando
+   cada error sin cortar los pasos siguientes. Si sigue mudo dos minutos
+   después, la app le dice al chofer lo único comprobado que lo arregla:
+   cerrar la app y dejar la pantalla apagada un minuto.
+2. **La fila con plazo.** Cada paso de la fila de arrancar y parar tiene
+   20 s. Una llamada nativa que no vuelve dejaba esperando todo lo que se
+   pidiera después (parar al cerrar sesión, arrancar al volver a salir),
+   hasta que el proceso muriera: es otra explicación posible de por qué
+   salir de la cuenta no lo arreglaba y que Android cerrara la app sí.
+3. **El GPS por dentro, en Perfil.** «Lecturas del GPS» cuenta lo que
+   Android le entrega a la tarea, antes de filtrar; además, las repetidas,
+   los rearranques y el último error del servicio. Separa «el servicio no
+   da posiciones» de «las da y no salen».
+4. **Salir pide dos toques (H25)**, como SALIR DE RUTA: el primero lo
+   cambia a «¿SALIR?» por 4 s.
+5. **Perfil y Salir, con margen para el dedo (H26)** y más claros al
+   apretarlos. Perfil ya se abría al instante: lo que fallaba era el toque
+   sobre una palabra de 14 px.
+6. **El deslizador vuelve solo al inicio (H27)** un segundo después de
+   disparar. Desde la confirmación del relevo la pantalla puede quedarse en
+   la puerta, y el botón quedaba pegado en «IR».
+
+**Archivos.** `app/gps/servicio.js`, `app/App.js`, `pruebas/nativas.js`.
+Guía nueva: `informes/pruebas-telefono-ronda4.tex` y su PDF. Es todo
+JavaScript de la app: llega con `publicar-arreglo.bat`, sin APK y sin tocar
+el servidor.
+
+**Qué mirar.**
+- La causa de H8 y H9 sigue sin confirmar. Los dos arreglos atacan las dos
+  explicaciones que encajan con lo visto; la captura de Perfil de la ronda 4
+  dice cuál era, o si era otra.
+- Un plazo de 20 s puede cortar un arranque lento de verdad en un teléfono
+  muy cargado. Si pasa, el error queda en Perfil y el vigilante lo vuelve
+  a intentar.
+- Salir con dos toques cambia lo que dicen las guías y el manual: «toca
+  Salir» pasa a «toca Salir dos veces».
+
+**Manual.** Salir con dos toques y las líneas nuevas de «EL GPS» en Perfil.
+
+**Pruebas.** `nativas`, con la fila real y Android simulado: arrancar con
+Android diciendo «ya corre» no hace nada; rearrancar para y arranca igual;
+un rearranque pedido antes de parar no deja el GPS prendido; si parar
+falla, se arranca igual y el error queda a la vista; un arranque colgado ya
+no bloquea el parar siguiente. Con el servicio anterior la prueba de la
+fila no corre (no existe `rearrancar`). Regresión completa: corriendo al anotar esto.
+
+---
+
 ## 34. Lo que dejó la segunda ronda en teléfono — `ed2f850` (20/11)
 
 **Qué.** Cinco arreglos pedidos por el probador antes de la tercera ronda
@@ -1971,6 +2029,9 @@ son dibujos, no capturas, y el manual lo dice. Lo que sigue pendiente de
 abajo: las capturas de la **APK** (las del chofer son de la web), cuando se
 haya probado en la calle; y cambiar las ilustraciones por capturas de un
 teléfono de verdad cuando las haya.
+
+**Del bloque 35 (24/11), pendiente:** Salir pide dos toques, y las líneas
+nuevas de «EL GPS» en Perfil.
 
 **Del bloque 34 (20/11), pendiente:** la confirmación del relevo al
 deslizar, también con una sola combi («X: la maneja …» en la puerta).
