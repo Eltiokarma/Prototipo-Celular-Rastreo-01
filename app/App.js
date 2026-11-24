@@ -924,14 +924,19 @@ function Aplicacion() {
       } else if (servicioMudo({ ahora: Date.now(), corriendo, primerPlano: AppState.currentState === 'active',
                                 ultimaLectura: ultimaLectura.current, desde, ultimoRearranque: ultimoRearranque.current })) {
         // Android dice que corre, pero hace un minuto que no da ni una
-        // lectura: el registro sobrevivió y el servicio no (H8 y H9). Se
-        // para y se arranca de nuevo.
+        // lectura (H8 y H9). Se rearranca A LA FUERZA: parar y arrancar
+        // preguntando primero «¿ya corre?» no hacía nada, porque Android
+        // contestaba que sí (ronda 3, paso 2.5: «corriendo», nada enviado
+        // hace 412 s).
+        const repetido = ultimoRearranque.current > 0;
         ultimoRearranque.current = Date.now();
-        gps.diagnostico.servicio = 'mudo, rearrancando';
-        gps.parar().catch(() => {}).then(() => {
-          if (!vivo || saliendo.current || gps.diagnostico.detenidoPor) return;
-          return gps.arrancar({ textoNotificacion: textoRef.current });
-        }).catch(() => {});
+        gps.rearrancar({ textoNotificacion: textoRef.current }).catch(() => {});
+        // Si ya se había rearrancado y sigue mudo, rearrancar no alcanza: lo
+        // único comprobado en el teléfono es que Android cierre la app.
+        if (repetido) {
+          setAviso('El GPS no está dando tu ubicación. Cierra la app desde recientes, '
+            + 'apaga la pantalla un minuto y vuelve a abrirla.');
+        }
       } else if (gps.diagnostico.servicio !== 'corriendo') {
         gps.diagnostico.servicio = 'corriendo';
       }
@@ -1397,6 +1402,18 @@ function DiagnosticoGps({ diag }) {
     <Text style={[s.diagnostico, diag.servicio !== 'corriendo' && { color: C.rojoTexto }]}>
       Servicio de GPS: {diag.servicio}
     </Text>
+    {/* Lo que Android le entrega a la app, antes de mandar nada. Es lo que
+        distingue «el servicio corre pero no da posiciones» de «da
+        posiciones y no salen» (H8 y H9: «corriendo» con nada enviado). */}
+    <Text style={s.diagnostico}>
+      Lecturas del GPS {diag.lecturas || 0}
+      {diag.ultimaLectura ? ` · última hace ${Math.round((Date.now() - diag.ultimaLectura) / 1000)}s` : ' · todavía ninguna'}
+      {diag.repetidas > 0 ? ` · ${diag.repetidas} repetidas` : ''}
+      {diag.rearranques > 0 ? ` · rearrancado ${diag.rearranques} ${diag.rearranques === 1 ? 'vez' : 'veces'}` : ''}
+    </Text>
+    {!!diag.errorServicio && (
+      <Text style={[s.diagnostico, { color: C.rojoTexto }]}>Error del servicio: {diag.errorServicio}</Text>
+    )}
     {/* Lo que Android va a hacer con la red apenas se apague la pantalla.
         Va arriba de los contadores porque los explica: con esto activo,
         "enviando hace 300s" no es un bug de la app. Tocar lleva a la
@@ -1578,14 +1595,35 @@ function Ruta({ hud, conectado, reporta, aviso, avisoSalida, onAvisoSalidaVisto,
   // arma así la baja (700 ms) y ATENDIDO (1200 ms) (auditoría de UI, N2).
   const armadoEn = React.useRef(0);
 
+  // «Salir» cierra la sesión: pide un segundo toque, como SALIR DE RUTA
+  // (pedido del probador, ronda 3, H25). El primero lo cambia a «¿SALIR?»
+  // por 4 s; el segundo, pasado medio segundo, sale.
+  const [armarSalir, setArmarSalir] = React.useState(0);
+  React.useEffect(() => {
+    if (!armarSalir) return;
+    const t = setTimeout(() => setArmarSalir(0), 4000);
+    return () => clearTimeout(t);
+  }, [armarSalir]);
+  const tocarSalir = () => {
+    if (!armarSalir) { setArmarSalir(Date.now()); return; }
+    if (Date.now() - armarSalir < ARMA_SALIR_MS) return;
+    setArmarSalir(0);
+    onSalir();
+  };
+  // «Perfil» y «Salir» eran sólo texto de 14 px: el dedo no siempre le
+  // acertaba y nada decía si el toque había entrado (H26). Ahora tienen
+  // margen para el dedo y se aclaran al apretarlos.
+  const apretado = ({ pressed }) => [s.botonCabecera, pressed && { opacity: 0.45 }];
   const cabecera = (
     <View style={s.barra}>
       <Marca marca={marca} />
       <Text style={[s.chip, { color: conectado && !hud.viejo ? C.verdeTexto : C.ambarTexto }]}>
         {hud.viejo ? `○ SIN SEÑAL · ${hud.hace}` : conectado ? '● EN VIVO' : '○ SIN CONEXIÓN'}
       </Text>
-      {onPerfil && <Pressable onPress={onPerfil}><Text style={s.salir}>Perfil</Text></Pressable>}
-      <Pressable onPress={onSalir}><Text style={s.salir}>Salir</Text></Pressable>
+      {onPerfil && <Pressable onPress={onPerfil} hitSlop={10} style={apretado}><Text style={s.salir}>Perfil</Text></Pressable>}
+      <Pressable onPress={tocarSalir} hitSlop={10} style={apretado}>
+        <Text style={[s.salir, !!armarSalir && { color: C.ambarTexto }]}>{armarSalir ? '¿SALIR?' : 'Salir'}</Text>
+      </Pressable>
     </View>
   );
 
@@ -2476,6 +2514,12 @@ function Deslizable({ texto, textoBoton, colorListo, onDisparar }) {
   const [ancho, setAncho] = React.useState(0);
   const x = React.useRef(new Animated.Value(0)).current;
   const recorrido = Math.max(0, ancho - 78);
+  // Después de disparar, el botón vuelve solo al inicio. Antes se quedaba al
+  // final porque la pantalla cambiaba enseguida; desde que salir en una
+  // combi ajena pide confirmar el relevo, la pantalla se queda, y al tocar
+  // Cancelar el botón seguía pegado en «IR» (ronda 3, paso 6.5, H27).
+  const volver = React.useRef(null);
+  React.useEffect(() => () => clearTimeout(volver.current), []);
 
   const pan = React.useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -2489,6 +2533,10 @@ function Deslizable({ texto, textoBoton, colorListo, onDisparar }) {
         Vibration.vibrate(120);
         Animated.timing(x, { toValue: recorrido, duration: 120, useNativeDriver: false }).start();
         onDisparar?.();
+        clearTimeout(volver.current);
+        volver.current = setTimeout(() => {
+          Animated.spring(x, { toValue: 0, useNativeDriver: false }).start();
+        }, 900);
       } else {
         Animated.spring(x, { toValue: 0, useNativeDriver: false }).start();
       }
@@ -3244,6 +3292,7 @@ function crearEstilos(C) { return StyleSheet.create({
   barra: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chip: { fontFamily: 'monospace', fontSize: 12, letterSpacing: 1, fontWeight: '700' },
   salir: { color: C.tenue, fontSize: 14, fontWeight: '700' },
+  botonCabecera: { paddingVertical: 8, paddingHorizontal: 6 },
   avisoBarra: { color: C.ambarTexto, fontSize: 13, marginTop: 10 },
   // El vigía de la puerta: ámbar lleno con tinta de fondo, lo más fuerte
   // que hay sin ser el rojo de la emergencia

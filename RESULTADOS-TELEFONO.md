@@ -1,7 +1,8 @@
 # Resultados de las pruebas en teléfono — APK 0.3.1
 
-Lo que se va viendo al seguir `PRUEBAS-TELEFONO.md` (primera ronda, 18/11) y
-`PRUEBAS-TELEFONO-RONDA-2.md` (segunda ronda, 20/11). **Solo se anota**: nada
+Lo que se va viendo al seguir `PRUEBAS-TELEFONO.md` (primera ronda, 18/11),
+`PRUEBAS-TELEFONO-RONDA-2.md` (segunda ronda, 20/11) e
+`informes/pruebas-telefono-ronda3.pdf` (tercera ronda, 23/11). **Solo se anota**: nada
 de esto se corrige hasta terminar los casos que faltan. Al cerrar, pasa a
 CAMBIOS-PARA-REVISAR.md como un bloque.
 
@@ -182,6 +183,77 @@ hacer (todo el caso 1).
 | 6.14 Espera 2 minutos y mira Despacho | OK | La X con A, un solo punto. |
 | 6.15 T2 prende la pantalla | OK | Captura del Redmi 15C a las 7:36: el mismo aviso del 6.7, ahora para B, con «Servicio de GPS: detenido: sin rol de GPS» y «GPS enviadas 137 · fallidas 0 · 1 no usadas · último hace 287s». Batería en 14 %. Las 7:31 de ese «último» son las del relevo: el Redmi mandó hasta que A tomó la combi, y la respuesta siguiente lo apagó, que es lo esperado. |
 
+# Tercera ronda — 23/11/2026
+
+Sigue `informes/pruebas-telefono-ronda3.pdf`, llenado por el probador
+(Gerson). La APK es la 0.3.1 con el arreglo publicado el 23/11 a las 14:54:
+la captura de Despacho del paso 3.3 lo muestra en la tarjeta de la combi
+(«APP 0.3.1 · 23/11 14:54»).
+
+- **Teléfonos:** T1, Poco X7; T2, Redmi 15C.
+- **Usuarios:** chofer A, El Gordo; chofer B, Karma; cobrador de la X, Cocas.
+- **Combis:** X, M11111; Y, M12345.
+- **Horas:** el caso 3 se hizo hacia las 18:57 y el caso 6 hacia las 20:45.
+- **Capturas recibidas:** la de Despacho del paso 3.3 (18:59), en el documento
+  «SS de Pruebas Android v2 - 01», y dos del Redmi 15C (T2, con el tema
+  oscuro): 20:35 (paso 6.7) y 20:46 (paso 6.16). La del paso 2.5 llegó
+  **descrita en texto**. **Falta** la del paso 6.8 (Despacho: el mapa y la
+  Actividad). Con ellas llegaron otra vez tres del Poco X7 (7:09, 7:15 y
+  7:24), pero son las de la segunda ronda, del 20/11: ya están anotadas allá.
+
+De 56 pasos: 50 OK, 4 FALLA (2.5, 2.6, 3.3 y 3.4), 1 NO SE PUDO (2.4) y 1 sin
+marcar (6.12).
+
+## Preparación
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| P.1 a P.7 | OK | El arreglo llegó a los dos teléfonos. |
+
+## Caso 1. El cobrador cuando su combi va hacia la ruta
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 1.1 a 1.7 | OK | Por primera vez en las tres rondas, el caso completo: **TU COMBI VA HACIA LA RUTA** fijo, las brechas al pisar la calle, **EL CHOFER NO TIENE SEÑAL** con el modo avión y **NO VEO A TU COMBI** al salir de ruta. Confirma H22 (el radio de entrada de 20 m). La nota del 1.4, a cuántos metros de la calle cambió T2, quedó en blanco. |
+| 1.8 | OK | Nota: «Hay que agregar un botón para la confirmación de Salir, también un botón más animado cuando se hace click en perfil, no sé si es lento o si mi dedo no es reconocido por el táctil». Ver H25 y H26. |
+
+## Caso 3. AUSENTE cortado por el cierre de sesión
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 3.1 y 3.2 | OK | |
+| 3.3 | **FALLA** (ver 3.4) | «A las 6:57 salí de la App marcando Ausente como dijiste, me quedé mirando la pantalla de despacho». Captura de las 18:59: la M11111 de El Gordo sigue **en ruta, EN VIVO** («En vivo · 1 en ruta», 0 km/h, ida), no AUSENTE ni SIN SEÑAL. |
+| 3.4 | **FALLA** (de preparación) | «Cuando volví a entrar con ese chofer, no me permitió escoger el micro, supongo que se quedó anotado con el micro anterior. Cuando volví a hacer las pruebas, funcionó, resulta que en **T2 estaba abierta la sesión de Chofer 1**». Con otra sesión de A abierta, el servidor no baja la combi al cerrar sesión en T1: es lo pedido para no sacar del mapa al teléfono que maneja (bloque 34). Que A no pudiera elegir combi es lo esperado: desde el paso P.5 tiene una sola, y con una sola no hay lista. |
+| 3.5 | OK | Con la sesión de T2 cerrada, la combi se va del mapa y no vuelve. |
+| 3.6 | OK | Salir sin AUSENTE: igual. |
+
+## Caso 5. Cerrar todas las sesiones
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 5.1 a 5.11 | OK | Actividad con **2 sesión(es)**, el aviso **«Tu sesión ya no vale: entra de nuevo»** (H19 y H24 arreglados) y, con T1 en ruta y la pantalla apagada, la combi se va del mapa «casi al momento» (5.10). |
+
+## Caso 6. Relevo de chofer en la misma combi
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 6.1 a 6.11 | OK | El relevo pide confirmación también con **una sola** combi (6.3 a 6.6) y no la pide dos veces si ya se confirmó en la lista (6.10 y 6.11). H16 arreglado. |
+| 6.7 | OK | Captura de T2 a las 20:35: el aviso «El GPS se apagó: Otro chofer tomó la unidad…», palabra por palabra, con «Servicio de GPS: detenido: sin rol de GPS» y «GPS enviadas 4782 · fallidas 13 · último hace 15s · sin red ×13». |
+| 6.5 | OK, con un detalle | «El botón de deslizamiento Deslizar para salir a Ruta se quedó pegado en IR y a la derecha, no es problema, regresó al tocarlo.» Ver H27. |
+| 6.12 | Sin marcar | Sin nota. Los pasos siguientes salieron bien, así que se hizo. |
+| 6.13 a 6.17 | OK | Con la pantalla de T2 apagada (20:45), la lista de T1 sigue diciendo **la maneja Karma** y el relevo pide confirmación. Captura de T2 a las 20:46 (paso 6.16): el mismo aviso, «detenido: sin rol de GPS» y «enviadas 4846 · 1 no usadas · último hace 17s». Al prender la pantalla, T2 mandó lo que tenía guardado, el servidor le contestó que ya no tiene el mando y el servicio se apagó: es lo esperado, y Despacho siguió con la X en A. |
+
+## Caso 2. Las notificaciones quitadas en ruta
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 2.1 y 2.2 | OK | |
+| 2.3 | OK | «Se reinició y volvió a pedir el permiso de notificaciones. Se aceptaron las notificaciones y se volvió a entrar.» |
+| 2.4 | **NO SE PUDO** (es una falla) | «En Despacho no aparece la Combi A, en el celular sale "Sin Señal".» |
+| 2.5 | **FALLA** | Perfil → EL GPS, copiado a mano: «Servicio de GPS: Corriendo, GPS enviadas 0, fallidas 0, 1 no usadas, 1 esperando, último hace 412 s». |
+| 2.6 | **FALLA** | Apagar y prender las notificaciones otra vez no lo arregla: sigue sin señal. |
+| 2.7 | OK | Al salir de ruta, la combi se va de Despacho. Al volver a entrar, A aparece en Despacho en la puerta («como alguien que no terminó de entrar»), que es lo esperado; pero al salir a ruta, **la combi no aparece**. Lo que lo arregla, como en la primera ronda: salir de la app y dejar la pantalla apagada un minuto. Ver H8 y H9. |
+
 ---
 
 ## Hallazgos (pendientes de analizar)
@@ -207,6 +279,10 @@ hacer (todo el caso 1).
 | H17 | Despacho **no muestra** la doble conexión ni el relevo en el mapa. Solo aparece en la actividad de gestión. | Falla | Caso 6 |
 | H18 | El paso 6.13 falló, pero **no por la lista**. La Actividad muestra que A tomó la combi a las 7:31, un minuto **antes** de que Despacho le habilitara la segunda combi (7:32). Con una sola combi la app no muestra la lista ni la confirmación: es **H16**, ahora con registro. El Redmi estaba vivo (el servidor lo anotó como relevo, cosa que sólo hace si el otro todavía mandaba) y se apagó por el relevo, no por la batería. La lista de las 7:33 decía «libre» con razón: B ya estaba relevado. Queda por probar el 6.13 en el orden de la planilla, con la segunda combi habilitada **antes** de deslizar. | Resuelto: **es H16** | Ronda 2, pasos 6.13 y 6.15, y la Actividad |
 | H24 | Cambiar la propia contraseña **cierra las otras sesiones** del chofer (Actividad, 7:14). Está bien que lo haga, pero el teléfono que queda afuera no sabe por qué: le sale «Sesión inválida o expirada», igual que en H19. De paso quedó probado: funciona. | Observación | Ronda 2, caso 5 |
+| H25 | Pedir confirmación al tocar **Salir** (cerrar sesión), como ya la pide SALIR DE RUTA. | Pedido | Ronda 3, paso 1.8 |
+| H26 | Tocar **Perfil** no da ninguna señal de que se tocó: el probador no sabe si la app está lenta o si el táctil no tomó el dedo. | Pedido | Ronda 3, paso 1.8 |
+| H27 | Después de deslizar **SALIR A RUTA**, si sale la confirmación del relevo y se toca **Cancelar**, el botón se queda al final, en «IR». Vuelve al tocarlo. Antes no se notaba porque la pantalla cambiaba enseguida a la ruta. | Falla menor | Ronda 3, paso 6.5 |
+| H28 | El mismo chofer con **dos sesiones abiertas** (H15) también hace que cerrar sesión no baje su combi: el servidor no la toca mientras quede otra sesión, por si el otro teléfono es el que maneja. En la ronda 3 eso hizo fallar el 3.3 y el 3.4. | Observación | Ronda 3, pasos 3.3 y 3.4 |
 | H19 | Cuando la sesión se cierra desde otro teléfono, el aviso del ingreso no es «Tu sesión ya no vale: entra de nuevo». Sale **«Sesión inválida o expirada»** con la app cerrada y **«Sesión cerrada»** con la app en ruta. Son los textos que manda el servidor; el de la app solo sale por otro camino. Funciona, pero el chofer lee tres textos distintos para lo mismo. | Observación | Ronda 2, pasos 5.8 y 5.12 |
 | H20 | En el paso 3.3 de la segunda ronda, lo mismo falló una vez y anduvo la siguiente: el arreglo de H11 y H12, sea cual sea, tiene que cubrir un caso que **no pasa siempre**. | Observación | Ronda 2, paso 3.3 |
 | H21 | En «la maneja …» de la lista de combis, el **nombre del chofer en negrita**. | Pedido | Ronda 2, paso 6.2 |
@@ -264,11 +340,36 @@ sin APK nueva. Bloques 33 y 34 de CAMBIOS-PARA-REVISAR.md.
 - H14 (el botón CERRAR TODAS MIS SESIONES se encuentra mal), H6 y H13: son de
   diseño o pedidos nuevos.
 
+### Cómo quedaron en la ronda 3
+
+| # | Cómo quedó |
+|---|---|
+| H16 y H18 | **Arreglado y comprobado** (caso 6 entero). |
+| H11, H12 y H20 | **Arreglado y comprobado** (3.5 y 3.6). Las fallas del 3.3 y el 3.4 fueron por la sesión de A abierta en T2 (H28). |
+| H19 y H24 | **Arreglado y comprobado** (5.6 y 5.7). |
+| H21 | Comprobado (6.3 y 6.9). |
+| H22 | **Comprobado**: el caso 1 salió entero por primera vez. |
+| H8 y H9 | **No se arregló.** El rearranque del GPS mudo no alcanzó. El diagnóstico del 2.5 dice «corriendo» con nada enviado desde hace 412 s: el servicio está anotado como corriendo, pero no da posiciones. Dos caminos del código dejan pasar ese estado sin rearrancar nada: `arrancar` vuelve enseguida si Android dice que el servicio corre, y el rearranque del vigilante sigue de largo si parar falla. Es una hipótesis, no está comprobada. Lo que sí está comprobado es lo que lo arregla: que Android mate el proceso de la app (salir y dejar la pantalla apagada un minuto). Salir de la cuenta y volver a entrar no alcanza. |
+
+## Arreglado el 24/11, sin probar todavía en teléfono
+
+Se comprueba con `informes/pruebas-telefono-ronda4.pdf`. Bloque 35 de
+CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
+`publicar-arreglo.bat`.
+
+| # | Qué se hizo | Seguro de la causa |
+|---|---|---|
+| H8 y H9 | El GPS mudo se rearranca **a la fuerza** (sin preguntarle a Android si ya corre), la fila de arrancar y parar tiene un plazo de 20 s, y Perfil muestra las lecturas que entrega Android, los rearranques y el último error. Si sigue mudo, la app le dice al chofer que cierre la app y apague la pantalla un minuto. | **No.** Ataca las dos explicaciones que encajan con lo visto. La captura de Perfil de la ronda 4 dirá cuál era. |
+| H25 | Salir pide dos toques («¿SALIR?»). | — |
+| H26 | Perfil y Salir con margen para el dedo y más claros al apretarlos. | Probable: Perfil ya se abría al instante, lo que fallaba era acertarle a la palabra. |
+| H27 | El botón para salir a ruta vuelve solo al inicio un segundo después de disparar. | Sí. |
+
 ## Lo que falta
 
-Todo lo que queda por probar está en `PRUEBAS-TELEFONO-RONDA-3.md`: el caso 1
-(nunca se pudo hacer), y la comprobación de cada arreglo de arriba.
-
-- **Combis extra:** al empezar la ronda 3, A con una sola combi (la X) y B
-  con dos (la X y la Y). Al terminar, quitarles lo que sobre.
-- **Opcional:** el texto del aviso de la app del paso 2.2 de la ronda 2.
+- **Captura de la ronda 3:** la del paso 6.8 (Despacho: el mapa y la
+  Actividad). Opcional: el paso salió OK sin ella.
+- **Ronda 4** (`informes/pruebas-telefono-ronda4.pdf`): el caso 2 con
+  capturas de Perfil, y H25, H26 y H27.
+- **Sin tocar desde antes:** H1, H3 y H4 (piden APK nueva), H5, H15, H17 y
+  H23 (decidir qué dice el SOS del chofer relevado).
+- **Opcional:** a cuántos metros de la calle cambió T2 en el paso 1.4.

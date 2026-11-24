@@ -695,8 +695,10 @@ const pruebaPresencia = (async () => {
     ok('si Android dice que NO corre, es el otro camino (rearrancar sin parar)', m({ ...base, corriendo: false, ahora: t }) === false);
     ok('rearrancado hace poco: no se insiste', m({ ...base, ahora: t, ultimaLectura: 0, ultimoRearranque: t - REARRANQUE_CADA_MS + 1000 }) === false);
     ok('y pasado el plazo, si sigue mudo, otra vez', m({ ...base, ahora: t, ultimaLectura: 0, ultimoRearranque: t - REARRANQUE_CADA_MS }) === true);
-    ok('el vigilante lo usa: para y arranca de nuevo el servicio mudo',
-       /servicioMudo\(\{[\s\S]{0,300}\}\)\) \{[\s\S]{0,500}gps\.parar\(\)[\s\S]{0,200}gps\.arrancar\(/.test(app));
+    ok('el vigilante lo usa: rearranca A LA FUERZA el servicio mudo (no parar + arrancar, que preguntaban a Android)',
+       /servicioMudo\(\{[\s\S]{0,300}\}\)\) \{[\s\S]{0,700}gps\.rearrancar\(/.test(app));
+    ok('y si ya se había rearrancado y sigue mudo, se lo dice al chofer',
+       /if \(repetido\) \{\s*setAviso\('El GPS no está dando tu ubicación/.test(app));
     ok('y cada lectura que llega lo anota', /cuandoLlegueUnaPosicion\(\(p\) => \{[\s\S]{0,120}ultimaLectura\.current = Date\.now\(\);/.test(app));
   }
   { // H19 y H24: un solo texto para la sesión que dejó de valer
@@ -764,8 +766,9 @@ const pruebaFilaGps = (async () => {
   // respuestas nativas DIFERIDAS: un arrancar que ya empezó terminaba
   // después del parar y dejaba el servicio «corriendo».
   const srv = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
-  const bloque = srv.slice(srv.indexOf('// ── Arrancar, parar y cambiar la cadencia, en FILA'), srv.indexOf('// Para mirarlo desde la pantalla sin adivinar.'))
+  const bloqueReal = srv.slice(srv.indexOf('// ── Arrancar, parar y cambiar la cadencia, en FILA'), srv.indexOf('// Para mirarlo desde la pantalla sin adivinar.'))
     .replace(/^export /gm, '');
+  let bloque = bloqueReal;
   const armar = () => {
     const r = { log: [], corriendo: false, soltar: [] };
     const diferido = (nombre, efecto) => () => new Promise(res => { r.soltar.push(() => { r.log.push(nombre); if (efecto) efecto(); res(); }); });
@@ -778,9 +781,9 @@ const pruebaFilaGps = (async () => {
     const TaskManager = { isTaskRegisteredAsync: async () => false, unregisterTaskAsync: async () => {} };
     const diagnostico = {};
     const f = new Function('Location', 'TaskManager', 'diagnostico', 'TAREA_GPS', 'CADENCIA_PANTALLA_ENCENDIDA', 'hidratarGrabacionGuardada', 'limpiarNotificacion',
-      'let generacion = 0;\n' + bloque + '\nreturn { arrancar, parar, cambiarCadencia, pararDesdeLaTarea, nuevaSesion: () => { generacion++; } };')(Location, TaskManager, diagnostico, 't', 3000, async () => {}, async () => {});
+      'let generacion = 0;\n' + bloque + '\nreturn { arrancar, parar, rearrancar, cambiarCadencia, pararDesdeLaTarea, nuevaSesion: () => { generacion++; } };')(Location, TaskManager, diagnostico, 't', 3000, async () => {}, async () => {});
     const vaciar = async () => { for (let i = 0; i < 50; i++) { await new Promise(res => setTimeout(res, 0)); while (r.soltar.length) r.soltar.shift()(); } };
-    return { ...f, r, diagnostico, vaciar };
+    return { ...f, r, diagnostico, vaciar, Location };
   };
   { const { arrancar, parar, r, diagnostico, vaciar } = armar();
     const a = arrancar();                 // empieza a arrancar…
@@ -820,6 +823,40 @@ const pruebaFilaGps = (async () => {
     ok('ausente mucho tiempo: después del POST, nada si la sesión cambió', /body: JSON\.stringify\(\{ estado: 'fuera' \}\),\n\s*\}, control\);\n\s*\} catch \{\}\n\s*if \(!mia\(\)\) return;\n\s*diagnostico\.servicio = 'detenido: ausente mucho tiempo';/.test(srvTexto));
     ok('volvió solo: después del POST, nada si la sesión cambió', /\} catch \{\}\n\s*if \(!mia\(\)\) return;\n\s*diagnostico\.servicio = 'detenido: volvió a ruta solo y nunca pisó el trazado';/.test(srvTexto));
     ok('la respuesta de error de otra sesión tampoco se aplica (ni borra la sesión guardada)', /\} else \{\n\s*\/\/ Lo mismo que con el 200: la respuesta de otra sesión no se aplica\n\s*if \(!mia\(\)\) return;/.test(srvTexto)); }
+  // Ronda 3 en teléfono (H8 y H9): «corriendo» con nada enviado
+  { const { arrancar, rearrancar, r, diagnostico, vaciar } = armar();
+    r.corriendo = true;                       // Android dice que corre (el registro), pero no da nada
+    const a = arrancar(); await vaciar(); await a;
+    ok('arrancar con Android diciendo «ya corre» no hace nada (por eso no alcanzaba)', !r.log.includes('start'), r.log);
+    const re = rearrancar({ textoNotificacion: 'x' }); await vaciar(); await re;
+    ok('rearrancar A LA FUERZA para y arranca aunque Android diga que corre',
+       r.log.join(',') === 'stop,start' && diagnostico.servicio === 'corriendo' && diagnostico.rearranques === 1, { log: r.log, diag: diagnostico }); }
+  { const { rearrancar, parar, r, vaciar } = armar();
+    r.corriendo = true;
+    const re = rearrancar({}); const p = parar();       // rearrancar y enseguida salir de ruta
+    await vaciar(); await re; await p;
+    ok('un rearranque pedido antes de parar no deja el GPS prendido', r.corriendo === false && !r.log.includes('start'), r.log); }
+  { const { rearrancar, r, diagnostico, vaciar, Location } = armar();
+    r.corriendo = true;
+    Location.stopLocationUpdatesAsync = async () => { throw new Error('servicio no encontrado'); };
+    const re = rearrancar({}); await vaciar(); await re;
+    ok('si parar falla, rearrancar arranca igual y deja el error a la vista',
+       r.log.includes('start') && /parar: servicio no encontrado/.test(diagnostico.errorServicio || ''), { log: r.log, err: diagnostico.errorServicio }); }
+  { // Una llamada nativa que no vuelve nunca no bloquea la fila para siempre
+    bloque = bloqueReal.replace('const PLAZO_FILA_MS = 20_000;', 'const PLAZO_FILA_MS = 60;');
+    const { arrancar, parar, r, diagnostico, Location } = armar();
+    bloque = bloqueReal;
+    Location.startLocationUpdatesAsync = () => new Promise(() => {});   // colgado
+    const a = arrancar(); a.catch(() => {});
+    await new Promise(res => setTimeout(res, 0));          // el arranque ya empezó y quedó colgado
+    const p = parar();
+    await new Promise(res => setTimeout(res, 150));
+    while (r.soltar.length) r.soltar.shift()();
+    let paro = false; await Promise.race([p.then(() => { paro = true; }), new Promise(res => setTimeout(res, 100))]);
+    ok('un arranque colgado no deja colgado al parar de después (la fila tiene plazo)', paro && /no respondió/.test(diagnostico.errorServicio || ''), { paro, err: diagnostico.errorServicio });
+    ok('el plazo de verdad es de 20 s', /const PLAZO_FILA_MS = 20_000;/.test(bloqueReal)); }
+  { const srvTexto = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
+    ok('la tarea cuenta lo que Android le entrega, antes de filtrar', /diagnostico\.lecturas \+= data\.locations\.length;/.test(srvTexto) && /diagnostico\.repetidas \+= crudas\.length - posiciones\.length;/.test(srvTexto)); }
   { const srvTexto = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
     ok('la tarea ya no detiene el GPS por fuera de la fila', !/try \{ await Location\.stopLocationUpdatesAsync\(TAREA_GPS\); \} catch \{\}/.test(srvTexto) && (srvTexto.match(/await pararDesdeLaTarea\('/g) || []).length === 6); }
 })();

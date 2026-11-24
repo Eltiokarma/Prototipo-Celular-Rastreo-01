@@ -157,6 +157,18 @@ export const diagnostico = {
   // enviadas y 0 fallidas" es indistinguible de "todavía no llegó ninguna
   // posición", y esa ambigüedad ya costó una sesión entera de diagnóstico.
   servicio: 'sin arrancar',
+  // Lo que Android le ENTREGA a la tarea, antes de cualquier filtro: cuántas
+  // posiciones y cuándo llegó la última. Si «servicio» dice corriendo y esto
+  // no se mueve, el servicio está anotado pero no da posiciones (pruebas en
+  // teléfono, H8 y H9: «corriendo» con nada enviado hace 412 s).
+  lecturas: 0,
+  ultimaLectura: null,
+  // Las que la tarea descartó por repetidas (ver `filtrarEntregadas`)
+  repetidas: 0,
+  // Cuántas veces se rearrancó el servicio a la fuerza, y el último error
+  // de parar o arrancar (antes se tragaban sin dejar rastro).
+  rearranques: 0,
+  errorServicio: null,
   // La grabación de recorrido en curso ({puntos, largoM}) o null
   grabacion: null,
 };
@@ -257,7 +269,10 @@ function anotarFallo(motivo, posiciones) {
 let ultimaEntregada = -Infinity;
 
 TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
-  if (error || !data?.locations?.length) return;
+  if (error) { diagnostico.errorServicio = `la tarea: ${error.message || error}`; return; }
+  if (!data?.locations?.length) return;
+  diagnostico.lecturas += data.locations.length;
+  diagnostico.ultimaLectura = Date.now();
   const crudas = data.locations.map(l => ({
     lat: l.coords.latitude,
     lng: l.coords.longitude,
@@ -277,6 +292,7 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
   const filtradas = filtrarEntregadas(crudas, ultimaEntregada);
   ultimaEntregada = filtradas.ultimaEntregada;
   const posiciones = filtradas.nuevas;
+  diagnostico.repetidas += crudas.length - posiciones.length;
   if (!posiciones.length) return;
 
   for (const p of posiciones) alRecibir?.(p);   // solo para la pantalla
@@ -881,9 +897,24 @@ export async function pedirPermisos() {
 // pidió parar es el último que habló.
 let fila = Promise.resolve();
 let pedidosDeParar = 0;
+// Cada paso de la fila tiene un plazo. Si una llamada nativa no vuelve nunca
+// (un arranque que Android deja colgado después de matar la app), todo lo que
+// se pidiera después —parar al cerrar sesión, arrancar al volver a salir—
+// quedaba esperando detrás hasta que el proceso muriera. Es una de las
+// explicaciones posibles de H8 y H9: salir de la cuenta y volver a entrar no
+// lo arreglaba, y que Android cerrara la app sí. Pasado el plazo, la fila
+// sigue y queda anotado.
+const PLAZO_FILA_MS = 20_000;
 function enFila(fn) {
-  const p = fila.then(fn, fn);
-  fila = p.catch(() => {});
+  const conPlazo = () => {
+    let t;
+    const plazo = new Promise((_, no) => {
+      t = setTimeout(() => no(new Error(`no respondió en ${PLAZO_FILA_MS / 1000} s`)), PLAZO_FILA_MS);
+    });
+    return Promise.race([Promise.resolve().then(fn), plazo]).finally(() => clearTimeout(t));
+  };
+  const p = fila.then(conPlazo, conPlazo);
+  fila = p.catch((e) => { diagnostico.errorServicio = e && e.message ? e.message : String(e); });
   return p;
 }
 
@@ -905,7 +936,12 @@ async function arrancarAhora({ textoNotificacion = 'Turno en curso' } = {}) {
     diagnostico.servicio = 'registro huérfano, rearrancando';
     try { await TaskManager.unregisterTaskAsync(TAREA_GPS); } catch {}
   }
-  await Location.startLocationUpdatesAsync(TAREA_GPS, {
+  await empezarLecturas(textoNotificacion);
+  diagnostico.servicio = 'corriendo';
+}
+
+function empezarLecturas(textoNotificacion) {
+  return Location.startLocationUpdatesAsync(TAREA_GPS, {
     accuracy: Location.Accuracy.High,
     timeInterval: CADENCIA_PANTALLA_ENCENDIDA,
     distanceInterval: 0,
@@ -920,7 +956,31 @@ async function arrancarAhora({ textoNotificacion = 'Turno en curso' } = {}) {
       killServiceOnDestroy: false,
     },
   });
-  diagnostico.servicio = 'corriendo';
+}
+
+// Rearrancar A LA FUERZA: sin preguntarle a Android si ya corre, porque esa
+// respuesta es la del registro de la tarea y puede decir que sí con el
+// servicio muerto (H8 y H9). Se para, se borra el registro y se arranca de
+// cero; cada error queda anotado y no corta los pasos que siguen. Como
+// `arrancar`, no corre si después de pedirlo alguien pidió parar.
+export function rearrancar({ textoNotificacion = 'Turno en curso' } = {}) {
+  const paradasAlPedir = pedidosDeParar;
+  return enFila(async () => {
+    if (pedidosDeParar !== paradasAlPedir) return;
+    diagnostico.rearranques = (diagnostico.rearranques || 0) + 1;
+    diagnostico.servicio = 'rearrancando';
+    try { await Location.stopLocationUpdatesAsync(TAREA_GPS); }
+    catch (e) { diagnostico.errorServicio = `parar: ${e && e.message ? e.message : e}`; }
+    try { await TaskManager.unregisterTaskAsync(TAREA_GPS); } catch {}
+    if (pedidosDeParar !== paradasAlPedir) { diagnostico.servicio = 'detenido'; return; }
+    try {
+      await empezarLecturas(textoNotificacion);
+      diagnostico.servicio = 'corriendo';
+    } catch (e) {
+      diagnostico.errorServicio = `arrancar: ${e && e.message ? e.message : e}`;
+      diagnostico.servicio = 'no arrancó';
+    }
+  });
 }
 
 // Cambiar la cadencia es volver a arrancar con otro intervalo: expo-location
@@ -982,7 +1042,13 @@ function pararDesdeLaTarea(motivo, gen) {
 
 async function pararAhora() {
   if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
-    await Location.stopLocationUpdatesAsync(TAREA_GPS);
+    try { await Location.stopLocationUpdatesAsync(TAREA_GPS); }
+    catch (e) {
+      // No pudo parar: se anota, y se borra el registro igual para que el
+      // próximo arranque no crea que ya corre
+      diagnostico.errorServicio = `parar: ${e && e.message ? e.message : e}`;
+      try { await TaskManager.unregisterTaskAsync(TAREA_GPS); } catch {}
+    }
   } else if (await TaskManager.isTaskRegisteredAsync(TAREA_GPS)) {
     // Registro sin servicio: si no se limpia, queda ahí para confundir a la
     // próxima sesión. Es la basura que causó el bug de arriba.
