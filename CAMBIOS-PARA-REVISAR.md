@@ -1658,7 +1658,7 @@ Android diciendo «ya corre» no hace nada; rearrancar para y arranca igual;
 un rearranque pedido antes de parar no deja el GPS prendido; si parar
 falla, se arranca igual y el error queda a la vista; un arranque colgado ya
 no bloquea el parar siguiente. Con el servicio anterior la prueba de la
-fila no corre (no existe `rearrancar`). Regresión completa: corriendo al anotar esto.
+fila no corre (no existe `rearrancar`). Regresión completa en verde: las 102 suites.
 
 ---
 
