@@ -130,11 +130,11 @@
 
 \section{Para qué es esta ronda}
 
-Esta ronda es corta y tiene un objetivo principal: el caso de las notificaciones, que falló en las tres rondas anteriores. Cuando se quitan las notificaciones con el chofer en ruta, Android cierra la app; al volver, la app dice que el GPS está corriendo, pero no manda ninguna posición, y Despacho deja de ver la combi.
+Esta ronda es corta y tiene un objetivo principal: el caso de las notificaciones, que falló en la primera ronda y en la tercera. Cuando se quitan las notificaciones con el chofer en ruta, Android cierra la app; cuando el chofer vuelve a abrirla, la app dice que el GPS está corriendo, pero no manda ninguna posición, y Despacho deja de ver la combi.
 
-El arreglo de esta ronda hace dos cosas. Si el GPS pasa un minuto sin dar posiciones con la app abierta, la app lo apaga y lo vuelve a prender desde cero, y si eso tampoco alcanza, le dice al chofer qué hacer. Además, Perfil ahora muestra lo que pasa con el GPS por dentro, así que en este caso las capturas de Perfil importan tanto como el resultado.
+El arreglo de esta ronda hace dos cosas: si el GPS pasa un minuto sin dar posiciones mientras la app está en pantalla, la app lo apaga y lo vuelve a prender desde cero, y si eso tampoco alcanza, le dice al chofer qué hacer. Además, Perfil ahora muestra lo que pasa con el GPS por dentro, así que en este caso las capturas de Perfil importan tanto como el resultado.
 
-La ronda también comprueba tres pedidos de la ronda anterior: que Salir pida dos toques, que Perfil responda al tocarlo y que el botón para salir a ruta no se quede pegado después de cancelar un relevo.
+La ronda también comprueba tres pedidos de la ronda anterior: que Salir pida dos toques, que Perfil responda al tocarlo y que el botón para salir a ruta no se quede pegado después de cancelar un relevo. Los casos van en el orden en que conviene hacerlos, con el de las notificaciones al final, y los números de paso son los de esta ronda: no coinciden con los de la tercera.
 
 \section{Cómo se anota}
 
@@ -150,7 +150,7 @@ En cada paso marca una de las tres opciones, escribe la hora si algo salió dist
 \textbf{Si lo que pide la columna «Qué haces» no coincide con lo que ves en la pantalla}, por ejemplo un botón que no está o un texto distinto, detente ahí y anótalo. Desde ese punto, el resto del caso ya no sirve como prueba, aunque después todo parezca andar.
 \end{alto}
 
-Las capturas se nombran por el número de paso. Si el reloj de un teléfono muestra 12 horas, anota en la nota si era de mañana o de noche, porque en la galería las dos se ven iguales.
+Cuando me mandes una captura, dime de qué paso es, por ejemplo «paso 2.6». Si el reloj de un teléfono muestra 12 horas, anota en la nota si la captura es a. m. o p. m., porque en la galería las dos se ven iguales.
 
 \subsection{Quién es quién}
 
@@ -158,19 +158,20 @@ Las capturas se nombran por el número de paso. Si el reloj de un teléfono mues
   \item \textbf{Despacho} es el sistema que se usa en la PC, abierto en el navegador.
   \item \textbf{T1} es el Poco X7 y \textbf{T2} es el Redmi 15C, salvo que anotes otra cosa arriba.
   \item \textbf{El chofer A y el chofer B} son dos usuarios distintos. En la tercera ronda, A era El Gordo, B era Karma, la X era la M11111 y la Y era la M12345. A tiene habilitada solo la X, y B tiene la X y la Y.
+  \item Desde esta ronda, \toca{Salir} pide dos toques: tocas \toca{Salir}, la palabra cambia a \pantalla{¿SALIR?} y la tocas otra vez. Si los dos toques van demasiado seguidos, la app no sale, así que espera a ver \pantalla{¿SALIR?} antes del segundo. Para salir de ruta, \toca{SALIR DE RUTA} también pide dos toques, como en la ronda anterior.
   \item En las tablas, \toca{lo que está en azul} es lo que tocas o eliges, y \pantalla{lo que está en marrón} es lo que muestra la pantalla. Lo que solo sirve para ubicarte va entre comillas y en negro: eso no se toca.
 \end{itemize}
 
 % ═══════════════════════════════════════════════════════════════════
 \section{Preparación}
 
-Se hace una sola vez, antes de empezar. Esta vez el arreglo es solo de la app, así que no hace falta esperar ningún despliegue del servidor.
+Se hace una sola vez, antes de empezar, y como esta vez el arreglo es solo de la app, no hace falta esperar ningún despliegue del servidor.
 
 \begin{pasos}
 \paso{P.1}{P-1}{En la PC, corre \toca{publicar-arreglo.bat} y elige \toca{[1] PRUEBA}.}{El programa termina sin ningún mensaje que empiece con \pantalla{[ERROR]}.}
 \paso{P.2}{P-2}{En cada teléfono, abre la app y espera un minuto en la pantalla de ingreso, sin entrar. Después toca el botón de recientes de Android, desliza la app hacia arriba para cerrarla y ábrela otra vez.}{\nada}
-\paso{P.3}{P-3}{En cada teléfono, entra con cualquier usuario, toca \toca{Perfil} y baja hasta la sección «LA APP».}{Dice \pantalla{actualizada} con la fecha y la hora en que publicaste el arreglo en el paso P.1. Si muestra una fecha anterior, el arreglo todavía no llegó: repite el paso P.2.}
-\paso{P.4}{P-4}{Deja Despacho abierto en \toca{Mapa} durante toda la prueba. Si algún teléfono tiene una sesión abierta, sal de ella.}{Los dos teléfonos muestran la pantalla de ingreso.}
+\paso{P.3}{P-3}{En cada teléfono, entra con cualquier usuario, toca \toca{Perfil} y baja hasta la sección «LA APP». Si la fecha es anterior a la del paso P.1, el arreglo todavía no llegó: repite el paso P.2.}{Dice \pantalla{actualizada} con la fecha y la hora en que publicaste el arreglo en el paso P.1.}
+\paso{P.4}{P-4}{Deja Despacho abierto en \toca{Mapa} durante toda la prueba. En cada teléfono, toca \toca{Salir} y, cuando diga \pantalla{¿SALIR?}, tócalo otra vez.}{Los dos teléfonos muestran la pantalla de ingreso.}
 \end{pasos}
 
 % ═══════════════════════════════════════════════════════════════════
@@ -187,7 +188,7 @@ Este caso es nuevo y se hace en T1, con el chofer A en la puerta, sin salir a ru
 \end{pasos}
 
 % ═══════════════════════════════════════════════════════════════════
-\section{Caso 6, un solo paso: el botón después de cancelar un relevo}
+\section{Caso 6, solo el paso de Cancelar: el botón después de cancelar un relevo}
 
 T2 lleva al chofer B y T1 al chofer A. En la tercera ronda, después de tocar Cancelar en el recuadro del relevo, el botón para salir a ruta se quedó pegado en «IR», al final de su recorrido.
 
@@ -195,35 +196,35 @@ T2 lleva al chofer B y T1 al chofer A. En la tercera ronda, después de tocar Ca
 \paso{6.1}{6-1}{En T2, entra con el chofer B, elige la combi X en la lista y desliza \toca{DESLIZA PARA SALIR A RUTA →}.}{T2 queda en ruta. Despacho muestra la combi X con el nombre de B.}
 \paso{6.2}{6-2}{En T1, entra con el chofer A y desliza \toca{DESLIZA PARA SALIR A RUTA →}.}{Aparece el recuadro \pantalla{X la está manejando B. Si es un relevo, la tomas tú y a B se le avisa.}, con \pantalla{ES UN RELEVO} y \pantalla{Cancelar}.}
 \paso{6.3}{6-3}{En T1, toca \toca{Cancelar} y mira el botón para salir a ruta.}{En un segundo, más o menos, el botón \pantalla{IR} vuelve solo al principio, a la izquierda, sin que lo toques.}
-\paso{6.4}{6-4}{En T1, toca \toca{Salir} dos veces. En T2, toca \toca{SALIR DE RUTA} dos veces y después \toca{Salir} dos veces.}{Los dos teléfonos muestran la pantalla de ingreso, y la combi X se va del mapa de Despacho.}
+\paso{6.4}{6-4}{En T1, sal de la cuenta con los dos toques de \toca{Salir}. En T2, toca \toca{SALIR DE RUTA} dos veces y después sal de la cuenta con los dos toques de \toca{Salir}.}{Los dos teléfonos muestran la pantalla de ingreso, y la combi X se va del mapa de Despacho.}
 \end{pasos}
 
 % ═══════════════════════════════════════════════════════════════════
 \section{Caso 2: las notificaciones quitadas en ruta}
 
-Este caso se hace en T1, con el chofer A, y es el que importa. Lee los pasos antes de empezar, porque algunos piden esperar con la app abierta, y otros, sacar una captura de Perfil aunque todo salga bien.
+Este caso se hace en T1, con el chofer A, y es el que más importa. Lee los pasos antes de empezar, porque algunos piden esperar con la app abierta, y otros, sacar una captura de Perfil aunque todo salga bien.
 
 \begin{pasos}
 \paso{2.1}{2-1}{En T1, entra con el chofer A y sal a ruta. Espera un minuto.}{Despacho muestra la combi de A en el mapa.}
-\paso{2.2}{2-2}{En T1, toca \toca{Perfil}, baja hasta «EL GPS» y saca una captura. Después cierra Perfil.}{\pantalla{Servicio de GPS: corriendo}, y la línea \pantalla{Lecturas del GPS} con un número que sube cada pocos segundos.}
+\paso{2.2}{2-2}{En T1, toca \toca{Perfil}, baja hasta «EL GPS» y saca una captura. Después cierra Perfil.}{Dice \pantalla{Servicio de GPS: corriendo}, y en la línea \pantalla{Lecturas del GPS} hay un número que sube cada pocos segundos.}
 \paso{2.3}{2-3}{En los ajustes de Android, entra en las aplicaciones, busca \toca{Control de ruta}, abre \toca{Notificaciones} y apágalas. Anota la hora.}{\nada}
-\paso{2.4}{2-4}{Vuelve a la app. Si Android la reinició, entra otra vez con A; si te pide el permiso de notificaciones, acéptalo. En la nota, escribe qué pasó.}{\nada}
-\paso{2.5}{2-5}{Deja la app abierta, en la pantalla de la ruta, durante tres minutos, sin tocar nada. Mira Despacho.}{Despacho vuelve a mostrar la combi de A y sigue recibiendo sus posiciones. Anota a qué hora volvió.}
-\paso{2.6}{2-6}{Toca \toca{Perfil}, baja hasta «EL GPS» y saca una captura, salga bien o mal el paso 2.5.}{Si la combi volvió, \pantalla{Lecturas del GPS} sube cada pocos segundos, y puede decir \pantalla{rearrancado 1 vez}. Si no volvió, la captura muestra por qué.}
-\paso{2.7}{2-7}{Solo si en el paso 2.5 la combi no volvió: espera dos minutos más con la app abierta en la pantalla de la ruta. El aviso puede haber salido ya durante el paso 2.5.}{Arriba está el aviso \pantalla{El GPS no está dando tu ubicación. Cierra la app desde recientes, apaga la pantalla un minuto y vuelve a abrirla.} Si la combi sí volvió en el 2.5, marca NO SE PUDO y escribe «no hizo falta».}
-\paso{2.8}{2-8}{Solo si apareció el aviso del paso 2.7: haz lo que dice y, al volver a abrir la app, entra con A si te lo pide.}{Despacho vuelve a mostrar la combi de A en un minuto, más o menos. Si no hizo falta, marca NO SE PUDO.}
-\paso{2.9}{2-9}{Prende otra vez las notificaciones de \toca{Control de ruta} en los ajustes de Android y vuelve a la app.}{En menos de un minuto vuelve la notificación de la brecha, y Despacho sigue mostrando la combi de A.}
-\paso{2.10}{2-10}{Toca \toca{SALIR DE RUTA} dos veces y después \toca{Salir} dos veces.}{T1 muestra la pantalla de ingreso, y la combi de A se va del mapa de Despacho.}
+\paso{2.4}{2-4}{Vuelve a la app. Si Android la reinició, entra otra vez con A; si te pide el permiso de notificaciones, acéptalo, como lo haría un chofer. En la nota, escribe qué pasó.}{La app vuelve a la pantalla de la ruta, sin pasar por la puerta. Si vuelve a la puerta, anótalo y desliza para salir a ruta.}
+\paso{2.5}{2-5}{Deja la app en pantalla, en la ruta, durante tres minutos, sin tocar nada. Mira Despacho y anota a qué hora vuelve la combi.}{Despacho vuelve a mostrar la combi de A y sigue recibiendo sus posiciones.}
+\paso{2.6}{2-6}{Toca \toca{Perfil}, baja hasta «EL GPS» y saca una captura, salga bien o mal el paso 2.5. Después cierra Perfil. Marca OK si la captura muestra la sección entera: lo que dice lo leo yo.}{Si la combi volvió, el número de \pantalla{Lecturas del GPS} sube cada pocos segundos, y puede decir \pantalla{rearrancado 1 vez}. Si no volvió, la captura muestra por qué.}
+\paso{2.7}{2-7}{Solo si en el paso 2.5 la combi no volvió: espera dos minutos más con la app en pantalla, en la ruta, y saca una captura del aviso de la columna de al lado, que puede haber salido ya durante el paso 2.5 o el 2.6. Si la combi sí volvió en el 2.5, marca NO SE PUDO y escribe «no hizo falta».}{Arriba está el aviso \pantalla{El GPS no está dando tu ubicación. Cierra la app desde recientes, apaga la pantalla un minuto y vuelve a abrirla.}}
+\paso{2.8}{2-8}{Solo si apareció el aviso del paso 2.7: haz lo que dice y, al volver a abrir la app, entra con A si te lo pide. Si no hizo falta, marca NO SE PUDO.}{Despacho vuelve a mostrar la combi de A en un minuto, más o menos.}
+\paso{2.9}{2-9}{Si en el paso 2.4 no aceptaste el permiso, prende otra vez las notificaciones de \toca{Control de ruta} en los ajustes de Android. Si lo aceptaste, ya están prendidas. Vuelve a la app.}{En menos de un minuto vuelve la notificación de la brecha, y Despacho sigue mostrando la combi de A.}
+\paso{2.10}{2-10}{Toca \toca{SALIR DE RUTA} dos veces y después sal de la cuenta con los dos toques de \toca{Salir}.}{T1 muestra la pantalla de ingreso, y la combi de A se va del mapa de Despacho.}
 \end{pasos}
 
 \subsection{Si te queda tiempo: el mismo caso en T2}
 
-En la primera ronda, el Redmi se cerró solo al quitarle las notificaciones, y desde entonces el caso se probó en el Poco. Si te queda tiempo, repite los pasos 2.1 a 2.10 en T2 y escribe en las observaciones qué cambió respecto de T1.
+En la primera ronda, la app se cerró sola en el Redmi al quitarle las notificaciones, y en la tercera el caso se probó solo en el Poco. Si te queda tiempo, repite los pasos 2.1 a 2.10 en T2 y escribe en las observaciones qué cambió respecto de T1.
 
 % ═══════════════════════════════════════════════════════════════════
 \section{Al terminar}
 
-Devuélveme este PDF lleno, junto con las capturas de los pasos 7.3, 2.2 y 2.6, las de cada FALLA y, si hizo falta, la del paso 2.7, y yo paso los resultados a \texttt{RESULTADOS-TELEFONO.md}.
+Devuélveme este PDF lleno junto con las capturas: las de los pasos 7.3, 2.2 y 2.6, la del aviso del paso 2.7 si apareció y las dos de cada FALLA. Con el PDF y las capturas, yo paso los resultados a \texttt{RESULTADOS-TELEFONO.md}.
 
 \subsection{Observaciones generales}
 
