@@ -1,6 +1,10 @@
 node_modules/
 app/node_modules/
 app/.expo/
+# Lo que arma `eas update` al publicar un arreglo (publicar-arreglo.bat).
+# Se regenera en cada publicación; sin esto, la guardia del script la tomaba
+# como un cambio sin subir y la publicación siguiente no salía.
+app/dist/
 server/r14.db
 server/r14.db-wal
 server/r14.db-shm
