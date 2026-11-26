@@ -3,7 +3,8 @@
 Lo que se va viendo al seguir `PRUEBAS-TELEFONO.md` (primera ronda, 18/11),
 `PRUEBAS-TELEFONO-RONDA-2.md` (segunda ronda, 20/11) e
 `informes/pruebas-telefono-ronda3.pdf` (tercera ronda, 23/11) e
-`informes/pruebas-telefono-ronda4.pdf` (cuarta ronda, 25/11). **Solo se anota**: nada
+`informes/pruebas-telefono-ronda4.pdf` (cuarta ronda, 25/11) e
+`informes/pruebas-telefono-ronda5.pdf` (quinta ronda, 26/11). **Solo se anota**: nada
 de esto se corrige hasta terminar los casos que faltan. Al cerrar, pasa a
 CAMBIOS-PARA-REVISAR.md como un bloque.
 
@@ -308,6 +309,38 @@ Arreglo en el bloque 36.
 
 ---
 
+# Quinta ronda — 26/11/2026
+
+Sigue `informes/pruebas-telefono-ronda5.pdf`. Solo T1 (Poco X7), con El Gordo,
+de 7:20 a 7:27 p. m., con 53 % de batería y cargando. La app tenía el arreglo
+publicado el 26/11 a las 07:14 (Perfil → LA APP).
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| P.1 a P.5 | OK | |
+| 8.1, 8.2 y 8.4 | OK | El Cerrar de Perfil responde al toque (H31). |
+| 8.3 | **FALLA** | Con VER, «el teclado sigue mostrando palabras sugeridas»: pedirle a Android el teclado de clave a la vista no alcanzó con el teclado de Xiaomi (H29). |
+| 2.1 a 2.4 | OK | 7:20, antes de quitar las notificaciones: «Lecturas del GPS 7 · última hace 2s · GPS enviadas 6». Notificaciones apagadas a las 7:20-7:21; la app volvió a la ruta sin pasar por la puerta, y el permiso se aceptó. |
+| 2.5 | **FALLA** | «Despacho pasó más de 120 segundos sin recibir señal. Cuando salí de la app a Yape, creo que Despacho dejó de recibir cualquier cosa.» |
+| 2.6 y 2.7 | **FALLA** | 7:26 y 7:27: «Servicio de GPS: corriendo · Lecturas del GPS 4 · última hace 298s… 348s · 1 repetidas · **rearrancado 2 veces** · GPS enviadas 2 · 1 no usadas». **Sin ninguna línea de error ni de aviso**, y arriba de la ruta ningún aviso. |
+| 2.8 a 2.11 | NO SE PUDO | «Siempre estuvo sin señal.» |
+
+Observación del probador: «Repetimos el mismo error. Creo que no haremos más
+pruebas escritas, cazaremos esos errores de forma más rápida. Ya no usamos dos
+teléfonos.»
+
+**Qué dice esto de H8 y H9.** El arranque de respaldo no alcanzó. Esta vez
+ningún arranque dio error: los dos rearranques terminaron bien (el primero
+seguramente sin la notificación fija y el segundo, al volver de Yape, con
+ella, que borra el aviso; por eso no queda ninguna línea en ámbar). Aun así,
+después de las cuatro primeras lecturas no llegó ninguna más. O sea que en ese
+proceso Android acepta el pedido de ubicación y no entrega posiciones a la
+app, o las entrega a otra parte. Sigue siendo cierto que lo único que lo cura
+es que el proceso muera. Sin ver lo que hace Android por dentro (`adb shell
+dumpsys location` y `adb logcat`), los arreglos desde JavaScript son a ciegas.
+
+---
+
 ## Hallazgos (pendientes de analizar)
 
 | # | Qué | Tipo | Dónde se vio |
@@ -435,15 +468,13 @@ Bloque 36 de CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
 
 ## Lo que falta
 
-- **Captura de la ronda 3:** la del paso 6.8 (Despacho: el mapa y la
-  Actividad). Opcional: el paso salió OK sin ella.
-- **Ronda 5, corta:** el caso 2 otra vez, **con el teléfono cargado**,
-  para ver si el arranque sin notificación da posiciones y si al tocar
-  inicio y volver queda con la notificación fija. Y el «Cerrar» de Perfil y
-  la contraseña con VER.
+- **H8 y H9:** cinco rondas, sin resolver. El paso siguiente es mirarlo con
+  el teléfono conectado a la PC (`adb`), para ver si Android tiene un pedido
+  de ubicación activo de la app y a quién le entrega las posiciones.
+- **H29:** con VER, el campo ahora sigue siendo de contraseña y lo escrito se
+  muestra en una línea aparte (en la rama, sin publicar).
 - **H32** (el aviso de «otro dispositivo») y **H33** (la cadencia con la
   pantalla apagada).
 - **H30** (la imagen animada de la puerta): pedido de diseño, para decidir.
-- **Sin tocar desde antes:** H1, H3 y H4 (piden APK nueva), H5, H15, H17 y
-  H23 (decidir qué dice el SOS del chofer relevado).
-- **Opcional:** a cuántos metros de la calle cambió T2 en el paso 1.4.
+- **Despacho:** `paneles` falla en `main` desde el #83 (C3, texto bajo 12 px,
+  y N4, borrar un tramo).

@@ -898,8 +898,9 @@ const pruebaFilaGps = (async () => {
     const c = cambiarCadencia(3000, 'x'); await vaciar(); await c;
     ok('sin la notificación fija, cambiar la cadencia no se intenta', r.opciones.length === 0, r.opciones); }
   { const app = require('fs').readFileSync(RAIZ + '/app/App.js', 'utf8');
-    ok('con VER prendido, la contraseña usa el teclado sin sugerencias (no aprende la clave)',
-       /secureTextEntry=\{!verClave\}[\s\S]{0,400}keyboardType=\{verClave \? 'visible-password' : 'default'\}/.test(app));
+    ok('con VER prendido, el campo sigue siendo de contraseña: el teclado nunca recibe la clave como texto común',
+       /value=\{clave\} onChangeText=\{setClave\}\s*secureTextEntry autoCapitalize/.test(app) && !/secureTextEntry=\{!verClave\}/.test(app));
+    ok('y la clave se ve en una línea aparte', /\{verClave && \(\s*<Text style=\{s\.claveVista\}/.test(app));
     ok('al volver al frente con el GPS sin notificación fija, se rearranca',
        /if \(activo && gps\.diagnostico\.sinPrimerPlano\) \{\s*gps\.rearrancar\(/.test(app));
     ok('y se le dice al chofer qué hacer mientras tanto',
