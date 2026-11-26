@@ -124,16 +124,16 @@
 \begin{tabular}{@{}ll@{}}
 \dato{Quién prueba:}{tester}{5.6cm} & \dato{Fecha:}{fecha}{3.4cm} \\[4pt]
 \dato{Modelo de T1:}{modelo-t1}{5.3cm} & \dato{Batería al empezar:}{bateria}{2.4cm} \\[4pt]
-\dato{Chofer A:}{chofer-a}{6.0cm} & \dato{Combi X:}{combi-x}{2.2cm} \\
+\dato{Chofer A:}{chofer-a}{6.0cm} & \\
 \end{tabular}
 
 \section{Para qué es esta ronda}
 
-En la cuarta ronda, Perfil mostró por fin por qué el GPS se quedaba mudo después de quitar las notificaciones. La librería que maneja el GPS solo deja arrancarlo con su notificación fija si cree que la app está al frente, y después de que Android cierra la app, al reabrirla puede seguir creyendo que está atrás aunque la estés mirando.
+En la cuarta ronda, Perfil mostró por fin por qué el GPS se quedaba mudo después de quitar las notificaciones. La librería que maneja el GPS solo deja arrancarlo con su notificación fija si cree que la app está al frente. Cuando Android cierra la app y tú la vuelves a abrir, la librería puede seguir creyendo que la app está atrás, aunque la estés mirando.
 
-El arreglo de esta ronda arranca el GPS sin la notificación fija cuando pasa eso, para que siga dando posiciones mientras la app está en pantalla. En cuanto la app pasa por segundo plano y vuelve, el GPS se rearranca con la notificación, y mientras tanto la app le dice al chofer que toque el botón de inicio y vuelva. Esta ronda comprueba las dos cosas en el teléfono, y además dos pedidos chicos de la ronda anterior.
+El arreglo de esta ronda arranca el GPS sin la notificación fija cuando la librería cree que la app está atrás, para que siga dando posiciones mientras la app está en pantalla. Mientras el GPS anda así, la app le pide al chofer que toque el botón de inicio y vuelva a abrirla, y en cuanto la app pasa por segundo plano y vuelve, el GPS se rearranca con la notificación fija. Esta ronda comprueba en el teléfono el arranque sin notificación y el rearranque, y además dos pedidos chicos de la ronda anterior.
 
-Todo se hace en T1, con el chofer A. La cuarta ronda se hizo con la batería en 9 \%, y con tan poca carga Android puede cortar cosas por su cuenta: esta vez el teléfono tiene que estar cargado.
+Todo se hace en T1, con el chofer A y el teléfono cargado: la cuarta ronda se hizo con la batería en 9 \%, y con tan poca carga Android puede cortar cosas por su cuenta.
 
 \section{Cómo se anota}
 
@@ -151,7 +151,9 @@ En cada paso marca una de las tres opciones, escribe la hora si algo salió dist
 
 Cuando me mandes una captura, dime de qué paso es, por ejemplo «paso 2.6». Si el reloj del teléfono muestra 12 horas, anota en la nota si la captura se sacó a. m. o p. m., porque en la galería la misma hora de la mañana y de la noche se ve igual.
 
-En las tablas, \toca{lo que está en azul} es lo que tocas o eliges, y \pantalla{lo que está en marrón} es lo que muestra la pantalla. Lo que solo sirve para ubicarte va entre comillas y en negro: eso no se toca. \toca{Salir} y \toca{SALIR DE RUTA} piden dos toques, como en la cuarta ronda: espera a ver \pantalla{¿SALIR?} o \pantalla{¿SEGURO? TOCA DE NUEVO} antes de tocar la segunda vez.
+En las tablas, \toca{lo que está en azul} es lo que tocas o eliges, y \pantalla{lo que está en marrón} es lo que muestra la pantalla. Lo que solo sirve para ubicarte va entre comillas y en negro: eso no se toca.
+
+\toca{Salir} y \toca{SALIR DE RUTA} piden dos toques, como en la cuarta ronda: al primero, Salir cambia a \pantalla{¿SALIR?} y SALIR DE RUTA, a \pantalla{¿SEGURO? TOCA DE NUEVO}. Espera a ver ese cambio antes de tocar la segunda vez, porque un segundo toque demasiado seguido no cuenta.
 
 % ═══════════════════════════════════════════════════════════════════
 \section{Preparación}
@@ -159,7 +161,7 @@ En las tablas, \toca{lo que está en azul} es lo que tocas o eliges, y \pantalla
 Se hace una sola vez, antes de empezar, y como el arreglo es solo de la app, no hace falta esperar ningún despliegue del servidor.
 
 \begin{pasos}
-\paso{P.1}{P-1}{Carga T1 hasta más de la mitad. En los ajustes de Android, apaga el ahorro de batería y revisa que la batería de \toca{Control de ruta} siga en «Sin restricciones». Anota la carga arriba, en «Batería al empezar».}{T1 tiene más de 50 \% de batería y el ahorro de batería está apagado.}
+\paso{P.1}{P-1}{Carga T1 hasta más de la mitad. En los ajustes de Android, apaga el ahorro de batería y revisa que la batería de \toca{Control de ruta} siga en «Sin restricciones». En los ajustes de pantalla, sube el apagado automático a 5 minutos o más. Anota la carga arriba, en «Batería al empezar».}{T1 tiene más de 50 \% de batería, el ahorro de batería está apagado y la pantalla tarda 5 minutos o más en apagarse sola.}
 \paso{P.2}{P-2}{En la PC, corre \toca{publicar-arreglo.bat} y elige \toca{[1] PRUEBA}.}{El programa termina sin ningún mensaje que empiece con \pantalla{[ERROR]}.}
 \paso{P.3}{P-3}{En T1, abre la app y espera un minuto en la pantalla de ingreso, sin entrar. Después toca el botón de recientes de Android, desliza la app hacia arriba para cerrarla y ábrela otra vez.}{\nada}
 \paso{P.4}{P-4}{Entra con el chofer A, toca \toca{Perfil} y baja hasta la sección «LA APP». Si la fecha y la hora que siguen a \pantalla{actualizada} son anteriores a las del paso P.2, el arreglo todavía no llegó: repite el paso P.3.}{Dice \pantalla{actualizada} con la fecha y la hora en que publicaste el arreglo en el paso P.2.}
@@ -169,29 +171,29 @@ Se hace una sola vez, antes de empezar, y como el arreglo es solo de la app, no 
 % ═══════════════════════════════════════════════════════════════════
 \section{Caso 8: la contraseña y el Cerrar de Perfil}
 
-Este caso es nuevo y comprueba dos pedidos de la cuarta ronda: que el teclado no aprenda la contraseña cuando se muestra, y que el Cerrar de Perfil responda al toque.
+Este caso es nuevo y comprueba dos pedidos de la cuarta ronda: que el teclado no aprenda la contraseña cuando se muestra, como pasaba antes con VER prendido, y que el Cerrar de Perfil responda al toque.
 
 \begin{pasos}
 \paso{8.1}{8-1}{En T1, con Perfil abierto desde el paso P.4, toca \toca{Cerrar}, arriba a la derecha, y mira la palabra mientras la tocas.}{La palabra se aclara mientras el dedo está encima, y Perfil se cierra al primer toque.}
 \paso{8.2}{8-2}{Sal de la cuenta con los dos toques de \toca{Salir}. En la pantalla de ingreso, toca la casilla de la contraseña y escribe dos o tres letras.}{El teclado no muestra palabras sugeridas arriba de las letras.}
-\paso{8.3}{8-3}{Toca \toca{VER} y escribe dos o tres letras más.}{Las letras se ven, y el teclado sigue sin mostrar palabras sugeridas. Antes, con VER prendido, aparecían sugerencias y el teclado aprendía la clave.}
+\paso{8.3}{8-3}{Toca \toca{VER} y escribe dos o tres letras más.}{Las letras se ven, y el teclado sigue sin mostrar palabras sugeridas.}
 \paso{8.4}{8-4}{Borra lo que escribiste, escribe la contraseña completa del chofer A y entra.}{T1 muestra la puerta, con \pantalla{DESLIZA PARA SALIR A RUTA →}.}
 \end{pasos}
 
 % ═══════════════════════════════════════════════════════════════════
 \section{Caso 2: las notificaciones quitadas en ruta}
 
-Este caso se hace en T1, con el chofer A, y es el que más importa. Lee los pasos antes de empezar: algunos piden esperar con la app en pantalla, y otros, sacar una captura de Perfil aunque todo salga bien.
+Este caso es el que más importa: en la cuarta ronda falló el paso equivalente al 2.5, en la primera y en la tercera ya había fallado el caso entero, y en la segunda no se probó. Lee los pasos antes de empezar: algunos piden esperar con la app en pantalla, y otros, sacar capturas aunque todo salga bien.
 
 \begin{pasos}
-\paso{2.1}{2-1}{En T1, desliza \toca{DESLIZA PARA SALIR A RUTA →} y espera un minuto.}{Despacho muestra la combi de A en el mapa.}
+\paso{2.1}{2-1}{En T1, desliza \toca{DESLIZA PARA SALIR A RUTA →} con la combi de A y espera un minuto.}{Despacho muestra la combi de A en el mapa.}
 \paso{2.2}{2-2}{Toca \toca{Perfil}, baja hasta «EL GPS» y saca una captura. Después cierra Perfil.}{Dice \pantalla{Servicio de GPS: corriendo}, y en la línea \pantalla{Lecturas del GPS} hay un número que sube cada pocos segundos.}
 \paso{2.3}{2-3}{En los ajustes de Android, entra en las aplicaciones, busca \toca{Control de ruta}, abre \toca{Notificaciones} y apágalas. Anota la hora.}{\nada}
 \paso{2.4}{2-4}{Vuelve a la app. Si Android la reinició, entra otra vez con A; si te pide el permiso de notificaciones, acéptalo, como lo haría un chofer. En la nota, escribe qué pasó. Si la app vuelve a la puerta, marca FALLA y desliza para salir a ruta.}{La app vuelve a la pantalla de la ruta, sin pasar por la puerta.}
-\paso{2.5}{2-5}{Deja la app en la pantalla de la ruta durante dos minutos, sin tocar nada. Mira Despacho y anota a qué hora vuelve la combi.}{Despacho vuelve a mostrar la combi de A y sigue recibiendo sus posiciones. Este es el paso que falló en las cuatro rondas anteriores.}
-\paso{2.6}{2-6}{Saca una captura de la pantalla de la ruta. Después toca \toca{Perfil}, baja hasta «EL GPS», saca otra captura y cierra Perfil. Hazlo aunque el paso 2.5 haya salido mal: esas capturas dicen por qué.}{En Perfil, el número de \pantalla{Lecturas del GPS} sube cada pocos segundos. Si arriba de la ruta está el aviso \pantalla{Tu GPS anda, pero se va a cortar cuando apagues la pantalla.}, en Perfil aparece en ámbar una línea que empieza con \pantalla{Aviso del servicio}.}
-\paso{2.7}{2-7}{Toca el botón de inicio de Android, el círculo de abajo, espera cinco segundos y vuelve a abrir la app.}{El aviso de arriba de la ruta, si estaba, se va. En Perfil ya no está la línea en ámbar, y el número de \pantalla{Lecturas del GPS} sigue subiendo.}
-\paso{2.8}{2-8}{Apaga la pantalla con el botón de encendido durante dos minutos y mira Despacho.}{Despacho sigue mostrando la combi de A en vivo, sin pasar a \pantalla{SIN SEÑAL}. Si pasa a SIN SEÑAL, anota a qué hora.}
+\paso{2.5}{2-5}{Deja la app en la pantalla de la ruta durante dos minutos, sin tocar nada. Mira Despacho y anota a qué hora vuelve la combi.}{Despacho vuelve a mostrar la combi de A y sigue recibiendo sus posiciones.}
+\paso{2.6}{2-6}{Saca una captura de la pantalla de la ruta. Después toca \toca{Perfil}, baja hasta «EL GPS», saca otra captura y cierra Perfil. Hazlo aunque el paso 2.5 haya salido mal: esas capturas dicen por qué.}{En Perfil, el número de \pantalla{Lecturas del GPS} sube cada pocos segundos. Si arriba de la ruta está el aviso que empieza con \pantalla{Tu GPS anda}, en Perfil aparece en ámbar una línea que empieza con \pantalla{Aviso del servicio}; si no está el aviso, tampoco está esa línea, y eso también está bien.}
+\paso{2.7}{2-7}{Toca el botón de inicio de Android, el círculo de abajo, espera cinco segundos y vuelve a abrir la app. Mira arriba de la ruta; después toca \toca{Perfil}, baja hasta «EL GPS» y cierra Perfil.}{El aviso de arriba de la ruta, si estaba, se va. En Perfil ya no está la línea en ámbar, y el número de \pantalla{Lecturas del GPS} sigue subiendo.}
+\paso{2.8}{2-8}{Apaga la pantalla con el botón de encendido, déjala apagada dos minutos y mira Despacho. Si la combi pasa a \pantalla{SIN SEÑAL}, anota a qué hora.}{Despacho sigue mostrando la combi de A en vivo, sin pasar a \pantalla{SIN SEÑAL}.}
 \paso{2.9}{2-9}{Prende la pantalla, vuelve a la app, toca \toca{Perfil}, baja hasta «EL GPS» y saca una captura. Después cierra Perfil.}{Dice \pantalla{Servicio de GPS: corriendo}, el número de \pantalla{Lecturas del GPS} sigue subiendo y no hay ninguna línea en rojo.}
 \paso{2.10}{2-10}{Si en el paso 2.4 no aceptaste el permiso, prende otra vez las notificaciones de \toca{Control de ruta} en los ajustes de Android y vuelve a la app. Si lo aceptaste, ya están prendidas: mira la barra de notificaciones.}{La notificación de la brecha está en la barra, o vuelve en menos de un minuto, y Despacho sigue mostrando la combi de A.}
 \paso{2.11}{2-11}{Sal de ruta con los dos toques de \toca{SALIR DE RUTA} y después sal de la cuenta con los dos toques de \toca{Salir}.}{T1 muestra la pantalla de ingreso, y la combi de A se va del mapa de Despacho.}
