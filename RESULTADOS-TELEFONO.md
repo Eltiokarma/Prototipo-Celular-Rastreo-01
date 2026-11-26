@@ -2,7 +2,8 @@
 
 Lo que se va viendo al seguir `PRUEBAS-TELEFONO.md` (primera ronda, 18/11),
 `PRUEBAS-TELEFONO-RONDA-2.md` (segunda ronda, 20/11) e
-`informes/pruebas-telefono-ronda3.pdf` (tercera ronda, 23/11). **Solo se anota**: nada
+`informes/pruebas-telefono-ronda3.pdf` (tercera ronda, 23/11) e
+`informes/pruebas-telefono-ronda4.pdf` (cuarta ronda, 25/11). **Solo se anota**: nada
 de esto se corrige hasta terminar los casos que faltan. Al cerrar, pasa a
 CAMBIOS-PARA-REVISAR.md como un bloque.
 
@@ -256,6 +257,57 @@ marcar (6.12).
 
 ---
 
+# Cuarta ronda — 25/11/2026
+
+Sigue `informes/pruebas-telefono-ronda4.pdf`. La app tenía el arreglo
+publicado el 25/11 a las 06:55 (Perfil → LA APP). La cabecera del formulario
+quedó en blanco; por las capturas, se probó en T1 (Poco X7) con El Gordo, en
+la M11111, entre las 20:28 y las 20:53. **T1 estaba con 9 a 10 % de
+batería**: Despacho mostraba «SE ESTÁ POR APAGAR: QUE LO ENCHUFE».
+
+- **Capturas:** de T1, 8:28 p. m. (paso 7.3), 8:38 (Perfil sano, antes de
+  quitar las notificaciones: sirve como la del 2.2), 8:42 (2.4), 8:43 y
+  8:44 (2.6), 8:45 (2.7) y 8:53 (2.8); de Despacho, 20:42 (2.5), en el
+  documento de Drive.
+- De 23 pasos: 17 OK y 6 NO SE PUDO (2.5, 2.8, 2.9, 2.10 y, de hecho, todo
+  lo que dependía de que el GPS volviera).
+
+## Caso 7, Salir y Perfil; caso 6, el botón después de Cancelar
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 7.1 a 7.5 | OK | Perfil responde al primer toque; Salir pide dos toques («¿SALIR?», y vuelve solo a los 5 s). «Sale, demora unos milisegundos, pero va.» H25 y H26 comprobados. |
+| 7.3 | OK | Captura 8:28: «Servicio de GPS: sin arrancar · Lecturas del GPS 0 · todavía ninguna · sin sesión guardada ×3». Pedido: el «Cerrar» de Perfil tiene que responder al toque igual que Perfil (H31). |
+| 7.1 | OK | Pedido de diseño: una imagen animada en la puerta para salir a ruta, «algo así como picar el reloj del poste» (H30). |
+| 6.1 a 6.3 | OK | El botón **IR** vuelve solo al inicio después de Cancelar. H27 comprobado. |
+| 6.4 | OK, con una nota | «Cuando empecé a hacer las pruebas del caso 2, salió T1 con Chofer A sin señal. Tuve que salir de la cuenta y luego salir deslizando hacia arriba la app, si no, en Despacho no aparecía chofer A en T1.» Sin captura de Perfil de ese momento; por lo que arregló el problema (que el proceso de la app muriera), es probable que sea la misma causa que H8 y H9. |
+| P.2 | OK, con una nota | «La casilla de contraseña permite espacios y cuando pongo el botón de ver se activa el teclado con diccionario y recuerda palabras.» Ver H29. |
+
+## Caso 2. Las notificaciones quitadas en ruta: **la causa, a la vista**
+
+| Paso | Resultado | Lo que se vio |
+|---|---|---|
+| 2.1 a 2.3 | OK | 8:38: «Servicio de GPS: corriendo · Lecturas del GPS 5 · última hace 1s · GPS enviadas 5». Notificaciones apagadas a las 8:40 p. m. |
+| 2.4 | OK | La app volvió a la ruta sin pasar por la puerta. |
+| 2.5 | **NO SE PUDO** (es una falla) | Despacho, 20:42: la M11111 «Sin señal desde 20:40». |
+| 2.6 | OK | Capturas 8:42 a 8:44: «Servicio de GPS: corriendo · Lecturas del GPS 4 · última hace 77s… 200s · 1 repetidas · rearrancado 1 vez… 2 veces», y en rojo: **«Error del servicio: Call to function 'ExpoLocation.startLocationUpdatesAsync' has been rejected. → Caused by: Couldn't start the foreground service. Foreground service cannot be started when the application is in the background»**. |
+| 2.7 | OK | 8:45: sale el aviso «El GPS no está dando tu ubicación. Cierra la app desde recientes…». |
+| 2.8 | NO SE PUDO | «Creo que debí salir completamente de la app, así sí funcionaba.» 8:53: el mismo error, «rearrancado 2 veces», última lectura hace 735 s, y arriba «Tu sesión siguió en otro dispositivo o pestaña; esta dejó de reportar el GPS» (ver H32). |
+| 2.9 y 2.10 | NO SE PUDO | La bandeja mostraba «Hace 2 min, tu GPS dejó de funcionar. Estás en ruta y hace 10 minutos que el GPS no lee tu ubicación…» y «Modo acompañante: tu GPS no se usa». Al salir, la combi se fue de Despacho bien. |
+
+**La causa.** El mensaje es de expo-location (`LocationModule.kt`, versión
+19.0.8). Sólo deja arrancar el GPS con la notificación fija si una marca suya,
+`AppForegroundedSingleton.isForegrounded`, dice que la app está al frente. La
+marca nace apagada y sólo se prende cuando la pantalla de la app «vuelve al
+frente». Después de que Android mata la app al quitarle un permiso, al
+reabrirla la marca puede quedar apagada aunque el chofer la esté mirando, y
+cada arranque se rechaza, rearranques incluidos, hasta que la app pase de
+verdad por atrás y vuelva o el proceso muera. Encaja con las cuatro rondas:
+salir de la cuenta no lo arreglaba y cerrar la app con la pantalla apagada sí.
+Arreglo en el bloque 36.
+
+---
+
 ## Hallazgos (pendientes de analizar)
 
 | # | Qué | Tipo | Dónde se vio |
@@ -282,6 +334,11 @@ marcar (6.12).
 | H25 | Pedir confirmación al tocar **Salir** (cerrar sesión), como ya la pide SALIR DE RUTA. | Pedido | Ronda 3, paso 1.8 |
 | H26 | Tocar **Perfil** no da ninguna señal de que se tocó: el probador no sabe si la app está lenta o si el táctil no tomó el dedo. | Pedido | Ronda 3, paso 1.8 |
 | H27 | Después de deslizar **SALIR A RUTA**, si sale la confirmación del relevo y se toca **Cancelar**, el botón se queda al final, en «IR». Vuelve al tocarlo. Antes no se notaba porque la pantalla cambiaba enseguida a la ruta. | Falla menor | Ronda 3, paso 6.5 |
+| H29 | Con **VER** prendido, el campo de contraseña usa el teclado normal: sugiere palabras y **aprende la clave**. Además acepta espacios. | Falla (seguridad) | Ronda 4, paso P.2 |
+| H30 | Una imagen animada en la puerta para salir a ruta, como «picar el reloj del poste». El botón actual se ve muy plano. | Pedido de diseño | Ronda 4, paso 7.1 |
+| H31 | El **Cerrar** de Perfil tiene que responder al toque como Perfil y Salir. | Pedido | Ronda 4, paso 7.3 |
+| H32 | Con T2 fuera de la cuenta, T1 recibió «Tu sesión siguió en otro dispositivo o pestaña»: el servidor vio otro socket del mismo chofer. La app ya silencia su socket viejo al abrir uno nuevo, así que la causa no está clara. | Falla, causa por confirmar | Ronda 4, paso 2.8 |
+| H33 | Bajar la cadencia del GPS a 10 s al apagar la pantalla **nunca funcionó**: expo-location rechaza el cambio porque la app ya está atrás, y el error se tragaba en silencio. El GPS sigue a 3 s con la pantalla apagada, que gasta más batería. | Falla (batería) | Descubierto leyendo expo-location, ronda 4 |
 | H28 | El mismo chofer con **dos sesiones abiertas** (H15) también hace que cerrar sesión no baje su combi: el servidor no la toca mientras quede otra sesión, por si el otro teléfono es el que maneja. En la ronda 3 eso hizo fallar el 3.3 y el 3.4. | Observación | Ronda 3, pasos 3.3 y 3.4 |
 | H19 | Cuando la sesión se cierra desde otro teléfono, el aviso del ingreso no es «Tu sesión ya no vale: entra de nuevo». Sale **«Sesión inválida o expirada»** con la app cerrada y **«Sesión cerrada»** con la app en ruta. Son los textos que manda el servidor; el de la app solo sale por otro camino. Funciona, pero el chofer lee tres textos distintos para lo mismo. | Observación | Ronda 2, pasos 5.8 y 5.12 |
 | H20 | En el paso 3.3 de la segunda ronda, lo mismo falló una vez y anduvo la siguiente: el arreglo de H11 y H12, sea cual sea, tiene que cubrir un caso que **no pasa siempre**. | Observación | Ronda 2, paso 3.3 |
@@ -364,12 +421,29 @@ CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
 | H26 | Perfil y Salir con margen para el dedo y más claros al apretarlos. | Probable: Perfil ya se abría al instante, lo que fallaba era acertarle a la palabra. |
 | H27 | El botón para salir a ruta vuelve solo al inicio un segundo después de disparar. | Sí. |
 
+## Arreglado el 26/11, sin probar todavía en teléfono
+
+Bloque 36 de CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
+`publicar-arreglo.bat`.
+
+| # | Qué se hizo | Seguro de la causa |
+|---|---|---|
+| H8 y H9 | Si expo-location rechaza arrancar con la notificación fija «porque la app está atrás», el GPS arranca **sin** ella: da posiciones mientras la app está en pantalla. Al primer «vuelta al frente» se rearranca con la notificación. Mientras tanto, la app le dice al chofer: «Tu GPS anda, pero se va a cortar cuando apagues la pantalla. Toca el botón de inicio de Android y vuelve a abrir la app para que quede fijo». | **Sí**: el mensaje de Perfil y el código de expo-location coinciden. Falta comprobar en el teléfono que el arranque sin notificación sí da posiciones. |
+| H29 | Con VER, el teclado de contraseña a la vista, sin sugerencias ni diccionario. Los espacios se siguen aceptando. | Sí. |
+| H31 | El Cerrar de Perfil, con margen y respuesta al apretar. | — |
+| H33 | El cambio de cadencia rechazado ya no se anota como error del servicio. **Bajar a 10 s con la pantalla apagada sigue sin funcionar**: hay que hacerlo antes de que la app pase atrás, o con otro mecanismo. | Sí (la causa); el ahorro, pendiente. |
+
 ## Lo que falta
 
 - **Captura de la ronda 3:** la del paso 6.8 (Despacho: el mapa y la
   Actividad). Opcional: el paso salió OK sin ella.
-- **Ronda 4** (`informes/pruebas-telefono-ronda4.pdf`): el caso 2 con
-  capturas de Perfil, y H25, H26 y H27.
+- **Ronda 5, corta:** el caso 2 otra vez, **con el teléfono cargado**,
+  para ver si el arranque sin notificación da posiciones y si al tocar
+  inicio y volver queda con la notificación fija. Y el «Cerrar» de Perfil y
+  la contraseña con VER.
+- **H32** (el aviso de «otro dispositivo») y **H33** (la cadencia con la
+  pantalla apagada).
+- **H30** (la imagen animada de la puerta): pedido de diseño, para decidir.
 - **Sin tocar desde antes:** H1, H3 y H4 (piden APK nueva), H5, H15, H17 y
   H23 (decidir qué dice el SOS del chofer relevado).
 - **Opcional:** a cuántos metros de la calle cambió T2 en el paso 1.4.
