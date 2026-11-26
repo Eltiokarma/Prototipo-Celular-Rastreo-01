@@ -1,0 +1,213 @@
+% Pruebas en teléfono, quinta ronda: la guía con formulario para llenar.
+% Se compila con:   cd informes && pdflatex pruebas-telefono-ronda5.tex   (dos veces)
+% y después:        python3 -I formulario-radios.py pruebas-telefono-ronda5.pdf pruebas-telefono-ronda5.pdf
+% (sin el segundo paso, en algunos visores marcar FALLA no desmarca OK).
+% Los campos se leen después con pypdf: resultado-<caso>-<paso> vale ok,
+% falla o nopudo; hora-* y nota-* son texto.
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[scaled=0.92]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage[spanish,es-noshorthands]{babel}
+\usepackage[a4paper,top=2.2cm,bottom=2.2cm,left=1.9cm,right=1.9cm,headsep=0.8cm]{geometry}
+\usepackage{microtype}
+\usepackage[table]{xcolor}
+\usepackage{array,longtable}
+\usepackage{enumitem}
+\setlist{itemsep=0.25em, topsep=0.4em, leftmargin=1.2em}
+\usepackage{titlesec}
+\usepackage{newunicodechar}
+\newunicodechar{→}{\ensuremath{\rightarrow}}
+\newunicodechar{⋯}{\ensuremath{\cdots}}
+\usepackage[most]{tcolorbox}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage[pdfencoding=pdfdoc,hidelinks]{hyperref}
+\hypersetup{pdftitle={Pruebas en teléfono: quinta ronda}, pdfauthor={Micros Tempo}}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.45em}
+\renewcommand{\arraystretch}{1.25}
+\setlength{\emergencystretch}{2em}
+
+% ── Colores: azul es lo que tocas; marrón, lo que muestra la pantalla ──
+\definecolor{azul}{RGB}{28,72,136}
+\definecolor{marron}{RGB}{138,78,8}
+\definecolor{tenue}{RGB}{105,112,122}
+\definecolor{cabecera}{RGB}{233,238,245}
+\definecolor{fondoCampo}{RGB}{246,249,253}
+\newcommand{\toca}[1]{\textcolor{azul}{\textbf{#1}}}
+\newcommand{\pantalla}[1]{\textcolor{marron}{\textbf{#1}}}
+\newcommand{\nada}{\textcolor{tenue}{En este paso no hay nada que comprobar.}}
+
+\titleformat{\section}{\large\bfseries\color{azul}}{}{0em}{}
+\titlespacing*{\section}{0pt}{1.3em}{0.4em}
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+\titlespacing*{\subsection}{0pt}{0.9em}{0.2em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{tenue}Pruebas en teléfono, quinta ronda · APK 0.3.1 con el arreglo del 26 de noviembre}
+\fancyfoot[R]{\small\color{tenue}Página \thepage{} de \pageref{LastPage}}
+\renewcommand{\headrulewidth}{0pt}
+
+\newtcolorbox{alto}{colback=red!4, colframe=red!45!black, boxrule=0.5pt, arc=1.5mm,
+  left=2.5mm, right=2.5mm, top=1.5mm, bottom=1.5mm, before skip=0.6em, after skip=0.6em}
+\newtcolorbox{nota}{colback=azul!4, colframe=azul!55, boxrule=0.5pt, arc=1.5mm,
+  left=2.5mm, right=2.5mm, top=1.5mm, bottom=1.5mm, before skip=0.6em, after skip=0.6em}
+
+% ── Los campos del formulario ──────────────────────────────────────
+% pdfTeX le da a cada campo el alto de la caja que lo encierra, no el que se
+% le pide: sin esta caja, en una fila de la tabla todos medían la fila entera.
+\newcommand{\caja}[2]{\hbox{\vrule height #1 depth 0pt width 0pt #2}}
+\newcommand{\campo}[3]{% nombre, ancho, alto
+  \raisebox{-0.35\height}{\caja{#3}{\TextField[name=#1, width=#2, height=#3, charsize=8pt, bordercolor={0.55 0.6 0.68},
+    backgroundcolor={0.965 0.976 0.992}, multiline=true]{}}}}
+\newcommand{\dato}[3]{% rótulo, nombre, ancho
+  \mbox{#1~\TextField[name=#2, width=#3, height=13pt, charsize=9pt, bordercolor={0.55 0.6 0.68},
+    backgroundcolor={0.965 0.976 0.992}]{}}}
+\newcommand{\resultado}[1]{%
+  \caja{9pt}{\ChoiceMenu[radio, name=resultado-#1, width=9pt, height=9pt, radiosymbol=l,
+    bordercolor={0.35 0.38 0.45}, default=]{}{OK=ok,FALLA=falla,NO SE PUDO=nopudo}}}
+
+% Los botones de opción de hyperref ponen la palabra antes del botón, pegada,
+% y no declaran su estado inicial (/AS), que algunos visores exigen. Esta copia
+% de \@@Radio (hpdftex.def) pone el botón primero, la palabra después con aire,
+% y cada botón empieza apagado.
+\makeatletter
+\def\@@Radio#1{%
+  \Fld@listcount=0 %
+  \EdefEscapeName\Fld@default{\Fld@default}%
+  \@for\@curropt:=#1\do{%
+    \expandafter\Fld@checkequals\@curropt==\\%
+    \EdefEscapeName\@currValue{\@currValue}%
+    \Hy@StepCount\Fld@listcount
+    \leavevmode
+    \HyAnn@AbsPageLabel
+    \Hy@escapeform\PDFForm@Radio
+    \pdfstartlink user {%
+      \PDFForm@Radio
+      /AS/Off
+      /AP<</N<</\@currValue\space \DingObject>>>>%
+    }%
+    \relax
+    \MakeRadioField{\Fld@width}{\Fld@height}\pdfendlink
+    \ifnum\Fld@listcount=1 \HyField@AddToFields\fi
+    \hspace{0.3em}\@currDisplay\hspace{1.1em}%
+  }%
+}
+\makeatother
+
+% Un paso: número visible, número para los campos, qué haces, qué tiene que verse
+\newcommand{\paso}[4]{%
+  \textbf{#1} & #3 & #4 \\*
+  \multicolumn{3}{@{\hspace{6pt}}l@{}}{\rule{0pt}{15pt}\small
+    \resultado{#2}\hspace{0.4em}Hora:~\campo{hora-#2}{1.7cm}{13pt}\hspace{1.2em}Nota:~\campo{nota-#2}{8.3cm}{22pt}}\\[3pt]
+  \hline
+}
+\newenvironment{pasos}{%
+  \begin{longtable}{@{\hspace{6pt}}>{\raggedright\arraybackslash}p{0.9cm}>{\raggedright\arraybackslash}p{7.9cm}>{\raggedright\arraybackslash}p{7.3cm}@{}}
+  \rowcolor{cabecera}\textbf{Paso} & \textbf{Qué haces} & \textbf{Qué tiene que verse} \\ \hline
+  \endhead
+}{\end{longtable}\vspace{-0.6em}}
+
+\begin{document}
+\begin{Form}
+
+{\LARGE\bfseries\color{azul} Pruebas en teléfono: quinta ronda}\par
+\vspace{0.2em}
+{\color{tenue} APK 0.3.1 con el arreglo del 26 de noviembre de 2026}\par
+\vspace{0.6em}
+
+\begin{tabular}{@{}ll@{}}
+\dato{Quién prueba:}{tester}{5.6cm} & \dato{Fecha:}{fecha}{3.4cm} \\[4pt]
+\dato{Modelo de T1:}{modelo-t1}{5.3cm} & \dato{Batería al empezar:}{bateria}{2.4cm} \\[4pt]
+\dato{Chofer A:}{chofer-a}{6.0cm} & \dato{Combi X:}{combi-x}{2.2cm} \\
+\end{tabular}
+
+\section{Para qué es esta ronda}
+
+En la cuarta ronda, Perfil mostró por fin por qué el GPS se quedaba mudo después de quitar las notificaciones. La librería que maneja el GPS solo deja arrancarlo con su notificación fija si cree que la app está al frente, y después de que Android cierra la app, al reabrirla puede seguir creyendo que está atrás aunque la estés mirando.
+
+El arreglo de esta ronda arranca el GPS sin la notificación fija cuando pasa eso, para que siga dando posiciones mientras la app está en pantalla. En cuanto la app pasa por segundo plano y vuelve, el GPS se rearranca con la notificación, y mientras tanto la app le dice al chofer que toque el botón de inicio y vuelva. Esta ronda comprueba las dos cosas en el teléfono, y además dos pedidos chicos de la ronda anterior.
+
+Todo se hace en T1, con el chofer A. La cuarta ronda se hizo con la batería en 9 \%, y con tan poca carga Android puede cortar cosas por su cuenta: esta vez el teléfono tiene que estar cargado.
+
+\section{Cómo se anota}
+
+En cada paso marca una de las tres opciones, escribe la hora si algo salió distinto y, si hace falta, una nota corta.
+
+\begin{itemize}
+  \item \textbf{OK}: se vio exactamente lo que dice la columna «Qué tiene que verse».
+  \item \textbf{FALLA}: se vio otra cosa; anota la hora exacta y saca dos capturas en ese mismo minuto, una del teléfono y otra de Despacho.
+  \item \textbf{NO SE PUDO}: el paso no se llegó a hacer; en la nota, escribe por qué.
+\end{itemize}
+
+\begin{alto}
+\textbf{Si lo que pide la columna «Qué haces» no coincide con lo que ves en la pantalla}, por ejemplo un botón que no está o un texto distinto, detente ahí y anótalo. Desde ese punto, el resto del caso ya no sirve como prueba, aunque después todo parezca andar.
+\end{alto}
+
+Cuando me mandes una captura, dime de qué paso es, por ejemplo «paso 2.6». Si el reloj del teléfono muestra 12 horas, anota en la nota si la captura se sacó a. m. o p. m., porque en la galería la misma hora de la mañana y de la noche se ve igual.
+
+En las tablas, \toca{lo que está en azul} es lo que tocas o eliges, y \pantalla{lo que está en marrón} es lo que muestra la pantalla. Lo que solo sirve para ubicarte va entre comillas y en negro: eso no se toca. \toca{Salir} y \toca{SALIR DE RUTA} piden dos toques, como en la cuarta ronda: espera a ver \pantalla{¿SALIR?} o \pantalla{¿SEGURO? TOCA DE NUEVO} antes de tocar la segunda vez.
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Preparación}
+
+Se hace una sola vez, antes de empezar, y como el arreglo es solo de la app, no hace falta esperar ningún despliegue del servidor.
+
+\begin{pasos}
+\paso{P.1}{P-1}{Carga T1 hasta más de la mitad. En los ajustes de Android, apaga el ahorro de batería y revisa que la batería de \toca{Control de ruta} siga en «Sin restricciones». Anota la carga arriba, en «Batería al empezar».}{T1 tiene más de 50 \% de batería y el ahorro de batería está apagado.}
+\paso{P.2}{P-2}{En la PC, corre \toca{publicar-arreglo.bat} y elige \toca{[1] PRUEBA}.}{El programa termina sin ningún mensaje que empiece con \pantalla{[ERROR]}.}
+\paso{P.3}{P-3}{En T1, abre la app y espera un minuto en la pantalla de ingreso, sin entrar. Después toca el botón de recientes de Android, desliza la app hacia arriba para cerrarla y ábrela otra vez.}{\nada}
+\paso{P.4}{P-4}{Entra con el chofer A, toca \toca{Perfil} y baja hasta la sección «LA APP». Si la fecha y la hora que siguen a \pantalla{actualizada} son anteriores a las del paso P.2, el arreglo todavía no llegó: repite el paso P.3.}{Dice \pantalla{actualizada} con la fecha y la hora en que publicaste el arreglo en el paso P.2.}
+\paso{P.5}{P-5}{Deja Despacho abierto en \toca{Mapa} durante toda la prueba.}{Despacho muestra el mapa de la ruta.}
+\end{pasos}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Caso 8: la contraseña y el Cerrar de Perfil}
+
+Este caso es nuevo y comprueba dos pedidos de la cuarta ronda: que el teclado no aprenda la contraseña cuando se muestra, y que el Cerrar de Perfil responda al toque.
+
+\begin{pasos}
+\paso{8.1}{8-1}{En T1, con Perfil abierto desde el paso P.4, toca \toca{Cerrar}, arriba a la derecha, y mira la palabra mientras la tocas.}{La palabra se aclara mientras el dedo está encima, y Perfil se cierra al primer toque.}
+\paso{8.2}{8-2}{Sal de la cuenta con los dos toques de \toca{Salir}. En la pantalla de ingreso, toca la casilla de la contraseña y escribe dos o tres letras.}{El teclado no muestra palabras sugeridas arriba de las letras.}
+\paso{8.3}{8-3}{Toca \toca{VER} y escribe dos o tres letras más.}{Las letras se ven, y el teclado sigue sin mostrar palabras sugeridas. Antes, con VER prendido, aparecían sugerencias y el teclado aprendía la clave.}
+\paso{8.4}{8-4}{Borra lo que escribiste, escribe la contraseña completa del chofer A y entra.}{T1 muestra la puerta, con \pantalla{DESLIZA PARA SALIR A RUTA →}.}
+\end{pasos}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Caso 2: las notificaciones quitadas en ruta}
+
+Este caso se hace en T1, con el chofer A, y es el que más importa. Lee los pasos antes de empezar: algunos piden esperar con la app en pantalla, y otros, sacar una captura de Perfil aunque todo salga bien.
+
+\begin{pasos}
+\paso{2.1}{2-1}{En T1, desliza \toca{DESLIZA PARA SALIR A RUTA →} y espera un minuto.}{Despacho muestra la combi de A en el mapa.}
+\paso{2.2}{2-2}{Toca \toca{Perfil}, baja hasta «EL GPS» y saca una captura. Después cierra Perfil.}{Dice \pantalla{Servicio de GPS: corriendo}, y en la línea \pantalla{Lecturas del GPS} hay un número que sube cada pocos segundos.}
+\paso{2.3}{2-3}{En los ajustes de Android, entra en las aplicaciones, busca \toca{Control de ruta}, abre \toca{Notificaciones} y apágalas. Anota la hora.}{\nada}
+\paso{2.4}{2-4}{Vuelve a la app. Si Android la reinició, entra otra vez con A; si te pide el permiso de notificaciones, acéptalo, como lo haría un chofer. En la nota, escribe qué pasó. Si la app vuelve a la puerta, marca FALLA y desliza para salir a ruta.}{La app vuelve a la pantalla de la ruta, sin pasar por la puerta.}
+\paso{2.5}{2-5}{Deja la app en la pantalla de la ruta durante dos minutos, sin tocar nada. Mira Despacho y anota a qué hora vuelve la combi.}{Despacho vuelve a mostrar la combi de A y sigue recibiendo sus posiciones. Este es el paso que falló en las cuatro rondas anteriores.}
+\paso{2.6}{2-6}{Saca una captura de la pantalla de la ruta. Después toca \toca{Perfil}, baja hasta «EL GPS», saca otra captura y cierra Perfil. Hazlo aunque el paso 2.5 haya salido mal: esas capturas dicen por qué.}{En Perfil, el número de \pantalla{Lecturas del GPS} sube cada pocos segundos. Si arriba de la ruta está el aviso \pantalla{Tu GPS anda, pero se va a cortar cuando apagues la pantalla.}, en Perfil aparece en ámbar una línea que empieza con \pantalla{Aviso del servicio}.}
+\paso{2.7}{2-7}{Toca el botón de inicio de Android, el círculo de abajo, espera cinco segundos y vuelve a abrir la app.}{El aviso de arriba de la ruta, si estaba, se va. En Perfil ya no está la línea en ámbar, y el número de \pantalla{Lecturas del GPS} sigue subiendo.}
+\paso{2.8}{2-8}{Apaga la pantalla con el botón de encendido durante dos minutos y mira Despacho.}{Despacho sigue mostrando la combi de A en vivo, sin pasar a \pantalla{SIN SEÑAL}. Si pasa a SIN SEÑAL, anota a qué hora.}
+\paso{2.9}{2-9}{Prende la pantalla, vuelve a la app, toca \toca{Perfil}, baja hasta «EL GPS» y saca una captura. Después cierra Perfil.}{Dice \pantalla{Servicio de GPS: corriendo}, el número de \pantalla{Lecturas del GPS} sigue subiendo y no hay ninguna línea en rojo.}
+\paso{2.10}{2-10}{Si en el paso 2.4 no aceptaste el permiso, prende otra vez las notificaciones de \toca{Control de ruta} en los ajustes de Android y vuelve a la app. Si lo aceptaste, ya están prendidas: mira la barra de notificaciones.}{La notificación de la brecha está en la barra, o vuelve en menos de un minuto, y Despacho sigue mostrando la combi de A.}
+\paso{2.11}{2-11}{Sal de ruta con los dos toques de \toca{SALIR DE RUTA} y después sal de la cuenta con los dos toques de \toca{Salir}.}{T1 muestra la pantalla de ingreso, y la combi de A se va del mapa de Despacho.}
+\end{pasos}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Al terminar}
+
+Devuélveme este PDF lleno junto con las capturas: las de los pasos 2.2, 2.6 (son dos) y 2.9, y las dos de cada FALLA. Con el PDF y las capturas, yo paso los resultados a \texttt{RESULTADOS-TELEFONO.md}.
+
+\subsection{Observaciones generales}
+
+Anota aquí lo que no cupo en las notas de cada paso.
+
+\TextField[name=observaciones, width=\linewidth, height=6cm, charsize=9pt, multiline=true,
+  bordercolor={0.55 0.6 0.68}, backgroundcolor={0.965 0.976 0.992}]{}
+
+\end{Form}
+\end{document}
