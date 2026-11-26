@@ -861,6 +861,7 @@ function Aplicacion() {
   // al armar el efecto.
   const saliendo = React.useRef(false);
   const ultimoRearranque = React.useRef(0);
+  const avisadoSinPrimerPlano = React.useRef(false);
   React.useEffect(() => {
     // Fuera de ruta no hay nada que vigilar: el servicio está parado a
     // propósito y rearrancarlo sería emitir señal de alguien que no salió.
@@ -913,6 +914,18 @@ function Aplicacion() {
         setAviso(`El reloj del teléfono está ${Math.max(1, Math.round(gps.diagnostico.relojAdelantadoSec / 60))} min adelantado: ` +
           'el servidor no puede usar tus posiciones. Activa la fecha y hora automáticas en Ajustes.');
       }
+      // Sin la notificación fija el GPS anda con la app en pantalla, pero
+      // Android lo corta al apagarla. Lo único que lo arregla es que la app
+      // pase por atrás y vuelva (ver el efecto de la cadencia): se le pide
+      // al chofer, una vez por episodio.
+      if (gps.diagnostico.sinPrimerPlano && !avisadoSinPrimerPlano.current) {
+        avisadoSinPrimerPlano.current = true;
+        setAviso('Tu GPS anda, pero se va a cortar cuando apagues la pantalla. '
+          + 'Toca el botón de inicio de Android y vuelve a abrir la app para que quede fijo.');
+      } else if (!gps.diagnostico.sinPrimerPlano && avisadoSinPrimerPlano.current) {
+        avisadoSinPrimerPlano.current = false;
+        setAviso(null);
+      }
       const corriendo = await gps.estaCorriendo();
       if (!vivo || saliendo.current) return;
       // El relevo pudo llegar MIENTRAS se preguntaba: el motivo de parada se
@@ -937,7 +950,10 @@ function Aplicacion() {
           setAviso('El GPS no está dando tu ubicación. Cierra la app desde recientes, '
             + 'apaga la pantalla un minuto y vuelve a abrirla.');
         }
-      } else if (gps.diagnostico.servicio !== 'corriendo') {
+      } else if (gps.diagnostico.servicio !== 'corriendo' && gps.diagnostico.servicio !== 'no arrancó') {
+        // «No arrancó» se queda a la vista aunque Android diga que corre:
+        // en la cuarta ronda ese «corriendo» tapaba que cada arranque se
+        // estaba rechazando
         gps.diagnostico.servicio = 'corriendo';
       }
       setDiag({ ...gps.diagnostico });
@@ -1022,6 +1038,15 @@ function Aplicacion() {
     if (!sesion || presencia === 'fuera') return;
     const sub = AppState.addEventListener('change', (estado) => {
       const activo = estado === 'active';
+      // El GPS arrancó SIN la notificación fija porque expo-location creía
+      // que la app estaba atrás (H8 y H9, `empezarLecturas`). Recién al
+      // volver al frente la marca de expo-location se prende: ése es el
+      // momento de rearrancar con la notificación, para que siga con la
+      // pantalla apagada.
+      if (activo && gps.diagnostico.sinPrimerPlano) {
+        gps.rearrancar({ textoNotificacion: textoRef.current }).catch(() => {});
+        return;
+      }
       gps.cambiarCadencia(
         activo ? gps.CADENCIA_PANTALLA_ENCENDIDA : gps.CADENCIA_PANTALLA_APAGADA,
         textoRef.current,
@@ -1343,6 +1368,12 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
       <View style={s.campoConBoton}>
         <TextInput style={[s.campo, s.campoSinBorde]} value={clave} onChangeText={setClave}
           secureTextEntry={!verClave} autoCapitalize="none" autoCorrect={false}
+          // Con VER prendido el campo deja de ser de contraseña y el teclado
+          // de Android volvía a sugerir palabras y a APRENDER la clave
+          // (ronda 4, paso P.2). «visible-password» es el teclado de clave
+          // a la vista: sin sugerencias ni diccionario.
+          keyboardType={verClave ? 'visible-password' : 'default'}
+          spellCheck={false} autoComplete="password" importantForAutofill="yes"
           placeholderTextColor={C.tenue} onSubmitEditing={enviar} />
         <Pressable onPress={() => setVerClave(v => !v)} hitSlop={12} style={s.ojo}>
           <Text style={s.ojoTexto}>{verClave ? 'OCULTAR' : 'VER'}</Text>
@@ -1412,7 +1443,9 @@ function DiagnosticoGps({ diag }) {
       {diag.rearranques > 0 ? ` · rearrancado ${diag.rearranques} ${diag.rearranques === 1 ? 'vez' : 'veces'}` : ''}
     </Text>
     {!!diag.errorServicio && (
-      <Text style={[s.diagnostico, { color: C.rojoTexto }]}>Error del servicio: {diag.errorServicio}</Text>
+      <Text style={[s.diagnostico, { color: diag.sinPrimerPlano ? C.ambarTexto : C.rojoTexto }]}>
+        {diag.sinPrimerPlano ? 'Aviso' : 'Error'} del servicio: {diag.errorServicio}
+      </Text>
     )}
     {/* Lo que Android va a hacer con la red apenas se apague la pantalla.
         Va arriba de los contadores porque los explica: con esto activo,
@@ -2190,7 +2223,12 @@ function Perfil({ sesion, marca, diag, onCerrar, onCerrarTodo }) {
         <View style={s.barra}>
           <Marca marca={marca} />
           <View style={{ flex: 1 }} />
-          <Pressable onPress={onCerrar}><Text style={s.salir}>Cerrar</Text></Pressable>
+          {/* Como Perfil y Salir: margen para el dedo y respuesta al apretar
+              (ronda 4, paso 7.3) */}
+          <Pressable onPress={onCerrar} hitSlop={10}
+            style={({ pressed }) => [s.botonCabecera, pressed && { opacity: 0.45 }]}>
+            <Text style={s.salir}>Cerrar</Text>
+          </Pressable>
         </View>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 30 }}>
           {error && <Text style={s.avisoBarra}>{error}</Text>}

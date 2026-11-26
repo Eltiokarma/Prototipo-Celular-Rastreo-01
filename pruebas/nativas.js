@@ -855,6 +855,55 @@ const pruebaFilaGps = (async () => {
     let paro = false; await Promise.race([p.then(() => { paro = true; }), new Promise(res => setTimeout(res, 100))]);
     ok('un arranque colgado no deja colgado al parar de después (la fila tiene plazo)', paro && /no respondió/.test(diagnostico.errorServicio || ''), { paro, err: diagnostico.errorServicio });
     ok('el plazo de verdad es de 20 s', /const PLAZO_FILA_MS = 20_000;/.test(bloqueReal)); }
+  // Ronda 4 en teléfono (H8 y H9, la causa): expo-location rechaza el
+  // arranque con la notificación fija si cree que la app está atrás
+  const conAtras = (r, Location) => {
+    r.atras = true; r.opciones = [];
+    Location.startLocationUpdatesAsync = async (_t, o) => {
+      r.opciones.push(!!o.foregroundService);
+      if (o.foregroundService && r.atras) {
+        throw new Error("Call to function 'ExpoLocation.startLocationUpdatesAsync' has been rejected. → Caused by: Couldn't start the foreground service. Foreground service cannot be started when the application is in the background");
+      }
+      r.corriendo = true;
+    };
+  };
+  { const { rearrancar, r, diagnostico, vaciar, Location } = armar();
+    conAtras(r, Location);
+    const re = rearrancar({ textoNotificacion: 'x' }); await vaciar(); await re;
+    ok('rechazado «por estar atrás», arranca SIN la notificación fija en vez de quedar mudo',
+       r.corriendo === true && r.opciones.join(',') === 'true,false' && diagnostico.sinPrimerPlano === true && diagnostico.servicio === 'corriendo',
+       { opciones: r.opciones, diag: diagnostico });
+    r.atras = false;                              // la app pasó por atrás y volvió
+    const re2 = rearrancar({ textoNotificacion: 'x' }); await vaciar(); await re2;
+    ok('y al volver al frente, el rearranque vuelve a la notificación fija',
+       r.opciones.slice(-1)[0] === true && diagnostico.sinPrimerPlano === false, { opciones: r.opciones, sin: diagnostico.sinPrimerPlano }); }
+  { const { arrancar, r, diagnostico, vaciar, Location } = armar();
+    conAtras(r, Location);
+    Location.startLocationUpdatesAsync = ((orig) => async (t, o) => {
+      if (!o.foregroundService) throw new Error('Background location permission not granted');
+      return orig(t, o);
+    })(Location.startLocationUpdatesAsync);
+    const a = arrancar({}); a.catch(() => {}); await vaciar(); await a.catch(() => {});
+    ok('sin el permiso «todo el tiempo» el segundo intento también falla, y ese error queda a la vista',
+       r.corriendo === false && /Background location/.test(diagnostico.errorServicio || ''), diagnostico.errorServicio); }
+  { const { cambiarCadencia, r, diagnostico, vaciar, Location } = armar();
+    r.corriendo = true;
+    conAtras(r, Location);
+    const c = cambiarCadencia(10000, 'x'); await vaciar(); await c;
+    ok('bajar la cadencia con la pantalla apagada (la app ya atrás) no deja un error del servicio',
+       !diagnostico.errorServicio && r.corriendo === true, diagnostico.errorServicio); }
+  { const { cambiarCadencia, r, diagnostico, vaciar, Location } = armar();
+    r.corriendo = true; diagnostico.sinPrimerPlano = true;
+    conAtras(r, Location);
+    const c = cambiarCadencia(3000, 'x'); await vaciar(); await c;
+    ok('sin la notificación fija, cambiar la cadencia no se intenta', r.opciones.length === 0, r.opciones); }
+  { const app = require('fs').readFileSync(RAIZ + '/app/App.js', 'utf8');
+    ok('con VER prendido, la contraseña usa el teclado sin sugerencias (no aprende la clave)',
+       /secureTextEntry=\{!verClave\}[\s\S]{0,400}keyboardType=\{verClave \? 'visible-password' : 'default'\}/.test(app));
+    ok('al volver al frente con el GPS sin notificación fija, se rearranca',
+       /if \(activo && gps\.diagnostico\.sinPrimerPlano\) \{\s*gps\.rearrancar\(/.test(app));
+    ok('y se le dice al chofer qué hacer mientras tanto',
+       /gps\.diagnostico\.sinPrimerPlano && !avisadoSinPrimerPlano\.current[\s\S]{0,200}Toca el botón de inicio de Android/.test(app)); }
   { const srvTexto = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
     ok('la tarea cuenta lo que Android le entrega, antes de filtrar', /diagnostico\.lecturas \+= data\.locations\.length;/.test(srvTexto) && /diagnostico\.repetidas \+= crudas\.length - posiciones\.length;/.test(srvTexto)); }
   { const srvTexto = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
