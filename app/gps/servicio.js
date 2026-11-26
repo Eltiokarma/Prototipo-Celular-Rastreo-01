@@ -169,6 +169,9 @@ export const diagnostico = {
   // de parar o arrancar (antes se tragaban sin dejar rastro).
   rearranques: 0,
   errorServicio: null,
+  // El GPS corre SIN la notificación fija (ver `empezarLecturas`): da
+  // posiciones con la app en pantalla, pero Android lo corta al apagarla.
+  sinPrimerPlano: false,
   // La grabación de recorrido en curso ({puntos, largoM}) o null
   grabacion: null,
 };
@@ -940,22 +943,60 @@ async function arrancarAhora({ textoNotificacion = 'Turno en curso' } = {}) {
   diagnostico.servicio = 'corriendo';
 }
 
-function empezarLecturas(textoNotificacion) {
-  return Location.startLocationUpdatesAsync(TAREA_GPS, {
+// ── «La app está atrás» ────────────────────────────────────────
+// expo-location sólo deja arrancar el GPS con la notificación fija (el
+// servicio de primer plano) si una marca SUYA dice que la app está al frente
+// (`AppForegroundedSingleton.isForegrounded`, LocationModule.kt). La marca
+// nace en falso y sólo se prende cuando la pantalla de la app «vuelve al
+// frente». Después de que Android mata la app (al quitarle un permiso), al
+// reabrirla la marca puede quedar en falso aunque el chofer esté mirando: cada
+// arranque se rechaza con este mensaje, y así hasta que la app pase de verdad
+// por atrás y vuelva, o hasta que el proceso muera. Es H8 y H9, visto en Perfil
+// en la cuarta ronda («Foreground service cannot be started when the
+// application is in the background»).
+export const RECHAZO_ATRAS = /cannot be started when the application is in the background/i;
+const esRechazoAtras = (e) => RECHAZO_ATRAS.test(String((e && e.message) || e));
+
+function opcionesDeLectura(textoNotificacion, conServicio, intervalo = CADENCIA_PANTALLA_ENCENDIDA) {
+  return {
     accuracy: Location.Accuracy.High,
-    timeInterval: CADENCIA_PANTALLA_ENCENDIDA,
+    timeInterval: intervalo,
     distanceInterval: 0,
     // Sin esto, Android junta varias posiciones y las entrega de a lotes
     // cuando le conviene: para una brecha en minutos eso es inservible.
     deferredUpdatesInterval: 0,
     pausesUpdatesAutomatically: false,
-    foregroundService: {
-      notificationTitle: 'Control de ruta',
-      notificationBody: textoNotificacion,
-      notificationColor: '#2580CF',
-      killServiceOnDestroy: false,
-    },
-  });
+    ...(conServicio ? {
+      foregroundService: {
+        notificationTitle: 'Control de ruta',
+        notificationBody: textoNotificacion || 'Turno en curso',
+        notificationColor: '#2580CF',
+        killServiceOnDestroy: false,
+      },
+    } : {}),
+  };
+}
+
+// Arranca con la notificación fija; si expo-location lo rechaza porque cree
+// que la app está atrás, arranca SIN ella. Así el GPS da posiciones mientras
+// la app esté en pantalla, en vez de quedar mudo hasta que muera el proceso.
+// Sin la notificación, Android lo corta al apagar la pantalla: por eso queda
+// marcado (`sinPrimerPlano`), la pantalla se lo dice al chofer, y al primer
+// «vuelta al frente» App.js rearranca con la notificación. Sin el permiso de
+// ubicación «todo el tiempo» el segundo intento también falla, y ese error
+// es el que queda.
+async function empezarLecturas(textoNotificacion) {
+  try {
+    await Location.startLocationUpdatesAsync(TAREA_GPS, opcionesDeLectura(textoNotificacion, true));
+    // Volvió la notificación fija: el aviso de «anda sin ella» ya no vale
+    if (diagnostico.sinPrimerPlano) diagnostico.errorServicio = null;
+    diagnostico.sinPrimerPlano = false;
+  } catch (e) {
+    if (!esRechazoAtras(e)) throw e;
+    await Location.startLocationUpdatesAsync(TAREA_GPS, opcionesDeLectura(textoNotificacion, false));
+    diagnostico.sinPrimerPlano = true;
+    diagnostico.errorServicio = 'Expo cree que la app está atrás: el GPS anda sin la notificación fija hasta que la app vuelva al frente';
+  }
 }
 
 // Rearrancar A LA FUERZA: sin preguntarle a Android si ya corre, porque esa
@@ -995,19 +1036,20 @@ export function cambiarCadencia(ms, textoNotificacion) {
 
 async function cambiarCadenciaAhora(ms, textoNotificacion) {
   if (!(await Location.hasStartedLocationUpdatesAsync(TAREA_GPS))) return;
-  await Location.startLocationUpdatesAsync(TAREA_GPS, {
-    accuracy: Location.Accuracy.High,
-    timeInterval: ms,
-    distanceInterval: 0,
-    deferredUpdatesInterval: 0,
-    pausesUpdatesAutomatically: false,
-    foregroundService: {
-      notificationTitle: 'Control de ruta',
-      notificationBody: textoNotificacion || 'Turno en curso',
-      notificationColor: '#2580CF',
-      killServiceOnDestroy: false,
-    },
-  });
+  // Sin la notificación fija, cambiar la cadencia es justo lo que no se
+  // puede: el que la vuelve a poner es el rearranque de App.js al volver al
+  // frente.
+  if (diagnostico.sinPrimerPlano) return;
+  try {
+    await Location.startLocationUpdatesAsync(TAREA_GPS, opcionesDeLectura(textoNotificacion, true, ms));
+  } catch (e) {
+    // Al apagar la pantalla la app YA está atrás, y expo-location rechaza
+    // el cambio antes de tocar nada: el servicio sigue con la cadencia que
+    // tenía (3 s). Pasaba desde siempre, en silencio; no es una falla del
+    // GPS y no se anota como tal. Bajar a 10 s con la pantalla apagada queda
+    // pendiente de otro camino (CAMBIOS, bloque 36).
+    if (!esRechazoAtras(e)) throw e;
+  }
 }
 
 export function parar() {

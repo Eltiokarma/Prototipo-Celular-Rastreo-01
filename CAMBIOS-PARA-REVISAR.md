@@ -1604,6 +1604,60 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 36. La causa del GPS mudo: expo-location cree que la app está atrás — `0664507` (26/11)
+
+**Qué.** La cuarta ronda (25/11) mostró en Perfil el error que el bloque 35
+dejó a la vista: «Couldn't start the foreground service. Foreground service
+cannot be started when the application is in the background». Sale de
+expo-location 19.0.8 (`LocationModule.kt`): antes de arrancar con
+`foregroundService`, mira `AppForegroundedSingleton.isForegrounded`, una
+marca que nace en falso y sólo se prende con `OnActivityEntersForeground`.
+Después de que Android mata la app (al quitarle un permiso), al reabrirla la
+marca puede quedar apagada con la app en pantalla, y cada arranque, los
+rearranques incluidos, se rechaza hasta que la app pase por atrás y vuelva
+o el proceso muera. Encaja con H8 y H9 en las cuatro rondas.
+
+1. **Arranque de respaldo** (`empezarLecturas`): rechazado por eso, se
+   arranca sin `foregroundService`. Da posiciones con la app en pantalla;
+   Android lo corta al apagarla. Queda marcado (`sinPrimerPlano`), la app
+   se lo dice al chofer, y al primer `AppState` «active» App.js rearranca
+   con la notificación. Necesita el permiso de ubicación «todo el tiempo»;
+   sin él, el segundo intento falla y ese error queda en Perfil.
+2. **La cadencia** (H33): bajar a 10 s al apagar la pantalla llama a
+   `startLocationUpdatesAsync` con la app ya atrás, y expo-location lo
+   rechaza siempre. Se tragaba en silencio desde que existe; con la fila
+   nueva habría llenado Perfil de errores. Ahora se ignora ese rechazo.
+   **El ahorro de batería con la pantalla apagada no está funcionando**:
+   el GPS sigue a 3 s.
+3. «No arrancó» ya no lo tapa el «corriendo» que viene del registro de la
+   tarea; cuando vuelve la notificación fija, se borra el aviso.
+4. **La contraseña con VER** (H29) usa `keyboardType="visible-password"`:
+   el teclado normal sugería palabras y aprendía la clave.
+5. **El Cerrar de Perfil** (H31), con margen y respuesta al apretar.
+
+**Archivos.** `app/gps/servicio.js`, `app/App.js`, `pruebas/nativas.js`.
+JavaScript de la app: llega con `publicar-arreglo.bat`.
+
+**Qué mirar.**
+- Sin la notificación fija, la brecha en la bandeja no se actualiza y el
+  GPS se corta al apagar la pantalla. Es un estado de paso: dura hasta que
+  la app pasa por atrás.
+- Falta comprobar en el teléfono que el arranque sin notificación de
+  verdad entrega posiciones después de la muerte del proceso.
+- La cadencia (punto 2) pide otra solución: cambiarla antes de que la app
+  pase atrás no se puede detectar con `AppState`, que avisa cuando ya pasó.
+- La causa de fondo es de expo-location: la marca debería iniciarse con el
+  estado real de la actividad. Vale la pena reportarlo o revisar si una
+  versión nueva lo corrige.
+
+**Pruebas.** `nativas`, con la fila real y un Android simulado que
+rechaza «por estar atrás»: arranca sin la notificación; al volver al frente,
+vuelve a ella; sin el permiso «todo el tiempo», el error queda a la vista; la
+cadencia rechazada no deja error; sin la notificación, la cadencia no se
+intenta. Y el teclado de la contraseña con VER. Regresión completa: 101 de 102 en verde; la roja es `paneles` (Despacho: C3, texto bajo 12 px, y N4, borrar un tramo), que ya fallaba en `main` desde el #83 y no la toca este bloque.
+
+---
+
 ## 35. Lo que dejó la tercera ronda en teléfono — `02c31c0` (24/11)
 
 **Qué.** La tercera ronda (23/11) comprobó en el teléfono los arreglos del
