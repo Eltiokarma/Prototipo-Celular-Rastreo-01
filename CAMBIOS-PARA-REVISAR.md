@@ -1654,7 +1654,7 @@ JavaScript de la app: llega con `publicar-arreglo.bat`.
 rechaza «por estar atrás»: arranca sin la notificación; al volver al frente,
 vuelve a ella; sin el permiso «todo el tiempo», el error queda a la vista; la
 cadencia rechazada no deja error; sin la notificación, la cadencia no se
-intenta. Y el teclado de la contraseña con VER. Regresión completa: corriendo al anotar esto.
+intenta. Y el teclado de la contraseña con VER. Regresión completa: 101 de 102 en verde; la roja es `paneles` (Despacho: C3, texto bajo 12 px, y N4, borrar un tramo), que ya fallaba en `main` desde el #83 y no la toca este bloque.
 
 ---
 
