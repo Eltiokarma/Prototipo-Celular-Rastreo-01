@@ -48,7 +48,10 @@ import { WebView } from 'react-native-webview';
 import * as gps from './gps/servicio';
 import * as Location from 'expo-location';
 import { crearVigiaPuerta, CALLADO_MS, relevoPorConfirmar } from './puerta';
-import { servicioMudo } from './vigilante';
+import { servicioMudo, tocaRecargar } from './vigilante';
+
+// Cuándo fue la última recarga del JavaScript por GPS mudo (ver vigilante.js)
+const LLAVE_RECARGA_GPS = 'recargaGpsMudo';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
 // un teléfono no depende de la red de casa. Para pegarle a un servidor local
@@ -943,12 +946,26 @@ function Aplicacion() {
         // hace 412 s).
         const repetido = ultimoRearranque.current > 0;
         ultimoRearranque.current = Date.now();
-        gps.rearrancar({ textoNotificacion: textoRef.current }).catch(() => {});
-        // Si ya se había rearrancado y sigue mudo, rearrancar no alcanza: lo
-        // único comprobado en el teléfono es que Android cierre la app.
+        // Si ya se había rearrancado y sigue mudo, rearrancar no alcanza: el
+        // JavaScript de la pantalla quedó desanotado en expo-task-manager
+        // (vigilante.js, `tocaRecargar`). Se recarga, como mucho una vez cada
+        // diez minutos; si no toca, se le dice al chofer lo que sí lo cura.
         if (repetido) {
+          console.warn('[gps] mudo después de rearrancar');
+          let ultima = 0;
+          try { ultima = Number(await SecureStore.getItemAsync(LLAVE_RECARGA_GPS)) || 0; } catch {}
+          if (!vivo || saliendo.current) return;
+          if (tocaRecargar({ ahora: Date.now(), ultimaRecarga: ultima })) {
+            console.warn('[gps] se recarga el JavaScript');
+            try { await SecureStore.setItemAsync(LLAVE_RECARGA_GPS, String(Date.now())); } catch {}
+            try { await Updates.reloadAsync(); return; }
+            catch (e) { console.warn('[gps] no se pudo recargar:', e && e.message); }
+          }
           setAviso('El GPS no está dando tu ubicación. Cierra la app desde recientes, '
             + 'apaga la pantalla un minuto y vuelve a abrirla.');
+        } else {
+          console.warn('[gps] mudo: se rearranca');
+          gps.rearrancar({ textoNotificacion: textoRef.current }).catch(() => {});
         }
       } else if (gps.diagnostico.servicio !== 'corriendo' && gps.diagnostico.servicio !== 'no arrancó') {
         // «No arrancó» se queda a la vista aunque Android diga que corre:
@@ -1366,19 +1383,23 @@ function Entrar({ servidor, aviso, central, onEntrar, clienteRef }) {
           en tres intentos fallidos y una llamada a Despacho. Arranca tapada:
           el chofer entra con gente adelante. */}
       <View style={s.campoConBoton}>
+        {/* El campo es SIEMPRE de contraseña, también con VER. Cuando VER
+            lo destapaba, el teclado de Android sugería palabras y APRENDÍA la
+            clave (ronda 4, paso P.2), y pedirle el teclado de «clave a la
+            vista» no alcanzó: el de Xiaomi siguió sugiriendo (ronda 5, paso
+            8.3). Ahora VER muestra lo escrito en una línea aparte, debajo, y
+            el teclado nunca recibe la clave como texto común. */}
         <TextInput style={[s.campo, s.campoSinBorde]} value={clave} onChangeText={setClave}
-          secureTextEntry={!verClave} autoCapitalize="none" autoCorrect={false}
-          // Con VER prendido el campo deja de ser de contraseña y el teclado
-          // de Android volvía a sugerir palabras y a APRENDER la clave
-          // (ronda 4, paso P.2). «visible-password» es el teclado de clave
-          // a la vista: sin sugerencias ni diccionario.
-          keyboardType={verClave ? 'visible-password' : 'default'}
+          secureTextEntry autoCapitalize="none" autoCorrect={false}
           spellCheck={false} autoComplete="password" importantForAutofill="yes"
           placeholderTextColor={C.tenue} onSubmitEditing={enviar} />
         <Pressable onPress={() => setVerClave(v => !v)} hitSlop={12} style={s.ojo}>
           <Text style={s.ojoTexto}>{verClave ? 'OCULTAR' : 'VER'}</Text>
         </Pressable>
       </View>
+      {verClave && (
+        <Text style={s.claveVista} selectable={false}>{clave ? clave : 'Todavía no escribiste nada'}</Text>
+      )}
 
       {(error || aviso) && <Text style={s.error}>{error || aviso}</Text>}
 
@@ -3518,6 +3539,8 @@ function crearEstilos(C) { return StyleSheet.create({
   campoSinBorde: { flex: 1, marginTop: 0, borderWidth: 0, backgroundColor: 'transparent' },
   ojo: { paddingHorizontal: 14, paddingVertical: 14 },
   ojoTexto: { color: C.cielo, fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
+  // La clave a la vista, debajo del campo: en mono, para distinguir 0 de O
+  claveVista: { color: C.blanco, fontSize: 18, fontFamily: 'monospace', marginTop: -6, marginBottom: 10, letterSpacing: 1 },
   chipTema: {
     fontFamily: 'monospace', fontSize: 12, letterSpacing: 1, color: C.tenue,
     borderWidth: 1, borderColor: C.borde, borderRadius: 6,

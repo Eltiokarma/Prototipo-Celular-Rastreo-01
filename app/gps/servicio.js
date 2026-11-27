@@ -276,6 +276,9 @@ TaskManager.defineTask(TAREA_GPS, async ({ data, error }) => {
   if (!data?.locations?.length) return;
   diagnostico.lecturas += data.locations.length;
   diagnostico.ultimaLectura = Date.now();
+  // Rastro para `adb logcat` (sale con la etiqueta ReactNativeJS): es lo que
+  // dice si las posiciones llegan al JavaScript, cuando Perfil no alcanza
+  console.log(`[gps] tarea: ${data.locations.length} posiciones (total ${diagnostico.lecturas})`);
   const crudas = data.locations.map(l => ({
     lat: l.coords.latitude,
     lng: l.coords.longitude,
@@ -993,6 +996,7 @@ async function empezarLecturas(textoNotificacion) {
     diagnostico.sinPrimerPlano = false;
   } catch (e) {
     if (!esRechazoAtras(e)) throw e;
+    console.log('[gps] expo-location cree que la app está atrás: arranca sin la notificación fija');
     await Location.startLocationUpdatesAsync(TAREA_GPS, opcionesDeLectura(textoNotificacion, false));
     diagnostico.sinPrimerPlano = true;
     diagnostico.errorServicio = 'Expo cree que la app está atrás: el GPS anda sin la notificación fija hasta que la app vuelva al frente';
@@ -1010,6 +1014,7 @@ export function rearrancar({ textoNotificacion = 'Turno en curso' } = {}) {
     if (pedidosDeParar !== paradasAlPedir) return;
     diagnostico.rearranques = (diagnostico.rearranques || 0) + 1;
     diagnostico.servicio = 'rearrancando';
+    console.log(`[gps] rearranque ${diagnostico.rearranques}`);
     try { await Location.stopLocationUpdatesAsync(TAREA_GPS); }
     catch (e) { diagnostico.errorServicio = `parar: ${e && e.message ? e.message : e}`; }
     try { await TaskManager.unregisterTaskAsync(TAREA_GPS); } catch {}
