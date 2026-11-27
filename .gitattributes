@@ -1,0 +1,3 @@
+# Los parches de patch-package van con LF también en Windows: con CRLF
+# patch-package puede no aplicarlos, y cambia su huella en app/nativo.json.
+*.patch text eol=lf

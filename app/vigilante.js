@@ -33,6 +33,11 @@ function servicioMudo({ ahora, corriendo, primerPlano, ultimaLectura = 0, desde 
 // anotado como «sin pantalla» (`TaskService.setTaskManager`), y al terminar
 // los eventos Expo lo borra (`invalidateAppRecord`). Rearrancar el GPS no lo
 // cura, y recargar el JavaScript tampoco (cae en la misma tabla y además
-// rompe el servicio de tareas: CAMBIOS 38). El arreglo es nativo.
+// rompe el servicio de tareas: CAMBIOS 38). El arreglo es nativo: un parche
+// a expo-task-manager (app/patches). La APK 0.3.2 ya lo traía en el disco y
+// el teléfono siguió igual (logcat del 27/11): Expo 54 enlaza el módulo YA
+// COMPILADO que viene en el paquete, no el código parchado. Desde la 0.3.3 se
+// compila desde la fuente (`buildFromSource` en app/package.json; CAMBIOS 40)
+// y deja «COOP-R14 parche activo» en el logcat.
 
 module.exports = { servicioMudo, MUDO_MS, REARRANQUE_CADA_MS };

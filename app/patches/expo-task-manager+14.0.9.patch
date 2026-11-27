@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
-index 2b6c2fa..9a3215e 100644
+index 2b6c2fa..1fd4d7f 100644
 --- a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
 +++ b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
 @@ -70,7 +70,12 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
@@ -16,7 +16,7 @@ index 2b6c2fa..9a3215e 100644
      mTasksAndEventsRepository = TasksAndEventsRepository.create(context);
  
      if (!mTasksAndEventsRepository.tasksExist()) {
-@@ -238,8 +243,15 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+@@ -238,11 +243,23 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
      // Determine in which table the task manager will be stored.
      // Having two tables for them is to prevent race condition problems,
      // when both foreground and background apps are launching at the same time.
@@ -34,3 +34,22 @@ index 2b6c2fa..9a3215e 100644
  
      // Set task manager in appropriate map.
      taskManagers.put(appScopeKey, new WeakReference<>(taskManager));
++    // COOP-R14: rastro para adb. Si esta línea no sale en el logcat, la APK
++    // no trae el parche (pasó con la 0.3.2: Expo 54 enlazaba el módulo ya
++    // compilado de local-maven-repo y no este código; ver buildFromSource en
++    // app/package.json).
++    Log.i(TAG, "COOP-R14 parche activo: TaskManager anotado para '" + appScopeKey + "'.");
+ 
+     // Execute events waiting for the task manager.
+     List<Bundle> eventsQueue = mTasksAndEventsRepository.getEvents(appScopeKey);
+@@ -401,6 +418,10 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+       return;
+     }
+ 
++    // COOP-R14: si esto sale con la app abierta, el JavaScript de la pantalla
++    // quedó desanotado y las posiciones se juntan en la cola sin llegarle.
++    Log.w(TAG, "COOP-R14: sin TaskManager para '" + appScopeKey + "': el evento espera en la cola.");
++
+     // The app is not fully loaded as its task manager is not there yet.
+     // We need to add event's body to the queue from which events will be executed once the task manager is ready.
+     if (!mTasksAndEventsRepository.hasEvents(appScopeKey)) {
