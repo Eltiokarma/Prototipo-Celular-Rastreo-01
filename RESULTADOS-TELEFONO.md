@@ -372,6 +372,40 @@ Encaja con las cinco rondas: algunas lecturas al principio (4, en la cuarta y
 la quinta) y después ninguna. Rearrancar el GPS no lo arregla; matar el proceso
 sí, porque crea un JavaScript nuevo.
 
+## Con adb, 26/11 a las 22:33: la recarga del JavaScript, probada
+
+Con la recarga del bloque 37 publicada. T1 (Poco, El Gordo) conectado a la PC,
+y además el Redmi con Karma.
+
+- **T1, logcat:**
+
+  | Hora | Qué pasó |
+  |---|---|
+  | 22:33 a 22:37 | Expo recibe posiciones cada 3 s («Handling job») y ninguna llega al JavaScript (cero «[gps] tarea», cero «Finished task»). |
+  | 22:35:30 | «[gps] mudo: se rearranca». |
+  | 22:37:31 | «[gps] se recarga el JavaScript» y «Running "main"». |
+  | 22:37:32 | El JavaScript nuevo recibe de golpe la cola acumulada: 63 eventos con 1893 posiciones, casi todas repetidas. |
+  | Desde las 22:37:34 | Otra vez nada; a las 22:38:36, «[gps] mudo». |
+
+  La recarga anota al JavaScript nuevo, pero cae en la misma trampa y a los
+  2 s Expo lo vuelve a borrar. Foto de Perfil: «Lecturas del GPS 1893 · 1830
+  repetidas · rearrancado 1 vez · GPS enviadas 14 · 49 no usadas».
+- **Redmi, Karma:** «Servicio de GPS: caído, rearrancando», y en rojo:
+  «startLocationUpdatesAsync has been rejected → NullPointerException: Attempt
+  to invoke interface method 'java.util.Map
+  android.content.SharedPreferences.getAll()' on a null object reference». El
+  GPS de B no arranca. **Causa**, en `expo-task-manager` 14.0.9: el servicio de
+  tareas es un singleton por proceso (`TaskManagerPackage.mTaskService`) que
+  guarda una referencia débil al contexto del primer JavaScript. Después de
+  una recarga (la del GPS mudo, o la que aplica un arreglo publicado con la
+  app abierta), ese contexto muere y registrar la tarea revienta hasta que el
+  proceso muera.
+
+**Conclusión:** desde JavaScript no hay arreglo para H8 y H9, y recargar hace
+daño. Bloque 38: se saca la recarga del GPS y la app deja de aplicar los
+arreglos recargándose (se aplican en el próximo arranque en frío). El arreglo
+de fondo es un parche nativo a `expo-task-manager`, en una APK nueva.
+
 ---
 
 ## Hallazgos (pendientes de analizar)
@@ -501,10 +535,10 @@ Bloque 36 de CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
 
 ## Lo que falta
 
-- **H8 y H9:** la causa está vista con adb (arriba). Arreglo en el bloque
-  37: si el GPS sigue mudo después del rearranque, se recarga el JavaScript
-  (como mucho una vez cada 10 minutos). Se comprueba con adb: después de la
-  recarga tienen que aparecer «[gps] tarea» y «Finished task» en el logcat.
+- **H8 y H9:** la causa está vista con adb y es de `expo-task-manager`. La
+  recarga del bloque 37 no sirvió e hizo daño; el bloque 38 la saca. El
+  parche nativo está en la APK 0.3.2 (bloque 39): falta compilarla, instalarla
+  y probarla con adb.
 - **H29:** con VER, el campo ahora sigue siendo de contraseña y lo escrito se
   muestra en una línea aparte (en la rama, sin publicar).
 - **H32** (el aviso de «otro dispositivo») y **H33** (la cadencia con la

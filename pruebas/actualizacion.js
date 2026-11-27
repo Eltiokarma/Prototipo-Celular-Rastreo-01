@@ -33,9 +33,20 @@ const eas = JSON.parse(fs.readFileSync(RAIZ + '/app/eas.json', 'utf8'));
 // Lo nativo: lo que, si cambia, pide una APK nueva
 // Todo lo de app.json que va a la parte nativa (la revisión integral del
 // 04/11 vio que faltaban `newArchEnabled`, `scheme` y el resto de `android`)
+// Los parches a módulos nativos (`app/patches`, aplicados por patch-package al
+// instalar) también son nativos: cambian lo que compila la APK. Van por su
+// huella, para que cambiar uno sin subir la versión frene la publicación.
+const parchesNativos = () => {
+  const dir = RAIZ + '/app/patches';
+  if (!fs.existsSync(dir)) return {};
+  const crypto = require('crypto');
+  return Object.fromEntries(fs.readdirSync(dir).filter(n => n.endsWith('.patch')).sort()
+    .map(n => [n, crypto.createHash('sha256').update(fs.readFileSync(dir + '/' + n)).digest('hex').slice(0, 16)]));
+};
 const fotoNativa = () => ({
   version: appJson.version,
   dependencias: pkg.dependencies,
+  parches: parchesNativos(),
   plugins: appJson.plugins,
   android: appJson.android,
   newArchEnabled: appJson.newArchEnabled ?? null,
@@ -103,8 +114,25 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const app = fs.readFileSync(RAIZ + '/app/App.js', 'utf8');
   const servicio = fs.readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
   ok('App.js usa expo-updates, y no hace nada sin el módulo', /from 'expo-updates'/.test(app) && /if \(!Updates\.isEnabled\) return;/.test(app));
-  ok('el único reinicio está detrás de sePuedeAplicar',
-     (app.match(/Updates\.reloadAsync\(/g) || []).length === 1 && /sePuedeAplicar\([^)]*\)\) \{\s*await Updates\.reloadAsync\(\)/.test(app));
+  // Nunca se recarga la app abierta: Updates.reloadAsync deja al servicio de
+  // tareas de Expo con el contexto muerto y el próximo arranque del GPS
+  // revienta (26/11, CAMBIOS 38). La actualización bajada se aplica en el
+  // próximo arranque en frío.
+  ok('la app nunca se recarga sola (la actualización se aplica en el próximo arranque en frío)',
+     !/Updates\.reloadAsync\(/.test(app) && /Updates\.fetchUpdateAsync\(\)/.test(app));
+  // El GPS mudo (H8 y H9) y el GPS que no arranca después de recargar:
+  // dos errores de expo-task-manager 14.0.9, parchados en la APK 0.3.2
+  // (CAMBIOS 38 y 39).
+  const parche = fs.existsSync(RAIZ + '/app/patches/expo-task-manager+14.0.9.patch')
+    ? fs.readFileSync(RAIZ + '/app/patches/expo-task-manager+14.0.9.patch', 'utf8') : '';
+  ok('el parche de expo-task-manager está, para la versión instalada',
+     !!parche && /"expo-task-manager": "~14\.0\.9"/.test(JSON.stringify(pkg.dependencies, null, 1)));
+  ok('el parche guarda el contexto de la APLICACIÓN en el TaskService (no el del primer JavaScript)',
+     /\+\s*Context appContext = context\.getApplicationContext\(\);/.test(parche) && /\+\s*mContextRef = new WeakReference<>\(appContext != null \? appContext : context\);/.test(parche));
+  ok('y anota la pantalla siempre en la tabla principal',
+     /-\s*boolean isHeadless = isStartedByHeadlessLoader\(appScopeKey\);/.test(parche) && /\+\s*Map<String, WeakReference<TaskManagerInterface>> taskManagers = sTaskManagers;/.test(parche));
+  ok('patch-package lo aplica al instalar (también en la nube de EAS)',
+     pkg.scripts && pkg.scripts.postinstall === 'patch-package' && !!(pkg.devDependencies && pkg.devDependencies['patch-package']));
   ok('la etiqueta va en la entrada y en cada envío del GPS',
      /actualizacion: actualizacionDe\(Updates\)/.test(app) && /actualizacion: actualizacionDe\(Updates\)/.test(servicio));
   const u = appJson.updates || {};
