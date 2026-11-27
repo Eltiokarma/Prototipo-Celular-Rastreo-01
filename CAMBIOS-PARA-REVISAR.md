@@ -1604,6 +1604,73 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 40. APK 0.3.3: el parche de la 0.3.2 no estaba en la APK (27/11)
+
+**Qué.** La APK 0.3.2 se probó con adb en el Redmi 15C (chofer A, M11111) y
+el GPS volvió a quedar mudo al quitar las notificaciones, igual que antes del
+parche. El logcat muestra por qué: el parche nunca llegó a la APK.
+
+Expo 54 trae casi todos sus módulos **ya compilados**, dentro de cada paquete
+(`node_modules/expo-task-manager/local-maven-repo/…/expo.modules.taskmanager-14.0.9.aar`),
+y la APK enlaza ese binario, no el código Java de `node_modules`.
+patch-package cambiaba un código que nadie compilaba. Se ve con
+`npx expo-modules-autolinking resolve -p android --json`: `expo-task-manager`
+aparecía con `publication`, que es «úsalo ya compilado».
+
+El logcat de la 0.3.2 calza con el error sin parchar, al segundo:
+
+| Hora | Qué pasó |
+|---|---|
+| hasta 06:22:30 | Sano: «[gps] tarea» cada 3 s, 60 lecturas. |
+| 06:22:30 | Se quitan las notificaciones; Android mata el proceso. |
+| 06:22:37 | Proceso nuevo. Llegan posiciones antes de que el JavaScript esté listo y Expo arranca la app «sin pantalla». |
+| 06:22:38,93 | El JavaScript arrancó: Expo lo marca como la app «sin pantalla» que pidió. |
+| 06:22:39,05 | La pantalla se anota en Expo («JSI interop was installed»). Ya marcada, y sin el parche, queda en la tabla de las apps sin pantalla. |
+| 06:22:40 | El JavaScript recibe las tres que esperaban. |
+| 06:22:42,18 | Recibe una más. Es la última. |
+| 06:22:42,87 | Dos segundos después de que se vació la cola, Expo «borra la app sin pantalla» (`invalidateAppRecord`) y con ella a la pantalla. No deja rastro en el logcat: la hora sale del código de Expo y de las «Finished task». |
+| desde 06:22:44 | «Handling job» cada 2 o 3 s y ningún «[gps] tarea». |
+| 06:23:47 | «[gps] mudo: se rearranca». Registrar y borrar la tarea responde (el camino del JavaScript a Expo anda); el de vuelta sigue cortado. |
+
+**El arreglo.**
+1. `app/package.json`: `expo.autolinking.android.buildFromSource` con
+   `expo-task-manager` y `unimodules-app-loader`. El segundo hace falta
+   porque `expo-task-manager`, compilado desde la fuente, lo pide como
+   proyecto (`project(':unimodules-app-loader')`), y ese proyecto sólo existe
+   si también se compila desde la fuente. Ningún otro módulo ya compilado
+   depende de él (revisados los `.pom`), así que no queda duplicado.
+2. El parche deja un rastro: **«COOP-R14 parche activo: TaskManager anotado»**
+   cada vez que se anota la pantalla, y «COOP-R14: sin TaskManager… el evento
+   espera en la cola» si una posición llega y no hay a quién dársela. El
+   primero dice con adb, sin adivinar, que la APK trae el parche. El segundo
+   es normal en el primer segundo después de un relanzamiento (las
+   posiciones llegan antes que el JavaScript); lo que no puede pasar es que
+   siga saliendo con la app abierta.
+3. `.gitattributes`: los `.patch` van con LF también en Windows, y la huella
+   de los parches en `app/nativo.json` ya no depende del fin de línea. Con
+   Git para Windows bajando CRLF, la guardia de `publicar-arreglo.bat` se
+   habría negado a publicar.
+
+**Archivos.** `app/package.json`, `app/patches/expo-task-manager+14.0.9.patch`,
+`app/app.json` (0.3.3), `app/nativo.json`, `app/vigilante.js` (el
+comentario), `pruebas/actualizacion.js` y `.gitattributes`.
+
+**Qué mirar.**
+- Es nativo: `compilar-app.bat` e instalar. Los teléfonos con la 0.3.2 no
+  reciben lo que se publique para la 0.3.3.
+- Acá no se puede compilar Android. Lo comprobado: `expo-modules-autolinking`
+  (la misma versión 3.0.26 que usa EAS) resuelve los dos módulos desde la
+  fuente, y el parche entra limpio sobre el paquete original. La compilación
+  en EAS es la primera prueba de que Gradle arma los dos proyectos.
+- Con el teléfono conectado: `adb logcat -d | findstr COOP-R14`. Si no sale
+  nada después de abrir la app, la APK no trae el parche.
+
+**Pruebas.** `actualizacion`: cada módulo con un parche en `app/patches` se
+compila desde la fuente (con el ajuste quitado, falla), también su cargador,
+el parche deja el rastro, y el ajuste forma parte de lo nativo.
+
+---
+
 ## 39. APK 0.3.2: el parche a expo-task-manager (27/11)
 
 **Qué.** Los dos errores de `expo-task-manager` 14.0.9 que se vieron con adb

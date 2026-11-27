@@ -408,6 +408,25 @@ de fondo es un parche nativo a `expo-task-manager`, en una APK nueva.
 
 ---
 
+## Con adb, 27/11 a las 06:20: la APK 0.3.2, con el parche
+
+Redmi 15C, chofer A (M11111), APK 0.3.2 (Despacho: «APP 0.3.2»). En ruta, se
+quitan las notificaciones y se vuelve a la app.
+
+- **Perfil:** 7 lecturas, la última hace 103 s, rearrancado 1 vez. Mudo.
+- **Logcat:** el mismo error que antes del parche, al segundo. El proceso
+  nuevo recibe cuatro tandas (06:22:40 y 06:22:42); a los 2 s de vaciarse la
+  cola Expo borra la «app sin pantalla» y desde las 06:22:44 ninguna posición
+  llega al JavaScript, aunque Expo las sigue recibiendo cada 2 o 3 s. El
+  rearranque de las 06:23:47 registra la tarea sin error y no cambia nada.
+
+**Causa:** el parche no estaba en la APK. Expo 54 enlaza `expo-task-manager`
+ya compilado (un `.aar` que viene en el paquete) y no el código parchado de
+`node_modules`. Bloque 40: se compila desde la fuente, en la APK 0.3.3, y el
+parche deja «COOP-R14 parche activo» en el logcat para comprobarlo.
+
+---
+
 ## Hallazgos (pendientes de analizar)
 
 | # | Qué | Tipo | Dónde se vio |
@@ -537,8 +556,10 @@ Bloque 36 de CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
 
 - **H8 y H9:** la causa está vista con adb y es de `expo-task-manager`. La
   recarga del bloque 37 no sirvió e hizo daño; el bloque 38 la saca. El
-  parche nativo está en la APK 0.3.2 (bloque 39): falta compilarla, instalarla
-  y probarla con adb.
+  parche de la APK 0.3.2 (bloque 39) no llegó a compilarse: la 0.3.2 siguió
+  muda (27/11). La 0.3.3 (bloque 40) lo compila desde la fuente: falta
+  compilarla, instalarla y probarla con adb, empezando por
+  `adb logcat -d | findstr COOP-R14`.
 - **H29:** con VER, el campo ahora sigue siendo de contraseña y lo escrito se
   muestra en una línea aparte (en la rama, sin publicar).
 - **H32** (el aviso de «otro dispositivo») y **H33** (la cadencia con la

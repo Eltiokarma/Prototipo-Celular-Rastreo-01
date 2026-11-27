@@ -37,5 +37,15 @@
     "@babel/core": "^7.25.0",
     "babel-preset-expo": "~54.0.12",
     "patch-package": "^8.0.1"
+  },
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-task-manager",
+          "unimodules-app-loader"
+        ]
+      }
+    }
   }
 }

@@ -41,12 +41,17 @@ const parchesNativos = () => {
   if (!fs.existsSync(dir)) return {};
   const crypto = require('crypto');
   return Object.fromEntries(fs.readdirSync(dir).filter(n => n.endsWith('.patch')).sort()
-    .map(n => [n, crypto.createHash('sha256').update(fs.readFileSync(dir + '/' + n)).digest('hex').slice(0, 16)]));
+    // Sin los \r: Git para Windows suele bajar los archivos con CRLF, y la
+    // huella no puede cambiar por eso (la guardia frenaría publicar-arreglo)
+    .map(n => [n, crypto.createHash('sha256').update(fs.readFileSync(dir + '/' + n, 'utf8').replace(/\r\n/g, '\n')).digest('hex').slice(0, 16)]));
 };
 const fotoNativa = () => ({
   version: appJson.version,
   dependencias: pkg.dependencies,
   parches: parchesNativos(),
+  // Qué módulos se compilan desde la fuente y no se toman ya compilados
+  // (ver más abajo, «el parche se compila»): cambia lo que lleva la APK.
+  autolinking: pkg.expo && pkg.expo.autolinking ? pkg.expo.autolinking : null,
   plugins: appJson.plugins,
   android: appJson.android,
   newArchEnabled: appJson.newArchEnabled ?? null,
@@ -121,8 +126,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok('la app nunca se recarga sola (la actualización se aplica en el próximo arranque en frío)',
      !/Updates\.reloadAsync\(/.test(app) && /Updates\.fetchUpdateAsync\(\)/.test(app));
   // El GPS mudo (H8 y H9) y el GPS que no arranca después de recargar:
-  // dos errores de expo-task-manager 14.0.9, parchados en la APK 0.3.2
-  // (CAMBIOS 38 y 39).
+  // dos errores de expo-task-manager 14.0.9, parchados desde la APK 0.3.2
+  // (CAMBIOS 38 y 39) y compilados de verdad desde la 0.3.3 (CAMBIOS 40).
   const parche = fs.existsSync(RAIZ + '/app/patches/expo-task-manager+14.0.9.patch')
     ? fs.readFileSync(RAIZ + '/app/patches/expo-task-manager+14.0.9.patch', 'utf8') : '';
   ok('el parche de expo-task-manager está, para la versión instalada',
@@ -133,6 +138,25 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
      /-\s*boolean isHeadless = isStartedByHeadlessLoader\(appScopeKey\);/.test(parche) && /\+\s*Map<String, WeakReference<TaskManagerInterface>> taskManagers = sTaskManagers;/.test(parche));
   ok('patch-package lo aplica al instalar (también en la nube de EAS)',
      pkg.scripts && pkg.scripts.postinstall === 'patch-package' && !!(pkg.devDependencies && pkg.devDependencies['patch-package']));
+  // Expo 54 trae casi todos sus módulos YA COMPILADOS (`local-maven-repo`
+  // dentro de cada paquete) y la APK enlaza eso, no el código de
+  // node_modules. Un parche a un módulo así no llega a la APK si el módulo no
+  // se pide «desde la fuente»: pasó con la 0.3.2, que llevaba el parche en el
+  // disco y el error en el teléfono (logcat del 27/11, CAMBIOS 40).
+  const desdeLaFuente = (((pkg.expo || {}).autolinking || {}).android || {}).buildFromSource || [];
+  const seCompila = (nombre) => desdeLaFuente.some(re => new RegExp(`^(?:${re})$`).test(nombre));
+  const parchados = fs.existsSync(RAIZ + '/app/patches')
+    ? fs.readdirSync(RAIZ + '/app/patches').filter(n => n.endsWith('.patch')).map(n => n.replace(/\+[^+]+\.patch$/, '').replace(/^@/, '').replace(/\W+/g, '-'))
+    : [];
+  ok('cada módulo parchado se compila desde la fuente (si no, la APK lleva el ya compilado, sin el parche)',
+     parchados.length > 0 && parchados.every(seCompila), { parchados, desdeLaFuente });
+  // expo-task-manager pide `project(':unimodules-app-loader')`: compilado
+  // desde la fuente, ese proyecto tiene que existir, y sólo existe si
+  // también se compila desde la fuente.
+  ok('y su cargador (unimodules-app-loader) también, que expo-task-manager lo pide como proyecto',
+     !seCompila('expo-task-manager') || seCompila('unimodules-app-loader'), desdeLaFuente);
+  ok('el parche deja un rastro en el logcat («COOP-R14 parche activo») para comprobar con adb que la APK lo trae',
+     /\+\s*Log\.i\(TAG, "COOP-R14 parche activo/.test(parche));
   ok('la etiqueta va en la entrada y en cada envío del GPS',
      /actualizacion: actualizacionDe\(Updates\)/.test(app) && /actualizacion: actualizacionDe\(Updates\)/.test(servicio));
   const u = appJson.updates || {};
