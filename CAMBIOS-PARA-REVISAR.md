@@ -1604,6 +1604,52 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 42. APK 0.3.4: el GPS baja a 10 s con la pantalla apagada (H33) (27/11)
+
+**Qué.** Con la pantalla apagada la app pide leer el GPS cada 10 s en vez de
+cada 3 s. Nunca funcionó: al apagarse la pantalla la app ya está atrás, y
+expo-location rechaza cualquier `startLocationUpdatesAsync` con la
+notificación fija si la app está atrás (`LocationModule.kt`), también el que
+sólo cambia la cadencia de una tarea que YA corre. El GPS se quedaba a 3 s
+todo el turno con la pantalla apagada.
+
+El chequeo existe porque Android no deja *arrancar* un servicio en primer
+plano desde atrás. Cambiar opciones no arranca nada: `TaskService.registerTask`
+con la tarea existente sólo llama a `setOptions`, que vuelve a pedir las
+posiciones con el intervalo nuevo, y `maybeStartForegroundService` deja el
+servicio como estaba cuando la app está atrás.
+
+1. **Parche a expo-location 19.0.8** (`app/patches/expo-location+19.0.8.patch`):
+   el rechazo sigue para arrancar, pero no para una tarea que ya corre
+   (`taskHasConsumerOfClass`). Deja en el logcat «COOP-R14: opciones de
+   'coop-r14-gps' cambiadas con la app atrás (cada 10000 ms)».
+2. **expo-location desde la fuente** (`buildFromSource`): si no, la APK
+   lleva el ya compilado y el parche no llega (la lección del bloque 40).
+   Ningún otro módulo ya compilado depende de él.
+3. **App:** `diagnostico.cadencia` guarda la última cadencia aceptada, y el
+   logcat dice «[gps] cadencia 10000 ms» / «3000 ms».
+
+**Archivos.** `app/patches/expo-location+19.0.8.patch`, `app/package.json`,
+`app/app.json` (0.3.4), `app/nativo.json`, `app/gps/servicio.js` y
+`pruebas/actualizacion.js`.
+
+**Qué mirar.**
+- Es nativo: APK 0.3.4. Los teléfonos con la 0.3.3 no reciben lo que se
+  publique para la 0.3.4.
+- Acá no se compila Android ni Kotlin: la compilación en EAS es la primera
+  prueba. El parche entra limpio sobre el paquete original.
+- Cuánta batería ahorra no está medido. Leer cada 10 s en vez de 3 s
+  despierta menos el GPS, pero Android puede mantener el chip encendido
+  igual; el número sale de una prueba larga con la pantalla apagada.
+- La notificación fija no actualiza su texto con la app atrás (el servicio
+  no se toca): es lo mismo que antes.
+
+**Pruebas.** `actualizacion`: el parche está, cambia el chequeo y deja el
+rastro, y expo-location se compila desde la fuente (lo exige la regla del
+bloque 40).
+
+---
+
 ## 41. Los permisos, al entrar a la app (27/11)
 
 **Qué.** La app pedía la ubicación recién al deslizar SALIR A RUTA, las

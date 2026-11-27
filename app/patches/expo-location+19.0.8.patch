@@ -1,0 +1,26 @@
+diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
+index 46e2ec5..558733f 100644
+--- a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
++++ b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
+@@ -255,9 +255,20 @@ class LocationModule : Module(), LifecycleEventListener, SensorEventListener, Ac
+       if (!shouldUseForegroundService && isMissingBackgroundPermissions()) {
+         throw LocationBackgroundUnauthorizedException()
+       }
+-      if (!AppForegroundedSingleton.isForegrounded && options.foregroundService != null) {
++      // COOP-R14: Android no deja ARRANCAR un servicio en primer plano con la
++      // app atrás, y por eso este chequeo. Pero cambiarle las opciones a una
++      // tarea que YA corre (la cadencia de 3 a 10 s al apagar la pantalla) no
++      // arranca nada: TaskService.registerTask sólo llama a setOptions, y
++      // LocationTaskConsumer.maybeStartForegroundService deja el servicio como
++      // estaba si la app está atrás. Rechazarlo dejaba el GPS a 3 s con la
++      // pantalla apagada, siempre (RESULTADOS-TELEFONO, H33).
++      val yaCorre = mTaskManager.taskHasConsumerOfClass(taskName, LocationTaskConsumer::class.java)
++      if (!AppForegroundedSingleton.isForegrounded && options.foregroundService != null && !yaCorre) {
+         throw ForegroundServiceStartNotAllowedException()
+       }
++      if (!AppForegroundedSingleton.isForegrounded && yaCorre) {
++        Log.i("ExpoLocation", "COOP-R14: opciones de '" + taskName + "' cambiadas con la app atrás (cada " + options.timeInterval + " ms)")
++      }
+ 
+       if (!hasForegroundServicePermissions()) {
+         throw ForegroundServicePermissionsException()

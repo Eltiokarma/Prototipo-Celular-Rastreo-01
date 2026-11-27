@@ -155,6 +155,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // también se compila desde la fuente.
   ok('y su cargador (unimodules-app-loader) también, que expo-task-manager lo pide como proyecto',
      !seCompila('expo-task-manager') || seCompila('unimodules-app-loader'), desdeLaFuente);
+  // H33: con la pantalla apagada el GPS seguía a 3 s, porque expo-location
+  // rechazaba con la app atrás TODO pedido con la notificación fija, también
+  // el que sólo cambia la cadencia de una tarea que ya corre (CAMBIOS 42).
+  const parcheUbicacion = fs.existsSync(RAIZ + '/app/patches/expo-location+19.0.8.patch')
+    ? fs.readFileSync(RAIZ + '/app/patches/expo-location+19.0.8.patch', 'utf8') : '';
+  ok('el parche de expo-location está, para la versión instalada',
+     !!parcheUbicacion && /"expo-location": "~19\.0\.8"/.test(JSON.stringify(pkg.dependencies, null, 1)));
+  ok('y deja cambiar las opciones de una tarea que ya corre con la app atrás (arrancar una nueva sigue prohibido)',
+     /\+\s*val yaCorre = mTaskManager\.taskHasConsumerOfClass\(taskName, LocationTaskConsumer::class\.java\)/.test(parcheUbicacion)
+     && /\+\s*if \(!AppForegroundedSingleton\.isForegrounded && options\.foregroundService != null && !yaCorre\) \{/.test(parcheUbicacion)
+     && /\+\s*Log\.i\("ExpoLocation", "COOP-R14: opciones de/.test(parcheUbicacion));
   ok('el parche deja un rastro en el logcat («COOP-R14 parche activo») para comprobar con adb que la APK lo trae',
      /\+\s*Log\.i\(TAG, "COOP-R14 parche activo/.test(parche));
   ok('la etiqueta va en la entrada y en cada envío del GPS',

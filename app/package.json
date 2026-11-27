@@ -43,7 +43,8 @@
       "android": {
         "buildFromSource": [
           "expo-task-manager",
-          "unimodules-app-loader"
+          "unimodules-app-loader",
+          "expo-location"
         ]
       }
     }

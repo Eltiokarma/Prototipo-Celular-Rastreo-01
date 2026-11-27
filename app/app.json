@@ -2,7 +2,7 @@
   "expo": {
     "name": "Control de ruta",
     "slug": "coop-r14",
-    "version": "0.3.3",
+    "version": "0.3.4",
     "runtimeVersion": {
       "policy": "appVersion"
     },
