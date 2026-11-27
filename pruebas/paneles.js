@@ -220,8 +220,13 @@ console.log('\nAUDITORÍA DE UI DEL 16/11, FASE 4');
   ok('C6 · las fichas de números van en filas parejas', /className="r14-kpi6"/.test(despacho) && /className="r14-kpi12"/.test(despacho) && !/repeat\(auto-fill, minmax\(150px, 1fr\)\)/.test(despacho));
   // C7: diez botones de ancho desigual, uno de principal sin motivo
   ok('C7 · Informes es una lista con lo que trae cada uno y el mismo botón CSV', /data-informe=\{tipo\}/.test(despacho) && /<Icono n="descargar" tam=\{16\} \/>CSV/.test(despacho) && !/principal \? btnPrimario\(40\) : btnSecundario\(40\)/.test(despacho));
-  // N4: «Borrar la ida» vaciaba el tramo sin vuelta
-  ok('N4 · borrar un tramo guarda lo que había y ofrece recuperarlo', /setBorrado\(\{ tramo, puntos \}\); setPuntos\(\[\]\);/.test(despacho) && /data-recuperar onClick=\{\(\) => setTramos\(t => t \? \(\{ \.\.\.t, \[borrado\.tramo\]: borrado\.puntos \}\) : t\)\}/.test(despacho));
+  // N4: «Borrar la ida» vaciaba el tramo sin vuelta. Desde el editor nuevo
+  // (#83) lo guarda el historial: cada cambio, borrar incluido, pasa por
+  // `setPuntos`, que anota cómo estaba, y el aviso dice cómo recuperarlo.
+  ok('N4 · borrar un tramo guarda lo que había y ofrece recuperarlo',
+     /const historia = \{ antes: \[\.\.\.actual\.historial\.antes\.slice\(-59\), \{ tramos: actual\.tramos, tramo: destino \}\], despues: \[\] \};/.test(despacho)
+     && /onClick=\{\(\) => \{ setPuntos\(\[\]\); cambiarModo\('prolongar'\); setAviso\('Recorrido vaciado\. Deshacer lo recupera completo\.'\); \}\}/.test(despacho)
+     && /onClick=\{\(\) => recorrerHistorial\(\)\}[\s\S]{0,240}↶ Deshacer/.test(despacho));
   // N5: a quién va el mensaje sólo lo decía la cabecera
   ok('N5 · el destino del mensaje va junto al campo y en el botón de enviar', /data-destino=\{privadoCon \? 'privado' : 'ruta'\}/.test(despacho) && /Para: solo \{nombreDe\(privadoCon\)\}/.test(despacho) && /aria-label=\{privadoCon \? `Enviar solo a \$\{nombreDe\(privadoCon\)\}` : 'Enviar a toda la ruta'\}/.test(despacho));
   // C1 es hipótesis (H3): la lista compacta está construida pero apagada

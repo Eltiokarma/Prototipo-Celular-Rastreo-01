@@ -1767,7 +1767,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
               : `La ${idaIncompleta ? 'ida' : 'vuelta'} tiene un solo punto`}
           </span>
         )}
-        <span style={{ fontSize: 11, color: hayCambios || tieneBorrador ? HUD.ambarTinta2 : HUD.dim2 }} role="status">{hayCambios || tieneBorrador ? 'Cambios sin guardar' : 'Sin cambios'}</span>
+        <span style={{ fontSize: 12, color: hayCambios || tieneBorrador ? HUD.ambarTinta2 : HUD.dim2 }} role="status">{hayCambios || tieneBorrador ? 'Cambios sin guardar' : 'Sin cambios'}</span>
         <button disabled={guardando} onClick={() => solicitarSalida({ tipo: 'cerrar' })} style={btnSecundario(36)}>Cerrar</button>
         <button onClick={pedirGuardar} disabled={trabado}
           style={{ ...btnPrimario(36), opacity: trabado ? .5 : 1, cursor: trabado ? 'not-allowed' : 'pointer' }}>
@@ -1931,7 +1931,7 @@ function Trazador({ routeId, routeName, variantes, api, onClose, onGuardado }) {
                   boxShadow: modo === id ? `inset 3px 0 ${HUD.bright}` : 'none',
                 }}>
                 <span style={{ display: 'block', fontSize: 13 }}>{titulo}</span>
-                <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: HUD.dim2, marginTop: 3 }}>{detalle}</span>
+                <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: HUD.dim2, marginTop: 3 }}>{detalle}</span>
               </button>
             ))}
             {modo === 'prolongar' && (

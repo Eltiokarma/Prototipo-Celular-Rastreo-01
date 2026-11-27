@@ -427,6 +427,25 @@ parche deja «COOP-R14 parche activo» en el logcat para comprobarlo.
 
 ---
 
+## Con adb, 27/11 a las 08:33: la APK 0.3.3, el GPS ya no queda mudo
+
+Redmi 15C, la APK nueva instalada a las 08:33. En ruta, se quitan las
+notificaciones.
+
+| Hora | Qué pasó |
+|---|---|
+| 08:37:55 | Android mata la app (PermissionHelper), como siempre. |
+| 08:38:00 | Proceso nuevo. |
+| 08:39 a 08:50 | «[gps] tarea» sin cortes: 20 por minuto (una cada 3 s), 221 «Finished task», ningún «COOP-R14: sin TaskManager». Con la 0.3.2, en el mismo paso, dejaban de llegar a los 7 s del relanzamiento. |
+
+El logcat guardado empieza a las 08:38:58 (el teléfono descarta lo más
+viejo), así que no alcanza a mostrar «COOP-R14 parche activo», que se escribe
+en los primeros segundos después de abrir. Lo demuestra el comportamiento.
+Para verlo escrito: cerrar la app desde recientes, abrirla y correr en
+seguida `adb logcat -d | findstr COOP-R14`.
+
+---
+
 ## Hallazgos (pendientes de analizar)
 
 | # | Qué | Tipo | Dónde se vio |
@@ -458,6 +477,9 @@ parche deja «COOP-R14 parche activo» en el logcat para comprobarlo.
 | H31 | El **Cerrar** de Perfil tiene que responder al toque como Perfil y Salir. | Pedido | Ronda 4, paso 7.3 |
 | H32 | Con T2 fuera de la cuenta, T1 recibió «Tu sesión siguió en otro dispositivo o pestaña»: el servidor vio otro socket del mismo chofer. La app ya silencia su socket viejo al abrir uno nuevo, así que la causa no está clara. | Falla, causa por confirmar | Ronda 4, paso 2.8 |
 | H33 | Bajar la cadencia del GPS a 10 s al apagar la pantalla **nunca funcionó**: expo-location rechaza el cambio porque la app ya está atrás, y el error se tragaba en silencio. El GPS sigue a 3 s con la pantalla apagada, que gasta más batería. | Falla (batería) | Descubierto leyendo expo-location, ronda 4 |
+| H34 | La app no pedía los permisos al entrar: ubicación, notificaciones y batería salían recién al deslizar SALIR A RUTA (en el Poco, los tres de golpe al arrancar; en el Redmi el probador fue a Ajustes a mano antes). El probador prefiere que se pidan apenas se entra, como en la mayoría de las apps. **Hecho el 27/11** (bloque 41). | Pedido, **hecho en el código** | APK 0.3.3, 27/11 |
+| H35 | En el Redmi, Despacho lo mostró SIN SEÑAL un rato a las 08:41. El logcat: después de que Android relanzó la app (al quitar las notificaciones), el GPS andaba **sin la notificación fija** (bloque 36); el probador tocó Inicio a las 08:40:42 y Android cortó las posiciones 60 s, hasta que volvió a la app a las 08:41:40. Al volver, la app arrancó la notificación fija y el GPS siguió en segundo plano sin cortes hasta las 08:50. Es lo que el aviso «Toca el botón de inicio de Android y vuelve a abrir la app» resuelve. Coincidió con la desinstalación del Poco, pero no tiene que ver. | Observación (comportamiento conocido) | APK 0.3.3, 27/11 |
+| H36 | Al desinstalar la app del Poco con el chofer en ruta, Despacho siguió mostrando su combi SIN SEÑAL hasta que la app nueva entró. Es a propósito: el servidor no distingue un teléfono desinstalado de una combi en una zona sin señal, y esa combi no se le puede perder a Despacho. Se retira al salir de ruta, cerrar sesión o entrar de nuevo. | Observación (así está diseñado) | APK 0.3.3, 27/11 |
 | H28 | El mismo chofer con **dos sesiones abiertas** (H15) también hace que cerrar sesión no baje su combi: el servidor no la toca mientras quede otra sesión, por si el otro teléfono es el que maneja. En la ronda 3 eso hizo fallar el 3.3 y el 3.4. | Observación | Ronda 3, pasos 3.3 y 3.4 |
 | H19 | Cuando la sesión se cierra desde otro teléfono, el aviso del ingreso no es «Tu sesión ya no vale: entra de nuevo». Sale **«Sesión inválida o expirada»** con la app cerrada y **«Sesión cerrada»** con la app en ruta. Son los textos que manda el servidor; el de la app solo sale por otro camino. Funciona, pero el chofer lee tres textos distintos para lo mismo. | Observación | Ronda 2, pasos 5.8 y 5.12 |
 | H20 | En el paso 3.3 de la segunda ronda, lo mismo falló una vez y anduvo la siguiente: el arreglo de H11 y H12, sea cual sea, tiene que cubrir un caso que **no pasa siempre**. | Observación | Ronda 2, paso 3.3 |
@@ -557,9 +579,9 @@ Bloque 36 de CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
 - **H8 y H9:** la causa está vista con adb y es de `expo-task-manager`. La
   recarga del bloque 37 no sirvió e hizo daño; el bloque 38 la saca. El
   parche de la APK 0.3.2 (bloque 39) no llegó a compilarse: la 0.3.2 siguió
-  muda (27/11). La 0.3.3 (bloque 40) lo compila desde la fuente: falta
-  compilarla, instalarla y probarla con adb, empezando por
-  `adb logcat -d | findstr COOP-R14`.
+  muda (27/11). Con la 0.3.3 (bloque 40), compilado desde la fuente, el GPS
+  sigue dando posiciones después de quitar las notificaciones (adb, 27/11,
+  08:38 a 08:50). Falta: verlo en Despacho y con la pantalla apagada.
 - **H29:** con VER, el campo ahora sigue siendo de contraseña y lo escrito se
   muestra en una línea aparte (en la rama, sin publicar).
 - **H32** (el aviso de «otro dispositivo») y **H33** (la cadencia con la

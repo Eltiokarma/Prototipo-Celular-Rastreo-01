@@ -20,7 +20,7 @@ import {
   View, Text, TextInput, Pressable, ActivityIndicator, AppState, StyleSheet,
   FlatList, PanResponder, Animated, Vibration,
   Image, Modal, Dimensions, Keyboard, BackHandler, ScrollView, Linking,
-  AccessibilityInfo,
+  AccessibilityInfo, Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,7 +33,7 @@ import * as Updates from 'expo-updates';
 import { crearCliente } from './protocolo/cliente';
 import { cabeceraDeApp, avisoDeApp, actualizacionDe } from './version';
 import { tocaPreguntar } from './actualizacion';
-import { limpiarNotificacion, limpiarSiSinRol, remirarPermiso } from './notificacion.js';
+import { limpiarNotificacion, limpiarSiSinRol, remirarPermiso, pedirPermiso as pedirPermisoNotificaciones } from './notificacion.js';
 import { construirHud, textoNotificacion, VIEJA_MS, estadoDeMiCombi, avisoDeMiCombi } from './hud';
 import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
 import { margenes, margenBarra } from './margenes';
@@ -991,6 +991,37 @@ function Aplicacion() {
     const sub = AppState.addEventListener('change', (e) => { if (e === 'active') preguntar(); });
     return () => sub.remove();
   }, [sesion]);
+
+  // ── Los permisos, al entrar ─────────────────────────────────
+  //
+  // Se pedían recién al deslizar SALIR A RUTA: la ubicación, después las
+  // notificaciones con la primera brecha, y la batería como un aviso rojo.
+  // En el teléfono se sentía como que la app no los pedía (pruebas del 27/11:
+  // en el Redmi el chofer fue a Ajustes a mano; en el Poco le saltaron los
+  // tres al arrancar). Ahora van al entrar, como en cualquier app, una vez
+  // por persona y apertura. Salir a ruta los sigue revisando (por si los
+  // quitó), sin repetir diálogos: `gps.pedirPermisos` responde a los dos con
+  // la misma pregunta. El cobrador no manda su ubicación: a él sólo las
+  // notificaciones.
+  const pedidoAlEntrar = React.useRef(null);
+  React.useEffect(() => {
+    if (!sesion || pedidoAlEntrar.current === sesion.unitId) return;
+    pedidoAlEntrar.current = sesion.unitId;
+    const chofer = sesion.role !== 'collector';
+    (async () => {
+      if (chofer) await gps.pedirPermisos().catch(() => null);
+      await pedirPermisoNotificaciones().catch(() => false);
+      if (!chofer) return;
+      const optimizada = await Battery.isBatteryOptimizationEnabledAsync().catch(() => null);
+      if (optimizada !== true) return;
+      gps.diagnostico.bateriaOptimizada = true;
+      Alert.alert(
+        'Batería',
+        'Para que el GPS no se corte con la pantalla apagada, deja esta app sin restricciones de batería.',
+        [{ text: 'Después', style: 'cancel' }, { text: 'Ir a ajustes', onPress: abrirOptimizacionDeBateria }],
+      );
+    })();
+  }, [sesion?.unitId]);
 
   // ── Actualizaciones sin reinstalar (PENDIENTES 0.11) ────────
   // El módulo pregunta solo al arrancar (y no lo espera: con mala señal el
