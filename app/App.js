@@ -48,7 +48,10 @@ import { WebView } from 'react-native-webview';
 import * as gps from './gps/servicio';
 import * as Location from 'expo-location';
 import { crearVigiaPuerta, CALLADO_MS, relevoPorConfirmar } from './puerta';
-import { servicioMudo } from './vigilante';
+import { servicioMudo, tocaRecargar } from './vigilante';
+
+// Cuándo fue la última recarga del JavaScript por GPS mudo (ver vigilante.js)
+const LLAVE_RECARGA_GPS = 'recargaGpsMudo';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
 // un teléfono no depende de la red de casa. Para pegarle a un servidor local
@@ -943,12 +946,26 @@ function Aplicacion() {
         // hace 412 s).
         const repetido = ultimoRearranque.current > 0;
         ultimoRearranque.current = Date.now();
-        gps.rearrancar({ textoNotificacion: textoRef.current }).catch(() => {});
-        // Si ya se había rearrancado y sigue mudo, rearrancar no alcanza: lo
-        // único comprobado en el teléfono es que Android cierre la app.
+        // Si ya se había rearrancado y sigue mudo, rearrancar no alcanza: el
+        // JavaScript de la pantalla quedó desanotado en expo-task-manager
+        // (vigilante.js, `tocaRecargar`). Se recarga, como mucho una vez cada
+        // diez minutos; si no toca, se le dice al chofer lo que sí lo cura.
         if (repetido) {
+          console.warn('[gps] mudo después de rearrancar');
+          let ultima = 0;
+          try { ultima = Number(await SecureStore.getItemAsync(LLAVE_RECARGA_GPS)) || 0; } catch {}
+          if (!vivo || saliendo.current) return;
+          if (tocaRecargar({ ahora: Date.now(), ultimaRecarga: ultima })) {
+            console.warn('[gps] se recarga el JavaScript');
+            try { await SecureStore.setItemAsync(LLAVE_RECARGA_GPS, String(Date.now())); } catch {}
+            try { await Updates.reloadAsync(); return; }
+            catch (e) { console.warn('[gps] no se pudo recargar:', e && e.message); }
+          }
           setAviso('El GPS no está dando tu ubicación. Cierra la app desde recientes, '
             + 'apaga la pantalla un minuto y vuelve a abrirla.');
+        } else {
+          console.warn('[gps] mudo: se rearranca');
+          gps.rearrancar({ textoNotificacion: textoRef.current }).catch(() => {});
         }
       } else if (gps.diagnostico.servicio !== 'corriendo' && gps.diagnostico.servicio !== 'no arrancó') {
         // «No arrancó» se queda a la vista aunque Android diga que corre:

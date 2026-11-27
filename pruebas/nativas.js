@@ -696,9 +696,17 @@ const pruebaPresencia = (async () => {
     ok('rearrancado hace poco: no se insiste', m({ ...base, ahora: t, ultimaLectura: 0, ultimoRearranque: t - REARRANQUE_CADA_MS + 1000 }) === false);
     ok('y pasado el plazo, si sigue mudo, otra vez', m({ ...base, ahora: t, ultimaLectura: 0, ultimoRearranque: t - REARRANQUE_CADA_MS }) === true);
     ok('el vigilante lo usa: rearranca A LA FUERZA el servicio mudo (no parar + arrancar, que preguntaban a Android)',
-       /servicioMudo\(\{[\s\S]{0,300}\}\)\) \{[\s\S]{0,700}gps\.rearrancar\(/.test(app));
-    ok('y si ya se había rearrancado y sigue mudo, se lo dice al chofer',
-       /if \(repetido\) \{\s*setAviso\('El GPS no está dando tu ubicación/.test(app));
+       /servicioMudo\(\{[\s\S]{0,300}\}\)\) \{[\s\S]{0,2500}\} else \{\s*console\.warn\('\[gps\] mudo: se rearranca'\);\s*gps\.rearrancar\(/.test(app));
+    ok('si ya se había rearrancado y sigue mudo, recarga el JavaScript (si toca) antes de avisar',
+       /if \(repetido\) \{[\s\S]{0,500}tocaRecargar\(\{ ahora: Date\.now\(\), ultimaRecarga: ultima \}\)[\s\S]{0,300}Updates\.reloadAsync\(\)[\s\S]{0,200}setAviso\('El GPS no está dando tu ubicación/.test(app));
+    ok('y la hora de la recarga se guarda ANTES de recargar (la recarga borra la memoria)',
+       /SecureStore\.setItemAsync\(LLAVE_RECARGA_GPS, String\(Date\.now\(\)\)\); \} catch \{\}\s*try \{ await Updates\.reloadAsync\(\)/.test(app));
+    { const { tocaRecargar: t, RECARGA_CADA_MS: R } = require(RAIZ + '/app/vigilante.js');
+      const ahora = 100 * 60_000;
+      ok('nunca recargó: toca', t({ ahora, ultimaRecarga: 0 }) === true);
+      ok('recargó hace 3 min: no toca (no hay bucle de recargas)', t({ ahora, ultimaRecarga: ahora - 3 * 60_000 }) === false);
+      ok('recargó hace más de 10 min: toca otra vez', t({ ahora, ultimaRecarga: ahora - R }) === true);
+      ok('una hora guardada en el futuro (reloj cambiado) no bloquea para siempre', t({ ahora, ultimaRecarga: ahora + 60_000 }) === true); }
     ok('y cada lectura que llega lo anota', /cuandoLlegueUnaPosicion\(\(p\) => \{[\s\S]{0,120}ultimaLectura\.current = Date\.now\(\);/.test(app));
   }
   { // H19 y H24: un solo texto para la sesión que dejó de valer

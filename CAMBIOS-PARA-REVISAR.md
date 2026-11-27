@@ -1604,6 +1604,49 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 37. El GPS mudo, visto con adb: expo-task-manager pierde a la pantalla (27/11)
+
+**Qué.** Con el teléfono conectado a la PC (`RESULTADOS-TELEFONO.md`, «Con
+adb»), se vio que el GPS de Android sí entrega posiciones y que el
+`TaskService` de Expo las recibe cada 2 s, pero ningún JavaScript las procesa:
+nunca aparece «Finished task». En `expo-task-manager` 14.0.9, si el
+JavaScript de la pantalla se anota mientras corre la copia «sin pantalla» que
+Expo arranca al relanzarse la app, queda en la tabla de las copias sin
+pantalla, y al terminar la copia Expo lo borra. La pantalla solo se anota al
+crearse su JavaScript, así que no vuelve a recibir nada hasta que muera el
+proceso.
+
+1. **Recargar el JavaScript** (`tocaRecargar`, en `app/vigilante.js`): si el
+   GPS sigue mudo después de un rearranque, se llama a `Updates.reloadAsync()`,
+   que crea un JavaScript nuevo y lo vuelve a anotar. Como mucho una vez cada
+   10 minutos, con la hora guardada en el teléfono antes de recargar (la
+   recarga borra la memoria). Si no toca, sale el aviso de siempre.
+2. **Rastro en el logcat**: «[gps] tarea: N posiciones», «[gps] rearranque
+   N», «[gps] mudo…», «[gps] se recarga el JavaScript» y el arranque sin
+   notificación. Salen con la etiqueta ReactNativeJS, y es lo que dice con
+   adb si las posiciones llegan al JavaScript.
+3. **La contraseña con VER** (H29), del bloque anterior: el campo queda
+   siempre de contraseña y lo escrito se muestra en una línea aparte.
+
+**Qué mirar.**
+- La recarga es en ruta: la app vuelve sola a la ruta, como con un arreglo
+  publicado. La primera recarga llega unos 3 minutos después de que el GPS
+  queda mudo (60 s hasta el primer rearranque y 2 minutos hasta el segundo
+  intento).
+- Si en el momento de la recarga sigue corriendo la copia sin pantalla, la
+  pantalla podría volver a caer en la misma tabla. El logcat de la próxima
+  prueba lo dice: «[gps] tarea» tiene que seguir apareciendo después de
+  «[gps] se recarga el JavaScript».
+- El arreglo de fondo es de expo-task-manager. Vale la pena reportarlo y
+  revisar si una versión nueva corrige `setTaskManager`.
+
+**Pruebas.** `nativas`: `tocaRecargar` en cuatro casos (nunca recargó, hace
+3 min, hace más de 10, hora guardada en el futuro); el vigilante recarga antes
+de avisar y guarda la hora antes de recargar; la contraseña queda siempre
+tapada.
+
+---
+
 ## 36. La causa del GPS mudo: expo-location cree que la app está atrás — `0664507` (26/11)
 
 **Qué.** La cuarta ronda (25/11) mostró en Perfil el error que el bloque 35

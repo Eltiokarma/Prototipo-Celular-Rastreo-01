@@ -339,6 +339,39 @@ app, o las entrega a otra parte. Sigue siendo cierto que lo único que lo cura
 es que el proceso muera. Sin ver lo que hace Android por dentro (`adb shell
 dumpsys location` y `adb logcat`), los arreglos desde JavaScript son a ciegas.
 
+## Con adb, 26/11 a las 21:12: dónde se pierden las posiciones
+
+El probador conectó T1 a la PC y, con la app en SIN SEÑAL después de quitar
+las notificaciones, sacó `dumpsys location`, `dumpsys activity services` y 18 s
+de `logcat`.
+
+- **El GPS del teléfono anda.** `dumpsys location`: el proveedor «gps» está
+  prendido para `com.microstempo.chofer` (a través del fused provider de Google)
+  desde 50 s antes, con una posición cada 2 s y 2 m de precisión.
+- **El proceso de la app es nuevo** (creado 49 s antes de la captura) y **no
+  tiene el servicio con la notificación fija**: solo corre `TaskJobService` de
+  Expo.
+- **Las posiciones llegan a Expo y nadie las procesa.** En el `logcat`, el
+  `TaskService` de Expo dice «Handling intent» y «Handling job» para la tarea
+  `coop-r14-gps` cada 2 s, y **nunca** «Finished task». Ningún JavaScript las
+  toma.
+
+**El mecanismo**, leído en `expo-task-manager` 14.0.9 (`TaskService.java`):
+- **La copia sin pantalla:** cuando llega una posición y no hay ningún
+  JavaScript anotado para la tarea, Expo arranca una copia «sin pantalla» del
+  JavaScript (`HeadlessAppLoader`).
+- **La tabla equivocada:** si el JavaScript de la pantalla se anota mientras esa
+  copia corre, `setTaskManager` lo guarda en la tabla de las copias sin
+  pantalla.
+- **El borrado:** cuando la copia termina sus eventos, `invalidateAppRecord`
+  borra esa tabla, y con ella la anotación de la pantalla.
+- **Por qué no se recupera:** la pantalla solo se anota al crearse su
+  JavaScript (`onCreate`), así que desde ahí no recibe nada.
+
+Encaja con las cinco rondas: algunas lecturas al principio (4, en la cuarta y
+la quinta) y después ninguna. Rearrancar el GPS no lo arregla; matar el proceso
+sí, porque crea un JavaScript nuevo.
+
 ---
 
 ## Hallazgos (pendientes de analizar)
@@ -468,9 +501,10 @@ Bloque 36 de CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
 
 ## Lo que falta
 
-- **H8 y H9:** cinco rondas, sin resolver. El paso siguiente es mirarlo con
-  el teléfono conectado a la PC (`adb`), para ver si Android tiene un pedido
-  de ubicación activo de la app y a quién le entrega las posiciones.
+- **H8 y H9:** la causa está vista con adb (arriba). Arreglo en el bloque
+  37: si el GPS sigue mudo después del rearranque, se recarga el JavaScript
+  (como mucho una vez cada 10 minutos). Se comprueba con adb: después de la
+  recarga tienen que aparecer «[gps] tarea» y «Finished task» en el logcat.
 - **H29:** con VER, el campo ahora sigue siendo de contraseña y lo escrito se
   muestra en una línea aparte (en la rama, sin publicar).
 - **H32** (el aviso de «otro dispositivo») y **H33** (la cadencia con la
