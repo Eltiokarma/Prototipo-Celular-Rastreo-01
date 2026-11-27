@@ -1604,6 +1604,41 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 38. Sin recargas: la del GPS mudo no sirve y rompe el GPS (27/11)
+
+**Qué.** La recarga del JavaScript del bloque 37, probada con adb el 26/11:
+anota al JavaScript nuevo, le llega de golpe la cola acumulada (63 eventos,
+1893 posiciones) y a los 2 s Expo lo vuelve a borrar (`RESULTADOS-TELEFONO.md`,
+«la recarga del JavaScript, probada»). Y en el Redmi, después de una recarga,
+arrancar el GPS revienta: «NullPointerException … SharedPreferences.getAll()
+on a null object reference». En `expo-task-manager` 14.0.9 el servicio de
+tareas es un singleton por proceso (`TaskManagerPackage.mTaskService`, creado
+una vez con el contexto del primer JavaScript y guardado en una
+`WeakReference`). Al recargar, ese contexto muere y `registerTask` no puede
+guardar la tarea.
+
+1. **Fuera la recarga del GPS mudo.** Si sigue mudo después de rearrancar,
+   vuelve el aviso al chofer (cerrar la app y apagar la pantalla un minuto),
+   que es lo único que lo cura.
+2. **Los arreglos publicados se aplican en el próximo arranque en frío**, no
+   recargando la app abierta: esa recarga dejaba al chofer sin GPS hasta que
+   muriera el proceso, sin que nada lo dijera. `publicar-arreglo.bat` no
+   cambia; lo que cambia es que hay que cerrar la app desde recientes y
+   abrirla para tomar el arreglo, como ya pedían las guías.
+
+**Lo que falta (APK 0.3.2):** un parche nativo a `expo-task-manager` con
+patch-package. Dos cambios: guardar en el `TaskService` el contexto de la
+aplicación (que no muere), y anotar siempre el JavaScript de la pantalla en
+la tabla normal (en la arquitectura nueva, la «app sin pantalla» y la de la
+pantalla son el mismo JavaScript). Necesita compilar una APK.
+
+**Pruebas.** `nativas`: el vigilante avisa y no recarga. `actualizacion`: la
+app nunca recarga (antes pedía una sola recarga detrás de `sePuedeAplicar`;
+el bloque 37 agregó otra y esta prueba lo habría marcado: el PR #88 se
+fusionó sin correr la regresión completa).
+
+---
+
 ## 37. El GPS mudo, visto con adb: expo-task-manager pierde a la pantalla (27/11)
 
 **Qué.** Con el teléfono conectado a la PC (`RESULTADOS-TELEFONO.md`, «Con

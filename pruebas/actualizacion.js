@@ -103,8 +103,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const app = fs.readFileSync(RAIZ + '/app/App.js', 'utf8');
   const servicio = fs.readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
   ok('App.js usa expo-updates, y no hace nada sin el módulo', /from 'expo-updates'/.test(app) && /if \(!Updates\.isEnabled\) return;/.test(app));
-  ok('el único reinicio está detrás de sePuedeAplicar',
-     (app.match(/Updates\.reloadAsync\(/g) || []).length === 1 && /sePuedeAplicar\([^)]*\)\) \{\s*await Updates\.reloadAsync\(\)/.test(app));
+  // Nunca se recarga la app abierta: Updates.reloadAsync deja al servicio de
+  // tareas de Expo con el contexto muerto y el próximo arranque del GPS
+  // revienta (26/11, CAMBIOS 38). La actualización bajada se aplica en el
+  // próximo arranque en frío.
+  ok('la app nunca se recarga sola (la actualización se aplica en el próximo arranque en frío)',
+     !/Updates\.reloadAsync\(/.test(app) && /Updates\.fetchUpdateAsync\(\)/.test(app));
   ok('la etiqueta va en la entrada y en cada envío del GPS',
      /actualizacion: actualizacionDe\(Updates\)/.test(app) && /actualizacion: actualizacionDe\(Updates\)/.test(servicio));
   const u = appJson.updates || {};

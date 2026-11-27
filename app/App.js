@@ -32,7 +32,7 @@ import * as Updates from 'expo-updates';
 
 import { crearCliente } from './protocolo/cliente';
 import { cabeceraDeApp, avisoDeApp, actualizacionDe } from './version';
-import { tocaPreguntar, sePuedeAplicar } from './actualizacion';
+import { tocaPreguntar } from './actualizacion';
 import { limpiarNotificacion, limpiarSiSinRol, remirarPermiso } from './notificacion.js';
 import { construirHud, textoNotificacion, VIEJA_MS, estadoDeMiCombi, avisoDeMiCombi } from './hud';
 import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
@@ -48,10 +48,7 @@ import { WebView } from 'react-native-webview';
 import * as gps from './gps/servicio';
 import * as Location from 'expo-location';
 import { crearVigiaPuerta, CALLADO_MS, relevoPorConfirmar } from './puerta';
-import { servicioMudo, tocaRecargar } from './vigilante';
-
-// Cuándo fue la última recarga del JavaScript por GPS mudo (ver vigilante.js)
-const LLAVE_RECARGA_GPS = 'recargaGpsMudo';
+import { servicioMudo } from './vigilante';
 
 // Por defecto, el servidor que ya está en la nube: así la primera prueba en
 // un teléfono no depende de la red de casa. Para pegarle a un servidor local
@@ -948,19 +945,13 @@ function Aplicacion() {
         ultimoRearranque.current = Date.now();
         // Si ya se había rearrancado y sigue mudo, rearrancar no alcanza: el
         // JavaScript de la pantalla quedó desanotado en expo-task-manager
-        // (vigilante.js, `tocaRecargar`). Se recarga, como mucho una vez cada
-        // diez minutos; si no toca, se le dice al chofer lo que sí lo cura.
+        // (vigilante.js). Lo único que lo cura es un proceso nuevo, y eso no
+        // se puede pedir desde acá: se le dice al chofer. NO se recarga el
+        // JavaScript: se probó el 26/11 y deja al servicio de tareas de Expo
+        // con el contexto muerto, y el próximo arranque del GPS revienta
+        // (NullPointerException en SharedPreferences.getAll, CAMBIOS 38).
         if (repetido) {
           console.warn('[gps] mudo después de rearrancar');
-          let ultima = 0;
-          try { ultima = Number(await SecureStore.getItemAsync(LLAVE_RECARGA_GPS)) || 0; } catch {}
-          if (!vivo || saliendo.current) return;
-          if (tocaRecargar({ ahora: Date.now(), ultimaRecarga: ultima })) {
-            console.warn('[gps] se recarga el JavaScript');
-            try { await SecureStore.setItemAsync(LLAVE_RECARGA_GPS, String(Date.now())); } catch {}
-            try { await Updates.reloadAsync(); return; }
-            catch (e) { console.warn('[gps] no se pudo recargar:', e && e.message); }
-          }
           setAviso('El GPS no está dando tu ubicación. Cierra la app desde recientes, '
             + 'apaga la pantalla un minuto y vuelve a abrirla.');
         } else {
@@ -1004,11 +995,18 @@ function Aplicacion() {
   // ── Actualizaciones sin reinstalar (PENDIENTES 0.11) ────────
   // El módulo pregunta solo al arrancar (y no lo espera: con mala señal el
   // arranque no se cuelga). Además se pregunta al volver al frente, cada
-  // media hora como mucho, y se baja en silencio. Aplicarla es reiniciar la
-  // app: SÓLO si no está trabajando (ver `actualizacion.js`), nunca en ruta.
+  // media hora como mucho, y se baja en silencio.
+  //
+  // Y se APLICA en el próximo arranque en frío, nunca recargando la app
+  // abierta. Recargar (`reloadAsync` de expo-updates) crea un JavaScript nuevo en el MISMO
+  // proceso, y el servicio de tareas de Expo (un singleton,
+  // `TaskManagerPackage.mTaskService`) se queda con una referencia débil al
+  // contexto del JavaScript viejo: cuando ése muere, registrar la tarea del
+  // GPS revienta (NullPointerException en `SharedPreferences.getAll()`, visto
+  // en el Redmi el 26/11) y el chofer sale a ruta sin GPS hasta que el
+  // proceso muera. `sePuedeAplicar` (actualizacion.js) queda para cuando una
+  // APK nueva traiga ese arreglo de Expo (CAMBIOS 38).
   const preguntadoEn = React.useRef(0);
-  const estadoParaActualizar = React.useRef({});
-  estadoParaActualizar.current = { sesion, presencia, sosSinRed, vigiaContando: faltaPuerta != null };
   React.useEffect(() => {
     if (!Updates.isEnabled) return;            // Expo Go, desarrollo
     let pendiente = false;
@@ -1026,15 +1024,11 @@ function Aplicacion() {
             pendiente = !!(r.isNew || r.isRollBackToEmbedded);
           }
         }
-        if (pendiente && sePuedeAplicar({ ...estadoParaActualizar.current, alVolver })) {
-          await Updates.reloadAsync();
-        }
+        // Bajada: queda lista para el próximo arranque en frío. No se
+        // recarga acá (ver arriba).
+        void pendiente;
       } catch {}                                 // sin red: la próxima vez
     };
-    // Al arrancar se pregunta y se baja, pero NO se aplica en la puerta: la
-    // descarga termina segundos después, con el chofer ya usando la app, y
-    // recargaba bajo el dedo. Se aplica en la próxima vuelta al frente (o ya,
-    // si está en la pantalla de entrada).
     mirar(false);
     const sub = AppState.addEventListener('change', (e) => { if (e === 'active') mirar(true); });
     return () => sub.remove();

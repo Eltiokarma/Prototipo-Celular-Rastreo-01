@@ -25,22 +25,14 @@ function servicioMudo({ ahora, corriendo, primerPlano, ultimaLectura = 0, desde 
   return ahora - Math.max(ultimaLectura, desde, ultimoRearranque) >= MUDO_MS;
 }
 
-// ¿Recargar el JavaScript? Es el último recurso, cuando rearrancar no
-// alcanzó: visto con adb en la quinta ronda (logcat del 26/11), Android SÍ
-// calcula las posiciones y expo-task-manager las recibe («Handling job»
-// cada 2 s), pero ningún JavaScript las procesa (nunca «Finished task»).
-// Al relanzarse la app, el TaskService de Expo arranca una copia «sin
-// pantalla» del JavaScript; si la pantalla se anota mientras esa copia
-// corre, queda en la tabla de las copias sin pantalla
-// (`TaskService.setTaskManager`), y al terminar la copia Expo la borra junto
-// con ella (`invalidateAppRecord`). La pantalla sólo se anota al crearse su
-// JavaScript, así que desde ahí no recibe nada más. Recargar el JavaScript la
-// vuelve a anotar. Como mucho una vez cada diez minutos, guardado en el
-// teléfono porque la recarga borra la memoria: si recargar tampoco alcanza,
-// no se entra en un bucle de recargas.
-const RECARGA_CADA_MS = 10 * 60_000;
-function tocaRecargar({ ahora, ultimaRecarga = 0 }) {
-  return !(ultimaRecarga > 0 && ahora - ultimaRecarga < RECARGA_CADA_MS && ultimaRecarga <= ahora);
-}
+// Lo que se vio con adb el 26/11 (logcat): Android SÍ calcula las
+// posiciones y expo-task-manager las recibe («Handling job» cada 2 s), pero
+// ningún JavaScript las procesa (nunca «Finished task»). Al relanzarse la app,
+// el TaskService de Expo «carga» la app sin pantalla; en la arquitectura nueva
+// ese JavaScript es el MISMO de la pantalla (un solo ReactHost), pero queda
+// anotado como «sin pantalla» (`TaskService.setTaskManager`), y al terminar
+// los eventos Expo lo borra (`invalidateAppRecord`). Rearrancar el GPS no lo
+// cura, y recargar el JavaScript tampoco (cae en la misma tabla y además
+// rompe el servicio de tareas: CAMBIOS 38). El arreglo es nativo.
 
-module.exports = { servicioMudo, tocaRecargar, MUDO_MS, REARRANQUE_CADA_MS, RECARGA_CADA_MS };
+module.exports = { servicioMudo, MUDO_MS, REARRANQUE_CADA_MS };
