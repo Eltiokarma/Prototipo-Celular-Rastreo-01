@@ -871,7 +871,17 @@ function guardar(posiciones) {
 // Se piden por separado y en este orden porque Android lo exige: primero la
 // de primer plano, y recién después se puede pedir la de segundo plano. Al
 // revés, la segunda se rechaza sola sin mostrarle nada al usuario.
-export async function pedirPermisos() {
+//
+// Una sola vez a la vez: se piden al entrar a la app y otra vez al salir a
+// ruta (por si los quitó), y si el chofer desliza mientras Android todavía
+// pregunta, las dos llamadas esperan la MISMA respuesta en vez de apilar dos
+// diálogos.
+let pidiendoPermisos = null;
+export function pedirPermisos() {
+  if (!pidiendoPermisos) pidiendoPermisos = pedirPermisosAhora().finally(() => { pidiendoPermisos = null; });
+  return pidiendoPermisos;
+}
+async function pedirPermisosAhora() {
   const frente = await Location.requestForegroundPermissionsAsync();
   if (frente.status !== 'granted') return { ok: false, cual: 'primer plano' };
   const fondo = await Location.requestBackgroundPermissionsAsync();

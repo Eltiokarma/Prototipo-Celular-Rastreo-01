@@ -72,6 +72,15 @@ async function preparar() {
 // dado o quitado): mirar ya, sin esperar el minuto.
 export function remirarPermiso() { miradoEn = 0; }
 
+// Pedirlo YA, al entrar a la app, y no con la primera notificación: salía
+// recién en ruta, con el chofer por arrancar, encima de las preguntas de la
+// ubicación (pruebas en teléfono, 27/11). Se pide una sola vez, como antes.
+export async function pedirPermiso() {
+  miradoEn = 0;
+  await preparar();
+  return permitido;
+}
+
 // La tarea de fondo llama esto con `cuerpo.brecha` de cada POST que salió
 // bien. Se re-emite solo cuando el TEXTO cambia: la misma brecha cada 10 s
 // no le aporta nada a nadie y desgasta de más.

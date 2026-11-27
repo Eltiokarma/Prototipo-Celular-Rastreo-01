@@ -213,6 +213,25 @@ console.log('\nLA API QUE SE USA');
      /estaCorriendo\(\)/.test(app) && /gps\.arrancar/.test(app));
 }
 
+console.log('\nLOS PERMISOS, AL ENTRAR (pruebas en teléfono, 27/11)');
+{
+  const fs = require('fs');
+  const app = fs.readFileSync(RAIZ + '/app/App.js', 'utf8');
+  const servicio = fs.readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
+  const notif = fs.readFileSync(RAIZ + '/app/notificacion.js', 'utf8');
+  const efecto = (app.split('const pedidoAlEntrar = React.useRef(null);')[1] || '').split('}, [sesion?.unitId]);')[0];
+  ok('al entrar, una vez por persona, se piden ubicación y notificaciones',
+     /pedidoAlEntrar\.current === sesion\.unitId\) return;/.test(efecto)
+     && /if \(chofer\) await gps\.pedirPermisos\(\)/.test(efecto)
+     && /await pedirPermisoNotificaciones\(\)/.test(efecto));
+  ok('al cobrador no se le pide la ubicación (no la manda)', /const chofer = sesion\.role !== 'collector';/.test(efecto));
+  ok('con la batería optimizada, un aviso que lleva al ajuste',
+     /Battery\.isBatteryOptimizationEnabledAsync\(\)/.test(efecto) && /Alert\.alert\(/.test(efecto) && /onPress: abrirOptimizacionDeBateria/.test(efecto));
+  ok('salir a ruta los sigue revisando, sin apilar diálogos (una sola pregunta a la vez)',
+     /if \(!pidiendoPermisos\) pidiendoPermisos = pedirPermisosAhora\(\)\.finally/.test(servicio) && /const permisos = await gps\.pedirPermisos\(\);/.test(app));
+  ok('notificaciones: pedirlo ya, una sola vez', /export async function pedirPermiso\(\) \{\n  miradoEn = 0;\n  await preparar\(\);/.test(notif) && /permiso\.canAskAgain && !preguntado/.test(notif));
+}
+
 console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
 {
   // Lo que no se puede probar en Node porque vive en la pantalla o en el
@@ -760,6 +779,36 @@ const pruebaPresencia = (async () => {
      !/SecureStore\.(setItemAsync|deleteItemAsync)\(gps\.LLAVE_(SESION|PRESENCIA)/.test(app));
 })();
 
+const pruebaPermisos = (async () => {
+  console.log('\nLOS PERMISOS: UNA SOLA PREGUNTA A LA VEZ (27/11)');
+  // El código real de servicio.js, con el diálogo de Android simulado y
+  // abierto hasta que la prueba lo suelta: al entrar ya se está preguntando
+  // y el chofer desliza SALIR A RUTA.
+  const srv = require('fs').readFileSync(RAIZ + '/app/gps/servicio.js', 'utf8');
+  const bloque = srv.slice(srv.indexOf('let pidiendoPermisos = null;'), srv.indexOf('// OJO CON LA PREGUNTA QUE SE HACE ACÁ.')).replace(/^export /gm, '');
+  const armar = (respuesta) => {
+    // `soltar` contesta TODOS los diálogos abiertos: con dos, la prueba
+    // falla por la cuenta en vez de quedarse colgada esperando al primero
+    const abiertos = [];
+    const r = { frente: 0, fondo: 0, soltar: () => { while (abiertos.length) abiertos.shift()({ status: respuesta }); } };
+    const Location = {
+      requestForegroundPermissionsAsync: () => { r.frente++; return new Promise(res => { abiertos.push(res); }); },
+      requestBackgroundPermissionsAsync: async () => { r.fondo++; return { status: respuesta }; },
+    };
+    const { pedirPermisos } = new Function('Location', bloque + '\nreturn { pedirPermisos };')(Location);
+    return { pedirPermisos, r };
+  };
+  { const { pedirPermisos, r } = armar('granted');
+    const alEntrar = pedirPermisos(); const alSalir = pedirPermisos();
+    await new Promise(res => setTimeout(res, 0)); r.soltar();
+    const [a, b] = await Promise.all([alEntrar, alSalir]);
+    ok('entrar y deslizar a la vez: un solo diálogo, y los dos reciben la respuesta', r.frente === 1 && r.fondo === 1 && a.ok && b.ok, { r, a, b }); }
+  { const { pedirPermisos, r } = armar('denied');
+    const p1 = pedirPermisos(); await new Promise(res => setTimeout(res, 0)); r.soltar(); await p1;
+    const p2 = pedirPermisos(); await new Promise(res => setTimeout(res, 0)); r.soltar(); const b = await p2;
+    ok('negado al entrar: al deslizar se vuelve a preguntar (la respuesta no queda pegada)', r.frente === 2 && b.ok === false && b.cual === 'primer plano', { r, b }); }
+})();
+
 const pruebaFilaGps = (async () => {
   console.log('\nEL GPS: ARRANCAR Y PARAR EN FILA (cuarta revisión, 17/11)');
   // La fila real de servicio.js con Location y TaskManager simulados, y las
@@ -976,7 +1025,7 @@ const pruebaTarea = (async () => {
     ok('falla vieja: ni «sin red» en el diagnóstico ni «SIN SEÑAL» en la bandeja de B', r.sinSenal === 0 && diagnostico.ultimoError === null, { s: r.sinSenal, e: diagnostico.ultimoError }); }
 })();
 
-Promise.all([pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }), pruebaPresencia.catch(e => { ok('la prueba de presencia corrió', false, e.stack); }), pruebaFilaGps.catch(e => { ok('la prueba de la fila del GPS corrió', false, e.stack); }), pruebaVigia.catch(e => { ok('la prueba del vigía corrió', false, e.stack); }), pruebaBrecha.catch(e => { ok('la prueba de la brecha corrió', false, e.stack); }), pruebaCliente.catch(e => { ok('la prueba del cliente corrió', false, e.stack); }), pruebaTarea.catch(e => { ok('la prueba de la tarea corrió', false, e.stack); })]).then(() => {
+Promise.all([pruebaPermisos.catch(e => { ok('la prueba de los permisos corrió', false, e.stack); }), pruebaNotif.catch(e => { ok('la prueba de notificaciones corrió', false, e.stack); }), pruebaPresencia.catch(e => { ok('la prueba de presencia corrió', false, e.stack); }), pruebaFilaGps.catch(e => { ok('la prueba de la fila del GPS corrió', false, e.stack); }), pruebaVigia.catch(e => { ok('la prueba del vigía corrió', false, e.stack); }), pruebaBrecha.catch(e => { ok('la prueba de la brecha corrió', false, e.stack); }), pruebaCliente.catch(e => { ok('la prueba del cliente corrió', false, e.stack); }), pruebaTarea.catch(e => { ok('la prueba de la tarea corrió', false, e.stack); })]).then(() => {
   console.log(fallas === 0 ? '\nTODO EN ORDEN' : `\n${fallas} FALLAS`);
   process.exit(fallas ? 1 : 0);
 });

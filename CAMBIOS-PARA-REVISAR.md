@@ -1604,6 +1604,40 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 41. Los permisos, al entrar a la app (27/11)
+
+**Qué.** La app pedía la ubicación recién al deslizar SALIR A RUTA, las
+notificaciones con la primera brecha, y la batería era un aviso rojo en
+ruta. En el teléfono se sentía como que no los pedía (RESULTADOS-TELEFONO,
+H34), y el probador prefiere que se pidan apenas se entra.
+
+- Al entrar (con la clave, o al abrir la app con la sesión guardada), una vez
+  por persona y apertura: la ubicación (primer plano y después «todo el
+  tiempo») y las notificaciones. Al cobrador sólo las notificaciones: no
+  manda su ubicación.
+- Si Android tiene a la app bajo optimización de batería, un aviso: «Para que
+  el GPS no se corte con la pantalla apagada, deja esta app sin
+  restricciones de batería», con **Ir a ajustes** y **Después**.
+- Salir a ruta los sigue revisando, por si el chofer los quitó. Si desliza
+  mientras Android todavía pregunta, `gps.pedirPermisos` responde a los dos
+  con el mismo diálogo, en vez de apilar dos.
+
+**Archivos.** `app/App.js`, `app/gps/servicio.js`, `app/notificacion.js` y
+`pruebas/nativas.js`.
+
+**Qué mirar.**
+- Es JavaScript: llega a la APK 0.3.3 con `publicar-arreglo.bat` (la guardia
+  de lo nativo pasa).
+- El aviso de la batería sale cada vez que se abre la app con la
+  optimización activa. Si molesta, se puede limitar a una vez por día.
+
+**Pruebas.** `nativas`: lo que se pide al entrar y a quién, el aviso de la
+batería, y con el código real de `servicio.js` y el diálogo simulado: entrar
+y deslizar a la vez abren un solo diálogo (sin la guarda, falla), y un «no»
+al entrar no queda pegado al deslizar.
+
+---
+
 ## 40. APK 0.3.3: el parche de la 0.3.2 no estaba en la APK (27/11)
 
 **Qué.** La APK 0.3.2 se probó con adb en el Redmi 15C (chofer A, M11111) y
