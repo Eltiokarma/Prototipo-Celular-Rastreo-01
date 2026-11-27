@@ -1,0 +1,127 @@
+% Preámbulo común del plan y del manual del equipo (plan-financiero/latex).
+% La paleta es la del producto, la misma de manual/manual.tex y legal/preambulo.tex.
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish,es-noshorthands,es-tabla,es-nodecimaldot]{babel}
+\usepackage[scaled=0.92]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{textcomp}
+\usepackage{sansmath}
+\AtBeginDocument{\sansmath}
+\usepackage{amssymb}
+\DeclareUnicodeCharacter{2212}{\textminus}
+\DeclareUnicodeCharacter{00BD}{\textonehalf}
+\usepackage[a4paper,top=2cm,bottom=2.2cm,left=2.2cm,right=2.2cm,headheight=14pt]{geometry}
+\usepackage[table]{xcolor}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{lastpage}
+\usepackage{needspace}
+\usepackage{etoolbox}
+\usepackage{pdflscape}
+\usepackage{afterpage}
+\usepackage{caption}
+\usepackage{float}
+\usepackage[most]{tcolorbox}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepgfplotslibrary{fillbetween}
+\usetikzlibrary{patterns}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{tinta}{HTML}{0B2239}
+\definecolor{tinta2}{HTML}{2A4864}
+\definecolor{tenue}{HTML}{496A86}
+\definecolor{marca}{HTML}{1668C4}
+\definecolor{verde}{HTML}{1F8A4F}
+\definecolor{ambar}{HTML}{A67300}
+\definecolor{naranja}{HTML}{D9622B}
+\definecolor{rojo}{HTML}{C2001D}
+\definecolor{rojosuave}{HTML}{D9827A}
+\definecolor{fondo}{HTML}{F4F7FB}
+\definecolor{linea}{HTML}{C3D4E4}
+\definecolor{rejilla}{HTML}{E3EAF2}
+\definecolor{ambarfondo}{HTML}{FDF6E4}
+\definecolor{ambarborde}{HTML}{E4C88A}
+\definecolor{azulfondo}{HTML}{E7F0FB}
+\definecolor{azulborde}{HTML}{C9DDF4}
+\definecolor{verdefondo}{HTML}{E9F7EF}
+
+\color{tinta}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt plus 2pt}
+\linespread{1.08}
+\setlist{itemsep=2pt,topsep=3pt,leftmargin=14pt}
+
+% Ningún párrafo se parte entre dos páginas, y ningún título queda al pie
+% con su texto en la página siguiente: antes de cada título se pide lugar
+% para el título y al menos un párrafo corto.
+\interlinepenalty=10000
+\clubpenalty=10000
+\widowpenalty=10000
+\raggedbottom
+\titleformat{\section}{\color{tinta}\Large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\color{tinta2}\large\bfseries}{}{0em}{}
+\titleformat{\subsubsection}{\color{tinta2}\normalsize\bfseries}{}{0em}{}
+\titlespacing*{\section}{0pt}{14pt}{6pt}
+\titlespacing*{\subsection}{0pt}{12pt}{3pt}
+\titlespacing*{\subsubsection}{0pt}{8pt}{2pt}
+\pretocmd{\section}{\needspace{14\baselineskip}}{}{}
+\pretocmd{\subsection}{\needspace{10\baselineskip}}{}{}
+\pretocmd{\subsubsection}{\needspace{7\baselineskip}}{}{}
+
+\renewcommand{\arraystretch}{1.25}
+\arrayrulecolor{linea}
+\captionsetup{font={small,color=tenue},labelformat=empty,skip=4pt,justification=raggedright,singlelinecheck=false}
+
+\newtcolorbox{nota}[1][]{colback=azulfondo,colframe=azulborde,boxrule=0.6pt,arc=3pt,
+  left=8pt,right=8pt,top=6pt,bottom=6pt,fontupper=\small\color{tinta2},breakable=false,#1}
+\newtcolorbox{aviso}[1][]{colback=ambarfondo,colframe=ambarborde,boxrule=0.6pt,arc=3pt,
+  left=8pt,right=8pt,top=6pt,bottom=6pt,fontupper=\small,breakable=false,#1}
+\newtcolorbox{rol}[1]{colback=white,colframe=linea,boxrule=0.6pt,arc=4pt,
+  left=9pt,right=9pt,top=7pt,bottom=5pt,breakable=false,
+  title={#1},coltitle=tinta,colbacktitle=fondo,fonttitle=\bfseries,toptitle=3pt,bottomtitle=3pt}
+
+% Cifra destacada: valor grande y su explicación
+\newcommand{\cifra}[3][tinta]{%
+  \begin{tcolorbox}[colback=white,colframe=linea,boxrule=0.6pt,arc=4pt,left=7pt,right=7pt,top=5pt,bottom=5pt,height=2.45cm,valign=top]
+  {\color{#1}\fontsize{15}{18}\selectfont\bfseries #2}\par\vspace{2pt}
+  {\footnotesize\color{tenue}#3}
+  \end{tcolorbox}}
+
+\newcommand{\documento}[1]{%
+  \pagestyle{fancy}\fancyhf{}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \fancyfoot[L]{\scriptsize\color{tenue}#1}%
+  \fancyfoot[R]{\scriptsize\color{tenue}Página \thepage\ de \pageref*{LastPage}}%
+}
+
+% Estilo común de los gráficos
+\pgfplotsset{
+  casa/.style={
+    width=\linewidth, height=6.2cm,
+    scaled x ticks=false, scaled y ticks=false,
+    axis lines*=left, axis line style={draw=linea},
+    tick style={draw=none},
+    ymajorgrids, grid style={draw=rejilla},
+    tick label style={font=\scriptsize\color{tenue}},
+    label style={font=\scriptsize\color{tenue}},
+    legend style={font=\scriptsize, draw=none, fill=none, legend columns=-1, at={(0,1.02)}, anchor=south west, /tikz/every even column/.append style={column sep=8pt}},
+    legend cell align=left,
+    every node near coord/.append style={font=\tiny\color{tinta2}},
+    /pgf/number format/.cd, use comma, 1000 sep={\,}, min exponent for 1000 sep=4,
+  },
+}
+
+% Tablas mensuales
+\newcolumntype{R}{>{\hspace{6pt}}r}
+\newcolumntype{Q}{>{\hspace{3pt}}r}
+\newcommand{\hijo}[1]{\hspace{8pt}{\color{tenue}#1}}
+\newcommand{\nm}[1]{{\color{rojo}#1}}
+\newcommand{\nmh}[1]{{\color{rojosuave}#1}}

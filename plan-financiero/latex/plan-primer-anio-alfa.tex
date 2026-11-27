@@ -1,0 +1,710 @@
+% Plan del primer año, versión alfa, de COOP-R14 (Micros Tempo).
+%
+% NO SE EDITA A MANO: este archivo sale de plan.plantilla.tex con
+% que pone las cifras del modelo (modelo/modelo.js) entre comillas angulares y
+% compila el PDF. El texto se corrige aquí.
+\documentclass[10.5pt,a4paper]{article}
+\input{preambulo}
+\documento{Micros Tempo · Plan del primer año, versión alfa · 24 de noviembre de 2026}
+
+\begin{document}
+
+% ─── Portada ─────────────────────────────────────────────────────────────
+\begin{titlepage}
+\thispagestyle{empty}
+\vspace*{1.2cm}
+{\small\bfseries\color{marca}\MakeUppercase{Micros Tempo · COOP-R14}}\par\vspace{14pt}
+{\fontsize{34}{38}\selectfont\bfseries Plan del primer año}\par\vspace{6pt}
+{\fontsize{20}{24}\selectfont\color{tinta2} versión alfa}\par\vspace{18pt}
+\begin{minipage}{0.82\linewidth}\large\color{tinta2}
+Plan financiero y de equipo de diciembre de 2026 a marzo de 2028, con los estados de resultados de cada mes, el flujo de caja, las funciones de cada persona y el análisis de sensibilidad.
+\end{minipage}
+
+\vfill
+\begin{aviso}
+\textbf{Este es un plan teórico:} casi todos sus números salen de supuestos que todavía no se probaron en la calle, así que el plan se corrige cada mes con lo que pase en el mercado. Para eso existe el simulador que acompaña a este documento.
+\end{aviso}
+\vspace{10pt}
+{\color{linea}\rule{\linewidth}{0.8pt}}\par\vspace{4pt}
+\begin{tabularx}{\linewidth}{@{}XXX@{}}
+{\footnotesize\bfseries Fecha} & {\footnotesize\bfseries Empresa} & {\footnotesize\bfseries Mercado inicial}\\
+{\footnotesize\color{tinta2}24 de noviembre de 2026} & {\footnotesize\color{tinta2}EIRL en el Régimen MYPE Tributario} & {\footnotesize\color{tinta2}Juliaca y Puno; después, Arequipa o Cusco}
+\end{tabularx}
+\end{titlepage}
+
+{\setcounter{tocdepth}{1}\tableofcontents}
+\vspace{12pt}
+\begin{nota}
+\textbf{Cómo leer este plan.} Las cifras en soles sin IGV son las del estado de resultados; las cifras con IGV son las de la caja, porque es el dinero que entra y sale de verdad. Los meses se escriben abreviados en las tablas: «abr-27» es abril de 2027.
+\end{nota}
+\newpage
+
+% ─── 1 ───────────────────────────────────────────────────────────────────
+\section{Resumen ejecutivo}
+
+Micros Tempo cobra S/~0,50 por unidad por día a las empresas de transporte, con el IGV incluido. Con 40 unidades por ruta, cada ruta factura unos S/~600 al mes y deja S/~508 sin IGV, mientras que el servidor que la atiende cuesta unos S/~38. Como atender una ruta más cuesta menos del 10\,\% de lo que esa ruta deja, la utilidad crece con cada ruta que se firma, y el límite real del negocio es la velocidad de venta.
+
+\noindent
+\begin{minipage}[t]{0.32\linewidth}\cifra[rojo]{S/~−40\,306}{Punto más bajo de la caja, en abril de 2027. Es el capital mínimo que se necesita.}\end{minipage}\hfill
+\begin{minipage}[t]{0.32\linewidth}\cifra[verde]{S/~92\,207}{Utilidad operativa de 2027, sobre S/~265\,898 de ventas sin IGV.}\end{minipage}\hfill
+\begin{minipage}[t]{0.32\linewidth}\cifra[verde]{S/~87\,091}{Caja a marzo de 2028, sin contar el aporte de capital y con la renta de 2027 ya pagada.}\end{minipage}
+
+\vspace{4pt}\noindent
+\begin{minipage}[t]{0.32\linewidth}\cifra{Mayo de 2027}{Desde ese mes, el negocio gana todos los meses del período.}\end{minipage}\hfill
+\begin{minipage}[t]{0.32\linewidth}\cifra{60 → 100 rutas}{Rutas en julio de 2027 y en marzo de 2028, con una pausa de cuatro meses entre ambas fechas.}\end{minipage}\hfill
+\begin{minipage}[t]{0.32\linewidth}\cifra{S/~50\,000}{Capital recomendado: cubre el punto más bajo de la caja y deja un colchón de S/~9694.}\end{minipage}
+
+\subsection{Cómo crece}
+
+La venta tiene un límite: el plan supone que una persona a tiempo completo firma una ruta por semana, porque cada ruta exige conversar con la empresa y conseguir que sus choferes instalen la app. Gerson vende de diciembre a febrero, y desde marzo un vendedor a tiempo completo toma su lugar para que él se dedique al sistema. Con tres vendedores, el equipo firma 10 rutas por mes desde abril y llena Juliaca y Puno, unas 60 rutas en total, en julio de 2027.
+
+De agosto a noviembre de 2027 no se firman rutas nuevas, porque esos cuatro meses se usan para preparar la entrada a Arequipa o Cusco. Desde diciembre se vuelven a firmar 10 rutas por mes en la ciudad grande, y el plan cierra marzo de 2028 con 100 rutas y 4000 unidades.
+
+\subsection{Qué tiene que salir bien}
+
+\begin{itemize}
+\item \textbf{La productividad de venta.} Si cada persona que vende, Gerson incluido, trae la mitad de lo previsto, 2027 deja una utilidad de S/~24,5~mil en vez de S/~92,2~mil, y Juliaca y Puno recién se llenan en enero de 2028.
+\item \textbf{El tamaño del mercado.} El plan supone que todas las rutas de Juliaca y Puno, unas 60, aceptan el sistema, así que en julio de 2027 ya no queda a quién venderle en esas dos ciudades.
+\item \textbf{El sistema a cargo de una sola persona.} Desde marzo, Gerson es el único responsable técnico de un servicio que en marzo de 2028 atiende 4000 unidades.
+\end{itemize}
+
+\subsection{Las tres decisiones que más mueven el resultado}
+
+\begin{enumerate}
+\item \textbf{Facturar a inicio de mes.} Baja el capital necesario de S/~40,3~mil a S/~24~mil sin cambiar nada más.
+\item \textbf{Acortar la pausa.} Con dos meses de pausa en vez de cuatro, 2027 deja una utilidad de S/~103,5~mil; sin pausa, una de S/~133,6~mil.
+\item \textbf{Revisar el precio.} Con S/~0,60 por unidad por día, 2027 deja una utilidad de S/~144,3~mil; con S/~0,50 más IGV, una de S/~139,1~mil.
+\end{enumerate}
+
+% ─── 2 ───────────────────────────────────────────────────────────────────
+\section{El negocio visto desde una ruta}
+
+Una ruta tiene 40 unidades y cada unidad paga S/~0,50 por día, así que una ruta factura S/~600 en un mes de 30 días y S/~620 en uno de 31. De esos S/~600, unos S/~92 son el IGV del 18\,\% sobre el valor del servicio y se le pagan a SUNAT, de modo que a la empresa le quedan S/~508 por ruta y por mes.
+
+\begin{center}
+\begin{tabularx}{0.86\linewidth}{@{}Xr@{}}
+\toprule
+Lo que paga una ruta en un mes de 30 días & S/~600 con IGV\\
+Lo que le queda a Micros Tempo sin IGV & S/~508\\
+Lo que cuesta el servidor de esa ruta, con colchón, en promedio con 100 rutas & S/~38\\
+Lo que cuesta firmarla una sola vez (comisión, cargas y kit) & S/~347\\
+Lo que le queda sin IGV en su primer mes, que paga a medias & S/~254\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+La ruta que firma un vendedor cuesta unos S/~347 una sola vez y recupera ese costo en su segundo mes. Desde entonces, cada ruta deja unos S/~460 al mes para cubrir los gastos fijos, que con el equipo completo y sin crecer suman S/~10\,969 al mes. Por eso el negocio se sostiene por sí mismo desde unas 24 rutas.
+
+\begin{nota}
+\textbf{Lo que entra por unidad y por día:} S/~0,4237, que es el precio de S/~0,50 sin el IGV. A ese monto no se le resta el 10\,\% de renta, porque la renta del Régimen MYPE Tributario se paga sobre la utilidad anual y no sobre lo que se factura: cada mes se adelanta solo el 1\,\% de las ventas, y la renta se ajusta en marzo del año siguiente.
+\end{nota}
+
+\subsection{Rutas necesarias para cubrir los gastos fijos}
+
+La tabla supone el equipo completo, con el sueldo de Gerson, y ningún mes con rutas nuevas, de modo que no hay comisiones ni kits que pagar.
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Precio por unidad y por día & Rutas & Unidades & Pago por unidad al mes\\
+\midrule
+S/~0,50 & 24 & 960 & S/~15 \\
+S/~0,60 & 20 & 800 & S/~18 \\
+S/~0,70 & 17 & 680 & S/~21 \\
+S/~0,80 & 15 & 600 & S/~24 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ─── 3 ───────────────────────────────────────────────────────────────────
+\section{Supuestos}
+
+El simulador deja cambiar el precio, el mercado, la pausa, la capacidad de venta, el equipo con sus sueldos, la cobranza y los gastos más grandes; los demás supuestos, como los equipos de trabajo, la movilidad o el contador, se cambian en el modelo. Los que más pesan en el resultado son la productividad de venta, la duración de la pausa y el precio.
+
+{\small
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{3.3cm}X@{}}
+\toprule
+Precio & S/~0,50 por unidad por día, con el IGV incluido, cobrado todos los días del mes.\\
+Tamaño de una ruta & 40 unidades por ruta. En Juliaca y Puno, cada empresa tiene una sola ruta y recibe una factura por ruta.\\
+Prueba & Las 2 rutas de diciembre de 2026 no pagan. En enero de 2027 todas las rutas pagan el mes completo, y desde febrero una ruta nueva paga la mitad de su primer mes.\\
+Capacidad de venta & Una ruta por semana por jornada completa. Gerson trae 4 rutas por mes en enero y febrero. Un vendedor a tiempo completo trae 1 ruta su primer mes y 4 desde el segundo; uno a medio tiempo, 1 y después 2.\\
+Mercado & Juliaca y Puno suman unas 60 rutas. Desde la ruta 26 se vende también en Puno, con S/~500 al mes de viajes.\\
+Pausa & Al llegar a 60 rutas se dejan de firmar rutas durante 4 meses para preparar Arequipa o Cusco, y después se vende allá. La ciudad grande cuesta S/~1500 al mes en viajes y estadía desde que empieza la pausa.\\
+Cobranza & Se factura a fin de mes. El 95\,\% se cobra al mes siguiente, el 3\,\% a los dos meses y el 2\,\% no se cobra.\\
+Sueldos & S/~1400 por jornada completa y S/~700 por medio tiempo, más S/~200 por cada ruta que firma un vendedor y por las 2 rutas de prueba de diciembre, cuya comisión cobra el vendedor A, que las acompaña. Gerson trabaja sin sueldo de diciembre de 2026 a junio de 2027 y desde julio cobra S/~2000 como programador.\\
+Cargas laborales & Microempresa inscrita en el REMYPE: sin CTS ni gratificaciones, con EsSalud del 9\,\% y Vida Ley del 1\,\%.\\
+Oficina & Prestada en diciembre de 2026. Desde enero de 2027, alquiler de S/~500 con una garantía de S/~1000, internet de S/~120 y servicios que suben con el número de personas.\\
+Equipo de trabajo & Por cada persona contratada, un celular de S/~700 con un plan de S/~50, una laptop de S/~2200 y un escritorio con silla de S/~650. Gerson usa su propia laptop y su propio celular.\\
+Tecnología & Suscripción de IA de S/~400 al mes y S/~25 por persona en licencias. El costo del servidor sale de las pruebas de carga del sistema (\texttt{modelo-costos.js}), a S/~3,75 por dólar y con un colchón del 25\,\%.\\
+Otros gastos & Contador externo de S/~350 al mes, que sube a S/~500 en junio de 2027. Marketing de S/~300 al mes y un kit de S/~150 por ruta nueva. Movilidad de S/~150 al mes por persona contratada, acondicionamiento de la oficina por S/~1500 en enero de 2027, y útiles y gastos bancarios. Constitución de la EIRL y abogado por S/~1600, licencia municipal e ITSE por S/~400 y un 5\,\% de imprevistos.\\
+\bottomrule
+\end{tabularx}}
+
+% ─── 4 ───────────────────────────────────────────────────────────────────
+\section{Plan de crecimiento}
+
+Las rutas salen de la capacidad de cada persona del equipo. El gráfico muestra cuántas rutas nuevas trae cada una cada mes, y una ruta nueva entra a la cuenta de las rutas activas el mismo mes en que se firma.
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, height=5.6cm, ybar stacked, bar width=10pt, ymin=0, ymax=13, ytick={0,2,...,12},
+  symbolic x coords={dic-26,ene-27,feb-27,mar-27,abr-27,may-27,jun-27,jul-27,ago-27,sep-27,oct-27,nov-27,dic-27,ene-28,feb-28,mar-28}, xtick=data, x tick label style={rotate=0,font=\tiny\color{tenue}}, enlarge x limits=0.04,
+  ylabel={Rutas nuevas en el mes}]
+\addplot[fill=tenue!55, draw=white] coordinates {(dic-26,2) (ene-27,0) (feb-27,0) (mar-27,0) (abr-27,0) (may-27,0) (jun-27,0) (jul-27,0) (ago-27,0) (sep-27,0) (oct-27,0) (nov-27,0) (dic-27,0) (ene-28,0) (feb-28,0) (mar-28,0)}; \addlegendentry{Prueba}
+\addplot[fill=tinta, draw=white] coordinates {(dic-26,0) (ene-27,4) (feb-27,4) (mar-27,0) (abr-27,0) (may-27,0) (jun-27,0) (jul-27,0) (ago-27,0) (sep-27,0) (oct-27,0) (nov-27,0) (dic-27,0) (ene-28,0) (feb-28,0) (mar-28,0)}; \addlegendentry{Gerson}
+\addplot[fill=marca, draw=white] coordinates {(dic-26,0) (ene-27,1) (feb-27,4) (mar-27,4) (abr-27,4) (may-27,4) (jun-27,4) (jul-27,4) (ago-27,0) (sep-27,0) (oct-27,0) (nov-27,0) (dic-27,4) (ene-28,4) (feb-28,4) (mar-28,4)}; \addlegendentry{Vendedor A}
+\addplot[fill=marca!45, draw=white] coordinates {(dic-26,0) (ene-27,0) (feb-27,1) (mar-27,2) (abr-27,2) (may-27,2) (jun-27,2) (jul-27,0) (ago-27,0) (sep-27,0) (oct-27,0) (nov-27,0) (dic-27,2) (ene-28,2) (feb-28,2) (mar-28,2)}; \addlegendentry{Vendedor B}
+\addplot[fill=verde, draw=white] coordinates {(dic-26,0) (ene-27,0) (feb-27,0) (mar-27,1) (abr-27,4) (may-27,4) (jun-27,4) (jul-27,3) (ago-27,0) (sep-27,0) (oct-27,0) (nov-27,0) (dic-27,4) (ene-28,4) (feb-28,4) (mar-28,4)}; \addlegendentry{Vendedor D}
+\end{axis}
+\end{tikzpicture}
+\caption{De agosto a noviembre de 2027 no hay barras: es la pausa para preparar la ciudad grande.}
+\end{figure}
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, height=5cm, ymin=0, ymax=110, ytick={0,20,...,100},
+  xmin=0, xmax=15, xtick={0,...,15}, xticklabels={dic-26,ene-27,feb-27,mar-27,abr-27,may-27,jun-27,jul-27,ago-27,sep-27,oct-27,nov-27,dic-27,ene-28,feb-28,mar-28}, x tick label style={font=\tiny\color{tenue}},
+  ylabel={Rutas activas}, nodes near coords, every node near coord/.append style={yshift=1pt}]
+\addplot[name path=r, very thick, color=marca, mark=*, mark size=1.4pt] coordinates {(0,2) (1,7) (2,16) (3,23) (4,33) (5,43) (6,53) (7,60) (8,60) (9,60) (10,60) (11,60) (12,70) (13,80) (14,90) (15,100)};
+\path[name path=eje] (axis cs:0,0) -- (axis cs:15,0);
+\addplot[marca!12] fill between[of=r and eje];
+\draw[dashed, color=ambar] (axis cs:0,60) -- (axis cs:15,60) node[pos=0.02, above right, font=\tiny\color{ambar}] {Tope de Juliaca y Puno: 60 rutas};
+\end{axis}
+\end{tikzpicture}
+\caption{Rutas activas al cierre de cada mes.}
+\end{figure}
+
+\begin{landscape}
+\subsection{Quién trae cada ruta, mes a mes}
+{\scriptsize\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}l*{16}{Q}@{}}
+\toprule
+Quién & dic-26 & ene-27 & feb-27 & mar-27 & abr-27 & may-27 & jun-27 & jul-27 & ago-27 & sep-27 & oct-27 & nov-27 & dic-27 & ene-28 & feb-28 & mar-28 \\
+\midrule
+Rutas de prueba & 2 &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+Gerson &  & 4 & 4 &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+Vendedor A &  & 1 & 4 & 4 & 4 & 4 & 4 & 4 &  &  &  &  & 4 & 4 & 4 & 4 \\
+Vendedor B &  &  & 1 & 2 & 2 & 2 & 2 &  &  &  &  &  & 2 & 2 & 2 & 2 \\
+Vendedor D &  &  &  & 1 & 4 & 4 & 4 & 3 &  &  &  &  & 4 & 4 & 4 & 4 \\
+\rowcolor{verdefondo}\textbf{Rutas nuevas} & \textbf{2} & \textbf{5} & \textbf{9} & \textbf{7} & \textbf{10} & \textbf{10} & \textbf{10} & \textbf{7} & {\color{ambar}pausa} & {\color{ambar}pausa} & {\color{ambar}pausa} & {\color{ambar}pausa} & \textbf{10} & \textbf{10} & \textbf{10} & \textbf{10} \\
+\textbf{Rutas activas} & \textbf{2} & \textbf{7} & \textbf{16} & \textbf{23} & \textbf{33} & \textbf{43} & \textbf{53} & \textbf{60} & \textbf{60} & \textbf{60} & \textbf{60} & \textbf{60} & \textbf{70} & \textbf{80} & \textbf{90} & \textbf{100} \\
+{\color{tenue}Unidades} & {\color{tenue}80} & {\color{tenue}280} & {\color{tenue}640} & {\color{tenue}920} & {\color{tenue}1320} & {\color{tenue}1720} & {\color{tenue}2120} & {\color{tenue}2400} & {\color{tenue}2400} & {\color{tenue}2400} & {\color{tenue}2400} & {\color{tenue}2400} & {\color{tenue}2800} & {\color{tenue}3200} & {\color{tenue}3600} & {\color{tenue}4000} \\
+{\color{tenue}Ciudades} & {\color{tenue}1} & {\color{tenue}1} & {\color{tenue}1} & {\color{tenue}1} & {\color{tenue}2} & {\color{tenue}2} & {\color{tenue}2} & {\color{tenue}2} & {\color{tenue}2} & {\color{tenue}2} & {\color{tenue}2} & {\color{tenue}2} & {\color{tenue}3} & {\color{tenue}3} & {\color{tenue}3} & {\color{tenue}3} \\
+\bottomrule
+\end{tabular}}
+
+\subsection{El equipo, mes a mes}
+Los vendedores se cuentan en jornadas: ½ es medio tiempo, y 2 ½ son dos vendedores a tiempo completo y uno a medio tiempo.
+
+{\scriptsize\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}l*{16}{Q}@{}}
+\toprule
+Puesto & dic-26 & ene-27 & feb-27 & mar-27 & abr-27 & may-27 & jun-27 & jul-27 & ago-27 & sep-27 & oct-27 & nov-27 & dic-27 & ene-28 & feb-28 & mar-28 \\
+\midrule
+Vendedores, en jornadas & ½ & 1 & 1~½ & 2~½ & 2~½ & 2~½ & 2~½ & 2~½ & 2~½ & 2~½ & 2~½ & 2~½ & 2~½ & 2~½ & 2~½ & 2~½ \\
+Asistente de oficina &  &  &  &  & ½ & ½ & ½ & ½ & ½ & ½ & ½ & ½ & ½ & ½ & ½ & ½ \\
+Gerson en planilla &  &  &  &  &  &  &  & 1 & 1 & 1 & 1 & 1 & 1 & 1 & 1 & 1 \\
+\bottomrule
+\end{tabular}}
+\end{landscape}
+
+% ─── 5 ───────────────────────────────────────────────────────────────────
+\section{El equipo y sus funciones}
+
+El primer nivel de soporte no lo da Micros Tempo: lo da el despacho de cada empresa desde su panel, y el chofer administra a sus propios cobradores desde la app. Por eso el equipo es pequeño y casi todo su tiempo se va en vender, instalar y cobrar. El manual del equipo desarrolla cada puesto con su porqué, su rutina y sus metas.
+
+\begin{rol}{Gerson · titular gerente y programador}
+{\small\color{tenue}Desde diciembre de 2026 · sin sueldo hasta junio de 2027 y S/~2000 desde julio · trae 4 rutas por mes en enero y febrero}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Vende en diciembre, enero y febrero: cierra las 2 rutas de prueba y 8 rutas más.
+\item Desde marzo se dedica al sistema: servidor, seguridad, respaldos y actualizaciones de la app.
+\item Prepara el servidor antes de las 5000 unidades, el tamaño hasta el que se midieron las consultas, aunque esa prueba se hizo con 12 choferes reportando y no con la flota entera.
+\item Firma los contratos, aprueba los pagos y decide cuándo empieza y termina la pausa.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Cómo se mide}
+\begin{itemize}
+\item Horas al mes con el servicio caído y tiempo de respuesta ante una falla.
+\item Respaldos probados una vez al mes con una restauración completa.
+\item Caja disponible frente al plan, revisada en la primera semana de cada mes.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\begin{rol}{Vendedor A · tiempo completo}
+{\small\color{tenue}Medio tiempo en diciembre de 2026 (S/~700) y tiempo completo desde enero de 2027 (S/~1400) · S/~200 por ruta firmada · meta: 1 ruta en enero y 4 por mes desde febrero}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Acompaña las 2 rutas de prueba de diciembre y anota lo que piden los choferes y el despacho.
+\item Busca empresas, presenta el sistema a la gerencia y, cuando hace falta, a la asamblea de socios.
+\item Instala la app en los teléfonos de choferes y cobradores, y deja capacitado al despacho.
+\item Acompaña a cada ruta nueva desde la firma hasta que paga su segunda factura, la primera del mes completo.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Cómo se mide}
+\begin{itemize}
+\item Rutas firmadas en el mes, contra una meta de 4.
+\item Teléfonos con la app activa una semana después de la firma.
+\item Rutas que pagan su segunda factura a tiempo.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\begin{rol}{Vendedor B · medio tiempo}
+{\small\color{tenue}Desde febrero de 2027 · S/~700 · S/~200 por ruta firmada · meta: 1 ruta en febrero y 2 por mes desde marzo}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Vende a empresas pequeñas y hace el seguimiento de las que dijeron que lo pensarían.
+\item Apoya las instalaciones de los vendedores a tiempo completo cuando una ruta tiene muchos choferes.
+\item Visita a las rutas activas que dejan de usar la app, antes de que pidan dar de baja el servicio.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Cómo se mide}
+\begin{itemize}
+\item Rutas firmadas en el mes, contra una meta de 2.
+\item Rutas activas con menos del 80\,\% de sus unidades reportando, y cuántas se recuperan.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\begin{rol}{Vendedor D · tiempo completo, reemplaza a Gerson en ventas}
+{\small\color{tenue}Desde marzo de 2027 · S/~1400 · S/~200 por ruta firmada · meta: 1 ruta en marzo y 4 por mes desde abril}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Recibe la cartera y los contactos de Gerson, que lo acompaña a sus reuniones durante su primer mes.
+\item Abre Puno desde abril, cuando se llega a la ruta 26.
+\item Lidera la preparación de la ciudad grande durante la pausa y las primeras ventas allá en diciembre.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Cómo se mide}
+\begin{itemize}
+\item Rutas firmadas en el mes, contra una meta de 4.
+\item Durante la pausa, reuniones agendadas en la ciudad grande y contratos listos para firmar en diciembre.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\begin{rol}{Asistente de oficina · medio tiempo}
+{\small\color{tenue}Desde abril de 2027 · S/~700 · no vende}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Emite las facturas electrónicas, hace la cobranza y avisa a quien tiene un pago atrasado.
+\item Atiende las llamadas de las empresas y deriva al despacho lo que el despacho puede resolver.
+\item Archiva los contratos y los consentimientos firmados de choferes y cobradores.
+\item Prepara para el contador la información de la planilla, las compras y las ventas del mes.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Cómo se mide}
+\begin{itemize}
+\item Facturas del mes emitidas el último día hábil del mes.
+\item Porcentaje cobrado al día 15 del mes siguiente, contra una meta del 95\,\%.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\begin{rol}{Contador externo}
+{\small\color{tenue}Desde diciembre de 2026 · S/~350 al mes y S/~500 desde junio de 2027 · con recibo por honorarios}\par\vspace{3pt}
+\begin{minipage}[t]{0.52\linewidth}\small\textbf{\color{marca}Funciones}
+\begin{itemize}
+\item Inscribe a la EIRL en el REMYPE y en el Régimen MYPE Tributario.
+\item Presenta cada mes la declaración del IGV y la renta (formulario 621) y la planilla electrónica.
+\item Lleva los libros electrónicos y prepara la declaración anual de marzo.
+\end{itemize}\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\small\textbf{\color{marca}Qué confirma primero}
+\begin{itemize}
+\item Si el servicio entra en el sistema de detracciones del 12\,\%.
+\item La UIT y la remuneración mínima de 2027, y cómo se paga el sueldo de Gerson.
+\end{itemize}\end{minipage}
+\end{rol}
+
+\subsection{Metas de la pausa, de agosto a noviembre de 2027}
+
+Durante la pausa, los tres vendedores siguen costando unos S/~4300 al mes entre sueldos, cargas y movilidad, aunque no firmen rutas nuevas. Por eso el equipo de ventas recibe metas propias para esos cuatro meses: proponerle a Gerson en agosto la ciudad grande, conseguir entre todos 30 reuniones con gerencias en septiembre y octubre, y dejar 10 contratos listos para firmar en diciembre. Mientras tanto, la cobranza de Juliaca y Puno tiene que mantenerse al día.
+
+% ─── 6 ───────────────────────────────────────────────────────────────────
+\newpage
+\section{Estados de resultados mensuales}
+
+Las cifras están en soles y sin IGV, y las filas en gris muestran de qué está hecho cada gasto. La primera tabla va de diciembre de 2026 a julio de 2027.
+
+{\scriptsize\setlength{\tabcolsep}{2.6pt}\renewcommand{\arraystretch}{0.95}
+\begin{tabular}{@{}l*{8}{R}@{}}
+\toprule
+Concepto & dic-26 & ene-27 & feb-27 & mar-27 & abr-27 & may-27 & jun-27 & jul-27 \\
+\midrule
+{\color{tenue}Rutas activas} & {\color{tenue}2} & {\color{tenue}7} & {\color{tenue}16} & {\color{tenue}23} & {\color{tenue}33} & {\color{tenue}43} & {\color{tenue}53} & {\color{tenue}60} \\
+\textbf{Ventas netas (sin IGV)} &  & \textbf{3678} & \textbf{5458} & \textbf{10\,246} & \textbf{14\,237} & \textbf{19\,966} & \textbf{24\,407} & \textbf{29\,686} \\
+\hijo{Rutas que pagan el mes completo} &  & {\color{tenue}3678} & {\color{tenue}3322} & {\color{tenue}8407} & {\color{tenue}11\,695} & {\color{tenue}17\,339} & {\color{tenue}21\,864} & {\color{tenue}27\,847} \\
+\hijo{Rutas nuevas, medio mes} &  &  & {\color{tenue}2136} & {\color{tenue}1839} & {\color{tenue}2542} & {\color{tenue}2627} & {\color{tenue}2542} & {\color{tenue}1839} \\
+(−) Cobranza dudosa &  & \nm{−74} & \nm{−109} & \nm{−205} & \nm{−285} & \nm{−399} & \nm{−488} & \nm{−594} \\
+\rowcolor{verdefondo}\textbf{Ingreso neto} &  & \textbf{3604} & \textbf{5348} & \textbf{10\,041} & \textbf{13\,953} & \textbf{19\,567} & \textbf{23\,919} & \textbf{29\,093} \\
+\textbf{(−) Sueldos y comisiones} & \textbf{\nm{−1100}} & \textbf{\nm{−1600}} & \textbf{\nm{−3100}} & \textbf{\nm{−4900}} & \textbf{\nm{−6200}} & \textbf{\nm{−6200}} & \textbf{\nm{−6200}} & \textbf{\nm{−7600}} \\
+\hijo{Vendedores} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−1400}} & {\color{tenue}\nmh{−2100}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} \\
+\hijo{Comisiones por ruta firmada} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−1000}} & {\color{tenue}\nmh{−1400}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−1400}} \\
+\hijo{Asistente de oficina} &  &  &  &  & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−700}} \\
+\hijo{Gerson (programación)} &  &  &  &  &  &  &  & {\color{tenue}\nmh{−2000}} \\
+\textbf{(−) Cargas sociales} & \textbf{\nm{−110}} & \textbf{\nm{−160}} & \textbf{\nm{−310}} & \textbf{\nm{−490}} & \textbf{\nm{−620}} & \textbf{\nm{−620}} & \textbf{\nm{−620}} & \textbf{\nm{−760}} \\
+\hijo{Vendedores} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−140}} & {\color{tenue}\nmh{−210}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} \\
+\hijo{Sobre las comisiones} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−20}} & {\color{tenue}\nmh{−100}} & {\color{tenue}\nmh{−140}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−140}} \\
+\hijo{Asistente de oficina} &  &  &  &  & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−70}} \\
+\hijo{Gerson (programación)} &  &  &  &  &  &  &  & {\color{tenue}\nmh{−200}} \\
+\textbf{(−) Infraestructura} & \textbf{\nm{−234}} & \textbf{\nm{−434}} & \textbf{\nm{−921}} & \textbf{\nm{−1160}} & \textbf{\nm{−1502}} & \textbf{\nm{−1845}} & \textbf{\nm{−2187}} & \textbf{\nm{−2426}} \\
+\hijo{Servidor y mapas} & {\color{tenue}\nmh{−187}} & {\color{tenue}\nmh{−347}} & {\color{tenue}\nmh{−736}} & {\color{tenue}\nmh{−928}} & {\color{tenue}\nmh{−1202}} & {\color{tenue}\nmh{−1476}} & {\color{tenue}\nmh{−1749}} & {\color{tenue}\nmh{−1941}} \\
+\hijo{Colchón por incertidumbre} & {\color{tenue}\nmh{−47}} & {\color{tenue}\nmh{−87}} & {\color{tenue}\nmh{−184}} & {\color{tenue}\nmh{−232}} & {\color{tenue}\nmh{−300}} & {\color{tenue}\nmh{−369}} & {\color{tenue}\nmh{−437}} & {\color{tenue}\nmh{−485}} \\
+(−) Alquiler de oficina &  & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} \\
+\textbf{(−) Servicios de oficina} &  & \textbf{\nm{−224}} & \textbf{\nm{−242}} & \textbf{\nm{−261}} & \textbf{\nm{−280}} & \textbf{\nm{−280}} & \textbf{\nm{−280}} & \textbf{\nm{−280}} \\
+\hijo{Internet} &  & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} \\
+\hijo{Luz, agua y arbitrios} &  & {\color{tenue}\nmh{−71}} & {\color{tenue}\nmh{−81}} & {\color{tenue}\nmh{−92}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} \\
+\hijo{Mantenimiento y limpieza} &  & {\color{tenue}\nmh{−51}} & {\color{tenue}\nmh{−59}} & {\color{tenue}\nmh{−68}} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−76}} \\
+(−) Planes de datos & \nm{−42} & \nm{−42} & \nm{−85} & \nm{−127} & \nm{−169} & \nm{−169} & \nm{−169} & \nm{−169} \\
+\textbf{(−) Movilidad y viajes} & \textbf{\nm{−150}} & \textbf{\nm{−150}} & \textbf{\nm{−300}} & \textbf{\nm{−450}} & \textbf{\nm{−1100}} & \textbf{\nm{−1100}} & \textbf{\nm{−1100}} & \textbf{\nm{−1100}} \\
+\hijo{Movilidad de vendedores} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−300}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} \\
+\hijo{Movilidad del asistente de oficina} &  &  &  &  & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} \\
+\hijo{Viajes a Puno} &  &  &  &  & {\color{tenue}\nmh{−500}} & {\color{tenue}\nmh{−500}} & {\color{tenue}\nmh{−500}} & {\color{tenue}\nmh{−500}} \\
+\textbf{(−) Ciudad grande} &  &  &  &  &  &  &  &  \\
+\hijo{Preparación de Arequipa o Cusco} &  &  &  &  &  &  &  &  \\
+\hijo{Viajes para vender en Arequipa o Cusco} &  &  &  &  &  &  &  &  \\
+\textbf{(−) Marketing y rutas nuevas} & \textbf{\nm{−508}} & \textbf{\nm{−890}} & \textbf{\nm{−1398}} & \textbf{\nm{−1144}} & \textbf{\nm{−1525}} & \textbf{\nm{−1525}} & \textbf{\nm{−1525}} & \textbf{\nm{−1144}} \\
+\hijo{Material y publicidad} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} \\
+\hijo{Kits de entrada} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−636}} & {\color{tenue}\nmh{−1144}} & {\color{tenue}\nmh{−890}} & {\color{tenue}\nmh{−1271}} & {\color{tenue}\nmh{−1271}} & {\color{tenue}\nmh{−1271}} & {\color{tenue}\nmh{−890}} \\
+(−) Contador externo & \nm{−350} & \nm{−350} & \nm{−350} & \nm{−350} & \nm{−350} & \nm{−350} & \nm{−500} & \nm{−500} \\
+\textbf{(−) IA y software} & \textbf{\nm{−425}} & \textbf{\nm{−425}} & \textbf{\nm{−450}} & \textbf{\nm{−475}} & \textbf{\nm{−500}} & \textbf{\nm{−500}} & \textbf{\nm{−500}} & \textbf{\nm{−525}} \\
+\hijo{Suscripción de IA} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} \\
+\hijo{Licencias por persona en planilla} & {\color{tenue}\nmh{−25}} & {\color{tenue}\nmh{−25}} & {\color{tenue}\nmh{−50}} & {\color{tenue}\nmh{−75}} & {\color{tenue}\nmh{−100}} & {\color{tenue}\nmh{−100}} & {\color{tenue}\nmh{−100}} & {\color{tenue}\nmh{−125}} \\
+\textbf{(−) Equipos menores} & \textbf{\nm{−593}} & \textbf{\nm{−2373}} & \textbf{\nm{−1144}} & \textbf{\nm{−1144}} & \textbf{\nm{−1144}} &  &  &  \\
+\hijo{Celulares del personal nuevo} & {\color{tenue}\nmh{−593}} &  & {\color{tenue}\nmh{−593}} & {\color{tenue}\nmh{−593}} & {\color{tenue}\nmh{−593}} &  &  &  \\
+\hijo{Escritorios y sillas} &  & {\color{tenue}\nmh{−1102}} & {\color{tenue}\nmh{−551}} & {\color{tenue}\nmh{−551}} & {\color{tenue}\nmh{−551}} &  &  &  \\
+\hijo{Acondicionamiento de la oficina} &  & {\color{tenue}\nmh{−1271}} &  &  &  &  &  &  \\
+\textbf{(−) Trámites y legal} & \textbf{\nm{−1600}} & \textbf{\nm{−400}} &  &  &  &  &  &  \\
+\hijo{Constitución de la EIRL y abogado} & {\color{tenue}\nmh{−1600}} &  &  &  &  &  &  &  \\
+\hijo{Licencia municipal e ITSE} &  & {\color{tenue}\nmh{−400}} &  &  &  &  &  &  \\
+\textbf{(−) Útiles y bancos} & \textbf{\nm{−99}} & \textbf{\nm{−99}} & \textbf{\nm{−116}} & \textbf{\nm{−133}} & \textbf{\nm{−150}} & \textbf{\nm{−150}} & \textbf{\nm{−150}} & \textbf{\nm{−150}} \\
+\hijo{Artículos de oficina} & {\color{tenue}\nmh{−59}} & {\color{tenue}\nmh{−59}} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−93}} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−110}} \\
+\hijo{Bancos} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} \\
+(−) Imprevistos & \nm{−261} & \nm{−382} & \nm{−446} & \nm{−557} & \nm{−702} & \nm{−662} & \nm{−687} & \nm{−758} \\
+\rowcolor{verdefondo}\textbf{Total de gastos} & \textbf{\nm{−5473}} & \textbf{\nm{−8029}} & \textbf{\nm{−9362}} & \textbf{\nm{−11\,691}} & \textbf{\nm{−14\,743}} & \textbf{\nm{−13\,901}} & \textbf{\nm{−14\,418}} & \textbf{\nm{−15\,912}} \\
+\textbf{EBITDA} & \textbf{\nm{−5473}} & \textbf{\nm{−4425}} & \textbf{\nm{−4014}} & \textbf{\nm{−1651}} & \textbf{\nm{−791}} & \textbf{5666} & \textbf{9501} & \textbf{13\,180} \\
+(−) Depreciación de laptops & \nm{−39} & \nm{−39} & \nm{−78} & \nm{−117} & \nm{−155} & \nm{−155} & \nm{−155} & \nm{−155} \\
+\rowcolor{verdefondo}\textbf{Utilidad operativa} & \textbf{\nm{−5512}} & \textbf{\nm{−4464}} & \textbf{\nm{−4091}} & \textbf{\nm{−1767}} & \textbf{\nm{−946}} & \textbf{5510} & \textbf{9345} & \textbf{13\,025} \\
+(−) Impuesto a la renta &  &  &  &  &  &  &  & \nm{−1110} \\
+\midrule
+\textbf{Utilidad neta} & \textbf{\nm{−5512}} & \textbf{\nm{−4464}} & \textbf{\nm{−4091}} & \textbf{\nm{−1767}} & \textbf{\nm{−946}} & \textbf{5510} & \textbf{9345} & \textbf{11\,915} \\
+\bottomrule
+\end{tabular}}
+
+\newpage
+\subsection{De agosto de 2027 a marzo de 2028}
+
+Las tres últimas columnas suman diciembre de 2026, todo 2027 y el primer trimestre de 2028.
+
+{\scriptsize\setlength{\tabcolsep}{2.2pt}\renewcommand{\arraystretch}{0.95}
+\begin{tabular}{@{}l*{11}{Q}@{}}
+\toprule
+Concepto & ago-27 & sep-27 & oct-27 & nov-27 & dic-27 & ene-28 & feb-28 & mar-28 & 2026 & 2027 & T1 2028 \\
+\midrule
+{\color{tenue}Rutas activas} & {\color{tenue}60} & {\color{tenue}60} & {\color{tenue}60} & {\color{tenue}60} & {\color{tenue}70} & {\color{tenue}80} & {\color{tenue}90} & {\color{tenue}100} &  &  &  \\
+\textbf{Ventas netas (sin IGV)} & \textbf{31\,525} & \textbf{30\,508} & \textbf{31\,525} & \textbf{30\,508} & \textbf{34\,153} & \textbf{39\,407} & \textbf{41\,780} & \textbf{49\,915} &  & \textbf{265\,898} & \textbf{131\,102} \\
+\hijo{Rutas que pagan el mes completo} & {\color{tenue}31\,525} & {\color{tenue}30\,508} & {\color{tenue}31\,525} & {\color{tenue}30\,508} & {\color{tenue}31\,525} & {\color{tenue}36\,780} & {\color{tenue}39\,322} & {\color{tenue}47\,288} &  & {\color{tenue}249\,746} & {\color{tenue}123\,390} \\
+\hijo{Rutas nuevas, medio mes} &  &  &  &  & {\color{tenue}2627} & {\color{tenue}2627} & {\color{tenue}2458} & {\color{tenue}2627} &  & {\color{tenue}16\,153} & {\color{tenue}7712} \\
+(−) Cobranza dudosa & \nm{−631} & \nm{−610} & \nm{−631} & \nm{−610} & \nm{−683} & \nm{−788} & \nm{−836} & \nm{−998} &  & \nm{−5318} & \nm{−2622} \\
+\rowcolor{verdefondo}\textbf{Ingreso neto} & \textbf{30\,895} & \textbf{29\,898} & \textbf{30\,895} & \textbf{29\,898} & \textbf{33\,469} & \textbf{38\,619} & \textbf{40\,944} & \textbf{48\,917} &  & \textbf{260\,580} & \textbf{128\,480} \\
+\textbf{(−) Sueldos y comisiones} & \textbf{\nm{−6200}} & \textbf{\nm{−6200}} & \textbf{\nm{−6200}} & \textbf{\nm{−6200}} & \textbf{\nm{−8200}} & \textbf{\nm{−8200}} & \textbf{\nm{−8200}} & \textbf{\nm{−8200}} & \textbf{\nm{−1100}} & \textbf{\nm{−68\,800}} & \textbf{\nm{−24\,600}} \\
+\hijo{Vendedores} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−3500}} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−38\,500}} & {\color{tenue}\nmh{−10\,500}} \\
+\hijo{Comisiones por ruta firmada} &  &  &  &  & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−12\,000}} & {\color{tenue}\nmh{−6000}} \\
+\hijo{Asistente de oficina} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−700}} & {\color{tenue}\nmh{−700}} &  & {\color{tenue}\nmh{−6300}} & {\color{tenue}\nmh{−2100}} \\
+\hijo{Gerson (programación)} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} & {\color{tenue}\nmh{−2000}} &  & {\color{tenue}\nmh{−12\,000}} & {\color{tenue}\nmh{−6000}} \\
+\textbf{(−) Cargas sociales} & \textbf{\nm{−620}} & \textbf{\nm{−620}} & \textbf{\nm{−620}} & \textbf{\nm{−620}} & \textbf{\nm{−820}} & \textbf{\nm{−820}} & \textbf{\nm{−820}} & \textbf{\nm{−820}} & \textbf{\nm{−110}} & \textbf{\nm{−6880}} & \textbf{\nm{−2460}} \\
+\hijo{Vendedores} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−350}} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−3850}} & {\color{tenue}\nmh{−1050}} \\
+\hijo{Sobre las comisiones} &  &  &  &  & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−1200}} & {\color{tenue}\nmh{−600}} \\
+\hijo{Asistente de oficina} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−70}} & {\color{tenue}\nmh{−70}} &  & {\color{tenue}\nmh{−630}} & {\color{tenue}\nmh{−210}} \\
+\hijo{Gerson (programación)} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} & {\color{tenue}\nmh{−200}} &  & {\color{tenue}\nmh{−1200}} & {\color{tenue}\nmh{−600}} \\
+\textbf{(−) Infraestructura} & \textbf{\nm{−2426}} & \textbf{\nm{−2426}} & \textbf{\nm{−2426}} & \textbf{\nm{−2426}} & \textbf{\nm{−2768}} & \textbf{\nm{−3111}} & \textbf{\nm{−3453}} & \textbf{\nm{−3795}} & \textbf{\nm{−234}} & \textbf{\nm{−22\,948}} & \textbf{\nm{−10\,358}} \\
+\hijo{Servidor y mapas} & {\color{tenue}\nmh{−1941}} & {\color{tenue}\nmh{−1941}} & {\color{tenue}\nmh{−1941}} & {\color{tenue}\nmh{−1941}} & {\color{tenue}\nmh{−2215}} & {\color{tenue}\nmh{−2488}} & {\color{tenue}\nmh{−2762}} & {\color{tenue}\nmh{−3036}} & {\color{tenue}\nmh{−187}} & {\color{tenue}\nmh{−18\,358}} & {\color{tenue}\nmh{−8287}} \\
+\hijo{Colchón por incertidumbre} & {\color{tenue}\nmh{−485}} & {\color{tenue}\nmh{−485}} & {\color{tenue}\nmh{−485}} & {\color{tenue}\nmh{−485}} & {\color{tenue}\nmh{−554}} & {\color{tenue}\nmh{−622}} & {\color{tenue}\nmh{−691}} & {\color{tenue}\nmh{−759}} & {\color{tenue}\nmh{−47}} & {\color{tenue}\nmh{−4590}} & {\color{tenue}\nmh{−2072}} \\
+(−) Alquiler de oficina & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} &  & \nm{−6000} & \nm{−1500} \\
+\textbf{(−) Servicios de oficina} & \textbf{\nm{−280}} & \textbf{\nm{−280}} & \textbf{\nm{−280}} & \textbf{\nm{−280}} & \textbf{\nm{−280}} & \textbf{\nm{−280}} & \textbf{\nm{−280}} & \textbf{\nm{−280}} &  & \textbf{\nm{−3244}} & \textbf{\nm{−839}} \\
+\hijo{Internet} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} &  & {\color{tenue}\nmh{−1220}} & {\color{tenue}\nmh{−305}} \\
+\hijo{Luz, agua y arbitrios} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} & {\color{tenue}\nmh{−102}} &  & {\color{tenue}\nmh{−1159}} & {\color{tenue}\nmh{−305}} \\
+\hijo{Mantenimiento y limpieza} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−76}} & {\color{tenue}\nmh{−76}} &  & {\color{tenue}\nmh{−864}} & {\color{tenue}\nmh{−229}} \\
+(−) Planes de datos & \nm{−169} & \nm{−169} & \nm{−169} & \nm{−169} & \nm{−169} & \nm{−169} & \nm{−169} & \nm{−169} & \nm{−42} & \nm{−1780} & \nm{−508} \\
+\textbf{(−) Movilidad y viajes} & \textbf{\nm{−1100}} & \textbf{\nm{−1100}} & \textbf{\nm{−1100}} & \textbf{\nm{−1100}} & \textbf{\nm{−1100}} & \textbf{\nm{−1100}} & \textbf{\nm{−1100}} & \textbf{\nm{−1100}} & \textbf{\nm{−150}} & \textbf{\nm{−10\,800}} & \textbf{\nm{−3300}} \\
+\hijo{Movilidad de vendedores} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−450}} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−4950}} & {\color{tenue}\nmh{−1350}} \\
+\hijo{Movilidad del asistente de oficina} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} & {\color{tenue}\nmh{−150}} &  & {\color{tenue}\nmh{−1350}} & {\color{tenue}\nmh{−450}} \\
+\hijo{Viajes a Puno} & {\color{tenue}\nmh{−500}} & {\color{tenue}\nmh{−500}} & {\color{tenue}\nmh{−500}} & {\color{tenue}\nmh{−500}} & {\color{tenue}\nmh{−500}} & {\color{tenue}\nmh{−500}} & {\color{tenue}\nmh{−500}} & {\color{tenue}\nmh{−500}} &  & {\color{tenue}\nmh{−4500}} & {\color{tenue}\nmh{−1500}} \\
+\textbf{(−) Ciudad grande} & \textbf{\nm{−1500}} & \textbf{\nm{−1500}} & \textbf{\nm{−1500}} & \textbf{\nm{−1500}} & \textbf{\nm{−1500}} & \textbf{\nm{−1500}} & \textbf{\nm{−1500}} & \textbf{\nm{−1500}} &  & \textbf{\nm{−7500}} & \textbf{\nm{−4500}} \\
+\hijo{Preparación de Arequipa o Cusco} & {\color{tenue}\nmh{−1500}} & {\color{tenue}\nmh{−1500}} & {\color{tenue}\nmh{−1500}} & {\color{tenue}\nmh{−1500}} &  &  &  &  &  & {\color{tenue}\nmh{−6000}} &  \\
+\hijo{Viajes para vender en Arequipa o Cusco} &  &  &  &  & {\color{tenue}\nmh{−1500}} & {\color{tenue}\nmh{−1500}} & {\color{tenue}\nmh{−1500}} & {\color{tenue}\nmh{−1500}} &  & {\color{tenue}\nmh{−1500}} & {\color{tenue}\nmh{−4500}} \\
+\textbf{(−) Marketing y rutas nuevas} & \textbf{\nm{−254}} & \textbf{\nm{−254}} & \textbf{\nm{−254}} & \textbf{\nm{−254}} & \textbf{\nm{−1525}} & \textbf{\nm{−1525}} & \textbf{\nm{−1525}} & \textbf{\nm{−1525}} & \textbf{\nm{−508}} & \textbf{\nm{−11\,695}} & \textbf{\nm{−4576}} \\
+\hijo{Material y publicidad} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−3051}} & {\color{tenue}\nmh{−763}} \\
+\hijo{Kits de entrada} &  &  &  &  & {\color{tenue}\nmh{−1271}} & {\color{tenue}\nmh{−1271}} & {\color{tenue}\nmh{−1271}} & {\color{tenue}\nmh{−1271}} & {\color{tenue}\nmh{−254}} & {\color{tenue}\nmh{−8644}} & {\color{tenue}\nmh{−3814}} \\
+(−) Contador externo & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−500} & \nm{−350} & \nm{−5250} & \nm{−1500} \\
+\textbf{(−) IA y software} & \textbf{\nm{−525}} & \textbf{\nm{−525}} & \textbf{\nm{−525}} & \textbf{\nm{−525}} & \textbf{\nm{−525}} & \textbf{\nm{−525}} & \textbf{\nm{−525}} & \textbf{\nm{−525}} & \textbf{\nm{−425}} & \textbf{\nm{−6000}} & \textbf{\nm{−1575}} \\
+\hijo{Suscripción de IA} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−400}} & {\color{tenue}\nmh{−4800}} & {\color{tenue}\nmh{−1200}} \\
+\hijo{Licencias por persona en planilla} & {\color{tenue}\nmh{−125}} & {\color{tenue}\nmh{−125}} & {\color{tenue}\nmh{−125}} & {\color{tenue}\nmh{−125}} & {\color{tenue}\nmh{−125}} & {\color{tenue}\nmh{−125}} & {\color{tenue}\nmh{−125}} & {\color{tenue}\nmh{−125}} & {\color{tenue}\nmh{−25}} & {\color{tenue}\nmh{−1200}} & {\color{tenue}\nmh{−375}} \\
+\textbf{(−) Equipos menores} &  &  &  &  &  &  &  &  & \textbf{\nm{−593}} & \textbf{\nm{−5805}} &  \\
+\hijo{Celulares del personal nuevo} &  &  &  &  &  &  &  &  & {\color{tenue}\nmh{−593}} & {\color{tenue}\nmh{−1780}} &  \\
+\hijo{Escritorios y sillas} &  &  &  &  &  &  &  &  &  & {\color{tenue}\nmh{−2754}} &  \\
+\hijo{Acondicionamiento de la oficina} &  &  &  &  &  &  &  &  &  & {\color{tenue}\nmh{−1271}} &  \\
+\textbf{(−) Trámites y legal} &  &  &  &  &  &  &  &  & \textbf{\nm{−1600}} & \textbf{\nm{−400}} &  \\
+\hijo{Constitución de la EIRL y abogado} &  &  &  &  &  &  &  &  & {\color{tenue}\nmh{−1600}} &  &  \\
+\hijo{Licencia municipal e ITSE} &  &  &  &  &  &  &  &  &  & {\color{tenue}\nmh{−400}} &  \\
+\textbf{(−) Útiles y bancos} & \textbf{\nm{−150}} & \textbf{\nm{−150}} & \textbf{\nm{−150}} & \textbf{\nm{−150}} & \textbf{\nm{−150}} & \textbf{\nm{−150}} & \textbf{\nm{−150}} & \textbf{\nm{−150}} & \textbf{\nm{−99}} & \textbf{\nm{−1700}} & \textbf{\nm{−451}} \\
+\hijo{Artículos de oficina} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−110}} & {\color{tenue}\nmh{−59}} & {\color{tenue}\nmh{−1220}} & {\color{tenue}\nmh{−331}} \\
+\hijo{Bancos} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−40}} & {\color{tenue}\nmh{−480}} & {\color{tenue}\nmh{−120}} \\
+(−) Imprevistos & \nm{−711} & \nm{−711} & \nm{−711} & \nm{−711} & \nm{−902} & \nm{−919} & \nm{−936} & \nm{−953} & \nm{−261} & \nm{−7940} & \nm{−2808} \\
+\rowcolor{verdefondo}\textbf{Total de gastos} & \textbf{\nm{−14\,936}} & \textbf{\nm{−14\,936}} & \textbf{\nm{−14\,936}} & \textbf{\nm{−14\,936}} & \textbf{\nm{−18\,940}} & \textbf{\nm{−19\,299}} & \textbf{\nm{−19\,659}} & \textbf{\nm{−20\,018}} & \textbf{\nm{−5473}} & \textbf{\nm{−166\,742}} & \textbf{\nm{−58\,976}} \\
+\textbf{EBITDA} & \textbf{15\,959} & \textbf{14\,962} & \textbf{15\,959} & \textbf{14\,962} & \textbf{14\,529} & \textbf{19\,319} & \textbf{21\,285} & \textbf{28\,899} & \textbf{\nm{−5473}} & \textbf{93\,839} & \textbf{69\,504} \\
+(−) Depreciación de laptops & \nm{−155} & \nm{−155} & \nm{−155} & \nm{−155} & \nm{−155} & \nm{−155} & \nm{−155} & \nm{−155} & \nm{−39} & \nm{−1631} & \nm{−466} \\
+\rowcolor{verdefondo}\textbf{Utilidad operativa} & \textbf{15\,803} & \textbf{14\,807} & \textbf{15\,803} & \textbf{14\,807} & \textbf{14\,374} & \textbf{19\,164} & \textbf{21\,130} & \textbf{28\,744} & \textbf{\nm{−5512}} & \textbf{92\,207} & \textbf{69\,038} \\
+(−) Impuesto a la renta & \nm{−1580} & \nm{−1481} & \nm{−1580} & \nm{−1481} & \nm{−2255} & \nm{−1916} & \nm{−2113} & \nm{−2874} &  & \nm{−9488} & \nm{−6904} \\
+\midrule
+\textbf{Utilidad neta} & \textbf{14\,223} & \textbf{13\,326} & \textbf{14\,223} & \textbf{13\,326} & \textbf{12\,119} & \textbf{17\,247} & \textbf{19\,017} & \textbf{25\,869} & \textbf{\nm{−5512}} & \textbf{82\,720} & \textbf{62\,134} \\
+\bottomrule
+\end{tabular}}
+
+\newpage
+\subsection{Ingreso neto y gastos de cada mes}
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, height=6.4cm, ymin=0, ymax=55, ytick={0,10,...,50},
+  yticklabel={\pgfmathprintnumber{\tick}~mil},
+  xmin=0, xmax=15, xtick={0,...,15}, xticklabels={dic-26,ene-27,feb-27,mar-27,abr-27,may-27,jun-27,jul-27,ago-27,sep-27,oct-27,nov-27,dic-27,ene-28,feb-28,mar-28}, x tick label style={font=\tiny\color{tenue}}]
+\addplot[name path=ing, very thick, color=marca, mark=*, mark size=1.3pt] coordinates {(0,0.00) (1,3.60) (2,5.35) (3,10.04) (4,13.95) (5,19.57) (6,23.92) (7,29.09) (8,30.89) (9,29.90) (10,30.89) (11,29.90) (12,33.47) (13,38.62) (14,40.94) (15,48.92)}; \addlegendentry{Ingreso neto}
+\addplot[name path=gas, very thick, color=naranja, mark=square*, mark size=1.2pt] coordinates {(0,5.51) (1,8.07) (2,9.44) (3,11.81) (4,14.90) (5,14.06) (6,14.57) (7,16.07) (8,15.09) (9,15.09) (10,15.09) (11,15.09) (12,19.10) (13,19.45) (14,19.81) (15,20.17)}; \addlegendentry{Gastos y depreciación}
+\addplot[verde!18, forget plot] fill between[of=ing and gas, soft clip={domain=4.2:15}];
+\addplot[rojo!12, forget plot] fill between[of=ing and gas, soft clip={domain=0:4.2}];
+\node[font=\tiny\color{verde}, anchor=south] at (axis cs:10,23) {Utilidad};
+\node[font=\tiny\color{rojo}, anchor=south] at (axis cs:1.6,8.5) {Pérdida};
+\end{axis}
+\end{tikzpicture}
+\caption{Las dos líneas se cruzan entre abril y mayo de 2027. El salto de diciembre de 2027 en los gastos se debe a las comisiones y los kits de las primeras rutas de la ciudad grande.}
+\end{figure}
+
+\subsection{En qué se van los gastos de 2027}
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, xbar, scale only axis, width=0.58\linewidth, height=6.4cm, bar width=7pt, xmin=0, xmajorgrids, ymajorgrids=false,
+  ytick={0,...,14}, yticklabels={{Trámites y legal},{Útiles y bancos},{Planes de datos},{Servicios de oficina},{Contador externo},{Equipos menores},{Alquiler de oficina},{IA y software},{Cargas sociales},{Ciudad grande},{Imprevistos},{Movilidad y viajes},{Marketing y rutas nuevas},{Infraestructura},{Sueldos y comisiones}}, y tick label style={font=\scriptsize\color{tinta2}},
+  xticklabel={\pgfmathprintnumber{\tick}~mil},
+  nodes near coords, nodes near coords align={horizontal}, ymin=-0.7, ymax=14.7, enlarge x limits={upper,value=0.16},
+  point meta=explicit symbolic]
+\addplot[fill=marca, draw=none] coordinates {(0.40,0) [S/~0,4~mil] (1.70,1) [S/~1,7~mil] (1.78,2) [S/~1,8~mil] (3.24,3) [S/~3,2~mil] (5.25,4) [S/~5,3~mil] (5.81,5) [S/~5,8~mil] (6.00,6) [S/~6~mil] (6.00,7) [S/~6~mil] (6.88,8) [S/~6,9~mil] (7.50,9) [S/~7,5~mil] (7.94,10) [S/~7,9~mil] (10.80,11) [S/~10,8~mil] (11.69,12) [S/~11,7~mil] (22.95,13) [S/~22,9~mil] (68.80,14) [S/~68,8~mil]};
+\end{axis}
+\end{tikzpicture}
+\caption{Gastos de 2027 sin IGV, en soles. Los sueldos, las comisiones y sus cargas son 45\,\% del gasto total.}
+\end{figure}
+
+\subsection{Lo que dicen los resultados}
+
+El negocio pierde de diciembre a abril, aunque cada vez menos, porque todavía hay pocas rutas que paguen el mes completo, las rutas nuevas pagan medio mes y las comisiones se pagan al firmar. En marzo pierde S/~1767 porque entra el vendedor D con su sueldo, su movilidad y su equipo, y las 16 rutas que ya pagan el mes completo todavía no alcanzan para cubrirlo; sin el vendedor D, marzo ganaría unos S/~1500. En abril pierde S/~946 porque entra el asistente de oficina con su equipo; sin ese gasto, abril ya ganaría unos S/~1400.
+
+Desde mayo de 2027 el negocio gana todos los meses, y durante la pausa la utilidad se estabiliza en unos S/~15\,000 al mes. En esos meses ya no se pagan comisiones ni kits, aunque sí se paga la preparación de la ciudad grande. En diciembre de 2027 la utilidad baja a S/~14\,374 porque se vuelve a firmar, y en marzo de 2028 llega a S/~28\,744.
+
+% ─── 7 ───────────────────────────────────────────────────────────────────
+\begin{landscape}
+\section{Flujo de caja}
+Las cifras están con IGV, porque es el dinero que entra y sale de verdad. El IGV y el adelanto de renta de un mes se pagan a SUNAT el mes siguiente.
+
+{\scriptsize\setlength{\tabcolsep}{2.4pt}\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}l*{19}{Q}@{}}
+\toprule
+Concepto & dic-26 & ene-27 & feb-27 & mar-27 & abr-27 & may-27 & jun-27 & jul-27 & ago-27 & sep-27 & oct-27 & nov-27 & dic-27 & ene-28 & feb-28 & mar-28 & 2026 & 2027 & T1 2028 \\
+\midrule
+\textbf{Cobranza (con IGV)} &  &  & \textbf{4123} & \textbf{6248} & \textbf{11\,679} & \textbf{16\,323} & \textbf{22\,886} & \textbf{28\,067} & \textbf{34\,143} & \textbf{36\,391} & \textbf{35\,316} & \textbf{36\,420} & \textbf{35\,316} & \textbf{39\,365} & \textbf{45\,384} & \textbf{48\,230} &  & \textbf{266\,911} & \textbf{132\,979} \\
+\hijo{Facturas del mes anterior (95\,\%)} &  &  & {\color{tenue}4123} & {\color{tenue}6118} & {\color{tenue}11\,486} & {\color{tenue}15\,960} & {\color{tenue}22\,382} & {\color{tenue}27\,360} & {\color{tenue}33\,279} & {\color{tenue}35\,340} & {\color{tenue}34\,200} & {\color{tenue}35\,340} & {\color{tenue}34\,200} & {\color{tenue}38\,285} & {\color{tenue}44\,175} & {\color{tenue}46\,835} &  & {\color{tenue}259\,787} & {\color{tenue}129\,295} \\
+\hijo{Saldo de hace dos meses (3\,\%)} &  &  &  & {\color{tenue}130} & {\color{tenue}193} & {\color{tenue}363} & {\color{tenue}504} & {\color{tenue}707} & {\color{tenue}864} & {\color{tenue}1051} & {\color{tenue}1116} & {\color{tenue}1080} & {\color{tenue}1116} & {\color{tenue}1080} & {\color{tenue}1209} & {\color{tenue}1395} &  & {\color{tenue}7124} & {\color{tenue}3684} \\
+\textbf{(−) Pagos de gastos} & \textbf{\nm{−5690}} & \textbf{\nm{−8675}} & \textbf{\nm{−9892}} & \textbf{\nm{−12\,190}} & \textbf{\nm{−15\,324}} & \textbf{\nm{−14\,276}} & \textbf{\nm{−14\,793}} & \textbf{\nm{−16\,219}} & \textbf{\nm{−15\,082}} & \textbf{\nm{−15\,082}} & \textbf{\nm{−15\,082}} & \textbf{\nm{−15\,082}} & \textbf{\nm{−19\,315}} & \textbf{\nm{−19\,675}} & \textbf{\nm{−20\,034}} & \textbf{\nm{−20\,393}} & \textbf{\nm{−5690}} & \textbf{\nm{−171\,016}} & \textbf{\nm{−60\,102}} \\
+\hijo{Gastos del mes, sin IGV} & {\color{tenue}\nmh{−5473}} & {\color{tenue}\nmh{−8029}} & {\color{tenue}\nmh{−9362}} & {\color{tenue}\nmh{−11\,691}} & {\color{tenue}\nmh{−14\,743}} & {\color{tenue}\nmh{−13\,901}} & {\color{tenue}\nmh{−14\,418}} & {\color{tenue}\nmh{−15\,912}} & {\color{tenue}\nmh{−14\,936}} & {\color{tenue}\nmh{−14\,936}} & {\color{tenue}\nmh{−14\,936}} & {\color{tenue}\nmh{−14\,936}} & {\color{tenue}\nmh{−18\,940}} & {\color{tenue}\nmh{−19\,299}} & {\color{tenue}\nmh{−19\,659}} & {\color{tenue}\nmh{−20\,018}} & {\color{tenue}\nmh{−5473}} & {\color{tenue}\nmh{−166\,742}} & {\color{tenue}\nmh{−58\,976}} \\
+\hijo{IGV de las compras} & {\color{tenue}\nmh{−217}} & {\color{tenue}\nmh{−646}} & {\color{tenue}\nmh{−530}} & {\color{tenue}\nmh{−499}} & {\color{tenue}\nmh{−581}} & {\color{tenue}\nmh{−375}} & {\color{tenue}\nmh{−375}} & {\color{tenue}\nmh{−307}} & {\color{tenue}\nmh{−146}} & {\color{tenue}\nmh{−146}} & {\color{tenue}\nmh{−146}} & {\color{tenue}\nmh{−146}} & {\color{tenue}\nmh{−375}} & {\color{tenue}\nmh{−375}} & {\color{tenue}\nmh{−375}} & {\color{tenue}\nmh{−375}} & {\color{tenue}\nmh{−217}} & {\color{tenue}\nmh{−4274}} & {\color{tenue}\nmh{−1126}} \\
+(−) IGV pagado a SUNAT &  &  &  &  & \nm{−591} & \nm{−1646} & \nm{−3219} & \nm{−4018} & \nm{−5037} & \nm{−5528} & \nm{−5345} & \nm{−5528} & \nm{−5345} & \nm{−5772} & \nm{−6718} & \nm{−7145} &  & \nm{−36\,257} & \nm{−19\,635} \\
+(−) Adelanto de renta (1\,\%) &  &  & \nm{−37} & \nm{−55} & \nm{−102} & \nm{−142} & \nm{−200} & \nm{−244} & \nm{−297} & \nm{−315} & \nm{−305} & \nm{−315} & \nm{−305} & \nm{−342} & \nm{−394} & \nm{−418} &  & \nm{−2317} & \nm{−1153} \\
+(−) Saldo de la renta de 2027 &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  & \nm{−6829} &  &  & \nm{−6829} \\
+\rowcolor{verdefondo}\textbf{Flujo operativo} & \textbf{\nm{−5690}} & \textbf{\nm{−8675}} & \textbf{\nm{−5806}} & \textbf{\nm{−5996}} & \textbf{\nm{−4339}} & \textbf{258} & \textbf{4674} & \textbf{7586} & \textbf{13\,726} & \textbf{15\,465} & \textbf{14\,583} & \textbf{15\,494} & \textbf{10\,350} & \textbf{13\,577} & \textbf{18\,238} & \textbf{13\,445} & \textbf{\nm{−5690}} & \textbf{57\,321} & \textbf{45\,260} \\
+(−) Compra de laptops & \nm{−2200} &  & \nm{−2200} & \nm{−2200} & \nm{−2200} &  &  &  &  &  &  &  &  &  &  &  & \nm{−2200} & \nm{−6600} &  \\
+(−) Garantía del alquiler &  & \nm{−1000} &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  & \nm{−1000} &  \\
+\textbf{Flujo del mes} & \textbf{\nm{−7890}} & \textbf{\nm{−9675}} & \textbf{\nm{−8006}} & \textbf{\nm{−8196}} & \textbf{\nm{−6539}} & \textbf{258} & \textbf{4674} & \textbf{7586} & \textbf{13\,726} & \textbf{15\,465} & \textbf{14\,583} & \textbf{15\,494} & \textbf{10\,350} & \textbf{13\,577} & \textbf{18\,238} & \textbf{13\,445} & \textbf{\nm{−7890}} & \textbf{49\,721} & \textbf{45\,260} \\
+\midrule
+\textbf{Caja acumulada, sin aporte} & \textbf{\nm{−7890}} & \textbf{\nm{−17\,565}} & \textbf{\nm{−25\,571}} & \textbf{\nm{−33\,767}} & \textbf{\nm{−40\,306}} & \textbf{\nm{−40\,048}} & \textbf{\nm{−35\,374}} & \textbf{\nm{−27\,788}} & \textbf{\nm{−14\,062}} & \textbf{1403} & \textbf{15\,986} & \textbf{31\,481} & \textbf{41\,831} & \textbf{55\,408} & \textbf{73\,646} & \textbf{87\,091} &  &  &  \\
+{\color{tenue}Caja con aporte de S/~50\,000} & {\color{tenue}42\,110} & {\color{tenue}32\,435} & {\color{tenue}24\,429} & {\color{tenue}16\,233} & {\color{tenue}9694} & {\color{tenue}9952} & {\color{tenue}14\,626} & {\color{tenue}22\,212} & {\color{tenue}35\,938} & {\color{tenue}51\,403} & {\color{tenue}65\,986} & {\color{tenue}81\,481} & {\color{tenue}91\,831} & {\color{tenue}105\,408} & {\color{tenue}123\,646} & {\color{tenue}137\,091} &  &  &  \\
+\bottomrule
+\end{tabular}}
+\end{landscape}
+
+\subsection{La caja, mes a mes}
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, height=6.4cm, ybar=0pt, bar width=14pt, ymin=-55, ymax=100, ytick={-50,-25,...,100},
+  yticklabel={\pgfmathprintnumber{\tick}~mil},
+  xmin=-0.6, xmax=15.6, xtick={0,...,15}, xticklabels={dic-26,ene-27,feb-27,mar-27,abr-27,may-27,jun-27,jul-27,ago-27,sep-27,oct-27,nov-27,dic-27,ene-28,feb-28,mar-28}, x tick label style={font=\tiny\color{tenue}},
+  extra y ticks={0}, extra y tick style={grid style={draw=tinta2, thick}}]
+\addplot[fill=rojosuave, draw=none, bar shift=0pt] coordinates {(0,-7.89) (1,-17.56) (2,-25.57) (3,-33.77) (4,-40.31) (5,-40.05) (6,-35.37) (7,-27.79) (8,-14.06) (9,0.00) (10,0.00) (11,0.00) (12,0.00) (13,0.00) (14,0.00) (15,0.00)}; \addlegendentry{Caja negativa}
+\addplot[fill=verde!80, draw=none, bar shift=0pt] coordinates {(0,0.00) (1,0.00) (2,0.00) (3,0.00) (4,0.00) (5,0.00) (6,0.00) (7,0.00) (8,0.00) (9,1.40) (10,15.99) (11,31.48) (12,41.83) (13,55.41) (14,73.65) (15,87.09)}; \addlegendentry{Caja positiva}
+\addplot[sharp plot, dashed, thick, color=ambar, mark=none, forget plot] coordinates {(-0.6,-50) (15.6,-50)};
+\node[font=\tiny\color{tinta}, anchor=north] at (axis cs:4,-40.31) {S/~−40\,306};
+\node[font=\tiny\color{ambar}, anchor=south west] at (axis cs:-0.5,-50) {Aporte recomendado: S/~50\,000};
+\end{axis}
+\end{tikzpicture}
+\caption{Caja acumulada sin aporte de capital. Toca fondo en abril de 2027, vuelve a positivo en septiembre y nunca baja de los S/~−50\,000 que cubre el aporte recomendado.}
+\end{figure}
+
+% ─── 8 ───────────────────────────────────────────────────────────────────
+\section{Capital, impuestos y cierre del período}
+
+\subsection{Cuánto capital se necesita}
+
+Sin aporte, la caja baja hasta S/~−40\,306 en abril de 2027. Hasta marzo de 2027 la caja ya acumula un déficit de S/~33\,767, y el punto más bajo llega en abril, cuando entra el asistente de oficina con su equipo. Con un aporte de S/~50\,000, la caja nunca baja de S/~9694, un colchón menor que la cobranza de un solo mes: en abril de 2027 se cobran S/~11\,679. Si se quiere cubrir también un mes de cobranza atrasada, el aporte sube a unos S/~59\,000, porque el caso más exigente es junio de 2027: la caja sin aporte está en S/~−35\,374 y ese mes se cobran S/~22\,886. Si se factura a inicio de mes, el capital necesario baja a S/~24~mil y alcanzan unos S/~35\,000.
+
+\subsection{Posición al 31 de marzo de 2028}
+
+\begin{center}
+\begin{tabularx}{0.8\linewidth}{@{}Xr@{}}
+\toprule
+Caja acumulada, sin aporte de capital & S/~87\,091\\
+Facturación por cobrar, que entra en abril y mayo & S/~59\,201\\
+IGV de marzo, que se paga en abril & S/~8609\\
+Ventas sin IGV del primer trimestre de 2028 & S/~131\,102\\
+Utilidad operativa del primer trimestre de 2028 & S/~69\,038\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Impuestos}
+
+\begin{itemize}
+\item \textbf{IGV del 18\,\%.} Se debe cuando se emite la factura, aunque el cliente todavía no haya pagado. Como microempresa, Micros Tempo puede acogerse al IGV Justo (Ley 30524) y postergar ese pago tres meses.
+\item \textbf{Renta en el Régimen MYPE Tributario.} Cada mes se adelanta el 1\,\% de las ventas sin IGV. La renta anual es del 10\,\% sobre los primeros 15 UIT de utilidad, que son S/~82\,500, y del 29,5\,\% sobre el resto. La utilidad de 2027 menos la pérdida de diciembre de 2026 deja una renta de S/~9488; los adelantos cubren S/~2659 y el saldo de S/~6829 se paga en marzo de 2028.
+\item \textbf{Detracción del 12\,\%.} Se aplica a los servicios facturados por más de S/~700. Con el precio base, una ruta factura entre S/~560 y S/~620 al mes y queda por debajo; con S/~0,50 más IGV, la factura de un mes de 30 días sube a S/~708 y sí tendría detracción, igual que una empresa de la ciudad grande con varias rutas en una sola factura.
+\item \textbf{Régimen laboral de microempresa.} Vale mientras las ventas anuales no pasen de 150 UIT, que son S/~825\,000. En 2027 se venden S/~265\,898, y en marzo de 2028 el ritmo anual ronda los S/~600\,000.
+\item \textbf{Gerson en planilla.} Desde julio de 2027 cobra S/~2000 en planilla con EsSalud, y la utilidad que quede en la EIRL se puede retirar como dividendos con una retención del 5\,\%.
+\end{itemize}
+
+% ─── 9 ───────────────────────────────────────────────────────────────────
+\section{Análisis de sensibilidad}
+
+Cada escenario cambia un solo supuesto del plan base y deja todo lo demás igual. Los dos gráficos ordenan los escenarios por su efecto: el primero muestra la utilidad de 2027 y el segundo, el capital mínimo que necesitaría cada uno.
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, xbar, scale only axis, width=0.55\linewidth, height=7.2cm, bar width=6.5pt, xmajorgrids, ymajorgrids=false,
+  ytick={0,...,13}, yticklabels={{Todos traen la mitad},{Se cobra el 85 \% de las unidades},{Servidor al doble del costo},{Primer mes gratis por ruta},{Ciudad grande a S/~3000 al mes},{Plan base},{Facturación a inicio de mes},{Solo Juliaca y Puno},{Pausa de 2 meses},{Gerson sin sueldo},{Gerson sigue vendiendo},{Sin pausa},{Precio de S/~0,50 más IGV},{Precio de S/~0,60}}, y tick label style={font=\scriptsize\color{tinta2}},
+  xticklabel={\pgfmathprintnumber{\tick}~mil},
+  nodes near coords, nodes near coords align={horizontal}, point meta=explicit symbolic, ymin=-0.7, ymax=13.7, enlarge x limits={upper,value=0.2}, xmin=0]
+\addplot[fill=marca, draw=none] coordinates {(24.48,0) [S/~24,5~mil] (53.12,1) [S/~53,1~mil] (68.11,2) [S/~68,1~mil] (76.38,3) [S/~76,4~mil] (84.33,4) [S/~84,3~mil] (92.21,5) [S/~92,2~mil] (92.21,6) [S/~92,2~mil] (101.51,7) [S/~101,5~mil] (103.47,8) [S/~103,5~mil] (106.22,9) [S/~106,2~mil] (114.26,10) [S/~114,3~mil] (133.56,11) [S/~133,6~mil] (139.11,12) [S/~139,1~mil] (144.32,13) [S/~144,3~mil]};
+\draw[dashed, color=ambar, thick] (axis cs:92.21,-0.7) -- (axis cs:92.21,13.7);
+\end{axis}
+\end{tikzpicture}
+\caption{Utilidad operativa de 2027 en cada escenario. La línea punteada es el plan base.}
+\end{figure}
+
+\begin{figure}[H]
+\begin{tikzpicture}
+\begin{axis}[casa, xbar, scale only axis, width=0.55\linewidth, height=7.2cm, bar width=6.5pt, xmajorgrids, ymajorgrids=false,
+  ytick={0,...,13}, yticklabels={{Todos traen la mitad},{Servidor al doble del costo},{Primer mes gratis por ruta},{Se cobra el 85 \% de las unidades},{Gerson sigue vendiendo},{Plan base},{Sin pausa},{Pausa de 2 meses},{Solo Juliaca y Puno},{Ciudad grande a S/~3000 al mes},{Gerson sin sueldo},{Precio de S/~0,50 más IGV},{Precio de S/~0,60},{Facturación a inicio de mes}}, y tick label style={font=\scriptsize\color{tinta2}},
+  xticklabel={\pgfmathprintnumber{\tick}~mil},
+  nodes near coords, nodes near coords align={horizontal}, point meta=explicit symbolic, ymin=-0.7, ymax=13.7, enlarge x limits={upper,value=0.2}, xmin=0]
+\addplot[fill=rojosuave, draw=none] coordinates {(46.70,0) [S/~46,7~mil] (46.45,1) [S/~46,4~mil] (46.26,2) [S/~46,3~mil] (44.85,3) [S/~44,8~mil] (41.44,4) [S/~41,4~mil] (40.31,5) [S/~40,3~mil] (40.31,6) [S/~40,3~mil] (40.31,7) [S/~40,3~mil] (40.31,8) [S/~40,3~mil] (40.31,9) [S/~40,3~mil] (40.31,10) [S/~40,3~mil] (37.00,11) [S/~37~mil] (36.63,12) [S/~36,6~mil] (23.98,13) [S/~24~mil]};
+\draw[dashed, color=ambar, thick] (axis cs:40.31,-0.7) -- (axis cs:40.31,13.7);
+\end{axis}
+\end{tikzpicture}
+\caption{Capital mínimo que necesita cada escenario. La línea punteada es el plan base.}
+\end{figure}
+
+\subsection{La tabla completa}
+
+{\small
+\begin{tabularx}{\linewidth}{@{}Xrrrr@{}}
+\toprule
+Escenario & Gana desde & Utilidad 2027 & Caja mínima & Caja mar-28\\
+\midrule
+\textbf{Plan base} & \textbf{may-27} & \textbf{92\,207} & \textbf{\nm{−40\,306}} & \textbf{87\,091} \\
+Sin pausa & may-27 & 133\,557 & \nm{−40\,306} & 150\,323 \\
+Pausa de 2 meses & may-27 & 103\,469 & \nm{−40\,306} & 112\,107 \\
+Solo Juliaca y Puno & may-27 & 101\,512 & \nm{−40\,306} & 93\,725 \\
+Facturación a inicio de mes & may-27 & 92\,207 & \nm{−23\,984} & 144\,525 \\
+Gerson sigue vendiendo & abr-27 & 114\,259 & \nm{−41\,443} & 119\,179 \\
+Todos traen la mitad & jun-27 & 24\,483 & \nm{−46\,701} & 22\,954 \\
+Ciudad grande a S/~3000 al mes & may-27 & 84\,332 & \nm{−40\,306} & 76\,097 \\
+Gerson sin sueldo & may-27 & 106\,225 & \nm{−40\,306} & 103\,982 \\
+Se cobra el 85 \% de las unidades & may-27 & 53\,120 & \nm{−44\,846} & 41\,327 \\
+Primer mes gratis por ruta & may-27 & 76\,378 & \nm{−46\,256} & 68\,894 \\
+Servidor al doble del costo & may-27 & 68\,112 & \nm{−46\,449} & 55\,126 \\
+Precio de S/~0,60 & mar-27 & 144\,323 & \nm{−36\,633} & 139\,037 \\
+Precio de S/~0,50 más IGV & mar-27 & 139\,112 & \nm{−37\,000} & 133\,843 \\
+\bottomrule
+\end{tabularx}}
+
+\subsection{Lo que muestran los escenarios}
+
+\textbf{El riesgo más grande es vender menos de lo previsto.} Si cada persona que vende trae la mitad, el capital necesario sube a S/~46,7~mil y la caja de marzo de 2028 queda en S/~23~mil. La señal llega pronto: si a fines de marzo de 2027 no hay unas 20 rutas activas, el plan se tiene que corregir.
+
+\textbf{La pausa reduce el crecimiento, pero no cambia el capital necesario.} Con cuatro meses de pausa, 2027 deja S/~92,2~mil; sin pausa, una de S/~133,6~mil. El capital necesario es el mismo en los dos casos, porque el punto más bajo de la caja llega antes de la pausa.
+
+\textbf{Hasta marzo de 2028, quedarse en Juliaca y Puno deja un poco más.} En ese escenario, 2027 cierra con S/~101,5~mil y la caja de marzo de 2028 llega a S/~93,7~mil, porque no se paga la preparación de la ciudad grande. Desde enero de 2028 el plan base ya gana más cada mes, y la diferencia crece con cada ruta nueva.
+
+\textbf{Que Gerson deje de vender cuesta S/~22,1~mil de utilidad en 2027.} Es el precio de tener a una persona dedicada al sistema cuando el servicio pasa de unas pocas rutas a miles de unidades.
+
+% ─── 10 ──────────────────────────────────────────────────────────────────
+\section{Riesgos y cómo vigilarlos}
+
+{\small
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{3.4cm}XX@{}}
+\toprule
+\normalfont Riesgo & Señal temprana & Qué hacer\\
+\midrule
+Se vende menos de lo previsto & Menos de 20 rutas activas a fines de marzo de 2027. & Revisar el argumento de venta con las empresas que dijeron que no, antes de contratar más vendedores.\\
+Las rutas firmadas no usan la app & Menos del 80\,\% de las unidades reportando una semana después de la firma. & Volver a instalar y capacitar al despacho, porque una ruta que no usa la app deja de pagar.\\
+La cobranza se atrasa & Menos del 95\,\% cobrado al día 15 del mes siguiente. & Facturar a inicio de mes y suspender el servicio, con un aviso claro, al segundo mes impago.\\
+El servidor no aguanta la escala & Pasar de 3500 unidades sin haber revisado el servidor. & Preparar el servidor antes de las 5000 unidades, porque las pruebas de carga muestran que a ese tamaño un informe largo frena el GPS de toda la flota.\\
+El sistema depende de una sola persona & Una falla que nadie más puede atender. & Documentar los despliegues y tener un programador de confianza al que se le pague por horas.\\
+La ciudad grande tarda en arrancar & Menos de 10 contratos listos a fines de noviembre de 2027. & Alargar la pausa un mes o buscar rutas que todavía no se hayan firmado en Juliaca y Puno.\\
+\bottomrule
+\end{tabularx}}
+
+% ─── 11 ──────────────────────────────────────────────────────────────────
+\section{Recomendaciones}
+
+\begin{enumerate}
+\item \textbf{Comprometer S/~50\,000 antes de diciembre de 2026,} o S/~35\,000 si se factura a inicio de mes. El dinero puede entrar por partes, porque hasta marzo de 2027 la caja acumula un déficit de unos S/~33,8~mil y el punto más bajo llega recién en abril.
+\item \textbf{Facturar a inicio de mes,} porque es la medida más barata del plan y la que más baja el capital necesario.
+\item \textbf{Pasarle la cartera de Gerson al vendedor D en su primera semana de marzo,} con Gerson a su lado en las reuniones, para que D no empiece de cero.
+\item \textbf{Medir la meta cada semana:} quién firmó qué ruta y cuántos teléfonos quedaron con la app activa.
+\item \textbf{Planificar la pausa desde mayo,} para que en agosto ya esté elegida la ciudad grande y armado el trabajo de los cuatro meses.
+\item \textbf{Probar S/~0,50 más IGV,} que significa un 18\,\% más de ingreso si las empresas aceptan el precio, aunque la factura de una ruta pasaría a S/~708 en un mes de 30 días y entraría en la detracción del 12\,\%.
+\item \textbf{Firmar contratos por unidad inscrita,} con un mínimo de 40 unidades por ruta y un plazo de 12 meses.
+\item \textbf{Apartar cada mes un 10\,\% de la utilidad para la renta,} y un 29,5\,\% de la que pase de S/~82\,500 en el año: de ese fondo salen los adelantos del 1\,\% y el saldo que se paga en marzo. En 2028 ese tope se alcanza pronto, porque solo el primer trimestre deja S/~69\,038.
+\item \textbf{Separar las cuentas:} la EIRL con su propia cuenta bancaria, y los retiros de Gerson con un monto y una fecha fijos.
+\end{enumerate}
+
+\subsection{Qué evitar}
+
+\begin{itemize}
+\item \textbf{Dar pruebas gratis sin fecha de fin,} porque cada mes gratis de una ruta cuesta unos S/~500 y acostumbra al cliente a no pagar.
+\item \textbf{Partir la factura de una empresa con varias rutas para esquivar la detracción,} porque SUNAT mira la operación y no el papel.
+\item \textbf{Que Gerson vuelva a vender cuando falte una ruta para la meta del mes,} porque desde marzo su trabajo es el sistema.
+\item \textbf{Pagar a los vendedores durante la pausa sin metas propias,} porque entre sueldos, cargas y movilidad cuestan unos S/~17\,200 en cuatro meses.
+\item \textbf{Regalar celulares, soportes o datos a los choferes,} porque S/~15 por chofer equivalen a lo que paga su unidad en un mes entero, con IGV, y en una ruta de 40 unidades suman S/~600, todo lo que la ruta paga en un mes.
+\end{itemize}
+
+% ─── 12 ──────────────────────────────────────────────────────────────────
+\section{Calendario de decisiones}
+
+{\small
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{3.2cm}XX@{}}
+\toprule
+\normalfont Mes & Qué pasa & Qué se decide\\
+\midrule
+Diciembre de 2026 & Dos rutas de prueba, oficina prestada y un vendedor a medio tiempo. & Constituir la EIRL, inscribirla en el REMYPE y abrir la cuenta bancaria.\\
+Enero de 2027 & Empieza la facturación y se alquila la oficina. & Confirmar con el contador la detracción y el pago a Gerson.\\
+Febrero de 2027 & Entra el vendedor B, y Gerson vende su último mes. & Preparar la cartera de Gerson para entregársela al vendedor D en marzo.\\
+Marzo de 2027 & Entra el vendedor D y Gerson pasa al sistema. & Comparar las rutas activas con el plan, que espera 23.\\
+Abril de 2027 & Entra el asistente de oficina y la caja toca fondo. & Revisar el capital disponible frente a lo gastado.\\
+Mayo de 2027 & El negocio empieza a ganar todos los meses. & Armar el plan de la pausa y la lista de ciudades posibles.\\
+Julio de 2027 & Se llega a 60 rutas y Gerson empieza a cobrar. & Confirmar que Juliaca y Puno están llenas o seguir vendiendo allí.\\
+Agosto a noviembre de 2027 & Pausa para preparar la ciudad grande. & Elegir entre Arequipa y Cusco en agosto y dejar 10 contratos listos.\\
+Diciembre de 2027 & Primeras rutas en la ciudad grande. & Decidir si hace falta un cuarto vendedor para 2028.\\
+Marzo de 2028 & Se paga la renta de 2027 y cierra el período del plan. & Escribir el plan del segundo año con los números reales.\\
+\bottomrule
+\end{tabularx}}
+
+\section*{Anexo: método y cifras por confirmar}
+\addcontentsline{toc}{section}{Anexo: método y cifras por confirmar}
+
+Los números salen del archivo \texttt{plan-financiero/modelo/modelo.js} del repositorio, y una prueba automática fija los resultados de este documento. El costo del servidor sale de las pruebas de carga del sistema (\texttt{modelo-costos.js}), ajustadas a 40 unidades por ruta. El simulador usa el mismo modelo, de modo que lo que se cambie allí se puede comparar con este plan.
+
+Las cifras tributarias y laborales son de noviembre de 2026 y salen de memoria, así que el contador debe confirmarlas antes de usarlas. La UIT de 2027 se tomó como S/~5500 y la remuneración mínima, como S/~1130. Falta confirmar si el servicio entra en el sistema de detracciones, qué requisitos pide el IGV Justo y cómo se declaran los medios tiempos. También hay que confirmar si los trabajadores de una microempresa van a EsSalud o al SIS semicontributivo: el plan supone EsSalud del 9\,\%, que es la opción más cara.
+
+\end{document}

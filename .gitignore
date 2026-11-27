@@ -51,3 +51,6 @@ manual/*.synctex.gz
 
 # Auditoría de UI: lo que deja medir.js (capturas y JSON); se regenera
 auditoria-ui/medidas/
+
+# Plan financiero: el PDF que vale es plan-financiero/plan-primer-anio-alfa.pdf
+plan-financiero/latex/*.pdf

@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Simulador COOP-R14</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: barra lateral de supuestos a la izquierda y resultados a la derecha; en el celular, una sola columna */
+:root{
+  --bg:#f4f6f5; --panel:#ffffff; --ink:#15201d; --ink2:#4b5753; --muted:#78837f; --line:#dde3df;
+  --accent:#0f6b5c; --accent-soft:#e3f0ec; --neg:#b3261e; --pos:#1d7a3a; --warn-bg:#fff6e0; --warn-ink:#7a5200;
+  --s1:#2a78d6; --s2:#eb6834; --barneg:#d06a5f; --barpos:#2f8f6b; --base:#9aa5a1;
+  --f-body:"Inter",system-ui,sans-serif; --f-num:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#101715; --panel:#18211e; --ink:#e9efec; --ink2:#b5c1bc; --muted:#8a9792; --line:#2a3532;
+  --accent:#5cc4ab; --accent-soft:#1c2f2a; --neg:#ff8a80; --pos:#6fd08f; --warn-bg:#2d2512; --warn-ink:#f0c66b;
+  --s1:#3987e5; --s2:#d95926; --barneg:#c4625a; --barpos:#3aa37c; --base:#5d6965; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#101715; --panel:#18211e; --ink:#e9efec; --ink2:#b5c1bc; --muted:#8a9792; --line:#2a3532;
+  --accent:#5cc4ab; --accent-soft:#1c2f2a; --neg:#ff8a80; --pos:#6fd08f; --warn-bg:#2d2512; --warn-ink:#f0c66b;
+  --s1:#3987e5; --s2:#d95926; --barneg:#c4625a; --barpos:#3aa37c; --base:#5d6965; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--f-body);margin:0}
+.wrap{max-width:1400px;margin:0 auto;padding-block:24px 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between;margin-bottom:18px}
+h1{font-size:24px;font-weight:700;margin:0;text-wrap:balance}
+.eyebrow{font:600 11px/1 var(--f-body);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+header p{margin:6px 0 0;color:var(--ink2);max-width:68ch}
+.acciones{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font:500 13px var(--f-body);color:var(--accent);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:7px 12px;cursor:pointer}
+.btn:hover{border-color:var(--accent)} .btn.prim{background:var(--accent);color:var(--panel);border-color:var(--accent)}
+.btn:focus-visible,input:focus-visible,select:focus-visible,.tg:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:1fr}}
+aside{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 14px 14px;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto}
+@media (max-width:900px){aside{position:static;max-height:none}}
+details{border-bottom:1px solid var(--line)} details:last-child{border-bottom:0}
+summary{font-weight:600;padding:11px 0;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"";width:0;height:0;border-left:5px solid var(--accent);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s}
+details[open] summary::after{transform:rotate(90deg)}
+.campo{display:grid;grid-template-columns:1fr 96px;gap:4px 10px;align-items:center;margin:0 0 10px}
+.campo label{font-size:13px;color:var(--ink2);line-height:1.3}
+.campo .ayuda{grid-column:1/-1;font-size:11.5px;color:var(--muted);margin-top:-2px}
+.campo input[type=number],.campo select{width:100%;font:13px var(--f-num);padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.campo input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent)}
+.campo.check{grid-template-columns:1fr auto}
+.campo.cambiado label{color:var(--accent);font-weight:600}
+main{min-width:0;display:flex;flex-direction:column;gap:18px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kpi .v{font:600 21px/1.15 var(--f-num);font-variant-numeric:tabular-nums}
+.kpi .v.neg{color:var(--neg)} .kpi .v.pos{color:var(--pos)}
+.kpi .l{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.35}
+.kpi .d{font-size:12px;margin-top:6px;color:var(--ink2)} .kpi .d b{font-weight:600}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.panel h2{font-size:16px;margin:0 0 4px} .panel .cap{font-size:12.5px;color:var(--muted);margin:0 0 10px}
+.graficos{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px}
+svg{width:100%;height:auto;display:block}
+.rej{stroke:var(--line);stroke-width:1} .cero{stroke:var(--ink2);stroke-width:1}
+.eje{fill:var(--muted);font:10.5px var(--f-body)} .dato{fill:var(--ink);font:600 11px var(--f-body)}
+.bpos{fill:var(--barpos)} .bneg{fill:var(--barneg)} .bbase{fill:none;stroke:var(--base);stroke-width:1.5;stroke-dasharray:3 3}
+.ln{fill:none;stroke-width:2;stroke-linejoin:round}
+.leyenda{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink2);margin-bottom:6px}
+.leyenda i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.leyenda i.dash{background:none;border-top:2px dashed var(--base);height:0}
+.aviso{background:var(--warn-bg);color:var(--warn-ink);border-radius:8px;padding:10px 12px;font-size:13px}
+.aviso:empty{display:none}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+thead th{color:var(--muted);font-weight:600;text-align:right;position:sticky;top:0;background:var(--panel)}
+thead th:first-child{text-align:left}
+tbody th{text-align:left;font-weight:500;position:sticky;left:0;background:var(--panel);z-index:1}
+td{text-align:right;font-family:var(--f-num);font-variant-numeric:tabular-nums;color:var(--ink2)}
+td.neg{color:var(--neg)}
+tr.fuerte th,tr.fuerte td{font-weight:700;color:var(--ink)}
+tr.sub th,tr.sub td{font-weight:700;color:var(--ink);background:var(--accent-soft)}
+tr.total th,tr.total td{font-weight:700;color:var(--ink);border-top:2px solid var(--ink)}
+tr.meta th,tr.meta td{color:var(--muted);font-weight:400}
+tr.hijo th{padding-left:26px;font-weight:400;color:var(--ink2);font-size:12px} tr.hijo th,tr.hijo td{background:var(--bg)}
+tr.hijo td{font-size:12px}
+.tg{all:unset;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.car{display:inline-block;width:0;height:0;border-left:5px solid var(--accent);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s}
+.tg[aria-expanded="true"] .car{transform:rotate(90deg)}
+.reales input{width:54px;font:12px var(--f-num);padding:3px 4px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink);text-align:right}
+.reales input.lleno{border-color:var(--accent);background:var(--accent-soft)}
+.pestanas{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.pestanas button[aria-selected="true"]{background:var(--accent);color:var(--panel);border-color:var(--accent)}
+.escenarios{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px}
+.escenarios input{font:13px var(--f-body);padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);min-width:0;width:180px}
+.chip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;background:var(--bg)}
+.chip button{all:unset;cursor:pointer;color:var(--accent);font-weight:600;padding:0 6px}
+.chip button.x{color:var(--muted)}
+.estado{font-size:12px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.car,summary::after{transition:none}}
+</style>
+
+<div class="wrap">
+<header>
+  <div>
+    <div class="eyebrow">COOP-R14 · Plan del Primer Año v. alfa</div>
+    <h1>Simulador del plan</h1>
+    <p>Cambia un supuesto y todo se recalcula al momento. La línea punteada y las diferencias en gris comparan con el plan alfa. Carga las rutas que de verdad se firman cada mes para ver cómo se corrige el resto del año.</p>
+  </div>
+  <div class="acciones">
+    <button type="button" class="btn" id="reiniciar">Volver al plan alfa</button>
+    <button type="button" class="btn" id="copiar">Copiar escenario</button>
+    <button type="button" class="btn" id="pegarBtn">Pegar escenario</button>
+  </div>
+</header>
+
+<div class="layout">
+<aside id="controles" aria-label="Supuestos"></aside>
+<main>
+  <div class="kpis" id="kpis"></div>
+  <div class="aviso" id="avisos"></div>
+  <section class="panel">
+    <h2>Rutas reales</h2>
+    <p class="cap">Escribe cuántas rutas nuevas se firmaron en cada mes. Un mes con número reemplaza a la capacidad del equipo; uno vacío sigue el plan.</p>
+    <div class="scroll reales"><table id="tablaReales"></table></div>
+  </section>
+  <div class="graficos">
+    <section class="panel"><h2>Caja acumulada</h2><p class="cap">Sin aporte de capital. El punto más bajo es el capital que necesitas.</p><div class="leyenda"><span><i style="background:var(--barpos)"></i>Este escenario</span><span><i class="dash"></i>Plan alfa</span></div><div id="gCaja"></div></section>
+    <section class="panel"><h2>Ingreso y gastos</h2><p class="cap">Desde donde la línea azul pasa a la naranja, el negocio gana.</p><div class="leyenda"><span><i style="background:var(--s1)"></i>Ingreso neto</span><span><i style="background:var(--s2)"></i>Gastos y depreciación</span></div><div id="gLineas"></div></section>
+  </div>
+  <section class="panel">
+    <div class="pestanas" role="tablist">
+      <button type="button" class="btn" role="tab" aria-selected="true" data-t="rutas">Rutas y equipo</button>
+      <button type="button" class="btn" role="tab" aria-selected="false" data-t="resultados">Estado de resultados</button>
+      <button type="button" class="btn" role="tab" aria-selected="false" data-t="caja">Flujo de caja</button>
+    </div>
+    <p class="cap" id="capTabla"></p>
+    <div class="scroll"><table id="tabla"></table></div>
+  </section>
+  <section class="panel">
+    <h2>Escenarios guardados</h2>
+    <p class="cap">Se guardan en este navegador. Para pasarle un escenario a otra persona, usa «Copiar escenario» y que lo pegue en su simulador.</p>
+    <div class="escenarios"><label for="nombreEsc" class="estado">Nombre</label><input id="nombreEsc" type="text" placeholder="Ej.: precio 0,60 en Puno"><button type="button" class="btn prim" id="guardar">Guardar</button></div>
+    <div class="escenarios" id="listaEsc" style="margin-top:10px"></div>
+    <div id="pegarCaja" hidden style="margin-top:10px"><label for="pegarTexto" class="estado">Pega aquí el escenario copiado</label><textarea id="pegarTexto" rows="3" style="width:100%;font:12px var(--f-num);background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px"></textarea><button type="button" class="btn prim" id="pegarOk">Cargar</button> <span class="estado" id="pegarEstado"></span></div>
+  </section>
+  <p class="estado">El modelo es el mismo del PDF (plan-financiero/modelo/modelo.js). Las cifras tributarias son de noviembre de 2026 y las debe confirmar el contador.</p>
+</main>
+</div>
+</div>
+
+<script>
+// Modelo financiero de COOP-R14: Plan del Primer Año, versión alfa.
+//
+// Un solo archivo para Node y para el navegador. En Node:
+//   const { simular, SUPUESTOS } = require('./modelo');
+//   const r = simular({ precio: 0.6 });
+// En el navegador queda como window.CoopModelo.
+//
+// Todo número que cambia el resultado está en SUPUESTOS. Los meses se
+// cuentan desde diciembre de 2026 (mes 0) hasta marzo de 2028 (mes 15).
+(function (raiz) {
+  'use strict';
+
+  const SUPUESTOS = {
+    // Precio y mercado
+    precio: 0.50,              // S/ por unidad por día
+    precioIncluyeIGV: true,    // false: se cobra precio + IGV
+    unidadesPorRuta: 40,
+    utilizacion: 1.0,          // fracción de unidades-día que se cobran
+    rutasPrueba: 2,            // rutas gratis de diciembre de 2026
+    eneroPagaCompleto: true,   // las rutas de enero pagan el mes entero
+    fraccionMesNuevas: 0.5,    // una ruta nueva paga esta fracción en su primer mes
+    mesGratisNuevas: false,    // cada ruta nueva no paga su primer mes
+    techoLocal: 60,            // rutas de Juliaca + Puno
+    rutasParaPuno: 26,         // desde aquí se vende también en Puno
+    pausaMeses: 4,             // meses sin firmar al llenar Juliaca + Puno
+    ciudadGrande: true,        // después de la pausa se vende en Arequipa o Cusco
+    costoCiudadGrande: 1500,   // S/ al mes de viajes y estadía, desde la pausa
+    viajesPuno: 500,           // S/ al mes desde que se vende en Puno
+
+    // Capacidad de venta: rutas por mes de cada persona
+    rutasDueno: 4,             // tú, mientras vendes
+    duenoVendeDesde: 1,        // enero de 2027
+    duenoVendeHasta: 3,        // deja de vender en marzo de 2027
+    rampaTiempoCompleto: [1, 4],
+    rampaMedioTiempo: [1, 2],
+
+    // Equipo: mes de entrada (0 = dic-26, 1 = ene-27, ...)
+    vendedorA_medioDesde: 0,   // A empieza a medio tiempo
+    vendedorA_completoDesde: 1,// y pasa a tiempo completo
+    vendedorB_desde: 2,        // B, medio tiempo
+    vendedorD_desde: 3,        // D, tiempo completo: te reemplaza en ventas
+    oficina_desde: 4,          // medio tiempo de oficina
+    oficinaVende: false,
+    sueldoTiempoCompleto: 1400,
+    sueldoMedioTiempo: 700,
+    comisionPorRuta: 200,      // solo por las rutas que traen los vendedores
+    cargasSociales: 0.10,      // EsSalud 9 % + Vida Ley 1 %
+    sueldoDueno: 2000,         // tu sueldo como programador
+    duenoCobraDesde: 7,        // julio de 2027
+
+    // Gastos
+    alquiler: 500,
+    alquilerDesde: 1,          // diciembre es en oficina prestada
+    garantiaAlquiler: 1000,
+    suscripcionIA: 400,
+    licenciaPorPersona: 25,
+    contador: 350,
+    contadorDesdeMes6: 500,
+    marketingFijo: 300,
+    kitPorRuta: 150,
+    movilidadPorPersona: 150,
+    celular: 700,
+    planDatos: 50,
+    laptop: 2200,
+    escritorio: 650,
+    acondicionamientoOficina: 1500,
+    constitucionYAbogado: 1600,
+    licenciaMunicipal: 400,
+    imprevistos: 0.05,
+    tipoCambio: 3.75,
+    colchonInfraestructura: 1.25,
+
+    // Cobranza
+    cobroAdelantado: false,    // true: se factura a inicio de mes
+    cobroMes1: 0.95,
+    cobroMes2: 0.03,
+    incobrable: 0.02,
+
+    // Impuestos
+    uit: 5500,
+    igv: 0.18,
+
+    // Rutas reales: si un mes tiene número, reemplaza a la capacidad
+    rutasReales: [],
+    meses: 16,
+  };
+
+  const NOMBRES_MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+  // Costo de servidor y mapas en dólares al mes, sacado de modelo-costos.js
+  // con 40 unidades por ruta.
+  function infraestructuraUSD(rutas) {
+    if (rutas <= 2) return 50;
+    if (rutas <= 14) return 50 + (rutas - 2) * (152 - 50) / 12;
+    return 211 + (rutas - 18) * 7.3;
+  }
+
+  function simular(cambios) {
+    const P = Object.assign({}, SUPUESTOS, cambios || {});
+    const IGV = P.igv;
+    const rampa = (arr, k) => arr[Math.min(k, arr.length - 1)];
+
+    // 1. Meses
+    const meses = [];
+    for (let i = 0; i < P.meses; i++) {
+      const m = (11 + i) % 12, a = 2026 + Math.floor((11 + i) / 12);
+      meses.push({ i, mes: NOMBRES_MES[m] + '-' + String(a).slice(2), dias: new Date(a, m + 1, 0).getDate(), anio: a });
+    }
+
+    // 2. Rutas: quién trae cuántas cada mes
+    const rutas = [], aportes = [];
+    let pausaDesde = null, pausaHasta = null;
+    for (let i = 0; i < P.meses; i++) {
+      const v = {
+        tu: (i >= P.duenoVendeDesde && i < P.duenoVendeHasta) ? P.rutasDueno : 0,
+        a: i >= P.vendedorA_completoDesde ? rampa(P.rampaTiempoCompleto, i - P.vendedorA_completoDesde) : 0,
+        b: i >= P.vendedorB_desde ? rampa(P.rampaMedioTiempo, i - P.vendedorB_desde) : 0,
+        d: i >= P.vendedorD_desde ? rampa(P.rampaTiempoCompleto, i - P.vendedorD_desde) : 0,
+        c: (P.oficinaVende && i >= P.oficina_desde) ? rampa(P.rampaMedioTiempo, i - P.oficina_desde) : 0,
+      };
+      if (i === 0) { v.tu = v.a = v.b = v.d = v.c = 0; }
+      const enPausa = pausaDesde !== null && i >= pausaDesde && (i < pausaHasta || !P.ciudadGrande);
+      if (enPausa) { v.tu = v.a = v.b = v.d = v.c = 0; v.pausa = true; }
+      v.total = i === 0 ? P.rutasPrueba : v.tu + v.a + v.b + v.d + v.c;
+      const real = P.rutasReales[i];
+      if (real !== undefined && real !== null && real !== '' && !isNaN(real)) { v.real = true; v.total = Number(real); }
+      const previas = i ? rutas[i - 1] : 0;
+      let r = previas + v.total;
+      if (pausaDesde === null && i > 0 && r >= P.techoLocal) {
+        if (!v.real) {
+          let sobra = r - P.techoLocal;
+          for (const k of ['c', 'b', 'd', 'a', 'tu']) { const q = Math.min(sobra, v[k]); v[k] -= q; sobra -= q; }
+          v.total = P.techoLocal - previas; r = P.techoLocal;
+        }
+        pausaDesde = i + 1; pausaHasta = i + 1 + P.pausaMeses;
+      }
+      rutas.push(r); aportes.push(v);
+    }
+
+    // 3. Mes a mes
+    const filas = [];
+    let caja = 0, cajaMin = 0, mesCajaMin = meses[0].mes, saldoIGV = 0, igvPorPagar = 0, pacPorPagar = 0;
+    let utilAnio = 0, rentaAnio = 0, perdidaArrastre = 0, renta2027 = null;
+    const facturado = [], laptops = [], antes = {};
+    for (let i = 0; i < P.meses; i++) {
+      const { mes, dias, anio } = meses[i];
+      const R = rutas[i], ap = aportes[i], nuevas = ap.total;
+      const cobra = i >= 1;
+
+      // Equipo en jornadas
+      const vend = (i >= P.vendedorA_completoDesde ? 1 : i >= P.vendedorA_medioDesde ? 0.5 : 0)
+        + (i >= P.vendedorB_desde ? 0.5 : 0) + (i >= P.vendedorD_desde ? 1 : 0);
+      const personasVenta = (i >= P.vendedorA_medioDesde ? 1 : 0) + (i >= P.vendedorB_desde ? 1 : 0) + (i >= P.vendedorD_desde ? 1 : 0);
+      const equipo = { vendedores: vend, personasVenta, oficina: i >= P.oficina_desde ? 0.5 : 0, dueno: (P.sueldoDueno > 0 && i >= P.duenoCobraDesde) ? 1 : 0 };
+      const contratados = personasVenta + (equipo.oficina ? 1 : 0);
+      const altas = Math.max(0, contratados - (antes.contratados || 0));
+      antes.contratados = contratados;
+      const enPlanilla = contratados + equipo.dueno;
+      const enOficina = contratados + 1; // tú siempre
+
+      // Ingresos
+      let completas = 0, medias = 0;
+      if (cobra) {
+        if (i === 1 && P.eneroPagaCompleto) completas = R;
+        else { completas = rutas[i - 1]; medias = P.mesGratisNuevas ? 0 : nuevas * P.fraccionMesNuevas; }
+      }
+      const precioConIGV = P.precioIncluyeIGV ? P.precio : P.precio * (1 + IGV);
+      const porRuta = P.unidadesPorRuta * P.utilizacion * precioConIGV * dias;
+      const ventaConIGV = (completas + medias) * porRuta;
+      const venta = ventaConIGV / (1 + IGV);
+
+      // Gastos, con su desglose
+      const L = {}, D = {}, credito = {};
+      const add = (grupo, monto, conIGV, detalle) => {
+        if (!monto) return;
+        const neto = conIGV ? monto / (1 + IGV) : monto;
+        L[grupo] = (L[grupo] || 0) + neto;
+        if (conIGV) credito[grupo] = (credito[grupo] || 0) + monto - neto;
+        const d = detalle || grupo; D[grupo] = D[grupo] || {}; D[grupo][d] = (D[grupo][d] || 0) + neto;
+      };
+      const sVend = (i >= P.vendedorA_completoDesde ? P.sueldoTiempoCompleto : i >= P.vendedorA_medioDesde ? P.sueldoMedioTiempo : 0)
+        + (i >= P.vendedorB_desde ? P.sueldoMedioTiempo : 0) + (i >= P.vendedorD_desde ? P.sueldoTiempoCompleto : 0);
+      const sOfi = equipo.oficina ? P.sueldoMedioTiempo : 0;
+      const sDueno = equipo.dueno ? P.sueldoDueno : 0;
+      const comision = P.comisionPorRuta * (i === 0 ? nuevas : Math.max(0, nuevas - ap.tu));
+      add('Sueldos y comisiones', sVend, false, 'Vendedores');
+      add('Sueldos y comisiones', sOfi, false, 'Asistente de oficina');
+      add('Sueldos y comisiones', sDueno, false, 'Tú (programación)');
+      add('Sueldos y comisiones', comision, false, 'Comisiones por ruta firmada');
+      add('Cargas sociales', sVend * P.cargasSociales, false, 'Vendedores');
+      add('Cargas sociales', sOfi * P.cargasSociales, false, 'Asistente de oficina');
+      add('Cargas sociales', sDueno ? Math.max(sDueno, 1130) * 0.09 + sDueno * 0.01 : 0, false, 'Tú (programación)');
+      add('Cargas sociales', comision * P.cargasSociales, false, 'Sobre las comisiones');
+      const infra = infraestructuraUSD(R) * P.tipoCambio;
+      add('Infraestructura', infra, false, 'Servidor y mapas');
+      add('Infraestructura', infra * (P.colchonInfraestructura - 1), false, 'Colchón por incertidumbre');
+      add('IA y software', P.suscripcionIA, false, 'Suscripción de IA');
+      add('IA y software', P.licenciaPorPersona * enPlanilla, false, 'Licencias por persona en planilla');
+      const enLocal = i >= P.alquilerDesde;
+      add('Alquiler de oficina', enLocal ? P.alquiler : 0, false);
+      add('Servicios de oficina', enLocal ? (enOficina > 6 ? 180 : 120) : 0, true, 'Internet');
+      add('Servicios de oficina', enLocal ? 60 + 12 * enOficina : 0, true, 'Luz, agua y arbitrios');
+      add('Servicios de oficina', enLocal ? 40 + 10 * enOficina : 0, true, 'Mantenimiento y limpieza');
+      add('Planes de datos', P.planDatos * contratados, true, 'Celulares del personal contratado');
+      add('Movilidad y viajes', P.movilidadPorPersona * personasVenta, false, 'Movilidad de vendedores');
+      add('Movilidad y viajes', equipo.oficina ? P.movilidadPorPersona : 0, false, 'Movilidad del asistente de oficina');
+      add('Movilidad y viajes', R >= P.rutasParaPuno ? P.viajesPuno : 0, false, 'Viajes a Puno');
+      const enCiudadGrande = P.ciudadGrande && pausaDesde !== null && i >= pausaDesde;
+      add('Ciudad grande', enCiudadGrande ? P.costoCiudadGrande : 0, false, i < pausaHasta ? 'Preparación de Arequipa o Cusco' : 'Viajes para vender en Arequipa o Cusco');
+      add('Marketing y rutas nuevas', P.marketingFijo, true, 'Material y publicidad');
+      add('Marketing y rutas nuevas', P.kitPorRuta * nuevas, true, 'Kits de entrada');
+      add('Contador externo', i < 6 ? P.contador : P.contadorDesdeMes6, false);
+      add('Equipos menores', P.celular * altas, true, 'Celulares del personal nuevo');
+      add('Equipos menores', i === P.alquilerDesde ? P.escritorio * enOficina : (i > P.alquilerDesde ? P.escritorio * altas : 0), true, 'Escritorios y sillas');
+      add('Equipos menores', i === P.alquilerDesde ? P.acondicionamientoOficina : 0, true, 'Acondicionamiento de la oficina');
+      add('Trámites y legal', i === 0 ? P.constitucionYAbogado : 0, false, 'Constitución de la EIRL y abogado');
+      add('Trámites y legal', i === P.alquilerDesde ? P.licenciaMunicipal : 0, false, 'Licencia municipal e ITSE');
+      add('Útiles y bancos', 30 + 20 * enOficina, true, 'Artículos de oficina');
+      add('Útiles y bancos', 40, false, 'Bancos');
+      const subtotal = Object.values(L).reduce((s, x) => s + x, 0);
+      add('Imprevistos', subtotal * P.imprevistos, false);
+
+      const compraLaptops = P.laptop * altas;
+      if (compraLaptops) laptops.push(compraLaptops / (1 + IGV));
+      const depreciacion = laptops.reduce((s, x) => s + x, 0) * 0.25 / 12;
+      const incobrable = venta * P.incobrable;
+      const gastos = Object.values(L).reduce((s, x) => s + x, 0);
+      const ebitda = venta - incobrable - gastos;
+      const utilOper = ebitda - depreciacion;
+
+      // Renta: Régimen MYPE Tributario
+      let renta = 0;
+      if (anio === 2026) perdidaArrastre += utilOper;
+      else {
+        if (meses[i].mes.startsWith('ene') && i > 1) {
+          renta2027 = rentaAnio; const r = utilAnio + Math.min(0, perdidaArrastre);
+          perdidaArrastre = r < 0 ? r : 0; utilAnio = 0; rentaAnio = 0;
+        }
+        utilAnio += utilOper;
+        const base = Math.max(0, utilAnio + Math.min(0, perdidaArrastre));
+        const t = Math.min(base, 15 * P.uit) * 0.10 + Math.max(0, base - 15 * P.uit) * 0.295;
+        renta = t - rentaAnio; rentaAnio = t;
+      }
+
+      // IGV
+      const igvCompras = Object.values(credito).reduce((s, x) => s + x, 0);
+      const debito = venta * IGV, creditoMes = igvCompras + compraLaptops - compraLaptops / (1 + IGV);
+      let igvMes = debito - creditoMes - saldoIGV;
+      if (igvMes < 0) { saldoIGV = -igvMes; igvMes = 0; } else saldoIGV = 0;
+
+      // Caja
+      facturado.push(ventaConIGV);
+      const cobro1 = P.cobroAdelantado ? facturado[i] * P.cobroMes1 : (facturado[i - 1] || 0) * P.cobroMes1;
+      const cobro2 = P.cobroAdelantado ? (facturado[i - 1] || 0) * P.cobroMes2 : (facturado[i - 2] || 0) * P.cobroMes2;
+      const pagosOperativos = gastos + igvCompras;
+      const garantia = i === P.alquilerDesde ? P.garantiaAlquiler : 0;
+      const pagaIGV = igvPorPagar, pagaAdelanto = pacPorPagar;
+      igvPorPagar = igvMes; pacPorPagar = venta * 0.01;
+      const adelantos2027 = filas.filter(f => f.anio === 2027).reduce((s, f) => s + f.venta * 0.01, 0);
+      const pagaRentaAnual = (meses[i].mes === 'mar-28' && renta2027 !== null) ? Math.max(0, renta2027 - adelantos2027) : 0;
+      const flujoOperativo = cobro1 + cobro2 - pagosOperativos - pagaIGV - pagaAdelanto - pagaRentaAnual;
+      const flujoInversion = -compraLaptops - garantia;
+      const flujo = flujoOperativo + flujoInversion;
+      caja += flujo;
+      if (caja < cajaMin) { cajaMin = caja; mesCajaMin = mes; }
+
+      filas.push({
+        i, mes, dias, anio, rutas: R, nuevas, aportes: ap, unidades: R * P.unidadesPorRuta,
+        ciudades: (R >= P.rutasParaPuno ? 2 : 1) + (P.ciudadGrande && pausaHasta !== null && i >= pausaHasta ? 1 : 0), enPausa: !!ap.pausa, equipo,
+        rutasCompletas: completas, rutasMedias: medias, ventaCompletas: completas * porRuta / (1 + IGV), ventaMedias: medias * porRuta / (1 + IGV),
+        ventaConIGV, venta, incobrable, gastos: L, desglose: D, totalGastos: gastos, ebitda, depreciacion, utilOper, renta, utilNeta: utilOper - renta,
+        cobro1, cobro2, cobros: cobro1 + cobro2, pagosOperativos, igvCompras, pagaIGV, pagaAdelanto, pagaRentaAnual,
+        flujoOperativo, compraLaptops, garantia, flujoInversion, flujo, caja,
+      });
+    }
+
+    const de = a => filas.filter(f => f.anio === a);
+    const suma = (arr, k) => arr.reduce((s, f) => s + f[k], 0);
+    const ultimo = filas[filas.length - 1];
+    const gananciaSostenida = filas.find((f, i) => i > 0 && filas.slice(i).every(g => g.utilOper > 0));
+    const cajaPositiva = filas.find((f, i) => f.caja > 0 && filas.slice(i).every(g => g.caja > 0));
+    return {
+      supuestos: P, filas,
+      resumen: {
+        cajaMinima: cajaMin, mesCajaMinima: mesCajaMin, cajaFinal: ultimo.caja,
+        ventas2027: suma(de(2027), 'venta'), utilidad2027: suma(de(2027), 'utilOper'), utilidad2026: suma(de(2026), 'utilOper'),
+        renta2027: renta2027 !== null ? renta2027 : rentaAnio, adelantos2027: suma(de(2027), 'venta') * 0.01,
+        saldoRenta2027: suma(filas, 'pagaRentaAnual'),
+        ganaDesde: gananciaSostenida ? gananciaSostenida.mes : null,
+        cajaPositivaDesde: cajaPositiva ? cajaPositiva.mes : null,
+        llenoLocal: pausaDesde !== null ? filas[pausaDesde - 1].mes : null,
+        pausa: pausaDesde !== null && pausaDesde < P.meses ? { desde: filas[pausaDesde].mes, hasta: filas[Math.min(pausaHasta, P.meses) - 1].mes } : null,
+        porCobrar: facturado[P.meses - 1] * (P.cobroMes1 + P.cobroMes2) + facturado[P.meses - 2] * P.cobroMes2,
+        igvPorPagar,
+      },
+    };
+  }
+
+  const api = { simular, SUPUESTOS, infraestructuraUSD };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else raiz.CoopModelo = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+(function(){
+'use strict';
+const M = window.CoopModelo, D = M.SUPUESTOS;
+const NB=' ';
+const ent=n=>{const r=Math.round(n),s=String(Math.abs(r));return (r<0?'−':'')+(s.length>=5?s.replace(/\B(?=(\d{3})+(?!\d))/g,NB):s);};
+const sol=n=>'S/'+NB+ent(n);
+const cel=n=>{const r=Math.round(n);return `<td class="${r<0?'neg':''}">${r===0?'':ent(r)}</td>`;};
+const BASE = M.simular();
+const MESES = BASE.filas.map(f=>f.mes);
+const opcMes = (extra) => MESES.map((m,i)=>`<option value="${i}">${m}</option>`).join('') + (extra?`<option value="99">${extra}</option>`:'');
+
+// Controles: [clave, etiqueta, tipo, min, max, paso, ayuda]
+const GRUPOS = [
+ ['Precio y mercado', true, [
+  ['precio','Precio por unidad por día (S/)','num',0.2,1.5,0.05,'S/ 0,50 por unidad son S/ 15 por micro al mes.'],
+  ['precioIncluyeIGV','El precio incluye IGV','check'],
+  ['unidadesPorRuta','Unidades por ruta','num',10,120,1],
+  ['utilizacion','Unidades-día que se cobran (%)','pct',50,100,1,'Baja si se cobra solo por la unidad que sale.'],
+  ['techoLocal','Rutas de Juliaca y Puno','num',10,200,1],
+  ['pausaMeses','Meses de pausa al llenarlas','num',0,12,1],
+  ['ciudadGrande','Después de la pausa se va a Arequipa o Cusco','check'],
+  ['costoCiudadGrande','Viajes y estadía de la ciudad grande (S/ al mes)','num',0,10000,100],
+  ['mesGratisNuevas','Cada ruta nueva tiene su primer mes gratis','check'],
+ ]],
+ ['Capacidad de venta', true, [
+  ['rutasDueno','Rutas por mes que traes tú','num',0,10,1],
+  ['duenoVendeHasta','Dejas de vender en','mes','nunca'],
+  ['rampaTC0','Tiempo completo: rutas su primer mes','num',0,10,1],
+  ['rampaTC1','Tiempo completo: rutas por mes después','num',0,10,1,'La regla medida: una ruta por semana por jornada completa.'],
+  ['rampaMT0','Medio tiempo: rutas su primer mes','num',0,10,1],
+  ['rampaMT1','Medio tiempo: rutas por mes después','num',0,10,1],
+ ]],
+ ['Equipo y sueldos', false, [
+  ['vendedorB_desde','Entra el vendedor B (medio tiempo)','mes','nunca'],
+  ['vendedorD_desde','Entra el vendedor D (tiempo completo)','mes','nunca'],
+  ['oficina_desde','Entra el medio tiempo de oficina','mes','nunca'],
+  ['oficinaVende','El de oficina también vende','check'],
+  ['sueldoTiempoCompleto','Sueldo de tiempo completo (S/)','num',0,5000,50],
+  ['sueldoMedioTiempo','Sueldo de medio tiempo (S/)','num',0,3000,50],
+  ['comisionPorRuta','Comisión por ruta firmada (S/)','num',0,1000,10],
+  ['sueldoDueno','Tu sueldo (S/)','num',0,8000,100],
+  ['duenoCobraDesde','Empiezas a cobrar en','mes','nunca'],
+ ]],
+ ['Gastos', false, [
+  ['alquiler','Alquiler de oficina (S/ al mes)','num',0,5000,50],
+  ['suscripcionIA','Suscripción de IA (S/ al mes)','num',0,3000,50],
+  ['marketingFijo','Marketing (S/ al mes)','num',0,5000,50],
+  ['kitPorRuta','Kit por ruta nueva (S/)','num',0,2000,10],
+  ['colchonInfraestructura','Servidor: veces lo previsto','num',0.5,5,0.25,'1,25 es el costo de modelo-costos.js más un 25 %.'],
+  ['imprevistos','Imprevistos (%)','pct',0,30,1],
+ ]],
+ ['Cobranza', false, [
+  ['cobroAdelantado','Se factura a inicio de mes','check'],
+  ['incobrable','Facturas que no se cobran (%)','pct',0,30,1],
+ ]],
+];
+
+// Estado: los cambios frente al plan alfa
+let cambios = {};
+try{ cambios = JSON.parse(localStorage.getItem('coop-sim-actual')||'{}')||{}; }catch(e){ cambios={}; }
+const guardarActual=()=>{ try{ localStorage.setItem('coop-sim-actual', JSON.stringify(cambios)); }catch(e){} };
+
+function valorDe(k){
+  if(k==='rampaTC0'||k==='rampaTC1'){ const a=cambios.rampaTiempoCompleto||D.rampaTiempoCompleto; return a[k.endsWith('0')?0:1]; }
+  if(k==='rampaMT0'||k==='rampaMT1'){ const a=cambios.rampaMedioTiempo||D.rampaMedioTiempo; return a[k.endsWith('0')?0:1]; }
+  return k in cambios ? cambios[k] : D[k];
+}
+function base(k){
+  if(k.startsWith('rampaTC')) return D.rampaTiempoCompleto[k.endsWith('0')?0:1];
+  if(k.startsWith('rampaMT')) return D.rampaMedioTiempo[k.endsWith('0')?0:1];
+  return D[k];
+}
+function fijar(k,v){
+  if(k.startsWith('rampaTC')||k.startsWith('rampaMT')){
+    const clave=k.startsWith('rampaTC')?'rampaTiempoCompleto':'rampaMedioTiempo';
+    const a=(cambios[clave]||D[clave]).slice(); a[k.endsWith('0')?0:1]=v; cambios[clave]=a;
+    if(a[0]===D[clave][0]&&a[1]===D[clave][1]) delete cambios[clave];
+  } else if(v===D[k]) delete cambios[k]; else cambios[k]=v;
+}
+
+function pintarControles(){
+  const c=document.getElementById('controles'); let h='';
+  for(const [titulo,abierto,campos] of GRUPOS){
+    h+=`<details ${abierto?'open':''}><summary>${titulo}</summary>`;
+    for(const [k,l,t,a,b,p,ay] of campos){
+      const id='c_'+k, v=valorDe(k), dif=v!==base(k)?' cambiado':'';
+      if(t==='check') h+=`<div class="campo check${dif}"><label for="${id}">${l}</label><input type="checkbox" id="${id}" data-k="${k}" ${v?'checked':''}></div>`;
+      else if(t==='mes') h+=`<div class="campo${dif}"><label for="${id}">${l}</label><select id="${id}" data-k="${k}" data-t="mes">${opcMes(a)}</select></div>`;
+      else { const val=t==='pct'?Math.round(v*100):v;
+        h+=`<div class="campo${dif}"><label for="${id}">${l}</label><input type="number" id="${id}" data-k="${k}" data-t="${t}" min="${a}" max="${b}" step="${p}" value="${val}"><input type="range" aria-label="${l}" data-k="${k}" data-t="${t}" min="${a}" max="${b}" step="${p}" value="${val}">${ay?`<div class="ayuda">${ay}</div>`:''}</div>`; }
+    }
+    h+='</details>';
+  }
+  c.innerHTML=h;
+  c.querySelectorAll('select[data-t=mes]').forEach(s=>{ s.value=String(valorDe(s.dataset.k)>=99?99:valorDe(s.dataset.k)); });
+}
+document.getElementById('controles').addEventListener('input',ev=>{
+  const el=ev.target, k=el.dataset.k; if(!k) return;
+  let v;
+  if(el.type==='checkbox') v=el.checked;
+  else if(el.dataset.t==='mes') v=Number(el.value);
+  else { v=Number(el.value); if(isNaN(v)) return; if(el.dataset.t==='pct') v=v/100;
+    el.parentElement.querySelectorAll(`input[data-k="${k}"]`).forEach(o=>{ if(o!==el) o.value=el.value; }); }
+  fijar(k,v);
+  el.closest('.campo').classList.toggle('cambiado', valorDe(k)!==base(k));
+  guardarActual(); calcular();
+});
+
+// Rutas reales
+function pintarReales(){
+  const r=cambios.rutasReales||[];
+  document.getElementById('tablaReales').innerHTML=`<thead><tr><th>Mes</th>${MESES.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>
+  <tr><th>Rutas nuevas reales</th>${MESES.map((m,i)=>`<td><input type="number" min="0" step="1" inputmode="numeric" aria-label="Rutas nuevas reales en ${m}" data-i="${i}" value="${r[i]??''}" class="${r[i]!=null&&r[i]!==''?'lleno':''}"></td>`).join('')}</tr>
+  <tr class="meta" id="filaPlanReales"></tr></tbody>`;
+}
+document.getElementById('tablaReales').addEventListener('input',ev=>{
+  const el=ev.target; if(el.dataset.i===undefined) return;
+  const r=(cambios.rutasReales||[]).slice(); const i=Number(el.dataset.i);
+  r[i]= el.value===''?null:Math.max(0,Math.round(Number(el.value)));
+  while(r.length&&(r[r.length-1]==null)) r.pop();
+  if(r.length) cambios.rutasReales=r; else delete cambios.rutasReales;
+  el.classList.toggle('lleno', el.value!=='');
+  guardarActual(); calcular();
+});
+
+// Gráficos
+function barras(vals, base){
+  const W=640,H=230,iz=54,de=10,ar=14,ab=26,n=vals.length,bw=(W-iz-de)/n;
+  const todo=vals.concat(base); let mx=Math.max(0,...todo), mn=Math.min(0,...todo);
+  const paso=Math.pow(10,Math.floor(Math.log10(Math.max(1,mx-mn))))/ (((mx-mn)/Math.pow(10,Math.floor(Math.log10(Math.max(1,mx-mn)))))>5?1:2);
+  mx=Math.ceil(mx/paso)*paso; mn=Math.floor(mn/paso)*paso; if(mx===mn) mx=mn+paso;
+  const y=v=>ar+(mx-v)/(mx-mn)*(H-ar-ab);
+  let g='';
+  for(let v=mn;v<=mx+1e-6;v+=paso) g+=`<line x1="${iz}" x2="${W-de}" y1="${y(v)}" y2="${y(v)}" class="rej"/><text x="${iz-6}" y="${y(v)+3.5}" class="eje" text-anchor="end">${v===0?'0':ent(v/1000)+' mil'}</text>`;
+  g+=`<line x1="${iz}" x2="${W-de}" y1="${y(0)}" y2="${y(0)}" class="cero"/>`;
+  vals.forEach((v,i)=>{ const t=v<0?y(0):y(v),h=Math.max(1,Math.abs(y(v)-y(0)));
+    g+=`<g><rect x="${iz+i*bw+2}" y="${t}" width="${bw-4}" height="${h}" rx="2" class="${v<0?'bneg':'bpos'}"/><title>${MESES[i]}: ${sol(v)} (plan alfa ${sol(base[i])})</title></g>`;
+    if(i%2===0||i===n-1) g+=`<text x="${iz+i*bw+bw/2}" y="${H-8}" class="eje" text-anchor="middle">${MESES[i].slice(0,3)}</text>`; });
+  g+=`<path d="${base.map((v,i)=>`${i?'L':'M'}${(iz+i*bw+bw/2).toFixed(1)},${y(v).toFixed(1)}`).join('')}" class="bbase"/>`;
+  const im=vals.indexOf(Math.min(...vals)); if(vals[im]<0) g+=`<text x="${iz+im*bw+bw/2}" y="${y(vals[im])+14}" class="dato" text-anchor="middle">${sol(vals[im])}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Caja acumulada por mes">${g}</svg>`;
+}
+function lineas(a,b){
+  const W=640,H=230,iz=54,de=10,ar=14,ab=26,n=a.length,x=i=>iz+i*(W-iz-de)/(n-1);
+  const mxv=Math.max(...a,...b,1); const paso=mxv>60000?20000:mxv>30000?10000:5000; const mx=Math.ceil(mxv/paso)*paso;
+  const y=v=>ar+(1-v/mx)*(H-ar-ab);
+  let g='';
+  for(let v=0;v<=mx;v+=paso) g+=`<line x1="${iz}" x2="${W-de}" y1="${y(v)}" y2="${y(v)}" class="rej"/><text x="${iz-6}" y="${y(v)+3.5}" class="eje" text-anchor="end">${v===0?'0':ent(v/1000)+' mil'}</text>`;
+  MESES.forEach((m,i)=>{ if(i%2===0||i===n-1) g+=`<text x="${x(i)}" y="${H-8}" class="eje" text-anchor="middle">${m.slice(0,3)}</text>`; });
+  const p=arr=>arr.map((v,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  g+=`<path d="${p(b)}" class="ln" style="stroke:var(--s2)"/><path d="${p(a)}" class="ln" style="stroke:var(--s1)"/>`;
+  a.forEach((v,i)=>{ g+=`<g><rect x="${x(i)-14}" y="${ar}" width="28" height="${H-ar-ab}" fill="transparent"/><title>${MESES[i]}: ingreso ${sol(v)}, gastos ${sol(b[i])}</title></g>`; });
+  g+=`<circle cx="${x(n-1)}" cy="${y(a[n-1])}" r="4" style="fill:var(--s1)"/><circle cx="${x(n-1)}" cy="${y(b[n-1])}" r="4" style="fill:var(--s2)"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Ingreso neto y gastos por mes">${g}</svg>`;
+}
+
+// Tablas
+let pestana='rutas';
+try{ pestana=localStorage.getItem('coop-sim-pestana')||'rutas'; }catch(e){}
+const abiertos=new Set();
+function tabla(r){
+  const F=r.filas, cab=`<thead><tr><th>Concepto</th>${F.map(f=>`<th>${f.mes}</th>`).join('')}${pestana==='rutas'?'':'<th>2026</th><th>2027</th><th>2028 (T1)</th>'}</tr></thead>`;
+  const tot=(fn,a)=>F.filter(f=>f.anio===a).reduce((s,f)=>s+fn(f),0);
+  const fila=(n,fn,c='')=>`<tr class="${c}"><th>${n}</th>${F.map(f=>cel(fn(f))).join('')}${[2026,2027,2028].map(a=>cel(tot(fn,a))).join('')}</tr>`;
+  let id=0;
+  const grupo=(n,fn,hijos,c='')=>{ if(hijos.length<2) return fila(n,fn,c); const g='g'+(++id), ab=abiertos.has(n);
+    let h=`<tr class="${c}"><th><button type="button" class="tg" aria-expanded="${ab}" data-g="${g}" data-n="${n}"><span class="car"></span>${n}</button></th>${F.map(f=>cel(fn(f))).join('')}${[2026,2027,2028].map(a=>cel(tot(fn,a))).join('')}</tr>`;
+    for(const [hn,hf] of hijos) h+=fila(hn,hf,'hijo '+g).replace('<tr class',`<tr ${ab?'':'hidden'} class`);
+    return h; };
+  let b='';
+  if(pestana==='rutas'){
+    const txt=(n,fn,c='')=>`<tr class="${c}"><th>${n}</th>${F.map(f=>`<td>${fn(f)}</td>`).join('')}</tr>`;
+    b+=txt('Rutas de prueba',f=>f.i===0?f.nuevas:'');
+    b+=txt('Tú',f=>f.aportes.real?'':(f.aportes.tu||''));
+    b+=txt('Vendedor A',f=>f.aportes.real?'':(f.aportes.a||''));
+    b+=txt('Vendedor B',f=>f.aportes.real?'':(f.aportes.b||''));
+    b+=txt('Vendedor D',f=>f.aportes.real?'':(f.aportes.d||''));
+    b+=txt('Medio tiempo de oficina',f=>f.aportes.real?'':(f.aportes.c||''));
+    b+=txt('Rutas nuevas',f=>(f.nuevas||(f.enPausa?'pausa':''))+(f.aportes.real?' (real)':''),'sub');
+    b+=txt('Rutas activas',f=>f.rutas,'fuerte');
+    b+=txt('Rutas activas, plan alfa',f=>BASE.filas[f.i].rutas,'meta');
+    b+=txt('Unidades',f=>ent(f.unidades),'meta');
+    b+=txt('Ciudades',f=>f.ciudades,'meta');
+    const j=v=>v?String(v).replace(/^0\.5$/,'½').replace('.5',' ½'):'';
+    b+=txt('Vendedores, en jornadas',f=>j(f.equipo.vendedores));
+    b+=txt('Medio tiempo de oficina',f=>j(f.equipo.oficina));
+    b+=txt('Tú en planilla',f=>f.equipo.dueno?'1':'');
+    document.getElementById('capTabla').textContent='Quién trae cada ruta y quién está en el equipo cada mes. En los meses con rutas reales, el detalle por persona queda vacío.';
+  } else if(pestana==='resultados'){
+    const grupos=[...new Set(F.flatMap(f=>Object.keys(f.gastos)))];
+    b+=`<tr class="meta"><th>Rutas activas</th>${F.map(f=>`<td>${f.rutas}</td>`).join('')}<td></td><td></td><td></td></tr>`;
+    b+=grupo('Ventas netas (sin IGV)',f=>f.venta,[['Rutas que pagan el mes completo',f=>f.ventaCompletas],['Rutas nuevas, medio mes',f=>f.ventaMedias]],'fuerte');
+    b+=fila('(−) Cobranza dudosa',f=>-f.incobrable);
+    b+=fila('Ingreso neto',f=>f.venta-f.incobrable,'sub');
+    for(const gn of grupos){ const det=[...new Set(F.flatMap(f=>Object.keys(f.desglose[gn]||{})))];
+      b+=grupo('(−) '+gn,f=>-(f.gastos[gn]||0),det.map(d=>[d,f=>-((f.desglose[gn]||{})[d]||0)])); }
+    b+=fila('Total de gastos',f=>-f.totalGastos,'sub');
+    b+=fila('EBITDA',f=>f.ebitda,'fuerte');
+    b+=fila('(−) Depreciación de laptops',f=>-f.depreciacion);
+    b+=fila('Utilidad operativa',f=>f.utilOper,'sub');
+    b+=fila('(−) Impuesto a la renta',f=>-f.renta);
+    b+=fila('Utilidad neta',f=>f.utilNeta,'total');
+    b+=fila('Utilidad operativa, plan alfa',f=>BASE.filas[f.i].utilOper,'meta');
+    document.getElementById('capTabla').textContent='En soles y sin IGV. Toca una fila con flecha para ver de qué está hecha.';
+  } else {
+    b+=grupo('Cobranza (con IGV)',f=>f.cobros,[['Del mes o del mes anterior (95 %)',f=>f.cobro1],['Saldo atrasado (3 %)',f=>f.cobro2]],'fuerte');
+    b+=grupo('(−) Pagos de gastos',f=>-f.pagosOperativos,[['Gastos del mes, sin IGV',f=>-f.totalGastos],['IGV de las compras',f=>-f.igvCompras]]);
+    b+=fila('(−) IGV pagado a SUNAT',f=>-f.pagaIGV);
+    b+=fila('(−) Adelanto de renta (1 %)',f=>-f.pagaAdelanto);
+    b+=fila('(−) Saldo de la renta de 2027',f=>-f.pagaRentaAnual);
+    b+=fila('Flujo operativo',f=>f.flujoOperativo,'sub');
+    b+=fila('(−) Compra de laptops',f=>-f.compraLaptops);
+    b+=fila('(−) Garantía del alquiler',f=>-f.garantia);
+    b+=fila('Flujo del mes',f=>f.flujo,'fuerte');
+    b+=`<tr class="total"><th>Caja acumulada, sin aporte</th>${F.map(f=>cel(f.caja)).join('')}<td></td><td></td><td></td></tr>`;
+    b+=`<tr class="meta"><th>Caja acumulada, plan alfa</th>${BASE.filas.map(f=>cel(f.caja)).join('')}<td></td><td></td><td></td></tr>`;
+    document.getElementById('capTabla').textContent='En soles y con IGV. El IGV y el adelanto de renta de un mes se pagan el mes siguiente.';
+  }
+  document.getElementById('tabla').innerHTML=cab+'<tbody>'+b+'</tbody>';
+}
+document.getElementById('tabla').addEventListener('click',ev=>{
+  const b=ev.target.closest('.tg'); if(!b) return;
+  const ab=b.getAttribute('aria-expanded')!=='true'; b.setAttribute('aria-expanded',ab);
+  document.querySelectorAll('tr.'+b.dataset.g).forEach(t=>t.hidden=!ab);
+  if(ab) abiertos.add(b.dataset.n); else abiertos.delete(b.dataset.n);
+});
+document.querySelectorAll('.pestanas button').forEach(b=>b.addEventListener('click',()=>{
+  pestana=b.dataset.t; try{localStorage.setItem('coop-sim-pestana',pestana);}catch(e){}
+  document.querySelectorAll('.pestanas button').forEach(o=>o.setAttribute('aria-selected',o===b)); calcular();
+}));
+
+function kpi(valor,clase,etiqueta,base,dif){
+  return `<div class="kpi"><div class="v ${clase}">${valor}</div><div class="l">${etiqueta}</div><div class="d">Plan alfa: <b>${base}</b>${dif?' · '+dif:''}</div></div>`;
+}
+const difSol=(a,b)=>{const d=Math.round(a-b); return d===0?'igual':(d>0?'+':'−')+sol(Math.abs(d)).replace('S/'+NB,'S/'+NB);};
+
+function calcular(){
+  const r=M.simular(cambios), s=r.resumen, b=BASE.resumen, F=r.filas, U=F.length-1;
+  const capital=Math.ceil(-s.cajaMinima*1.2/5000)*5000;
+  document.getElementById('kpis').innerHTML=
+    kpi(sol(s.cajaMinima),s.cajaMinima<0?'neg':'pos',`Punto más bajo de la caja, en ${s.mesCajaMinima}. Es el capital mínimo.`,sol(b.cajaMinima),difSol(s.cajaMinima,b.cajaMinima))+
+    kpi(sol(Math.max(0,capital)),'',`Capital sugerido: el punto más bajo más un 20 %.`,sol(Math.ceil(-b.cajaMinima*1.2/5000)*5000),'')+
+    kpi(s.ganaDesde||'no llega',s.ganaDesde?'':'neg','Desde este mes, el negocio gana todos los meses.',b.ganaDesde,'')+
+    kpi(sol(s.utilidad2027),s.utilidad2027<0?'neg':'pos','Utilidad operativa de 2027.',sol(b.utilidad2027),difSol(s.utilidad2027,b.utilidad2027))+
+    kpi(sol(s.cajaFinal),s.cajaFinal<0?'neg':'pos','Caja a marzo de 2028, ya pagada la renta de 2027.',sol(b.cajaFinal),difSol(s.cajaFinal,b.cajaFinal))+
+    kpi(String(F[U].rutas),'',`Rutas activas a marzo de 2028, con ${ent(F[U].unidades)} unidades.`,String(BASE.filas[U].rutas),'');
+  const av=[];
+  if(!s.ganaDesde) av.push('Con estos supuestos, el negocio no llega a ganar todos los meses antes de marzo de 2028.');
+  if(F[U].unidades>5000) av.push(`En marzo de 2028 hay ${ent(F[U].unidades)} unidades, más de las 5000 que COSTOS.md probó en el servidor.`);
+  if(s.llenoLocal) av.push(`Juliaca y Puno se llenan en ${s.llenoLocal}${s.pausa?`; la pausa va de ${s.pausa.desde} a ${s.pausa.hasta}`:''}.`);
+  document.getElementById('avisos').innerHTML=av.join(' ');
+  document.getElementById('gCaja').innerHTML=barras(F.map(f=>f.caja),BASE.filas.map(f=>f.caja));
+  document.getElementById('gLineas').innerHTML=lineas(F.map(f=>f.venta-f.incobrable),F.map(f=>f.totalGastos+f.depreciacion));
+  document.getElementById('filaPlanReales').innerHTML=`<th>Rutas nuevas del escenario</th>${F.map(f=>`<td>${f.nuevas}</td>`).join('')}`;
+  tabla(r);
+}
+
+// Escenarios guardados
+const leerEsc=()=>{ try{ return JSON.parse(localStorage.getItem('coop-sim-escenarios')||'[]'); }catch(e){ return []; } };
+const escribirEsc=l=>{ try{ localStorage.setItem('coop-sim-escenarios',JSON.stringify(l)); }catch(e){} };
+function pintarEsc(){
+  const l=leerEsc();
+  document.getElementById('listaEsc').innerHTML=l.length?l.map((e,i)=>`<span class="chip">${e.nombre.replace(/</g,'&lt;')}<button type="button" data-cargar="${i}">Cargar</button><button type="button" class="x" data-borrar="${i}" aria-label="Borrar ${e.nombre.replace(/"/g,'')}">×</button></span>`).join(''):'<span class="estado">Todavía no hay escenarios guardados.</span>';
+}
+document.getElementById('guardar').addEventListener('click',()=>{
+  const n=document.getElementById('nombreEsc').value.trim()||('Escenario '+(leerEsc().length+1));
+  const l=leerEsc(); l.push({nombre:n,cambios:JSON.parse(JSON.stringify(cambios))}); escribirEsc(l);
+  document.getElementById('nombreEsc').value=''; pintarEsc();
+});
+document.getElementById('listaEsc').addEventListener('click',ev=>{
+  const l=leerEsc();
+  if(ev.target.dataset.cargar!==undefined){ cambios=JSON.parse(JSON.stringify(l[ev.target.dataset.cargar].cambios)); todo(); }
+  if(ev.target.dataset.borrar!==undefined){ l.splice(Number(ev.target.dataset.borrar),1); escribirEsc(l); pintarEsc(); }
+});
+document.getElementById('reiniciar').addEventListener('click',()=>{ cambios={}; todo(); });
+document.getElementById('copiar').addEventListener('click',ev=>{
+  const t=JSON.stringify(cambios), b=ev.target;
+  const ok=()=>{ b.textContent='Copiado'; setTimeout(()=>b.textContent='Copiar escenario',1500); };
+  try{ navigator.clipboard.writeText(t).then(ok,()=>mostrarTexto(t)); }catch(e){ mostrarTexto(t); }
+});
+function mostrarTexto(t){ const c=document.getElementById('pegarCaja'); c.hidden=false; const a=document.getElementById('pegarTexto'); a.value=t; a.select(); document.getElementById('pegarEstado').textContent='Copia este texto a mano.'; }
+document.getElementById('pegarBtn').addEventListener('click',()=>{ const c=document.getElementById('pegarCaja'); c.hidden=!c.hidden; document.getElementById('pegarEstado').textContent=''; });
+document.getElementById('pegarOk').addEventListener('click',()=>{
+  try{ const v=JSON.parse(document.getElementById('pegarTexto').value); if(typeof v!=='object'||Array.isArray(v)) throw 0;
+    const limpio={}; for(const k in v) if(k in D) limpio[k]=v[k]; cambios=limpio; todo(); document.getElementById('pegarEstado').textContent='Escenario cargado.'; }
+  catch(e){ document.getElementById('pegarEstado').textContent='Ese texto no es un escenario del simulador. Copia el texto completo, con sus llaves.'; }
+});
+
+function todo(){ guardarActual(); pintarControles(); pintarReales(); calcular();
+  document.querySelectorAll('.pestanas button').forEach(o=>o.setAttribute('aria-selected',o.dataset.t===pestana)); }
+pintarEsc(); todo();
+})();
+</script>
+
+</body>
+</html>

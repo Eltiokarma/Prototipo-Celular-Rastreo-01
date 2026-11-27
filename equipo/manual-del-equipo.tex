@@ -1,0 +1,289 @@
+% Manual del equipo de Micros Tempo, versión alfa.
+%
+% Se compila con:   cd equipo && latexmk -pdf manual-del-equipo.tex
+% Usa el preámbulo del plan (plan-financiero/latex/preambulo.tex): si cambia
+% la paleta o un estilo, cambia en los dos documentos.
+% Las metas y los sueldos son los del Plan del primer año, versión alfa.
+\documentclass[a4paper]{article}
+\input{../plan-financiero/latex/preambulo}
+\usepackage[titles]{tocloft}
+\setlength{\cftsecnumwidth}{2em}
+\documento{Micros Tempo · Manual del equipo, versión alfa · 24 de noviembre de 2026}
+
+\begin{document}
+
+\begin{titlepage}
+\thispagestyle{empty}
+\vspace*{1.2cm}
+{\small\bfseries\color{marca}\MakeUppercase{Micros Tempo}}\par\vspace{14pt}
+{\fontsize{34}{38}\selectfont\bfseries Manual del equipo}\par\vspace{6pt}
+{\fontsize{20}{24}\selectfont\color{tinta2} versión alfa}\par\vspace{18pt}
+\begin{minipage}{0.84\linewidth}\large\color{tinta2}
+Para quienes entran a trabajar entre diciembre de 2026 y abril de 2027: qué hacemos, por qué existe la empresa, qué se espera de cada puesto y cómo se trabaja cada semana.
+\end{minipage}
+\vfill
+\begin{nota}
+\textbf{Cómo usar este manual.} Léelo completo en tu primera semana y vuelve a la parte de tu puesto cada vez que tengas una duda. Si algo de lo que dice no coincide con lo que ves en la calle, avísale a Gerson: el manual se corrige con lo que aprendamos juntos.
+\end{nota}
+\end{titlepage}
+
+{\setcounter{tocdepth}{1}\tableofcontents}
+\newpage
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Por qué existe Micros Tempo}
+
+\subsection{El problema que resolvemos}
+
+Un chofer de combi no sabe a cuántos minutos va la unidad de adelante ni la de atrás. Ante la duda acelera, porque llegar tarde a un paradero significa que otro se lleva a los pasajeros. Por eso existen los dateros: personas que se paran en una esquina, anotan a qué hora pasó cada unidad y le venden ese dato al chofer o al cobrador que viene detrás, por S/~0,10 a S/~0,50 cada vez.
+
+El dato del datero llega tarde, se da a gritos desde la vereda y solo sirve en la esquina donde está parado. Aun así, los choferes y los cobradores lo pagan todos los días, porque saber dónde va la unidad de adelante cambia la forma de manejar. Ese mercado ya existe, y prueba que saber dónde va la unidad de adelante vale dinero para quien maneja: es el mismo dato que vendemos, en toda la ruta y durante todo el turno.
+
+\subsection{Por qué importa en Juliaca}
+
+Según la Policía Nacional, entre el 1 de enero y el 3 de mayo de 2026, Juliaca fue la segunda ciudad del país en muertos por accidentes de tránsito, después de Lima, con 96 fallecidos en 74 accidentes. Las autoridades de transporte de la zona atribuyen entre el 80\,\% y el 85\,\% de los accidentes al factor humano, sobre todo al exceso de velocidad.
+
+En Santiago de Chile, un estudio de Johnson, Reiley y Muñoz (\emph{Economic Inquiry}, 2015) comparó en las mismas calles a choferes a los que se les pagaba por pasajero con choferes de sueldo fijo: los primeros tuvieron cerca de un 67\,\% más de accidentes por kilómetro. Ese estudio habla de cómo se les paga a los choferes y no de nuestra app, así que nunca lo usamos para prometer que la app reduce accidentes.
+
+\subsection{Lo que hace la app}
+
+Micros Tempo le muestra al chofer, cada tres segundos, cuántos minutos lo separan de la unidad de adelante y de la de atrás: la brecha que más importa en ese momento sale en un número grande, y la otra, más chica. Con ese dato el chofer sabe cuándo no hace falta correr, que es la mayoría de las veces. La empresa de transporte ve toda su flota en un mapa, recibe las emergencias al instante mientras tenga el panel abierto, habla con cada unidad y cuenta las vueltas y las horas de cada persona sin llevar cuadernos de control.
+
+\begin{aviso}
+\textbf{La frase que resume el producto:} el rastreo mide la vuelta, no a la persona. La app no manda la posición hasta que el chofer desliza «SALIR A RUTA», y si arranca a manejar sin salir, se lo pregunta antes de salir sola. El chofer puede marcarse «AUSENTE» para comer sin que nadie se mida contra él, y si se sale del recorrido, la app no se lo reprocha mientras maneja.
+\end{aviso}
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Cómo funciona el negocio}
+
+\subsection{Lo que se cobra}
+
+Cada empresa paga S/~0,50 por unidad por día, con el IGV incluido: unos S/~15 al mes por cada combi y unos S/~600 por una ruta de 40 combis. Lo que cuesta una combi en todo un mes es menos de lo que se le paga al datero en una semana, así que esperamos que el precio rara vez sea lo que frene una venta.
+
+\subsection{Por qué tu trabajo es el centro de la empresa}
+
+Atender una ruta más le cuesta poco a la empresa: firmarla cuesta unos S/~350 una sola vez, entre la comisión y el kit, y el servidor que esa ruta suma cuesta menos del 10\,\% de lo que paga cada mes. Por eso el negocio crece al ritmo en que se firman rutas, y cada ruta que se firma deja dinero todos los meses mientras siga contenta con el servicio. Cada mes que una ruta tarda en firmarse es un mes de ingreso que ya no se recupera, aunque la ruta se firme después.
+
+\subsection{El plan del primer año}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{3.6cm}X@{}}
+\toprule
+Diciembre de 2026 & Dos rutas de prueba, que todavía no pagan.\\
+Enero a julio de 2027 & El equipo firma hasta 10 rutas por mes y llena Juliaca y Puno, unas 60 rutas, en julio.\\
+Agosto a noviembre de 2027 & Pausa: no se firman rutas nuevas y se prepara la entrada a Arequipa o Cusco.\\
+Diciembre de 2027 en adelante & Se vuelven a firmar 10 rutas por mes en la ciudad grande.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+La empresa gana todos los meses desde mayo de 2027 si cada persona cumple su meta. Si las metas no se cumplen, el negocio sigue siendo viable, pero crece más lento y necesita más capital, así que la meta de cada uno es la parte del plan que más pesa.
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Quién es quién}
+
+\subsection{En Micros Tempo}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{3.6cm}p{3.4cm}X@{}}
+\toprule
+\normalfont Persona & Desde & Su trabajo\\
+\midrule
+Gerson & Diciembre de 2026 & Es el dueño. Vende hasta febrero y desde marzo se encarga del sistema: el servidor, la app y la seguridad.\\
+Vendedor A & Diciembre de 2026 & Medio tiempo en diciembre y tiempo completo desde enero. Vende e instala rutas.\\
+Vendedor B & Febrero de 2027 & Medio tiempo. Vende a empresas pequeñas y cuida a las rutas activas.\\
+Vendedor D & Marzo de 2027 & Tiempo completo. Recibe la cartera de Gerson y abre Puno.\\
+Asistente de oficina & Abril de 2027 & Medio tiempo. Factura, cobra, atiende el teléfono y archiva.\\
+Contador externo & Diciembre de 2026 & Lleva los impuestos y la planilla.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{En cada empresa de transporte}
+
+\begin{itemize}
+\item \textbf{La gerencia} decide si contrata el servicio y firma el contrato. En muchas empresas la decisión pasa por la asamblea de socios, porque los socios son dueños de las combis.
+\item \textbf{El despacho} es la persona o el equipo que controla la ruta desde una computadora. Da de alta a los choferes y cobradores, cambia claves, atiende las emergencias y es el primer nivel de soporte. Cuanto mejor capacitado está el despacho, menos problemas de la ruta llegan hasta Micros Tempo.
+\item \textbf{El chofer} lleva la app en un celular Android puesto en un soporte, y ese celular es el único de la combi que manda la posición.
+\item \textbf{El cobrador} usa la app en modo acompañante: ve la misma brecha y el mismo mapa, pero su celular no manda la posición.
+\end{itemize}
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Tu puesto: objetivos y razones}
+
+Cada puesto tiene una meta que se puede contar y una razón que explica por qué esa meta y no otra. Si un día no sabes qué hacer primero, vuelve a la razón de tu puesto.
+
+\begin{rol}{Vendedor A · tiempo completo}
+{\small\color{tenue}Medio tiempo en diciembre de 2026 (S/~700) y tiempo completo desde enero de 2027 (S/~1400) · S/~200 por ruta firmada}\par\vspace{4pt}
+\textbf{Objetivo.} Firmar 1 ruta en enero y 4 rutas por mes desde febrero, con la app funcionando en al menos el 80\,\% de las unidades de cada ruta.
+
+\textbf{La razón.} Una persona a tiempo completo alcanza a firmar una ruta por semana, porque cada ruta exige conversar con la gerencia, a veces con la asamblea, e instalar la app en decenas de teléfonos. La meta del primer mes es 1 ruta, porque es el mes de aprender el producto y armar la lista de empresas.
+
+\textbf{En diciembre.} Acompaña las 2 rutas de prueba, anota lo que piden los choferes y el despacho, y arma con Gerson la lista de empresas de Juliaca.
+\end{rol}
+
+\begin{rol}{Vendedor B · medio tiempo}
+{\small\color{tenue}Desde febrero de 2027 · S/~700 · S/~200 por ruta firmada}\par\vspace{4pt}
+\textbf{Objetivo.} Firmar 1 ruta en febrero y 2 por mes desde marzo, y recuperar las rutas activas que dejan de usar la app.
+
+\textbf{La razón.} Medio tiempo alcanza para firmar una ruta cada dos semanas, la mitad de lo que firma un vendedor a tiempo completo. Además, una ruta que deja de usar la app termina dejando de pagar, y recuperarla cuesta menos que firmar una nueva; por eso B visita a las rutas que tienen menos del 80\,\% de sus unidades reportando.
+\end{rol}
+
+\begin{rol}{Vendedor D · tiempo completo}
+{\small\color{tenue}Desde marzo de 2027 · S/~1400 · S/~200 por ruta firmada}\par\vspace{4pt}
+\textbf{Objetivo.} Firmar 1 ruta en marzo y 4 por mes desde abril, abrir Puno y, durante la pausa, liderar la preparación de la ciudad grande para que el equipo deje listos 10 contratos.
+
+\textbf{La razón.} D entra para que Gerson deje de vender y se dedique al sistema, que para entonces atiende cientos de combis. En su primer mes, Gerson lo acompaña a sus reuniones y le pasa sus contactos, para que D no empiece de cero.
+\end{rol}
+
+\begin{rol}{Asistente de oficina · medio tiempo}
+{\small\color{tenue}Desde abril de 2027 · S/~700 · no vende}\par\vspace{4pt}
+\textbf{Objetivo.} Emitir todas las facturas del mes el último día hábil del mes y tener cobrado el 95\,\% al día 15 del mes siguiente.
+
+\textbf{La razón.} La empresa paga sueldos e impuestos con lo que cobra, y una factura que se emite tarde se cobra tarde. Además, el IGV de cada factura se le paga a la SUNAT al mes siguiente de emitirla, aunque el cliente todavía no haya pagado, así que cada día de atraso en la cobranza lo financia la empresa.
+
+\textbf{También.} Atiende las llamadas de las empresas, deriva al despacho de cada empresa lo que el despacho puede resolver, archiva los contratos y los consentimientos firmados, y le prepara al contador la información del mes.
+\end{rol}
+
+\subsection{Cuándo una ruta cuenta como firmada}
+
+Una ruta cuenta para tu meta y para tu comisión cuando se cumplen tres cosas: la empresa firmó el contrato, el despacho está capacitado y al menos el 80\,\% de sus unidades (32 en una ruta de 40) reportan su posición cada día durante siete días seguidos. La ruta cuenta en el mes en que se cumple la última de las tres. La razón: una ruta con contrato y sin la app funcionando no paga, o deja de pagar al segundo mes.
+
+\subsection{Tu pago}
+
+El sueldo se paga a fin de cada mes, y la comisión de S/~200 por ruta se paga con el sueldo del mes en que la ruta cuenta como firmada. Las rutas que trae Gerson no generan comisión, y las 2 rutas de prueba de diciembre sí la generan para quien las acompañó.
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Cómo se vende una ruta, paso a paso}
+
+Cada paso termina en un resultado que se puede comprobar: no pases al siguiente hasta tener el del anterior.
+
+\begin{enumerate}[label=\textbf{\arabic*.}, leftmargin=18pt, itemsep=5pt]
+\item \textbf{Buscar la empresa.} Arma una lista con el nombre de la empresa, su ruta, cuántas unidades tiene, quién es el gerente y cómo ubicarlo. El resultado es una cita con la gerencia.
+\item \textbf{Primera visita a la gerencia.} Pregunta antes de mostrar: cuántos dateros pagan sus choferes, cómo controlan hoy las vueltas y qué pasa cuando hay una emergencia en la ruta. El resultado es saber qué le duele a esa empresa y quién decide.
+\item \textbf{Demostración.} Muestra la app del chofer y el panel del despacho con los datos de la demostración, nunca con los datos de otra empresa. Usa el manual de usuario de Micros Tempo como guía. El resultado es una fecha para presentar el servicio a los socios, si hace falta.
+\item \textbf{Asamblea de socios.} Muchos socios son dueños de su combi y temen que la app sirva para vigilarlos. Explica lo que la app no hace y cómo cuida al chofer (secciones 1 y 7) antes de que te lo pregunten. El resultado es el acuerdo de contratar.
+\item \textbf{Contrato.} La empresa firma el contrato del servicio y el contrato de encargo de datos personales, que dice que la empresa es la responsable de los datos de sus choferes y cobradores, y que Micros Tempo solo los guarda y los procesa por cuenta de ella y según sus instrucciones. El resultado son los dos contratos firmados y entregados a la oficina.
+\item \textbf{Consentimientos.} Cada chofer y cada cobrador lee y firma el consentimiento de datos personales; la empresa guarda el original y le da una copia. El resultado es un consentimiento firmado por cada persona que va a usar la app.
+\item \textbf{Instalación.} Instala la app Android en el celular de cada chofer y de cada cobrador. En el del chofer, sigue «Configurar el celular» del manual de usuario: ubicación precisa y permitida todo el tiempo, notificaciones, batería sin restricciones y hora automática; en Xiaomi, Huawei y Oppo activa también el inicio automático. Sin esos ajustes, el celular puede dejar de mandar la posición con la pantalla apagada. El resultado es cada unidad reportando en el mapa del despacho.
+\item \textbf{Capacitación del despacho.} Enséñale al despacho a dar de alta personas, cambiar claves, atender un SOS y leer los números de la ruta. El resultado es un despacho que resuelve solo los problemas de todos los días.
+\item \textbf{Primer mes.} Visita la ruta en la primera y en la tercera semana, revisa qué unidades no reportan y resuélvelo con el despacho. El resultado es una ruta que paga a tiempo su segunda factura, que es la primera por un mes completo.
+\end{enumerate}
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Lo que nunca se promete}
+
+Un chofer desconfiado comprueba cada promesa en su primer día con la app. Una promesa falsa le quita la confianza a toda la ruta, así que la regla es esta: los números de afuera describen el problema, y la app se describe por lo que hace.
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}XX@{}}
+\toprule
+\textbf{Lo que sí se dice} & \textbf{Lo que nunca se dice}\\
+\midrule
+«Según la Policía Nacional, entre el 1 de enero y el 3 de mayo de 2026, Juliaca fue la segunda ciudad del país en muertos por accidentes de tránsito, con 96 fallecidos.» & «Esta app reduce los accidentes.» Nadie lo ha medido.\\
+«La app te dice cuándo no hace falta correr.» & «La app no distrae.» Cualquier pantalla en un vehículo distrae algo.\\
+«El mapa se guarda en el teléfono y no se vuelve a bajar.» & «La app funciona sin señal.» Sin señal, el mapa sigue ahí, pero la brecha se congela hasta que vuelve la señal.\\
+«Un turno gasta unos 40 MB de datos con 20 unidades en la ruta, y unos 98 MB con 50.» & Un ahorro exacto de datos o de dinero, porque depende de cada chofer.\\
+«Con la app Android bien configurada, la posición sigue llegando con la pantalla apagada.» & Que funciona igual en cualquier celular. Necesita la app Android con la ubicación permitida todo el tiempo y la batería sin restricciones, y en Xiaomi, Huawei y Oppo, también el inicio automático. El turno completo solo se ha medido en un Oppo.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Hay una limitación que tienes que decir siempre: un SOS o un mensaje no le suena al despacho si el panel no está abierto, y tampoco si en la cabecera del panel se ve la campana tachada, que se quita con un clic. Por eso el despacho tiene que trabajar con el panel abierto y con el sonido activado durante todo el turno.
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Lo que te van a preguntar}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}>{\itshape}p{4.6cm}X@{}}
+\toprule
+\normalfont\textbf{Te dicen} & \textbf{Respondes}\\
+\midrule
+«Me van a estar mirando todo el día.» & La app no manda tu posición hasta que deslizas «SALIR A RUTA». Si arrancas a manejar con la app abierta sin haber salido, te pregunta «¿YA ESTÁS MANEJANDO?» y al minuto sale a ruta sola, salvo que toques «No estoy manejando». Cuando paras a comer, tocas «AUSENTE» y nadie se mide contra ti. Si te olvidas de volver y arrancas, la app te devuelve a ruta; si pasas más de 2 horas en ausente, la app te saca de ruta, y si terminas el día en ausente y te vas manejando a tu casa, a los 20 minutos sale de ruta sola y deja de mandar tu ubicación.\\
+«Si me salgo de la ruta me van a sancionar.» & Si te sales del recorrido, la app no te dice nada mientras manejas. Al despacho solo le marca un desvío cuando te alejas del trazado más de 300 metros (unas tres cuadras, la medida de fábrica) y te mantienes así: esquivar un embotellamiento no es salirse de la ruta.\\
+«Esto es para que la empresa nos apure más.» & La brecha te dice cuándo no hace falta correr, que es la mayoría de las veces, y también cuándo de verdad vas atrasado. Hoy aceleras sin saber cuál de las dos es.\\
+«Me va a gastar los datos.» & Un turno gasta unos 40 MB con 20 unidades en la ruta y unos 98 MB con 50, y el mapa se guarda en el teléfono la primera vez. Si eres cobrador, recibes lo mismo que el chofer y gastas casi los mismos datos, pero tu celular no manda la posición.\\
+«¿Y si no tengo señal?» & La app abre con lo último que guardó y el mapa está en el teléfono. Lo que se congela es la brecha, hasta que vuelva la señal.\\
+«Otro sistema más que nos van a descontar.» & Lo que paga la empresa lo fija su contrato con Micros Tempo; si ese costo se les cobra a los choferes o a los socios, lo decide la empresa con sus socios. Del lado del chofer, lo que se agrega es su propio registro de horas y vueltas, que hoy no tiene en ninguna parte.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Datos personales y confidencialidad}
+
+La app mueve datos de cada chofer y de cada cobrador: dónde estuvo, cuántas horas trabajó y qué escribió en el chat. Esos datos son de cada persona, la empresa de transporte es la responsable de cuidarlos y Micros Tempo los guarda por encargo de ella. La Ley 29733 de Protección de Datos Personales obliga a cuidarlos, y la confianza de las empresas depende de que nadie del equipo los use para otra cosa.
+
+\begin{itemize}
+\item Nunca mires la ubicación, los mensajes o las horas de una persona por curiosidad o para un asunto personal. Solo se miran para resolver un problema que la empresa te pidió resolver.
+\item Nunca muestres los datos de una empresa a otra empresa. En las demostraciones se usa solo la empresa de prueba.
+\item Nunca compartas tu clave ni pidas la clave de un chofer. Si alguien olvida su clave, la cambia el despacho de su empresa.
+\item Si ves algo raro, como una persona que entra con la cuenta de otra o datos que no deberías ver, avísale a Gerson ese mismo día. El contrato de encargo, todavía en revisión del abogado, nos da 24 horas para avisarle a la empresa, y la ley le da 48 horas a la empresa para avisar a la Autoridad Nacional de Protección de Datos Personales, contadas desde que se supo del problema.
+\end{itemize}
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Cómo medimos el trabajo}
+
+Los viernes, cada vendedor actualiza el tablero del equipo con cuatro números de su semana. Los números no sirven para castigar a nadie: sirven para ver a tiempo dónde se traba una venta y ayudar antes de que se pierda el mes.
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{4.4cm}X@{}}
+\toprule
+Reuniones con gerencias & Cuántas empresas nuevas escucharon la presentación.\\
+Contratos firmados & Cuántas empresas firmaron los dos contratos.\\
+Unidades reportando & Cuántas unidades de tus rutas nuevas mandan su posición.\\
+Rutas en riesgo & Cuántas rutas tuyas tienen menos del 80\,\% de sus unidades reportando.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Una vez al mes, Gerson revisa con cada uno sus números frente a la meta. Si un vendedor no llega a su meta dos meses seguidos, se busca la causa con él antes de cambiar nada: el problema puede ser el argumento, la lista de empresas o un paso del proceso que no funciona.
+
+% ════════════════════════════════════════════════════════════════════════
+\section{La pausa de agosto a noviembre de 2027}
+
+El plan supone que Juliaca y Puno tienen unas 60 rutas, así que, cuando el equipo llegue a esa cifra, ya no quedará a quién venderle en esas dos ciudades. Desde agosto, el equipo deja de firmar rutas y se dedica cuatro meses a preparar la entrada a Arequipa o Cusco, que tienen muchas más rutas.
+
+\begin{itemize}
+\item \textbf{En agosto,} los vendedores le proponen a Gerson la ciudad grande, con la lista de empresas y sus rutas.
+\item \textbf{En septiembre y octubre,} el equipo consigue 30 reuniones con gerencias de la ciudad elegida.
+\item \textbf{En noviembre,} el equipo deja 10 contratos listos para firmar en diciembre.
+\item \textbf{Durante toda la pausa,} B y la asistente de oficina cuidan que las rutas de Juliaca y Puno sigan reportando y pagando a tiempo.
+\end{itemize}
+
+En la pausa se prepara el trabajo que decide cuánto crece la empresa en 2028.
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Tu primera semana}
+
+\begin{enumerate}[label=\textbf{Día \arabic*.}, leftmargin=40pt]
+\item Firma tu contrato de trabajo y lee este manual y el manual de usuario de Micros Tempo.
+\item Instala la app en tu celular, entra con una cuenta de prueba y recorre todas las pantallas del chofer.
+\item Pasa una mañana con el despacho de una ruta activa y mira cómo usa el panel.
+\item Acompaña a Gerson o a un vendedor a una reunión con una gerencia y a una instalación.
+\item Arma tu lista de 20 empresas para el mes, con su ruta, sus unidades y su gerente.
+\end{enumerate}
+
+Al terminar la semana tienes que poder explicar, sin leer, qué es la brecha, qué hace la app y qué no hace. Si no puedes, repite la presentación con Gerson hasta que salga natural.
+
+% ════════════════════════════════════════════════════════════════════════
+\section{Palabras que usamos}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{3.4cm}X@{}}
+\toprule
+Ruta & El recorrido de una empresa de transporte, con todas las unidades que lo hacen. Cobramos por ruta.\\
+Unidad & Cada combi o micro de la ruta. El plan calcula con rutas de 40.\\
+Brecha & Los minutos que separan a una unidad de la de adelante o de la de atrás. Es el número grande de la app.\\
+Pelotón & Varias unidades pegadas, que se reparten a los pasajeros y dejan paraderos vacíos detrás.\\
+Datero & La persona que anota en una esquina a qué hora pasa cada unidad y le vende el dato al chofer.\\
+Despacho & Quien controla la ruta desde el panel de la empresa y da el primer nivel de soporte.\\
+SALIR A RUTA & El botón que el chofer desliza para empezar el turno; desde ese momento su celular manda la posición.\\
+AUSENTE & El estado que marca el chofer cuando para a comer o a buscar un repuesto: nadie se mide contra él y la vuelta que llevaba se descarta.\\
+SOS & La alerta de emergencia que el chofer o el cobrador mandan deslizando el botón rojo de la app, sin buscar un número ni marcar.\\
+Consentimiento & El papel que firma cada chofer y cobrador para que la empresa trate sus datos.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\end{document}
