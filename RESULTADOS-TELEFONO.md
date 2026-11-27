@@ -427,6 +427,25 @@ parche deja «COOP-R14 parche activo» en el logcat para comprobarlo.
 
 ---
 
+## Con adb, 27/11 a las 08:33: la APK 0.3.3, el GPS ya no queda mudo
+
+Redmi 15C, la APK nueva instalada a las 08:33. En ruta, se quitan las
+notificaciones.
+
+| Hora | Qué pasó |
+|---|---|
+| 08:37:55 | Android mata la app (PermissionHelper), como siempre. |
+| 08:38:00 | Proceso nuevo. |
+| 08:39 a 08:50 | «[gps] tarea» sin cortes: 20 por minuto (una cada 3 s), 221 «Finished task», ningún «COOP-R14: sin TaskManager». Con la 0.3.2, en el mismo paso, dejaban de llegar a los 7 s del relanzamiento. |
+
+El logcat guardado empieza a las 08:38:58 (el teléfono descarta lo más
+viejo), así que no alcanza a mostrar «COOP-R14 parche activo», que se escribe
+en los primeros segundos después de abrir. Lo demuestra el comportamiento.
+Para verlo escrito: cerrar la app desde recientes, abrirla y correr en
+seguida `adb logcat -d | findstr COOP-R14`.
+
+---
+
 ## Hallazgos (pendientes de analizar)
 
 | # | Qué | Tipo | Dónde se vio |
@@ -557,9 +576,9 @@ Bloque 36 de CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
 - **H8 y H9:** la causa está vista con adb y es de `expo-task-manager`. La
   recarga del bloque 37 no sirvió e hizo daño; el bloque 38 la saca. El
   parche de la APK 0.3.2 (bloque 39) no llegó a compilarse: la 0.3.2 siguió
-  muda (27/11). La 0.3.3 (bloque 40) lo compila desde la fuente: falta
-  compilarla, instalarla y probarla con adb, empezando por
-  `adb logcat -d | findstr COOP-R14`.
+  muda (27/11). Con la 0.3.3 (bloque 40), compilado desde la fuente, el GPS
+  sigue dando posiciones después de quitar las notificaciones (adb, 27/11,
+  08:38 a 08:50). Falta: verlo en Despacho y con la pantalla apagada.
 - **H29:** con VER, el campo ahora sigue siendo de contraseña y lo escrito se
   muestra en una línea aparte (en la rama, sin publicar).
 - **H32** (el aviso de «otro dispositivo») y **H33** (la cadencia con la
