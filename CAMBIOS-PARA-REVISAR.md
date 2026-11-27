@@ -1604,6 +1604,48 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 39. APK 0.3.2: el parche a expo-task-manager (27/11)
+
+**Qué.** Los dos errores de `expo-task-manager` 14.0.9 que se vieron con adb
+(bloques 37 y 38), arreglados en el código nativo con patch-package. Es la
+última versión de ese paquete para el SDK 54, y la más nueva publicada (58)
+tiene el mismo código: actualizar no lo arreglaba.
+
+1. **El contexto de la aplicación** en `TaskService`: el servicio de tareas
+   es uno por proceso y guardaba el contexto del primer JavaScript. Al
+   recargar el JavaScript, ese contexto moría y cada `registerTask` reventaba
+   (el NullPointerException del Redmi).
+2. **La pantalla siempre en la tabla principal** (`setTaskManager`): con la
+   arquitectura nueva, la app «sin pantalla» que arranca Expo al relanzarse y
+   la de la pantalla son el mismo JavaScript. Anotada como «sin pantalla»,
+   Expo la borraba a los 2 s de los primeros eventos y ninguna posición
+   volvía a llegar (H8 y H9, cinco rondas). Un JavaScript de verdad sin
+   pantalla se borra solo en `onDestroy`.
+
+**Archivos.** `app/patches/expo-task-manager+14.0.9.patch`,
+`app/package.json` (`postinstall: patch-package` y la dependencia),
+`app/package-lock.json`, `app/app.json` (0.3.2), `app/nativo.json` (ahora
+con la huella de los parches) y `pruebas/actualizacion.js` (la foto de lo
+nativo incluye `app/patches`).
+
+**Qué mirar.**
+- Es nativo: hace falta `compilar-app.bat` e instalar la APK. Los arreglos de
+  `publicar-arreglo.bat` van a la versión de la APK (`runtimeVersion`), así
+  que los teléfonos con la 0.3.1 ya no reciben lo que se publique después.
+- El parche se aplicó con patch-package 8.0.1 sobre el paquete original y se
+  comprobó que entra limpio. Lo que no se pudo hacer acá es compilar Android:
+  la primera compilación en EAS lo confirma.
+- Si Expo publica una versión nueva de `expo-task-manager`, patch-package
+  avisa al instalar que el parche no corresponde.
+- Lo que sigue: probar con adb que, después de quitar las notificaciones,
+  el logcat sigue mostrando «[gps] tarea» y «Finished task».
+
+**Pruebas.** `actualizacion`: el parche está, cambia las dos líneas, se
+aplica al instalar y su huella forma parte de lo nativo (cambiarlo sin subir
+la versión frena `publicar-arreglo.bat`).
+
+---
+
 ## 38. Sin recargas: la del GPS mudo no sirve y rompe el GPS (27/11)
 
 **Qué.** La recarga del JavaScript del bloque 37, probada con adb el 26/11:

@@ -1,0 +1,36 @@
+diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
+index 2b6c2fa..9a3215e 100644
+--- a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
++++ b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
+@@ -70,7 +70,12 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+ 
+   public TaskService(Context context) {
+     super();
+-    mContextRef = new WeakReference<>(context);
++    // COOP-R14: el contexto de la aplicación, no el del primer JavaScript.
++    // TaskManagerPackage guarda UN TaskService por proceso; con el contexto de
++    // React acá, recargar el JavaScript (expo-updates) lo destruía y cada
++    // registerTask posterior reventaba en getSharedPreferences() (26/11).
++    Context appContext = context.getApplicationContext();
++    mContextRef = new WeakReference<>(appContext != null ? appContext : context);
+     mTasksAndEventsRepository = TasksAndEventsRepository.create(context);
+ 
+     if (!mTasksAndEventsRepository.tasksExist()) {
+@@ -238,8 +243,15 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+     // Determine in which table the task manager will be stored.
+     // Having two tables for them is to prevent race condition problems,
+     // when both foreground and background apps are launching at the same time.
+-    boolean isHeadless = isStartedByHeadlessLoader(appScopeKey);
+-    Map<String, WeakReference<TaskManagerInterface>> taskManagers = isHeadless ? sHeadlessTaskManagers : sTaskManagers;
++    // COOP-R14: con la arquitectura nueva, la app «sin pantalla» y la de la
++    // pantalla son el MISMO JavaScript (RNHeadlessAppLoader arranca el único
++    // ReactHost). Anotar el de la pantalla como «sin pantalla» dejaba que
++    // invalidateAppRecord() lo borrara a los dos segundos de los primeros
++    // eventos, y ninguna posición volvía a llegar al JavaScript hasta que el
++    // proceso muriera (visto con adb el 26/11). Siempre en la tabla principal:
++    // un JavaScript de verdad sin pantalla se borra solo en onDestroy.
++    boolean isHeadless = false;
++    Map<String, WeakReference<TaskManagerInterface>> taskManagers = sTaskManagers;
+ 
+     // Set task manager in appropriate map.
+     taskManagers.put(appScopeKey, new WeakReference<>(taskManager));

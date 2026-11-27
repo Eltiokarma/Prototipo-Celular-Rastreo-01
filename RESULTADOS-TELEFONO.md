@@ -536,8 +536,9 @@ Bloque 36 de CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
 ## Lo que falta
 
 - **H8 y H9:** la causa está vista con adb y es de `expo-task-manager`. La
-  recarga del bloque 37 no sirvió e hizo daño; el bloque 38 la saca. Falta el
-  parche nativo y una APK nueva (0.3.2).
+  recarga del bloque 37 no sirvió e hizo daño; el bloque 38 la saca. El
+  parche nativo está en la APK 0.3.2 (bloque 39): falta compilarla, instalarla
+  y probarla con adb.
 - **H29:** con VER, el campo ahora sigue siendo de contraseña y lo escrito se
   muestra en una línea aparte (en la rama, sin publicar).
 - **H32** (el aviso de «otro dispositivo») y **H33** (la cadencia con la
