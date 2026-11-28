@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Control de ruta",
+    "name": "Micros Tempo",
     "slug": "coop-r14",
     "version": "0.3.4",
     "runtimeVersion": {
@@ -45,8 +45,8 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#0A1A2E",
-          "image": "./assets/arranque-vacio.png",
-          "imageWidth": 200
+          "image": "./assets/arranque-reloj.png",
+          "imageWidth": 120
         }
       ],
       [
@@ -54,14 +54,14 @@
         {
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true,
-          "locationAlwaysAndWhenInUsePermission": "Control de ruta usa tu ubicación durante el turno, también con la pantalla apagada, para calcular la brecha con las otras combis de tu ruta."
+          "locationAlwaysAndWhenInUsePermission": "Micros Tempo usa tu ubicación durante el turno, también con la pantalla apagada, para calcular la brecha con las otras combis de tu ruta."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Control de ruta necesita acceso a tus fotos para que puedas mandar una que ya sacaste al chat de la ruta.",
-          "cameraPermission": "Control de ruta usa la cámara para que puedas mandarle una foto a Despacho: un desperfecto, un choque, un control."
+          "photosPermission": "Micros Tempo necesita acceso a tus fotos para que puedas mandar una que ya sacaste al chat de la ruta.",
+          "cameraPermission": "Micros Tempo usa la cámara para que puedas mandarle una foto a Despacho: un desperfecto, un choque, un control."
         }
       ]
     ],

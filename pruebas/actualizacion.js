@@ -47,6 +47,8 @@ const parchesNativos = () => {
 };
 const fotoNativa = () => ({
   version: appJson.version,
+  // El nombre bajo el ícono lo pone Android desde la APK (H4, 27/11)
+  nombre: appJson.name,
   dependencias: pkg.dependencies,
   parches: parchesNativos(),
   // Qué módulos se compilan desde la fuente y no se toman ya compilados

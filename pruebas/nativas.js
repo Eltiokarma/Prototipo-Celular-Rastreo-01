@@ -305,29 +305,26 @@ console.log('\nLA TANDA 4 DE LA REVISIÓN DEL 8/9, POR LECTURA');
   // ya en la nube de Expo y a los 6 minutos. Se le da una imagen TRANSPARENTE:
   // el recurso existe y la pantalla sigue siendo sólo el fondo.
   const splash = (config.expo.plugins || []).find(p => Array.isArray(p) && p[0] === 'expo-splash-screen');
-  ok('la pantalla nativa de arranque es sólo el fondo #0A1A2E',
-     !!splash && splash[1].backgroundColor === '#0A1A2E', splash && splash[1]);
-  ok('…y tiene `image` (sin ella el build de Android no encuentra splashscreen_logo)',
-     !!splash && typeof splash[1].image === 'string', splash && splash[1]);
-  // La imagen tiene que ser transparente entera, si no aparece el ícono que la
-  // cooperativa no quiso. Se lee el PNG a mano: sin filtros ni colores, con
-  // todo en cero, los datos descomprimidos son todos ceros.
-  const transparente = (() => {
-    try {
-      const png = fs.readFileSync(path.join(RAIZ, 'app', splash[1].image));
-      const tipoColor = png[25];
-      const idat = [];
-      for (let i = 8; i < png.length;) {
-        const largo = png.readUInt32BE(i), tipo = png.toString('ascii', i + 4, i + 8);
-        if (tipo === 'IDAT') idat.push(png.subarray(i + 8, i + 8 + largo));
-        i += 12 + largo;
-      }
-      const datos = require('zlib').inflateSync(Buffer.concat(idat));
-      return tipoColor === 6 && datos.length > 0 && datos.every(b => b === 0);
-    } catch { return false; }
-  })();
-  ok('…y esa imagen es transparente entera (la pantalla sigue sin ícono)', transparente);
-  ok('la presentación sigue con el nombre y «Control de ruta»', /MICROS TEMPO/.test(app) && /Control de ruta/.test(app));
+  // 27/11 (H1 y H3): Android ponía el ícono de la app sobre la nativa
+  // aunque la imagen fuera transparente. Ahora las dos llevan el logo de
+  // Micros Tempo, sobre el mismo azul: la nativa el reloj (Android 12 recorta
+  // su imagen en un círculo), la presentación el logotipo entero.
+  const { ARRANQUE } = require(RAIZ + '/app/tema.js');
+  ok('la pantalla nativa y la presentación tienen el mismo fondo (ARRANQUE.fondo)',
+     !!splash && splash[1].backgroundColor === ARRANQUE.fondo && /backgroundColor: ARRANQUE\.fondo, opacity: opacidad/.test(app), splash && splash[1]);
+  ok('…la nativa tiene `image` (sin ella el build de Android no encuentra splashscreen_logo), y es el reloj del logo',
+     !!splash && splash[1].image === './assets/arranque-reloj.png' && fs.existsSync(path.join(RAIZ, 'app', splash[1].image)), splash && splash[1]);
+  ok('…y no es ancha: Android 12 la recorta en un círculo (cuadrada, y chica)',
+     (() => { try { const png = fs.readFileSync(path.join(RAIZ, 'app', splash[1].image)); return png.readUInt32BE(16) === png.readUInt32BE(20) && splash[1].imageWidth <= 160; } catch { return false; } })());
+  const presentacion = (app.split('function Presentacion(')[1] || '').split('\nfunction ')[0];
+  ok('la presentación es sólo el logotipo (sin ícono, sin «Control de ruta», sin nombre en texto)',
+     /require\('\.\/assets\/logotipo-blanco\.png'\)/.test(presentacion) && !/icon\.png/.test(presentacion) && !/<Text/.test(presentacion)
+     && fs.existsSync(path.join(RAIZ, 'app/assets/logotipo-blanco.png')));
+  // H4: la app se llama Micros Tempo, también en lo que Android le muestra
+  // al chofer (permisos, notificación fija)
+  ok('la app se llama «Micros Tempo» (H4), también en los permisos y la notificación fija',
+     config.expo.name === 'Micros Tempo' && !/Control de ruta/.test(JSON.stringify(config.expo.plugins))
+     && /notificationTitle: 'Micros Tempo'/.test(servicio), config.expo.name);
   ok('otro APK más: versionCode 4 o más', config.expo.android.versionCode >= 4, config.expo.android.versionCode);
   ok('la tarea manda `simulado: true` cuando Android marca la posición como falsa', /l\.mocked === true \? \{ simulado: true \}/.test(servicio));
 

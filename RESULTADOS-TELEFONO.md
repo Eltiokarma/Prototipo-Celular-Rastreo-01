@@ -450,10 +450,10 @@ seguida `adb logcat -d | findstr COOP-R14`.
 
 | # | Qué | Tipo | Dónde se vio |
 |---|---|---|---|
-| H1 | La pantalla nativa de arranque muestra el **ícono de la app**, aunque la imagen del plugin es transparente. | Falla | Caso 0, los dos teléfonos |
+| H1 | La pantalla nativa de arranque muestra el **ícono de la app**, aunque la imagen del plugin es transparente. **En la APK 0.3.4** (bloque 43): falta verla en el teléfono. | Falla, **hecho en el código** | Caso 0, los dos teléfonos |
 | H2 | El arranque es **~25 % más lento** en el Redmi 15C que en el Poco X7. | Observación | Caso 0 |
-| H3 | En la presentación debe salir **solo el logo de Micros Tempo**. Hoy sale el ícono, «MICROS TEMPO» y «Control de ruta». | Pedido | Caso 0 |
-| H4 | El **nombre de la app** debe ser **Micros Tempo**, no «Control de ruta». | Pedido | Caso 0 |
+| H3 | En la presentación debe salir **solo el logo de Micros Tempo**. Hoy sale el ícono, «MICROS TEMPO» y «Control de ruta». **En la APK 0.3.4** (bloque 43): falta verla en el teléfono. | Pedido, **hecho en el código** | Caso 0 |
+| H4 | El **nombre de la app** debe ser **Micros Tempo**, no «Control de ruta». **En la APK 0.3.4** (bloque 43): falta verla en el teléfono. | Pedido, **hecho en el código** | Caso 0 |
 | H5 | Si un chofer entró a la app pero **no salió a ruta**, Despacho no puede escribirle. Si el chofer le escribe, Despacho abre ese mensaje, pero después **no puede volver a abrir la conversación**. Pasa en el chat de la ruta, en el de la combi y en el personal. | Falla | Durante el caso 0 |
 | H6 | Cuando el chofer se queda sin señal, el teléfono del cobrador podría **ofrecer usar su propia posición** para la combi. | Idea | Caso 1 |
 | H7 | En el Redmi, la primera vez que se quitaron las notificaciones con el chofer en ruta, **la app se cerró sola**. El probador sospecha la RAM. | Falla | Caso 2, Redmi |

@@ -1604,6 +1604,50 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 43. APK 0.3.4: se llama Micros Tempo y arranca con su logo (H1, H3 y H4) (28/11)
+
+**Qué.**
+- **H4:** la app se llama **Micros Tempo** (bajo el ícono, en los textos de
+  los permisos de Android y en el título de la notificación fija). El paquete
+  sigue siendo `com.microstempo.chofer`: se instala encima, sin perder nada.
+- **H1 y H3:** el arranque es una sola pantalla azul noche con el logo de
+  Micros Tempo, el del flyer, en blanco.
+  - La pantalla nativa (la de Android, antes de que corra la app) lleva el
+    **reloj** del logo. Android 12 recorta esa imagen en un círculo, así que
+    el logotipo entero, que es ancho, no entra. Antes era una imagen
+    transparente, pero Android ponía el ícono de la app igual (H1).
+  - La presentación (JavaScript) lleva el **logotipo entero**, «micr◷s
+    temp◷», y nada más: sin el ícono, sin «MICROS TEMPO» en texto, sin
+    «Control de ruta» ni la ruedita de carga.
+  - Las dos con el mismo fondo, de día y de noche: `ARRANQUE.fondo` en
+    `app/tema.js`, que la suite compara con el de `app.json`. Antes la
+    presentación iba con el fondo del tema, y de día saltaba de azul a
+    blanco.
+- Las imágenes salen de `herramientas/logo-app.js`, que dibuja el SVG del
+  flyer con la Poppins del flyer.
+
+**Archivos.** `app/app.json`, `app/assets/arranque-reloj.png`,
+`app/assets/logotipo-blanco.png` (y fuera `arranque-vacio.png`),
+`app/App.js` (la presentación), `app/tema.js` (`ARRANQUE`),
+`app/gps/servicio.js` (el título), `app/nativo.json`,
+`herramientas/logo-app.js` y su README, `pruebas/nativas.js` y
+`pruebas/actualizacion.js` (el nombre entra en la foto de lo nativo: antes
+cambiarlo sin subir la versión no frenaba la publicación).
+
+**Qué mirar.**
+- Cómo se ve en el teléfono, sobre todo la pantalla nativa: el tamaño del
+  reloj (`imageWidth: 120`) y si MIUI sigue poniendo algo encima.
+- La web del chofer (`project/Prototipo.html`) sigue diciendo «Control de
+  ruta»: no se tocó, el pedido era la app.
+- El manual habla de «Control de ruta» y tiene capturas de la presentación
+  vieja.
+
+**Pruebas.** `nativas`: mismo fondo en las dos, la nativa es el reloj y es
+cuadrada, la presentación es sólo el logotipo, y el nombre en `app.json`,
+los permisos y la notificación.
+
+---
+
 ## 42. APK 0.3.4: el GPS a 10 s con la pantalla apagada (H33) y la notificación fija después de un relanzamiento (H35) (27/11)
 
 **Qué.** Con la pantalla apagada la app pide leer el GPS cada 10 s en vez de

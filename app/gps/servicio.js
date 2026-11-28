@@ -997,7 +997,7 @@ function opcionesDeLectura(textoNotificacion, conServicio, intervalo = CADENCIA_
     pausesUpdatesAutomatically: false,
     ...(conServicio ? {
       foregroundService: {
-        notificationTitle: 'Control de ruta',
+        notificationTitle: 'Micros Tempo',
         notificationBody: textoNotificacion || 'Turno en curso',
         notificationColor: '#2580CF',
         killServiceOnDestroy: false,
