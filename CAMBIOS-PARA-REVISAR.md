@@ -1604,6 +1604,113 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
+## 43. APK 0.3.4: se llama Micros Tempo y arranca con su logo (H1, H3 y H4) (28/11)
+
+**Qué.**
+- **H4:** la app se llama **Micros Tempo** (bajo el ícono, en los textos de
+  los permisos de Android y en el título de la notificación fija). El paquete
+  sigue siendo `com.microstempo.chofer`: se instala encima, sin perder nada.
+- **H1 y H3:** el arranque es una sola pantalla azul noche con el logo de
+  Micros Tempo, el del flyer, en blanco.
+  - La pantalla nativa (la de Android, antes de que corra la app) lleva el
+    **reloj** del logo. Android 12 recorta esa imagen en un círculo, así que
+    el logotipo entero, que es ancho, no entra. Antes era una imagen
+    transparente, pero Android ponía el ícono de la app igual (H1).
+  - La presentación (JavaScript) lleva el **logotipo entero**, «micr◷s
+    temp◷», y nada más: sin el ícono, sin «MICROS TEMPO» en texto, sin
+    «Control de ruta» ni la ruedita de carga.
+  - Las dos con el mismo fondo, de día y de noche: `ARRANQUE.fondo` en
+    `app/tema.js`, que la suite compara con el de `app.json`. Antes la
+    presentación iba con el fondo del tema, y de día saltaba de azul a
+    blanco.
+- Las imágenes salen de `herramientas/logo-app.js`, que dibuja el SVG del
+  flyer con la Poppins del flyer.
+
+**Archivos.** `app/app.json`, `app/assets/arranque-reloj.png`,
+`app/assets/logotipo-blanco.png` (y fuera `arranque-vacio.png`),
+`app/App.js` (la presentación), `app/tema.js` (`ARRANQUE`),
+`app/gps/servicio.js` (el título), `app/nativo.json`,
+`herramientas/logo-app.js` y su README, `pruebas/nativas.js` y
+`pruebas/actualizacion.js` (el nombre entra en la foto de lo nativo: antes
+cambiarlo sin subir la versión no frenaba la publicación).
+
+**Qué mirar.**
+- Cómo se ve en el teléfono, sobre todo la pantalla nativa: el tamaño del
+  reloj (`imageWidth: 120`) y si MIUI sigue poniendo algo encima.
+- La web del chofer (`project/Prototipo.html`) sigue diciendo «Control de
+  ruta»: no se tocó, el pedido era la app.
+- El manual habla de «Control de ruta» y tiene capturas de la presentación
+  vieja.
+
+**Pruebas.** `nativas`: mismo fondo en las dos, la nativa es el reloj y es
+cuadrada, la presentación es sólo el logotipo, y el nombre en `app.json`,
+los permisos y la notificación.
+
+---
+
+## 42. APK 0.3.4: el GPS a 10 s con la pantalla apagada (H33) y la notificación fija después de un relanzamiento (H35) (27/11)
+
+**Qué.** Con la pantalla apagada la app pide leer el GPS cada 10 s en vez de
+cada 3 s. Nunca funcionó: al apagarse la pantalla la app ya está atrás, y
+expo-location rechaza cualquier `startLocationUpdatesAsync` con la
+notificación fija si la app está atrás (`LocationModule.kt`), también el que
+sólo cambia la cadencia de una tarea que YA corre. El GPS se quedaba a 3 s
+todo el turno con la pantalla apagada.
+
+El chequeo existe porque Android no deja *arrancar* un servicio en primer
+plano desde atrás. Cambiar opciones no arranca nada: `TaskService.registerTask`
+con la tarea existente sólo llama a `setOptions`, que vuelve a pedir las
+posiciones con el intervalo nuevo, y `maybeStartForegroundService` deja el
+servicio como estaba cuando la app está atrás.
+
+1. **Parche a expo-location 19.0.8** (`app/patches/expo-location+19.0.8.patch`):
+   el rechazo sigue para arrancar, pero no para una tarea que ya corre
+   (`taskHasConsumerOfClass`). Deja en el logcat «COOP-R14: opciones de
+   'coop-r14-gps' cambiadas con la app atrás (cada 10000 ms)».
+2. **expo-location desde la fuente** (`buildFromSource`): si no, la APK
+   lleva el ya compilado y el parche no llega (la lección del bloque 40).
+   Ningún otro módulo ya compilado depende de él.
+3. **App:** `diagnostico.cadencia` guarda la última cadencia aceptada, y el
+   logcat dice «[gps] cadencia 10000 ms» / «3000 ms».
+4. **H35, la notificación fija después de un relanzamiento.** Cuando
+   Android relanza la app (al quitarle un permiso), expo-task-manager
+   restaura la tarea del GPS antes de que exista el módulo de expo-location;
+   su marca «la app está adelante» todavía dice que no, y la tarea queda
+   SIN la notificación fija. La app veía «ya corre» y no la tocaba: al primer
+   Inicio, Android cortaba las posiciones (60 s en el Redmi, 27/11).
+   - El parche agrega `AppForegroundedSingleton.alFrente()`: si la marca
+     dice que no, le pregunta a Android (`getMyMemoryState`). Sólo
+     `IMPORTANCE_FOREGROUND` cuenta (una pantalla de la app adelante); con la
+     pantalla apagada o la app atrás, no, aunque el servicio corra. La usan
+     los dos chequeos de `startLocationUpdatesAsync` y el arranque de la
+     notificación en `LocationTaskConsumer`.
+   - `gps.arrancar`: si la tarea ya corre y este JavaScript no vio arrancar
+     la notificación fija, se la pide una vez (con el parche, eso sólo
+     actualiza las opciones). Al parar, la confirmación se olvida.
+
+**Archivos.** `app/patches/expo-location+19.0.8.patch`, `app/package.json`,
+`app/app.json` (0.3.4), `app/nativo.json`, `app/gps/servicio.js`,
+`pruebas/actualizacion.js` y `pruebas/nativas.js`.
+
+**Qué mirar.**
+- Es nativo: APK 0.3.4. Los teléfonos con la 0.3.3 no reciben lo que se
+  publique para la 0.3.4.
+- Acá no se compila Android ni Kotlin: la compilación en EAS es la primera
+  prueba. El parche entra limpio sobre el paquete original.
+- Cuánta batería ahorra no está medido. Leer cada 10 s en vez de 3 s
+  despierta menos el GPS, pero Android puede mantener el chip encendido
+  igual; el número sale de una prueba larga con la pantalla apagada.
+- La notificación fija no actualiza su texto con la app atrás (el servicio
+  no se toca): es lo mismo que antes.
+
+**Pruebas.** `actualizacion`: el parche está, cambia el chequeo, le pregunta
+a Android, deja el rastro, y expo-location se compila desde la fuente (lo
+exige la regla del bloque 40). `nativas`, con la fila real de `servicio.js`:
+la tarea restaurada recibe la notificación una vez, no dos, y la vuelve a
+pedir después de parar.
+
+---
+
 ## 41. Los permisos, al entrar a la app (27/11)
 
 **Qué.** La app pedía la ubicación recién al deslizar SALIR A RUTA, las

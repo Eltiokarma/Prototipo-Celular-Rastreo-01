@@ -172,6 +172,9 @@ export const diagnostico = {
   // El GPS corre SIN la notificación fija (ver `empezarLecturas`): da
   // posiciones con la app en pantalla, pero Android lo corta al apagarla.
   sinPrimerPlano: false,
+  // Cada cuántos ms lee el GPS, desde el último cambio que Android aceptó
+  // (3000 con la pantalla prendida, 10000 apagada), o null si no cambió nunca
+  cadencia: null,
   // La grabación de recorrido en curso ({puntos, largoM}) o null
   grabacion: null,
 };
@@ -939,9 +942,22 @@ export function arrancar(opciones = {}) {
   return enFila(() => (pedidosDeParar !== paradasAlPedir ? undefined : arrancarAhora(opciones)));
 }
 
+// ¿Este JavaScript ya vio arrancar el GPS CON la notificación fija? Cuando
+// Android relanza la app, expo-location restaura la tarea antes de que haya
+// JavaScript, y si en ese momento cree que la app está atrás la deja sin la
+// notificación: «ya corre», pero Android la corta al primer Inicio (H35, 60 s
+// sin posiciones en el Redmi). La primera vez que este JavaScript arranca,
+// se la pide aunque la tarea ya corra (con el parche de la 0.3.4 eso sólo
+// actualiza sus opciones: no rearranca nada).
+let notificacionConfirmada = false;
+
 async function arrancarAhora({ textoNotificacion = 'Turno en curso' } = {}) {
   hidratarGrabacionGuardada().catch(() => {});
   if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
+    if (!notificacionConfirmada) {
+      console.log('[gps] la tarea ya corría: se le pide la notificación fija');
+      await empezarLecturas(textoNotificacion);
+    }
     diagnostico.servicio = 'corriendo';
     return;
   }
@@ -981,7 +997,7 @@ function opcionesDeLectura(textoNotificacion, conServicio, intervalo = CADENCIA_
     pausesUpdatesAutomatically: false,
     ...(conServicio ? {
       foregroundService: {
-        notificationTitle: 'Control de ruta',
+        notificationTitle: 'Micros Tempo',
         notificationBody: textoNotificacion || 'Turno en curso',
         notificationColor: '#2580CF',
         killServiceOnDestroy: false,
@@ -1001,6 +1017,7 @@ function opcionesDeLectura(textoNotificacion, conServicio, intervalo = CADENCIA_
 async function empezarLecturas(textoNotificacion) {
   try {
     await Location.startLocationUpdatesAsync(TAREA_GPS, opcionesDeLectura(textoNotificacion, true));
+    notificacionConfirmada = true;
     // Volvió la notificación fija: el aviso de «anda sin ella» ya no vale
     if (diagnostico.sinPrimerPlano) diagnostico.errorServicio = null;
     diagnostico.sinPrimerPlano = false;
@@ -1057,12 +1074,16 @@ async function cambiarCadenciaAhora(ms, textoNotificacion) {
   if (diagnostico.sinPrimerPlano) return;
   try {
     await Location.startLocationUpdatesAsync(TAREA_GPS, opcionesDeLectura(textoNotificacion, true, ms));
+    diagnostico.cadencia = ms;
+    // Para adb: con la pantalla apagada tiene que decir 10000
+    console.log(`[gps] cadencia ${ms} ms`);
   } catch (e) {
-    // Al apagar la pantalla la app YA está atrás, y expo-location rechaza
-    // el cambio antes de tocar nada: el servicio sigue con la cadencia que
-    // tenía (3 s). Pasaba desde siempre, en silencio; no es una falla del
-    // GPS y no se anota como tal. Bajar a 10 s con la pantalla apagada queda
-    // pendiente de otro camino (CAMBIOS, bloque 36).
+    // Al apagar la pantalla la app YA está atrás, y expo-location rechazaba
+    // el cambio antes de tocar nada: el servicio seguía a 3 s, desde siempre
+    // y en silencio (H33). Desde la APK 0.3.4 un parche a expo-location deja
+    // cambiar las opciones de una tarea que ya corre (CAMBIOS, bloque 42).
+    // El rechazo puede seguir llegando de una APK anterior: no es una falla
+    // del GPS y no se anota como tal.
     if (!esRechazoAtras(e)) throw e;
   }
 }
@@ -1090,6 +1111,7 @@ function pararDesdeLaTarea(motivo, gen) {
   pedidosDeParar++;
   return enFila(async () => {
     if (gen !== undefined && gen !== generacion) return;
+    notificacionConfirmada = false;
     try {
       if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) await Location.stopLocationUpdatesAsync(TAREA_GPS);
     } catch {}
@@ -1098,6 +1120,7 @@ function pararDesdeLaTarea(motivo, gen) {
 }
 
 async function pararAhora() {
+  notificacionConfirmada = false;
   if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
     try { await Location.stopLocationUpdatesAsync(TAREA_GPS); }
     catch (e) {

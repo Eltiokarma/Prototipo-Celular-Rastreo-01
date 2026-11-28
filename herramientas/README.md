@@ -3,6 +3,19 @@
 Cosas que se corren a mano, para trabajar. **No son pruebas** —no verifican
 nada ni las corre `npm test`— y no forman parte de lo que se despliega.
 
+## `logo-app.js` — las imágenes de arranque de la app
+
+```bash
+node herramientas/logo-app.js . /tmp/logo
+```
+
+Dibuja el logo de Micros Tempo del flyer (`flyer/fuente/piezas`) con la
+Poppins de verdad y deja en la carpeta `arranque-reloj.png` (la pantalla
+nativa de Android: el reloj solo, porque Android 12 recorta esa imagen en un
+círculo), `logotipo-blanco.png` (la presentación) y `muestra.png`, para
+mirarlas antes de copiarlas a `app/assets/`. La pantalla nativa va adentro
+de la APK: cambiarla pide compilar.
+
 ## `flota.js` — veinte combis falsas manejando la ruta de verdad
 
 ```bash

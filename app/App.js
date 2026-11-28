@@ -39,7 +39,7 @@ import { aMensaje, hilo, sinLeer, conTipoSos, TIPOS_SOS } from './chat';
 import { margenes, margenBarra } from './margenes';
 import { esHorizontal, desplazamiento, indiceDestino, PANTALLAS, INICIAL } from './gestos';
 import * as mapa from './mapa';
-import { paletaMapa, paleta, esOscuro, siguienteModo, ETIQUETA } from './tema';
+import { paletaMapa, paleta, esOscuro, siguienteModo, ETIQUETA, ARRANQUE } from './tema';
 import { levantar } from './teclado';
 import { useAudioRecorder, useAudioPlayer, RecordingPresets,
          pedirPermisoMicrofono, aDataUrl, MAX_SEGUNDOS } from './voz';
@@ -195,11 +195,12 @@ function ConTema({ children }) {
 // se resolvió — con un mínimo para que no sea un destello — y recién entonces
 // se desvanece sobre lo que corresponda: la ruta o el ingreso.
 //
-// La nativa es SÓLO el fondo (app.json, sin `image`): con el ícono encima se
-// veían dos pantallas seguidas —un cuadrado azul con el logo, y después ésta,
-// con el nombre y «Control de ruta»—. La cooperativa eligió ésta (10/9). La
-// nativa no se puede quitar del todo (Android muestra algo antes de que
-// corra el JavaScript), así que se la deja lisa y el pase no se nota.
+// Las dos son UNA pantalla para el chofer: el mismo azul noche
+// (`ARRANQUE.fondo`, de día y de noche), y sólo el logo de Micros Tempo
+// (pruebas en teléfono, H1 y H3, 27/11). La nativa lleva el reloj del logo,
+// porque Android 12 recorta su imagen en un círculo y el logotipo entero no
+// entra; la presentación, el logotipo entero. Antes la nativa era sólo el
+// fondo (10/9), pero Android ponía el ícono de la app igual (H1).
 SplashScreen.preventAutoHideAsync().catch(() => {});
 // Cómo se llama en castellano lo que el servidor limita por minuto, para el
 // aviso de cupo. `gps` no aparece: ese cupo lo maneja el servicio de fondo y
@@ -214,7 +215,6 @@ const CUPO_ES = {
 const PRESENTACION_MIN_MS = 1200;
 
 function Presentacion({ mostrando }) {
-  const { s, C } = usarTema();
   const opacidad = React.useRef(new Animated.Value(1)).current;
   const [montada, setMontada] = React.useState(true);
   React.useEffect(() => {
@@ -230,14 +230,13 @@ function Presentacion({ mostrando }) {
       // liso, así el pase no se nota.
       onLayout={() => SplashScreen.hideAsync().catch(() => {})}
       style={[StyleSheet.absoluteFill, {
-        backgroundColor: C.fondo, opacity: opacidad,
+        backgroundColor: ARRANQUE.fondo, opacity: opacidad,
         alignItems: 'center', justifyContent: 'center',
       }]}>
-      <BarraDeEstado />
-      <Image source={require('./assets/icon.png')} style={{ width: 112, height: 112, borderRadius: 26 }} />
-      <Text style={[s.tituloChico, { marginTop: 24 }]}>MICROS TEMPO</Text>
-      <Text style={[s.subtitulo, { marginBottom: 0 }]}>Control de ruta</Text>
-      <ActivityIndicator color={C.cielo} style={{ marginTop: 28 }} />
+      <StatusBar style="light" />
+      {/* El logotipo del flyer en blanco (flyer/fuente/piezas), 933 × 210 */}
+      <Image source={require('./assets/logotipo-blanco.png')} accessibilityLabel="Micros Tempo"
+        style={{ width: 260, height: 59 }} resizeMode="contain" />
     </Animated.View>
   );
 }

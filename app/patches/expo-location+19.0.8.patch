@@ -1,0 +1,71 @@
+diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationHelpers.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationHelpers.kt
+index 62caaba..ebf1cde 100644
+--- a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationHelpers.kt
++++ b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationHelpers.kt
+@@ -1,5 +1,6 @@
+ package expo.modules.location
+ 
++import android.app.ActivityManager
+ import android.content.Context
+ import android.location.Location
+ import android.location.LocationManager
+@@ -198,4 +199,19 @@ class LocationHelpers {
+  */
+ object AppForegroundedSingleton {
+   var isForegrounded = false
++
++  // COOP-R14: la marca de arriba sólo se prende con el evento «la app vuelve
++  // al frente», y cuando Android relanza la app (al quitarle un permiso) la
++  // tarea se restaura ANTES de que el módulo exista: la marca queda en falso
++  // con el chofer mirando la pantalla, el GPS arranca sin la notificación
++  // fija y se corta al primer Inicio (RESULTADOS-TELEFONO, H35). Si la marca
++  // dice que no, se le pregunta a Android. Sólo cuenta IMPORTANCE_FOREGROUND
++  // (una pantalla de la app adelante): con la pantalla apagada o la app
++  // atrás no, aunque el servicio corra.
++  fun alFrente(): Boolean {
++    if (isForegrounded) return true
++    val info = ActivityManager.RunningAppProcessInfo()
++    ActivityManager.getMyMemoryState(info)
++    return info.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
++  }
+ }
+diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
+index 46e2ec5..aa5e22a 100644
+--- a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
++++ b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
+@@ -255,9 +255,20 @@ class LocationModule : Module(), LifecycleEventListener, SensorEventListener, Ac
+       if (!shouldUseForegroundService && isMissingBackgroundPermissions()) {
+         throw LocationBackgroundUnauthorizedException()
+       }
+-      if (!AppForegroundedSingleton.isForegrounded && options.foregroundService != null) {
++      // COOP-R14: Android no deja ARRANCAR un servicio en primer plano con la
++      // app atrás, y por eso este chequeo. Pero cambiarle las opciones a una
++      // tarea que YA corre (la cadencia de 3 a 10 s al apagar la pantalla) no
++      // arranca nada: TaskService.registerTask sólo llama a setOptions, y
++      // LocationTaskConsumer.maybeStartForegroundService deja el servicio como
++      // estaba si la app está atrás. Rechazarlo dejaba el GPS a 3 s con la
++      // pantalla apagada, siempre (RESULTADOS-TELEFONO, H33).
++      val yaCorre = mTaskManager.taskHasConsumerOfClass(taskName, LocationTaskConsumer::class.java)
++      if (!AppForegroundedSingleton.alFrente() && options.foregroundService != null && !yaCorre) {
+         throw ForegroundServiceStartNotAllowedException()
+       }
++      if (!AppForegroundedSingleton.alFrente() && yaCorre) {
++        Log.i("ExpoLocation", "COOP-R14: opciones de '" + taskName + "' cambiadas con la app atrás (cada " + options.timeInterval + " ms)")
++      }
+ 
+       if (!hasForegroundServicePermissions()) {
+         throw ForegroundServicePermissionsException()
+diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt
+index e659285..2a13db4 100644
+--- a/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt
++++ b/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt
+@@ -165,7 +165,8 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+       return
+     }
+-    if (!AppForegroundedSingleton.isForegrounded) {
++    // COOP-R14: la marca, o Android si la marca no se enteró (H35)
++    if (!AppForegroundedSingleton.alFrente()) {
+       Log.w(TAG, "Foreground location task cannot be started while the app is in the background!")
+       return
+     }

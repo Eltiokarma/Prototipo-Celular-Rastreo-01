@@ -450,10 +450,10 @@ seguida `adb logcat -d | findstr COOP-R14`.
 
 | # | Qué | Tipo | Dónde se vio |
 |---|---|---|---|
-| H1 | La pantalla nativa de arranque muestra el **ícono de la app**, aunque la imagen del plugin es transparente. | Falla | Caso 0, los dos teléfonos |
+| H1 | La pantalla nativa de arranque muestra el **ícono de la app**, aunque la imagen del plugin es transparente. **En la APK 0.3.4** (bloque 43): falta verla en el teléfono. | Falla, **hecho en el código** | Caso 0, los dos teléfonos |
 | H2 | El arranque es **~25 % más lento** en el Redmi 15C que en el Poco X7. | Observación | Caso 0 |
-| H3 | En la presentación debe salir **solo el logo de Micros Tempo**. Hoy sale el ícono, «MICROS TEMPO» y «Control de ruta». | Pedido | Caso 0 |
-| H4 | El **nombre de la app** debe ser **Micros Tempo**, no «Control de ruta». | Pedido | Caso 0 |
+| H3 | En la presentación debe salir **solo el logo de Micros Tempo**. Hoy sale el ícono, «MICROS TEMPO» y «Control de ruta». **En la APK 0.3.4** (bloque 43): falta verla en el teléfono. | Pedido, **hecho en el código** | Caso 0 |
+| H4 | El **nombre de la app** debe ser **Micros Tempo**, no «Control de ruta». **En la APK 0.3.4** (bloque 43): falta verla en el teléfono. | Pedido, **hecho en el código** | Caso 0 |
 | H5 | Si un chofer entró a la app pero **no salió a ruta**, Despacho no puede escribirle. Si el chofer le escribe, Despacho abre ese mensaje, pero después **no puede volver a abrir la conversación**. Pasa en el chat de la ruta, en el de la combi y en el personal. | Falla | Durante el caso 0 |
 | H6 | Cuando el chofer se queda sin señal, el teléfono del cobrador podría **ofrecer usar su propia posición** para la combi. | Idea | Caso 1 |
 | H7 | En el Redmi, la primera vez que se quitaron las notificaciones con el chofer en ruta, **la app se cerró sola**. El probador sospecha la RAM. | Falla | Caso 2, Redmi |
@@ -476,9 +476,9 @@ seguida `adb logcat -d | findstr COOP-R14`.
 | H30 | Una imagen animada en la puerta para salir a ruta, como «picar el reloj del poste». El botón actual se ve muy plano. | Pedido de diseño | Ronda 4, paso 7.1 |
 | H31 | El **Cerrar** de Perfil tiene que responder al toque como Perfil y Salir. | Pedido | Ronda 4, paso 7.3 |
 | H32 | Con T2 fuera de la cuenta, T1 recibió «Tu sesión siguió en otro dispositivo o pestaña»: el servidor vio otro socket del mismo chofer. La app ya silencia su socket viejo al abrir uno nuevo, así que la causa no está clara. | Falla, causa por confirmar | Ronda 4, paso 2.8 |
-| H33 | Bajar la cadencia del GPS a 10 s al apagar la pantalla **nunca funcionó**: expo-location rechaza el cambio porque la app ya está atrás, y el error se tragaba en silencio. El GPS sigue a 3 s con la pantalla apagada, que gasta más batería. | Falla (batería) | Descubierto leyendo expo-location, ronda 4 |
-| H34 | La app no pedía los permisos al entrar: ubicación, notificaciones y batería salían recién al deslizar SALIR A RUTA (en el Poco, los tres de golpe al arrancar; en el Redmi el probador fue a Ajustes a mano antes). El probador prefiere que se pidan apenas se entra, como en la mayoría de las apps. **Hecho el 27/11** (bloque 41). | Pedido, **hecho en el código** | APK 0.3.3, 27/11 |
-| H35 | En el Redmi, Despacho lo mostró SIN SEÑAL un rato a las 08:41. El logcat: después de que Android relanzó la app (al quitar las notificaciones), el GPS andaba **sin la notificación fija** (bloque 36); el probador tocó Inicio a las 08:40:42 y Android cortó las posiciones 60 s, hasta que volvió a la app a las 08:41:40. Al volver, la app arrancó la notificación fija y el GPS siguió en segundo plano sin cortes hasta las 08:50. Es lo que el aviso «Toca el botón de inicio de Android y vuelve a abrir la app» resuelve. Coincidió con la desinstalación del Poco, pero no tiene que ver. | Observación (comportamiento conocido) | APK 0.3.3, 27/11 |
+| H33 | Bajar la cadencia del GPS a 10 s al apagar la pantalla **nunca funcionó**: expo-location rechaza el cambio porque la app ya está atrás, y el error se tragaba en silencio. El GPS sigue a 3 s con la pantalla apagada, que gasta más batería. **Arreglado el 27/11 en la APK 0.3.4** (bloque 42, parche a expo-location): falta comprobarlo con adb. | Falla (batería), **arreglada en el código** | Descubierto leyendo expo-location, ronda 4 |
+| H34 | La app no pedía los permisos al entrar: ubicación, notificaciones y batería salían recién al deslizar SALIR A RUTA (en el Poco, los tres de golpe al arrancar; en el Redmi el probador fue a Ajustes a mano antes). El probador prefiere que se pidan apenas se entra, como en la mayoría de las apps. **Hecho el 27/11** (bloque 41) y **comprobado en el teléfono** el mismo día: con la app recién instalada y el arreglo aplicado, al entrar pidió ubicación, notificaciones y batería. Ojo: una APK recién instalada arranca con lo que trae adentro; el arreglo publicado recién vale después de bajarlo (un minuto en el ingreso) y de cerrar y abrir la app. | Pedido, **arreglado y comprobado** | APK 0.3.3, 27/11 |
+| H35 | En el Redmi, Despacho lo mostró SIN SEÑAL un rato a las 08:41. El logcat: después de que Android relanzó la app (al quitar las notificaciones), el GPS andaba **sin la notificación fija** (bloque 36); el probador tocó Inicio a las 08:40:42 y Android cortó las posiciones 60 s, hasta que volvió a la app a las 08:41:40. Al volver, la app arrancó la notificación fija y el GPS siguió en segundo plano sin cortes hasta las 08:50. Es lo que el aviso «Toca el botón de inicio de Android y vuelve a abrir la app» resuelve. Coincidió con la desinstalación del Poco, pero no tiene que ver. **Causa y arreglo en la APK 0.3.4** (bloque 42): la tarea restaurada al relanzar corría sin la notificación fija porque expo-location creía que la app estaba atrás; ahora le pregunta a Android, y la app pide la notificación aunque la tarea ya corra. | Falla, **arreglada en el código** | APK 0.3.3, 27/11 |
 | H36 | Al desinstalar la app del Poco con el chofer en ruta, Despacho siguió mostrando su combi SIN SEÑAL hasta que la app nueva entró. Es a propósito: el servidor no distingue un teléfono desinstalado de una combi en una zona sin señal, y esa combi no se le puede perder a Despacho. Se retira al salir de ruta, cerrar sesión o entrar de nuevo. | Observación (así está diseñado) | APK 0.3.3, 27/11 |
 | H28 | El mismo chofer con **dos sesiones abiertas** (H15) también hace que cerrar sesión no baje su combi: el servidor no la toca mientras quede otra sesión, por si el otro teléfono es el que maneja. En la ronda 3 eso hizo fallar el 3.3 y el 3.4. | Observación | Ronda 3, pasos 3.3 y 3.4 |
 | H19 | Cuando la sesión se cierra desde otro teléfono, el aviso del ingreso no es «Tu sesión ya no vale: entra de nuevo». Sale **«Sesión inválida o expirada»** con la app cerrada y **«Sesión cerrada»** con la app en ruta. Son los textos que manda el servidor; el de la app solo sale por otro camino. Funciona, pero el chofer lee tres textos distintos para lo mismo. | Observación | Ronda 2, pasos 5.8 y 5.12 |
@@ -584,8 +584,10 @@ Bloque 36 de CAMBIOS-PARA-REVISAR.md. Es JavaScript de la app: llega con
   08:38 a 08:50). Falta: verlo en Despacho y con la pantalla apagada.
 - **H29:** con VER, el campo ahora sigue siendo de contraseña y lo escrito se
   muestra en una línea aparte (en la rama, sin publicar).
-- **H32** (el aviso de «otro dispositivo») y **H33** (la cadencia con la
-  pantalla apagada).
+- **H32** (el aviso de «otro dispositivo»).
+- **H33** (la cadencia con la pantalla apagada): arreglado en la APK 0.3.4
+  (bloque 42). Falta compilarla y ver con adb «[gps] cadencia 10000 ms» al
+  apagar la pantalla.
 - **H30** (la imagen animada de la puerta): pedido de diseño, para decidir.
 - **Despacho:** `paneles` falla en `main` desde el #83 (C3, texto bajo 12 px,
   y N4, borrar un tramo).

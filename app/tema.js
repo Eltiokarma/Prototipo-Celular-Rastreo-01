@@ -129,7 +129,13 @@ function siguienteModo(modo) {
 
 const ETIQUETA = { auto: 'AUTO', dia: 'DÍA', noche: 'NOCHE' };
 
+// El arranque: la pantalla nativa de Android (app.json, expo-splash-screen) y
+// la presentación que la sigue van con el MISMO fondo, de día y de noche,
+// para que se vean como una sola pantalla. Si cambia uno, cambia el otro
+// (la suite `nativas` los compara).
+const ARRANQUE = { fondo: '#0A1A2E' };
+
 module.exports = {
-  paleta, paletaMapa, esDeNoche, esOscuro, siguienteModo, MODOS, ETIQUETA, PALETAS, MAPA_DIA,
+  paleta, paletaMapa, esDeNoche, esOscuro, siguienteModo, MODOS, ETIQUETA, PALETAS, MAPA_DIA, ARRANQUE,
   _limites: { NOCHE_DESDE, NOCHE_HASTA },
 };
