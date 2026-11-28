@@ -164,8 +164,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
      !!parcheUbicacion && /"expo-location": "~19\.0\.8"/.test(JSON.stringify(pkg.dependencies, null, 1)));
   ok('y deja cambiar las opciones de una tarea que ya corre con la app atrás (arrancar una nueva sigue prohibido)',
      /\+\s*val yaCorre = mTaskManager\.taskHasConsumerOfClass\(taskName, LocationTaskConsumer::class\.java\)/.test(parcheUbicacion)
-     && /\+\s*if \(!AppForegroundedSingleton\.isForegrounded && options\.foregroundService != null && !yaCorre\) \{/.test(parcheUbicacion)
+     && /\+\s*if \(!AppForegroundedSingleton\.alFrente\(\) && options\.foregroundService != null && !yaCorre\) \{/.test(parcheUbicacion)
      && /\+\s*Log\.i\("ExpoLocation", "COOP-R14: opciones de/.test(parcheUbicacion));
+  // H35: al relanzar la app, la marca de expo-location queda en «atrás» y
+  // la tarea restaurada corre sin la notificación fija
+  ok('y si su marca dice «atrás», le pregunta a Android (sólo IMPORTANCE_FOREGROUND cuenta como adelante)',
+     /\+\s*fun alFrente\(\): Boolean \{/.test(parcheUbicacion)
+     && /\+\s*return info\.importance == ActivityManager\.RunningAppProcessInfo\.IMPORTANCE_FOREGROUND/.test(parcheUbicacion)
+     && /\+\s*if \(!AppForegroundedSingleton\.alFrente\(\)\) \{\n\s*Log\.w\(TAG, "Foreground location task cannot be started/.test(parcheUbicacion)
+     && /\+\s*if \(!AppForegroundedSingleton\.alFrente\(\) && options\.foregroundService != null && !yaCorre\) \{/.test(parcheUbicacion));
   ok('el parche deja un rastro en el logcat («COOP-R14 parche activo») para comprobar con adb que la APK lo trae',
      /\+\s*Log\.i\(TAG, "COOP-R14 parche activo/.test(parche));
   ok('la etiqueta va en la entrada y en cada envío del GPS',

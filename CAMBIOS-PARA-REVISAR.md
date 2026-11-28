@@ -1604,7 +1604,7 @@ las del chat privado, `puerta-web`, `sos-sin-red`, `correccion-horas`,
 
 ---
 
-## 42. APK 0.3.4: el GPS baja a 10 s con la pantalla apagada (H33) (27/11)
+## 42. APK 0.3.4: el GPS a 10 s con la pantalla apagada (H33) y la notificación fija después de un relanzamiento (H35) (27/11)
 
 **Qué.** Con la pantalla apagada la app pide leer el GPS cada 10 s en vez de
 cada 3 s. Nunca funcionó: al apagarse la pantalla la app ya está atrás, y
@@ -1628,10 +1628,25 @@ servicio como estaba cuando la app está atrás.
    Ningún otro módulo ya compilado depende de él.
 3. **App:** `diagnostico.cadencia` guarda la última cadencia aceptada, y el
    logcat dice «[gps] cadencia 10000 ms» / «3000 ms».
+4. **H35, la notificación fija después de un relanzamiento.** Cuando
+   Android relanza la app (al quitarle un permiso), expo-task-manager
+   restaura la tarea del GPS antes de que exista el módulo de expo-location;
+   su marca «la app está adelante» todavía dice que no, y la tarea queda
+   SIN la notificación fija. La app veía «ya corre» y no la tocaba: al primer
+   Inicio, Android cortaba las posiciones (60 s en el Redmi, 27/11).
+   - El parche agrega `AppForegroundedSingleton.alFrente()`: si la marca
+     dice que no, le pregunta a Android (`getMyMemoryState`). Sólo
+     `IMPORTANCE_FOREGROUND` cuenta (una pantalla de la app adelante); con la
+     pantalla apagada o la app atrás, no, aunque el servicio corra. La usan
+     los dos chequeos de `startLocationUpdatesAsync` y el arranque de la
+     notificación en `LocationTaskConsumer`.
+   - `gps.arrancar`: si la tarea ya corre y este JavaScript no vio arrancar
+     la notificación fija, se la pide una vez (con el parche, eso sólo
+     actualiza las opciones). Al parar, la confirmación se olvida.
 
 **Archivos.** `app/patches/expo-location+19.0.8.patch`, `app/package.json`,
-`app/app.json` (0.3.4), `app/nativo.json`, `app/gps/servicio.js` y
-`pruebas/actualizacion.js`.
+`app/app.json` (0.3.4), `app/nativo.json`, `app/gps/servicio.js`,
+`pruebas/actualizacion.js` y `pruebas/nativas.js`.
 
 **Qué mirar.**
 - Es nativo: APK 0.3.4. Los teléfonos con la 0.3.3 no reciben lo que se
@@ -1644,9 +1659,11 @@ servicio como estaba cuando la app está atrás.
 - La notificación fija no actualiza su texto con la app atrás (el servicio
   no se toca): es lo mismo que antes.
 
-**Pruebas.** `actualizacion`: el parche está, cambia el chequeo y deja el
-rastro, y expo-location se compila desde la fuente (lo exige la regla del
-bloque 40).
+**Pruebas.** `actualizacion`: el parche está, cambia el chequeo, le pregunta
+a Android, deja el rastro, y expo-location se compila desde la fuente (lo
+exige la regla del bloque 40). `nativas`, con la fila real de `servicio.js`:
+la tarea restaurada recibe la notificación una vez, no dos, y la vuelve a
+pedir después de parar.
 
 ---
 

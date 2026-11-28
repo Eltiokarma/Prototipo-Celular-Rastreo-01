@@ -942,9 +942,22 @@ export function arrancar(opciones = {}) {
   return enFila(() => (pedidosDeParar !== paradasAlPedir ? undefined : arrancarAhora(opciones)));
 }
 
+// ¿Este JavaScript ya vio arrancar el GPS CON la notificación fija? Cuando
+// Android relanza la app, expo-location restaura la tarea antes de que haya
+// JavaScript, y si en ese momento cree que la app está atrás la deja sin la
+// notificación: «ya corre», pero Android la corta al primer Inicio (H35, 60 s
+// sin posiciones en el Redmi). La primera vez que este JavaScript arranca,
+// se la pide aunque la tarea ya corra (con el parche de la 0.3.4 eso sólo
+// actualiza sus opciones: no rearranca nada).
+let notificacionConfirmada = false;
+
 async function arrancarAhora({ textoNotificacion = 'Turno en curso' } = {}) {
   hidratarGrabacionGuardada().catch(() => {});
   if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
+    if (!notificacionConfirmada) {
+      console.log('[gps] la tarea ya corría: se le pide la notificación fija');
+      await empezarLecturas(textoNotificacion);
+    }
     diagnostico.servicio = 'corriendo';
     return;
   }
@@ -1004,6 +1017,7 @@ function opcionesDeLectura(textoNotificacion, conServicio, intervalo = CADENCIA_
 async function empezarLecturas(textoNotificacion) {
   try {
     await Location.startLocationUpdatesAsync(TAREA_GPS, opcionesDeLectura(textoNotificacion, true));
+    notificacionConfirmada = true;
     // Volvió la notificación fija: el aviso de «anda sin ella» ya no vale
     if (diagnostico.sinPrimerPlano) diagnostico.errorServicio = null;
     diagnostico.sinPrimerPlano = false;
@@ -1097,6 +1111,7 @@ function pararDesdeLaTarea(motivo, gen) {
   pedidosDeParar++;
   return enFila(async () => {
     if (gen !== undefined && gen !== generacion) return;
+    notificacionConfirmada = false;
     try {
       if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) await Location.stopLocationUpdatesAsync(TAREA_GPS);
     } catch {}
@@ -1105,6 +1120,7 @@ function pararDesdeLaTarea(motivo, gen) {
 }
 
 async function pararAhora() {
+  notificacionConfirmada = false;
   if (await Location.hasStartedLocationUpdatesAsync(TAREA_GPS)) {
     try { await Location.stopLocationUpdatesAsync(TAREA_GPS); }
     catch (e) {

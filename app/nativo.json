@@ -23,7 +23,7 @@
     "react-native-webview": "13.15.0"
   },
   "parches": {
-    "expo-location+19.0.8.patch": "9d3df425783c0f5f",
+    "expo-location+19.0.8.patch": "87b5f66758593d36",
     "expo-task-manager+14.0.9.patch": "3a49bea40df0d847"
   },
   "autolinking": {

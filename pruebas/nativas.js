@@ -875,11 +875,24 @@ const pruebaFilaGps = (async () => {
   // Ronda 3 en teléfono (H8 y H9): «corriendo» con nada enviado
   { const { arrancar, rearrancar, r, diagnostico, vaciar } = armar();
     r.corriendo = true;                       // Android dice que corre (el registro), pero no da nada
+    // H35 (27/11): la tarea que Android restauró al relanzar la app puede
+    // correr SIN la notificación fija. La primera vez, arrancar se la pide;
+    // después, con la notificación confirmada, ya no toca nada.
     const a = arrancar(); await vaciar(); await a;
-    ok('arrancar con Android diciendo «ya corre» no hace nada (por eso no alcanzaba)', !r.log.includes('start'), r.log);
+    ok('arrancar con Android diciendo «ya corre»: la primera vez pide la notificación fija (H35)', r.log.join(',') === 'start', r.log);
+    const a2 = arrancar(); await vaciar(); await a2;
+    ok('y con la notificación ya confirmada no hace nada (por eso no alcanzaba para H8 y H9)', r.log.join(',') === 'start', r.log);
+    r.log.length = 0;
     const re = rearrancar({ textoNotificacion: 'x' }); await vaciar(); await re;
     ok('rearrancar A LA FUERZA para y arranca aunque Android diga que corre',
        r.log.join(',') === 'stop,start' && diagnostico.servicio === 'corriendo' && diagnostico.rearranques === 1, { log: r.log, diag: diagnostico }); }
+  { const { arrancar, parar, r, vaciar } = armar();
+    r.corriendo = true;
+    const a = arrancar(); await vaciar(); await a;      // pide la notificación
+    const p = parar(); await vaciar(); await p;
+    r.corriendo = true; r.log.length = 0;               // otra salida, con la tarea restaurada otra vez
+    const a2 = arrancar(); await vaciar(); await a2;
+    ok('después de parar, la confirmación se olvida: la próxima tarea restaurada la vuelve a pedir', r.log.join(',') === 'start', r.log); }
   { const { rearrancar, parar, r, vaciar } = armar();
     r.corriendo = true;
     const re = rearrancar({}); const p = parar();       // rearrancar y enseguida salir de ruta
